@@ -1,19 +1,13 @@
 interface CurrencyDisplayProps {
   value: number;
-  className?: string;
-  showSign?: boolean; // 显示 +/-
+  color?: string;
   size?: 'sm' | 'md' | 'lg' | 'xl';
 }
 
-const sizeClass: Record<NonNullable<CurrencyDisplayProps['size']>, string> = {
-  sm: 'text-sm',
-  md: 'text-base',
-  lg: 'text-lg',
-  xl: 'text-3xl',
-};
+const sizeMap = { sm: 12, md: 14, lg: 18, xl: 28 };
 
 export function formatCurrency(value: number): string {
-  return value.toLocaleString('zh-CN', {
+  return Math.abs(value).toLocaleString('zh-CN', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -21,15 +15,20 @@ export function formatCurrency(value: number): string {
 
 export default function CurrencyDisplay({
   value,
-  className = '',
-  showSign = false,
+  color,
   size = 'md',
 }: CurrencyDisplayProps) {
-  const formatted = formatCurrency(Math.abs(value));
-  const sign = value < 0 ? '-' : showSign ? '+' : '';
+  const sign = value < 0 ? '-' : '';
   return (
-    <span className={`tabular-nums ${sizeClass[size]} ${className}`}>
-      {sign}¥{formatted}
+    <span
+      style={{
+        fontVariantNumeric: 'tabular-nums',
+        fontSize: sizeMap[size],
+        color: color || 'inherit',
+        fontWeight: size === 'xl' ? 700 : 500,
+      }}
+    >
+      {sign}¥{formatCurrency(value)}
     </span>
   );
 }

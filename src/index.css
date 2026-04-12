@@ -2,19 +2,33 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --color-primary: #1a73e8;
+  --color-bg: #f0f2f5;
+  --color-card: #ffffff;
+  --color-text: #202124;
+  --color-text-sub: #5f6368;
+  --color-border: #e0e0e0;
+  --color-life: #1a73e8;
+  --color-consume: #7c3aed;
+  --color-expense: #0d9488;
+  --color-income: #ea4335;
+}
+
 html, body, #root {
   height: 100%;
+  margin: 0;
+  padding: 0;
 }
 
 body {
   font-family: 'Noto Sans SC', 'Google Sans', Roboto, -apple-system,
     BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
-  color: #202124;
-  background-color: #f8f9fa;
+  color: var(--color-text);
+  background-color: var(--color-bg);
 }
 
-/* 去掉 iOS 默认输入框高亮 */
 input, button, textarea, select {
   font: inherit;
   color: inherit;
@@ -26,3 +40,8 @@ input[type='number']::-webkit-inner-spin-button {
   margin: 0;
 }
 input[type='number'] { -moz-appearance: textfield; }
+
+/* 滚动条美化 */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }

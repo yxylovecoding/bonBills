@@ -3,8 +3,20 @@ import Nav from './Nav';
 
 export default function Layout() {
   return (
-    <div className="min-h-screen bg-gbg text-gtext">
-      <div className="mx-auto max-w-app min-h-screen pb-24 px-4 pt-5">
+    <div
+      style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', color: '#202124' }}
+    >
+      <div
+        style={{
+          maxWidth: 480,
+          margin: '0 auto',
+          minHeight: '100vh',
+          paddingBottom: 80,
+          paddingLeft: 16,
+          paddingRight: 16,
+          paddingTop: 20,
+        }}
+      >
         <Outlet />
       </div>
       <Nav />

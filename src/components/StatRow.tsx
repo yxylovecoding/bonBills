@@ -4,24 +4,24 @@ interface StatRowProps {
   label: ReactNode;
   value: ReactNode;
   indent?: boolean;
-  labelClass?: string;
-  valueClass?: string;
 }
 
-export default function StatRow({
-  label,
-  value,
-  indent = false,
-  labelClass = '',
-  valueClass = '',
-}: StatRowProps) {
+export default function StatRow({ label, value, indent = false }: StatRowProps) {
   return (
     <div
-      className={`flex items-center justify-between py-1.5 text-sm
-                  ${indent ? 'pl-4' : ''}`}
+      style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '7px 0',
+        paddingLeft: indent ? 16 : 0,
+        fontSize: 14,
+      }}
     >
-      <span className={`text-gsub ${labelClass}`}>{label}</span>
-      <span className={`font-medium tabular-nums ${valueClass}`}>{value}</span>
+      <span style={{ color: '#5f6368' }}>{label}</span>
+      <span style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
+        {value}
+      </span>
     </div>
   );
 }
