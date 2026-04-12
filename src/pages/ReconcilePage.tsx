@@ -3,7 +3,6 @@ import Card from '../components/Card';
 import StatRow from '../components/StatRow';
 import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
 
-// MVP 占位输入组件 - 淡黄色输入框
 function InputField({
   label,
   value,
@@ -18,24 +17,25 @@ function InputField({
   prefix?: string;
 }) {
   return (
-    <label className="block mb-2">
-      <div className="text-xs text-white/50 mb-1">{label}</div>
-      <div className="flex items-center bg-amber-400/10 border border-amber-300/30 rounded-lg px-3 py-2">
-        <span className="text-amber-300/70 text-sm mr-1">{prefix}</span>
+    <label className="block mb-3">
+      <div className="text-xs text-gsub mb-1 font-medium">{label}</div>
+      <div className="flex items-center border border-gborder rounded-lg px-3 py-2.5
+                      focus-within:border-gblue focus-within:ring-1 focus-within:ring-gblue/30
+                      transition-all bg-white">
+        <span className="text-gsub text-sm mr-1">{prefix}</span>
         <input
           type="number"
           inputMode="decimal"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="flex-1 bg-transparent outline-none text-amber-100 text-sm tabular-nums"
+          className="flex-1 bg-transparent outline-none text-gtext text-sm tabular-nums"
         />
       </div>
     </label>
   );
 }
 
-// 硬编码的预算结果 (等接入 calculateBudget 后替换)
 const mockBudget = {
   daysLeft: 19,
   schoolDaysLeft: 15,
@@ -67,13 +67,11 @@ const TRANSFER_ROWS: TransferRow[] = [
 ];
 
 export default function ReconcilePage() {
-  // Step 1: 账户余额录入
   const [credit, setCredit] = useState('2005.72');
   const [campusCard, setCampusCard] = useState('180.50');
   const [livingBank, setLivingBank] = useState('1246.30');
   const [consumptionBank, setConsumptionBank] = useState('892.15');
 
-  // Step 3: 已转金额
   const [done, setDone] = useState<Record<string, string>>({
     campusCard: '200',
     living: '500',
@@ -84,49 +82,39 @@ export default function ReconcilePage() {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold mb-1">对账 / 转账</h1>
-      <p className="text-xs text-white/40 mb-4">今天 2026-04-11，对账模式：<span className="text-blue-400">常规（11 号）</span></p>
+      <h1 className="text-xl font-bold text-gtext mb-1">对账 / 转账</h1>
+      <p className="text-xs text-gsub mb-4">
+        今天 2026-04-11，对账模式：<span className="text-gblue font-medium">常规（11 号）</span>
+      </p>
 
-      {/* Step 1: 录入账户余额 */}
-      <Card title="① 账户余额" subtitle="淡黄色为待录入">
+      {/* Step 1 */}
+      <Card title="① 账户余额" subtitle="录入各账户当前余额">
         <InputField label="信用卡待还额" value={credit} onChange={setCredit} />
         <InputField label="校园卡" value={campusCard} onChange={setCampusCard} />
         <InputField label="生活银行卡" value={livingBank} onChange={setLivingBank} />
         <InputField label="消费 (交行)" value={consumptionBank} onChange={setConsumptionBank} />
       </Card>
 
-      {/* Step 2: 预算结果 */}
+      {/* Step 2 */}
       <Card title="② 预算计算" subtitle="系统计算">
-        <div className="flex justify-between text-xs text-white/50 mb-3">
+        <div className="flex justify-between text-xs text-gsub mb-3">
           <span>本月剩余 {mockBudget.daysLeft} 天</span>
           <span>在校 {mockBudget.schoolDaysLeft} · 回家 {mockBudget.homeDaysLeft}</span>
         </div>
         <div className="space-y-3">
-          <BudgetLayer
-            label="周内 (最近 7-10 天)"
-            income={mockBudget.weekly.income}
-            expense={mockBudget.weekly.expense}
-          />
-          <BudgetLayer
-            label="月内 (本月剩余)"
-            income={mockBudget.monthly.income}
-            expense={mockBudget.monthly.expense}
-          />
-          <BudgetLayer
-            label="月外 (跨月准备)"
-            income={mockBudget.beyond.income}
-            expense={mockBudget.beyond.expense}
-          />
+          <BudgetLayer label="周内 (最近 7-10 天)" income={mockBudget.weekly.income} expense={mockBudget.weekly.expense} />
+          <BudgetLayer label="月内 (本月剩余)" income={mockBudget.monthly.income} expense={mockBudget.monthly.expense} />
+          <BudgetLayer label="月外 (跨月准备)" income={mockBudget.beyond.income} expense={mockBudget.beyond.expense} />
         </div>
       </Card>
 
-      {/* Step 3: 转账建议 */}
+      {/* Step 3 */}
       <Card title="③ 建议转账" subtitle="橙色为待执行">
-        <div className="grid grid-cols-[1.4fr_1fr_1fr_1fr] gap-x-2 gap-y-2 text-xs items-center">
-          <div className="text-white/40">目的账户</div>
-          <div className="text-white/40 text-right">应转</div>
-          <div className="text-white/40 text-right">已转</div>
-          <div className="text-white/40 text-right">还需转</div>
+        <div className="grid grid-cols-[1.4fr_1fr_1fr_1fr] gap-x-2 gap-y-2.5 text-xs items-center">
+          <div className="text-gsub font-medium">目的账户</div>
+          <div className="text-gsub text-right font-medium">应转</div>
+          <div className="text-gsub text-right font-medium">已转</div>
+          <div className="text-gsub text-right font-medium">还需转</div>
           {TRANSFER_ROWS.map((row) => {
             const rec = mockBudget.recommended[row.key];
             const doneVal = parseFloat(done[row.key] || '0') || 0;
@@ -148,11 +136,11 @@ export default function ReconcilePage() {
         </div>
       </Card>
 
-      {/* Step 4: 信用卡提醒 */}
+      {/* Step 4 */}
       <Card title="④ 信用卡提醒">
-        <div className="bg-orange-500/10 border border-orange-400/20 rounded-lg p-3 text-sm text-orange-300">
+        <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 text-sm text-orange-700">
           ⚠️ 26 号出账，请确认消费
-          <div className="text-xs text-orange-300/60 mt-1">
+          <div className="text-xs text-orange-500 mt-1">
             建议提前 5 天准备还款资金 (约 <CurrencyDisplay value={2005.72} size="sm" />)
           </div>
         </div>
@@ -160,8 +148,8 @@ export default function ReconcilePage() {
 
       <button
         onClick={() => alert('MVP：保存逻辑等接入 store 后实现')}
-        className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium
-                   py-3 rounded-xl mt-2 mb-4 active:scale-[0.99] transition-transform"
+        className="w-full bg-gblue hover:bg-blue-700 text-white font-medium
+                   py-3 rounded-xl mt-2 mb-4 active:scale-[0.99] transition-all shadow-sm"
       >
         保存本次对账
       </button>
@@ -169,26 +157,12 @@ export default function ReconcilePage() {
   );
 }
 
-function BudgetLayer({
-  label,
-  income,
-  expense,
-}: {
-  label: string;
-  income: number;
-  expense: number;
-}) {
+function BudgetLayer({ label, income, expense }: { label: string; income: number; expense: number }) {
   return (
-    <div className="bg-white/5 rounded-lg p-3">
-      <div className="text-xs text-white/50 mb-1">{label}</div>
-      <StatRow
-        label="收入预算"
-        value={<CurrencyDisplay value={income} className="text-income" size="sm" />}
-      />
-      <StatRow
-        label="支出预算"
-        value={<CurrencyDisplay value={expense} className="text-expense" size="sm" />}
-      />
+    <div className="bg-gray-50 rounded-xl p-3">
+      <div className="text-xs text-gsub mb-1 font-medium">{label}</div>
+      <StatRow label="收入预算" value={<CurrencyDisplay value={income} className="text-income" size="sm" />} />
+      <StatRow label="支出预算" value={<CurrencyDisplay value={expense} className="text-expense" size="sm" />} />
     </div>
   );
 }
@@ -210,20 +184,19 @@ function RowTransfer({
 }) {
   return (
     <>
-      <div className={`${labelClass}`}>{label}</div>
-      <div className="text-right tabular-nums text-white/80">
-        {formatCurrency(recommended)}
-      </div>
+      <div className={`text-gtext ${labelClass}`}>{label}</div>
+      <div className="text-right tabular-nums text-gtext">{formatCurrency(recommended)}</div>
       <input
         type="number"
         value={doneValue}
         onChange={(e) => onDoneChange(e.target.value)}
-        className="bg-amber-400/10 border border-amber-300/30 rounded px-2 py-1
-                   text-xs tabular-nums text-amber-100 text-right outline-none w-full"
+        className="border border-gborder rounded-lg px-2 py-1
+                   text-xs tabular-nums text-gtext text-right outline-none w-full
+                   focus:border-gblue focus:ring-1 focus:ring-gblue/30 transition-all"
       />
       <div
-        className={`text-right tabular-nums rounded px-1 py-1
-                    ${remain > 0 ? 'text-orange-400 bg-orange-500/10' : 'text-white/30'}`}
+        className={`text-right tabular-nums rounded-lg px-1 py-1 font-medium
+                    ${remain > 0 ? 'text-orange-600 bg-orange-50' : 'text-gsub'}`}
       >
         {formatCurrency(remain)}
       </div>

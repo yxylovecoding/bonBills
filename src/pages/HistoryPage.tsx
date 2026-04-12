@@ -12,10 +12,10 @@ export default function HistoryPage() {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold mb-3">历史记录</h1>
+      <h1 className="text-xl font-bold text-gtext mb-3">历史记录</h1>
 
       {/* Tabs */}
-      <div className="flex bg-cardDark rounded-full p-1 mb-4 text-sm">
+      <div className="flex bg-gray-100 rounded-full p-1 mb-4 text-sm">
         <TabButton active={tab === 'monthly'} onClick={() => setTab('monthly')}>
           月度
         </TabButton>
@@ -41,8 +41,8 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`flex-1 py-2 rounded-full transition-colors
-                  ${active ? 'bg-blue-500 text-white' : 'text-white/50'}`}
+      className={`flex-1 py-2 rounded-full font-medium transition-all
+                  ${active ? 'bg-white text-gblue shadow-sm' : 'text-gsub'}`}
     >
       {children}
     </button>
@@ -71,12 +71,11 @@ function MonthlyView() {
         </div>
       </Card>
 
-      {/* 趋势图占位 */}
       <Card title="月度趋势" subtitle="Recharts 接入中">
-        <div className="h-40 bg-white/5 rounded-xl flex items-center justify-center text-xs text-white/30">
+        <div className="h-40 bg-gray-50 rounded-xl flex items-center justify-center text-xs text-gsub">
           📈 收入 vs 支出 vs 结余 趋势图
         </div>
-        <div className="h-32 bg-white/5 rounded-xl mt-2 flex items-center justify-center text-xs text-white/30">
+        <div className="h-32 bg-gray-50 rounded-xl mt-2 flex items-center justify-center text-xs text-gsub">
           📊 周期生活 / 波动生活 / 消费 堆叠图
         </div>
       </Card>
@@ -97,14 +96,15 @@ function MonthlyRow({
   const savingsRate = record.income > 0 ? surplus / record.income : 0;
 
   return (
-    <div className="border-b border-white/5 last:border-none">
+    <div className="border-b border-gborder/50 last:border-none">
       <button
         onClick={onToggle}
-        className="w-full flex items-center justify-between px-2 py-2.5 text-left"
+        className="w-full flex items-center justify-between px-2 py-3 text-left
+                   hover:bg-gray-50 rounded-lg transition-colors"
       >
         <div className="flex-1">
-          <div className="text-sm font-medium">{record.yearMonth}</div>
-          <div className="text-[10px] text-white/40 mt-0.5">
+          <div className="text-sm font-semibold text-gtext">{record.yearMonth}</div>
+          <div className="text-[10px] text-gsub mt-0.5">
             收 <CurrencyDisplay value={record.income} size="sm" className="text-income" />
             {' · '}
             支 <CurrencyDisplay value={record.totalExpense} size="sm" className="text-expense" />
@@ -114,16 +114,16 @@ function MonthlyRow({
           <CurrencyDisplay
             value={surplus}
             size="sm"
-            className={surplus >= 0 ? 'text-expense' : 'text-income'}
+            className={surplus >= 0 ? 'text-expense font-semibold' : 'text-income font-semibold'}
           />
-          <div className="text-[10px] text-white/40">
+          <div className="text-[10px] text-gsub">
             {(savingsRate * 100).toFixed(1)}%
           </div>
         </div>
-        <span className="ml-2 text-white/30 text-xs">{expanded ? '▾' : '▸'}</span>
+        <span className="ml-2 text-gsub text-xs">{expanded ? '▾' : '▸'}</span>
       </button>
       {expanded && (
-        <div className="bg-white/5 rounded-lg mx-2 mb-2 p-3">
+        <div className="bg-gray-50 rounded-xl mx-2 mb-2 p-3">
           <StatRow
             label="周期生活"
             value={<CurrencyDisplay value={record.periodicLife} className="text-life" size="sm" />}
@@ -137,7 +137,7 @@ function MonthlyRow({
             value={<CurrencyDisplay value={record.consumption} className="text-consume" size="sm" />}
           />
           <StatRow label="校园卡" value={<CurrencyDisplay value={record.school} size="sm" />} />
-          <div className="h-px bg-white/5 my-2" />
+          <div className="h-px bg-gborder my-2" />
           <StatRow label="在家" value={`${record.homeDays} 天`} />
           <StatRow label="出差/旅游" value={`${record.travelDays} 天`} />
           {record.investTotal !== undefined && (
@@ -193,7 +193,7 @@ function YearlyView() {
                 </span>
               }
             />
-            <div className="h-px bg-white/5 my-2" />
+            <div className="h-px bg-gborder my-2" />
             <StatRow
               label="月均收入"
               value={<CurrencyDisplay value={income / records.length} size="sm" />}
@@ -207,7 +207,7 @@ function YearlyView() {
       })}
 
       <Card title="支出分类" subtitle="记账数据接入后填充">
-        <div className="h-40 bg-white/5 rounded-xl flex items-center justify-center text-xs text-white/30">
+        <div className="h-40 bg-gray-50 rounded-xl flex items-center justify-center text-xs text-gsub">
           🥧 饮食 / 生活 / 购物 / 娱乐 / 交通 / 课学 / 人际 / 医疗
         </div>
       </Card>

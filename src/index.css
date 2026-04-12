@@ -7,11 +7,11 @@ html, body, #root {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB',
-    'Microsoft YaHei', 'Segoe UI', sans-serif;
+  font-family: 'Noto Sans SC', 'Google Sans', Roboto, -apple-system,
+    BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
-  color: #f5f5f7;
-  background-color: #0a0a16;
+  color: #202124;
+  background-color: #f8f9fa;
 }
 
 /* 去掉 iOS 默认输入框高亮 */

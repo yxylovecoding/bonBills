@@ -20,7 +20,7 @@ export default function StatRow({
       className={`flex items-center justify-between py-1.5 text-sm
                   ${indent ? 'pl-4' : ''}`}
     >
-      <span className={`text-white/60 ${labelClass}`}>{label}</span>
+      <span className={`text-gsub ${labelClass}`}>{label}</span>
       <span className={`font-medium tabular-nums ${valueClass}`}>{value}</span>
     </div>
   );
