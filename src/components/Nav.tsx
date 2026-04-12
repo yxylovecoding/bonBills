@@ -1,10 +1,47 @@
 import { NavLink } from 'react-router-dom';
 
 const tabs = [
-  { to: '/', icon: 'home', label: '主页' },
-  { to: '/calendar', icon: 'calendar_month', label: '日历' },
-  { to: '/reconcile', icon: 'account_balance_wallet', label: '对账' },
-  { to: '/history', icon: 'bar_chart', label: '历史' },
+  {
+    to: '/',
+    label: '主页',
+    icon: (active: boolean) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill={active ? '#1a73e8' : 'none'} stroke={active ? '#1a73e8' : '#5f6368'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z" />
+        <polyline points="9 22 9 12 15 12 15 22" fill={active ? '#e8f0fe' : 'none'} stroke={active ? '#1a73e8' : '#5f6368'} />
+      </svg>
+    ),
+  },
+  {
+    to: '/calendar',
+    label: '日历',
+    icon: (active: boolean) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? '#1a73e8' : '#5f6368'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="4" width="18" height="18" rx="2" fill={active ? '#e8f0fe' : 'none'} stroke={active ? '#1a73e8' : '#5f6368'} />
+        <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+      </svg>
+    ),
+  },
+  {
+    to: '/reconcile',
+    label: '对账',
+    icon: (active: boolean) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? '#1a73e8' : '#5f6368'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="2" y="4" width="20" height="16" rx="2" fill={active ? '#e8f0fe' : 'none'} stroke={active ? '#1a73e8' : '#5f6368'} />
+        <path d="M12 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" /><path d="M2 10h4" /><path d="M18 10h4" /><path d="M2 14h4" /><path d="M18 14h4" />
+      </svg>
+    ),
+  },
+  {
+    to: '/history',
+    label: '历史',
+    icon: (active: boolean) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? '#1a73e8' : '#5f6368'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="12" width="4" height="9" rx="1" fill={active ? '#1a73e8' : '#5f6368'} opacity={active ? 0.3 : 0.2} />
+        <rect x="10" y="7" width="4" height="14" rx="1" fill={active ? '#1a73e8' : '#5f6368'} opacity={active ? 0.5 : 0.3} />
+        <rect x="17" y="3" width="4" height="18" rx="1" fill={active ? '#1a73e8' : '#5f6368'} opacity={active ? 0.8 : 0.4} />
+      </svg>
+    ),
+  },
 ];
 
 export default function Nav() {
@@ -22,7 +59,7 @@ export default function Nav() {
         display: 'flex',
         justifyContent: 'space-around',
         alignItems: 'center',
-        padding: '6px 0 calc(env(safe-area-inset-bottom, 0px) + 6px)',
+        padding: '4px 0 calc(env(safe-area-inset-bottom, 0px) + 4px)',
         zIndex: 50,
         boxShadow: '0 -2px 8px rgba(0,0,0,0.06)',
       }}
@@ -42,38 +79,29 @@ export default function Nav() {
                 alignItems: 'center',
                 gap: 2,
                 color: isActive ? '#1a73e8' : '#5f6368',
-                position: 'relative',
+                padding: '4px 0',
               }}
             >
-              {isActive && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: -2,
-                    width: 48,
-                    height: 28,
-                    borderRadius: 14,
-                    backgroundColor: '#e8f0fe',
-                  }}
-                />
-              )}
-              <span
-                className="material-symbols-rounded"
+              {/* pill 背景 */}
+              <div
                 style={{
-                  fontSize: 22,
-                  position: 'relative',
-                  zIndex: 1,
-                  fontVariationSettings: isActive ? "'FILL' 1" : "'FILL' 0",
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 52,
+                  height: 28,
+                  borderRadius: 14,
+                  backgroundColor: isActive ? '#e8f0fe' : 'transparent',
+                  transition: 'background-color 0.2s',
                 }}
               >
-                {t.icon}
-              </span>
+                {t.icon(isActive)}
+              </div>
               <span
                 style={{
                   fontSize: 11,
                   fontWeight: isActive ? 600 : 400,
-                  position: 'relative',
-                  zIndex: 1,
+                  lineHeight: 1,
                 }}
               >
                 {t.label}

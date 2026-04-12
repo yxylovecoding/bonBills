@@ -173,22 +173,30 @@ export default function HomePage() {
 
       {/* 卡片5: 账户余额 */}
       <Card title="账户余额">
-        <table style={{ width: '100%', fontSize: 14, borderCollapse: 'collapse' }}>
-          <tbody>
-            {[
-              { icon: '💳', name: '信用卡 (待还)', val: latestSnapshot.credit, color: C.red },
-              { icon: '🎓', name: '校园卡', val: latestSnapshot.campusCard },
-              { icon: '🏦', name: '生活', val: latestSnapshot.livingBank, color: C.blue },
-              { icon: '💼', name: '消费 (交行)', val: latestSnapshot.consumptionBank, color: C.purple },
-              { icon: '📈', name: '理财', val: latestSnapshot.investTotal, color: C.blue },
-            ].map((r) => (
-              <tr key={r.name} style={{ borderBottom: '1px solid #f1f3f4' }}>
-                <td style={{ padding: '10px 0', color: C.sub }}>{r.icon} {r.name}</td>
-                <td style={{ padding: '10px 0', textAlign: 'right', fontWeight: 500, color: r.color || '#202124', fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(r.val)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {[
+            { icon: '💳', name: '信用卡 (待还)', val: latestSnapshot.credit, bg: '#fce8e6' },
+            { icon: '🎓', name: '校园卡', val: latestSnapshot.campusCard, bg: '#f1f3f4' },
+            { icon: '🏦', name: '生活', val: latestSnapshot.livingBank, bg: '#e8f0fe' },
+            { icon: '💼', name: '消费 (交行)', val: latestSnapshot.consumptionBank, bg: '#f3e8fd' },
+            { icon: '📈', name: '理财', val: latestSnapshot.investTotal, bg: '#e6f4ea' },
+          ].map((r) => (
+            <div
+              key={r.name}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                backgroundColor: r.bg,
+                borderRadius: 12,
+                padding: '12px 14px',
+              }}
+            >
+              <span style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>{r.icon} {r.name}</span>
+              <span style={{ fontSize: 14, color: '#202124', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(r.val)}</span>
+            </div>
+          ))}
+        </div>
         <div style={{ marginTop: 12, fontSize: 13, color: '#e8710a', backgroundColor: '#fef7e0', border: '1px solid #fdd663', borderRadius: 12, padding: '10px 14px' }}>
           ⚠️ 信用卡 13 号还款，剩余 2 天
         </div>
