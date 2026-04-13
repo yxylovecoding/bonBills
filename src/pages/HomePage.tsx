@@ -1,42 +1,17 @@
+import { useMemo, useState } from 'react';
 import Card from '../components/Card';
 import StatRow from '../components/StatRow';
 import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
-import {
-  currentStats,
-  latestSnapshot,
-  investTargets,
-  investMeta,
-} from '../data/mockData';
+import { useSnapshotStore } from '../stores/snapshotStore';
+import { useConfigStore } from '../stores/configStore';
+import { useMonthlyStore } from '../stores/monthlyStore';
+import { investMeta } from '../data/mockData';
+import { calcHistoryStats } from '../calculations/history';
+import { calcFire } from '../calculations/fire';
+import { calcDeviation } from '../calculations/rebalance';
+import type { InvestKey } from '../models/types';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
-
-const netWorth =
-  latestSnapshot.investTotal +
-  latestSnapshot.campusCard +
-  latestSnapshot.livingBank +
-  latestSnapshot.consumptionBank -
-  latestSnapshot.credit;
-
-const age = 23;
-const retireAge = 55;
-const annualExpense = currentStats.totalExpenseAvg * 12;
-const fireTarget4 = annualExpense / 0.04;
-const fireTargetAge = annualExpense * (retireAge - age);
-const fireTarget = Math.min(fireTarget4, fireTargetAge);
-const fireProgress = latestSnapshot.investTotal / fireTarget;
-const monthlyNeeded = (fireTarget - latestSnapshot.investTotal) / ((retireAge - age) * 12);
-const monthlySurplus = currentStats.monthlyIncomeAvg - currentStats.totalExpenseAvg;
-
-const lifeExpectancy = 85;
-const lifeProgress = age / lifeExpectancy;
-
-const today = new Date(2026, 3, 11);
-const daysInMonth = 30;
-const monthProgress = today.getDate() / daysInMonth;
-
-const holdings = latestSnapshot.investHoldings;
-const totalInvest = latestSnapshot.investTotal;
-const investKeys = Object.keys(holdings) as (keyof typeof holdings)[];
 
 function ProgressBar({ progress, color = C.blue, height = 8 }: { progress: number; color?: string; height?: number }) {
   return (
@@ -51,10 +26,48 @@ function Divider() {
 }
 
 export default function HomePage() {
+  const { current, updateAccounts } = useSnapshotStore();
+  const { config } = useConfigStore();
+  const { records } = useMonthlyStore();
+
+  const [localAccounts, setLocalAccounts] = useState({
+    credit:      String(current.accounts.credit),
+    campusCard:  String(current.accounts.campusCard),
+    livingBank:  String(current.accounts.livingBank),
+  });
+
+  const syncAccounts = () => updateAccounts({
+    credit:      parseFloat(localAccounts.credit)     || 0,
+    campusCard:  parseFloat(localAccounts.campusCard) || 0,
+    livingBank:  parseFloat(localAccounts.livingBank) || 0,
+  });
+
+  const stats  = useMemo(() => calcHistoryStats(records), [records]);
+  const fire   = useMemo(() => calcFire(config, stats, current.investHoldings ? Object.values(current.investHoldings).reduce((s, v) => s + v, 0) : 0), [config, stats, current.investHoldings]);
+  const dev    = useMemo(() => calcDeviation(current.investHoldings, config.investAllocTargets), [current.investHoldings, config.investAllocTargets]);
+
+  const holdings   = current.investHoldings;
+  const totalInvest = Object.values(holdings).reduce((s, v) => s + v, 0);
+  const investKeys  = Object.keys(holdings) as InvestKey[];
+
+  const netWorth = totalInvest + current.accounts.campusCard + current.accounts.livingBank + current.accounts.consumptionBank - current.accounts.credit;
+
+  const today        = new Date(2026, 3, 11);
+  const daysInMonth  = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const monthProgress = today.getDate() / daysInMonth;
+
+  const monthlySurplus = stats.monthlyIncomeAvg - stats.totalExpenseAvg;
+
+  // 信用卡还款提醒
+  const d = today.getDate();
+  const showPayWarning = d >= 8 && d <= config.creditPayDate;
+
   return (
     <div>
       <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 4px' }}>盘账助手</h1>
-      <p style={{ fontSize: 13, color: C.sub, margin: '0 0 16px' }}>2026年4月 · 第 11 天</p>
+      <p style={{ fontSize: 13, color: C.sub, margin: '0 0 16px' }}>
+        {today.getFullYear()}年{today.getMonth() + 1}月 · 第 {today.getDate()} 天
+      </p>
 
       {/* 卡片1: 财务概览 */}
       <Card title="财务概览">
@@ -73,27 +86,24 @@ export default function HomePage() {
       </Card>
 
       {/* 卡片2: 月度快照 */}
-      <Card title="月度快照" subtitle="近期均值">
-        <StatRow label="月均收入" value={<CurrencyDisplay value={currentStats.monthlyIncomeAvg} color={C.red} />} />
-        <StatRow label="月均支出" value={<CurrencyDisplay value={currentStats.totalExpenseAvg} color={C.green} />} />
-        <StatRow label="周期生活" indent value={<CurrencyDisplay value={currentStats.periodicLifeAvg} color={C.blue} />} />
-        <StatRow label="波动生活" indent value={<CurrencyDisplay value={currentStats.volatileLifeAvg} color={C.blue} />} />
-        <StatRow label="消费" indent value={<CurrencyDisplay value={currentStats.consumptionAvg} color={C.purple} />} />
+      <Card title="月度快照" subtitle="历史均值">
+        <StatRow label="月均收入" value={<CurrencyDisplay value={stats.monthlyIncomeAvg} color={C.red} />} />
+        <StatRow label="月均支出" value={<CurrencyDisplay value={stats.totalExpenseAvg} color={C.green} />} />
+        <StatRow label="周期生活" indent value={<CurrencyDisplay value={stats.periodicLifeAvg} color={C.blue} />} />
+        <StatRow label="波动生活" indent value={<CurrencyDisplay value={stats.volatileLifeAvg} color={C.blue} />} />
+        <StatRow label="消费" indent value={<CurrencyDisplay value={stats.consumptionAvg} color={C.purple} />} />
         <Divider />
-        <StatRow
-          label="月均结余"
-          value={<CurrencyDisplay value={monthlySurplus} color={monthlySurplus >= 0 ? C.green : C.red} />}
-        />
+        <StatRow label="月均结余" value={<CurrencyDisplay value={monthlySurplus} color={monthlySurplus >= 0 ? C.green : C.red} />} />
         <StatRow
           label="储蓄率"
-          value={<span style={{ color: currentStats.savingsRate >= 0 ? C.green : C.red, fontWeight: 500 }}>{(currentStats.savingsRate * 100).toFixed(1)}%</span>}
+          value={<span style={{ color: stats.savingsRate >= 0 ? C.green : C.red, fontWeight: 500 }}>{(stats.savingsRate * 100).toFixed(1)}%</span>}
         />
         <Divider />
         <div style={{ fontSize: 12, color: C.sub, marginBottom: 4 }}>场景日均</div>
         <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
           <tbody>
             {[
-              { icon: '📚', name: '在校', val: currentStats.schoolDailyAvg },
+              { icon: '📚', name: '在校', val: stats.schoolDailyAvg },
               { icon: '🏠', name: '在家', val: 89.5 },
               { icon: '💼', name: '实习', val: 156.3 },
               { icon: '✈️', name: '出差', val: 312.0 },
@@ -112,31 +122,30 @@ export default function HomePage() {
         <div style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: C.sub, marginBottom: 6 }}>
             <span>进度</span>
-            <span style={{ fontWeight: 600, color: C.blue }}>{(fireProgress * 100).toFixed(2)}%</span>
+            <span style={{ fontWeight: 600, color: C.blue }}>{(fire.progress * 100).toFixed(2)}%</span>
           </div>
-          <ProgressBar progress={fireProgress} height={10} />
+          <ProgressBar progress={fire.progress} height={10} />
         </div>
-        <StatRow label="目标资产" value={<CurrencyDisplay value={fireTarget} />} />
-        <StatRow label="已积累" value={<CurrencyDisplay value={latestSnapshot.investTotal} color={C.blue} />} />
-        <StatRow label="月需存入" value={<CurrencyDisplay value={monthlyNeeded} color={C.orange} />} />
-        <StatRow
-          label="当前月结余"
-          value={<CurrencyDisplay value={monthlySurplus} color={monthlySurplus >= 0 ? C.green : C.red} />}
-        />
+        <StatRow label="目标资产" value={<CurrencyDisplay value={fire.fireTarget} />} />
+        <StatRow label="已积累" value={<CurrencyDisplay value={totalInvest} color={C.blue} />} />
+        <StatRow label="月需存入" value={<CurrencyDisplay value={fire.monthlyNeeded} color={C.orange} />} />
+        <StatRow label="当前月结余" value={<CurrencyDisplay value={fire.monthlySurplus} color={fire.monthlySurplus >= 0 ? C.green : C.red} />} />
         <Divider />
-        <div style={{ fontSize: 12, color: C.sub, marginBottom: 6 }}>人生进度 {age}/{lifeExpectancy}</div>
-        <ProgressBar progress={lifeProgress} color="#9aa0a6" height={6} />
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+          <div style={{ fontVariantNumeric: 'tabular-nums', fontSize: 32, fontWeight: 700, letterSpacing: 2, color: '#202124', fontFamily: 'monospace' }}>
+            {fire.lifeClockStr}
+          </div>
+          <div style={{ fontSize: 13, color: C.sub }}>{fire.lifeClockPeriod}</div>
+        </div>
       </Card>
 
       {/* 卡片4: 资产配置 */}
       <Card title="资产配置">
-        {/* 堆叠条 */}
         <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', marginBottom: 16 }}>
           {investKeys.map((k) => (
             <div key={k} style={{ width: `${(holdings[k] / totalInvest) * 100}%`, backgroundColor: investMeta[k].color }} />
           ))}
         </div>
-        {/* 表格 */}
         <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '2px solid #e8eaed' }}>
@@ -149,15 +158,13 @@ export default function HomePage() {
           <tbody>
             {investKeys.map((k, i) => {
               const amount = holdings[k];
-              const pct = amount / totalInvest;
-              const target = investTargets[k];
-              const diff = pct - target;
+              const pct    = totalInvest > 0 ? amount / totalInvest : 0;
+              const diff   = dev[k];
               const diffAbs = Math.abs(diff);
-              let diffColor = C.green;
-              if (diffAbs > 0.02) diffColor = diff > 0 ? C.red : C.blue;
+              const diffColor = diffAbs <= 0.02 ? C.green : diff > 0 ? C.red : C.blue;
               return (
-                <tr key={k} style={{ borderBottom: '1px solid #f1f3f4', backgroundColor: i % 2 === 0 ? '#fafafa' : '#ffffff' }}>
-                  <td style={{ padding: '8px 0 8px 0' }}>
+                <tr key={k} style={{ borderBottom: '1px solid #f1f3f4', backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff' }}>
+                  <td style={{ padding: '8px 0' }}>
                     <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', backgroundColor: investMeta[k].color, marginRight: 6, verticalAlign: 'middle' }} />
                     {investMeta[k].label}
                   </td>
@@ -171,35 +178,35 @@ export default function HomePage() {
         </table>
       </Card>
 
-      {/* 卡片5: 账户余额 */}
-      <Card title="账户余额">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {[
-            { icon: '💳', name: '信用卡 (待还)', val: latestSnapshot.credit, bg: '#fce8e6' },
-            { icon: '🎓', name: '校园卡', val: latestSnapshot.campusCard, bg: '#f1f3f4' },
-            { icon: '🏦', name: '生活', val: latestSnapshot.livingBank, bg: '#e8f0fe' },
-            { icon: '💼', name: '消费 (交行)', val: latestSnapshot.consumptionBank, bg: '#f3e8fd' },
-            { icon: '📈', name: '理财', val: latestSnapshot.investTotal, bg: '#e6f4ea' },
-          ].map((r) => (
-            <div
-              key={r.name}
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                backgroundColor: r.bg,
-                borderRadius: 12,
-                padding: '12px 14px',
-              }}
-            >
-              <span style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>{r.icon} {r.name}</span>
-              <span style={{ fontSize: 14, color: '#202124', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(r.val)}</span>
+      {/* 卡片5: 账户余额（可编辑，失焦保存） */}
+      <Card title="账户余额" subtitle="点击金额可编辑">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {([
+            { key: 'credit',     icon: '💳', name: '信用卡 (待还)', bg: '#fce8e6', border: '#f28b82' },
+            { key: 'campusCard', icon: '🎓', name: '校园卡',         bg: '#f1f3f4', border: '#dadce0' },
+            { key: 'livingBank', icon: '🏦', name: '生活',           bg: '#e8f0fe', border: '#a8c7fa' },
+          ] as const).map((r) => (
+            <div key={r.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: r.bg, borderRadius: 12, padding: '10px 14px', border: `1.5px solid ${r.border}` }}>
+              <span style={{ fontSize: 14, color: '#202124', fontWeight: 500, flexShrink: 0 }}>{r.icon} {r.name}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <span style={{ fontSize: 13, color: '#5f6368' }}>¥</span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  value={localAccounts[r.key]}
+                  onChange={(e) => setLocalAccounts((p) => ({ ...p, [r.key]: e.target.value }))}
+                  onBlur={syncAccounts}
+                  style={{ width: 90, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124', textAlign: 'right' }}
+                />
+              </div>
             </div>
           ))}
         </div>
-        <div style={{ marginTop: 12, fontSize: 13, color: '#e8710a', backgroundColor: '#fef7e0', border: '1px solid #fdd663', borderRadius: 12, padding: '10px 14px' }}>
-          ⚠️ 信用卡 13 号还款，剩余 2 天
-        </div>
+        {showPayWarning && (
+          <div style={{ marginTop: 12, fontSize: 13, color: '#c5221f', backgroundColor: '#fce8e6', border: '1px solid #f28b82', borderRadius: 12, padding: '10px 14px' }}>
+            ⚠️ 信用卡 {config.creditPayDate} 号还款，剩余 {config.creditPayDate - d} 天
+          </div>
+        )}
       </Card>
     </div>
   );

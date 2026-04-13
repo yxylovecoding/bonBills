@@ -36,9 +36,8 @@ const tabs = [
     label: '历史',
     icon: (active: boolean) => (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? '#1a73e8' : '#5f6368'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="12" width="4" height="9" rx="1" fill={active ? '#1a73e8' : '#5f6368'} opacity={active ? 0.3 : 0.2} />
-        <rect x="10" y="7" width="4" height="14" rx="1" fill={active ? '#1a73e8' : '#5f6368'} opacity={active ? 0.5 : 0.3} />
-        <rect x="17" y="3" width="4" height="18" rx="1" fill={active ? '#1a73e8' : '#5f6368'} opacity={active ? 0.8 : 0.4} />
+        <rect x="3" y="3" width="18" height="18" rx="2" fill={active ? '#e8f0fe' : 'none'} stroke={active ? '#1a73e8' : '#5f6368'} />
+        <polyline points="7,16 10,11 13,14 17,8" />
       </svg>
     ),
   },

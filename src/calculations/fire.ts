@@ -1,0 +1,51 @@
+import type { AppConfig, CurrentStats } from '../models/types';
+
+export function getAge(birthDate: string): number {
+  const birth = new Date(birthDate);
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const m = now.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age--;
+  return age;
+}
+
+export interface FireResult {
+  age: number;
+  fireTarget: number;
+  target4pct: number;
+  targetAge: number;
+  progress: number;
+  monthlyNeeded: number;
+  monthlySurplus: number;
+  lifeProgress: number;
+  lifeClockStr: string;
+  lifeClockPeriod: string;
+}
+
+export function calcFire(
+  config: AppConfig,
+  stats: CurrentStats,
+  investTotal: number,
+): FireResult {
+  const age = getAge(config.birthDate);
+  const annualExpense = stats.totalExpenseAvg * 12;
+
+  const target4pct = annualExpense / config.safeWithdrawRate;
+  const targetAge  = annualExpense * Math.max(config.retireAge - age, 1);
+  const fireTarget = Math.min(target4pct, targetAge);
+
+  const progress = fireTarget > 0 ? investTotal / fireTarget : 0;
+  const yearsLeft = Math.max(config.retireAge - age, 1);
+  const monthlyNeeded = (fireTarget - investTotal) / (yearsLeft * 12);
+  const monthlySurplus = stats.monthlyIncomeAvg - stats.totalExpenseAvg;
+
+  // 人生时钟
+  const lifeProgress = age / config.lifeExpectancy;
+  const totalMin = lifeProgress * 24 * 60;
+  const h = Math.floor(totalMin / 60);
+  const m = Math.floor(totalMin % 60);
+  const lifeClockStr = `${h}:${String(m).padStart(2, '0')}`;
+  const lifeClockPeriod = h < 6 ? '凌晨' : h < 12 ? '上午' : h < 18 ? '下午' : '傍晚';
+
+  return { age, fireTarget, target4pct, targetAge, progress, monthlyNeeded, monthlySurplus, lifeProgress, lifeClockStr, lifeClockPeriod };
+}
