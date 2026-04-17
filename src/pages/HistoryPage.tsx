@@ -14,7 +14,7 @@ const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed'
 type ViewTab = 'monthly' | 'yearly';
 
 // ── 当前年月 ──────────────────────────────────────────────────────
-const NOW = new Date(2026, 3, 13); // 固定，后续改动态
+const NOW = new Date();
 function currentYearMonth() {
   return `${NOW.getFullYear()}-${String(NOW.getMonth() + 1).padStart(2, '0')}`;
 }

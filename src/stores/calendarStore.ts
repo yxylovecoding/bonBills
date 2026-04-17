@@ -20,9 +20,9 @@ export const useCalendarStore = create<CalendarStore>()(
       tagMap: {
         // 初始数据：2026-04 已标记天数
         '2026-04-01': 'school', '2026-04-02': 'school', '2026-04-03': 'school',
-        '2026-04-04': 'rest',   '2026-04-05': 'rest',
+        '2026-04-04': 'school', '2026-04-05': 'school',
         '2026-04-06': 'school', '2026-04-07': 'school', '2026-04-08': 'school',
-        '2026-04-09': 'school', '2026-04-10': 'school', '2026-04-11': 'rest',
+        '2026-04-09': 'school', '2026-04-10': 'school', '2026-04-11': 'school',
       },
 
       setTag: (date, tag) =>
@@ -55,7 +55,7 @@ export const useCalendarStore = create<CalendarStore>()(
 
       countByTag: (yearMonth) => {
         const monthMap = get().getTagsForMonth(yearMonth);
-        const counts: Record<TagKind, number> = { school: 0, intern: 0, home: 0, travel: 0, rest: 0 };
+        const counts: Record<TagKind, number> = { intern: 0, school: 0, home: 0, travel: 0 };
         for (const tag of Object.values(monthMap)) counts[tag]++;
         return counts;
       },

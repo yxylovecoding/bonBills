@@ -190,11 +190,10 @@ export const currentStats: CurrentStats = {
 
 // Tag 元信息
 export const tagMeta = {
-  school: { icon: '📚', label: '上学', color: '#3b82f6' },
-  intern: { icon: '💼', label: '实习', color: '#8b5cf6' },
-  home: { icon: '🏠', label: '回家', color: '#10b981' },
-  travel: { icon: '✈️', label: '出差/旅游', color: '#fb923c' },
-  rest: { icon: '😴', label: '休息', color: '#94a3b8' },
+  intern: { icon: '💼', label: '班', color: '#8b5cf6' },
+  school: { icon: '📚', label: '学', color: '#3b82f6' },
+  home:   { icon: '🏠', label: '家', color: '#10b981' },
+  travel: { icon: '✈️', label: '游', color: '#fb923c' },
 } as const;
 
 // 各资产品类的元信息

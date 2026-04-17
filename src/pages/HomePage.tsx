@@ -5,11 +5,12 @@ import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
 import { useSnapshotStore } from '../stores/snapshotStore';
 import { useConfigStore } from '../stores/configStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
-import { investMeta } from '../data/mockData';
+import { usePrefsStore } from '../stores/prefsStore';
+import { useCalendarStore } from '../stores/calendarStore';
+import { tagMeta } from '../data/mockData';
 import { calcHistoryStats } from '../calculations/history';
 import { calcFire } from '../calculations/fire';
-import { calcDeviation } from '../calculations/rebalance';
-import type { InvestKey } from '../models/types';
+import type { IncomeItem, TagKind } from '../models/types';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 
@@ -26,37 +27,75 @@ function Divider() {
 }
 
 export default function HomePage() {
-  const { current, updateAccounts } = useSnapshotStore();
-  const { config } = useConfigStore();
+  const { current } = useSnapshotStore();
+  const { config, setConfig } = useConfigStore();
   const { records } = useMonthlyStore();
-
-  const [localAccounts, setLocalAccounts] = useState({
-    credit:      String(current.accounts.credit),
-    campusCard:  String(current.accounts.campusCard),
-    livingBank:  String(current.accounts.livingBank),
-  });
-
-  const syncAccounts = () => updateAccounts({
-    credit:      parseFloat(localAccounts.credit)     || 0,
-    campusCard:  parseFloat(localAccounts.campusCard) || 0,
-    livingBank:  parseFloat(localAccounts.livingBank) || 0,
-  });
+  const { tagMap } = useCalendarStore();
+  const { accountOrder } = usePrefsStore();
 
   const stats  = useMemo(() => calcHistoryStats(records), [records]);
   const fire   = useMemo(() => calcFire(config, stats, current.investHoldings ? Object.values(current.investHoldings).reduce((s, v) => s + v, 0) : 0), [config, stats, current.investHoldings]);
-  const dev    = useMemo(() => calcDeviation(current.investHoldings, config.investAllocTargets), [current.investHoldings, config.investAllocTargets]);
 
-  const holdings   = current.investHoldings;
-  const totalInvest = Object.values(holdings).reduce((s, v) => s + v, 0);
-  const investKeys  = Object.keys(holdings) as InvestKey[];
+  const totalInvest = Object.values(current.investHoldings).reduce((s, v) => s + v, 0);
 
   const netWorth = totalInvest + current.accounts.campusCard + current.accounts.livingBank + current.accounts.consumptionBank - current.accounts.credit;
 
-  const today        = new Date(2026, 3, 11);
+  const today        = new Date();
   const daysInMonth  = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
   const monthProgress = today.getDate() / daysInMonth;
 
   const monthlySurplus = stats.monthlyIncomeAvg - stats.totalExpenseAvg;
+
+  // 当月各标签天数（用于日薪计算）
+  const curYM = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  const tagCountThisMonth = useMemo<Record<TagKind, number>>(() => {
+    const counts: Record<TagKind, number> = { intern: 0, school: 0, home: 0, travel: 0 };
+    for (const [date, tag] of Object.entries(tagMap)) {
+      if (date.startsWith(curYM)) counts[tag]++;
+    }
+    return counts;
+  }, [tagMap, curYM]);
+
+  const getEffectiveAmount = (item: IncomeItem) =>
+    item.dailyRate && item.tagKind ? item.dailyRate * tagCountThisMonth[item.tagKind] : item.amount;
+
+  // 固定收入编辑
+  const [localIncome, setLocalIncome] = useState<IncomeItem[]>(config.incomeItems);
+  const syncIncome = (items: IncomeItem[]) => {
+    setLocalIncome(items);
+    setConfig({ incomeItems: items });
+  };
+  const updateIncomeField = (id: string, field: keyof IncomeItem, raw: string) => {
+    const items = localIncome.map((item) => {
+      if (item.id !== id) return item;
+      if (field === 'amount')    return { ...item, amount: parseFloat(raw) || 0 };
+      if (field === 'payDay')    return { ...item, payDay: parseInt(raw, 10) || 1 };
+      if (field === 'name')      return { ...item, name: raw };
+      if (field === 'dailyRate') return { ...item, dailyRate: parseFloat(raw) || undefined };
+      return item;
+    });
+    syncIncome(items);
+  };
+  const toggleDailyRate = (id: string) => {
+    const items = localIncome.map((item) => {
+      if (item.id !== id) return item;
+      if (item.dailyRate !== undefined) {
+        // 切回固定模式：清除日薪字段
+        const { dailyRate: _dr, tagKind: _tk, ...rest } = item;
+        return rest as IncomeItem;
+      }
+      return { ...item, dailyRate: 0, tagKind: 'intern' as TagKind };
+    });
+    syncIncome(items);
+  };
+  const setTagKind = (id: string, tagKind: TagKind) => {
+    syncIncome(localIncome.map((item) => item.id === id ? { ...item, tagKind } : item));
+  };
+  const addIncomeItem = () => {
+    const newItem: IncomeItem = { id: `income_${Date.now()}`, name: '新收入', amount: 0, payDay: 1, isActive: true };
+    syncIncome([...localIncome, newItem]);
+  };
+  const removeIncomeItem = (id: string) => syncIncome(localIncome.filter((i) => i.id !== id));
 
   // 信用卡还款提醒
   const d = today.getDate();
@@ -139,74 +178,129 @@ export default function HomePage() {
         </div>
       </Card>
 
-      {/* 卡片4: 资产配置 */}
-      <Card title="资产配置">
-        <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', marginBottom: 16 }}>
-          {investKeys.map((k) => (
-            <div key={k} style={{ width: `${(holdings[k] / totalInvest) * 100}%`, backgroundColor: investMeta[k].color }} />
-          ))}
-        </div>
-        <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: '2px solid #e8eaed' }}>
-              <th style={{ textAlign: 'left', padding: '6px 0', fontSize: 12, color: C.sub, fontWeight: 500 }}>品类</th>
-              <th style={{ textAlign: 'right', padding: '6px 0', fontSize: 12, color: C.sub, fontWeight: 500 }}>金额</th>
-              <th style={{ textAlign: 'right', padding: '6px 0', fontSize: 12, color: C.sub, fontWeight: 500 }}>占比</th>
-              <th style={{ textAlign: 'right', padding: '6px 0', fontSize: 12, color: C.sub, fontWeight: 500 }}>偏差</th>
-            </tr>
-          </thead>
-          <tbody>
-            {investKeys.map((k, i) => {
-              const amount = holdings[k];
-              const pct    = totalInvest > 0 ? amount / totalInvest : 0;
-              const diff   = dev[k];
-              const diffAbs = Math.abs(diff);
-              const diffColor = diffAbs <= 0.02 ? C.green : diff > 0 ? C.red : C.blue;
-              return (
-                <tr key={k} style={{ borderBottom: '1px solid #f1f3f4', backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff' }}>
-                  <td style={{ padding: '8px 0' }}>
-                    <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', backgroundColor: investMeta[k].color, marginRight: 6, verticalAlign: 'middle' }} />
-                    {investMeta[k].label}
-                  </td>
-                  <td style={{ textAlign: 'right', padding: '8px 0', fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(amount)}</td>
-                  <td style={{ textAlign: 'right', padding: '8px 0', color: C.sub, fontVariantNumeric: 'tabular-nums' }}>{(pct * 100).toFixed(1)}%</td>
-                  <td style={{ textAlign: 'right', padding: '8px 0', color: diffColor, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{diff >= 0 ? '+' : ''}{(diff * 100).toFixed(1)}%</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </Card>
-
-      {/* 卡片5: 账户余额（可编辑，失焦保存） */}
-      <Card title="账户余额" subtitle="点击金额可编辑">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {([
-            { key: 'credit',     icon: '💳', name: '信用卡 (待还)', bg: '#fce8e6', border: '#f28b82' },
-            { key: 'campusCard', icon: '🎓', name: '校园卡',         bg: '#f1f3f4', border: '#dadce0' },
-            { key: 'livingBank', icon: '🏦', name: '生活',           bg: '#e8f0fe', border: '#a8c7fa' },
-          ] as const).map((r) => (
-            <div key={r.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: r.bg, borderRadius: 12, padding: '10px 14px', border: `1.5px solid ${r.border}` }}>
-              <span style={{ fontSize: 14, color: '#202124', fontWeight: 500, flexShrink: 0 }}>{r.icon} {r.name}</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <span style={{ fontSize: 13, color: '#5f6368' }}>¥</span>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  value={localAccounts[r.key]}
-                  onChange={(e) => setLocalAccounts((p) => ({ ...p, [r.key]: e.target.value }))}
-                  onBlur={syncAccounts}
-                  style={{ width: 90, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124', textAlign: 'right' }}
-                />
-              </div>
+      {/* 卡片4: 账户余额（只读，在对账页编辑） */}
+      <Card title="账户余额" subtitle="在对账页编辑">
+        {(() => {
+          const ACCT_META = {
+            credit:     { icon: '💳', name: '信用卡 (待还)', bg: '#fce8e6', border: '#f28b82' },
+            campusCard: { icon: '🎓', name: '校园卡',         bg: '#f1f3f4', border: '#dadce0' },
+            livingBank: { icon: '🏦', name: '生活',           bg: '#e8f0fe', border: '#a8c7fa' },
+          } as const;
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {accountOrder.map((key) => {
+                const r = ACCT_META[key];
+                return (
+                  <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: r.bg, borderRadius: 12, padding: '10px 14px', border: `1.5px solid ${r.border}` }}>
+                    <span style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>{r.icon} {r.name}</span>
+                    <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124' }}>¥{formatCurrency(current.accounts[key])}</span>
+                  </div>
+                );
+              })}
             </div>
-          ))}
-        </div>
+          );
+        })()}
         {showPayWarning && (
           <div style={{ marginTop: 12, fontSize: 13, color: '#c5221f', backgroundColor: '#fce8e6', border: '1px solid #f28b82', borderRadius: 12, padding: '10px 14px' }}>
             ⚠️ 信用卡 {config.creditPayDate} 号还款，剩余 {config.creditPayDate - d} 天
           </div>
         )}
+      </Card>
+
+      {/* 固定收入 */}
+      <Card title="收入管理" subtitle="支持固定月收入和按天计薪两种模式">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {localIncome.map((item) => {
+            const isDailyMode = item.dailyRate !== undefined;
+            const effectiveAmt = getEffectiveAmount(item);
+            const daysToNext = item.payDay >= d ? item.payDay - d : (daysInMonth - d + item.payDay);
+            const isPending = daysToNext <= 3;
+            const tagCount = isDailyMode && item.tagKind ? tagCountThisMonth[item.tagKind] : 0;
+            return (
+              <div key={item.id} style={{ backgroundColor: isPending ? '#e6f4ea' : '#f8f9fa', borderRadius: 12, padding: '10px 12px', border: `1.5px solid ${isPending ? '#81c995' : '#e0e0e0'}` }}>
+                {/* 第一行：启用 + 名称 + 模式切换 + 删除 */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                  <button
+                    onClick={() => syncIncome(localIncome.map((x) => x.id === item.id ? { ...x, isActive: !x.isActive } : x))}
+                    style={{ flexShrink: 0, width: 18, height: 18, borderRadius: '50%', border: `2px solid ${item.isActive ? C.green : '#dadce0'}`, backgroundColor: item.isActive ? C.green : '#fff', cursor: 'pointer' }}
+                  />
+                  <input
+                    value={item.name}
+                    onChange={(e) => updateIncomeField(item.id, 'name', e.target.value)}
+                    style={{ flex: 1, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, color: item.isActive ? '#202124' : '#9aa0a6', minWidth: 0 }}
+                  />
+                  <button
+                    onClick={() => toggleDailyRate(item.id)}
+                    style={{ flexShrink: 0, fontSize: 11, padding: '2px 8px', borderRadius: 6, border: `1px solid ${isDailyMode ? C.orange : '#dadce0'}`, backgroundColor: isDailyMode ? '#fff4e8' : '#f1f3f4', color: isDailyMode ? C.orange : C.sub, cursor: 'pointer', fontWeight: 600 }}
+                  >
+                    {isDailyMode ? '日薪' : '固定'}
+                  </button>
+                  <button onClick={() => removeIncomeItem(item.id)} style={{ flexShrink: 0, background: 'none', border: 'none', color: '#dadce0', fontSize: 16, cursor: 'pointer', padding: '0 2px', lineHeight: 1 }}>×</button>
+                </div>
+                {/* 第二行：金额信息 */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11, color: C.sub }}>每月</span>
+                  <input
+                    type="number" inputMode="numeric"
+                    value={item.payDay}
+                    onChange={(e) => updateIncomeField(item.id, 'payDay', e.target.value)}
+                    style={{ width: 28, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, color: C.blue, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}
+                  />
+                  <span style={{ fontSize: 11, color: C.sub }}>号发薪</span>
+                  <span style={{ flex: 1 }} />
+                  {isDailyMode ? (
+                    <>
+                      {/* 标签选择 */}
+                      {(['intern','school','home','travel'] as TagKind[]).map((tk) => (
+                        <button key={tk} onClick={() => setTagKind(item.id, tk)} style={{ padding: '2px 6px', borderRadius: 6, border: `1.5px solid ${item.tagKind === tk ? tagMeta[tk].color : '#e0e0e0'}`, backgroundColor: item.tagKind === tk ? `${tagMeta[tk].color}18` : '#fff', fontSize: 12, cursor: 'pointer' }}>
+                          {tagMeta[tk].icon}
+                        </button>
+                      ))}
+                      <span style={{ fontSize: 11, color: C.sub }}>¥</span>
+                      <input
+                        type="number" inputMode="decimal"
+                        value={item.dailyRate ?? 0}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => { const v = e.target.value; updateIncomeField(item.id, 'dailyRate', /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v); }}
+                        style={{ width: 60, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, color: C.orange, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
+                      />
+                      <span style={{ fontSize: 11, color: C.sub }}>/天 × {tagCount}天</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: C.green, fontVariantNumeric: 'tabular-nums' }}>= ¥{formatCurrency(effectiveAmt)}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ fontSize: 11, color: C.sub }}>¥</span>
+                      <input
+                        type="number" inputMode="decimal"
+                        value={item.amount}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => { const v = e.target.value; updateIncomeField(item.id, 'amount', /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v); }}
+                        style={{ width: 80, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.green, textAlign: 'right' }}
+                      />
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {/* 发薪日提醒 */}
+        {localIncome.filter((i) => i.isActive).map((item) => {
+          const daysToNext = item.payDay >= d ? item.payDay - d : (daysInMonth - d + item.payDay);
+          if (daysToNext > 3) return null;
+          const amt = getEffectiveAmount(item);
+          return (
+            <div key={item.id} style={{ marginTop: 8, fontSize: 13, color: '#0d9488', backgroundColor: '#e6f4ea', border: '1px solid #81c995', borderRadius: 10, padding: '8px 12px' }}>
+              💰 {item.name} {daysToNext === 0 ? '今天发薪' : `还有 ${daysToNext} 天发薪`}（每月 {item.payDay} 号，¥{formatCurrency(amt)}）
+            </div>
+          );
+        })}
+        <button
+          onClick={addIncomeItem}
+          style={{ width: '100%', marginTop: 10, padding: '8px 0', fontSize: 13, color: C.blue, backgroundColor: '#e8f0fe', border: 'none', borderRadius: 10, cursor: 'pointer', fontWeight: 600 }}
+        >
+          + 添加收入项
+        </button>
       </Card>
     </div>
   );

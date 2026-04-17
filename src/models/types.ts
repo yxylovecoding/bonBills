@@ -1,4 +1,4 @@
-export type TagKind = 'school' | 'intern' | 'home' | 'travel' | 'rest';
+export type TagKind = 'intern' | 'school' | 'home' | 'travel';
 
 // ── 理财持仓 ──────────────────────────────────────────────────────
 export interface InvestHoldings {
@@ -19,8 +19,11 @@ export interface InvestAllocTargets extends InvestHoldings {}
 export interface IncomeItem {
   id: string;
   name: string;
-  amount: number;
+  amount: number;        // 固定月收入（dailyRate 未设置时使用）
+  payDay: number;        // 每月发薪日（1–31）
   isActive: boolean;
+  dailyRate?: number;    // 日薪（设置后按 tagKind 天数动态计算总额）
+  tagKind?: TagKind;     // 日薪对应的日历标签
 }
 
 export interface AppConfig {

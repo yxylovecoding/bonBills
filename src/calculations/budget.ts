@@ -35,20 +35,23 @@ export function calcBudget(
 
   // === 周内预算（最近7天）===
   const weekDays = Math.min(daysLeftInMonth, 7);
+  const weekEnd = dayOfMonth + weekDays; // 7天后的日期（同月内）
   const weeklyExpense = dailyLife * weekDays + stats.volatileLifeAvg * (weekDays / 30);
+  // 发薪日在未来7天内（含当天）→ 全额；否则 0
   const weeklyIncome = config.incomeItems
-    .filter((i) => i.isActive)
-    .reduce((s, i) => s + i.amount, 0) * (weekDays / 30);
+    .filter((i) => i.isActive && i.payDay > dayOfMonth && i.payDay <= weekEnd)
+    .reduce((s, i) => s + i.amount, 0);
 
   // === 月内预算（本月剩余）===
   const monthlyExpense = stats.periodicLifeAvg + (stats.volatileLifeAvg * daysLeftInMonth / 30);
+  // 发薪日 > 今天 → 还没发，算入本月剩余收入；已发的不算
   const monthlyIncome = config.incomeItems
-    .filter((i) => i.isActive)
-    .reduce((s, i) => s + i.amount, 0) * (daysLeftInMonth / 30);
+    .filter((i) => i.isActive && i.payDay > dayOfMonth)
+    .reduce((s, i) => s + i.amount, 0);
 
   // === 月外预算（跨月）===
-  const monthlyTotal = config.incomeItems.filter((i) => i.isActive).reduce((s, i) => s + i.amount, 0);
-  const beyondIncome = monthlyTotal;
+  // 次月全部收入项都会发一次
+  const beyondIncome = config.incomeItems.filter((i) => i.isActive).reduce((s, i) => s + i.amount, 0);
   const beyondExpense = stats.periodicLifeAvg + homeDaysLeft * 100;
 
   // === 建议转账 ===

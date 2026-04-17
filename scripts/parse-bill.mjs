@@ -88,9 +88,9 @@ for (const ym of Object.keys(months)) {
   m.totalExpense = Math.round((m.periodicLife + m.volatileLife + m.consumption) * 100) / 100;
 }
 
-// Filter to relevant range (2025-01 to 2026-04) and sort descending
+// Filter to relevant range (2021-01 to 2026-12) and sort descending
 const relevant = Object.entries(months)
-  .filter(([ym]) => ym >= '2025-01' && ym <= '2026-12')
+  .filter(([ym]) => ym >= '2021-01' && ym <= '2026-12')
   .sort(([a], [b]) => b.localeCompare(a));
 
 console.log(JSON.stringify(Object.fromEntries(relevant), null, 2));

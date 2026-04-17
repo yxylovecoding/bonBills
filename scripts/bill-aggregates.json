@@ -1,0 +1,450 @@
+{
+  "2026-04": {
+    "income": 12139.57,
+    "periodicLife": 975.9,
+    "volatileLife": 1119.24,
+    "consumption": 464.12,
+    "school": 257.45,
+    "totalExpense": 2559.26
+  },
+  "2026-03": {
+    "income": 6488.28,
+    "periodicLife": 2532.04,
+    "volatileLife": 646.94,
+    "consumption": 2837.56,
+    "school": 461.04,
+    "totalExpense": 6016.54
+  },
+  "2026-02": {
+    "income": 11565.16,
+    "periodicLife": 3591.6,
+    "volatileLife": 1995.36,
+    "consumption": 2415.09,
+    "school": 73.69,
+    "totalExpense": 8002.05
+  },
+  "2026-01": {
+    "income": 6395.46,
+    "periodicLife": 2315.65,
+    "volatileLife": 1622.42,
+    "consumption": 2728.86,
+    "school": 1.26,
+    "totalExpense": 6666.93
+  },
+  "2025-12": {
+    "income": 5361.53,
+    "periodicLife": 3086.28,
+    "volatileLife": 301.19,
+    "consumption": 4229.32,
+    "school": 601.9,
+    "totalExpense": 7616.79
+  },
+  "2025-11": {
+    "income": 7406.55,
+    "periodicLife": 2877.59,
+    "volatileLife": 2449.37,
+    "consumption": 3213.58,
+    "school": 483.64,
+    "totalExpense": 8540.54
+  },
+  "2025-10": {
+    "income": 4827.57,
+    "periodicLife": 2187.87,
+    "volatileLife": 884.57,
+    "consumption": 2860.48,
+    "school": 346.88,
+    "totalExpense": 5932.92
+  },
+  "2025-09": {
+    "income": 6706.29,
+    "periodicLife": 3696.07,
+    "volatileLife": 1069.97,
+    "consumption": 7322.61,
+    "school": 573.99,
+    "totalExpense": 12088.65
+  },
+  "2025-08": {
+    "income": 9225.27,
+    "periodicLife": 5571.31,
+    "volatileLife": 725.15,
+    "consumption": 2014.73,
+    "school": 102.46,
+    "totalExpense": 8311.19
+  },
+  "2025-07": {
+    "income": 1615.94,
+    "periodicLife": 798.84,
+    "volatileLife": 276.28,
+    "consumption": 6209.59,
+    "school": 0,
+    "totalExpense": 7284.71
+  },
+  "2025-06": {
+    "income": 7319.48,
+    "periodicLife": 1300.06,
+    "volatileLife": 293.14,
+    "consumption": 2806.06,
+    "school": 28.75,
+    "totalExpense": 4399.26
+  },
+  "2025-05": {
+    "income": 5701.05,
+    "periodicLife": 3017.9,
+    "volatileLife": 295.39,
+    "consumption": 6645.08,
+    "school": 20.58,
+    "totalExpense": 9958.37
+  },
+  "2025-04": {
+    "income": 2972.61,
+    "periodicLife": 1321.67,
+    "volatileLife": 175.77,
+    "consumption": 4058.21,
+    "school": 32,
+    "totalExpense": 5555.65
+  },
+  "2025-03": {
+    "income": 3879.58,
+    "periodicLife": 2130.56,
+    "volatileLife": 747.95,
+    "consumption": 4520.88,
+    "school": 27,
+    "totalExpense": 7399.39
+  },
+  "2025-02": {
+    "income": 3162.8,
+    "periodicLife": 1002.87,
+    "volatileLife": 281.95,
+    "consumption": 2203.78,
+    "school": 4,
+    "totalExpense": 3488.6
+  },
+  "2025-01": {
+    "income": 5227.42,
+    "periodicLife": 3542.55,
+    "volatileLife": 230.59,
+    "consumption": 7293.66,
+    "school": 17.4,
+    "totalExpense": 11066.8
+  },
+  "2024-12": {
+    "income": 21992.73,
+    "periodicLife": 3116.07,
+    "volatileLife": 53.43,
+    "consumption": 2019.83,
+    "school": 33.4,
+    "totalExpense": 5189.33
+  },
+  "2024-11": {
+    "income": 6426.32,
+    "periodicLife": 2517.16,
+    "volatileLife": 131.51,
+    "consumption": 10325.04,
+    "school": 19.18,
+    "totalExpense": 12973.71
+  },
+  "2024-10": {
+    "income": 6620.77,
+    "periodicLife": 2171.16,
+    "volatileLife": 101.59,
+    "consumption": 4475.02,
+    "school": 25,
+    "totalExpense": 6747.77
+  },
+  "2024-09": {
+    "income": 5552.07,
+    "periodicLife": 1561.39,
+    "volatileLife": 2407.07,
+    "consumption": 1124.47,
+    "school": 31,
+    "totalExpense": 5092.93
+  },
+  "2024-08": {
+    "income": 49.88,
+    "periodicLife": 620.76,
+    "volatileLife": 0,
+    "consumption": 484.49,
+    "school": 3,
+    "totalExpense": 1105.25
+  },
+  "2024-07": {
+    "income": 2663,
+    "periodicLife": 1969.71,
+    "volatileLife": 949.23,
+    "consumption": 562.59,
+    "school": 61.03,
+    "totalExpense": 3481.53
+  },
+  "2024-06": {
+    "income": 3450.08,
+    "periodicLife": 1133.04,
+    "volatileLife": 2061.57,
+    "consumption": 1521.71,
+    "school": 63.42,
+    "totalExpense": 4716.32
+  },
+  "2024-05": {
+    "income": 3569.29,
+    "periodicLife": 2982.56,
+    "volatileLife": 711.25,
+    "consumption": 2058.89,
+    "school": 68.5,
+    "totalExpense": 5752.7
+  },
+  "2024-04": {
+    "income": 2771.93,
+    "periodicLife": 823.67,
+    "volatileLife": 328.56,
+    "consumption": 1986.51,
+    "school": 50.5,
+    "totalExpense": 3138.74
+  },
+  "2024-03": {
+    "income": 2369.15,
+    "periodicLife": 1861.76,
+    "volatileLife": 153.4,
+    "consumption": 3424.47,
+    "school": 81.1,
+    "totalExpense": 5439.63
+  },
+  "2024-02": {
+    "income": 3442.91,
+    "periodicLife": 2685.32,
+    "volatileLife": 234.47,
+    "consumption": 441.72,
+    "school": 10.5,
+    "totalExpense": 3361.51
+  },
+  "2024-01": {
+    "income": 1622.93,
+    "periodicLife": 1893.49,
+    "volatileLife": 2858.99,
+    "consumption": 1937.97,
+    "school": 23.5,
+    "totalExpense": 6690.45
+  },
+  "2023-12": {
+    "income": 12406.56,
+    "periodicLife": 1553.84,
+    "volatileLife": 0,
+    "consumption": 462.17,
+    "school": 52.5,
+    "totalExpense": 2016.01
+  },
+  "2023-11": {
+    "income": 2493.59,
+    "periodicLife": 1094.49,
+    "volatileLife": 14.72,
+    "consumption": 202.38,
+    "school": 64.22,
+    "totalExpense": 1311.59
+  },
+  "2023-10": {
+    "income": 4413.71,
+    "periodicLife": 1112.95,
+    "volatileLife": 0,
+    "consumption": 738.23,
+    "school": 63.76,
+    "totalExpense": 1851.18
+  },
+  "2023-09": {
+    "income": 3747.11,
+    "periodicLife": 705.7,
+    "volatileLife": 0,
+    "consumption": 141.15,
+    "school": 177.26,
+    "totalExpense": 846.85
+  },
+  "2023-08": {
+    "income": 3156.47,
+    "periodicLife": 788.14,
+    "volatileLife": 0,
+    "consumption": 370.2,
+    "school": 34.68,
+    "totalExpense": 1158.34
+  },
+  "2023-07": {
+    "income": 2252.78,
+    "periodicLife": 1432.06,
+    "volatileLife": 0,
+    "consumption": 249.5,
+    "school": 55.3,
+    "totalExpense": 1681.56
+  },
+  "2023-06": {
+    "income": 2550.56,
+    "periodicLife": 857.39,
+    "volatileLife": 0,
+    "consumption": 346.44,
+    "school": 94,
+    "totalExpense": 1203.83
+  },
+  "2023-05": {
+    "income": 3246.57,
+    "periodicLife": 1286.62,
+    "volatileLife": 108.16,
+    "consumption": 235.25,
+    "school": 68.3,
+    "totalExpense": 1630.03
+  },
+  "2023-04": {
+    "income": 2329.62,
+    "periodicLife": 1086.96,
+    "volatileLife": 0,
+    "consumption": 156.5,
+    "school": 67.88,
+    "totalExpense": 1243.46
+  },
+  "2023-03": {
+    "income": 8602.74,
+    "periodicLife": 1452.09,
+    "volatileLife": 0,
+    "consumption": 66.69,
+    "school": 10,
+    "totalExpense": 1518.78
+  },
+  "2023-02": {
+    "income": 2752.82,
+    "periodicLife": 611.26,
+    "volatileLife": 0,
+    "consumption": 32.6,
+    "school": 0,
+    "totalExpense": 643.86
+  },
+  "2023-01": {
+    "income": 3098.82,
+    "periodicLife": 363.06,
+    "volatileLife": 0,
+    "consumption": 62.6,
+    "school": 0,
+    "totalExpense": 425.66
+  },
+  "2022-12": {
+    "income": 8050,
+    "periodicLife": 0,
+    "volatileLife": 0,
+    "consumption": 0,
+    "school": 0,
+    "totalExpense": 0
+  },
+  "2022-11": {
+    "income": 0,
+    "periodicLife": 156.16,
+    "volatileLife": 0,
+    "consumption": 0,
+    "school": 0,
+    "totalExpense": 156.16
+  },
+  "2022-10": {
+    "income": 0,
+    "periodicLife": 0,
+    "volatileLife": 0,
+    "consumption": 120.4,
+    "school": 0,
+    "totalExpense": 120.4
+  },
+  "2022-09": {
+    "income": 0,
+    "periodicLife": 0,
+    "volatileLife": 0,
+    "consumption": 0,
+    "school": 0,
+    "totalExpense": 0
+  },
+  "2022-07": {
+    "income": 0,
+    "periodicLife": 0,
+    "volatileLife": 0,
+    "consumption": 0,
+    "school": 0,
+    "totalExpense": 0
+  },
+  "2022-06": {
+    "income": 0,
+    "periodicLife": 0,
+    "volatileLife": 0,
+    "consumption": 212.98,
+    "school": 0,
+    "totalExpense": 212.98
+  },
+  "2022-05": {
+    "income": 244,
+    "periodicLife": 0,
+    "volatileLife": 0,
+    "consumption": 38,
+    "school": 0,
+    "totalExpense": 38
+  },
+  "2022-04": {
+    "income": 500,
+    "periodicLife": 0,
+    "volatileLife": 0,
+    "consumption": 164.68,
+    "school": 0,
+    "totalExpense": 164.68
+  },
+  "2022-02": {
+    "income": 0,
+    "periodicLife": 0,
+    "volatileLife": 0,
+    "consumption": 0,
+    "school": 0,
+    "totalExpense": 0
+  },
+  "2022-01": {
+    "income": 37851.55,
+    "periodicLife": 14659.39,
+    "volatileLife": 0,
+    "consumption": 2500.29,
+    "school": 0,
+    "totalExpense": 17159.68
+  },
+  "2021-12": {
+    "income": 0,
+    "periodicLife": 0,
+    "volatileLife": 0,
+    "consumption": 71.47,
+    "school": 0,
+    "totalExpense": 71.47
+  },
+  "2021-10": {
+    "income": 0,
+    "periodicLife": 0,
+    "volatileLife": 0,
+    "consumption": 0,
+    "school": 0,
+    "totalExpense": 0
+  },
+  "2021-09": {
+    "income": 0,
+    "periodicLife": 0,
+    "volatileLife": 0,
+    "consumption": 0,
+    "school": 0,
+    "totalExpense": 0
+  },
+  "2021-07": {
+    "income": 100,
+    "periodicLife": 0,
+    "volatileLife": 0,
+    "consumption": 0,
+    "school": 0,
+    "totalExpense": 0
+  },
+  "2021-06": {
+    "income": 0,
+    "periodicLife": 0,
+    "volatileLife": 0,
+    "consumption": 0,
+    "school": 0,
+    "totalExpense": 0
+  },
+  "2021-01": {
+    "income": 26937.08,
+    "periodicLife": 5013.93,
+    "volatileLife": 0,
+    "consumption": 389.15,
+    "school": 0,
+    "totalExpense": 5403.08
+  }
+}

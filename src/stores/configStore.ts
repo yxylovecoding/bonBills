@@ -21,8 +21,8 @@ const DEFAULT_CONFIG: AppConfig = {
   creditPrepDays: 5,
   reconcileDates: [1, 11, 21],
   incomeItems: [
-    { id: 'advisor', name: '导师劳务费', amount: 1500, isActive: true },
-    { id: 'subsidy', name: '院校低保', amount: 680, isActive: true },
+    { id: 'advisor', name: '导师劳务费', amount: 1500, payDay: 15, isActive: true },
+    { id: 'subsidy', name: '院校低保',   amount: 680,  payDay: 1,  isActive: true },
   ],
 };
 

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Card from '../components/Card';
 import { formatCurrency } from '../components/CurrencyDisplay';
@@ -6,6 +6,8 @@ import { useSnapshotStore } from '../stores/snapshotStore';
 import { useConfigStore } from '../stores/configStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { useCalendarStore } from '../stores/calendarStore';
+import { usePrefsStore } from '../stores/prefsStore';
+import { useDragSort } from '../hooks/useDragSort';
 import { calcBudget } from '../calculations/budget';
 import { calcHistoryStats } from '../calculations/history';
 import { calcRebalance } from '../calculations/rebalance';
@@ -36,6 +38,21 @@ export default function ReconcilePage() {
   const { records } = useMonthlyStore();
   const { tagMap } = useCalendarStore();
 
+  const { accountOrder, setAccountOrder } = usePrefsStore();
+  const acctDrag = useDragSort(accountOrder, setAccountOrder, 'vertical');
+
+  // 账户余额本地编辑
+  const [localAccounts, setLocalAccounts] = useState({
+    credit:     String(current.accounts.credit),
+    campusCard: String(current.accounts.campusCard),
+    livingBank: String(current.accounts.livingBank),
+  });
+  const syncAccounts = (next = localAccounts) => updateAccounts({
+    credit:     parseFloat(next.credit)     || 0,
+    campusCard: parseFloat(next.campusCard) || 0,
+    livingBank: parseFloat(next.livingBank) || 0,
+  });
+
   // 已确认转账（累计）+ 本次输入
   const [confirmed, setConfirmed] = useState<Record<TransferKey, number>>(
     current.transfersDone as Record<TransferKey, number>,
@@ -50,8 +67,17 @@ export default function ReconcilePage() {
   // 理财本次投入金额
   const [investInput, setInvestInput] = useState('');
 
+  // 理财持仓本地编辑
+  const [localHoldings, setLocalHoldings] = useState<Record<InvestKey, string>>(
+    () => Object.fromEntries((Object.keys(current.investHoldings) as InvestKey[]).map((k) => [k, String(current.investHoldings[k])])) as Record<InvestKey, string>
+  );
+  const holdingInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const syncHolding = (k: InvestKey) => {
+    updateHoldings({ ...current.investHoldings, [k]: parseFloat(localHoldings[k]) || 0 });
+  };
+
   // 今天
-  const today = new Date(2026, 3, 11); // 对账日固定（后续改为动态）
+  const today = new Date();
 
   // 历史均值
   const stats = useMemo(() => calcHistoryStats(records), [records]);
@@ -62,28 +88,58 @@ export default function ReconcilePage() {
     [tagMap],
   );
 
+  // 当月各标签天数（日薪计算用）
+  const curYM = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  const tagCountThisMonth = useMemo(() => {
+    const counts: Record<string, number> = { intern: 0, school: 0, home: 0, travel: 0 };
+    for (const [date, tag] of Object.entries(tagMap)) {
+      if (date.startsWith(curYM)) counts[tag] = (counts[tag] || 0) + 1;
+    }
+    return counts;
+  }, [tagMap, curYM]);
+
+  // 有效收入项（日薪模式按标签天数计算实际金额）
+  const effectiveIncomeItems = useMemo(() =>
+    config.incomeItems.map((item) => {
+      if (item.isActive && item.dailyRate !== undefined && item.tagKind) {
+        return { ...item, amount: item.dailyRate * (tagCountThisMonth[item.tagKind] || 0) };
+      }
+      return item;
+    }), [config.incomeItems, tagCountThisMonth]);
+
+  const effectiveConfig = useMemo(() => ({ ...config, incomeItems: effectiveIncomeItems }), [config, effectiveIncomeItems]);
+
   // 预算计算
   const budget = useMemo(
-    () => calcBudget(config, stats, confirmed, tags, today),
-    [config, stats, confirmed, tags],
+    () => calcBudget(effectiveConfig, stats, confirmed, tags, today),
+    [effectiveConfig, stats, confirmed, tags],
   );
 
-  // 理财再平衡建议
-  const rebalance = useMemo(
+  // 理财再平衡建议（算法值）
+  const rebalanceSuggested = useMemo(
     () => calcRebalance(current.investHoldings, config.investAllocTargets, parseFloat(investInput) || 0),
     [current.investHoldings, config.investAllocTargets, investInput],
   );
   const investKeys = Object.keys(current.investHoldings) as InvestKey[];
+
+  // 可手动覆盖的加仓金额（investInput 变化时重置为算法建议值）
+  const [localRebalance, setLocalRebalance] = useState<Record<InvestKey, string>>(
+    () => Object.fromEntries(investKeys.map((k) => [k, '0'])) as Record<InvestKey, string>
+  );
+  // 本轮对账累计已加仓
+  const [confirmedInvest, setConfirmedInvest] = useState<Record<InvestKey, number>>(
+    () => Object.fromEntries(investKeys.map((k) => [k, 0])) as Record<InvestKey, number>
+  );
+  const rebalanceInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  // investInput 变化时将算法建议值刷入本地编辑
+  useEffect(() => {
+    setLocalRebalance(
+      Object.fromEntries(investKeys.map((k) => [k, String(Math.round(rebalanceSuggested[k]))])) as Record<InvestKey, string>
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [investInput]);
   const totalInvest = investKeys.reduce((s, k) => s + current.investHoldings[k], 0);
 
-  const handleInvestExecute = () => {
-    const newFunds = parseFloat(investInput) || 0;
-    if (newFunds <= 0) return;
-    const newHoldings = { ...current.investHoldings };
-    for (const k of investKeys) newHoldings[k] = +(newHoldings[k] + rebalance[k]).toFixed(2);
-    updateHoldings(newHoldings);
-    setInvestInput('');
-  };
 
   // 一键执行转账
   const handleExecuteAll = () => {
@@ -115,30 +171,41 @@ export default function ReconcilePage() {
     setTimeout(() => setSaved(false), 2000);
   };
 
-  // 预算明细（静态说明，后续可从计算引擎生成）
+  const todayDate = today.getDate();
+  const weekEnd = todayDate + Math.min(budget.daysLeftInMonth, 7);
+
+  const makeIncomeNote = (i: typeof effectiveIncomeItems[0], base: string) =>
+    i.dailyRate !== undefined && i.tagKind
+      ? `${base}（${tagCountThisMonth[i.tagKind] || 0}天×¥${i.dailyRate}/天）`
+      : base;
+
+  // 预算明细（收入按发薪日判断是否已发，日薪项显示计算方式）
   const budgetDetails: Record<BudgetKey, { income: BudgetDetailItem[]; expense: BudgetDetailItem[] }> = {
     weekly: {
-      income: config.incomeItems.filter(i => i.isActive).map(i => ({
-        icon: '💰', label: i.name, amount: Math.round(i.amount * 7 / 30 * 100) / 100, note: '按7天均摊',
+      income: effectiveIncomeItems.filter(i => i.isActive && i.payDay > todayDate && i.payDay <= weekEnd).map(i => ({
+        icon: '💰', label: i.name, amount: i.amount, note: makeIncomeNote(i, `${i.payDay}号发薪`),
       })),
       expense: [
-        { icon: '🎓', label: '校园卡消费', amount: Math.round(stats.schoolDailyAvg * Math.min(budget.daysLeftInMonth, 7)), note: `均 ¥${stats.schoolDailyAvg.toFixed(0)}/天` },
-        { icon: '🏦', label: '生活日常', amount: Math.round((stats.periodicLifeAvg + stats.volatileLifeAvg) / 30 * 7), note: '周期+波动均摊' },
+        { icon: '🔄', label: '周期生活', amount: Math.round(stats.periodicLifeAvg / 30 * 7), note: '月均均摊7天' },
+        { icon: '🌊', label: '波动生活', amount: Math.round(stats.volatileLifeAvg / 30 * 7), note: '月均均摊7天' },
+        { icon: '🛍️', label: '消费',     amount: Math.round(stats.consumptionAvg / 30 * 7), note: '月均均摊7天' },
       ],
     },
     monthly: {
-      income: config.incomeItems.filter(i => i.isActive).map(i => ({
-        icon: '💰', label: i.name, amount: Math.round(i.amount * budget.daysLeftInMonth / 30 * 100) / 100, note: `剩余${budget.daysLeftInMonth}天`,
-      })),
+      income: effectiveIncomeItems.filter(i => i.isActive).map(i => {
+        const received = i.payDay <= todayDate;
+        return { icon: received ? '✅' : '💰', label: i.name, amount: received ? 0 : i.amount, note: makeIncomeNote(i, received ? `${i.payDay}号已发` : `${i.payDay}号待发`) };
+      }),
       expense: [
         { icon: '💳', label: '信用卡还款', amount: current.accounts.credit, note: `${config.creditPayDate}号还款` },
-        { icon: '🏦', label: '周期生活支出', amount: Math.round(stats.periodicLifeAvg), note: '月均' },
-        { icon: '🌊', label: '波动生活支出', amount: Math.round(stats.volatileLifeAvg * budget.daysLeftInMonth / 30), note: '按剩余天数' },
+        { icon: '🔄', label: '周期生活', amount: Math.round(stats.periodicLifeAvg * budget.daysLeftInMonth / 30), note: '月均均摊剩余天' },
+        { icon: '🌊', label: '波动生活', amount: Math.round(stats.volatileLifeAvg * budget.daysLeftInMonth / 30), note: '月均均摊剩余天' },
+        { icon: '🛍️', label: '消费',     amount: Math.round(stats.consumptionAvg * budget.daysLeftInMonth / 30), note: '月均均摊剩余天' },
       ],
     },
     beyond: {
-      income: config.incomeItems.filter(i => i.isActive).map(i => ({
-        icon: '💰', label: i.name, amount: i.amount, note: '次月全额',
+      income: effectiveIncomeItems.filter(i => i.isActive).map(i => ({
+        icon: '💰', label: i.name, amount: i.amount, note: makeIncomeNote(i, `次月${i.payDay}号`),
       })),
       expense: [
         { icon: '📈', label: '定投计划', amount: budget.recommended.invest, note: '月末执行' },
@@ -156,49 +223,110 @@ export default function ReconcilePage() {
   ];
 
   const reconcileMode = today.getDate() === 1 ? '月初归档' : today.getDate() <= 15 ? '常规（11号）' : '常规（21号）';
+  const isMonthEnd = reconcileMode === '月初归档'; // 月初 = 上月月末结算
 
-  // 信用卡提醒
+  const [doneSteps, setDoneSteps] = useState<Set<number>>(new Set());
+  const toggleDone = (i: number) =>
+    setDoneSteps((prev) => { const next = new Set(prev); next.has(i) ? next.delete(i) : next.add(i); return next; });
+
+  const ALL_STEPS = [
+    { label: '日历标记',   note: '标记本月各天状态',   monthEndOnly: false, action: () => navigate('/calendar') },
+    { label: '更新余额',   note: '填写各账户最新余额', monthEndOnly: false, action: () => document.getElementById('sec-accounts')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
+    { label: '预算计算',   note: '查看三层预算明细',   monthEndOnly: false, action: () => document.getElementById('sec-budget')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
+    { label: '执行转账',   note: '划转资金到各账户',   monthEndOnly: false, action: () => document.getElementById('sec-transfer')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
+    { label: '理财再平衡', note: '按比例投入新资金',   monthEndOnly: true,  action: () => document.getElementById('sec-invest')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
+    { label: '历史记录',   note: '录入本月收支数据',   monthEndOnly: true,  action: () => navigate('/history') },
+  ];
+  const STEPS = ALL_STEPS.filter((s) => !s.monthEndOnly || isMonthEnd);
 
   return (
     <div>
       <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 4px' }}>对账 / 转账</h1>
       <p style={{ fontSize: 13, color: C.sub, margin: '0 0 16px' }}>
-        今天 2026-04-11，对账模式：<span style={{ color: C.blue, fontWeight: 600 }}>{reconcileMode}</span>
+        今天 {today.getFullYear()}-{String(today.getMonth()+1).padStart(2,'0')}-{String(today.getDate()).padStart(2,'0')}，对账模式：<span style={{ color: C.blue, fontWeight: 600 }}>{reconcileMode}</span>
       </p>
 
       {/* 对账流程引导 */}
-      <Card title="对账流程" subtitle="按步骤完成各项操作">
-        {[
-          { num: '①', label: '日历标记', note: '标记本月各天状态', path: '/calendar', done: false },
-          { num: '②', label: '更新账户余额', note: '在主页填写各账户余额', path: '/', done: false },
-          { num: '③', label: '预算计算', note: '查看预算分层明细', path: null, done: false },
-          { num: '④', label: '执行转账', note: '填写并执行各账户划转', path: null, done: false },
-          { num: '⑤', label: '理财再平衡', note: '输入新资金，按比例分配', path: null, done: false },
-          { num: '⑥', label: '历史记录', note: '录入本月数据', path: '/history', done: false },
-        ].map((step) => (
-          <div key={step.num} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 0', borderBottom: '1px solid #f1f3f4' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 16, fontWeight: 700, color: C.blue, width: 24 }}>{step.num}</span>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: '#202124' }}>{step.label}</div>
+      <Card title="对账流程">
+        {STEPS.map((step, i) => {
+          const done = doneSteps.has(i);
+          return (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: i < STEPS.length - 1 ? '1px solid #f1f3f4' : 'none' }}>
+              {/* 完成键 */}
+              <button
+                onClick={() => toggleDone(i)}
+                style={{
+                  flexShrink: 0, width: 22, height: 22, borderRadius: '50%',
+                  border: `2px solid ${done ? C.green : '#dadce0'}`,
+                  backgroundColor: done ? C.green : '#fff',
+                  color: '#fff', fontSize: 12, fontWeight: 700,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                {done ? '✓' : ''}
+              </button>
+              {/* 文字 */}
+              <div style={{ flex: 1, opacity: done ? 0.45 : 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#202124', textDecoration: done ? 'line-through' : 'none' }}>{step.label}</div>
                 <div style={{ fontSize: 11, color: C.sub }}>{step.note}</div>
               </div>
-            </div>
-            {step.path ? (
+              {/* 跳转键 */}
               <button
-                onClick={() => navigate(step.path!)}
-                style={{ fontSize: 12, color: C.blue, backgroundColor: '#e8f0fe', border: 'none', borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
+                onClick={step.action}
+                style={{ flexShrink: 0, fontSize: 12, color: C.blue, backgroundColor: '#e8f0fe', border: 'none', borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontWeight: 600 }}
               >
                 前往 →
               </button>
-            ) : (
-              <span style={{ fontSize: 12, color: C.sub, backgroundColor: '#f1f3f4', borderRadius: 8, padding: '5px 12px' }}>当前页</span>
-            )}
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </Card>
 
+      {/* 账户余额 */}
+      <div id="sec-accounts">
+      <Card title="账户余额" subtitle="点击金额可编辑">
+        {(() => {
+          const ACCT_META = {
+            credit:     { icon: '💳', name: '信用卡 (待还)', bg: '#fce8e6', border: '#f28b82' },
+            campusCard: { icon: '🎓', name: '校园卡',         bg: '#f1f3f4', border: '#dadce0' },
+            livingBank: { icon: '🏦', name: '生活',           bg: '#e8f0fe', border: '#a8c7fa' },
+          } as const;
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {accountOrder.map((key, i) => {
+                const r = ACCT_META[key];
+                const dragging = acctDrag.draggingIdx === i;
+                const hp = acctDrag.handleProps(i);
+                return (
+                  <div
+                    key={key}
+                    ref={(el) => acctDrag.itemRef(el, i)}
+                    {...hp}
+                    style={{ ...hp.style, display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: r.bg, borderRadius: 12, padding: '10px 14px', border: `1.5px solid ${r.border}`, opacity: dragging ? 0.5 : 1, transition: 'opacity 0.15s', cursor: 'default' }}
+                  >
+                    <span style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>{r.icon} {r.name}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <span style={{ fontSize: 13, color: '#5f6368' }}>¥</span>
+                      <input
+                        type="number" inputMode="decimal"
+                        value={localAccounts[key]}
+                        onChange={(e) => { const v = e.target.value; setLocalAccounts((p) => ({ ...p, [key]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v })); }}
+                        onFocus={(e) => e.target.select()}
+                        onBlur={() => syncAccounts()}
+                        style={{ width: 90, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124', textAlign: 'right' }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+      </Card>
+      </div>
+
       {/* Step 1: 预算计算 */}
+      <div id="sec-budget">
       <Card title="① 预算计算" subtitle="点击行查看明细">
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: C.sub, marginBottom: 12 }}>
           <span>本月剩余 {budget.daysLeftInMonth} 天</span>
@@ -268,8 +396,10 @@ export default function ReconcilePage() {
           );
         })}
       </Card>
+      </div>
 
       {/* Step 2: 建议转账 */}
+      <div id="sec-transfer">
       <Card title="② 建议转账" subtitle="填写各账户本次转账金额，一键执行">
         <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
           <thead>
@@ -295,7 +425,7 @@ export default function ReconcilePage() {
                     <input
                       type="number"
                       value={pending[key]}
-                      onChange={(e) => setPending((p) => ({ ...p, [key]: e.target.value }))}
+                      onChange={(e) => { const v = e.target.value; setPending((p) => ({ ...p, [key]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v })); }}
                       placeholder="0"
                       style={{ width: '100%', border: '1.5px solid #fbbf24', borderRadius: 8, padding: '6px 8px', fontSize: 13, textAlign: 'right', fontVariantNumeric: 'tabular-nums', outline: 'none', backgroundColor: '#fffbeb' }}
                     />
@@ -325,69 +455,113 @@ export default function ReconcilePage() {
           ✓ 一键执行转账
         </button>
       </Card>
+      </div>
 
-      {/* Step 3: 理财再平衡 */}
-      <Card title="③ 理财投入 & 再平衡" subtitle="输入本次投入金额，按目标比例分配">
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', border: '1.5px solid #fbbf24', borderRadius: 10, padding: '10px 12px', backgroundColor: '#fffbeb' }}>
-            <span style={{ color: C.sub, fontSize: 14, marginRight: 4 }}>¥</span>
-            <input
-              type="number" inputMode="decimal" value={investInput}
-              onChange={(e) => setInvestInput(e.target.value)}
-              placeholder="本次投入金额"
-              style={{ flex: 1, border: 'none', outline: 'none', fontSize: 14, fontVariantNumeric: 'tabular-nums', backgroundColor: 'transparent' }}
-            />
-          </div>
+      {/* Step 3: 理财配置 & 再平衡 */}
+      <div id="sec-invest">
+      <Card title="③ 理财配置 & 再平衡" subtitle="编辑持仓金额，输入本次投入后执行">
+        {/* 色条 */}
+        <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginBottom: 14 }}>
+          {investKeys.map((k) => (
+            <div key={k} style={{ width: `${totalInvest > 0 ? (current.investHoldings[k] / totalInvest) * 100 : 0}%`, backgroundColor: investMeta[k].color }} />
+          ))}
         </div>
-        <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+
+        {/* 持仓表 */}
+        <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse', marginBottom: 16 }}>
           <thead>
             <tr style={{ borderBottom: '2px solid #e8eaed' }}>
               <th style={thStyle}>品类</th>
-              <th style={{ ...thStyle, textAlign: 'right' }}>当前</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>当前金额</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>占比</th>
               <th style={{ ...thStyle, textAlign: 'right' }}>目标%</th>
-              <th style={{ ...thStyle, textAlign: 'right', color: C.orange }}>本次加仓</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>偏差</th>
+              <th style={{ ...thStyle, textAlign: 'right', color: C.orange }}>需加</th>
+              <th style={{ ...thStyle, textAlign: 'right', color: C.green }}>已加</th>
             </tr>
           </thead>
           <tbody>
             {investKeys.map((k, i) => {
               const cur = current.investHoldings[k];
+              const pct = totalInvest > 0 ? cur / totalInvest : 0;
               const target = config.investAllocTargets[k];
-              const add = rebalance[k];
+              const diff = pct - target;
+              const diffColor = Math.abs(diff) <= 0.02 ? C.green : diff > 0 ? C.red : C.blue;
+              const suggested = Math.round(rebalanceSuggested[k]);
+              const done = confirmedInvest[k];
+              const remaining = Math.max(suggested - done, 0);
               return (
                 <tr key={k} style={{ backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff', borderBottom: '1px solid #f1f3f4' }}>
-                  <td style={{ padding: '9px 0', fontWeight: 500 }}>
+                  <td style={{ padding: '8px 0', fontWeight: 500 }}>
                     <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', backgroundColor: investMeta[k].color, marginRight: 6, verticalAlign: 'middle' }} />
                     {investMeta[k].label}
                   </td>
-                  <td style={{ padding: '9px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: C.sub }}>
-                    ¥{formatCurrency(cur)}<br />
-                    <span style={{ fontSize: 11 }}>{totalInvest > 0 ? ((cur / totalInvest) * 100).toFixed(1) : '0'}%</span>
+                  <td style={{ padding: '4px 0', textAlign: 'right' }}>
+                    <input
+                      ref={(el) => { holdingInputRefs.current[i] = el; }}
+                      type="number" inputMode="decimal"
+                      value={localHoldings[k]}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setLocalHoldings((p) => ({ ...p, [k]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }));
+                      }}
+                      onFocus={(e) => e.target.select()}
+                      onBlur={() => syncHolding(k)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { syncHolding(k); holdingInputRefs.current[i + 1]?.focus(); }
+                      }}
+                      style={{ width: 80, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124', textAlign: 'right' }}
+                    />
                   </td>
-                  <td style={{ padding: '9px 0', textAlign: 'right', color: C.sub, fontSize: 12 }}>{(target * 100).toFixed(1)}%</td>
-                  <td style={{ padding: '9px 0', textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: add > 0 ? C.orange : C.sub }}>
-                    {add > 0 ? `+¥${formatCurrency(add)}` : '—'}
+                  <td style={{ padding: '8px 0', textAlign: 'right', color: C.sub, fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>{(pct * 100).toFixed(1)}%</td>
+                  <td style={{ padding: '8px 0', textAlign: 'right', color: C.sub, fontSize: 12 }}>{(target * 100).toFixed(1)}%</td>
+                  <td style={{ padding: '8px 0', textAlign: 'right', fontSize: 12, fontWeight: 500, color: diffColor, fontVariantNumeric: 'tabular-nums' }}>{diff >= 0 ? '+' : ''}{(diff * 100).toFixed(1)}%</td>
+                  <td style={{ padding: '8px 0', textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: remaining > 0 ? C.orange : C.sub }}>
+                    {suggested > 0 ? (remaining > 0 ? `+${formatCurrency(remaining)}` : '✓') : '—'}
+                  </td>
+                  <td style={{ padding: '4px 0', textAlign: 'right' }}>
+                    <input
+                      ref={(el) => { rebalanceInputRefs.current[i] = el; }}
+                      type="number" inputMode="decimal"
+                      value={localRebalance[k]}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setLocalRebalance((p) => ({ ...p, [k]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }));
+                      }}
+                      onFocus={(e) => e.target.select()}
+                      onBlur={() => {
+                        const add = parseFloat(localRebalance[k]) || 0;
+                        if (add <= 0) return;
+                        const newHolding = +(current.investHoldings[k] + add).toFixed(2);
+                        updateHoldings({ ...current.investHoldings, [k]: newHolding });
+                        setLocalHoldings((p) => ({ ...p, [k]: String(newHolding) }));
+                        setConfirmedInvest((prev) => ({ ...prev, [k]: +(prev[k] + add).toFixed(2) }));
+                        setLocalRebalance((p) => ({ ...p, [k]: '0' }));
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') rebalanceInputRefs.current[i + 1]?.focus();
+                      }}
+                      style={{ width: 72, border: 'none', borderBottom: `1px solid ${C.green}`, outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.green, textAlign: 'right' }}
+                    />
                   </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
-        <button
-          onClick={handleInvestExecute}
-          disabled={!(parseFloat(investInput) > 0)}
-          style={{
-            width: '100%', marginTop: 16,
-            backgroundColor: parseFloat(investInput) > 0 ? C.orange : '#e8eaed',
-            color: parseFloat(investInput) > 0 ? '#fff' : C.sub,
-            fontWeight: 700, fontSize: 15, padding: '13px 0',
-            borderRadius: 12, border: 'none',
-            cursor: parseFloat(investInput) > 0 ? 'pointer' : 'default',
-            transition: 'background-color 0.2s', letterSpacing: 1,
-          }}
-        >
-          ✓ 一键执行再平衡
-        </button>
+
+        {/* 本次投入总额（仅显示，供参考） */}
+        <div style={{ display: 'flex', alignItems: 'center', border: '1.5px solid #fbbf24', borderRadius: 10, padding: '10px 12px', backgroundColor: '#fffbeb', marginBottom: 12 }}>
+          <span style={{ color: C.sub, fontSize: 14, marginRight: 4 }}>本次投入 ¥</span>
+          <input
+            type="number" inputMode="decimal" value={investInput}
+            onChange={(e) => { const v = e.target.value; setInvestInput(/^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v); }}
+            placeholder="输入总额，自动分配到各行"
+            style={{ flex: 1, border: 'none', outline: 'none', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', backgroundColor: 'transparent', textAlign: 'right' }}
+          />
+        </div>
       </Card>
+      </div>
 
       {/* 保存 */}
       <button
