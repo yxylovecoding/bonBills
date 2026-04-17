@@ -5,7 +5,6 @@ import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
 import { useSnapshotStore } from '../stores/snapshotStore';
 import { useConfigStore } from '../stores/configStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
-import { usePrefsStore } from '../stores/prefsStore';
 import { useCalendarStore } from '../stores/calendarStore';
 import { tagMeta } from '../data/mockData';
 import { calcHistoryStats } from '../calculations/history';
@@ -28,13 +27,10 @@ export default function HomePage() {
   const { config, setConfig } = useConfigStore();
   const { records } = useMonthlyStore();
   const { tagMap } = useCalendarStore();
-  const { accountOrder } = usePrefsStore();
 
   const stats  = useMemo(() => calcHistoryStats(records), [records]);
 
   const totalInvest = Object.values(current.investHoldings).reduce((s, v) => s + v, 0);
-  const netWorth = totalInvest + current.accounts.incomeBank + current.accounts.livingBank
-                 + current.accounts.consumptionBank - current.accounts.credit;
 
   const today        = new Date();
   const daysInMonth  = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
@@ -104,9 +100,7 @@ export default function HomePage() {
   };
   const removeIncomeItem = (id: string) => syncIncome(localIncome.filter((i) => i.id !== id));
 
-  // 信用卡还款提醒
   const d = today.getDate();
-  const showPayWarning = d >= 8 && d <= config.creditPayDate;
 
   // 场景日均（用 tagMeta 标签）
   const sceneDailyRows = [
@@ -115,13 +109,6 @@ export default function HomePage() {
     { tagKind: 'intern' as TagKind, val: 156.3 },
     { tagKind: 'travel' as TagKind, val: 312.0 },
   ];
-
-  // 账户余额显示（使用 accountOrder 偏好）
-  const ACCT_META = {
-    credit:     { icon: '💳', name: '信用卡 (待还)', bg: '#fce8e6', border: '#f28b82' },
-    campusCard: { icon: '🎓', name: '校园卡',         bg: '#f1f3f4', border: '#dadce0' },
-    livingBank: { icon: '🏦', name: '生活',           bg: '#e8f0fe', border: '#a8c7fa' },
-  } as const;
 
   return (
     <div>
@@ -140,14 +127,6 @@ export default function HomePage() {
           <div style={{ fontSize: 11, color: C.sub }}>{fire.lifeClockPeriod}</div>
         </div>
       </div>
-
-      {/* 卡片1: 财务概览（只显示净资产） */}
-      <Card title="财务概览">
-        <div style={{ marginBottom: 4 }}>
-          <div style={{ fontSize: 12, color: C.sub, marginBottom: 4 }}>净资产</div>
-          <CurrencyDisplay value={netWorth} size="xl" color={netWorth >= 0 ? C.blue : C.red} />
-        </div>
-      </Card>
 
       {/* 卡片2: 月度快照 */}
       <Card title="月度快照" subtitle="历史均值">
@@ -218,26 +197,6 @@ export default function HomePage() {
         <StatRow label="理财总额" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(totalInvest)}</span>} />
         <StatRow label="月需存入" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(fire.monthlyNeeded)}</span>} />
         <StatRow label="当前月结余" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: fire.monthlySurplus >= 0 ? C.green : C.red }}>{fmt万(fire.monthlySurplus)}</span>} />
-      </Card>
-
-      {/* 账户余额只读（在对账页编辑） */}
-      <Card title="账户余额" subtitle="在对账页编辑">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {accountOrder.map((key) => {
-            const r = ACCT_META[key];
-            return (
-              <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: r.bg, borderRadius: 12, padding: '10px 14px', border: `1.5px solid ${r.border}` }}>
-                <span style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>{r.icon} {r.name}</span>
-                <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124' }}>¥{formatCurrency(current.accounts[key])}</span>
-              </div>
-            );
-          })}
-        </div>
-        {showPayWarning && (
-          <div style={{ marginTop: 12, fontSize: 13, color: '#c5221f', backgroundColor: '#fce8e6', border: '1px solid #f28b82', borderRadius: 12, padding: '10px 14px' }}>
-            ⚠️ 信用卡 {config.creditPayDate} 号还款，剩余 {config.creditPayDate - d} 天
-          </div>
-        )}
       </Card>
 
       {/* 固定收入 */}
