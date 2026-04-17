@@ -14,16 +14,13 @@ import type { IncomeItem, TagKind } from '../models/types';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 
-function ProgressBar({ progress, color = C.blue, height = 8 }: { progress: number; color?: string; height?: number }) {
-  return (
-    <div style={{ height, backgroundColor: '#e8eaed', borderRadius: height / 2, overflow: 'hidden' }}>
-      <div style={{ height: '100%', width: `${Math.min(progress * 100, 100)}%`, backgroundColor: color, borderRadius: height / 2, transition: 'width 0.3s' }} />
-    </div>
-  );
-}
-
 function Divider() {
   return <div style={{ height: 1, backgroundColor: '#e8eaed', margin: '10px 0' }} />;
+}
+
+// 以万为单位格式化
+function fmt万(v: number) {
+  return (v / 10000).toFixed(2) + '万';
 }
 
 export default function HomePage() {
@@ -34,17 +31,29 @@ export default function HomePage() {
   const { accountOrder } = usePrefsStore();
 
   const stats  = useMemo(() => calcHistoryStats(records), [records]);
-  const fire   = useMemo(() => calcFire(config, stats, current.investHoldings ? Object.values(current.investHoldings).reduce((s, v) => s + v, 0) : 0), [config, stats, current.investHoldings]);
 
   const totalInvest = Object.values(current.investHoldings).reduce((s, v) => s + v, 0);
-
-  const netWorth = totalInvest + current.accounts.campusCard + current.accounts.livingBank + current.accounts.consumptionBank - current.accounts.credit;
+  const netWorth = totalInvest + current.accounts.incomeBank + current.accounts.livingBank
+                 + current.accounts.consumptionBank - current.accounts.credit;
 
   const today        = new Date();
   const daysInMonth  = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-  const monthProgress = today.getDate() / daysInMonth;
 
   const monthlySurplus = stats.monthlyIncomeAvg - stats.totalExpenseAvg;
+
+  // FIRE 模式切换：'life' = 周期+波动；'all' = 周期+波动+消费
+  const [fireMode, setFireMode] = useState<'life' | 'all'>('all');
+  const fireExpenseAvg = fireMode === 'life'
+    ? stats.periodicLifeAvg + stats.volatileLifeAvg
+    : stats.totalExpenseAvg;
+  const fireStats = useMemo(
+    () => ({ ...stats, totalExpenseAvg: fireExpenseAvg }),
+    [stats, fireExpenseAvg],
+  );
+  const fire = useMemo(
+    () => calcFire(config, fireStats, totalInvest),
+    [config, fireStats, totalInvest],
+  );
 
   // 当月各标签天数（用于日薪计算）
   const curYM = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
@@ -80,16 +89,13 @@ export default function HomePage() {
     const items = localIncome.map((item) => {
       if (item.id !== id) return item;
       if (item.dailyRate !== undefined) {
-        // 切回固定模式：清除日薪字段
         const { dailyRate: _dr, tagKind: _tk, ...rest } = item;
         return rest as IncomeItem;
       }
+      // 日薪模式固定用 intern（上班）
       return { ...item, dailyRate: 0, tagKind: 'intern' as TagKind };
     });
     syncIncome(items);
-  };
-  const setTagKind = (id: string, tagKind: TagKind) => {
-    syncIncome(localIncome.map((item) => item.id === id ? { ...item, tagKind } : item));
   };
   const addIncomeItem = () => {
     const newItem: IncomeItem = { id: `income_${Date.now()}`, name: '新收入', amount: 0, payDay: 1, isActive: true };
@@ -101,26 +107,44 @@ export default function HomePage() {
   const d = today.getDate();
   const showPayWarning = d >= 8 && d <= config.creditPayDate;
 
+  // 场景日均（用 tagMeta 标签）
+  const sceneDailyRows = [
+    { tagKind: 'school' as TagKind, val: stats.schoolDailyAvg },
+    { tagKind: 'home'   as TagKind, val: 89.5 },
+    { tagKind: 'intern' as TagKind, val: 156.3 },
+    { tagKind: 'travel' as TagKind, val: 312.0 },
+  ];
+
+  // 账户余额显示（使用 accountOrder 偏好）
+  const ACCT_META = {
+    credit:     { icon: '💳', name: '信用卡 (待还)', bg: '#fce8e6', border: '#f28b82' },
+    campusCard: { icon: '🎓', name: '校园卡',         bg: '#f1f3f4', border: '#dadce0' },
+    livingBank: { icon: '🏦', name: '生活',           bg: '#e8f0fe', border: '#a8c7fa' },
+  } as const;
+
   return (
     <div>
-      <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 4px' }}>盘账助手</h1>
-      <p style={{ fontSize: 13, color: C.sub, margin: '0 0 16px' }}>
-        {today.getFullYear()}年{today.getMonth() + 1}月 · 第 {today.getDate()} 天
-      </p>
-
-      {/* 卡片1: 财务概览 */}
-      <Card title="财务概览">
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 12, color: C.sub, marginBottom: 4 }}>理财总额</div>
-          <CurrencyDisplay value={totalInvest} size="xl" color={C.blue} />
+      {/* 页头：标题 + 人生时钟 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', margin: '0 0 16px' }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 2px' }}>盘账助手</h1>
+          <p style={{ fontSize: 13, color: C.sub, margin: 0 }}>
+            {today.getFullYear()}年{today.getMonth() + 1}月 · 第 {today.getDate()} 天
+          </p>
         </div>
-        <StatRow label="净资产" value={<CurrencyDisplay value={netWorth} />} />
-        <div style={{ marginTop: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: C.sub, marginBottom: 6 }}>
-            <span>本月进度</span>
-            <span>{today.getDate()}/{daysInMonth} 天</span>
+        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+          <div style={{ fontSize: 30, fontWeight: 700, fontFamily: 'monospace', color: '#202124', letterSpacing: 1 }}>
+            {fire.lifeClockStr}
           </div>
-          <ProgressBar progress={monthProgress} />
+          <div style={{ fontSize: 11, color: C.sub }}>{fire.lifeClockPeriod}</div>
+        </div>
+      </div>
+
+      {/* 卡片1: 财务概览（只显示净资产） */}
+      <Card title="财务概览">
+        <div style={{ marginBottom: 4 }}>
+          <div style={{ fontSize: 12, color: C.sub, marginBottom: 4 }}>净资产</div>
+          <CurrencyDisplay value={netWorth} size="xl" color={netWorth >= 0 ? C.blue : C.red} />
         </div>
       </Card>
 
@@ -141,65 +165,73 @@ export default function HomePage() {
         <div style={{ fontSize: 12, color: C.sub, marginBottom: 4 }}>场景日均</div>
         <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
           <tbody>
-            {[
-              { icon: '📚', name: '在校', val: stats.schoolDailyAvg },
-              { icon: '🏠', name: '在家', val: 89.5 },
-              { icon: '💼', name: '实习', val: 156.3 },
-              { icon: '✈️', name: '出差', val: 312.0 },
-            ].map((r) => (
-              <tr key={r.name}>
-                <td style={{ padding: '5px 0', color: C.sub }}>{r.icon} {r.name}</td>
-                <td style={{ padding: '5px 0', textAlign: 'right', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(r.val)}</td>
-              </tr>
-            ))}
+            {sceneDailyRows.map((r) => {
+              const m = tagMeta[r.tagKind];
+              return (
+                <tr key={r.tagKind}>
+                  <td style={{ padding: '5px 0', color: C.sub }}>{m.icon} {m.label}</td>
+                  <td style={{ padding: '5px 0', textAlign: 'right', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(r.val)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </Card>
 
-      {/* 卡片3: FIRE */}
+      {/* 卡片3: FIRE 提前退休 */}
       <Card title="FIRE 提前退休" subtitle="4% 法则">
+        {/* 活/生活 胶囊切换 */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+          <div style={{ display: 'flex', backgroundColor: '#e8eaed', borderRadius: 20, padding: 3, gap: 2 }}>
+            {(['life', 'all'] as const).map((mode) => {
+              const active = fireMode === mode;
+              return (
+                <button
+                  key={mode}
+                  onClick={() => setFireMode(mode)}
+                  style={{
+                    padding: '4px 14px', borderRadius: 16, border: 'none', cursor: 'pointer',
+                    fontSize: 13, fontWeight: 600,
+                    backgroundColor: active ? '#fff' : 'transparent',
+                    color: active ? C.blue : C.sub,
+                    boxShadow: active ? '0 1px 3px rgba(0,0,0,0.15)' : 'none',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {mode === 'life' ? '活' : '生活'}
+                </button>
+              );
+            })}
+          </div>
+        </div>
         <div style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: C.sub, marginBottom: 6 }}>
             <span>进度</span>
             <span style={{ fontWeight: 600, color: C.blue }}>{(fire.progress * 100).toFixed(2)}%</span>
           </div>
-          <ProgressBar progress={fire.progress} height={10} />
-        </div>
-        <StatRow label="目标资产" value={<CurrencyDisplay value={fire.fireTarget} />} />
-        <StatRow label="已积累" value={<CurrencyDisplay value={totalInvest} color={C.blue} />} />
-        <StatRow label="月需存入" value={<CurrencyDisplay value={fire.monthlyNeeded} color={C.orange} />} />
-        <StatRow label="当前月结余" value={<CurrencyDisplay value={fire.monthlySurplus} color={fire.monthlySurplus >= 0 ? C.green : C.red} />} />
-        <Divider />
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-          <div style={{ fontVariantNumeric: 'tabular-nums', fontSize: 32, fontWeight: 700, letterSpacing: 2, color: '#202124', fontFamily: 'monospace' }}>
-            {fire.lifeClockStr}
+          <div style={{ height: 10, backgroundColor: '#e8eaed', borderRadius: 5, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${Math.min(fire.progress * 100, 100)}%`, backgroundColor: C.blue, borderRadius: 5, transition: 'width 0.3s' }} />
           </div>
-          <div style={{ fontSize: 13, color: C.sub }}>{fire.lifeClockPeriod}</div>
         </div>
+        <StatRow label="目标资产" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(fire.fireTarget)}</span>} />
+        <StatRow label="理财总额" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(totalInvest)}</span>} />
+        <StatRow label="月需存入" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(fire.monthlyNeeded)}</span>} />
+        <StatRow label="当前月结余" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: fire.monthlySurplus >= 0 ? C.green : C.red }}>{fmt万(fire.monthlySurplus)}</span>} />
       </Card>
 
-      {/* 卡片4: 账户余额（只读，在对账页编辑） */}
+      {/* 账户余额只读（在对账页编辑） */}
       <Card title="账户余额" subtitle="在对账页编辑">
-        {(() => {
-          const ACCT_META = {
-            credit:     { icon: '💳', name: '信用卡 (待还)', bg: '#fce8e6', border: '#f28b82' },
-            campusCard: { icon: '🎓', name: '校园卡',         bg: '#f1f3f4', border: '#dadce0' },
-            livingBank: { icon: '🏦', name: '生活',           bg: '#e8f0fe', border: '#a8c7fa' },
-          } as const;
-          return (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {accountOrder.map((key) => {
-                const r = ACCT_META[key];
-                return (
-                  <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: r.bg, borderRadius: 12, padding: '10px 14px', border: `1.5px solid ${r.border}` }}>
-                    <span style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>{r.icon} {r.name}</span>
-                    <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124' }}>¥{formatCurrency(current.accounts[key])}</span>
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })()}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {accountOrder.map((key) => {
+            const r = ACCT_META[key];
+            return (
+              <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: r.bg, borderRadius: 12, padding: '10px 14px', border: `1.5px solid ${r.border}` }}>
+                <span style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>{r.icon} {r.name}</span>
+                <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124' }}>¥{formatCurrency(current.accounts[key])}</span>
+              </div>
+            );
+          })}
+        </div>
         {showPayWarning && (
           <div style={{ marginTop: 12, fontSize: 13, color: '#c5221f', backgroundColor: '#fce8e6', border: '1px solid #f28b82', borderRadius: 12, padding: '10px 14px' }}>
             ⚠️ 信用卡 {config.creditPayDate} 号还款，剩余 {config.creditPayDate - d} 天
@@ -215,7 +247,7 @@ export default function HomePage() {
             const effectiveAmt = getEffectiveAmount(item);
             const daysToNext = item.payDay >= d ? item.payDay - d : (daysInMonth - d + item.payDay);
             const isPending = daysToNext <= 3;
-            const tagCount = isDailyMode && item.tagKind ? tagCountThisMonth[item.tagKind] : 0;
+            const internCount = tagCountThisMonth['intern'];
             return (
               <div key={item.id} style={{ backgroundColor: isPending ? '#e6f4ea' : '#f8f9fa', borderRadius: 12, padding: '10px 12px', border: `1.5px solid ${isPending ? '#81c995' : '#e0e0e0'}` }}>
                 {/* 第一行：启用 + 名称 + 模式切换 + 删除 */}
@@ -250,12 +282,6 @@ export default function HomePage() {
                   <span style={{ flex: 1 }} />
                   {isDailyMode ? (
                     <>
-                      {/* 标签选择 */}
-                      {(['intern','school','home','travel'] as TagKind[]).map((tk) => (
-                        <button key={tk} onClick={() => setTagKind(item.id, tk)} style={{ padding: '2px 6px', borderRadius: 6, border: `1.5px solid ${item.tagKind === tk ? tagMeta[tk].color : '#e0e0e0'}`, backgroundColor: item.tagKind === tk ? `${tagMeta[tk].color}18` : '#fff', fontSize: 12, cursor: 'pointer' }}>
-                          {tagMeta[tk].icon}
-                        </button>
-                      ))}
                       <span style={{ fontSize: 11, color: C.sub }}>¥</span>
                       <input
                         type="number" inputMode="decimal"
@@ -264,7 +290,7 @@ export default function HomePage() {
                         onChange={(e) => { const v = e.target.value; updateIncomeField(item.id, 'dailyRate', /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v); }}
                         style={{ width: 60, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, color: C.orange, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
                       />
-                      <span style={{ fontSize: 11, color: C.sub }}>/天 × {tagCount}天</span>
+                      <span style={{ fontSize: 11, color: C.sub }}>/天 × {internCount}天</span>
                       <span style={{ fontSize: 13, fontWeight: 700, color: C.green, fontVariantNumeric: 'tabular-nums' }}>= ¥{formatCurrency(effectiveAmt)}</span>
                     </>
                   ) : (

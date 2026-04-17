@@ -6,8 +6,6 @@ import { useSnapshotStore } from '../stores/snapshotStore';
 import { useConfigStore } from '../stores/configStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { useCalendarStore } from '../stores/calendarStore';
-import { usePrefsStore } from '../stores/prefsStore';
-import { useDragSort } from '../hooks/useDragSort';
 import { calcBudget } from '../calculations/budget';
 import { calcHistoryStats } from '../calculations/history';
 import { calcRebalance } from '../calculations/rebalance';
@@ -38,19 +36,19 @@ export default function ReconcilePage() {
   const { records } = useMonthlyStore();
   const { tagMap } = useCalendarStore();
 
-  const { accountOrder, setAccountOrder } = usePrefsStore();
-  const acctDrag = useDragSort(accountOrder, setAccountOrder, 'vertical');
 
   // 账户余额本地编辑
   const [localAccounts, setLocalAccounts] = useState({
-    credit:     String(current.accounts.credit),
-    campusCard: String(current.accounts.campusCard),
-    livingBank: String(current.accounts.livingBank),
+    credit:        String(current.accounts.credit),
+    creditMonthly: String(current.accounts.creditMonthly ?? 0),
+    incomeBank:    String(current.accounts.incomeBank ?? 0),
+    livingBank:    String(current.accounts.livingBank),
   });
   const syncAccounts = (next = localAccounts) => updateAccounts({
-    credit:     parseFloat(next.credit)     || 0,
-    campusCard: parseFloat(next.campusCard) || 0,
-    livingBank: parseFloat(next.livingBank) || 0,
+    credit:        parseFloat(next.credit)        || 0,
+    creditMonthly: parseFloat(next.creditMonthly) || 0,
+    incomeBank:    parseFloat(next.incomeBank)    || 0,
+    livingBank:    parseFloat(next.livingBank)    || 0,
   });
 
   // 已确认转账（累计）+ 本次输入
@@ -284,44 +282,73 @@ export default function ReconcilePage() {
 
       {/* 账户余额 */}
       <div id="sec-accounts">
-      <Card title="账户余额" subtitle="点击金额可编辑">
-        {(() => {
-          const ACCT_META = {
-            credit:     { icon: '💳', name: '信用卡 (待还)', bg: '#fce8e6', border: '#f28b82' },
-            campusCard: { icon: '🎓', name: '校园卡',         bg: '#f1f3f4', border: '#dadce0' },
-            livingBank: { icon: '🏦', name: '生活',           bg: '#e8f0fe', border: '#a8c7fa' },
-          } as const;
-          return (
+      <Card title="账户余额" subtitle="填写各账户当前实际余额">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+
+          {/* 信用卡：总待还 + 本月待还 */}
+          <div style={{ backgroundColor: '#fce8e6', borderRadius: 12, padding: '10px 14px', border: '1.5px solid #f28b82' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#202124', marginBottom: 8 }}>💳 信用卡</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {accountOrder.map((key, i) => {
-                const r = ACCT_META[key];
-                const dragging = acctDrag.draggingIdx === i;
-                const hp = acctDrag.handleProps(i);
-                return (
-                  <div
-                    key={key}
-                    ref={(el) => acctDrag.itemRef(el, i)}
-                    {...hp}
-                    style={{ ...hp.style, display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: r.bg, borderRadius: 12, padding: '10px 14px', border: `1.5px solid ${r.border}`, opacity: dragging ? 0.5 : 1, transition: 'opacity 0.15s', cursor: 'default' }}
-                  >
-                    <span style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>{r.icon} {r.name}</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <span style={{ fontSize: 13, color: '#5f6368' }}>¥</span>
-                      <input
-                        type="number" inputMode="decimal"
-                        value={localAccounts[key]}
-                        onChange={(e) => { const v = e.target.value; setLocalAccounts((p) => ({ ...p, [key]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v })); }}
-                        onFocus={(e) => e.target.select()}
-                        onBlur={() => syncAccounts()}
-                        style={{ width: 90, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124', textAlign: 'right' }}
-                      />
-                    </div>
+              {([
+                { key: 'credit',        label: '总待还' },
+                { key: 'creditMonthly', label: '本月待还' },
+              ] as const).map(({ key, label }) => (
+                <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 13, color: '#5f6368' }}>{label}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <span style={{ fontSize: 13, color: '#5f6368' }}>¥</span>
+                    <input
+                      type="number" inputMode="decimal"
+                      value={localAccounts[key]}
+                      onChange={(e) => { const v = e.target.value; setLocalAccounts((p) => ({ ...p, [key]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v })); }}
+                      onFocus={(e) => e.target.select()}
+                      onBlur={() => syncAccounts()}
+                      style={{ width: 100, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#c5221f', textAlign: 'right' }}
+                    />
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
-          );
-        })()}
+          </div>
+
+          {/* 生活账户 */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#e8f0fe', borderRadius: 12, padding: '10px 14px', border: '1.5px solid #a8c7fa' }}>
+            <span style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>🏦 生活账户</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <span style={{ fontSize: 13, color: '#5f6368' }}>¥</span>
+              <input
+                type="number" inputMode="decimal"
+                value={localAccounts.livingBank}
+                onChange={(e) => { const v = e.target.value; setLocalAccounts((p) => ({ ...p, livingBank: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v })); }}
+                onFocus={(e) => e.target.select()}
+                onBlur={() => syncAccounts()}
+                style={{ width: 100, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124', textAlign: 'right' }}
+              />
+            </div>
+          </div>
+
+          {/* 收入账户 */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#e6f4ea', borderRadius: 12, padding: '10px 14px', border: '1.5px solid #81c995' }}>
+            <span style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>💰 收入账户</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <span style={{ fontSize: 13, color: '#5f6368' }}>¥</span>
+              <input
+                type="number" inputMode="decimal"
+                value={localAccounts.incomeBank}
+                onChange={(e) => { const v = e.target.value; setLocalAccounts((p) => ({ ...p, incomeBank: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v })); }}
+                onFocus={(e) => e.target.select()}
+                onBlur={() => syncAccounts()}
+                style={{ width: 100, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124', textAlign: 'right' }}
+              />
+            </div>
+          </div>
+
+          {/* 理财（只读，汇总持仓） */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f3e8ff', borderRadius: 12, padding: '10px 14px', border: '1.5px solid #c4b5fd' }}>
+            <span style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>📈 理财总额</span>
+            <span style={{ fontSize: 14, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: '#7c3aed' }}>¥{formatCurrency(totalInvest)}</span>
+          </div>
+        </div>
       </Card>
       </div>
 

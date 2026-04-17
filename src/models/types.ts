@@ -44,9 +44,11 @@ export interface AccountSnapshot {
   date: string;
   reconcileType: 'first' | 'eleventh' | 'twentyFirst';
   accounts: {
-    credit: number;
+    credit: number;        // 信用卡总待还
+    creditMonthly: number; // 信用卡本月待还
+    incomeBank: number;    // 收入账户
+    livingBank: number;    // 生活账户
     campusCard: number;
-    livingBank: number;
     consumptionBank: number;
     wishJar: number;
   };

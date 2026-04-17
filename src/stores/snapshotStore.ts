@@ -7,8 +7,10 @@ const DEFAULT_SNAPSHOT: AccountSnapshot = {
   reconcileType: 'eleventh',
   accounts: {
     credit: 2005.72,
-    campusCard: 180.5,
+    creditMonthly: 0,
+    incomeBank: 0,
     livingBank: 1246.3,
+    campusCard: 180.5,
     consumptionBank: 892.15,
     wishJar: 0,
   },
