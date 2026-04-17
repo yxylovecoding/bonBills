@@ -8,7 +8,11 @@ import StatRow from '../components/StatRow';
 import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { calcHistoryStats } from '../calculations/history';
-import type { MonthlyRecord, MajorExpense } from '../models/types';
+import { investMeta } from '../data/mockData';
+import type { MonthlyRecord, MajorExpense, InvestHoldings } from '../models/types';
+
+// 2021/2022 年份只在年度视图显示，月度列表跳过
+const YEARLY_ONLY_BEFORE = '2023-01';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 type ViewTab = 'monthly' | 'yearly';
@@ -24,6 +28,8 @@ function prevYearMonth(ym: string) {
 }
 
 // ── 本月填写表单 ───────────────────────────────────────────────────
+const INVEST_KEYS = ['us', 'eu', 'asia', 'a', 'longBond', 'usBond', 'gold'] as const;
+
 function MonthForm({ yearMonth, existing, prevRecord, onSave }: {
   yearMonth: string;
   existing?: MonthlyRecord;
@@ -41,6 +47,11 @@ function MonthForm({ yearMonth, existing, prevRecord, onSave }: {
   const [homeDays,      setHomeDays]       = useState(String(existing?.homeDays      ?? '0'));
   const [travelDays,    setTravelDays]     = useState(String(existing?.travelDays    ?? '0'));
   const [majorExpenses, setMajorExpenses]  = useState<MajorExpense[]>(existing?.majorExpenses ?? []);
+  // 各品类持仓（月末）
+  const [breakdown, setBreakdown] = useState<Partial<Record<keyof InvestHoldings, string>>>(
+    () => Object.fromEntries(INVEST_KEYS.map((k) => [k, String(existing?.investBreakdown?.[k] ?? '')])) as Record<keyof InvestHoldings, string>
+  );
+  const [showBreakdown, setShowBreakdown] = useState(false);
 
   const n = (v: string) => parseFloat(v) || 0;
 
@@ -56,12 +67,17 @@ function MonthForm({ yearMonth, existing, prevRecord, onSave }: {
     setMajorExpenses((p) => p.map((e, idx) => idx === i ? { ...e, ...patch } : e));
 
   const handleSave = () => {
+    const bd = Object.fromEntries(
+      INVEST_KEYS.map((k) => [k, parseFloat(breakdown[k] ?? '') || 0])
+    ) as unknown as InvestHoldings;
+    const hasBreakdown = INVEST_KEYS.some((k) => (bd[k] || 0) > 0);
     onSave({
       yearMonth,
       income: n(income), totalExpense: n(totalExpense),
       periodicLife: n(periodicLife), volatileLife: n(volatileLife),
       consumption: n(consumption), school: n(school),
       accumulatedProfit: n(accProfit), investTotal: n(investTotal),
+      investBreakdown: hasBreakdown ? bd : undefined,
       homeDays: n(homeDays), travelDays: n(travelDays),
       majorExpenses: majorExpenses.filter((e) => e.name.trim()),
     });
@@ -112,6 +128,34 @@ function MonthForm({ yearMonth, existing, prevRecord, onSave }: {
             <input type="number" value={val} onChange={(e) => set(e.target.value)} placeholder="0.00" style={fieldStyle} />
           </div>
         ))}
+      </div>
+
+      {/* 理财各品类持仓（可折叠） */}
+      <div style={{ marginBottom: 12 }}>
+        <button
+          onClick={() => setShowBreakdown((v) => !v)}
+          style={{ width: '100%', textAlign: 'left', fontSize: 12, color: C.sub, fontWeight: 500, padding: '6px 0', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}
+        >
+          <span>📈 理财各品类持仓（月末）</span>
+          <span>{showBreakdown ? '▲' : '▼'}</span>
+        </button>
+        {showBreakdown && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 6 }}>
+            {INVEST_KEYS.map((k) => (
+              <div key={k}>
+                <div style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', backgroundColor: investMeta[k].color }} />
+                  {investMeta[k].label}
+                </div>
+                <input
+                  type="number" value={breakdown[k] ?? ''} placeholder="0.00"
+                  onChange={(e) => setBreakdown((p) => ({ ...p, [k]: e.target.value }))}
+                  style={fieldStyle}
+                />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 天数 */}
@@ -209,9 +253,33 @@ function MonthRow({ record, prev }: { record: MonthlyRecord; prev?: MonthlyRecor
             </div>
           </div>
           {investIncome !== null && (
-            <div style={{ borderTop: '1px solid #dbe8fb', paddingTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-              <StatRow label="理财收入" value={<CurrencyDisplay value={investIncome} color={investIncome >= 0 ? C.green : C.red} />} />
-              {investAnnual !== null && <StatRow label="年化" value={<span style={{ color: investAnnual >= 0 ? C.green : C.red, fontWeight: 500 }}>{(investAnnual * 100).toFixed(1)}%</span>} />}
+            <div style={{ borderTop: '1px solid #dbe8fb', paddingTop: 10, marginBottom: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 6 }}>
+                <StatRow label="理财收入" value={<CurrencyDisplay value={investIncome} color={investIncome >= 0 ? C.green : C.red} />} />
+                {investAnnual !== null && <StatRow label="年化" value={<span style={{ color: investAnnual >= 0 ? C.green : C.red, fontWeight: 500 }}>{(investAnnual * 100).toFixed(1)}%</span>} />}
+              </div>
+              {/* 各品类持仓及收益 */}
+              {record.investBreakdown && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                  {INVEST_KEYS.filter((k) => (record.investBreakdown![k] ?? 0) > 0).map((k) => {
+                    const cur = record.investBreakdown![k] ?? 0;
+                    const prv = prev?.investBreakdown?.[k];
+                    const diff = prv !== undefined ? cur - prv : null;
+                    return (
+                      <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0' }}>
+                        <span style={{ color: C.sub, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: investMeta[k].color, display: 'inline-block' }} />
+                          {investMeta[k].label}
+                        </span>
+                        <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {formatCurrency(cur)}
+                          {diff !== null && <span style={{ marginLeft: 4, fontSize: 11, color: diff >= 0 ? C.green : C.red }}>{diff >= 0 ? '+' : ''}{formatCurrency(diff)}</span>}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
           <div style={{ borderTop: '1px solid #dbe8fb', paddingTop: 10, display: 'flex', gap: 16, fontSize: 12, color: C.sub }}>
@@ -418,12 +486,14 @@ export default function HistoryPage() {
           {/* 趋势图 */}
           <TrendCharts records={records} />
 
-          {/* 月度列表 */}
-          <Card title="月度明细" subtitle="点击展开详情">
+          {/* 月度列表（2021/2022 仅年度视图显示） */}
+          <Card title="月度明细" subtitle="2023年起逐月，更早年份见年度视图">
             {tableHeader}
-            {records.map((r, i) => (
-              <MonthRow key={r.yearMonth} record={r} prev={records[i + 1]} />
-            ))}
+            {records
+              .filter((r) => r.yearMonth >= YEARLY_ONLY_BEFORE)
+              .map((r, i, arr) => (
+                <MonthRow key={r.yearMonth} record={r} prev={arr[i + 1] ?? records.find((x) => x.yearMonth < r.yearMonth)} />
+              ))}
           </Card>
         </>
       )}

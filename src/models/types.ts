@@ -76,6 +76,7 @@ export interface MonthlyRecord {
   totalExpense: number;
   accumulatedProfit: number;   // 截止本月的累计盈利
   investTotal: number;          // 本月理财总额
+  investBreakdown?: Partial<InvestHoldings>; // 各品类持仓（月末）
   volatileLife: number;
   periodicLife: number;
   consumption: number;
@@ -130,11 +131,18 @@ export interface BudgetResult {
   monthly: BudgetTier;
   beyond: BudgetTier;
   recommended: {
+    campusCard: number;          // 校园卡需补充
+    living: number;              // 生活账户需补充
+    consumption: number;         // 消费账户分配
+    wishJar: number;             // 心愿罐分配
+    invest: number;              // 理财投入（收入剩余）
+    needsRedemption: number;     // 需赎回理财（收入不足时 > 0）
+    incomeAfterEssentials: number; // 补齐必要账户后收入剩余
+  };
+  // 各必要账户本月预计需求（用于显示对比）
+  needs: {
     campusCard: number;
     living: number;
-    consumption: number;
-    wishJar: number;
-    invest: number;
   };
 }
 

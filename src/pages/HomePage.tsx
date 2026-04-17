@@ -65,6 +65,7 @@ export default function HomePage() {
     return counts;
   }, [tagMap, curYM]);
 
+  const resolvePayDay = (payDay: number) => payDay === 0 ? daysInMonth : payDay;
   const getEffectiveAmount = (item: IncomeItem) =>
     item.dailyRate && item.tagKind ? item.dailyRate * tagCountThisMonth[item.tagKind] : item.amount;
 
@@ -245,7 +246,8 @@ export default function HomePage() {
           {localIncome.map((item) => {
             const isDailyMode = item.dailyRate !== undefined;
             const effectiveAmt = getEffectiveAmount(item);
-            const daysToNext = item.payDay >= d ? item.payDay - d : (daysInMonth - d + item.payDay);
+            const pd = resolvePayDay(item.payDay);
+            const daysToNext = pd >= d ? pd - d : (daysInMonth - d + pd);
             const isPending = daysToNext <= 3;
             const internCount = tagCountThisMonth['intern'];
             return (
@@ -272,13 +274,22 @@ export default function HomePage() {
                 {/* 第二行：金额信息 */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 11, color: C.sub }}>每月</span>
+                  {/* 发薪日：点击整数编辑，支持 0 = 月底 */}
                   <input
                     type="number" inputMode="numeric"
-                    value={item.payDay}
-                    onChange={(e) => updateIncomeField(item.id, 'payDay', e.target.value)}
-                    style={{ width: 28, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, color: C.blue, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}
+                    value={item.payDay === 0 ? '' : item.payDay}
+                    placeholder={item.payDay === 0 ? '末' : ''}
+                    onChange={(e) => updateIncomeField(item.id, 'payDay', e.target.value || '0')}
+                    onFocus={(e) => e.target.select()}
+                    style={{ width: 36, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, color: C.blue, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}
                   />
-                  <span style={{ fontSize: 11, color: C.sub }}>号发薪</span>
+                  <span style={{ fontSize: 11, color: C.sub }}>{item.payDay === 0 ? '月底发薪' : '号发薪'}</span>
+                  <button
+                    onClick={() => updateIncomeField(item.id, 'payDay', item.payDay === 0 ? '1' : '0')}
+                    style={{ fontSize: 10, padding: '1px 6px', borderRadius: 6, border: `1px solid ${item.payDay === 0 ? C.blue : '#dadce0'}`, backgroundColor: item.payDay === 0 ? '#e8f0fe' : '#f1f3f4', color: item.payDay === 0 ? C.blue : C.sub, cursor: 'pointer' }}
+                  >
+                    月底
+                  </button>
                   <span style={{ flex: 1 }} />
                   {isDailyMode ? (
                     <>
@@ -312,12 +323,14 @@ export default function HomePage() {
         </div>
         {/* 发薪日提醒 */}
         {localIncome.filter((i) => i.isActive).map((item) => {
-          const daysToNext = item.payDay >= d ? item.payDay - d : (daysInMonth - d + item.payDay);
+          const pd = resolvePayDay(item.payDay);
+          const daysToNext = pd >= d ? pd - d : (daysInMonth - d + pd);
           if (daysToNext > 3) return null;
           const amt = getEffectiveAmount(item);
+          const dayLabel = item.payDay === 0 ? '月底' : `${pd}号`;
           return (
             <div key={item.id} style={{ marginTop: 8, fontSize: 13, color: '#0d9488', backgroundColor: '#e6f4ea', border: '1px solid #81c995', borderRadius: 10, padding: '8px 12px' }}>
-              💰 {item.name} {daysToNext === 0 ? '今天发薪' : `还有 ${daysToNext} 天发薪`}（每月 {item.payDay} 号，¥{formatCurrency(amt)}）
+              💰 {item.name} {daysToNext === 0 ? '今天发薪' : `还有 ${daysToNext} 天发薪`}（每月 {dayLabel}，¥{formatCurrency(amt)}）
             </div>
           );
         })}

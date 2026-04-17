@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Card from '../components/Card';
 import { formatCurrency } from '../components/CurrencyDisplay';
@@ -6,7 +6,7 @@ import { useSnapshotStore } from '../stores/snapshotStore';
 import { useConfigStore } from '../stores/configStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { useCalendarStore } from '../stores/calendarStore';
-import { calcBudget } from '../calculations/budget';
+import { calcBudget, resolvePayDay } from '../calculations/budget';
 import { calcHistoryStats } from '../calculations/history';
 import { calcRebalance } from '../calculations/rebalance';
 import { investMeta } from '../data/mockData';
@@ -107,10 +107,15 @@ export default function ReconcilePage() {
 
   const effectiveConfig = useMemo(() => ({ ...config, incomeItems: effectiveIncomeItems }), [config, effectiveIncomeItems]);
 
-  // 预算计算
+  // 预算计算（传入当前账户余额，启用收入优先逻辑）
   const budget = useMemo(
-    () => calcBudget(effectiveConfig, stats, confirmed, tags, today),
-    [effectiveConfig, stats, confirmed, tags],
+    () => calcBudget(effectiveConfig, stats, confirmed, tags, today, {
+      incomeBank:      current.accounts.incomeBank      ?? 0,
+      campusCard:      current.accounts.campusCard      ?? 0,
+      livingBank:      current.accounts.livingBank      ?? 0,
+      consumptionBank: current.accounts.consumptionBank ?? 0,
+    }),
+    [effectiveConfig, stats, confirmed, tags, current.accounts],
   );
 
   // 理财再平衡建议（算法值）
@@ -120,22 +125,15 @@ export default function ReconcilePage() {
   );
   const investKeys = Object.keys(current.investHoldings) as InvestKey[];
 
-  // 可手动覆盖的加仓金额（investInput 变化时重置为算法建议值）
-  const [localRebalance, setLocalRebalance] = useState<Record<InvestKey, string>>(
-    () => Object.fromEntries(investKeys.map((k) => [k, '0'])) as Record<InvestKey, string>
-  );
-  // 本轮对账累计已加仓
+  const rebalanceInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  // 已加仓（累计总额，用户可直接编辑；初始为 0）
   const [confirmedInvest, setConfirmedInvest] = useState<Record<InvestKey, number>>(
     () => Object.fromEntries(investKeys.map((k) => [k, 0])) as Record<InvestKey, number>
   );
-  const rebalanceInputRefs = useRef<(HTMLInputElement | null)[]>([]);
-  // investInput 变化时将算法建议值刷入本地编辑
-  useEffect(() => {
-    setLocalRebalance(
-      Object.fromEntries(investKeys.map((k) => [k, String(Math.round(rebalanceSuggested[k]))])) as Record<InvestKey, string>
-    );
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [investInput]);
+  // 已加仓本地编辑字符串（与 confirmedInvest 同步）
+  const [localConfirmed, setLocalConfirmed] = useState<Record<InvestKey, string>>(
+    () => Object.fromEntries(investKeys.map((k) => [k, '0'])) as Record<InvestKey, string>
+  );
   const totalInvest = investKeys.reduce((s, k) => s + current.investHoldings[k], 0);
 
 
@@ -171,6 +169,8 @@ export default function ReconcilePage() {
 
   const todayDate = today.getDate();
   const weekEnd = todayDate + Math.min(budget.daysLeftInMonth, 7);
+  const rPD = (payDay: number) => resolvePayDay(payDay, today.getFullYear(), today.getMonth());
+  const pdLabel = (payDay: number) => payDay === 0 ? '月底' : `${rPD(payDay)}号`;
 
   const makeIncomeNote = (i: typeof effectiveIncomeItems[0], base: string) =>
     i.dailyRate !== undefined && i.tagKind
@@ -180,8 +180,8 @@ export default function ReconcilePage() {
   // 预算明细（收入按发薪日判断是否已发，日薪项显示计算方式）
   const budgetDetails: Record<BudgetKey, { income: BudgetDetailItem[]; expense: BudgetDetailItem[] }> = {
     weekly: {
-      income: effectiveIncomeItems.filter(i => i.isActive && i.payDay > todayDate && i.payDay <= weekEnd).map(i => ({
-        icon: '💰', label: i.name, amount: i.amount, note: makeIncomeNote(i, `${i.payDay}号发薪`),
+      income: effectiveIncomeItems.filter(i => { const pd = rPD(i.payDay); return i.isActive && pd > todayDate && pd <= weekEnd; }).map(i => ({
+        icon: '💰', label: i.name, amount: i.amount, note: makeIncomeNote(i, `${pdLabel(i.payDay)}发薪`),
       })),
       expense: [
         { icon: '🔄', label: '周期生活', amount: Math.round(stats.periodicLifeAvg / 30 * 7), note: '月均均摊7天' },
@@ -191,11 +191,12 @@ export default function ReconcilePage() {
     },
     monthly: {
       income: effectiveIncomeItems.filter(i => i.isActive).map(i => {
-        const received = i.payDay <= todayDate;
-        return { icon: received ? '✅' : '💰', label: i.name, amount: received ? 0 : i.amount, note: makeIncomeNote(i, received ? `${i.payDay}号已发` : `${i.payDay}号待发`) };
+        const pd = rPD(i.payDay);
+        const received = pd <= todayDate;
+        return { icon: received ? '✅' : '💰', label: i.name, amount: received ? 0 : i.amount, note: makeIncomeNote(i, received ? `${pdLabel(i.payDay)}已发` : `${pdLabel(i.payDay)}待发`) };
       }),
       expense: [
-        { icon: '💳', label: '信用卡还款', amount: current.accounts.credit, note: `${config.creditPayDate}号还款` },
+        { icon: '💳', label: '信用卡还款', amount: current.accounts.creditMonthly ?? current.accounts.credit, note: `本月待还，${config.creditPayDate}号` },
         { icon: '🔄', label: '周期生活', amount: Math.round(stats.periodicLifeAvg * budget.daysLeftInMonth / 30), note: '月均均摊剩余天' },
         { icon: '🌊', label: '波动生活', amount: Math.round(stats.volatileLifeAvg * budget.daysLeftInMonth / 30), note: '月均均摊剩余天' },
         { icon: '🛍️', label: '消费',     amount: Math.round(stats.consumptionAvg * budget.daysLeftInMonth / 30), note: '月均均摊剩余天' },
@@ -203,7 +204,7 @@ export default function ReconcilePage() {
     },
     beyond: {
       income: effectiveIncomeItems.filter(i => i.isActive).map(i => ({
-        icon: '💰', label: i.name, amount: i.amount, note: makeIncomeNote(i, `次月${i.payDay}号`),
+        icon: '💰', label: i.name, amount: i.amount, note: makeIncomeNote(i, `次月${pdLabel(i.payDay)}`),
       })),
       expense: [
         { icon: '📈', label: '定投计划', amount: budget.recommended.invest, note: '月末执行' },
@@ -427,50 +428,81 @@ export default function ReconcilePage() {
 
       {/* Step 2: 建议转账 */}
       <div id="sec-transfer">
-      <Card title="② 建议转账" subtitle="填写各账户本次转账金额，一键执行">
-        <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: '2px solid #e8eaed' }}>
-              <th style={thStyle}>目的账户</th>
-              <th style={{ ...thStyle, textAlign: 'right' }}>应转</th>
-              <th style={{ ...thStyle, textAlign: 'right' }}>已确认</th>
-              <th style={{ ...thStyle, textAlign: 'center', width: 84 }}>本次转</th>
-              <th style={{ ...thStyle, textAlign: 'right' }}>还需转</th>
-            </tr>
-          </thead>
-          <tbody>
-            {TRANSFER_KEYS.map((key, i) => {
-              const rec = budget.recommended[key];
-              const conf = confirmed[key] || 0;
-              const remain = Math.max(rec - conf, 0);
-              return (
-                <tr key={key} style={{ backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff', borderBottom: '1px solid #f1f3f4' }}>
-                  <td style={{ padding: '10px 0', fontWeight: 500 }}>{TRANSFER_META[key].label}</td>
-                  <td style={{ padding: '10px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: C.orange }}>¥{formatCurrency(rec)}</td>
-                  <td style={{ padding: '10px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: conf > 0 ? C.green : C.sub }}>¥{formatCurrency(conf)}</td>
-                  <td style={{ padding: '6px 4px' }}>
-                    <input
-                      type="number"
-                      value={pending[key]}
-                      onChange={(e) => { const v = e.target.value; setPending((p) => ({ ...p, [key]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v })); }}
-                      placeholder="0"
-                      style={{ width: '100%', border: '1.5px solid #fbbf24', borderRadius: 8, padding: '6px 8px', fontSize: 13, textAlign: 'right', fontVariantNumeric: 'tabular-nums', outline: 'none', backgroundColor: '#fffbeb' }}
-                    />
-                  </td>
-                  <td style={{ padding: '10px 6px', textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: remain > 0 ? C.orange : C.sub }}>
-                    ¥{formatCurrency(remain)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <Card title="② 建议转账" subtitle="收入优先补齐必要账户，剩余按比例分配">
+
+        {/* 收入资金流向概览 */}
+        {budget.recommended.needsRedemption > 0 ? (
+          <div style={{ backgroundColor: '#fce8e6', border: '1px solid #f28b82', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>
+            ⚠️ 收入账户 <b>¥{formatCurrency(current.accounts.incomeBank ?? 0)}</b> 不足以补齐必要账户，建议赎回理财 <b style={{ color: C.red }}>¥{formatCurrency(budget.recommended.needsRedemption)}</b>
+          </div>
+        ) : (
+          <div style={{ backgroundColor: '#e6f4ea', border: '1px solid #81c995', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>
+            💰 收入账户 <b>¥{formatCurrency(current.accounts.incomeBank ?? 0)}</b> → 补充必要 <b>¥{formatCurrency((budget.recommended.campusCard) + (budget.recommended.living))}</b> → 可分配 <b style={{ color: C.green }}>¥{formatCurrency(budget.recommended.incomeAfterEssentials)}</b>
+          </div>
+        )}
+
+        {/* 必要账户（校园卡 + 生活）：显示当前余额和月需 */}
+        {(['campusCard', 'living'] as const).map((key, i) => {
+          const acctKey = TRANSFER_META[key].accountKey as keyof typeof current.accounts;
+          const currentBal = current.accounts[acctKey] ?? 0;
+          const need = key === 'campusCard' ? budget.needs.campusCard : budget.needs.living;
+          const rec = budget.recommended[key];
+          const conf = confirmed[key] || 0;
+          const remain = Math.max(rec - conf, 0);
+          return (
+            <div key={key} style={{ backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff', borderRadius: 8, padding: '8px 10px', marginBottom: 4 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{TRANSFER_META[key].label}</span>
+                <div style={{ display: 'flex', gap: 10, fontSize: 12 }}>
+                  <span style={{ color: C.sub }}>余 <b style={{ color: currentBal < need * 0.5 ? C.red : '#202124' }}>¥{formatCurrency(currentBal)}</b></span>
+                  <span style={{ color: C.sub }}>需 <b style={{ color: C.orange }}>¥{formatCurrency(need)}</b></span>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <div style={{ flex: 1, fontSize: 12, color: C.sub }}>
+                  建议转 <span style={{ color: rec > 0 ? C.blue : C.sub, fontWeight: 600 }}>¥{formatCurrency(rec)}</span>
+                  {conf > 0 && <span style={{ marginLeft: 8 }}>已确认 <span style={{ color: C.green, fontWeight: 600 }}>¥{formatCurrency(conf)}</span></span>}
+                </div>
+                <input
+                  type="number" value={pending[key]}
+                  onChange={(e) => { const v = e.target.value; setPending((p) => ({ ...p, [key]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v })); }}
+                  placeholder={remain > 0 ? String(remain) : '0'}
+                  style={{ width: 90, border: '1.5px solid #fbbf24', borderRadius: 8, padding: '5px 8px', fontSize: 13, textAlign: 'right', outline: 'none', backgroundColor: '#fffbeb' }}
+                />
+                {remain > 0 && <span style={{ fontSize: 11, color: C.orange, minWidth: 44, textAlign: 'right' }}>还需¥{formatCurrency(remain)}</span>}
+              </div>
+            </div>
+          );
+        })}
+
+        {/* 分配账户（消费 + 心愿 + 理财） */}
+        <div style={{ marginTop: 8, borderTop: '1px dashed #dadce0', paddingTop: 8 }}>
+          <div style={{ fontSize: 11, color: C.sub, marginBottom: 6 }}>盈余分配</div>
+          {(['consumption', 'wishJar', 'invest'] as const).map((key, i) => {
+            const rec = budget.recommended[key];
+            const conf = confirmed[key] || 0;
+            const remain = Math.max(rec - conf, 0);
+            return (
+              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', borderBottom: i < 2 ? '1px solid #f1f3f4' : 'none' }}>
+                <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{TRANSFER_META[key].label}</span>
+                <span style={{ fontSize: 12, color: C.orange, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(rec)}</span>
+                {conf > 0 && <span style={{ fontSize: 11, color: C.green, fontVariantNumeric: 'tabular-nums' }}>✓{formatCurrency(conf)}</span>}
+                <input
+                  type="number" value={pending[key]}
+                  onChange={(e) => { const v = e.target.value; setPending((p) => ({ ...p, [key]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v })); }}
+                  placeholder={remain > 0 ? String(remain) : '0'}
+                  style={{ width: 80, border: '1.5px solid #fbbf24', borderRadius: 8, padding: '5px 8px', fontSize: 13, textAlign: 'right', outline: 'none', backgroundColor: '#fffbeb' }}
+                />
+              </div>
+            );
+          })}
+        </div>
 
         <button
           onClick={handleExecuteAll}
           disabled={!hasPending}
           style={{
-            width: '100%', marginTop: 16,
+            width: '100%', marginTop: 14,
             backgroundColor: hasPending ? C.green : '#e8eaed',
             color: hasPending ? '#fff' : C.sub,
             fontWeight: 700, fontSize: 15, padding: '13px 0',
@@ -516,7 +548,9 @@ export default function ReconcilePage() {
               const diffColor = Math.abs(diff) <= 0.02 ? C.green : diff > 0 ? C.red : C.blue;
               const suggested = Math.round(rebalanceSuggested[k]);
               const done = confirmedInvest[k];
-              const remaining = Math.max(suggested - done, 0);
+              // 需加 = max(建议 - 已加, 0)，实时根据 localConfirmed 计算
+              const localDone = parseFloat(localConfirmed[k]) || 0;
+              const remaining = Math.max(suggested - localDone, 0);
               return (
                 <tr key={k} style={{ backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff', borderBottom: '1px solid #f1f3f4' }}>
                   <td style={{ padding: '8px 0', fontWeight: 500 }}>
@@ -543,27 +577,30 @@ export default function ReconcilePage() {
                   <td style={{ padding: '8px 0', textAlign: 'right', color: C.sub, fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>{(pct * 100).toFixed(1)}%</td>
                   <td style={{ padding: '8px 0', textAlign: 'right', color: C.sub, fontSize: 12 }}>{(target * 100).toFixed(1)}%</td>
                   <td style={{ padding: '8px 0', textAlign: 'right', fontSize: 12, fontWeight: 500, color: diffColor, fontVariantNumeric: 'tabular-nums' }}>{diff >= 0 ? '+' : ''}{(diff * 100).toFixed(1)}%</td>
+                  {/* 需加（实时 = 建议 - 已加） */}
                   <td style={{ padding: '8px 0', textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: remaining > 0 ? C.orange : C.sub }}>
                     {suggested > 0 ? (remaining > 0 ? `+${formatCurrency(remaining)}` : '✓') : '—'}
                   </td>
+                  {/* 已加（直接编辑累计总额；blur 时按差值更新持仓） */}
                   <td style={{ padding: '4px 0', textAlign: 'right' }}>
                     <input
                       ref={(el) => { rebalanceInputRefs.current[i] = el; }}
                       type="number" inputMode="decimal"
-                      value={localRebalance[k]}
+                      value={localConfirmed[k]}
                       onChange={(e) => {
                         const v = e.target.value;
-                        setLocalRebalance((p) => ({ ...p, [k]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }));
+                        setLocalConfirmed((p) => ({ ...p, [k]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }));
                       }}
                       onFocus={(e) => e.target.select()}
                       onBlur={() => {
-                        const add = parseFloat(localRebalance[k]) || 0;
-                        if (add <= 0) return;
-                        const newHolding = +(current.investHoldings[k] + add).toFixed(2);
-                        updateHoldings({ ...current.investHoldings, [k]: newHolding });
-                        setLocalHoldings((p) => ({ ...p, [k]: String(newHolding) }));
-                        setConfirmedInvest((prev) => ({ ...prev, [k]: +(prev[k] + add).toFixed(2) }));
-                        setLocalRebalance((p) => ({ ...p, [k]: '0' }));
+                        const newTotal = parseFloat(localConfirmed[k]) || 0;
+                        const delta = newTotal - done;
+                        if (delta !== 0) {
+                          const newHolding = +(cur + delta).toFixed(2);
+                          updateHoldings({ ...current.investHoldings, [k]: newHolding });
+                          setLocalHoldings((p) => ({ ...p, [k]: String(newHolding) }));
+                          setConfirmedInvest((prev) => ({ ...prev, [k]: newTotal }));
+                        }
                       }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') rebalanceInputRefs.current[i + 1]?.focus();
