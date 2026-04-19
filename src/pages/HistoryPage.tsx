@@ -7,15 +7,19 @@ import Card from '../components/Card';
 import StatRow from '../components/StatRow';
 import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
 import { useMonthlyStore } from '../stores/monthlyStore';
+import { useCalendarStore } from '../stores/calendarStore';
 import { calcHistoryStats } from '../calculations/history';
-import { investMeta } from '../data/mockData';
-import type { MonthlyRecord, MajorExpense, InvestHoldings } from '../models/types';
+import { investMeta, tagMeta } from '../data/mockData';
+import type { MonthlyRecord, MajorExpense, InvestHoldings, TagKind } from '../models/types';
+
+function Divider() {
+  return <div style={{ height: 1, backgroundColor: '#f1f3f4', margin: '8px 0' }} />;
+}
 
 // 2021/2022 年份只在年度视图显示，月度列表跳过
 const YEARLY_ONLY_BEFORE = '2023-01';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
-type ViewTab = 'monthly' | 'yearly';
 
 // ── 当前年月 ──────────────────────────────────────────────────────
 const NOW = new Date();
@@ -30,10 +34,11 @@ function prevYearMonth(ym: string) {
 // ── 本月填写表单 ───────────────────────────────────────────────────
 const INVEST_KEYS = ['us', 'eu', 'asia', 'a', 'longBond', 'usBond', 'gold'] as const;
 
-function MonthForm({ yearMonth, existing, prevRecord, onSave }: {
+function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
   yearMonth: string;
   existing?: MonthlyRecord;
   prevRecord?: MonthlyRecord;
+  tagCounts: Record<TagKind, number>;
   onSave: (r: MonthlyRecord) => void;
 }) {
   const [income,        setIncome]        = useState(String(existing?.income        ?? ''));
@@ -44,12 +49,19 @@ function MonthForm({ yearMonth, existing, prevRecord, onSave }: {
   const [school,        setSchool]         = useState(String(existing?.school        ?? ''));
   const [accProfit,     setAccProfit]      = useState(String(existing?.accumulatedProfit ?? ''));
   const [investTotal,   setInvestTotal]    = useState(String(existing?.investTotal   ?? ''));
-  const [homeDays,      setHomeDays]       = useState(String(existing?.homeDays      ?? '0'));
-  const [travelDays,    setTravelDays]     = useState(String(existing?.travelDays    ?? '0'));
+  // 天数从日历 tag 自动推算（若日历已标记则优先用日历；否则用已存记录）
+  const homeDays   = tagCounts.home   > 0 ? tagCounts.home   : (existing?.homeDays   ?? 0);
+  const travelDays = tagCounts.travel > 0 ? tagCounts.travel : (existing?.travelDays ?? 0);
+  const schoolDays = tagCounts.school > 0 ? tagCounts.school : (existing?.schoolDays ?? 0);
+  const internDays = tagCounts.intern > 0 ? tagCounts.intern : (existing?.internDays ?? 0);
   const [majorExpenses, setMajorExpenses]  = useState<MajorExpense[]>(existing?.majorExpenses ?? []);
   // 各品类持仓（月末）
   const [breakdown, setBreakdown] = useState<Partial<Record<keyof InvestHoldings, string>>>(
     () => Object.fromEntries(INVEST_KEYS.map((k) => [k, String(existing?.investBreakdown?.[k] ?? '')])) as Record<keyof InvestHoldings, string>
+  );
+  // 各品类累计收益（月末）
+  const [breakdownProfit, setBreakdownProfit] = useState<Partial<Record<keyof InvestHoldings, string>>>(
+    () => Object.fromEntries(INVEST_KEYS.map((k) => [k, String(existing?.investBreakdownProfit?.[k] ?? '')])) as Record<keyof InvestHoldings, string>
   );
   const [showBreakdown, setShowBreakdown] = useState(false);
 
@@ -71,6 +83,10 @@ function MonthForm({ yearMonth, existing, prevRecord, onSave }: {
       INVEST_KEYS.map((k) => [k, parseFloat(breakdown[k] ?? '') || 0])
     ) as unknown as InvestHoldings;
     const hasBreakdown = INVEST_KEYS.some((k) => (bd[k] || 0) > 0);
+    const bp = Object.fromEntries(
+      INVEST_KEYS.map((k) => [k, parseFloat(breakdownProfit[k] ?? '') || 0])
+    ) as unknown as InvestHoldings;
+    const hasBreakdownProfit = INVEST_KEYS.some((k) => (bp[k] || 0) !== 0);
     onSave({
       yearMonth,
       income: n(income), totalExpense: n(totalExpense),
@@ -78,7 +94,8 @@ function MonthForm({ yearMonth, existing, prevRecord, onSave }: {
       consumption: n(consumption), school: n(school),
       accumulatedProfit: n(accProfit), investTotal: n(investTotal),
       investBreakdown: hasBreakdown ? bd : undefined,
-      homeDays: n(homeDays), travelDays: n(travelDays),
+      investBreakdownProfit: hasBreakdownProfit ? bp : undefined,
+      homeDays, travelDays, schoolDays, internDays,
       majorExpenses: majorExpenses.filter((e) => e.name.trim()),
     });
   };
@@ -94,10 +111,10 @@ function MonthForm({ yearMonth, existing, prevRecord, onSave }: {
     <div>
       {/* 自动计算提示 */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, minWidth: 100, backgroundColor: surplus >= 0 ? '#e6f4ea' : '#fce8e6', borderRadius: 10, padding: '10px 14px' }}>
+        <div style={{ flex: 1, minWidth: 100, backgroundColor: surplus >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
           <div style={{ fontSize: 11, color: C.sub }}>本月结余</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: surplus >= 0 ? C.green : C.red, fontVariantNumeric: 'tabular-nums' }}>
-            {surplus >= 0 ? '+' : ''}¥{formatCurrency(surplus)}
+          <div style={{ fontSize: 16, fontWeight: 700, color: surplus >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>
+            {surplus >= 0 ? '+' : '-'}¥{formatCurrency(surplus)}
           </div>
         </div>
         {investIncome !== null && (
@@ -130,43 +147,67 @@ function MonthForm({ yearMonth, existing, prevRecord, onSave }: {
         ))}
       </div>
 
-      {/* 理财各品类持仓（可折叠） */}
+      {/* 理财各品类持仓 & 累计收益（可折叠） */}
       <div style={{ marginBottom: 12 }}>
         <button
           onClick={() => setShowBreakdown((v) => !v)}
           style={{ width: '100%', textAlign: 'left', fontSize: 12, color: C.sub, fontWeight: 500, padding: '6px 0', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}
         >
-          <span>📈 理财各品类持仓（月末）</span>
+          <span>📈 理财各品类持仓 & 累计收益（月末）</span>
           <span>{showBreakdown ? '▲' : '▼'}</span>
         </button>
         {showBreakdown && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 6 }}>
-            {INVEST_KEYS.map((k) => (
-              <div key={k}>
-                <div style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', backgroundColor: investMeta[k].color }} />
-                  {investMeta[k].label}
-                </div>
-                <input
-                  type="number" value={breakdown[k] ?? ''} placeholder="0.00"
-                  onChange={(e) => setBreakdown((p) => ({ ...p, [k]: e.target.value }))}
-                  style={fieldStyle}
-                />
-              </div>
-            ))}
-          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 6, tableLayout: 'fixed' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #e8eaed' }}>
+                <th style={{ textAlign: 'left', padding: '4px 0', color: C.sub, fontWeight: 500, width: '30%' }}>品类</th>
+                <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '35%' }}>持仓金额</th>
+                <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '35%' }}>累计收益</th>
+              </tr>
+            </thead>
+            <tbody>
+              {INVEST_KEYS.map((k) => (
+                <tr key={k} style={{ borderBottom: '1px solid #f1f3f4' }}>
+                  <td style={{ padding: '5px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', backgroundColor: investMeta[k].color, flexShrink: 0 }} />
+                    {investMeta[k].label}
+                  </td>
+                  <td style={{ padding: '4px 0', textAlign: 'right' }}>
+                    <input
+                      type="number" value={breakdown[k] ?? ''} placeholder="0"
+                      onChange={(e) => setBreakdown((p) => ({ ...p, [k]: e.target.value }))}
+                      style={{ width: '90%', border: 'none', borderBottom: '1px solid #fbbf24', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0' }}
+                    />
+                  </td>
+                  <td style={{ padding: '4px 0', textAlign: 'right' }}>
+                    <input
+                      type="number" value={breakdownProfit[k] ?? ''} placeholder="0"
+                      onChange={(e) => setBreakdownProfit((p) => ({ ...p, [k]: e.target.value }))}
+                      style={{ width: '90%', border: 'none', borderBottom: `1px solid ${C.blue}`, outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0', color: C.blue }}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
 
-      {/* 天数 */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-        <div>
-          <div style={labelStyle}>在家天数</div>
-          <input type="number" value={homeDays} onChange={(e) => setHomeDays(e.target.value)} placeholder="0" style={fieldStyle} />
-        </div>
-        <div>
-          <div style={labelStyle}>出行天数</div>
-          <input type="number" value={travelDays} onChange={(e) => setTravelDays(e.target.value)} placeholder="0" style={fieldStyle} />
+      {/* 天数（来自日历标签） */}
+      <div style={{ backgroundColor: '#f8f9fa', borderRadius: 8, padding: '10px 12px', marginBottom: 12 }}>
+        <div style={{ fontSize: 12, color: C.sub, fontWeight: 500, marginBottom: 6 }}>天数（来自日历标签）</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6 }}>
+          {([
+            { key: 'school' as TagKind, val: schoolDays },
+            { key: 'intern' as TagKind, val: internDays },
+            { key: 'home'   as TagKind, val: homeDays },
+            { key: 'travel' as TagKind, val: travelDays },
+          ]).map(({ key, val }) => (
+            <div key={key} style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 11, color: C.sub }}>{tagMeta[key].icon} {tagMeta[key].label}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: tagMeta[key].color }}>{val}</div>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -221,7 +262,7 @@ function MonthRow({ record, prev }: { record: MonthlyRecord; prev?: MonthlyRecor
       <button
         onClick={() => setOpen((o) => !o)}
         style={{
-          width: '100%', display: 'grid', gridTemplateColumns: '72px 1fr 1fr 1fr 1fr',
+          width: '100%', display: 'grid', gridTemplateColumns: '72px 1fr 1fr 1fr',
           alignItems: 'center', padding: '12px 10px', borderRadius: 10, border: 'none',
           backgroundColor: open ? '#e8f0fe' : '#fafafa', cursor: 'pointer',
           textAlign: 'left', transition: 'background-color 0.15s',
@@ -230,11 +271,8 @@ function MonthRow({ record, prev }: { record: MonthlyRecord; prev?: MonthlyRecor
         <span style={{ fontSize: 13, fontWeight: 600, color: open ? C.blue : '#202124' }}>{record.yearMonth}</span>
         <span style={{ fontSize: 13, color: C.red, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>+{formatCurrency(record.income)}</span>
         <span style={{ fontSize: 13, color: C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>-{formatCurrency(record.totalExpense)}</span>
-        <span style={{ fontSize: 13, fontWeight: 600, color: surplus >= 0 ? C.green : C.red, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
-          {surplus >= 0 ? '+' : ''}{formatCurrency(surplus)}
-        </span>
-        <span style={{ fontSize: 11, color: C.sub, textAlign: 'right' }}>
-          {record.income > 0 ? ((surplus / record.income) * 100).toFixed(0) : '0'}%
+        <span style={{ fontSize: 13, fontWeight: 600, color: surplus >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+          {surplus >= 0 ? '+' : '-'}{formatCurrency(surplus)}
         </span>
       </button>
 
@@ -244,7 +282,7 @@ function MonthRow({ record, prev }: { record: MonthlyRecord; prev?: MonthlyRecor
             <div>
               <StatRow label="收入"  value={<CurrencyDisplay value={record.income} color={C.red} />} />
               <StatRow label="总支出" value={<CurrencyDisplay value={record.totalExpense} color={C.green} />} />
-              <StatRow label="结余"  value={<CurrencyDisplay value={surplus} color={surplus >= 0 ? C.green : C.red} />} />
+              <StatRow label="结余"  value={<CurrencyDisplay value={surplus} color={surplus >= 0 ? C.red : C.green} />} />
             </div>
             <div>
               <StatRow label="周期生活" value={<CurrencyDisplay value={record.periodicLife} color={C.blue} />} />
@@ -258,33 +296,55 @@ function MonthRow({ record, prev }: { record: MonthlyRecord; prev?: MonthlyRecor
                 <StatRow label="理财收入" value={<CurrencyDisplay value={investIncome} color={investIncome >= 0 ? C.green : C.red} />} />
                 {investAnnual !== null && <StatRow label="年化" value={<span style={{ color: investAnnual >= 0 ? C.green : C.red, fontWeight: 500 }}>{(investAnnual * 100).toFixed(1)}%</span>} />}
               </div>
-              {/* 各品类持仓及收益 */}
+              {/* 各品类持仓及累计收益 */}
               {record.investBreakdown && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
-                  {INVEST_KEYS.filter((k) => (record.investBreakdown![k] ?? 0) > 0).map((k) => {
-                    const cur = record.investBreakdown![k] ?? 0;
-                    const prv = prev?.investBreakdown?.[k];
-                    const diff = prv !== undefined ? cur - prv : null;
-                    return (
-                      <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0' }}>
-                        <span style={{ color: C.sub, display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: investMeta[k].color, display: 'inline-block' }} />
-                          {investMeta[k].label}
-                        </span>
-                        <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-                          {formatCurrency(cur)}
-                          {diff !== null && <span style={{ marginLeft: 4, fontSize: 11, color: diff >= 0 ? C.green : C.red }}>{diff >= 0 ? '+' : ''}{formatCurrency(diff)}</span>}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #e8eaed' }}>
+                      <th style={{ textAlign: 'left', padding: '3px 0', color: C.sub, fontWeight: 500 }}>品类</th>
+                      <th style={{ textAlign: 'right', padding: '3px 0', color: C.sub, fontWeight: 500 }}>持仓</th>
+                      <th style={{ textAlign: 'right', padding: '3px 0', color: C.sub, fontWeight: 500 }}>累计收益</th>
+                      <th style={{ textAlign: 'right', padding: '3px 0', color: C.sub, fontWeight: 500 }}>收益率</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {INVEST_KEYS.filter((k) => (record.investBreakdown![k] ?? 0) > 0).map((k) => {
+                      const cur = record.investBreakdown![k] ?? 0;
+                      const profit = record.investBreakdownProfit?.[k] ?? null;
+                      const costBasis = profit !== null ? cur - profit : null;
+                      const rate = costBasis !== null && costBasis > 0 ? profit! / costBasis : null;
+                      return (
+                        <tr key={k} style={{ borderBottom: '1px solid #f5f5f5' }}>
+                          <td style={{ padding: '4px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: investMeta[k].color, display: 'inline-block', flexShrink: 0 }} />
+                            {investMeta[k].label}
+                          </td>
+                          <td style={{ padding: '4px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(cur)}</td>
+                          <td style={{ padding: '4px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: profit !== null ? (profit >= 0 ? C.red : C.green) : C.sub }}>
+                            {profit !== null ? `${profit >= 0 ? '+' : ''}${Math.round(profit)}` : '—'}
+                          </td>
+                          <td style={{ padding: '4px 0', textAlign: 'right', color: rate !== null ? (rate >= 0 ? C.red : C.green) : C.sub }}>
+                            {rate !== null ? `${rate >= 0 ? '+' : ''}${(rate * 100).toFixed(1)}%` : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               )}
             </div>
           )}
-          <div style={{ borderTop: '1px solid #dbe8fb', paddingTop: 10, display: 'flex', gap: 16, fontSize: 12, color: C.sub }}>
-            <span>在家 {record.homeDays} 天</span>
-            <span>出行 {record.travelDays} 天</span>
+          <div style={{ borderTop: '1px solid #dbe8fb', paddingTop: 10, display: 'flex', gap: 16, fontSize: 12, color: C.sub, flexWrap: 'wrap' }}>
+            {([
+              { key: 'school' as TagKind, days: record.schoolDays },
+              { key: 'intern' as TagKind, days: record.internDays },
+              { key: 'home'   as TagKind, days: record.homeDays },
+              { key: 'travel' as TagKind, days: record.travelDays },
+            ]).filter(({ days }) => days && days > 0).map(({ key, days }) => (
+              <span key={key} style={{ color: tagMeta[key].color, fontWeight: 500 }}>
+                {tagMeta[key].icon} {tagMeta[key].label} {days}天
+              </span>
+            ))}
             {record.school > 0 && <span>校园卡 ¥{formatCurrency(record.school)}</span>}
           </div>
           {record.majorExpenses && record.majorExpenses.length > 0 && (
@@ -356,8 +416,70 @@ function TrendCharts({ records }: { records: MonthlyRecord[] }) {
   );
 }
 
-// ── 年度视图 ──────────────────────────────────────────────────────
-function YearlyView({ records }: { records: MonthlyRecord[] }) {
+// ── 年度分组（可展开月度） ─────────────────────────────────────────
+function YearSection({ year, recs, allRecords }: { year: string; recs: MonthlyRecord[]; allRecords: MonthlyRecord[] }) {
+  const currentYear = String(new Date().getFullYear());
+  const [expanded, setExpanded] = useState(year === currentYear);
+  const totalIncome  = recs.reduce((s, r) => s + r.income, 0);
+  const totalExpense = recs.reduce((s, r) => s + r.totalExpense, 0);
+  const surplus = totalIncome - totalExpense;
+  const hasMonths = `${year}-01` >= YEARLY_ONLY_BEFORE;
+
+  return (
+    <div style={{ marginBottom: 4 }}>
+      <button
+        onClick={() => setExpanded((o) => !o)}
+        style={{
+          width: '100%', display: 'grid', gridTemplateColumns: '72px 1fr 1fr 1fr',
+          alignItems: 'center', padding: '12px 10px', borderRadius: 10, border: 'none',
+          backgroundColor: expanded ? '#e8f0fe' : '#f1f3f4', cursor: 'pointer',
+          textAlign: 'left', transition: 'background-color 0.15s',
+        }}
+      >
+        <span style={{ fontSize: 14, fontWeight: 700, color: expanded ? C.blue : '#202124' }}>{year} {expanded ? '▼' : '▶'}</span>
+        <span style={{ fontSize: 13, color: C.red, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>+{formatCurrency(totalIncome)}</span>
+        <span style={{ fontSize: 13, color: C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>-{formatCurrency(totalExpense)}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: surplus >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+          {surplus >= 0 ? '+' : '-'}{formatCurrency(surplus)}
+        </span>
+      </button>
+      {expanded && (
+        <div style={{ paddingLeft: 8, marginTop: 4, marginBottom: 8 }}>
+          {hasMonths ? (
+            recs.map((r, i, arr) => {
+              const prevInArr = arr[i + 1];
+              const prevRecord = prevInArr ?? allRecords.find((x) => x.yearMonth < r.yearMonth);
+              return <MonthRow key={r.yearMonth} record={r} prev={prevRecord} />;
+            })
+          ) : (
+            <div style={{ padding: '10px 14px', backgroundColor: '#fafafa', borderRadius: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <StatRow label="总收入"  value={<CurrencyDisplay value={totalIncome} color={C.red} />} />
+                <StatRow label="总支出"  value={<CurrencyDisplay value={totalExpense} color={C.green} />} />
+                <StatRow label="总结余"  value={<CurrencyDisplay value={surplus} color={surplus >= 0 ? C.red : C.green} />} />
+                <StatRow label="月均收入" value={<CurrencyDisplay value={totalIncome / recs.length} color={C.red} />} />
+                <StatRow label="月均支出" value={<CurrencyDisplay value={totalExpense / recs.length} color={C.green} />} />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── 主组件 ────────────────────────────────────────────────────────
+export default function HistoryPage() {
+  const { records, upsert } = useMonthlyStore();
+  const { countByTag } = useCalendarStore();
+  const [formOpen, setFormOpen] = useState(false);
+  const twoYearsAgo = `${new Date().getFullYear() - 1}-01`;
+  const stats = useMemo(() => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo)), [records]);
+
+  const thisMonth = currentYearMonth();
+  const existingThisMonth = records.find((r) => r.yearMonth === thisMonth);
+  const prevMonthRecord   = records.find((r) => r.yearMonth === prevYearMonth(thisMonth));
+
   const years = useMemo(() => {
     const map: Record<string, MonthlyRecord[]> = {};
     for (const r of records) {
@@ -368,53 +490,17 @@ function YearlyView({ records }: { records: MonthlyRecord[] }) {
     return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
   }, [records]);
 
-  return (
-    <>
-      {years.map(([year, recs]) => {
-        const totalIncome  = recs.reduce((s, r) => s + r.income, 0);
-        const totalExpense = recs.reduce((s, r) => s + r.totalExpense, 0);
-        const surplus = totalIncome - totalExpense;
-        const n = recs.length;
-        return (
-          <Card key={year} title={`${year} 年`} subtitle={`${n} 个月数据`}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <StatRow label="总收入"  value={<CurrencyDisplay value={totalIncome} color={C.red} />} />
-              <StatRow label="总支出"  value={<CurrencyDisplay value={totalExpense} color={C.green} />} />
-              <StatRow label="总结余"  value={<CurrencyDisplay value={surplus} color={surplus >= 0 ? C.green : C.red} />} />
-              <StatRow label="储蓄率"  value={<span style={{ color: surplus >= 0 ? C.green : C.red, fontWeight: 500 }}>{totalIncome > 0 ? ((surplus / totalIncome) * 100).toFixed(1) : '0'}%</span>} />
-              <StatRow label="月均收入" value={<CurrencyDisplay value={totalIncome / n} color={C.red} />} />
-              <StatRow label="月均支出" value={<CurrencyDisplay value={totalExpense / n} color={C.green} />} />
-            </div>
-          </Card>
-        );
-      })}
-    </>
-  );
-}
-
-// ── 主组件 ────────────────────────────────────────────────────────
-export default function HistoryPage() {
-  const { records, upsert } = useMonthlyStore();
-  const [tab, setTab] = useState<ViewTab>('monthly');
-  const [formOpen, setFormOpen] = useState(false);
-  const stats = useMemo(() => calcHistoryStats(records), [records]);
-
-  const thisMonth = currentYearMonth();
-  const existingThisMonth = records.find((r) => r.yearMonth === thisMonth);
-  const prevMonthRecord   = records.find((r) => r.yearMonth === prevYearMonth(thisMonth));
-
   const handleSaveMonth = (r: MonthlyRecord) => {
     upsert(r);
     setFormOpen(false);
   };
 
   const tableHeader = (
-    <div style={{ display: 'grid', gridTemplateColumns: '72px 1fr 1fr 1fr 1fr', padding: '6px 10px', fontSize: 11, color: C.sub, fontWeight: 500, marginBottom: 4 }}>
-      <span>月份</span>
+    <div style={{ display: 'grid', gridTemplateColumns: '72px 1fr 1fr 1fr', padding: '6px 10px', fontSize: 11, color: C.sub, fontWeight: 500, marginBottom: 4 }}>
+      <span>年/月</span>
       <span style={{ textAlign: 'right' }}>收入</span>
       <span style={{ textAlign: 'right' }}>支出</span>
       <span style={{ textAlign: 'right' }}>结余</span>
-      <span style={{ textAlign: 'right' }}>储蓄率</span>
     </div>
   );
 
@@ -422,83 +508,89 @@ export default function HistoryPage() {
     <div>
       <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 14px' }}>历史记录</h1>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', backgroundColor: '#e8eaed', borderRadius: 24, padding: 3, marginBottom: 16 }}>
-        {(['monthly', 'yearly'] as const).map((t) => (
-          <button key={t} onClick={() => setTab(t)} style={{
-            flex: 1, padding: '9px 0', borderRadius: 22, border: 'none', fontSize: 14,
-            fontWeight: tab === t ? 600 : 400,
-            backgroundColor: tab === t ? '#fff' : 'transparent',
-            color: tab === t ? '#202124' : C.sub,
-            cursor: 'pointer', transition: 'all 0.2s',
-            boxShadow: tab === t ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
-          }}>
-            {t === 'monthly' ? '月度' : '年度'}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'monthly' && (
-        <>
-          {/* 本月填写入口 */}
-          <Card
-            title={`${thisMonth} 本月`}
-            subtitle={existingThisMonth ? '已有数据，点击修改' : '尚未填写，点击录入'}
+      {/* 本月填写入口 */}
+      <Card
+        title={`${thisMonth} 本月`}
+        subtitle={existingThisMonth ? '已有数据，点击修改' : '尚未填写，点击录入'}
+      >
+        {!formOpen ? (
+          <button
+            onClick={() => setFormOpen(true)}
+            style={{
+              width: '100%', padding: '11px 0', borderRadius: 10, border: `1.5px dashed ${C.blue}`,
+              backgroundColor: '#f0f4ff', color: C.blue, fontWeight: 600, fontSize: 14, cursor: 'pointer',
+            }}
           >
-            {!formOpen ? (
-              <button
-                onClick={() => setFormOpen(true)}
-                style={{
-                  width: '100%', padding: '11px 0', borderRadius: 10, border: `1.5px dashed ${C.blue}`,
-                  backgroundColor: '#f0f4ff', color: C.blue, fontWeight: 600, fontSize: 14, cursor: 'pointer',
-                }}
-              >
-                {existingThisMonth ? '✏️ 修改本月数据' : '＋ 录入本月数据'}
-              </button>
-            ) : (
-              <>
-                <MonthForm
-                  yearMonth={thisMonth}
-                  existing={existingThisMonth}
-                  prevRecord={prevMonthRecord}
-                  onSave={handleSaveMonth}
-                />
-                <button
-                  onClick={() => setFormOpen(false)}
-                  style={{ width: '100%', marginTop: 8, padding: '10px 0', borderRadius: 10, border: '1px solid #dadce0', backgroundColor: '#fff', color: C.sub, fontSize: 13, cursor: 'pointer' }}
-                >
-                  取消
-                </button>
-              </>
-            )}
-          </Card>
+            {existingThisMonth ? '✏️ 修改本月数据' : '＋ 录入本月数据'}
+          </button>
+        ) : (
+          <>
+            <MonthForm
+              yearMonth={thisMonth}
+              existing={existingThisMonth}
+              prevRecord={prevMonthRecord}
+              tagCounts={countByTag(thisMonth)}
+              onSave={handleSaveMonth}
+            />
+            <button
+              onClick={() => setFormOpen(false)}
+              style={{ width: '100%', marginTop: 8, padding: '10px 0', borderRadius: 10, border: '1px solid #dadce0', backgroundColor: '#fff', color: C.sub, fontSize: 13, cursor: 'pointer' }}
+            >
+              取消
+            </button>
+          </>
+        )}
+      </Card>
 
-          {/* 均值概览 */}
-          <Card title="历史均值" subtitle={`共 ${records.length} 个月`}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+      {/* 月度快照（历史均值） */}
+      <Card title="月度快照" subtitle={`近两年均值 · 共 ${records.length} 个月`}>
+        {(() => {
+          const monthlySurplus = stats.monthlyIncomeAvg - stats.totalExpenseAvg;
+          const sceneDailyRows: { tagKind: TagKind; val: number }[] = [
+            { tagKind: 'school', val: stats.schoolDailyAvg },
+            { tagKind: 'home',   val: 89.5 },
+            { tagKind: 'intern', val: 156.3 },
+            { tagKind: 'travel', val: 312.0 },
+          ];
+          return (
+            <>
               <StatRow label="月均收入" value={<CurrencyDisplay value={stats.monthlyIncomeAvg} color={C.red} />} />
               <StatRow label="月均支出" value={<CurrencyDisplay value={stats.totalExpenseAvg} color={C.green} />} />
-              <StatRow label="储蓄率" value={<span style={{ color: stats.savingsRate >= 0 ? C.green : C.red, fontWeight: 500 }}>{(stats.savingsRate * 100).toFixed(1)}%</span>} />
-              <StatRow label="在校日均" value={<span style={{ fontWeight: 500 }}>¥{formatCurrency(stats.schoolDailyAvg)}</span>} />
-            </div>
-          </Card>
+              <StatRow label="周期生活" indent value={<CurrencyDisplay value={stats.periodicLifeAvg} color={C.blue} />} />
+              <StatRow label="波动生活" indent value={<CurrencyDisplay value={stats.volatileLifeAvg} color={C.blue} />} />
+              <StatRow label="消费" indent value={<CurrencyDisplay value={stats.consumptionAvg} color={C.purple} />} />
+              <Divider />
+              <StatRow label="月均结余" value={<CurrencyDisplay value={monthlySurplus} color={monthlySurplus >= 0 ? C.red : C.green} />} />
+              <Divider />
+              <div style={{ fontSize: 12, color: C.sub, marginBottom: 4 }}>场景日均</div>
+              <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+                <tbody>
+                  {sceneDailyRows.map((r) => {
+                    const m = tagMeta[r.tagKind];
+                    return (
+                      <tr key={r.tagKind}>
+                        <td style={{ padding: '5px 0', color: C.sub }}>{m.icon} {m.label}</td>
+                        <td style={{ padding: '5px 0', textAlign: 'right', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(r.val)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </>
+          );
+        })()}
+      </Card>
 
-          {/* 趋势图 */}
-          <TrendCharts records={records} />
+      {/* 趋势图 */}
+      <TrendCharts records={records} />
 
-          {/* 月度列表（2021/2022 仅年度视图显示） */}
-          <Card title="月度明细" subtitle="2023年起逐月，更早年份见年度视图">
-            {tableHeader}
-            {records
-              .filter((r) => r.yearMonth >= YEARLY_ONLY_BEFORE)
-              .map((r, i, arr) => (
-                <MonthRow key={r.yearMonth} record={r} prev={arr[i + 1] ?? records.find((x) => x.yearMonth < r.yearMonth)} />
-              ))}
-          </Card>
-        </>
-      )}
-
-      {tab === 'yearly' && <YearlyView records={records} />}
+      {/* 历史明细（按年展开） */}
+      <Card title="历史明细" subtitle="点击年份展开月度">
+        {tableHeader}
+        {years.map(([year, recs]) => (
+          <YearSection key={year} year={year} recs={recs} allRecords={records} />
+        ))}
+      </Card>
     </div>
   );
 }

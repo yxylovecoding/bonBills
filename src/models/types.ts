@@ -76,7 +76,8 @@ export interface MonthlyRecord {
   totalExpense: number;
   accumulatedProfit: number;   // 截止本月的累计盈利
   investTotal: number;          // 本月理财总额
-  investBreakdown?: Partial<InvestHoldings>; // 各品类持仓（月末）
+  investBreakdown?: Partial<InvestHoldings>;       // 各品类持仓（月末）
+  investBreakdownProfit?: Partial<InvestHoldings>; // 各品类累计收益（月末）
   volatileLife: number;
   periodicLife: number;
   consumption: number;
@@ -103,6 +104,7 @@ export interface CurrentStats {
   totalExpenseAvg: number;
   monthlyIncomeAvg: number;
   schoolDailyAvg: number;
+  stateDailyAvg: { school: number; intern: number; home: number; travel: number };
   savingsRate: number;
   totalLife: number;
 }
@@ -125,8 +127,8 @@ export interface BudgetTier {
 
 export interface BudgetResult {
   daysLeftInMonth: number;
-  schoolDaysLeft: number;
-  homeDaysLeft: number;
+  stateDaysLeft: Record<TagKind, number>;
+  stateDaysNextMonth: Record<TagKind, number>;
   weekly: BudgetTier;
   monthly: BudgetTier;
   beyond: BudgetTier;

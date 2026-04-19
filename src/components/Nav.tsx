@@ -13,11 +13,12 @@ const tabs = [
   },
   {
     to: '/calendar',
-    label: '日历',
+    label: '记录',
     icon: (active: boolean) => (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? '#1a73e8' : '#5f6368'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="4" width="18" height="18" rx="2" fill={active ? '#e8f0fe' : 'none'} stroke={active ? '#1a73e8' : '#5f6368'} />
         <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+        <polyline points="8,14 11,17 16,12" stroke={active ? '#1a73e8' : '#5f6368'} />
       </svg>
     ),
   },
@@ -28,16 +29,6 @@ const tabs = [
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? '#1a73e8' : '#5f6368'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="2" y="4" width="20" height="16" rx="2" fill={active ? '#e8f0fe' : 'none'} stroke={active ? '#1a73e8' : '#5f6368'} />
         <path d="M12 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" /><path d="M2 10h4" /><path d="M18 10h4" /><path d="M2 14h4" /><path d="M18 14h4" />
-      </svg>
-    ),
-  },
-  {
-    to: '/history',
-    label: '历史',
-    icon: (active: boolean) => (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? '#1a73e8' : '#5f6368'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="3" width="18" height="18" rx="2" fill={active ? '#e8f0fe' : 'none'} stroke={active ? '#1a73e8' : '#5f6368'} />
-        <polyline points="7,16 10,11 13,14 17,8" />
       </svg>
     ),
   },
