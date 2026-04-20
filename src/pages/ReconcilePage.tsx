@@ -1,7 +1,9 @@
-import { useState, useMemo, useRef } from 'react';
+import { Fragment, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Card from '../components/Card';
 import { formatCurrency } from '../components/CurrencyDisplay';
+
+const fmtInt = (v: number) => Math.round(v).toLocaleString('zh-CN');
 import { useSnapshotStore } from '../stores/snapshotStore';
 import { useConfigStore } from '../stores/configStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
@@ -55,15 +57,16 @@ export default function ReconcilePage() {
     incomeBank:    parseFloat(next.incomeBank)    || 0,
   });
 
-  // 已确认转账（累计）+ 本次输入
+  // 已转金额（用户直接编辑）
   const [confirmed, setConfirmed] = useState<Record<TransferKey, number>>(
     current.transfersDone as Record<TransferKey, number>,
   );
-  const [pending, setPending] = useState<Record<TransferKey, string>>(
-    { campusCard: '', living: '', consumption: '', wishJar: '', invest: '' },
+  const [localTransferred, setLocalTransferred] = useState<Record<TransferKey, string>>(
+    () => Object.fromEntries(TRANSFER_KEYS.map(k => [k, String(current.transfersDone[k] || 0)])) as Record<TransferKey, string>,
   );
 
   const [expandedBudget, setExpandedBudget] = useState<BudgetKey | null>(null);
+  const [expandedTransfer, setExpandedTransfer] = useState<TransferKey | null>(null);
   const [saved, setSaved] = useState(false);
 
   // 理财本次投入金额
@@ -74,6 +77,7 @@ export default function ReconcilePage() {
     () => Object.fromEntries((Object.keys(current.investHoldings) as InvestKey[]).map((k) => [k, String(current.investHoldings[k])])) as Record<InvestKey, string>
   );
   const holdingInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const transferInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const syncHolding = (k: InvestKey) => {
     updateHoldings({ ...current.investHoldings, [k]: parseFloat(localHoldings[k]) || 0 });
   };
@@ -83,7 +87,7 @@ export default function ReconcilePage() {
 
   // 历史均值（只取近两年）
   const twoYearsAgo = `${today.getFullYear() - 1}-01`;
-  const stats = useMemo(() => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo)), [records]);
+  const stats = useMemo(() => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap), [records, tagMap]);
 
   // 将 tagMap 转为 DailyTag[]
   const tags: DailyTag[] = useMemo(
@@ -157,27 +161,28 @@ export default function ReconcilePage() {
   const totalInvest = investKeys.reduce((s, k) => s + current.investHoldings[k], 0);
 
 
-  // 一键执行转账
+  // 一键执行转账：将已转输入同步到 store
   const handleExecuteAll = () => {
     const newConfirmed = { ...confirmed };
     const accountDelta: Partial<typeof current.accounts> = {};
 
     for (const key of TRANSFER_KEYS) {
-      const amt = parseFloat(pending[key] || '0') || 0;
-      if (amt <= 0) continue;
-      newConfirmed[key] += amt;
-      const acctKey = TRANSFER_META[key].accountKey as keyof typeof current.accounts | undefined;
-      if (acctKey) {
-        accountDelta[acctKey] = (current.accounts[acctKey] || 0) + amt;
+      const newVal = parseFloat(localTransferred[key] || '0') || 0;
+      const delta = newVal - (confirmed[key] || 0);
+      newConfirmed[key] = newVal;
+      if (delta !== 0) {
+        const acctKey = TRANSFER_META[key].accountKey as keyof typeof current.accounts | undefined;
+        if (acctKey) {
+          accountDelta[acctKey] = (current.accounts[acctKey] || 0) + delta;
+        }
       }
     }
     setConfirmed(newConfirmed);
-    setPending({ campusCard: '', living: '', consumption: '', wishJar: '', invest: '' });
     if (Object.keys(accountDelta).length > 0) updateAccounts(accountDelta);
     updateTransfers(newConfirmed);
   };
 
-  const hasPending = TRANSFER_KEYS.some((k) => parseFloat(pending[k] || '0') > 0);
+  const hasTransferChanges = TRANSFER_KEYS.some((k) => (parseFloat(localTransferred[k] || '0') || 0) !== (confirmed[k] || 0));
 
   // 保存快照
   const handleSave = () => {
@@ -197,38 +202,54 @@ export default function ReconcilePage() {
       ? `${base}（${tagCountThisMonth[i.tagKind] || 0}天×¥${i.dailyRate}/天）`
       : base;
 
+  // 周内（近7天）各状态实际天数（直接从 tagMap 计数，不用比例估算）
+  const tagCountWeek = useMemo(() => {
+    const counts: Record<TagKind, number> = { intern: 0, school: 0, home: 0, travel: 0 };
+    const weekEndDay = todayDate + Math.min(budget.daysLeftInMonth, 7);
+    for (const [date, tag] of Object.entries(tagMap)) {
+      if (!date.startsWith(curYM)) continue;
+      const day = parseInt(date.slice(8), 10);
+      if (day > todayDate && day <= weekEndDay) counts[tag as TagKind]++;
+    }
+    return counts;
+  }, [tagMap, curYM, todayDate, budget.daysLeftInMonth]);
+
   // 预算明细（收入按发薪日判断是否已发，日薪项显示计算方式）
-  const weekFraction = Math.min(budget.daysLeftInMonth, 7) / Math.max(budget.daysLeftInMonth, 1);
 
   const budgetDetails: Record<BudgetKey, { income: BudgetDetailItem[]; expense: BudgetDetailItem[] }> = {
     weekly: {
-      income: effectiveIncomeItems.filter(i => { const pd = rPD(i.payDay); return i.isActive && pd > todayDate && pd <= weekEnd; }).map(i => ({
-        icon: '💰', label: i.name, amount: i.amount, note: makeIncomeNote(i, `${pdLabel(i.payDay)}发薪`),
-      })),
+      income: [
+        { icon: '🏦', label: '生活账户余额', amount: current.accounts.livingBank ?? 0, note: '当前余额' },
+        ...effectiveIncomeItems.filter(i => { const pd = rPD(i.payDay); return i.isActive && pd > todayDate && pd <= weekEnd; }).map(i => ({
+          icon: '💰', label: i.name, amount: i.amount, note: makeIncomeNote(i, `${pdLabel(i.payDay)}发薪`),
+        })),
+      ],
       expense: [
         { icon: '💳', label: '信用卡本月待还', amount: current.accounts.creditMonthly ?? 0, note: `${config.creditPayDate}号还款` },
         ...(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => {
-          const days = Math.round(budget.stateDaysLeft[k] * weekFraction);
-          return {
-            icon: tagMeta[k].icon, label: tagMeta[k].label,
-            amount: Math.round(days * stats.stateDailyAvg[k]),
-            note: `约${days}天×¥${Math.round(stats.stateDailyAvg[k])}/天`,
-          };
-        }).filter((item) => item.amount > 0),
+          const days  = tagCountWeek[k];
+          const dLife = stats.stateDailyAvg[k];
+          if (dLife > 0 && days > 0) return [{ icon: tagMeta[k].icon, label: `${tagMeta[k].label}·生活`, amount: Math.round(days * dLife), note: `${days}天×¥${Math.round(dLife)}/天` }];
+          return [] as BudgetDetailItem[];
+        }).flat(),
       ],
     },
     monthly: {
-      income: effectiveIncomeItems.filter(i => i.isActive).map(i => {
-        const pd = rPD(i.payDay);
-        const received = pd <= todayDate;
-        return { icon: received ? '✅' : '💰', label: i.name, amount: received ? 0 : i.amount, note: makeIncomeNote(i, received ? `${pdLabel(i.payDay)}已发` : `${pdLabel(i.payDay)}待发`) };
-      }),
+      income: [
+        { icon: '🏦', label: '生活账户余额', amount: current.accounts.livingBank ?? 0, note: '当前余额' },
+        ...effectiveIncomeItems.filter(i => i.isActive).map(i => {
+          const pd = rPD(i.payDay);
+          const received = pd <= todayDate;
+          return { icon: received ? '✅' : '💰', label: i.name, amount: received ? 0 : i.amount, note: makeIncomeNote(i, received ? `${pdLabel(i.payDay)}已发` : `${pdLabel(i.payDay)}待发`) };
+        }),
+      ],
       expense: [
-        ...(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => ({
-          icon: tagMeta[k].icon, label: tagMeta[k].label,
-          amount: Math.round(budget.stateDaysLeft[k] * stats.stateDailyAvg[k]),
-          note: `${budget.stateDaysLeft[k]}天×¥${Math.round(stats.stateDailyAvg[k])}/天`,
-        })).filter((item) => item.amount > 0),
+        ...(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => {
+          const days  = budget.stateDaysLeft[k];
+          const dLife = stats.stateDailyAvg[k];
+          if (dLife > 0 && days > 0) return [{ icon: tagMeta[k].icon, label: `${tagMeta[k].label}·生活`, amount: Math.round(days * dLife), note: `${days}天×¥${Math.round(dLife)}/天` }];
+          return [] as BudgetDetailItem[];
+        }).flat(),
       ],
     },
     beyond: {
@@ -243,11 +264,12 @@ export default function ReconcilePage() {
       }),
       expense: [
         { icon: '💳', label: '信用卡下期', amount: Math.max((current.accounts.credit ?? 0) - (current.accounts.creditMonthly ?? 0), 0), note: '总待还-本月待还' },
-        ...(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => ({
-          icon: tagMeta[k].icon, label: tagMeta[k].label,
-          amount: Math.round(budget.stateDaysNextMonth[k] * stats.stateDailyAvg[k]),
-          note: `${budget.stateDaysNextMonth[k]}天×¥${Math.round(stats.stateDailyAvg[k])}/天`,
-        })).filter((item) => item.amount > 0),
+        ...(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => {
+          const days  = budget.stateDaysNextMonth[k];
+          const dLife = stats.stateDailyAvg[k];
+          if (dLife > 0 && days > 0) return [{ icon: tagMeta[k].icon, label: `${tagMeta[k].label}·生活`, amount: Math.round(days * dLife), note: `${days}天×¥${Math.round(dLife)}/天` }];
+          return [] as BudgetDetailItem[];
+        }).flat(),
       ],
     },
   };
@@ -435,20 +457,21 @@ export default function ReconcilePage() {
               <button
                 onClick={() => setExpandedBudget(isOpen ? null : row.key)}
                 style={{
-                  width: '100%', display: 'grid', gridTemplateColumns: '1fr auto auto auto auto',
-                  alignItems: 'center', gap: 8, padding: '10px 10px', borderRadius: 10,
+                  width: '100%', display: 'grid', gridTemplateColumns: '1fr 70px 70px 1px 80px 20px',
+                  alignItems: 'center', gap: 4, padding: '10px 10px', borderRadius: 10,
                   border: 'none', cursor: 'pointer', textAlign: 'left',
                   backgroundColor: isOpen ? '#e8f0fe' : i % 2 === 0 ? '#fafafa' : '#fff',
                   transition: 'background-color 0.15s',
                 }}
               >
                 <span style={{ fontSize: 13, fontWeight: 600, color: isOpen ? C.blue : '#202124' }}>{row.name}</span>
-                <span style={{ fontSize: 12, color: C.red, fontVariantNumeric: 'tabular-nums' }}>+¥{formatCurrency(row.inc)}</span>
-                <span style={{ fontSize: 12, color: C.green, fontVariantNumeric: 'tabular-nums' }}>-¥{formatCurrency(row.exp)}</span>
-                <span style={{ fontSize: 12, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: balance >= 0 ? C.red : C.green }}>
+                <span style={{ fontSize: 12, color: C.red, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>+¥{formatCurrency(row.inc)}</span>
+                <span style={{ fontSize: 12, color: C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>-¥{formatCurrency(row.exp)}</span>
+                <span style={{ width: 1, height: 16, backgroundColor: '#dadce0', justifySelf: 'center' }} />
+                <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums', textAlign: 'right', color: balance >= 0 ? C.red : C.green }}>
                   {balance >= 0 ? '+' : '-'}¥{formatCurrency(Math.abs(balance))}
                 </span>
-                <span style={{ fontSize: 11, color: C.sub, display: 'inline-block', transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>
+                <span style={{ fontSize: 11, color: C.sub, textAlign: 'center', display: 'inline-block', transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>
               </button>
 
               {isOpen && (
@@ -501,81 +524,102 @@ export default function ReconcilePage() {
         {/* 收入资金流向概览 */}
         {budget.recommended.needsRedemption > 0 ? (
           <div style={{ backgroundColor: '#fce8e6', border: '1px solid #f28b82', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>
-            ⚠️ 收入账户 <b>¥{formatCurrency(current.accounts.incomeBank ?? 0)}</b> 不足以补齐必要账户，建议赎回理财 <b style={{ color: C.red }}>¥{formatCurrency(budget.recommended.needsRedemption)}</b>
+            ⚠️ 收入账户 <b>¥{fmtInt(current.accounts.incomeBank ?? 0)}</b> 不足以补齐必要账户，建议赎回理财 <b style={{ color: C.red }}>¥{fmtInt(budget.recommended.needsRedemption)}</b>
           </div>
         ) : (
           <div style={{ backgroundColor: '#e6f4ea', border: '1px solid #81c995', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>
-            💰 收入账户 <b>¥{formatCurrency(current.accounts.incomeBank ?? 0)}</b> → 补充必要 <b>¥{formatCurrency((budget.recommended.campusCard) + (budget.recommended.living))}</b> → 可分配 <b style={{ color: C.green }}>¥{formatCurrency(budget.recommended.incomeAfterEssentials)}</b>
+            💰 收入账户 <b>¥{fmtInt(current.accounts.incomeBank ?? 0)}</b>
           </div>
         )}
 
-        {/* 必要账户（校园卡 + 生活）：显示当前余额和月需 */}
-        {(['campusCard', 'living'] as const).map((key, i) => {
-          const acctKey = TRANSFER_META[key].accountKey as keyof typeof current.accounts;
-          const currentBal = current.accounts[acctKey] ?? 0;
-          const need = key === 'campusCard' ? budget.needs.campusCard : budget.needs.living;
-          const rec = budget.recommended[key];
-          const conf = confirmed[key] || 0;
-          const remain = Math.max(rec - conf, 0);
-          return (
-            <div key={key} style={{ backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff', borderRadius: 8, padding: '8px 10px', marginBottom: 4 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span style={{ fontSize: 13, fontWeight: 600 }}>{TRANSFER_META[key].label}</span>
-                <div style={{ display: 'flex', gap: 10, fontSize: 12 }}>
-                  <span style={{ color: C.sub }}>余 <b style={{ color: currentBal < need * 0.5 ? C.red : '#202124' }}>¥{formatCurrency(currentBal)}</b></span>
-                  <span style={{ color: C.sub }}>需 <b style={{ color: C.orange }}>¥{formatCurrency(need)}</b></span>
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <div style={{ flex: 1, fontSize: 12, color: C.sub }}>
-                  建议转 <span style={{ color: rec > 0 ? C.blue : C.sub, fontWeight: 600 }}>¥{formatCurrency(rec)}</span>
-                  {conf > 0 && <span style={{ marginLeft: 8 }}>已确认 <span style={{ color: C.green, fontWeight: 600 }}>¥{formatCurrency(conf)}</span></span>}
-                </div>
-                <input
-                  type="number" value={pending[key]}
-                  onChange={(e) => { const v = e.target.value; setPending((p) => ({ ...p, [key]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v })); }}
-                  placeholder={remain > 0 ? String(remain) : '0'}
-                  style={{ width: 90, border: '1.5px solid #fbbf24', borderRadius: 8, padding: '5px 8px', fontSize: 13, textAlign: 'right', outline: 'none', backgroundColor: '#fffbeb' }}
-                />
-                {remain > 0 && <span style={{ fontSize: 11, color: C.orange, minWidth: 44, textAlign: 'right' }}>还需¥{formatCurrency(remain)}</span>}
-              </div>
-            </div>
-          );
-        })}
-
-        {/* 分配账户（消费 + 心愿 + 理财） */}
-        <div style={{ marginTop: 8, borderTop: '1px dashed #dadce0', paddingTop: 8 }}>
-          <div style={{ fontSize: 11, color: C.sub, marginBottom: 6 }}>盈余分配</div>
-          {(['consumption', 'wishJar', 'invest'] as const).map((key, i) => {
-            const rec = budget.recommended[key];
-            const conf = confirmed[key] || 0;
-            const remain = Math.max(rec - conf, 0);
+        {/* 统一转账列表 */}
+        {(() => {
+          const campusShortfall = Math.max(budget.needs.campusCard - (current.accounts.campusCard ?? 0), 0);
+          const livingShortfall = Math.max(budget.needs.living - (current.accounts.livingBank ?? 0), 0);
+          const transferRows: { key: TransferKey; rec: number; calc: string }[] = [
+            {
+              key: 'campusCard',
+              rec: campusShortfall,
+              calc: `月需¥${fmtInt(budget.needs.campusCard)}（${budget.stateDaysLeft.school}天×¥${Math.round(stats.schoolDailyAvg)}/天）− 余¥${fmtInt(current.accounts.campusCard ?? 0)}`,
+            },
+            {
+              key: 'living',
+              rec: livingShortfall,
+              calc: `月需¥${fmtInt(budget.needs.living)}（月内¥${fmtInt(budget.monthly.expense)} − 校园卡¥${fmtInt(budget.needs.campusCard)}）− 余¥${fmtInt(current.accounts.livingBank ?? 0)}`,
+            },
+            {
+              key: 'consumption',
+              rec: budget.recommended.consumption,
+              calc: `可分配¥${fmtInt(budget.recommended.incomeAfterEssentials)}×50%消费×20%`,
+            },
+            {
+              key: 'wishJar',
+              rec: budget.recommended.wishJar,
+              calc: `可分配¥${fmtInt(budget.recommended.incomeAfterEssentials)}×50%消费×80%`,
+            },
+            {
+              key: 'invest',
+              rec: budget.recommended.invest,
+              calc: `可分配¥${fmtInt(budget.recommended.incomeAfterEssentials)}×50%`,
+            },
+          ];
+          const essentialTotal = campusShortfall + livingShortfall;
+          return transferRows.map((row, i) => {
+            const transferred = parseFloat(localTransferred[row.key] || '0') || 0;
+            const remain = Math.max(row.rec - transferred, 0);
+            const header = row.key === 'campusCard'
+              ? { label: '补充必要', amount: essentialTotal, color: C.blue }
+              : row.key === 'consumption'
+                ? { label: '可分配', amount: budget.recommended.incomeAfterEssentials, color: C.green }
+                : null;
             return (
-              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', borderBottom: i < 2 ? '1px solid #f1f3f4' : 'none' }}>
-                <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{TRANSFER_META[key].label}</span>
-                <span style={{ fontSize: 12, color: C.orange, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(rec)}</span>
-                {conf > 0 && <span style={{ fontSize: 11, color: C.green, fontVariantNumeric: 'tabular-nums' }}>✓{formatCurrency(conf)}</span>}
-                <input
-                  type="number" value={pending[key]}
-                  onChange={(e) => { const v = e.target.value; setPending((p) => ({ ...p, [key]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v })); }}
-                  placeholder={remain > 0 ? String(remain) : '0'}
-                  style={{ width: 80, border: '1.5px solid #fbbf24', borderRadius: 8, padding: '5px 8px', fontSize: 13, textAlign: 'right', outline: 'none', backgroundColor: '#fffbeb' }}
-                />
+              <Fragment key={row.key}>
+                {header && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: i === 0 ? 0 : 10, marginBottom: 4, fontSize: 12, color: C.sub, fontWeight: 600 }}>
+                    <span>{header.label}</span>
+                    <span style={{ color: header.color, fontVariantNumeric: 'tabular-nums' }}>¥{fmtInt(header.amount)}</span>
+                    <div style={{ flex: 1, borderBottom: '1px dashed #dadce0' }} />
+                  </div>
+                )}
+              <div style={{ backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff', borderRadius: 10, padding: '10px 12px', marginBottom: 4 }}>
+                {/* 第一行：名称 | 需转 | 还需 | 已转 | 输入（grid 固定列宽） */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(56px, 1fr) 90px 80px 26px 80px', alignItems: 'center', columnGap: 4 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap' }}>{TRANSFER_META[row.key].label}</span>
+                  <span
+                    onClick={() => setExpandedTransfer((prev) => (prev === row.key ? null : row.key))}
+                    style={{ fontSize: 12, color: C.blue, fontWeight: 600, fontVariantNumeric: 'tabular-nums', cursor: 'pointer', userSelect: 'none', textAlign: 'right', whiteSpace: 'nowrap' }}
+                  >需¥{fmtInt(row.rec)} {expandedTransfer === row.key ? '▾' : '▸'}</span>
+                  <span style={{ fontSize: 12, color: C.orange, fontWeight: 600, fontVariantNumeric: 'tabular-nums', textAlign: 'right', whiteSpace: 'nowrap' }}>还需¥{fmtInt(remain)}</span>
+                  <span style={{ fontSize: 12, color: C.sub, textAlign: 'right' }}>已转</span>
+                  <input
+                    ref={(el) => { transferInputRefs.current[i] = el; }}
+                    type="number" value={localTransferred[row.key]}
+                    onChange={(e) => { const v = e.target.value; setLocalTransferred((p) => ({ ...p, [row.key]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v })); }}
+                    onFocus={(e) => e.target.select()}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); transferInputRefs.current[i + 1]?.focus(); } }}
+                    style={{ width: '100%', border: `1.5px solid ${transferred > 0 ? '#81c995' : '#dadce0'}`, borderRadius: 8, padding: '5px 8px', fontSize: 13, fontWeight: 600, textAlign: 'right', outline: 'none', backgroundColor: transferred > 0 ? '#e6f4ea' : '#fff', color: transferred > 0 ? C.green : '#202124', boxSizing: 'border-box' }}
+                  />
+                </div>
+                {/* 第二行：计算说明（点击"需¥"展开） */}
+                {expandedTransfer === row.key && (
+                  <div style={{ fontSize: 11, color: C.sub, marginTop: 4 }}>{row.calc}</div>
+                )}
               </div>
+              </Fragment>
             );
-          })}
-        </div>
+          });
+        })()}
 
         <button
           onClick={handleExecuteAll}
-          disabled={!hasPending}
+          disabled={!hasTransferChanges}
           style={{
             width: '100%', marginTop: 14,
-            backgroundColor: hasPending ? C.green : '#e8eaed',
-            color: hasPending ? '#fff' : C.sub,
+            backgroundColor: hasTransferChanges ? C.green : '#e8eaed',
+            color: hasTransferChanges ? '#fff' : C.sub,
             fontWeight: 700, fontSize: 15, padding: '13px 0',
             borderRadius: 12, border: 'none',
-            cursor: hasPending ? 'pointer' : 'default',
+            cursor: hasTransferChanges ? 'pointer' : 'default',
             transition: 'background-color 0.2s', letterSpacing: 1,
           }}
         >
@@ -587,6 +631,17 @@ export default function ReconcilePage() {
       {/* Step 3: 理财配置 & 再平衡 */}
       <div id="sec-invest">
       <Card title="③ 理财配置 & 再平衡" subtitle="编辑持仓金额，输入本次投入后执行">
+        {/* 本次投入总额 */}
+        <div style={{ display: 'flex', alignItems: 'center', border: '1.5px solid #fbbf24', borderRadius: 10, padding: '10px 12px', backgroundColor: '#fffbeb', marginBottom: 14 }}>
+          <span style={{ color: C.sub, fontSize: 14, marginRight: 4 }}>本次投入 ¥</span>
+          <input
+            type="number" inputMode="decimal" value={investInput}
+            onChange={(e) => { const v = e.target.value; setInvestInput(/^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); holdingInputRefs.current[0]?.focus(); } }}
+            placeholder="输入总额，自动分配到各行"
+            style={{ flex: 1, border: 'none', outline: 'none', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', backgroundColor: 'transparent', textAlign: 'right' }}
+          />
+        </div>
         {/* 色条 */}
         <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginBottom: 14 }}>
           {investKeys.map((k) => (
@@ -607,7 +662,7 @@ export default function ReconcilePage() {
             <tr style={{ borderBottom: '2px solid #e8eaed' }}>
               <th style={thStyle}>品类</th>
               <th style={{ ...thStyle, textAlign: 'right' }}>当前金额</th>
-              <th style={{ ...thStyle, textAlign: 'right' }}>累计收益</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>累计收益率</th>
               <th style={{ ...thStyle, textAlign: 'right', color: C.orange }}>需加</th>
               <th style={{ ...thStyle, textAlign: 'right', color: C.green }}>已加</th>
             </tr>
@@ -645,19 +700,16 @@ export default function ReconcilePage() {
                       style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124', textAlign: 'right' }}
                     />
                   </td>
-                  {/* 累计收益 */}
+                  {/* 累计收益率 */}
                   <td style={{ padding: '8px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {profit !== null ? (
-                      <>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: profit >= 0 ? C.red : C.green }}>
-                          {profit >= 0 ? '+' : ''}{Math.round(profit)}
-                        </div>
-                        {profitRate !== null && (
-                          <div style={{ fontSize: 10, color: C.sub }}>
-                            {profitRate >= 0 ? '+' : ''}{(profitRate * 100).toFixed(1)}%
-                          </div>
-                        )}
-                      </>
+                    {profitRate !== null ? (
+                      <div style={{ fontSize: 12, fontWeight: 600, color: profitRate >= 0 ? C.red : C.green }}>
+                        {profitRate >= 0 ? '+' : ''}{(profitRate * 100).toFixed(1)}%
+                      </div>
+                    ) : profit !== null ? (
+                      <div style={{ fontSize: 12, fontWeight: 600, color: profit >= 0 ? C.red : C.green }}>
+                        {profit >= 0 ? '+' : ''}¥{Math.round(profit)}
+                      </div>
                     ) : (
                       <span style={{ fontSize: 11, color: C.sub }}>—</span>
                     )}
@@ -712,17 +764,6 @@ export default function ReconcilePage() {
         >
           执行加仓
         </button>
-
-        {/* 本次投入总额（仅显示，供参考） */}
-        <div style={{ display: 'flex', alignItems: 'center', border: '1.5px solid #fbbf24', borderRadius: 10, padding: '10px 12px', backgroundColor: '#fffbeb', marginBottom: 12 }}>
-          <span style={{ color: C.sub, fontSize: 14, marginRight: 4 }}>本次投入 ¥</span>
-          <input
-            type="number" inputMode="decimal" value={investInput}
-            onChange={(e) => { const v = e.target.value; setInvestInput(/^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v); }}
-            placeholder="输入总额，自动分配到各行"
-            style={{ flex: 1, border: 'none', outline: 'none', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', backgroundColor: 'transparent', textAlign: 'right' }}
-          />
-        </div>
       </Card>
       </div>
 

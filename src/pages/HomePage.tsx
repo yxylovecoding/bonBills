@@ -82,6 +82,14 @@ export default function HomePage() {
   const twoYearsAgo = `${today.getFullYear() - 1}-01`;
   const stats = useMemo(() => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo)), [records]);
 
+  // 近一年校园卡日均
+  const oneYearAgo = `${today.getFullYear() - 1}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  const campusDailyAvgYear = useMemo(() => {
+    const recent = records.filter((r) => r.yearMonth >= oneYearAgo && (r.schoolDays ?? 0) > 0 && r.school > 0);
+    if (recent.length === 0) return 0;
+    return recent.reduce((s, r) => s + r.school / (r.schoolDays ?? 1), 0) / recent.length;
+  }, [records, oneYearAgo]);
+
   const totalInvest = Object.values(current.investHoldings).reduce((s, v) => s + v, 0);
 
   // FIRE 模式切换
@@ -186,6 +194,15 @@ export default function HomePage() {
                 })}
               </tbody>
             </table>
+          </>
+        )}
+        {campusDailyAvgYear > 0 && (
+          <>
+            <Divider />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+              <span style={{ color: C.sub }}>🍜 校园卡日均 <span style={{ fontSize: 11 }}>(近一年)</span></span>
+              <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue }}>¥{formatCurrency(campusDailyAvgYear)}</span>
+            </div>
           </>
         )}
       </Card>

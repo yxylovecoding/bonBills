@@ -104,7 +104,9 @@ export interface CurrentStats {
   totalExpenseAvg: number;
   monthlyIncomeAvg: number;
   schoolDailyAvg: number;
-  stateDailyAvg: { school: number; intern: number; home: number; travel: number };
+  stateDailyAvg: { school: number; intern: number; home: number; travel: number };             // 生活支出日均
+  stateConsumptionDailyAvg: { school: number; intern: number; home: number; travel: number }; // 消费支出日均
+  stateDailyConfidence: { school: number; intern: number; home: number; travel: number };      // 各状态历史总天数
   savingsRate: number;
   totalLife: number;
 }

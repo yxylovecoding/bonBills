@@ -1,16 +1,18 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Card from '../components/Card';
 import StatRow from '../components/StatRow';
 import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
 import { tagMeta, investMeta } from '../data/mockData';
+import billTagStats from '../data/billTagStats.json';
+import { parseBillFile, loadOverride, saveOverride, clearOverride, type BillItem, type BillTagMonth } from '../utils/importBill';
+import { calcHistoryStats } from '../calculations/history';
 import { useCalendarStore } from '../stores/calendarStore';
 import { useConfigStore } from '../stores/configStore';
 import { useSnapshotStore } from '../stores/snapshotStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { usePrefsStore } from '../stores/prefsStore';
 import { useDragSort } from '../hooks/useDragSort';
-import { calcHistoryStats } from '../calculations/history';
 import type { TagKind, MonthlyRecord, MajorExpense, InvestHoldings } from '../models/types';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', border: '#e0e0e0', weekend: '#ea4335', orange: '#e8710a' };
@@ -35,6 +37,15 @@ function getRange(a: string, b: string): string[] {
     cur.setDate(cur.getDate() + 1);
   }
   return result;
+}
+
+// ── Bill tag detail helpers ───────────────────────────────────────
+const NOISE_TAGS = new Set(['周期生活', '波动生活', '消费', '吃好喝好', '红', '黑', '消耗品', '白', '家']);
+const NOISE_NOTE_PATTERNS = [/账户余额补齐/, /美团平台商户/];
+function extractMeaningful(tagsRaw: string, note: string): string {
+  const tags = tagsRaw.split(',').map(t => t.trim()).filter(t => t && !NOISE_TAGS.has(t));
+  const cleanNote = NOISE_NOTE_PATTERNS.some(p => p.test(note)) ? '' : note;
+  return [cleanNote, ...tags].filter(Boolean).join(' · ');
 }
 
 // ── History helpers ───────────────────────────────────────────────
@@ -203,7 +214,20 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
           <div style={{ fontSize: 12, color: C.sub, fontWeight: 500 }}>大额支出明细</div>
           <button onClick={addMajor} style={{ fontSize: 12, color: C.blue, border: `1px solid ${C.blue}`, borderRadius: 6, padding: '3px 10px', backgroundColor: '#fff', cursor: 'pointer' }}>+ 添加</button>
         </div>
-        {majorExpenses.map((e, i) => (
+        {(() => {
+          const amounts = majorExpenses.map((x) => x.amount || 0);
+          const maxAmt = Math.max(0, ...amounts);
+          const minAmt = Math.min(...amounts.filter((a) => a > 0), maxAmt);
+          return majorExpenses.map((e, i) => {
+          // 色阶：当月大额支出相对比较，最大→红，最小→绿
+          const amt = e.amount || 0;
+          const hasRange = maxAmt > minAmt && amt > 0;
+          const ratio = hasRange ? (amt - minAmt) / (maxAmt - minAmt) : (amt > 0 ? 1 : 0);
+          const hue = 120 - ratio * 120; // 120 绿 → 0 红
+          const amtBg = amt > 0 ? `hsl(${hue}, 72%, 92%)` : '#fffbeb';
+          const amtBorder = amt > 0 ? `hsl(${hue}, 65%, 55%)` : '#fbbf24';
+          const amtColor = amt > 0 ? `hsl(${hue}, 70%, 30%)` : '#202124';
+          return (
           <div key={i} style={{ display: 'grid', gridTemplateColumns: '60px 1fr 90px auto', gap: 6, marginBottom: 6, alignItems: 'center' }}>
             <select value={e.type} onChange={(ev) => updateMajor(i, { type: ev.target.value as '生活' | '消费' })}
               style={{ border: '1.5px solid #dadce0', borderRadius: 6, padding: '6px 4px', fontSize: 12, outline: 'none' }}>
@@ -211,10 +235,14 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
               <option value="消费">消费</option>
             </select>
             <input type="text" value={e.name} onChange={(ev) => updateMajor(i, { name: ev.target.value })} placeholder="项目名称" style={{ ...fieldStyle, padding: '6px 8px' }} />
-            <input type="number" value={e.amount || ''} onChange={(ev) => updateMajor(i, { amount: parseFloat(ev.target.value) || 0 })} placeholder="金额" style={{ ...fieldStyle, padding: '6px 8px' }} />
+            <input type="number" value={e.amount || ''} onChange={(ev) => updateMajor(i, { amount: parseFloat(ev.target.value) || 0 })} placeholder="金额"
+              style={{ ...fieldStyle, padding: '6px 8px', backgroundColor: amtBg, borderColor: amtBorder, color: amtColor, fontWeight: 600, transition: 'background-color 0.2s, border-color 0.2s, color 0.2s' }}
+            />
             <button onClick={() => removeMajor(i)} style={{ color: C.red, border: 'none', background: 'none', fontSize: 16, cursor: 'pointer', padding: '0 4px' }}>×</button>
           </div>
-        ))}
+          );
+          });
+        })()}
       </div>
 
       <button
@@ -425,18 +453,85 @@ export default function CalendarPage() {
   const [formOpen, setFormOpen] = useState(false);
 
   // ── Stores ──
-  const { tagMap, setTag, toggleTag, countByTag } = useCalendarStore();
+  const { tagMap, setTag, toggleTag, countByTag, bulkFillSchool, initMonthFromCounts, initializedFromRecords, markInitialized } = useCalendarStore();
   const { config } = useConfigStore();
   const { current } = useSnapshotStore();
-  const { records, upsert } = useMonthlyStore();
+  const { records, upsert, updateDayCounts } = useMonthlyStore();
   const { tagOrder, setTagOrder, weekdayTags, setWeekdayTags } = usePrefsStore();
   const tagDrag = useDragSort(tagOrder, setTagOrder, 'horizontal');
 
-  // ── 历史均值（近两年，用于日均显示）──
+  // ── 一次性：按 INITIAL_RECORDS 原始天数初始化 2025-09～2026-04 日历 ──
+  // initializedFromRecords 持久化到 localStorage，切换页面回来也不会重复执行
+  useEffect(() => {
+    if (initializedFromRecords) return;
+    const ORIGIN: { ym: string; home: number; travel: number; intern: number }[] = [
+      { ym: '2025-09', home: 1,  travel: 0, intern: 0 },
+      { ym: '2025-10', home: 10, travel: 0, intern: 0 },
+      { ym: '2025-11', home: 0,  travel: 5, intern: 0 },
+      { ym: '2025-12', home: 0,  travel: 3, intern: 0 },
+      { ym: '2026-01', home: 30, travel: 0, intern: 0 },
+      { ym: '2026-02', home: 13, travel: 9, intern: 0 },
+    ];
+    for (const { ym, home, travel, intern } of ORIGIN) {
+      const [y, mo] = ym.split('-').map(Number);
+      const daysInMonth = new Date(y, mo, 0).getDate();
+      const school = daysInMonth - home - travel - intern;
+      initMonthFromCounts(ym, { school, intern, home, travel });
+    }
+    markInitialized();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── 批量补填"学"：历史未标记天 + 切换月份时自动补当月 ──
+  useEffect(() => {
+    // 历史：从最早记录月起，回填所有未标记天
+    const earliest = records.length > 0
+      ? records[records.length - 1].yearMonth + '-01'
+      : '2021-01-01';
+    const todayStr = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`;
+    bulkFillSchool(earliest, todayStr);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    // 切换到任意月份时，自动补该月未标记天（含未来月）
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const ym = `${year}-${String(month + 1).padStart(2, '0')}`;
+    bulkFillSchool(`${ym}-01`, `${ym}-${String(daysInMonth).padStart(2, '0')}`);
+  }, [year, month]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── tagMap → MonthlyRecord 天数字段同步 ──
+  useEffect(() => {
+    // 按月聚合 tagMap 中的状态天数
+    const countsByMonth: Record<string, { school: number; intern: number; home: number; travel: number }> = {};
+    for (const [date, tag] of Object.entries(tagMap)) {
+      const ym = date.slice(0, 7);
+      if (!countsByMonth[ym]) countsByMonth[ym] = { school: 0, intern: 0, home: 0, travel: 0 };
+      countsByMonth[ym][tag]++;
+    }
+    // 只更新已有 MonthlyRecord 的月份
+    for (const [ym, counts] of Object.entries(countsByMonth)) {
+      const rec = records.find((r) => r.yearMonth === ym);
+      if (!rec) continue;
+      if (
+        rec.schoolDays !== counts.school ||
+        rec.internDays !== counts.intern ||
+        rec.homeDays   !== counts.home   ||
+        rec.travelDays !== counts.travel
+      ) {
+        updateDayCounts(ym, {
+          schoolDays: counts.school,
+          internDays: counts.intern,
+          homeDays:   counts.home,
+          travelDays: counts.travel,
+        });
+      }
+    }
+  }, [tagMap]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── 历史回归均值（近两年，用作当月按比例拆分的权重）──
   const twoYearsAgo = `${_now.getFullYear() - 1}-01`;
   const historyStats = useMemo(
-    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo)),
-    [records],
+    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap),
+    [records, tagMap],
   );
 
   // ── Calendar computed ──
@@ -503,6 +598,19 @@ export default function CalendarPage() {
     return { counts, tagged: Object.values(counts).reduce((a, b) => a + b, 0), total: daysInMonth };
   }, [cells, tagMap, daysInMonth]);
 
+  // 截止今天的 tag 天数（用于日均计算，未来的天不算）
+  const statsToDate = useMemo(() => {
+    const isCurrentMonth = yearMonth === today.slice(0, 7);
+    const counts: Record<TagKind, number> = { intern: 0, school: 0, home: 0, travel: 0 };
+    for (const cell of cells) {
+      if (cell.day === null) continue;
+      if (isCurrentMonth && cell.key > today) continue;
+      const tag = tagMap[cell.key];
+      if (tag) counts[tag]++;
+    }
+    return counts;
+  }, [cells, tagMap, yearMonth, today]);
+
   const isBlocked = (key: string) => selectedTag === 'intern' && isWeekend(key);
 
   const handleCellClick = (key: string) => {
@@ -525,6 +633,42 @@ export default function CalendarPage() {
   const prevMonth   = () => { cancelRange(); if (month === 0) { setYear((y) => y - 1); setMonth(11); } else setMonth((m) => m - 1); };
   const nextMonth   = () => { cancelRange(); if (month === 11) { setYear((y) => y + 1); setMonth(0); } else setMonth((m) => m + 1); };
 
+  // ── 年月快捷跳转面板 ──
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [expandedTag, setExpandedTag] = useState<null | 'eat' | 'red' | 'black'>(null);
+  const [billOverride, setBillOverride] = useState<Record<string, BillTagMonth> | null>(() => loadOverride());
+  const [billImportMsg, setBillImportMsg] = useState<string>('');
+  const billFileRef = useRef<HTMLInputElement>(null);
+  const handleBillFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const data = await parseBillFile(file);
+      saveOverride(data);
+      setBillOverride(data);
+      setBillImportMsg(`已导入 ${Object.keys(data).length} 个月 · ${file.name}`);
+    } catch (err) {
+      setBillImportMsg(`导入失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (billFileRef.current) billFileRef.current.value = '';
+  };
+  const handleBillClear = () => {
+    clearOverride();
+    setBillOverride(null);
+    setBillImportMsg('已清除，使用内置数据');
+  };
+  const pickerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setPickerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [pickerOpen]);
+
   // ── History computed ──
   const thisMonth         = currentYearMonth();
   const existingThisMonth = records.find((r) => r.yearMonth === thisMonth);
@@ -542,6 +686,15 @@ export default function CalendarPage() {
     }
     return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
   }, [records]);
+
+  // 快捷跳转面板可选年份：最早记录年 → 当前查看年与今年的较大者
+  const yearOptions = useMemo(() => {
+    const earliest = records.length
+      ? parseInt(records[records.length - 1].yearMonth.slice(0, 4), 10)
+      : _now.getFullYear();
+    const latest = Math.max(_now.getFullYear(), year);
+    return Array.from({ length: latest - earliest + 1 }, (_, i) => earliest + i);
+  }, [records, year, _now]);
 
   const tableHeader = (
     <div style={{ display: 'grid', gridTemplateColumns: '72px 1fr 1fr 1fr', padding: '6px 10px', fontSize: 11, color: C.sub, fontWeight: 500, marginBottom: 4 }}>
@@ -600,10 +753,67 @@ export default function CalendarPage() {
             paddingTop: 8, paddingBottom: 8,
             marginBottom: 6,
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative' }} ref={pickerRef}>
               <button onClick={prevMonth} style={navBtnStyle}>‹</button>
-              <span style={{ fontSize: 16, fontWeight: 600 }}>{CN_MONTH[month]} {year}</span>
+              <button
+                onClick={() => setPickerOpen((v) => !v)}
+                style={{ fontSize: 16, fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 10px', borderRadius: 8, color: pickerOpen ? C.blue : '#202124' }}
+              >
+                {CN_MONTH[month]} {year}
+              </button>
               <button onClick={nextMonth} style={navBtnStyle}>›</button>
+              {pickerOpen && (
+                <div style={{
+                  position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
+                  marginTop: 6, zIndex: 20,
+                  backgroundColor: '#fff', borderRadius: 12, padding: 12,
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.12)', border: '1px solid #e8eaed',
+                  minWidth: 260,
+                }}>
+                  {/* 年份行 */}
+                  <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 8, marginBottom: 8, borderBottom: '1px solid #f1f3f4' }}>
+                    {yearOptions.map((y) => {
+                      const active = y === year;
+                      return (
+                        <button
+                          key={y}
+                          onClick={() => setYear(y)}
+                          style={{
+                            flexShrink: 0, padding: '4px 10px', borderRadius: 16,
+                            border: 'none', cursor: 'pointer', fontSize: 13,
+                            backgroundColor: active ? C.blue : '#f1f3f4',
+                            color: active ? '#fff' : C.sub,
+                            fontWeight: active ? 600 : 400,
+                          }}
+                        >
+                          {y}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* 月份网格 3×4 */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                    {CN_MONTH.map((name, i) => {
+                      const active = i === month;
+                      return (
+                        <button
+                          key={i}
+                          onClick={() => { cancelRange(); setMonth(i); setPickerOpen(false); }}
+                          style={{
+                            padding: '8px 0', borderRadius: 8,
+                            border: 'none', cursor: 'pointer', fontSize: 13,
+                            backgroundColor: active ? C.blue : '#f8f9fa',
+                            color: active ? '#fff' : '#202124',
+                            fontWeight: active ? 600 : 400,
+                          }}
+                        >
+                          {name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -718,14 +928,54 @@ export default function CalendarPage() {
                 <col style={{ width: '20%' }} />
                 <col />
                 <col style={{ width: '24px' }} />
-                <col style={{ width: '72px' }} />
+                <col style={{ width: '68px' }} />
+                <col style={{ width: '68px' }} />
               </colgroup>
+              <thead>
+                <tr>
+                  <th />
+                  <th />
+                  <th />
+                  <th style={{ fontSize: 11, fontWeight: 600, textAlign: 'right', paddingBottom: 4 }}>
+                    <span style={{ backgroundColor: 'rgba(26,115,232,0.12)', color: C.blue, borderRadius: 6, padding: '2px 6px' }}>生活/天</span>
+                  </th>
+                  <th style={{ fontSize: 11, fontWeight: 600, textAlign: 'right', paddingBottom: 4, paddingLeft: 6 }}>
+                    <span style={{ backgroundColor: 'rgba(124,58,237,0.12)', color: C.purple, borderRadius: 6, padding: '2px 6px' }}>消费/天</span>
+                  </th>
+                </tr>
+              </thead>
               <tbody>
-                {tagOrder.map((t) => {
+                {(() => {
+                  // 当月实际总支出
+                  const totalLife = existingForYearMonth
+                    ? (existingForYearMonth.periodicLife + existingForYearMonth.volatileLife) : 0;
+                  const totalCons = existingForYearMonth ? existingForYearMonth.consumption : 0;
+
+                  // 用历史回归权重做比例分配：
+                  // avgLife[k] = w[k] × (totalLife / Σ days[k]×w[k])
+                  // 保证 Σ days[k] × avgLife[k] = totalLife
+                  const wLife = historyStats.stateDailyAvg;
+                  const wCons = historyStats.stateConsumptionDailyAvg;
+                  // 日均计算只用截止今天的天数
+                  const denomLife = (['school','intern','home','travel'] as TagKind[])
+                    .reduce((s, k) => s + statsToDate[k] * wLife[k], 0);
+                  const denomCons = (['school','intern','home','travel'] as TagKind[])
+                    .reduce((s, k) => s + statsToDate[k] * wCons[k], 0);
+
+                  return tagOrder.map((t) => {
                   const meta  = tagMeta[t];
                   const count = stats.counts[t];
+                  const countToDate = statsToDate[t];
                   const pct   = stats.total > 0 ? (count / stats.total) * 100 : 0;
-                  const avg   = historyStats.stateDailyAvg[t];
+                  // 比例缩放：各状态日均 × 当月总额 / 加权基数（截止今天）
+                  const avgLife = countToDate > 0 && denomLife > 0 ? wLife[t] * totalLife / denomLife : 0;
+                  const avgCons = countToDate > 0 && denomCons > 0 ? wCons[t] * totalCons / denomCons : 0;
+                  const fmtLife = (v: number) => v > 0
+                    ? <span style={{ backgroundColor: 'rgba(26,115,232,0.08)', color: C.blue, borderRadius: 6, padding: '2px 6px', display: 'inline-block' }}>¥{Math.round(v)}</span>
+                    : <span style={{ color: '#dadce0' }}>—</span>;
+                  const fmtCons = (v: number) => v > 0
+                    ? <span style={{ backgroundColor: 'rgba(124,58,237,0.08)', color: C.purple, borderRadius: 6, padding: '2px 6px', display: 'inline-block' }}>¥{Math.round(v)}</span>
+                    : <span style={{ color: '#dadce0' }}>—</span>;
                   return (
                     <tr key={t}>
                       <td style={{ padding: '6px 0', color: C.sub }}>{meta.icon} {meta.label}</td>
@@ -735,19 +985,125 @@ export default function CalendarPage() {
                         </div>
                       </td>
                       <td style={{ padding: '6px 0', textAlign: 'right', fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: C.sub }}>{count}</td>
-                      <td style={{ padding: '6px 0 6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: avg > 0 ? meta.color : '#dadce0', fontSize: 12 }}>
-                        {avg > 0 ? `¥${Math.round(avg)}/天` : '—'}
-                      </td>
+                      <td style={{ padding: '6px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>{fmtLife(avgLife)}</td>
+                      <td style={{ padding: '6px 0 6px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>{fmtCons(avgCons)}</td>
                     </tr>
                   );
-                })}
+                  });
+                })()}
               </tbody>
             </table>
+            {(() => {
+              const schoolSpend = existingForYearMonth?.school ?? 0;
+              const schoolDays = statsToDate.school;
+              if (schoolDays > 0 && schoolSpend > 0) {
+                const campusDailyAvg = schoolSpend / schoolDays;
+                return (
+                  <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, padding: '8px 12px', backgroundColor: '#f0f7ff', borderRadius: 10 }}>
+                    <span style={{ color: C.sub }}>🍜 校园卡日均</span>
+                    <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue }}>¥{Math.round(campusDailyAvg)}</span>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+            {(() => {
+              const source = billOverride ?? (billTagStats as Record<string, BillTagMonth>);
+              const ts = source[yearMonth];
+              if (!ts) return null;
+              const totalExpense = existingForYearMonth?.totalExpense ?? 0;
+              const eatAvg = ts.eatDrinkCount > 0 ? ts.eatDrinkAmount / ts.eatDrinkCount : 0;
+              const redPct = totalExpense > 0 ? (ts.redAmount / totalExpense) * 100 : 0;
+              const blackPct = totalExpense > 0 ? (ts.blackAmount / totalExpense) * 100 : 0;
+              const rowStyle: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, padding: '6px 12px', borderRadius: 10, marginTop: 6, cursor: 'pointer', userSelect: 'none' };
+              const toggle = (key: 'eat' | 'red' | 'black') => setExpandedTag(prev => prev === key ? null : key);
+              const caret = (open: boolean) => <span style={{ fontSize: 10, color: C.sub, marginLeft: 4 }}>{open ? '▾' : '▸'}</span>;
+              const renderItems = (items: BillItem[]) => (
+                <div style={{ margin: '2px 12px 6px', fontSize: 12 }}>
+                  {items.map((it, i) => {
+                    const info = extractMeaningful(it.tags, it.note);
+                    const cat = it.subcategory ? `${it.category}·${it.subcategory}` : it.category;
+                    return (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, padding: '4px 0', borderBottom: '1px dashed #eee' }}>
+                        <span style={{ color: C.sub, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <span style={{ fontVariantNumeric: 'tabular-nums' }}>{it.date.slice(5)}</span> · {cat}
+                          {info && <span style={{ color: '#9aa0a6', marginLeft: 6 }}>{info}</span>}
+                        </span>
+                        <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>¥{formatCurrency(it.amount)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+              return (
+                <>
+                  {ts.eatDrinkCount > 0 && (
+                    <>
+                      <div style={{ ...rowStyle, backgroundColor: '#fff7ed' }} onClick={() => toggle('eat')}>
+                        <span style={{ color: C.sub }}>🍽️ 吃好喝好 <span style={{ fontSize: 11 }}>({ts.eatDrinkCount} 顿)</span>{caret(expandedTag === 'eat')}</span>
+                        <span style={{ fontVariantNumeric: 'tabular-nums', color: '#c2410c' }}>
+                          ¥{formatCurrency(ts.eatDrinkAmount)} · <span style={{ fontWeight: 600 }}>均 ¥{Math.round(eatAvg)}/顿</span>
+                        </span>
+                      </div>
+                      {expandedTag === 'eat' && renderItems(ts.eatDrinkItems)}
+                    </>
+                  )}
+                  {ts.redAmount > 0 && (
+                    <>
+                      <div style={{ ...rowStyle, backgroundColor: '#fef2f2' }} onClick={() => toggle('red')}>
+                        <span style={{ color: C.sub }}>🔴 红{caret(expandedTag === 'red')}</span>
+                        <span style={{ fontVariantNumeric: 'tabular-nums', color: C.red }}>
+                          ¥{formatCurrency(ts.redAmount)} · <span style={{ fontWeight: 600 }}>{redPct.toFixed(1)}%</span>
+                        </span>
+                      </div>
+                      {expandedTag === 'red' && renderItems(ts.redItems)}
+                    </>
+                  )}
+                  {ts.blackAmount > 0 && (
+                    <>
+                      <div style={{ ...rowStyle, backgroundColor: '#f3f4f6' }} onClick={() => toggle('black')}>
+                        <span style={{ color: C.sub }}>⚫ 黑{caret(expandedTag === 'black')}</span>
+                        <span style={{ fontVariantNumeric: 'tabular-nums', color: '#1f2937' }}>
+                          ¥{formatCurrency(ts.blackAmount)} · <span style={{ fontWeight: 600 }}>{blackPct.toFixed(1)}%</span>
+                        </span>
+                      </div>
+                      {expandedTag === 'black' && renderItems(ts.blackItems)}
+                    </>
+                  )}
+                </>
+              );
+            })()}
             {stats.tagged < stats.total && (
               <div style={{ marginTop: 12, fontSize: 13, color: C.orange, backgroundColor: '#fef7e0', border: '1px solid #fdd663', borderRadius: 12, padding: '10px 14px' }}>
                 💡 还有 {stats.total - stats.tagged} 天未标记
               </div>
             )}
+            <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <input
+                ref={billFileRef}
+                type="file"
+                accept=".xls,.xlsx,.csv"
+                style={{ display: 'none' }}
+                onChange={handleBillFile}
+              />
+              <button
+                onClick={() => billFileRef.current?.click()}
+                style={{ fontSize: 12, padding: '6px 12px', borderRadius: 8, border: `1px solid ${C.border}`, backgroundColor: '#fff', color: C.sub, cursor: 'pointer' }}
+              >
+                📥 导入账单
+              </button>
+              {billOverride && (
+                <button
+                  onClick={handleBillClear}
+                  style={{ fontSize: 12, padding: '6px 10px', borderRadius: 8, border: `1px solid ${C.border}`, backgroundColor: '#fff', color: C.sub, cursor: 'pointer' }}
+                >
+                  清除
+                </button>
+              )}
+              <span style={{ fontSize: 11, color: C.sub }}>
+                {billImportMsg || (billOverride ? '使用导入数据' : '使用内置数据')}
+              </span>
+            </div>
           </Card>
 
           {/* 月度数据录入（与年视图同步） */}

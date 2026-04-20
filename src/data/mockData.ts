@@ -185,6 +185,8 @@ export const currentStats: CurrentStats = {
   monthlyIncomeAvg: 5611.85,
   schoolDailyAvg: 139.88,
   stateDailyAvg: { school: 139.88, intern: 105, home: 105, travel: 105 },
+  stateConsumptionDailyAvg: { school: 0, intern: 0, home: 0, travel: 0 },
+  stateDailyConfidence: { school: 0, intern: 0, home: 0, travel: 0 },
   savingsRate: -0.138,
   totalLife: 2863.31,
 };

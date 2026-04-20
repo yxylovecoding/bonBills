@@ -63,9 +63,17 @@ const INITIAL_RECORDS: MonthlyRecord[] = [
   { yearMonth: '2021-01', income: 26937.08, totalExpense: 5403.08, volatileLife: 0, periodicLife: 5013.93, consumption: 389.15, school: 0, accumulatedProfit: 0, investTotal: 0, homeDays: 0, travelDays: 0, majorExpenses: [] },
 ];
 
+interface DayCounts {
+  schoolDays: number;
+  internDays: number;
+  homeDays: number;
+  travelDays: number;
+}
+
 interface MonthlyStore {
   records: MonthlyRecord[];
   upsert: (record: MonthlyRecord) => void;
+  updateDayCounts: (yearMonth: string, counts: DayCounts) => void;
   getByYearMonth: (ym: string) => MonthlyRecord | undefined;
 }
 
@@ -82,6 +90,14 @@ export const useMonthlyStore = create<MonthlyStore>()(
             return { records: next };
           }
           return { records: [record, ...s.records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth)) };
+        }),
+      updateDayCounts: (yearMonth, counts) =>
+        set((s) => {
+          const idx = s.records.findIndex((r) => r.yearMonth === yearMonth);
+          if (idx < 0) return s; // 没有对应记录则不操作
+          const next = [...s.records];
+          next[idx] = { ...next[idx], ...counts };
+          return { records: next };
         }),
       getByYearMonth: (ym) => get().records.find((r) => r.yearMonth === ym),
     }),

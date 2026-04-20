@@ -11,9 +11,10 @@ function getDaysInMonth(year: number, month: number) {
 }
 
 function countFutureTagDays(tags: DailyTag[], tagKind: string, today: Date): number {
+  const yearMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
   return tags.filter((t) => {
     const d = new Date(t.date);
-    return t.tag === tagKind && d > today;
+    return t.tag === tagKind && d > today && t.date.startsWith(yearMonth);
   }).length;
 }
 
@@ -27,7 +28,7 @@ export interface AccountBalances {
 export function calcBudget(
   config: AppConfig,
   stats: CurrentStats,
-  transfersDone: { campusCard: number; living: number; consumption: number; wishJar: number; invest: number },
+  _transfersDone: { campusCard: number; living: number; consumption: number; wishJar: number; invest: number },
   tags: DailyTag[],
   today: Date,
   accounts?: Partial<AccountBalances>,
@@ -55,14 +56,15 @@ export function calcBudget(
     if (t.date.startsWith(nextYM)) stateDaysNextMonth[t.tag]++;
   }
 
-  const d = stats.stateDailyAvg;
+  const d  = stats.stateDailyAvg;
 
-  // === 月内预算（本月剩余各状态天数 × 日均费用）===
-  const monthlyExpense =
-    stateDaysLeft.school * d.school +
-    stateDaysLeft.intern * d.intern +
-    stateDaysLeft.home   * d.home +
-    stateDaysLeft.travel * d.travel;
+  const stateTotal = (daysMap: Record<TagKind, number>) =>
+    (['school', 'intern', 'home', 'travel'] as TagKind[]).reduce(
+      (s, k) => s + daysMap[k] * d[k], 0,
+    );
+
+  // === 月内预算（本月剩余各状态天数 × (生活+消费)日均）===
+  const monthlyExpense = stateTotal(stateDaysLeft);
 
   // === 周内预算（月内按比例缩短到7天）===
   const weekDays = Math.min(daysLeftInMonth, 7);
@@ -86,38 +88,34 @@ export function calcBudget(
     })
     .reduce((s, i) => s + i.amount, 0);
 
-  // === 月外预算（下月各状态天数 × 日均费用）===
+  // === 月外预算（下月各状态天数 × (生活+消费)日均）===
   const beyondIncome = config.incomeItems.filter((i) => i.isActive).reduce((s, i) => s + i.amount, 0);
-  const beyondExpense =
-    stateDaysNextMonth.school * d.school +
-    stateDaysNextMonth.intern * d.intern +
-    stateDaysNextMonth.home   * d.home +
-    stateDaysNextMonth.travel * d.travel;
+  const beyondExpense = stateTotal(stateDaysNextMonth);
 
   // === 各账户本月预计需求 ===
-  const campusNeed = Math.ceil(d.school * stateDaysLeft.school);
-  const nonSchoolDaysLeft = stateDaysLeft.intern + stateDaysLeft.home + stateDaysLeft.travel;
-  const livingNeed = Math.ceil(nonSchoolDaysLeft * d.intern);
+  const campusNeed = Math.ceil(stats.schoolDailyAvg * stateDaysLeft.school);
+  const livingNeed = Math.max(Math.ceil(monthlyExpense - campusNeed), 0);
 
   // 当前余额（若未提供则按 0 处理）
   const accIncome = accounts?.incomeBank ?? 0;
   const accCampus = accounts?.campusCard ?? 0;
   const accLiving = accounts?.livingBank ?? 0;
 
-  // 已确认转账后实际余额
-  const campusEffective = accCampus + transfersDone.campusCard;
-  const livingEffective = accLiving + transfersDone.living;
-
-  // 各账户缺口（需要补充的金额）
-  const campusShortfall = Math.max(campusNeed - campusEffective, 0);
-  const livingShortfall = Math.max(livingNeed - livingEffective, 0);
+  // 各账户缺口（需要补充的金额）= 月需 − 当前余额
+  const campusShortfall = Math.max(campusNeed - accCampus, 0);
+  const livingShortfall = Math.max(livingNeed - accLiving, 0);
   const totalEssential  = campusShortfall + livingShortfall;
 
-  // === 收入优先逻辑（不计消费账户）===
+  // === 收入优先逻辑 ===
   const incomeAvailable = accIncome;
+
+  // 盈余分配比例（来自 Excel 月初 sheet D15/C16/U12）
+  const INVEST_RATIO = 0.5;   // C16: 50% → 理财
+  const WISH_SHARE   = 0.8;   // U12: 消费中 80% → 心愿，20% → 消费银行卡
 
   let campusTransfer: number;
   let livingTransfer: number;
+  let consumptionTransfer: number;
   let wishJarTransfer: number;
   let investTransfer: number;
   let needsRedemption: number;
@@ -127,17 +125,11 @@ export function calcBudget(
     campusTransfer = 0;
     livingTransfer = 0;
     incomeAfterEssentials = incomeAvailable;
-    const wishTarget = Math.max(200 - transfersDone.wishJar, 0);
-    wishJarTransfer = Math.min(wishTarget, incomeAfterEssentials);
-    investTransfer = Math.max(incomeAfterEssentials - wishJarTransfer - transfersDone.invest, 0);
     needsRedemption = 0;
   } else if (incomeAvailable >= totalEssential) {
     campusTransfer = campusShortfall;
     livingTransfer = livingShortfall;
     incomeAfterEssentials = incomeAvailable - totalEssential;
-    const wishTarget = Math.max(200 - transfersDone.wishJar, 0);
-    wishJarTransfer = Math.min(wishTarget, incomeAfterEssentials);
-    investTransfer = Math.max(incomeAfterEssentials - wishJarTransfer - transfersDone.invest, 0);
     needsRedemption = 0;
   } else {
     if (totalEssential > 0) {
@@ -148,9 +140,19 @@ export function calcBudget(
       livingTransfer = 0;
     }
     incomeAfterEssentials = 0;
-    wishJarTransfer = 0;
-    investTransfer = 0;
     needsRedemption = totalEssential - incomeAvailable;
+  }
+
+  // 盈余按比例分配
+  if (incomeAfterEssentials > 0) {
+    investTransfer = Math.round(incomeAfterEssentials * INVEST_RATIO);
+    const consumeTotal = incomeAfterEssentials - investTransfer;
+    wishJarTransfer = Math.round(consumeTotal * WISH_SHARE);
+    consumptionTransfer = consumeTotal - wishJarTransfer;
+  } else {
+    investTransfer = 0;
+    wishJarTransfer = 0;
+    consumptionTransfer = 0;
   }
 
   return {
@@ -163,7 +165,7 @@ export function calcBudget(
     recommended: {
       campusCard:   campusTransfer,
       living:       livingTransfer,
-      consumption:  0,
+      consumption:  consumptionTransfer,
       wishJar:      wishJarTransfer,
       invest:       investTransfer,
       needsRedemption: Math.round(needsRedemption),
