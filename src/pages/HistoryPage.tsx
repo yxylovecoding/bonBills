@@ -6,6 +6,7 @@ import {
 import Card from '../components/Card';
 import StatRow from '../components/StatRow';
 import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
+import AmountInput from '../components/AmountInput';
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { useCalendarStore } from '../stores/calendarStore';
 import { calcHistoryStats } from '../calculations/history';
@@ -142,7 +143,7 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
         ].map(({ label, val, set }) => (
           <div key={label}>
             <div style={labelStyle}>{label}</div>
-            <input type="number" value={val} onChange={(e) => set(e.target.value)} placeholder="0.00" style={fieldStyle} />
+            <AmountInput value={val} onChange={set} placeholder="0.00" style={fieldStyle} />
           </div>
         ))}
       </div>
@@ -173,16 +174,16 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
                     {investMeta[k].label}
                   </td>
                   <td style={{ padding: '4px 0', textAlign: 'right' }}>
-                    <input
-                      type="number" value={breakdown[k] ?? ''} placeholder="0"
-                      onChange={(e) => setBreakdown((p) => ({ ...p, [k]: e.target.value }))}
+                    <AmountInput
+                      value={breakdown[k] ?? ''} placeholder="0"
+                      onChange={(v) => setBreakdown((p) => ({ ...p, [k]: v }))}
                       style={{ width: '90%', border: 'none', borderBottom: '1px solid #fbbf24', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0' }}
                     />
                   </td>
                   <td style={{ padding: '4px 0', textAlign: 'right' }}>
-                    <input
-                      type="number" value={breakdownProfit[k] ?? ''} placeholder="0"
-                      onChange={(e) => setBreakdownProfit((p) => ({ ...p, [k]: e.target.value }))}
+                    <AmountInput
+                      value={breakdownProfit[k] ?? ''} placeholder="0"
+                      onChange={(v) => setBreakdownProfit((p) => ({ ...p, [k]: v }))}
                       style={{ width: '90%', border: 'none', borderBottom: `1px solid ${C.blue}`, outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0', color: C.blue }}
                     />
                   </td>
@@ -228,7 +229,7 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
               <option value="消费">消费</option>
             </select>
             <input type="text" value={e.name} onChange={(ev) => updateMajor(i, { name: ev.target.value })} placeholder="项目名称" style={{ ...fieldStyle, padding: '6px 8px' }} />
-            <input type="number" value={e.amount || ''} onChange={(ev) => updateMajor(i, { amount: parseFloat(ev.target.value) || 0 })} placeholder="金额" style={{ ...fieldStyle, padding: '6px 8px' }} />
+            <AmountInput value={e.amount ? String(e.amount) : ''} onChange={(v) => updateMajor(i, { amount: parseFloat(v) || 0 })} placeholder="金额" style={{ ...fieldStyle, padding: '6px 8px' }} />
             <button onClick={() => removeMajor(i)} style={{ color: C.red, border: 'none', background: 'none', fontSize: 16, cursor: 'pointer', padding: '0 4px' }}>×</button>
           </div>
         ))}

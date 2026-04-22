@@ -6,6 +6,7 @@ import {
 import Card from '../components/Card';
 import StatRow from '../components/StatRow';
 import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
+import AmountInput from '../components/AmountInput';
 import { useSnapshotStore } from '../stores/snapshotStore';
 import { useConfigStore } from '../stores/configStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
@@ -274,8 +275,8 @@ export default function HomePage() {
                   {isDailyMode ? (
                     <>
                       <span style={{ fontSize: 11, color: C.sub }}>¥</span>
-                      <input type="number" inputMode="decimal" value={item.dailyRate ?? 0} onFocus={(e) => e.target.select()}
-                        onChange={(e) => { const v = e.target.value; updateIncomeField(item.id, 'dailyRate', /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v); }}
+                      <AmountInput value={String(item.dailyRate ?? 0)} onFocus={(e) => e.target.select()}
+                        onChange={(v) => updateIncomeField(item.id, 'dailyRate', /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v)}
                         style={{ width: 60, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, color: C.orange, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
                       />
                       <span style={{ fontSize: 11, color: C.sub }}>/天 × {internCount}天</span>
@@ -284,8 +285,8 @@ export default function HomePage() {
                   ) : (
                     <>
                       <span style={{ fontSize: 11, color: C.sub }}>¥</span>
-                      <input type="number" inputMode="decimal" value={item.amount} onFocus={(e) => e.target.select()}
-                        onChange={(e) => { const v = e.target.value; updateIncomeField(item.id, 'amount', /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v); }}
+                      <AmountInput value={String(item.amount ?? '')} onFocus={(e) => e.target.select()}
+                        onChange={(v) => updateIncomeField(item.id, 'amount', /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v)}
                         style={{ width: 80, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.green, textAlign: 'right' }}
                       />
                     </>

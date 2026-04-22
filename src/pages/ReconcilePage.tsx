@@ -2,6 +2,7 @@ import { Fragment, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Card from '../components/Card';
 import { formatCurrency } from '../components/CurrencyDisplay';
+import AmountInput from '../components/AmountInput';
 
 const fmtInt = (v: number) => Math.round(v).toLocaleString('zh-CN');
 import { useSnapshotStore } from '../stores/snapshotStore';
@@ -161,28 +162,45 @@ export default function ReconcilePage() {
   const totalInvest = investKeys.reduce((s, k) => s + current.investHoldings[k], 0);
 
 
-  // 一键执行转账：将已转输入同步到 store
+  // 一键执行转账：把已转金额加到对应账户，收入账户相应减少，然后已转归零
   const handleExecuteAll = () => {
-    const newConfirmed = { ...confirmed };
     const accountDelta: Partial<typeof current.accounts> = {};
+    let totalOut = 0;
 
     for (const key of TRANSFER_KEYS) {
-      const newVal = parseFloat(localTransferred[key] || '0') || 0;
-      const delta = newVal - (confirmed[key] || 0);
-      newConfirmed[key] = newVal;
-      if (delta !== 0) {
-        const acctKey = TRANSFER_META[key].accountKey as keyof typeof current.accounts | undefined;
-        if (acctKey) {
-          accountDelta[acctKey] = (current.accounts[acctKey] || 0) + delta;
-        }
-      }
+      const amount = parseFloat(localTransferred[key] || '0') || 0;
+      if (amount === 0) continue;
+      totalOut += amount;
+      const acctKey = TRANSFER_META[key].accountKey as keyof typeof current.accounts | undefined;
+      if (!acctKey) continue;
+      const base = accountDelta[acctKey] ?? (current.accounts[acctKey] ?? 0);
+      accountDelta[acctKey] = base + amount;
     }
-    setConfirmed(newConfirmed);
-    if (Object.keys(accountDelta).length > 0) updateAccounts(accountDelta);
-    updateTransfers(newConfirmed);
+
+    if (totalOut > 0) {
+      const incomeBase = accountDelta.incomeBank ?? (current.accounts.incomeBank ?? 0);
+      accountDelta.incomeBank = incomeBase - totalOut;
+    }
+
+    const zeroed = Object.fromEntries(TRANSFER_KEYS.map((k) => [k, 0])) as Record<TransferKey, number>;
+    const zeroedStr = Object.fromEntries(TRANSFER_KEYS.map((k) => [k, '0'])) as Record<TransferKey, string>;
+
+    if (Object.keys(accountDelta).length > 0) {
+      updateAccounts(accountDelta);
+      setLocalAccounts((prev) => {
+        const next = { ...prev };
+        for (const [k, v] of Object.entries(accountDelta)) {
+          if (k in next) (next as Record<string, string>)[k] = String(v);
+        }
+        return next;
+      });
+    }
+    updateTransfers(zeroed);
+    setConfirmed(zeroed);
+    setLocalTransferred(zeroedStr);
   };
 
-  const hasTransferChanges = TRANSFER_KEYS.some((k) => (parseFloat(localTransferred[k] || '0') || 0) !== (confirmed[k] || 0));
+  const hasTransferChanges = TRANSFER_KEYS.some((k) => (parseFloat(localTransferred[k] || '0') || 0) !== 0);
 
   // 保存快照
   const handleSave = () => {
@@ -362,11 +380,10 @@ export default function ReconcilePage() {
                   <span style={{ fontSize: 13, color: '#5f6368' }}>{label}</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <span style={{ fontSize: 14, fontWeight: 600, color: '#c5221f' }}>¥</span>
-                    <input
+                    <AmountInput
                       ref={(el) => { accountInputRefs.current[idx] = el; }}
-                      type="number" inputMode="decimal"
                       value={localAccounts[key]}
-                      onChange={(e) => { const v = e.target.value; setLocalAccounts((p) => ({ ...p, [key]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v })); }}
+                      onChange={(v) => setLocalAccounts((p) => ({ ...p, [key]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }))}
                       onFocus={(e) => e.target.select()}
                       onBlur={() => syncAccounts()}
                       onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(idx); } }}
@@ -383,11 +400,10 @@ export default function ReconcilePage() {
             <span style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>🎓 校园卡</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <span style={{ fontSize: 14, fontWeight: 600, color: '#f57c00' }}>¥</span>
-              <input
+              <AmountInput
                 ref={(el) => { accountInputRefs.current[2] = el; }}
-                type="number" inputMode="decimal"
                 value={localAccounts.campusCard}
-                onChange={(e) => { const v = e.target.value; setLocalAccounts((p) => ({ ...p, campusCard: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v })); }}
+                onChange={(v) => setLocalAccounts((p) => ({ ...p, campusCard: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }))}
                 onFocus={(e) => e.target.select()}
                 onBlur={() => syncAccounts()}
                 onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(2); } }}
@@ -401,11 +417,10 @@ export default function ReconcilePage() {
             <span style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>🏦 生活</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <span style={{ fontSize: 14, fontWeight: 600, color: '#1a73e8' }}>¥</span>
-              <input
+              <AmountInput
                 ref={(el) => { accountInputRefs.current[3] = el; }}
-                type="number" inputMode="decimal"
                 value={localAccounts.livingBank}
-                onChange={(e) => { const v = e.target.value; setLocalAccounts((p) => ({ ...p, livingBank: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v })); }}
+                onChange={(v) => setLocalAccounts((p) => ({ ...p, livingBank: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }))}
                 onFocus={(e) => e.target.select()}
                 onBlur={() => syncAccounts()}
                 onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(3); } }}
@@ -419,11 +434,10 @@ export default function ReconcilePage() {
             <span style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>💰 收入</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <span style={{ fontSize: 14, fontWeight: 600, color: '#188038' }}>¥</span>
-              <input
+              <AmountInput
                 ref={(el) => { accountInputRefs.current[4] = el; }}
-                type="number" inputMode="decimal"
                 value={localAccounts.incomeBank}
-                onChange={(e) => { const v = e.target.value; setLocalAccounts((p) => ({ ...p, incomeBank: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v })); }}
+                onChange={(v) => setLocalAccounts((p) => ({ ...p, incomeBank: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }))}
                 onFocus={(e) => e.target.select()}
                 onBlur={() => syncAccounts()}
                 onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(4); } }}
@@ -591,10 +605,10 @@ export default function ReconcilePage() {
                   >需¥{fmtInt(row.rec)} {expandedTransfer === row.key ? '▾' : '▸'}</span>
                   <span style={{ fontSize: 12, color: C.orange, fontWeight: 600, fontVariantNumeric: 'tabular-nums', textAlign: 'right', whiteSpace: 'nowrap' }}>还需¥{fmtInt(remain)}</span>
                   <span style={{ fontSize: 12, color: C.sub, textAlign: 'right' }}>已转</span>
-                  <input
+                  <AmountInput
                     ref={(el) => { transferInputRefs.current[i] = el; }}
-                    type="number" value={localTransferred[row.key]}
-                    onChange={(e) => { const v = e.target.value; setLocalTransferred((p) => ({ ...p, [row.key]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v })); }}
+                    value={localTransferred[row.key]}
+                    onChange={(v) => setLocalTransferred((p) => ({ ...p, [row.key]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }))}
                     onFocus={(e) => e.target.select()}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); transferInputRefs.current[i + 1]?.focus(); } }}
                     style={{ width: '100%', border: `1.5px solid ${transferred > 0 ? '#81c995' : '#dadce0'}`, borderRadius: 8, padding: '5px 8px', fontSize: 13, fontWeight: 600, textAlign: 'right', outline: 'none', backgroundColor: transferred > 0 ? '#e6f4ea' : '#fff', color: transferred > 0 ? C.green : '#202124', boxSizing: 'border-box' }}
@@ -634,9 +648,9 @@ export default function ReconcilePage() {
         {/* 本次投入总额 */}
         <div style={{ display: 'flex', alignItems: 'center', border: '1.5px solid #fbbf24', borderRadius: 10, padding: '10px 12px', backgroundColor: '#fffbeb', marginBottom: 14 }}>
           <span style={{ color: C.sub, fontSize: 14, marginRight: 4 }}>本次投入 ¥</span>
-          <input
-            type="number" inputMode="decimal" value={investInput}
-            onChange={(e) => { const v = e.target.value; setInvestInput(/^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v); }}
+          <AmountInput
+            value={investInput}
+            onChange={(v) => setInvestInput(/^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); holdingInputRefs.current[0]?.focus(); } }}
             placeholder="输入总额，自动分配到各行"
             style={{ flex: 1, border: 'none', outline: 'none', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', backgroundColor: 'transparent', textAlign: 'right' }}
@@ -684,14 +698,10 @@ export default function ReconcilePage() {
                     {investMeta[k].label}
                   </td>
                   <td style={{ padding: '4px 0', textAlign: 'right' }}>
-                    <input
+                    <AmountInput
                       ref={(el) => { holdingInputRefs.current[i] = el; }}
-                      type="number" inputMode="decimal"
                       value={localHoldings[k]}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setLocalHoldings((p) => ({ ...p, [k]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }));
-                      }}
+                      onChange={(v) => setLocalHoldings((p) => ({ ...p, [k]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }))}
                       onFocus={(e) => e.target.select()}
                       onBlur={() => syncHolding(k)}
                       onKeyDown={(e) => {
@@ -720,14 +730,10 @@ export default function ReconcilePage() {
                   </td>
                   {/* 已加（编辑后按执行键生效） */}
                   <td style={{ padding: '4px 0', textAlign: 'right' }}>
-                    <input
+                    <AmountInput
                       ref={(el) => { rebalanceInputRefs.current[i] = el; }}
-                      type="number" inputMode="decimal"
                       value={localConfirmed[k]}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setLocalConfirmed((p) => ({ ...p, [k]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }));
-                      }}
+                      onChange={(v) => setLocalConfirmed((p) => ({ ...p, [k]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }))}
                       onFocus={(e) => e.target.select()}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') rebalanceInputRefs.current[i + 1]?.focus();

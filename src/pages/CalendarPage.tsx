@@ -5,7 +5,8 @@ import StatRow from '../components/StatRow';
 import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
 import { tagMeta, investMeta } from '../data/mockData';
 import billTagStats from '../data/billTagStats.json';
-import { parseBillFile, loadOverride, saveOverride, clearOverride, type BillItem, type BillTagMonth } from '../utils/importBill';
+import { parseBillFile, loadOverride, saveOverride, clearOverride, loadExpenseItems, saveExpenseItems, clearExpenseItems, type BillItem, type BillTagMonth, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
+import AmountInput from '../components/AmountInput';
 import { calcHistoryStats } from '../calculations/history';
 import { useCalendarStore } from '../stores/calendarStore';
 import { useConfigStore } from '../stores/configStore';
@@ -91,11 +92,24 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
     () => Object.fromEntries(INVEST_KEYS.map((k) => [k, String(existing?.investBreakdownProfit?.[k] ?? '')])) as Record<keyof InvestHoldings, string>
   );
   const [showBreakdown, setShowBreakdown] = useState(false);
+  const { current: snapshotCurrent } = useSnapshotStore();
+  const mainFieldRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const breakdownRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const breakdownProfitRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const focusNext = (refs: React.MutableRefObject<(HTMLInputElement | null)[]>, i: number) => {
+    setTimeout(() => refs.current[i + 1]?.focus(), 0);
+  };
+  const copyHoldingsFromReconcile = () => {
+    setBreakdown(
+      Object.fromEntries(INVEST_KEYS.map((k) => [k, String(snapshotCurrent.investHoldings[k] ?? 0)])) as Partial<Record<keyof InvestHoldings, string>>,
+    );
+  };
 
   const n = (v: string) => parseFloat(v) || 0;
   const surplus = n(income) - n(totalExpense);
   const investIncome = prevRecord ? n(accProfit) - (prevRecord.accumulatedProfit ?? 0) : null;
-  const investAnnual = investIncome !== null && n(investTotal) > 0 ? (investIncome / n(investTotal)) * 12 : null;
+  const investMonthly = investIncome !== null && n(investTotal) > 0 ? investIncome / n(investTotal) : null;
+  const investAnnual = investMonthly !== null ? investMonthly * 12 : null;
 
   const addMajor    = () => setMajorExpenses((p) => [...p, { type: '生活', name: '', amount: 0 }]);
   const removeMajor = (i: number) => setMajorExpenses((p) => p.filter((_, idx) => idx !== i));
@@ -136,43 +150,89 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
           </div>
         </div>
         {investIncome !== null && (
-          <div style={{ flex: 1, minWidth: 100, backgroundColor: investIncome >= 0 ? '#e6f4ea' : '#fce8e6', borderRadius: 10, padding: '10px 14px' }}>
+          <div style={{ flex: 1, minWidth: 100, backgroundColor: investIncome >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
             <div style={{ fontSize: 11, color: C.sub }}>理财收入</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: investIncome >= 0 ? C.green : C.red, fontVariantNumeric: 'tabular-nums' }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: investIncome >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>
               {investIncome >= 0 ? '+' : ''}¥{formatCurrency(investIncome)}
-              {investAnnual !== null && <span style={{ fontSize: 11, marginLeft: 6, color: C.sub }}>年化 {(investAnnual * 100).toFixed(1)}%</span>}
+              {investMonthly !== null && <span style={{ fontSize: 11, marginLeft: 6, color: C.sub }}>月 {(investMonthly * 100).toFixed(2)}% · 年化 {(investAnnual! * 100).toFixed(1)}%</span>}
             </div>
           </div>
         )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-        {[
-          { label: '总收入',    val: income,       set: setIncome },
-          { label: '总支出',    val: totalExpense,  set: setTotalExpense },
-          { label: '周期生活',  val: periodicLife,  set: setPeriodicLife },
-          { label: '波动生活',  val: volatileLife,  set: setVolatileLife },
-          { label: '消费（交行）', val: consumption, set: setConsumption },
-          { label: '校园卡支出', val: school,       set: setSchool },
-          { label: '累计盈利',  val: accProfit,     set: setAccProfit },
-          { label: '理财总额',  val: investTotal,   set: setInvestTotal },
-        ].map(({ label, val, set }) => (
-          <div key={label}>
-            <div style={labelStyle}>{label}</div>
-            <input type="number" value={val} onChange={(e) => set(e.target.value)} placeholder="0.00" style={fieldStyle} />
-          </div>
-        ))}
+        {([
+          { label: '总收入',    val: income,       set: setIncome,       editable: false },
+          { label: '总支出',    val: totalExpense,  set: setTotalExpense,  editable: false },
+          { label: '周期生活',  val: periodicLife,  set: setPeriodicLife,  editable: false },
+          { label: '波动生活',  val: volatileLife,  set: setVolatileLife,  editable: false },
+          { label: '消费（交行）', val: consumption, set: setConsumption,   editable: false },
+          { label: '校园卡支出', val: school,       set: setSchool,        editable: false },
+          { label: '累计盈利',  val: accProfit,     set: setAccProfit,     editable: true  },
+          { label: '理财总额',  val: investTotal,   set: setInvestTotal,   editable: true  },
+        ] as const).map(({ label, val, set, editable }, i) => {
+          const editableIndices = [6, 7];
+          const editIdx = editableIndices.indexOf(i);
+          return (
+            <div key={label}>
+              <div style={labelStyle}>{label}{!editable && <span style={{ fontSize: 10, color: C.sub, marginLeft: 4 }}>（账单自动）</span>}</div>
+              {editable ? (
+                <AmountInput
+                  ref={(el) => { mainFieldRefs.current[editIdx] = el; }}
+                  value={val}
+                  onChange={set}
+                  placeholder="0.00"
+                  style={fieldStyle}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && editIdx < editableIndices.length - 1) { e.preventDefault(); setTimeout(() => mainFieldRefs.current[editIdx + 1]?.focus(), 0); } }}
+                />
+              ) : (
+                <div style={{ padding: '8px 10px', fontSize: 13, fontVariantNumeric: 'tabular-nums', borderRadius: 8, backgroundColor: '#f1f3f4', color: '#3c4043', minHeight: 20 }}>
+                  {val ? formatCurrency(n(val)) : '—'}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
+
+      {(() => {
+        const pe = parseFloat(periodicLife) || 0;
+        const vo = parseFloat(volatileLife) || 0;
+        const co = parseFloat(consumption) || 0;
+        const te = parseFloat(totalExpense) || 0;
+        if (!periodicLife && !volatileLife && !consumption && !totalExpense) return null;
+        const diff = Math.round((pe + vo + co - te) * 100) / 100;
+        const ok = Math.abs(diff) <= 0.01;
+        return (
+          <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 10, fontSize: 12, backgroundColor: ok ? '#e6f4ea' : '#fce8e6', color: ok ? '#137333' : '#c5221f', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>三项之和 − 总支出</span>
+            <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+              {ok ? '✓' : `${diff > 0 ? '+' : ''}${formatCurrency(diff)}`}
+            </span>
+          </div>
+        );
+      })()}
 
       {/* 理财各品类持仓 & 累计收益 */}
       <div style={{ marginBottom: 12 }}>
-        <button
-          onClick={() => setShowBreakdown((v) => !v)}
-          style={{ width: '100%', textAlign: 'left', fontSize: 12, color: C.sub, fontWeight: 500, padding: '6px 0', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}
-        >
-          <span>📈 理财各品类持仓 & 累计收益（月末）</span>
-          <span>{showBreakdown ? '▲' : '▼'}</span>
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={() => setShowBreakdown((v) => !v)}
+            style={{ flex: 1, textAlign: 'left', fontSize: 12, color: C.sub, fontWeight: 500, padding: '6px 0', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}
+          >
+            <span>📈 理财各品类持仓 & 累计收益（月末）</span>
+            <span>{showBreakdown ? '▲' : '▼'}</span>
+          </button>
+          {showBreakdown && (
+            <button
+              onClick={(e) => { e.stopPropagation(); copyHoldingsFromReconcile(); }}
+              style={{ fontSize: 11, color: C.blue, border: `1px solid ${C.blue}`, borderRadius: 6, padding: '3px 8px', backgroundColor: '#fff', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}
+              title="从对账页当前持仓复制到本月各品类持仓"
+            >
+              📋 从对账页复制
+            </button>
+          )}
+        </div>
         {showBreakdown && (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 6, tableLayout: 'fixed' }}>
             <thead>
@@ -183,21 +243,27 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
               </tr>
             </thead>
             <tbody>
-              {INVEST_KEYS.map((k) => (
+              {INVEST_KEYS.map((k, i) => (
                 <tr key={k} style={{ borderBottom: '1px solid #f1f3f4' }}>
                   <td style={{ padding: '5px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
                     <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', backgroundColor: investMeta[k].color, flexShrink: 0 }} />
                     {investMeta[k].label}
                   </td>
                   <td style={{ padding: '4px 0', textAlign: 'right' }}>
-                    <input type="number" value={breakdown[k] ?? ''} placeholder="0"
-                      onChange={(e) => setBreakdown((p) => ({ ...p, [k]: e.target.value }))}
+                    <AmountInput
+                      ref={(el) => { breakdownRefs.current[i] = el; }}
+                      value={breakdown[k] ?? ''} placeholder="0"
+                      onChange={(v) => setBreakdown((p) => ({ ...p, [k]: v }))}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focusNext(breakdownRefs, i); } }}
                       style={{ width: '90%', border: 'none', borderBottom: '1px solid #fbbf24', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0' }}
                     />
                   </td>
                   <td style={{ padding: '4px 0', textAlign: 'right' }}>
-                    <input type="number" value={breakdownProfit[k] ?? ''} placeholder="0"
-                      onChange={(e) => setBreakdownProfit((p) => ({ ...p, [k]: e.target.value }))}
+                    <AmountInput
+                      ref={(el) => { breakdownProfitRefs.current[i] = el; }}
+                      value={breakdownProfit[k] ?? ''} placeholder="0"
+                      onChange={(v) => setBreakdownProfit((p) => ({ ...p, [k]: v }))}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focusNext(breakdownProfitRefs, i); } }}
                       style={{ width: '90%', border: 'none', borderBottom: `1px solid ${C.blue}`, outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0', color: C.blue }}
                     />
                   </td>
@@ -235,7 +301,7 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
               <option value="消费">消费</option>
             </select>
             <input type="text" value={e.name} onChange={(ev) => updateMajor(i, { name: ev.target.value })} placeholder="项目名称" style={{ ...fieldStyle, padding: '6px 8px' }} />
-            <input type="number" value={e.amount || ''} onChange={(ev) => updateMajor(i, { amount: parseFloat(ev.target.value) || 0 })} placeholder="金额"
+            <AmountInput value={e.amount ? String(e.amount) : ''} onChange={(v) => updateMajor(i, { amount: parseFloat(v) || 0 })} placeholder="金额"
               style={{ ...fieldStyle, padding: '6px 8px', backgroundColor: amtBg, borderColor: amtBorder, color: amtColor, fontWeight: 600, transition: 'background-color 0.2s, border-color 0.2s, color 0.2s' }}
             />
             <button onClick={() => removeMajor(i)} style={{ color: C.red, border: 'none', background: 'none', fontSize: 16, cursor: 'pointer', padding: '0 4px' }}>×</button>
@@ -255,10 +321,72 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
   );
 }
 
+// ── Category drill-down ────────────────────────────────────────────
+function ExpenseItemLine({ it }: { it: BillExpenseItem }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0 2px 32px', color: '#5f6368' }}>
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <span style={{ color: C.sub, marginRight: 6 }}>{it.date.slice(5)}</span>
+        {it.note || it.subcategory || it.category || '—'}
+      </span>
+      <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, marginLeft: 8 }}>¥{formatCurrency(it.amount)}</span>
+    </div>
+  );
+}
+
+function SubcategoryRow({ sub, items, total }: { sub: string; items: BillExpenseItem[]; total: number }) {
+  const [open, setOpen] = useState(false);
+  const sum = items.reduce((s, i) => s + i.amount, 0);
+  const pct = total > 0 ? (sum / total) * 100 : 0;
+  const sorted = [...items].sort((a, b) => b.amount - a.amount);
+  return (
+    <div>
+      <div
+        onClick={() => setOpen((o) => !o)}
+        style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0 3px 16px', cursor: 'pointer', color: '#3c4043' }}
+      >
+        <span>{open ? '▼' : '▶'} {sub || '(无二级)'}</span>
+        <span style={{ fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(sum)} · {pct.toFixed(1)}%</span>
+      </div>
+      {open && sorted.map((it, i) => <ExpenseItemLine key={i} it={it} />)}
+    </div>
+  );
+}
+
+function CategoryRow({ cat, items, total }: { cat: string; items: BillExpenseItem[]; total: number }) {
+  const [open, setOpen] = useState(false);
+  const sum = items.reduce((s, i) => s + i.amount, 0);
+  const pct = total > 0 ? (sum / total) * 100 : 0;
+  const subMap = new Map<string, BillExpenseItem[]>();
+  for (const it of items) {
+    const s = it.subcategory || '';
+    if (!subMap.has(s)) subMap.set(s, []);
+    subMap.get(s)!.push(it);
+  }
+  const subs = [...subMap.entries()]
+    .map(([sub, arr]) => ({ sub, items: arr, total: arr.reduce((s, i) => s + i.amount, 0) }))
+    .sort((a, b) => b.total - a.total);
+  return (
+    <div>
+      <div
+        onClick={() => setOpen((o) => !o)}
+        style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0', cursor: 'pointer', color: '#202124', fontWeight: 500 }}
+      >
+        <span>{open ? '▼' : '▶'} {cat || '(无分类)'}</span>
+        <span style={{ fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(sum)} · {pct.toFixed(1)}%</span>
+      </div>
+      {open && subs.map((s) => <SubcategoryRow key={s.sub} sub={s.sub} items={s.items} total={total} />)}
+    </div>
+  );
+}
+
 // ── MonthRow ──────────────────────────────────────────────────────
-function MonthRow({ record, prev, onJumpToMonth }: { record: MonthlyRecord; prev?: MonthlyRecord; onJumpToMonth?: (ym: string) => void }) {
+function MonthRow({ record, prev, onJumpToMonth, expenseItems }: { record: MonthlyRecord; prev?: MonthlyRecord; onJumpToMonth?: (ym: string) => void; expenseItems?: BillExpenseMonth }) {
   const [open, setOpen] = useState(false);
   const surplus = record.income - record.totalExpense;
+  const expenseSum = record.periodicLife + record.volatileLife + record.consumption;
+  const expenseDiff = Math.round((expenseSum - record.totalExpense) * 100) / 100;
+  const expenseMismatch = Math.abs(expenseDiff) > 0.01;
   const investIncome = prev?.accumulatedProfit ? record.accumulatedProfit - prev.accumulatedProfit : null;
   const investAnnual = investIncome !== null && record.investTotal > 0 ? (investIncome / record.investTotal) * 12 : null;
 
@@ -273,7 +401,10 @@ function MonthRow({ record, prev, onJumpToMonth }: { record: MonthlyRecord; prev
           textAlign: 'left', transition: 'background-color 0.15s',
         }}
       >
-        <span style={{ fontSize: 13, fontWeight: 600, color: open ? C.blue : '#202124' }}>{record.yearMonth}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: open ? C.blue : '#202124' }}>
+          {record.yearMonth}
+          {expenseMismatch && <span title={`三项之和 ${formatCurrency(expenseSum)} ≠ 总支出 ${formatCurrency(record.totalExpense)}`} style={{ marginLeft: 4, color: '#c5221f' }}>⚠️</span>}
+        </span>
         <span style={{ fontSize: 13, color: C.red,   fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>+{formatCurrency(record.income)}</span>
         <span style={{ fontSize: 13, color: C.green,  fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>-{formatCurrency(record.totalExpense)}</span>
         <span style={{ fontSize: 13, fontWeight: 600, color: surplus >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
@@ -283,6 +414,12 @@ function MonthRow({ record, prev, onJumpToMonth }: { record: MonthlyRecord; prev
 
       {open && (
         <div style={{ margin: '2px 0 8px', border: '1.5px solid #c5d9f8', borderRadius: 10, backgroundColor: '#f8fbff', padding: '14px 16px' }}>
+          {expenseMismatch && (
+            <div style={{ marginBottom: 10, padding: '6px 10px', borderRadius: 8, fontSize: 12, backgroundColor: '#fce8e6', color: '#c5221f', display: 'flex', justifyContent: 'space-between' }}>
+              <span>三项之和 − 总支出</span>
+              <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{expenseDiff > 0 ? '+' : ''}{formatCurrency(expenseDiff)}</span>
+            </div>
+          )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
             <div>
               <StatRow label="收入"   value={<CurrencyDisplay value={record.income}       color={C.red}   />} />
@@ -298,8 +435,8 @@ function MonthRow({ record, prev, onJumpToMonth }: { record: MonthlyRecord; prev
           {investIncome !== null && (
             <div style={{ borderTop: '1px solid #dbe8fb', paddingTop: 10, marginBottom: 8 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 6 }}>
-                <StatRow label="理财收入" value={<CurrencyDisplay value={investIncome} color={investIncome >= 0 ? C.green : C.red} />} />
-                {investAnnual !== null && <StatRow label="年化" value={<span style={{ color: investAnnual >= 0 ? C.green : C.red, fontWeight: 500 }}>{(investAnnual * 100).toFixed(1)}%</span>} />}
+                <StatRow label="理财收入" value={<CurrencyDisplay value={investIncome} color={investIncome >= 0 ? C.red : C.green} />} />
+                {investAnnual !== null && <StatRow label="年化" value={<span style={{ color: investAnnual >= 0 ? C.red : C.green, fontWeight: 500 }}>{(investAnnual * 100).toFixed(1)}%</span>} />}
               </div>
               {record.investBreakdown && (
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
@@ -315,8 +452,9 @@ function MonthRow({ record, prev, onJumpToMonth }: { record: MonthlyRecord; prev
                     {INVEST_KEYS.filter((k) => (record.investBreakdown![k] ?? 0) > 0).map((k) => {
                       const cur    = record.investBreakdown![k] ?? 0;
                       const profit = record.investBreakdownProfit?.[k] ?? null;
-                      const basis  = profit !== null ? cur - profit : null;
-                      const rate   = basis !== null && basis > 0 ? profit! / basis : null;
+                      const prevProfit = prev?.investBreakdownProfit?.[k] ?? null;
+                      const monthlyProfit = (profit !== null && prevProfit !== null) ? profit - prevProfit : null;
+                      const rate = (monthlyProfit !== null && cur > 0) ? monthlyProfit / cur : null;
                       return (
                         <tr key={k} style={{ borderBottom: '1px solid #f5f5f5' }}>
                           <td style={{ padding: '4px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -338,6 +476,24 @@ function MonthRow({ record, prev, onJumpToMonth }: { record: MonthlyRecord; prev
               )}
             </div>
           )}
+          {expenseItems && expenseItems.length > 0 && (() => {
+            const total = expenseItems.reduce((s, i) => s + i.amount, 0);
+            const catMap = new Map<string, BillExpenseItem[]>();
+            for (const it of expenseItems) {
+              const c = it.category || '';
+              if (!catMap.has(c)) catMap.set(c, []);
+              catMap.get(c)!.push(it);
+            }
+            const cats = [...catMap.entries()]
+              .map(([cat, arr]) => ({ cat, items: arr, total: arr.reduce((s, i) => s + i.amount, 0) }))
+              .sort((a, b) => b.total - a.total);
+            return (
+              <div style={{ borderTop: '1px solid #dbe8fb', paddingTop: 10, marginBottom: 8 }}>
+                <div style={{ fontSize: 12, color: C.sub, marginBottom: 6 }}>分类支出</div>
+                {cats.map((c) => <CategoryRow key={c.cat} cat={c.cat} items={c.items} total={total} />)}
+              </div>
+            );
+          })()}
           <div style={{ borderTop: '1px solid #dbe8fb', paddingTop: 10, display: 'flex', alignItems: 'center', gap: 12, fontSize: 12, color: C.sub, flexWrap: 'wrap' }}>
             {([
               { key: 'school' as TagKind, days: record.schoolDays },
@@ -379,7 +535,7 @@ function MonthRow({ record, prev, onJumpToMonth }: { record: MonthlyRecord; prev
 }
 
 // ── YearSection ───────────────────────────────────────────────────
-function YearSection({ year, recs, allRecords, onJumpToMonth }: { year: string; recs: MonthlyRecord[]; allRecords: MonthlyRecord[]; onJumpToMonth?: (ym: string) => void }) {
+function YearSection({ year, recs, allRecords, onJumpToMonth, expenseItemsByMonth }: { year: string; recs: MonthlyRecord[]; allRecords: MonthlyRecord[]; onJumpToMonth?: (ym: string) => void; expenseItemsByMonth?: Record<string, BillExpenseMonth> }) {
   const currentYear = String(_NOW.getFullYear());
   const [expanded, setExpanded] = useState(year === currentYear);
   const totalIncome  = recs.reduce((s, r) => s + r.income, 0);
@@ -411,7 +567,7 @@ function YearSection({ year, recs, allRecords, onJumpToMonth }: { year: string; 
             recs.map((r, i, arr) => {
               const prevInArr = arr[i + 1];
               const prevRecord = prevInArr ?? allRecords.find((x) => x.yearMonth < r.yearMonth);
-              return <MonthRow key={r.yearMonth} record={r} prev={prevRecord} onJumpToMonth={onJumpToMonth} />;
+              return <MonthRow key={r.yearMonth} record={r} prev={prevRecord} onJumpToMonth={onJumpToMonth} expenseItems={expenseItemsByMonth?.[r.yearMonth]} />;
             })
           ) : (
             <div style={{ padding: '10px 14px', backgroundColor: '#fafafa', borderRadius: 10 }}>
@@ -637,24 +793,61 @@ export default function CalendarPage() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [expandedTag, setExpandedTag] = useState<null | 'eat' | 'red' | 'black'>(null);
   const [billOverride, setBillOverride] = useState<Record<string, BillTagMonth> | null>(() => loadOverride());
+  const [billExpenseItems, setBillExpenseItems] = useState<Record<string, BillExpenseMonth> | null>(() => loadExpenseItems());
   const [billImportMsg, setBillImportMsg] = useState<string>('');
   const billFileRef = useRef<HTMLInputElement>(null);
-  const handleBillFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const [billDragOver, setBillDragOver] = useState(false);
+  const importBillFromFile = async (file: File) => {
     try {
-      const data = await parseBillFile(file);
-      saveOverride(data);
-      setBillOverride(data);
-      setBillImportMsg(`已导入 ${Object.keys(data).length} 个月 · ${file.name}`);
+      const { tagStats, aggregates, expenseItems } = await parseBillFile(file);
+      saveOverride(tagStats);
+      setBillOverride(tagStats);
+      saveExpenseItems(expenseItems);
+      setBillExpenseItems(expenseItems);
+      const existing = useMonthlyStore.getState().records;
+      let updated = 0;
+      for (const ym of Object.keys(aggregates)) {
+        const a = aggregates[ym];
+        const prev = existing.find((r) => r.yearMonth === ym);
+        upsert({
+          yearMonth: ym,
+          income: a.income,
+          totalExpense: a.totalExpense,
+          periodicLife: a.periodicLife,
+          volatileLife: a.volatileLife,
+          consumption: a.consumption,
+          school: a.school,
+          accumulatedProfit: prev?.accumulatedProfit ?? 0,
+          investTotal: prev?.investTotal ?? 0,
+          investBreakdown: prev?.investBreakdown,
+          investBreakdownProfit: prev?.investBreakdownProfit,
+          homeDays: prev?.homeDays ?? 0,
+          travelDays: prev?.travelDays ?? 0,
+          majorExpenses: prev?.majorExpenses ?? [],
+        });
+        updated += 1;
+      }
+      setBillImportMsg(`已导入 ${updated} 个月记录 · ${file.name}`);
     } catch (err) {
       setBillImportMsg(`导入失败：${err instanceof Error ? err.message : String(err)}`);
     }
+  };
+  const handleBillFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) await importBillFromFile(file);
     if (billFileRef.current) billFileRef.current.value = '';
+  };
+  const handleBillDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setBillDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) await importBillFromFile(file);
   };
   const handleBillClear = () => {
     clearOverride();
+    clearExpenseItems();
     setBillOverride(null);
+    setBillExpenseItems(null);
     setBillImportMsg('已清除，使用内置数据');
   };
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -1073,12 +1266,43 @@ export default function CalendarPage() {
                 </>
               );
             })()}
+            {(() => {
+              const items = billExpenseItems?.[yearMonth];
+              if (!items || items.length === 0) return null;
+              const total = items.reduce((s, i) => s + i.amount, 0);
+              const catMap = new Map<string, BillExpenseItem[]>();
+              for (const it of items) {
+                const c = it.category || '';
+                if (!catMap.has(c)) catMap.set(c, []);
+                catMap.get(c)!.push(it);
+              }
+              const cats = [...catMap.entries()]
+                .map(([cat, arr]) => ({ cat, items: arr, total: arr.reduce((s, i) => s + i.amount, 0) }))
+                .sort((a, b) => b.total - a.total);
+              return (
+                <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid #e8eaed' }}>
+                  <div style={{ fontSize: 12, color: C.sub, marginBottom: 6 }}>分类支出</div>
+                  {cats.map((c) => <CategoryRow key={c.cat} cat={c.cat} items={c.items} total={total} />)}
+                </div>
+              );
+            })()}
             {stats.tagged < stats.total && (
               <div style={{ marginTop: 12, fontSize: 13, color: C.orange, backgroundColor: '#fef7e0', border: '1px solid #fdd663', borderRadius: 12, padding: '10px 14px' }}>
                 💡 还有 {stats.total - stats.tagged} 天未标记
               </div>
             )}
-            <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <div
+              onDragOver={(e) => { e.preventDefault(); if (!billDragOver) setBillDragOver(true); }}
+              onDragLeave={(e) => { if (e.currentTarget.contains(e.relatedTarget as Node)) return; setBillDragOver(false); }}
+              onDrop={handleBillDrop}
+              style={{
+                marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+                padding: 10, borderRadius: 10,
+                border: `1px dashed ${billDragOver ? C.blue : 'transparent'}`,
+                backgroundColor: billDragOver ? '#e8f0fe' : 'transparent',
+                transition: 'background-color 0.15s, border-color 0.15s',
+              }}
+            >
               <input
                 ref={billFileRef}
                 type="file"
@@ -1100,8 +1324,8 @@ export default function CalendarPage() {
                   清除
                 </button>
               )}
-              <span style={{ fontSize: 11, color: C.sub }}>
-                {billImportMsg || (billOverride ? '使用导入数据' : '使用内置数据')}
+              <span style={{ fontSize: 11, color: billDragOver ? C.blue : C.sub }}>
+                {billDragOver ? '松手导入' : (billImportMsg || (billOverride ? '使用导入数据 · 也可拖文件到此' : '使用内置数据 · 也可拖文件到此'))}
               </span>
             </div>
           </Card>
@@ -1178,7 +1402,7 @@ export default function CalendarPage() {
           <Card title="历史明细" subtitle="点击年份展开月度">
             {tableHeader}
             {years.map(([yr, recs]) => (
-              <YearSection key={yr} year={yr} recs={recs} allRecords={records} onJumpToMonth={handleJumpToMonth} />
+              <YearSection key={yr} year={yr} recs={recs} allRecords={records} onJumpToMonth={handleJumpToMonth} expenseItemsByMonth={billExpenseItems ?? undefined} />
             ))}
           </Card>
         </>
