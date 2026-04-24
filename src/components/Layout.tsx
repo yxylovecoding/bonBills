@@ -1,11 +1,13 @@
 import { Outlet } from 'react-router-dom';
 import Nav from './Nav';
+import SyncIndicator from './SyncIndicator';
 
 export default function Layout() {
   return (
     <div
       style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', color: '#202124' }}
     >
+      <SyncIndicator />
       <div
         style={{
           maxWidth: 480,
