@@ -2,31 +2,31 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { AccountSnapshot } from '../models/types';
 
-const DEFAULT_SNAPSHOT: AccountSnapshot = {
-  date: '2026-04-11',
+export const DEFAULT_SNAPSHOT: AccountSnapshot = {
+  date: '',
   reconcileType: 'eleventh',
   accounts: {
-    credit: 2005.72,
+    credit: 0,
     creditMonthly: 0,
     incomeBank: 0,
-    livingBank: 1246.3,
-    campusCard: 180.5,
-    consumptionBank: 892.15,
+    livingBank: 0,
+    campusCard: 0,
+    consumptionBank: 0,
     wishJar: 0,
   },
   investHoldings: {
-    us: 3417.6,
-    eu: 459.16,
-    asia: 503.78,
-    a: 485.45,
-    longBond: 11314.13,
-    usBond: 2381.37,
-    gold: 4808.11,
+    us: 0,
+    eu: 0,
+    asia: 0,
+    a: 0,
+    longBond: 0,
+    usBond: 0,
+    gold: 0,
   },
   transfersDone: {
-    campusCard: 200,
-    living: 500,
-    consumption: 800,
+    campusCard: 0,
+    living: 0,
+    consumption: 0,
     wishJar: 0,
     invest: 0,
   },

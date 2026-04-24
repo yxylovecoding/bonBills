@@ -1,8 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { BillTagMonth, BillExpenseMonth } from '../utils/importBill';
-import defaultTagStats from '../data/billTagStats.json';
-import defaultExpenseItems from '../data/billExpenseItems.json';
 
 interface BillDetailStore {
   tagStats: Record<string, BillTagMonth>;
@@ -13,8 +11,8 @@ interface BillDetailStore {
 }
 
 const DEFAULTS = {
-  tagStats: defaultTagStats as Record<string, BillTagMonth>,
-  expenseItems: defaultExpenseItems as Record<string, BillExpenseMonth>,
+  tagStats: {} as Record<string, BillTagMonth>,
+  expenseItems: {} as Record<string, BillExpenseMonth>,
 };
 
 // 一次性迁移：从旧 localStorage key 迁移到新 store

@@ -1,9 +1,19 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { AppConfig } from '../models/types';
-import defaultConfig from '../data/appConfig.json';
 
-const DEFAULT_CONFIG: AppConfig = defaultConfig as AppConfig;
+export const DEFAULT_CONFIG: AppConfig = {
+  birthDate: '',
+  retireAge: 55,
+  safeWithdrawRate: 0.04,
+  lifeExpectancy: 85,
+  investAllocTargets: { us: 0, eu: 0, asia: 0, a: 0, longBond: 0, usBond: 0, gold: 0 },
+  creditBillDate: 1,
+  creditPayDate: 1,
+  creditPrepDays: 0,
+  reconcileDates: [1, 11, 21],
+  incomeItems: [],
+};
 
 interface ConfigStore {
   config: AppConfig;

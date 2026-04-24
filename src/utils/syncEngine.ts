@@ -1,10 +1,19 @@
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useCalendarStore } from '../stores/calendarStore';
-import { useConfigStore } from '../stores/configStore';
+import { DEFAULT_CONFIG, useConfigStore } from '../stores/configStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { usePrefsStore } from '../stores/prefsStore';
-import { useSnapshotStore } from '../stores/snapshotStore';
+import { DEFAULT_SNAPSHOT, useSnapshotStore } from '../stores/snapshotStore';
 import { useSyncStatus } from './syncStatus';
+
+const EMPTY_STATES: Record<string, Record<string, unknown>> = {
+  'bill-details': { tagStats: {}, expenseItems: {}, hasOverride: false },
+  'monthly-records': { records: [] },
+  'calendar-tags': { tagMap: {}, initializedFromRecords: false },
+  'account-snapshot': { current: DEFAULT_SNAPSHOT, history: [] },
+  'app-config': { config: DEFAULT_CONFIG },
+  // user-prefs 保留 UI 偏好，不清空
+};
 
 type StoreEntry = {
   key: string;
@@ -151,6 +160,11 @@ export async function initSync() {
   const status = useSyncStatus.getState();
   const secret = getSecret();
   if (!secret) {
+    // 无密码访问：清空所有 store（覆盖任何遗留的 localStorage 数据）
+    for (const s of stores) {
+      const empty = EMPTY_STATES[s.key];
+      if (empty) s.setState(empty);
+    }
     status.setStatus('offline', '无密码，使用本地存储');
     return;
   }

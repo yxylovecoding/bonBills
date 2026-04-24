@@ -11,7 +11,7 @@ const META: Record<string, { icon: string; color: string; bg: string; label: str
 
 export default function SyncIndicator() {
   const { state, message } = useSyncStatus();
-  if (state === 'idle' || state === 'offline') return null;
+  if (state === 'idle') return null;
   const m = META[state];
   return (
     <div
