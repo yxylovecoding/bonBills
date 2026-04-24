@@ -471,7 +471,7 @@ export default function ReconcilePage() {
               <button
                 onClick={() => setExpandedBudget(isOpen ? null : row.key)}
                 style={{
-                  width: '100%', display: 'grid', gridTemplateColumns: '1fr 70px 70px 1px 80px 20px',
+                  width: '100%', display: 'grid', gridTemplateColumns: '1fr minmax(0, 70px) minmax(0, 70px) 1px minmax(0, 80px) 20px',
                   alignItems: 'center', gap: 4, padding: '10px 10px', borderRadius: 10,
                   border: 'none', cursor: 'pointer', textAlign: 'left',
                   backgroundColor: isOpen ? '#e8f0fe' : i % 2 === 0 ? '#fafafa' : '#fff',
@@ -597,7 +597,7 @@ export default function ReconcilePage() {
                 )}
               <div style={{ backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff', borderRadius: 10, padding: '10px 12px', marginBottom: 4 }}>
                 {/* 第一行：名称 | 需转 | 还需 | 已转 | 输入（grid 固定列宽） */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(56px, 1fr) 90px 80px 26px 80px', alignItems: 'center', columnGap: 4 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(40px, 1fr) minmax(0, 90px) minmax(0, 80px) 26px minmax(60px, 80px)', alignItems: 'center', columnGap: 4 }}>
                   <span style={{ fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap' }}>{TRANSFER_META[row.key].label}</span>
                   <span
                     onClick={() => setExpandedTransfer((prev) => (prev === row.key ? null : row.key))}

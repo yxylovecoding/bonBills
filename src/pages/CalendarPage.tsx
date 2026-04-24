@@ -4,8 +4,8 @@ import Card from '../components/Card';
 import StatRow from '../components/StatRow';
 import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
 import { tagMeta, investMeta } from '../data/mockData';
-import billTagStats from '../data/billTagStats.json';
-import { parseBillFile, loadOverride, saveOverride, clearOverride, loadExpenseItems, saveExpenseItems, clearExpenseItems, type BillItem, type BillTagMonth, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
+import { parseBillFile, exportBillDefaults, exportCalendarDefaults, exportAppConfig, type BillItem, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
+import { useBillDetailStore } from '../stores/billDetailStore';
 import AmountInput from '../components/AmountInput';
 import { calcHistoryStats } from '../calculations/history';
 import { useCalendarStore } from '../stores/calendarStore';
@@ -792,18 +792,14 @@ export default function CalendarPage() {
   // ── 年月快捷跳转面板 ──
   const [pickerOpen, setPickerOpen] = useState(false);
   const [expandedTag, setExpandedTag] = useState<null | 'eat' | 'red' | 'black'>(null);
-  const [billOverride, setBillOverride] = useState<Record<string, BillTagMonth> | null>(() => loadOverride());
-  const [billExpenseItems, setBillExpenseItems] = useState<Record<string, BillExpenseMonth> | null>(() => loadExpenseItems());
+  const { tagStats: billTagStats, expenseItems: billExpenseItems, hasOverride: billHasOverride, updateFromImport: billUpdateFromImport, resetToDefaults: billResetToDefaults } = useBillDetailStore();
   const [billImportMsg, setBillImportMsg] = useState<string>('');
   const billFileRef = useRef<HTMLInputElement>(null);
   const [billDragOver, setBillDragOver] = useState(false);
   const importBillFromFile = async (file: File) => {
     try {
       const { tagStats, aggregates, expenseItems } = await parseBillFile(file);
-      saveOverride(tagStats);
-      setBillOverride(tagStats);
-      saveExpenseItems(expenseItems);
-      setBillExpenseItems(expenseItems);
+      billUpdateFromImport(tagStats, expenseItems);
       const existing = useMonthlyStore.getState().records;
       let updated = 0;
       for (const ym of Object.keys(aggregates)) {
@@ -844,11 +840,14 @@ export default function CalendarPage() {
     if (file) await importBillFromFile(file);
   };
   const handleBillClear = () => {
-    clearOverride();
-    clearExpenseItems();
-    setBillOverride(null);
-    setBillExpenseItems(null);
-    setBillImportMsg('已清除，使用内置数据');
+    billResetToDefaults();
+    setBillImportMsg('已重置为默认数据');
+  };
+  const handleExportDefaults = () => {
+    exportBillDefaults(billTagStats, billExpenseItems);
+    setTimeout(() => exportCalendarDefaults(useCalendarStore.getState().tagMap), 600);
+    setTimeout(() => exportAppConfig(config), 900);
+    setBillImportMsg('已导出 4 个 JSON 文件，请放入 src/data/ 后重新构建');
   };
   const pickerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1201,7 +1200,7 @@ export default function CalendarPage() {
               return null;
             })()}
             {(() => {
-              const source = billOverride ?? (billTagStats as Record<string, BillTagMonth>);
+              const source = billTagStats;
               const ts = source[yearMonth];
               if (!ts) return null;
               const totalExpense = existingForYearMonth?.totalExpense ?? 0;
@@ -1267,7 +1266,7 @@ export default function CalendarPage() {
               );
             })()}
             {(() => {
-              const items = billExpenseItems?.[yearMonth];
+              const items = billExpenseItems[yearMonth];
               if (!items || items.length === 0) return null;
               const total = items.reduce((s, i) => s + i.amount, 0);
               const catMap = new Map<string, BillExpenseItem[]>();
@@ -1316,16 +1315,22 @@ export default function CalendarPage() {
               >
                 📥 导入账单
               </button>
-              {billOverride && (
+              {billHasOverride && (
                 <button
                   onClick={handleBillClear}
                   style={{ fontSize: 12, padding: '6px 10px', borderRadius: 8, border: `1px solid ${C.border}`, backgroundColor: '#fff', color: C.sub, cursor: 'pointer' }}
                 >
-                  清除
+                  重置
                 </button>
               )}
+              <button
+                onClick={handleExportDefaults}
+                style={{ fontSize: 12, padding: '6px 10px', borderRadius: 8, border: `1px solid ${C.border}`, backgroundColor: '#fff', color: C.sub, cursor: 'pointer' }}
+              >
+                导出为内置数据
+              </button>
               <span style={{ fontSize: 11, color: billDragOver ? C.blue : C.sub }}>
-                {billDragOver ? '松手导入' : (billImportMsg || (billOverride ? '使用导入数据 · 也可拖文件到此' : '使用内置数据 · 也可拖文件到此'))}
+                {billDragOver ? '松手导入' : (billImportMsg || (billHasOverride ? '使用导入数据 · 也可拖文件到此' : '使用内置数据 · 也可拖文件到此'))}
               </span>
             </div>
           </Card>
@@ -1402,7 +1407,7 @@ export default function CalendarPage() {
           <Card title="历史明细" subtitle="点击年份展开月度">
             {tableHeader}
             {years.map(([yr, recs]) => (
-              <YearSection key={yr} year={yr} recs={recs} allRecords={records} onJumpToMonth={handleJumpToMonth} expenseItemsByMonth={billExpenseItems ?? undefined} />
+              <YearSection key={yr} year={yr} recs={recs} allRecords={records} onJumpToMonth={handleJumpToMonth} expenseItemsByMonth={billExpenseItems} />
             ))}
           </Card>
         </>

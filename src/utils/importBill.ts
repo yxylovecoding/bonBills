@@ -180,35 +180,30 @@ export async function parseBillFile(file: File): Promise<BillParseResult> {
   return { tagStats: months, aggregates: aggs, expenseItems };
 }
 
-const LS_KEY = 'billTagStats.override.v1';
-const LS_ITEMS_KEY = 'billExpenseItems.override.v1';
+// ── 导出为内置数据文件 ──────────────────────────────────────────────
 
-export function loadOverride(): Record<string, BillTagMonth> | null {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
+function downloadJson(data: unknown, filename: string) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
-export function saveOverride(data: Record<string, BillTagMonth>) {
-  localStorage.setItem(LS_KEY, JSON.stringify(data));
+export function exportBillDefaults(
+  tagStats: Record<string, BillTagMonth>,
+  expenseItems: Record<string, BillExpenseMonth>,
+) {
+  downloadJson(tagStats, 'billTagStats.json');
+  setTimeout(() => downloadJson(expenseItems, 'billExpenseItems.json'), 300);
 }
 
-export function clearOverride() {
-  localStorage.removeItem(LS_KEY);
+export function exportCalendarDefaults(tagMap: Record<string, string>) {
+  downloadJson(tagMap, 'calendarTags.json');
 }
 
-export function loadExpenseItems(): Record<string, BillExpenseMonth> | null {
-  try {
-    const raw = localStorage.getItem(LS_ITEMS_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
-}
-
-export function saveExpenseItems(data: Record<string, BillExpenseMonth>) {
-  localStorage.setItem(LS_ITEMS_KEY, JSON.stringify(data));
-}
-
-export function clearExpenseItems() {
-  localStorage.removeItem(LS_ITEMS_KEY);
+export function exportAppConfig(config: unknown) {
+  downloadJson(config, 'appConfig.json');
 }
