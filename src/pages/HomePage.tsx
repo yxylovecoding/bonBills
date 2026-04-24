@@ -16,8 +16,7 @@ import { calcFire } from '../calculations/fire';
 import { tagMeta } from '../data/mockData';
 import type { IncomeItem, TagKind, MonthlyRecord } from '../models/types';
 
-declare const __APP_VERSION__: string;
-const APP_VERSION = __APP_VERSION__;
+import { version as APP_VERSION } from '../../package.json';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 
 function fmt万(v: number) { return (v / 10000).toFixed(2) + '万'; }
