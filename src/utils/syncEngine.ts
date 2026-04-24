@@ -91,9 +91,6 @@ function getSecret(): string | null {
   }
 }
 
-function clearSecret() {
-  try { localStorage.removeItem(LS_SECRET_KEY); } catch {}
-}
 
 async function fetchServer(secret: string): Promise<Record<string, unknown> | null> {
   const res = await fetch('/api/sync', {
