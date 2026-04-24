@@ -599,7 +599,6 @@ export default function CalendarPage() {
   const [year,  setYear]  = useState(_now.getFullYear());
   const [month, setMonth] = useState(_now.getMonth());
   const [selectedTag, setSelectedTag] = useState<TagKind>('school');
-  const [warnMsg, setWarnMsg]         = useState('');
   const [selectMode, setSelectMode]   = useState<'single' | 'range'>('single');
   const [rangeStart, setRangeStart]   = useState<string | null>(null);
   const [rangeHover, setRangeHover]   = useState<string | null>(null);
@@ -767,20 +766,13 @@ export default function CalendarPage() {
     return counts;
   }, [cells, tagMap, yearMonth, today]);
 
-  const isBlocked = (key: string) => selectedTag === 'intern' && isWeekend(key);
-
   const handleCellClick = (key: string) => {
-    if (isBlocked(key)) {
-      setWarnMsg('实习周末不算「班」（吃喝不在公司），请标记为「学」或留空');
-      setTimeout(() => setWarnMsg(''), 3000);
-      return;
-    }
     if (selectMode === 'single') { toggleTag(key, selectedTag); return; }
     if (!rangeStart) { setRangeStart(key); setRangeHover(key); }
     else {
       const range = getRange(rangeStart, key);
       const validKeys = new Set(cells.filter(c => c.day !== null).map(c => c.key));
-      for (const k of range) { if (validKeys.has(k) && !isBlocked(k)) setTag(k, selectedTag); }
+      for (const k of range) { if (validKeys.has(k)) setTag(k, selectedTag); }
       setRangeStart(null); setRangeHover(null);
     }
   };
@@ -1073,12 +1065,6 @@ export default function CalendarPage() {
             </div>
           )}
 
-          {warnMsg && (
-            <div style={{ backgroundColor: '#fef7e0', border: '1px solid #fdd663', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#b06000', marginBottom: 12 }}>
-              ⚠️ {warnMsg}
-            </div>
-          )}
-
           {/* 月历 */}
           <Card>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, textAlign: 'center', fontSize: 11, marginBottom: 4, fontWeight: 500 }}>
@@ -1090,7 +1076,6 @@ export default function CalendarPage() {
                 const tag = tagMap[cell.key];
                 const isToday    = cell.key === today;
                 const weekend    = isWeekend(cell.key);
-                const blocked    = selectedTag === 'intern' && weekend;
                 const isRangeStart = cell.key === rangeStart;
                 const inPreview  = previewRange.has(cell.key);
                 const displayTag  = inPreview ? selectedTag : tag;
@@ -1102,8 +1087,7 @@ export default function CalendarPage() {
                   <button key={cell.key}
                     onClick={() => handleCellClick(cell.key)}
                     onMouseEnter={() => { if (selectMode === 'range' && rangeStart) setRangeHover(cell.key); }}
-                    title={blocked ? '实习周末不算「班」' : undefined}
-                    style={{ aspectRatio: '1', borderRadius: 10, fontSize: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: borderStyle, backgroundColor: displayMeta ? `${displayMeta.color}20` : weekend ? '#fff0f0' : '#f8f9fa', color: displayMeta ? displayMeta.color : weekend ? C.weekend : '#202124', cursor: blocked ? 'not-allowed' : 'pointer', fontWeight: 500, transition: 'all 0.1s', opacity: blocked ? 0.6 : 1, outline: 'none' }}
+                    style={{ aspectRatio: '1', borderRadius: 10, fontSize: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: borderStyle, backgroundColor: displayMeta ? `${displayMeta.color}20` : weekend ? '#fff0f0' : '#f8f9fa', color: displayMeta ? displayMeta.color : weekend ? C.weekend : '#202124', cursor: 'pointer', fontWeight: 500, transition: 'all 0.1s', outline: 'none' }}
                   >
                     {cell.day}
                     {displayMeta && <span style={{ fontSize: 8, marginTop: 1 }}>{displayMeta.icon}</span>}
