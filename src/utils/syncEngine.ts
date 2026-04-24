@@ -101,10 +101,7 @@ async function fetchServer(secret: string): Promise<Record<string, unknown> | nu
     headers: { Authorization: `Bearer ${secret}` },
   });
   if (res.status === 204) return null;
-  if (res.status === 401) {
-    clearSecret();
-    throw new Error('UNAUTHORIZED');
-  }
+  if (res.status === 401) throw new Error('UNAUTHORIZED');
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return await res.json();
 }

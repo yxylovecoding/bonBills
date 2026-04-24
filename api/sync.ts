@@ -14,11 +14,11 @@ type StoreKey = typeof STORE_KEYS[number];
 type SyncPayload = Partial<Record<StoreKey, unknown>>;
 
 function authOk(req: VercelRequest): boolean {
-  const secret = process.env.SYNC_SECRET;
+  const secret = (process.env.SYNC_SECRET || '').trim();
   if (!secret) return false;
   const header = req.headers.authorization || '';
   const match = header.match(/^Bearer\s+(.+)$/);
-  return match !== null && match[1] === secret;
+  return match !== null && match[1].trim() === secret;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

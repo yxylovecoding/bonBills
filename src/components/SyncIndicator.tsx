@@ -22,11 +22,11 @@ export default function SyncIndicator() {
         boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
         display: 'flex', alignItems: 'center', gap: 4,
         pointerEvents: 'none', userSelect: 'none',
+        maxWidth: 260,
       }}
-      title={message}
     >
       <span>{m.icon}</span>
-      <span>{m.label}</span>
+      <span>{m.label}{message ? `: ${message}` : ''}</span>
     </div>
   );
 }
