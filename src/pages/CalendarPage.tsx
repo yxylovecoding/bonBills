@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Card from '../components/Card';
 import StatRow from '../components/StatRow';
@@ -608,46 +608,24 @@ export default function CalendarPage() {
   const [formOpen, setFormOpen] = useState(false);
 
   // ── Stores ──
-  const { tagMap, setTag, toggleTag, countByTag, bulkFillSchool, initMonthFromCounts, initializedFromRecords, markInitialized } = useCalendarStore();
+  const { tagMap, setTag, toggleTag, countByTag, bulkFillSchool } = useCalendarStore();
   const { config } = useConfigStore();
   const { current } = useSnapshotStore();
   const { records, upsert, updateDayCounts } = useMonthlyStore();
   const { tagOrder, setTagOrder, weekdayTags, setWeekdayTags } = usePrefsStore();
   const tagDrag = useDragSort(tagOrder, setTagOrder, 'horizontal');
 
-  // ── 一次性：按 INITIAL_RECORDS 原始天数初始化 2025-09～2026-04 日历 ──
-  // initializedFromRecords 持久化到 localStorage，切换页面回来也不会重复执行
-  useEffect(() => {
-    if (initializedFromRecords) return;
-    const ORIGIN: { ym: string; home: number; travel: number; intern: number }[] = [
-      { ym: '2025-09', home: 1,  travel: 0, intern: 0 },
-      { ym: '2025-10', home: 10, travel: 0, intern: 0 },
-      { ym: '2025-11', home: 0,  travel: 5, intern: 0 },
-      { ym: '2025-12', home: 0,  travel: 3, intern: 0 },
-      { ym: '2026-01', home: 30, travel: 0, intern: 0 },
-      { ym: '2026-02', home: 13, travel: 9, intern: 0 },
-    ];
-    for (const { ym, home, travel, intern } of ORIGIN) {
-      const [y, mo] = ym.split('-').map(Number);
-      const daysInMonth = new Date(y, mo, 0).getDate();
-      const school = daysInMonth - home - travel - intern;
-      initMonthFromCounts(ym, { school, intern, home, travel });
-    }
-    markInitialized();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── 批量补填"学"：历史未标记天 + 切换月份时自动补当月 ──
   useEffect(() => {
-    // 历史：从最早记录月起，回填所有未标记天
-    const earliest = records.length > 0
-      ? records[records.length - 1].yearMonth + '-01'
-      : '2021-01-01';
+    if (records.length === 0) return;
+    const earliest = records[records.length - 1].yearMonth + '-01';
     const todayStr = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`;
     bulkFillSchool(earliest, todayStr);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    // 切换到任意月份时，自动补该月未标记天（含未来月）
+    if (records.length === 0) return;
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const ym = `${year}-${String(month + 1).padStart(2, '0')}`;
     bulkFillSchool(`${ym}-01`, `${ym}-${String(daysInMonth).padStart(2, '0')}`);
