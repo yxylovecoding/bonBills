@@ -84,17 +84,18 @@ const stores: StoreEntry[] = [
 const LS_SECRET_KEY = 'sync-secret';
 
 function getSecret(): string | null {
-  // URL 参数优先，读到后写入 localStorage 并清除 URL
+  // URL 参数优先，读到后写入 sessionStorage 并清除 URL
+  // 用 sessionStorage 而非 localStorage：关闭标签页/重开浏览器后密钥不保留
   try {
     const url = new URL(window.location.href);
     const fromUrl = url.searchParams.get('key');
     if (fromUrl) {
-      localStorage.setItem(LS_SECRET_KEY, fromUrl);
+      sessionStorage.setItem(LS_SECRET_KEY, fromUrl);
       url.searchParams.delete('key');
       window.history.replaceState({}, '', url.toString());
       return fromUrl;
     }
-    return localStorage.getItem(LS_SECRET_KEY);
+    return sessionStorage.getItem(LS_SECRET_KEY);
   } catch {
     return null;
   }
