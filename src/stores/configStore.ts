@@ -13,6 +13,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   creditPrepDays: 0,
   reconcileDates: [1, 11, 21],
   incomeItems: [],
+  majorExpenseThreshold: 500,
 };
 
 interface ConfigStore {

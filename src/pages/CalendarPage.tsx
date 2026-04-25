@@ -64,7 +64,7 @@ function prevYearMonth(ym: string) {
 }
 
 // ── MonthForm ─────────────────────────────────────────────────────
-const MAJOR_EXCLUDED_TAGS = ['红', '黑', '白', '周期生活', '波动生活', '消费', '吃好喝好'];
+const MAJOR_EXCLUDED_TAGS = ['红', '黑', '白', '周期生活', '波动生活', '消费', '吃好喝好', '消耗品'];
 
 function MonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems, onSave }: {
   yearMonth: string;
@@ -97,6 +97,7 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems, o
   );
   const [showBreakdown, setShowBreakdown] = useState(false);
   const { current: snapshotCurrent } = useSnapshotStore();
+  const { config } = useConfigStore();
   const mainFieldRefs = useRef<(HTMLInputElement | null)[]>([]);
   const breakdownRefs = useRef<(HTMLInputElement | null)[]>([]);
   const breakdownProfitRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -144,7 +145,8 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems, o
     for (const [tag, idxs] of tagIndices) {
       if (MAJOR_EXCLUDED_TAGS.includes(tag)) continue;
       const total = [...idxs].reduce((s, i) => s + expenseItems[i].amount, 0);
-      if (total >= 500) tagTotals.set(tag, total);
+      const threshold = config.majorExpenseThreshold ?? 500;
+      if (total >= threshold) tagTotals.set(tag, total);
     }
     // 去除子标签：若标签 B 的条目集合 ⊆ 标签 A 的条目集合，则 B 是子事件，不显示
     const topTags = [...tagTotals.keys()].filter(tag => {
@@ -356,10 +358,11 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems, o
           const amtBg = amt > 0 ? `hsl(${hue}, 72%, 92%)` : '#fffbeb';
           const amtBorder = amt > 0 ? `hsl(${hue}, 65%, 55%)` : '#fbbf24';
           const amtColor = amt > 0 ? `hsl(${hue}, 70%, 30%)` : '#202124';
+          const typeColor = e.type === '生活' ? C.blue : C.purple;
           return (
-          <div key={i} style={{ display: 'grid', gridTemplateColumns: '60px 1fr 90px auto', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+          <div key={i} style={{ display: 'grid', gridTemplateColumns: '46px 1fr 76px 1fr 24px', gap: 5, marginBottom: 6, alignItems: 'center' }}>
             <select value={e.type} onChange={(ev) => updateMajor(i, { type: ev.target.value as '生活' | '消费' })}
-              style={{ border: '1.5px solid #dadce0', borderRadius: 6, padding: '6px 4px', fontSize: 12, outline: 'none' }}>
+              style={{ border: `1.5px solid ${typeColor}`, borderRadius: 6, padding: '6px 2px', fontSize: 11, outline: 'none', color: typeColor, fontWeight: 600, backgroundColor: `${typeColor}12` }}>
               <option value="生活">生活</option>
               <option value="消费">消费</option>
             </select>
@@ -367,7 +370,8 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems, o
             <AmountInput value={e.amount ? String(e.amount) : ''} onChange={(v) => updateMajor(i, { amount: parseFloat(v) || 0 })} placeholder="金额"
               style={{ ...fieldStyle, padding: '6px 8px', backgroundColor: amtBg, borderColor: amtBorder, color: amtColor, fontWeight: 600, transition: 'background-color 0.2s, border-color 0.2s, color 0.2s' }}
             />
-            <button onClick={() => removeMajor(i)} style={{ color: C.red, border: 'none', background: 'none', fontSize: 16, cursor: 'pointer', padding: '0 4px' }}>×</button>
+            <input type="text" value={e.note ?? ''} onChange={(ev) => updateMajor(i, { note: ev.target.value })} placeholder="备注" style={{ ...fieldStyle, padding: '6px 8px', fontSize: 12 }} />
+            <button onClick={() => removeMajor(i)} style={{ color: C.red, border: 'none', background: 'none', fontSize: 16, cursor: 'pointer', padding: 0 }}>×</button>
           </div>
           );
           });
@@ -672,7 +676,7 @@ export default function CalendarPage() {
 
   // ── Stores ──
   const { tagMap, setTag, toggleTag, countByTag, bulkFillSchool } = useCalendarStore();
-  const { config } = useConfigStore();
+  const { config, setConfig } = useConfigStore();
   const { current } = useSnapshotStore();
   const { records, upsert, updateDayCounts } = useMonthlyStore();
   const { tagOrder, setTagOrder, weekdayTags, setWeekdayTags } = usePrefsStore();
@@ -824,6 +828,8 @@ export default function CalendarPage() {
 
   // ── 年月快捷跳转面板 ──
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [thresholdInput, setThresholdInput] = useState(String(config.majorExpenseThreshold ?? 500));
   const [expandedTag, setExpandedTag] = useState<null | 'eat' | 'red' | 'black'>(null);
   const { tagStats: billTagStats, expenseItems: billExpenseItems, updateFromImport: billUpdateFromImport } = useBillDetailStore();
   const [billImportMsg, setBillImportMsg] = useState<string>('');
@@ -995,8 +1001,37 @@ export default function CalendarPage() {
             );
           })}
         </div>
+        <button onClick={() => { setThresholdInput(String(config.majorExpenseThreshold ?? 500)); setSettingsOpen(true); }}
+          style={{ fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', color: C.sub, lineHeight: 1 }}>
+          ⚙️
+        </button>
         </div>
       </div>
+
+      {settingsOpen && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setSettingsOpen(false)}>
+          <div style={{ backgroundColor: '#fff', borderRadius: 16, padding: 24, width: 280, boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>设置</div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, color: C.sub, marginBottom: 6 }}>大额支出筛选门槛（元）</div>
+              <input type="number" value={thresholdInput} onChange={e => setThresholdInput(e.target.value)}
+                style={{ width: '100%', border: '1.5px solid #dadce0', borderRadius: 8, padding: '8px 10px', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setSettingsOpen(false)}
+                style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', color: C.sub, fontSize: 13, cursor: 'pointer' }}>
+                取消
+              </button>
+              <button onClick={() => { setConfig({ majorExpenseThreshold: parseFloat(thresholdInput) || 500 }); setSettingsOpen(false); }}
+                style={{ padding: '8px 16px', borderRadius: 8, border: 'none', backgroundColor: C.blue, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {tab === 'month' ? (
         /* ── 统计月：日历标记 ── */

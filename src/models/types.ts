@@ -37,6 +37,7 @@ export interface AppConfig {
   creditPrepDays: number;     // 5
   reconcileDates: number[];   // [1, 11, 21]
   incomeItems: IncomeItem[];
+  majorExpenseThreshold: number; // 大额支出筛选门槛，默认 500
 }
 
 // ── AccountSnapshot ────────────────────────────────────────────────
