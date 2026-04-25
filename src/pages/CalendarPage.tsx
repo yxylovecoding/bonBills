@@ -161,11 +161,22 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems, o
       setImportMsg('无≥500条目'); setTimeout(() => setImportMsg(''), 2000); return;
     }
     topTags.sort((a, b) => tagTotals.get(b)! - tagTotals.get(a)!);
-    setMajorExpenses(topTags.map(tag => ({
-      type: '生活' as const,
-      name: tag,
-      amount: Math.round(tagTotals.get(tag)! * 100) / 100,
-    })));
+    setMajorExpenses(topTags.map(tag => {
+      // 根据该标签下条目里生活/消费的金额占比决定类型
+      let lifeAmt = 0, consumeAmt = 0;
+      for (const i of tagIndices.get(tag)!) {
+        const item = expenseItems[i];
+        const itemTags = item.tags.split(',').map(t => t.trim());
+        if (itemTags.includes('消费')) consumeAmt += item.amount;
+        if (itemTags.includes('波动生活') || itemTags.includes('周期生活')) lifeAmt += item.amount;
+      }
+      const type: '生活' | '消费' = consumeAmt > lifeAmt ? '消费' : '生活';
+      return {
+        type,
+        name: tag,
+        amount: Math.round(tagTotals.get(tag)! * 100) / 100,
+      };
+    }));
     setImportMsg(`已导入 ${topTags.length} 项`); setTimeout(() => setImportMsg(''), 2000);
   };
 
