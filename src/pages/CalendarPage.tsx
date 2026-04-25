@@ -485,20 +485,23 @@ function MonthRow({ record, prev, onJumpToMonth, expenseItems }: { record: Month
       <button
         onClick={() => setOpen((o) => !o)}
         style={{
-          width: '100%', display: 'grid', gridTemplateColumns: '72px 1fr 1fr 1fr',
+          width: '100%', display: 'grid', gridTemplateColumns: '64px 1fr 1fr 1fr 56px',
           alignItems: 'center', padding: '12px 10px', borderRadius: 10, border: 'none',
           backgroundColor: open ? '#e8f0fe' : '#fafafa', cursor: 'pointer',
           textAlign: 'left', transition: 'background-color 0.15s',
         }}
       >
         <span style={{ fontSize: 13, fontWeight: 600, color: open ? C.blue : '#202124' }}>
-          {record.yearMonth}
+          {record.yearMonth.slice(2)}
           {expenseMismatch && <span title={`三项之和 ${formatCurrency(expenseSum)} ≠ 总支出 ${formatCurrency(record.totalExpense)}`} style={{ marginLeft: 4, color: '#c5221f' }}>⚠️</span>}
         </span>
         <span style={{ fontSize: 13, color: C.red,   fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>+{formatCurrency(record.income)}</span>
         <span style={{ fontSize: 13, color: C.green,  fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>-{formatCurrency(record.totalExpense)}</span>
         <span style={{ fontSize: 13, fontWeight: 600, color: surplus >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
           {surplus >= 0 ? '+' : '-'}{formatCurrency(Math.abs(surplus))}
+        </span>
+        <span style={{ fontSize: 12, color: investAnnual !== null ? (investAnnual >= 0 ? C.red : C.green) : C.sub, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+          {investAnnual !== null ? `${(investAnnual * 100).toFixed(1)}%` : '—'}
         </span>
       </button>
 
@@ -633,12 +636,21 @@ function YearSection({ year, recs, allRecords, onJumpToMonth, expenseItemsByMont
   const surplus = totalIncome - totalExpense;
   const hasMonths = `${year}-01` >= YEARLY_ONLY_BEFORE;
 
+  // 年度收益率：所有有效月份的年化收益率的平均
+  const monthlyRates = recs.map((r, i, arr) => {
+    const prev = arr[i + 1] ?? allRecords.find(x => x.yearMonth < r.yearMonth);
+    if (!prev?.accumulatedProfit || r.investTotal <= 0) return null;
+    const investIncome = r.accumulatedProfit - prev.accumulatedProfit;
+    return (investIncome / r.investTotal) * 12;
+  }).filter((x): x is number => x !== null);
+  const yearRate = monthlyRates.length > 0 ? monthlyRates.reduce((a, b) => a + b, 0) / monthlyRates.length : null;
+
   return (
     <div style={{ marginBottom: 4 }}>
       <button
         onClick={() => setExpanded((o) => !o)}
         style={{
-          width: '100%', display: 'grid', gridTemplateColumns: '72px 1fr 1fr 1fr',
+          width: '100%', display: 'grid', gridTemplateColumns: '64px 1fr 1fr 1fr 56px',
           alignItems: 'center', padding: '12px 10px', borderRadius: 10, border: 'none',
           backgroundColor: expanded ? '#e8f0fe' : '#f1f3f4', cursor: 'pointer',
           textAlign: 'left', transition: 'background-color 0.15s',
@@ -649,6 +661,9 @@ function YearSection({ year, recs, allRecords, onJumpToMonth, expenseItemsByMont
         <span style={{ fontSize: 13, color: C.green,  fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>-{formatCurrency(totalExpense)}</span>
         <span style={{ fontSize: 13, fontWeight: 600, color: surplus >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
           {surplus >= 0 ? '+' : '-'}{formatCurrency(Math.abs(surplus))}
+        </span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: yearRate !== null ? (yearRate >= 0 ? C.red : C.green) : C.sub, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+          {yearRate !== null ? `${(yearRate * 100).toFixed(1)}%` : '—'}
         </span>
       </button>
       {expanded && (
@@ -966,11 +981,12 @@ export default function CalendarPage() {
   }, [records, year, _now]);
 
   const tableHeader = (
-    <div style={{ display: 'grid', gridTemplateColumns: '72px 1fr 1fr 1fr', padding: '6px 10px', fontSize: 11, color: C.sub, fontWeight: 500, marginBottom: 4 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '64px 1fr 1fr 1fr 56px', padding: '6px 10px', fontSize: 11, color: C.sub, fontWeight: 500, marginBottom: 4 }}>
       <span>年/月</span>
       <span style={{ textAlign: 'right' }}>收入</span>
       <span style={{ textAlign: 'right' }}>支出</span>
       <span style={{ textAlign: 'right' }}>结余</span>
+      <span style={{ textAlign: 'right' }}>收益率</span>
     </div>
   );
 
