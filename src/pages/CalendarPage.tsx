@@ -4,7 +4,8 @@ import Card from '../components/Card';
 import StatRow from '../components/StatRow';
 import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
 import { tagMeta, investMeta } from '../data/mockData';
-import { parseBillFile, exportBillDefaults, exportCalendarDefaults, exportAppConfig, type BillItem, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
+import { parseBillFile, type BillItem, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
+import { triggerUpload } from '../utils/syncEngine';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import AmountInput from '../components/AmountInput';
 import { calcHistoryStats } from '../calculations/history';
@@ -806,7 +807,7 @@ export default function CalendarPage() {
   // ── 年月快捷跳转面板 ──
   const [pickerOpen, setPickerOpen] = useState(false);
   const [expandedTag, setExpandedTag] = useState<null | 'eat' | 'red' | 'black'>(null);
-  const { tagStats: billTagStats, expenseItems: billExpenseItems, hasOverride: billHasOverride, updateFromImport: billUpdateFromImport, resetToDefaults: billResetToDefaults } = useBillDetailStore();
+  const { tagStats: billTagStats, expenseItems: billExpenseItems, updateFromImport: billUpdateFromImport } = useBillDetailStore();
   const [billImportMsg, setBillImportMsg] = useState<string>('');
   const billFileRef = useRef<HTMLInputElement>(null);
   const [billDragOver, setBillDragOver] = useState(false);
@@ -838,6 +839,7 @@ export default function CalendarPage() {
         updated += 1;
       }
       setBillImportMsg(`已导入 ${updated} 个月记录 · ${file.name}`);
+      triggerUpload();
     } catch (err) {
       setBillImportMsg(`导入失败：${err instanceof Error ? err.message : String(err)}`);
     }
@@ -852,16 +854,6 @@ export default function CalendarPage() {
     setBillDragOver(false);
     const file = e.dataTransfer.files?.[0];
     if (file) await importBillFromFile(file);
-  };
-  const handleBillClear = () => {
-    billResetToDefaults();
-    setBillImportMsg('已重置为默认数据');
-  };
-  const handleExportDefaults = () => {
-    exportBillDefaults(billTagStats, billExpenseItems);
-    setTimeout(() => exportCalendarDefaults(useCalendarStore.getState().tagMap), 600);
-    setTimeout(() => exportAppConfig(config), 900);
-    setBillImportMsg('已导出 4 个 JSON 文件，请放入 src/data/ 后重新构建');
   };
   const pickerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -924,10 +916,19 @@ export default function CalendarPage() {
   return (
     <div>
       {/* 页头 + 胶囊切换 */}
+      <input ref={billFileRef} type="file" accept=".xls,.xlsx,.csv" style={{ display: 'none' }} onChange={handleBillFile} />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '0 0 16px' }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>
           {tab === 'month' ? '日历标记' : '历史记录'}
         </h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={() => billFileRef.current?.click()}
+            style={{ fontSize: 12, padding: '5px 10px', borderRadius: 8, border: `1px solid ${C.border}`, backgroundColor: '#fff', color: C.sub, cursor: 'pointer' }}
+          >
+            📥 导入账单
+          </button>
+          {billImportMsg && <span style={{ fontSize: 11, color: C.sub, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{billImportMsg}</span>}
         <div style={{ display: 'flex', backgroundColor: '#e8eaed', borderRadius: 20, padding: 3, gap: 2 }}>
           {(['month', 'year'] as const).map((t) => {
             const active = tab === t;
@@ -944,6 +945,7 @@ export default function CalendarPage() {
               </button>
             );
           })}
+        </div>
         </div>
       </div>
 
@@ -1308,35 +1310,8 @@ export default function CalendarPage() {
                 transition: 'background-color 0.15s, border-color 0.15s',
               }}
             >
-              <input
-                ref={billFileRef}
-                type="file"
-                accept=".xls,.xlsx,.csv"
-                style={{ display: 'none' }}
-                onChange={handleBillFile}
-              />
-              <button
-                onClick={() => billFileRef.current?.click()}
-                style={{ fontSize: 12, padding: '6px 12px', borderRadius: 8, border: `1px solid ${C.border}`, backgroundColor: '#fff', color: C.sub, cursor: 'pointer' }}
-              >
-                📥 导入账单
-              </button>
-              {billHasOverride && (
-                <button
-                  onClick={handleBillClear}
-                  style={{ fontSize: 12, padding: '6px 10px', borderRadius: 8, border: `1px solid ${C.border}`, backgroundColor: '#fff', color: C.sub, cursor: 'pointer' }}
-                >
-                  重置
-                </button>
-              )}
-              <button
-                onClick={handleExportDefaults}
-                style={{ fontSize: 12, padding: '6px 10px', borderRadius: 8, border: `1px solid ${C.border}`, backgroundColor: '#fff', color: C.sub, cursor: 'pointer' }}
-              >
-                导出为内置数据
-              </button>
               <span style={{ fontSize: 11, color: billDragOver ? C.blue : C.sub }}>
-                {billDragOver ? '松手导入' : (billImportMsg || (billHasOverride ? '使用导入数据 · 也可拖文件到此' : '使用内置数据 · 也可拖文件到此'))}
+                {billDragOver ? '松手导入' : '可拖文件到此导入账单'}
               </span>
             </div>
           </Card>

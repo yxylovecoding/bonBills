@@ -133,6 +133,22 @@ function debounce<T extends (...args: never[]) => void>(fn: T, ms: number) {
 }
 
 let syncingFromServer = false; // 防止首次 setState 触发回传
+let activeSecret: string | null = null;
+
+export async function triggerUpload() {
+  if (!activeSecret) return;
+  const status = useSyncStatus.getState();
+  try {
+    status.setStatus('saving');
+    await uploadAll(activeSecret);
+    status.setStatus('saved');
+    setTimeout(() => {
+      if (useSyncStatus.getState().state === 'saved') useSyncStatus.getState().setStatus('idle');
+    }, 2000);
+  } catch (e) {
+    status.setStatus('error', e instanceof Error ? e.message : String(e));
+  }
+}
 
 function startSubscriptions(secret: string) {
   const status = useSyncStatus.getState();
@@ -160,6 +176,7 @@ function startSubscriptions(secret: string) {
 export async function initSync() {
   const status = useSyncStatus.getState();
   const secret = getSecret();
+  activeSecret = secret;
   if (!secret) {
     // 无密码访问：清空所有 store（覆盖任何遗留的 localStorage 数据）
     for (const s of stores) {
