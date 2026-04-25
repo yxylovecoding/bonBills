@@ -63,11 +63,14 @@ function prevYearMonth(ym: string) {
 }
 
 // ── MonthForm ─────────────────────────────────────────────────────
-function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
+const MAJOR_EXCLUDED_TAGS = ['红', '黑', '白', '周期生活', '波动生活', '消费'];
+
+function MonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems, onSave }: {
   yearMonth: string;
   existing?: MonthlyRecord;
   prevRecord?: MonthlyRecord;
   tagCounts: Record<TagKind, number>;
+  expenseItems?: BillExpenseMonth;
   onSave: (r: MonthlyRecord) => void;
 }) {
   const [income,       setIncome]       = useState(String(existing?.income        ?? ''));
@@ -120,6 +123,23 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
   const removeMajor = (i: number) => setMajorExpenses((p) => p.filter((_, idx) => idx !== i));
   const updateMajor = (i: number, patch: Partial<MajorExpense>) =>
     setMajorExpenses((p) => p.map((e, idx) => idx === i ? { ...e, ...patch } : e));
+
+  const autoImportFromBills = () => {
+    if (!expenseItems) return;
+    const suggested: MajorExpense[] = expenseItems
+      .filter(item => {
+        if (item.amount < 500) return false;
+        const tags = item.tags.split(',').map(t => t.trim()).filter(Boolean);
+        return !tags.some(t => MAJOR_EXCLUDED_TAGS.includes(t));
+      })
+      .sort((a, b) => b.amount - a.amount)
+      .map(item => {
+        const [, mm, dd] = item.date.split('-');
+        const name = `${parseInt(dd)}.${parseInt(mm)}${item.note || item.subcategory || item.category}`;
+        return { type: '生活' as const, name, amount: item.amount };
+      });
+    setMajorExpenses(suggested);
+  };
 
   const handleSave = () => {
     const bd = Object.fromEntries(INVEST_KEYS.map((k) => [k, parseFloat(breakdown[k] ?? '') || 0])) as unknown as InvestHoldings;
@@ -291,7 +311,10 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
       <div style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <div style={{ fontSize: 12, color: C.sub, fontWeight: 500 }}>大额支出明细</div>
-          <button onClick={addMajor} style={{ fontSize: 12, color: C.blue, border: `1px solid ${C.blue}`, borderRadius: 6, padding: '3px 10px', backgroundColor: '#fff', cursor: 'pointer' }}>+ 添加</button>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {expenseItems && <button onClick={autoImportFromBills} style={{ fontSize: 12, color: C.green, border: `1px solid ${C.green}`, borderRadius: 6, padding: '3px 10px', backgroundColor: '#fff', cursor: 'pointer' }}>↓ 从账单</button>}
+            <button onClick={addMajor} style={{ fontSize: 12, color: C.blue, border: `1px solid ${C.blue}`, borderRadius: 6, padding: '3px 10px', backgroundColor: '#fff', cursor: 'pointer' }}>+ 添加</button>
+          </div>
         </div>
         {(() => {
           const amounts = majorExpenses.map((x) => x.amount || 0);
@@ -1321,6 +1344,7 @@ export default function CalendarPage() {
               existing={existingForYearMonth}
               prevRecord={prevForYearMonth}
               tagCounts={countByTag(yearMonth)}
+              expenseItems={billExpenseItems[yearMonth]}
               onSave={(r) => upsert(r)}
             />
           </Card>
@@ -1369,6 +1393,7 @@ export default function CalendarPage() {
                   existing={existingThisMonth}
                   prevRecord={prevMonthRecord}
                   tagCounts={countByTag(thisMonth)}
+                  expenseItems={billExpenseItems[thisMonth]}
                   onSave={(r) => { upsert(r); setFormOpen(false); }}
                 />
                 <button onClick={() => setFormOpen(false)} style={{ width: '100%', marginTop: 8, padding: '10px 0', borderRadius: 10, border: '1px solid #dadce0', backgroundColor: '#fff', color: C.sub, fontSize: 13, cursor: 'pointer' }}>
