@@ -849,12 +849,36 @@ export default function CalendarPage() {
     if (file) await importBillFromFile(file);
     if (billFileRef.current) billFileRef.current.value = '';
   };
-  const handleBillDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    setBillDragOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) await importBillFromFile(file);
-  };
+  const dragCounter = useRef(0);
+  useEffect(() => {
+    const onEnter = (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes('Files')) return;
+      dragCounter.current++;
+      if (dragCounter.current === 1) setBillDragOver(true);
+    };
+    const onLeave = () => {
+      dragCounter.current--;
+      if (dragCounter.current === 0) setBillDragOver(false);
+    };
+    const onOver = (e: DragEvent) => { e.preventDefault(); };
+    const onDrop = async (e: DragEvent) => {
+      e.preventDefault();
+      dragCounter.current = 0;
+      setBillDragOver(false);
+      const file = e.dataTransfer?.files?.[0];
+      if (file) await importBillFromFile(file);
+    };
+    document.addEventListener('dragenter', onEnter);
+    document.addEventListener('dragleave', onLeave);
+    document.addEventListener('dragover', onOver);
+    document.addEventListener('drop', onDrop);
+    return () => {
+      document.removeEventListener('dragenter', onEnter);
+      document.removeEventListener('dragleave', onLeave);
+      document.removeEventListener('dragover', onOver);
+      document.removeEventListener('drop', onDrop);
+    };
+  }, []);
   const pickerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!pickerOpen) return;
@@ -915,8 +939,15 @@ export default function CalendarPage() {
   // ── Render ────────────────────────────────────────────────────────
   return (
     <div>
-      {/* 页头 + 胶囊切换 */}
       <input ref={billFileRef} type="file" accept=".xls,.xlsx,.csv" style={{ display: 'none' }} onChange={handleBillFile} />
+      {billDragOver && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 999, backgroundColor: 'rgba(26,115,232,0.12)', border: '3px dashed #1a73e8', borderRadius: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+          <div style={{ backgroundColor: '#fff', borderRadius: 12, padding: '20px 32px', fontSize: 16, fontWeight: 600, color: '#1a73e8', boxShadow: '0 4px 20px rgba(0,0,0,0.12)' }}>
+            📥 松手导入账单
+          </div>
+        </div>
+      )}
+      {/* 页头 + 胶囊切换 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '0 0 16px' }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>
           {tab === 'month' ? '日历标记' : '历史记录'}
@@ -1298,22 +1329,6 @@ export default function CalendarPage() {
                 💡 还有 {stats.total - stats.tagged} 天未标记
               </div>
             )}
-            <div
-              onDragOver={(e) => { e.preventDefault(); if (!billDragOver) setBillDragOver(true); }}
-              onDragLeave={(e) => { if (e.currentTarget.contains(e.relatedTarget as Node)) return; setBillDragOver(false); }}
-              onDrop={handleBillDrop}
-              style={{
-                marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-                padding: 10, borderRadius: 10,
-                border: `1px dashed ${billDragOver ? C.blue : 'transparent'}`,
-                backgroundColor: billDragOver ? '#e8f0fe' : 'transparent',
-                transition: 'background-color 0.15s, border-color 0.15s',
-              }}
-            >
-              <span style={{ fontSize: 11, color: billDragOver ? C.blue : C.sub }}>
-                {billDragOver ? '松手导入' : '可拖文件到此导入账单'}
-              </span>
-            </div>
           </Card>
 
           {/* 月度数据录入（与年视图同步） */}
