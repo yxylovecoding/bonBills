@@ -570,6 +570,35 @@ function MonthRow({ record, prev, onJumpToMonth, expenseItems }: { record: Month
             </div>
           )}
           {expenseItems && expenseItems.length > 0 && (() => {
+            const CORE = ['消费', '波动生活', '周期生活'];
+            const noTag: BillExpenseItem[] = [];
+            const multiTag: BillExpenseItem[] = [];
+            for (const it of expenseItems) {
+              const tags = it.tags.split(',').map(t => t.trim()).filter(Boolean);
+              const matched = CORE.filter(c => tags.includes(c));
+              if (matched.length === 0) noTag.push(it);
+              else if (matched.length > 1) multiTag.push(it);
+            }
+            if (noTag.length === 0 && multiTag.length === 0) return null;
+            return (
+              <div style={{ borderTop: '1px solid #dbe8fb', paddingTop: 10, marginBottom: 8 }}>
+                <div style={{ fontSize: 12, color: '#c5221f', marginBottom: 6, fontWeight: 600 }}>⚠️ 异常支出</div>
+                {noTag.length > 0 && (
+                  <div style={{ marginBottom: 6 }}>
+                    <div style={{ fontSize: 11, color: C.sub, marginBottom: 2 }}>缺少消费/波动生活/周期生活标签（{noTag.length}）</div>
+                    {noTag.map((it, i) => <ExpenseItemLine key={i} it={it} />)}
+                  </div>
+                )}
+                {multiTag.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 11, color: C.sub, marginBottom: 2 }}>同时有多个核心标签（{multiTag.length}）</div>
+                    {multiTag.map((it, i) => <ExpenseItemLine key={i} it={it} />)}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+          {expenseItems && expenseItems.length > 0 && (() => {
             const total = expenseItems.reduce((s, i) => s + i.amount, 0);
             const catMap = new Map<string, BillExpenseItem[]>();
             for (const it of expenseItems) {
