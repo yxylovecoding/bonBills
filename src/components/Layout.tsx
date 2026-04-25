@@ -19,7 +19,7 @@ export default function Layout() {
           paddingRight: 16,
           paddingTop: 20,
           boxSizing: 'border-box',
-          overflowX: 'hidden',
+          overflowX: 'clip',
         }}
       >
         <Outlet />

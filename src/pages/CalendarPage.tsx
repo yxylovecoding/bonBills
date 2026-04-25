@@ -477,8 +477,8 @@ function MonthRow({ record, prev, onJumpToMonth, expenseItems }: { record: Month
   const expenseSum = record.periodicLife + record.volatileLife + record.consumption;
   const expenseDiff = Math.round((expenseSum - record.totalExpense) * 100) / 100;
   const expenseMismatch = Math.abs(expenseDiff) > 0.01;
-  const investIncome = prev?.accumulatedProfit ? record.accumulatedProfit - prev.accumulatedProfit : null;
-  const investAnnual = investIncome !== null && record.investTotal > 0 ? (investIncome / record.investTotal) * 12 : null;
+  const investIncome = prev ? record.accumulatedProfit - (prev.accumulatedProfit ?? 0) : null;
+  const investMonthly = investIncome !== null && record.investTotal > 0 ? investIncome / record.investTotal : null;
 
   return (
     <div style={{ marginBottom: 4 }}>
@@ -500,8 +500,8 @@ function MonthRow({ record, prev, onJumpToMonth, expenseItems }: { record: Month
         <span style={{ fontSize: 13, fontWeight: 600, color: surplus >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
           {surplus >= 0 ? '+' : '-'}{formatCurrency(Math.abs(surplus))}
         </span>
-        <span style={{ fontSize: 12, color: investAnnual !== null ? (investAnnual >= 0 ? C.red : C.green) : C.sub, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
-          {investAnnual !== null ? `${(investAnnual * 100).toFixed(1)}%` : '—'}
+        <span style={{ fontSize: 12, color: investMonthly !== null ? (investMonthly >= 0 ? C.red : C.green) : C.sub, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+          {investMonthly !== null ? `${(investMonthly * 100).toFixed(2)}%` : '—'}
         </span>
       </button>
 
@@ -529,7 +529,7 @@ function MonthRow({ record, prev, onJumpToMonth, expenseItems }: { record: Month
             <div style={{ borderTop: '1px solid #dbe8fb', paddingTop: 10, marginBottom: 8 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 6 }}>
                 <StatRow label="理财收入" value={<CurrencyDisplay value={investIncome} color={investIncome >= 0 ? C.red : C.green} />} />
-                {investAnnual !== null && <StatRow label="年化" value={<span style={{ color: investAnnual >= 0 ? C.red : C.green, fontWeight: 500 }}>{(investAnnual * 100).toFixed(1)}%</span>} />}
+                {investMonthly !== null && <StatRow label="月收益率" value={<span style={{ color: investMonthly >= 0 ? C.red : C.green, fontWeight: 500 }}>{(investMonthly * 100).toFixed(2)}%</span>} />}
               </div>
               {record.investBreakdown && (
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
@@ -665,14 +665,14 @@ function YearSection({ year, recs, allRecords, onJumpToMonth, expenseItemsByMont
   const surplus = totalIncome - totalExpense;
   const hasMonths = `${year}-01` >= YEARLY_ONLY_BEFORE;
 
-  // 年度收益率：所有有效月份的年化收益率的平均
-  const monthlyRates = recs.map((r, i, arr) => {
-    const prev = arr[i + 1] ?? allRecords.find(x => x.yearMonth < r.yearMonth);
-    if (!prev?.accumulatedProfit || r.investTotal <= 0) return null;
-    const investIncome = r.accumulatedProfit - prev.accumulatedProfit;
-    return (investIncome / r.investTotal) * 12;
+  // 年度收益率：每月收益率（=本月收益/本月理财额）之和
+  const monthlyRates = recs.map(r => {
+    const prev = allRecords.find(x => x.yearMonth === prevYearMonth(r.yearMonth));
+    if (!prev || r.investTotal <= 0) return null;
+    const investIncome = r.accumulatedProfit - (prev.accumulatedProfit ?? 0);
+    return investIncome / r.investTotal;
   }).filter((x): x is number => x !== null);
-  const yearRate = monthlyRates.length > 0 ? monthlyRates.reduce((a, b) => a + b, 0) / monthlyRates.length : null;
+  const yearRate = monthlyRates.length > 0 ? monthlyRates.reduce((a, b) => a + b, 0) : null;
 
   return (
     <div style={{ marginBottom: 4 }}>
@@ -698,9 +698,8 @@ function YearSection({ year, recs, allRecords, onJumpToMonth, expenseItemsByMont
       {expanded && (
         <div style={{ paddingLeft: 8, marginTop: 4, marginBottom: 8 }}>
           {hasMonths ? (
-            recs.map((r, i, arr) => {
-              const prevInArr = arr[i + 1];
-              const prevRecord = prevInArr ?? allRecords.find((x) => x.yearMonth < r.yearMonth);
+            recs.map(r => {
+              const prevRecord = allRecords.find((x) => x.yearMonth === prevYearMonth(r.yearMonth));
               return <MonthRow key={r.yearMonth} record={r} prev={prevRecord} onJumpToMonth={onJumpToMonth} expenseItems={expenseItemsByMonth?.[r.yearMonth]} />;
             })
           ) : (
