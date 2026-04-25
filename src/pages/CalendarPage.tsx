@@ -64,7 +64,7 @@ function prevYearMonth(ym: string) {
 }
 
 // ── MonthForm ─────────────────────────────────────────────────────
-const MAJOR_EXCLUDED_TAGS = ['红', '黑', '白', '周期生活', '波动生活', '消费'];
+const MAJOR_EXCLUDED_TAGS = ['红', '黑', '白', '周期生活', '波动生活', '消费', '吃好喝好'];
 
 function MonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems, onSave }: {
   yearMonth: string;
@@ -130,23 +130,41 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems, o
     if (!expenseItems || expenseItems.length === 0) {
       setImportMsg('无账单数据'); setTimeout(() => setImportMsg(''), 2000); return;
     }
-    const suggested: MajorExpense[] = expenseItems
-      .filter(item => {
-        if (item.amount < 500) return false;
-        const tags = item.tags.split(',').map(t => t.trim()).filter(Boolean);
-        return !tags.some(t => MAJOR_EXCLUDED_TAGS.includes(t));
-      })
-      .sort((a, b) => b.amount - a.amount)
-      .map(item => {
-        const [, mm, dd] = item.date.split('-');
-        const name = `${parseInt(dd)}.${parseInt(mm)}${item.note || item.subcategory || item.category}`;
-        return { type: '生活' as const, name, amount: item.amount };
+    // 按标签聚合：统计每个标签对应的条目集合与总金额
+    const tagIndices = new Map<string, Set<number>>();
+    for (let i = 0; i < expenseItems.length; i++) {
+      const tags = expenseItems[i].tags.split(',').map(t => t.trim()).filter(Boolean);
+      for (const tag of tags) {
+        if (!tagIndices.has(tag)) tagIndices.set(tag, new Set());
+        tagIndices.get(tag)!.add(i);
+      }
+    }
+    // 过滤：排除指定宽泛标签，只保留总额 ≥ 500 的标签
+    const tagTotals = new Map<string, number>();
+    for (const [tag, idxs] of tagIndices) {
+      if (MAJOR_EXCLUDED_TAGS.includes(tag)) continue;
+      const total = [...idxs].reduce((s, i) => s + expenseItems[i].amount, 0);
+      if (total >= 500) tagTotals.set(tag, total);
+    }
+    // 去除子标签：若标签 B 的条目集合 ⊆ 标签 A 的条目集合，则 B 是子事件，不显示
+    const topTags = [...tagTotals.keys()].filter(tag => {
+      const myIdxs = tagIndices.get(tag)!;
+      return ![...tagTotals.keys()].some(other => {
+        if (other === tag) return false;
+        const otherIdxs = tagIndices.get(other)!;
+        return [...myIdxs].every(i => otherIdxs.has(i));
       });
-    if (suggested.length === 0) {
+    });
+    if (topTags.length === 0) {
       setImportMsg('无≥500条目'); setTimeout(() => setImportMsg(''), 2000); return;
     }
-    setMajorExpenses(suggested);
-    setImportMsg(`已导入 ${suggested.length} 项`); setTimeout(() => setImportMsg(''), 2000);
+    topTags.sort((a, b) => tagTotals.get(b)! - tagTotals.get(a)!);
+    setMajorExpenses(topTags.map(tag => ({
+      type: '生活' as const,
+      name: tag,
+      amount: Math.round(tagTotals.get(tag)! * 100) / 100,
+    })));
+    setImportMsg(`已导入 ${topTags.length} 项`); setTimeout(() => setImportMsg(''), 2000);
   };
 
   const handleSave = () => {
