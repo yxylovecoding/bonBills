@@ -124,8 +124,11 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems, o
   const updateMajor = (i: number, patch: Partial<MajorExpense>) =>
     setMajorExpenses((p) => p.map((e, idx) => idx === i ? { ...e, ...patch } : e));
 
+  const [importMsg, setImportMsg] = useState('');
   const autoImportFromBills = () => {
-    if (!expenseItems) return;
+    if (!expenseItems || expenseItems.length === 0) {
+      setImportMsg('无账单数据'); setTimeout(() => setImportMsg(''), 2000); return;
+    }
     const suggested: MajorExpense[] = expenseItems
       .filter(item => {
         if (item.amount < 500) return false;
@@ -138,7 +141,11 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems, o
         const name = `${parseInt(dd)}.${parseInt(mm)}${item.note || item.subcategory || item.category}`;
         return { type: '生活' as const, name, amount: item.amount };
       });
+    if (suggested.length === 0) {
+      setImportMsg('无≥500条目'); setTimeout(() => setImportMsg(''), 2000); return;
+    }
     setMajorExpenses(suggested);
+    setImportMsg(`已导入 ${suggested.length} 项`); setTimeout(() => setImportMsg(''), 2000);
   };
 
   const handleSave = () => {
@@ -311,8 +318,9 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems, o
       <div style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <div style={{ fontSize: 12, color: C.sub, fontWeight: 500 }}>大额支出明细</div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {expenseItems && <button onClick={autoImportFromBills} style={{ fontSize: 12, color: C.green, border: `1px solid ${C.green}`, borderRadius: 6, padding: '3px 10px', backgroundColor: '#fff', cursor: 'pointer' }}>↓ 从账单</button>}
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            {importMsg && <span style={{ fontSize: 11, color: C.sub }}>{importMsg}</span>}
+            <button onClick={autoImportFromBills} style={{ fontSize: 12, color: C.green, border: `1px solid ${C.green}`, borderRadius: 6, padding: '3px 10px', backgroundColor: '#fff', cursor: 'pointer' }}>↓ 从账单</button>
             <button onClick={addMajor} style={{ fontSize: 12, color: C.blue, border: `1px solid ${C.blue}`, borderRadius: 6, padding: '3px 10px', backgroundColor: '#fff', cursor: 'pointer' }}>+ 添加</button>
           </div>
         </div>
