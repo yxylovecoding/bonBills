@@ -105,6 +105,11 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
     );
   };
 
+  const importInvestTotalFromReconcile = () => {
+    const total = INVEST_KEYS.reduce((sum, k) => sum + (snapshotCurrent.investHoldings[k] || 0), 0);
+    setInvestTotal(total.toFixed(2));
+  };
+
   const n = (v: string) => parseFloat(v) || 0;
   const surplus = n(income) - n(totalExpense);
   const investIncome = prevRecord ? n(accProfit) - (prevRecord.accumulatedProfit ?? 0) : null;
@@ -175,7 +180,15 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
           const editIdx = editableIndices.indexOf(i);
           return (
             <div key={label}>
-              <div style={labelStyle}>{label}{!editable && <span style={{ fontSize: 10, color: C.sub, marginLeft: 4 }}>（账单自动）</span>}</div>
+              <div style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 4 }}>
+                {label}
+                {!editable && <span style={{ fontSize: 10, color: C.sub }}>（账单自动）</span>}
+                {label === '理财总额' && (
+                  <button onClick={importInvestTotalFromReconcile} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, border: `1px solid ${C.blue}`, backgroundColor: 'transparent', color: C.blue, cursor: 'pointer' }}>
+                    ← 对账
+                  </button>
+                )}
+              </div>
               {editable ? (
                 <AmountInput
                   ref={(el) => { mainFieldRefs.current[editIdx] = el; }}
