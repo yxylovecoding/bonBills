@@ -161,8 +161,7 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems, o
       setImportMsg('无≥500条目'); setTimeout(() => setImportMsg(''), 2000); return;
     }
     topTags.sort((a, b) => tagTotals.get(b)! - tagTotals.get(a)!);
-    setMajorExpenses(topTags.map(tag => {
-      // 根据该标签下条目里生活/消费的金额占比决定类型
+    const suggested: MajorExpense[] = topTags.map(tag => {
       let lifeAmt = 0, consumeAmt = 0;
       for (const i of tagIndices.get(tag)!) {
         const item = expenseItems[i];
@@ -171,12 +170,25 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems, o
         if (itemTags.includes('波动生活') || itemTags.includes('周期生活')) lifeAmt += item.amount;
       }
       const type: '生活' | '消费' = consumeAmt > lifeAmt ? '消费' : '生活';
-      return {
-        type,
-        name: tag,
-        amount: Math.round(tagTotals.get(tag)! * 100) / 100,
-      };
-    }));
+      return { type, name: tag, amount: Math.round(tagTotals.get(tag)! * 100) / 100 };
+    });
+    setMajorExpenses(suggested);
+    // 立即保存到 store 并上传服务器
+    const bd = Object.fromEntries(INVEST_KEYS.map((k) => [k, parseFloat(breakdown[k] ?? '') || 0])) as unknown as InvestHoldings;
+    const hasBreakdown = INVEST_KEYS.some((k) => (bd[k] || 0) > 0);
+    const bp = Object.fromEntries(INVEST_KEYS.map((k) => [k, parseFloat(breakdownProfit[k] ?? '') || 0])) as unknown as InvestHoldings;
+    const hasBreakdownProfit = INVEST_KEYS.some((k) => (bp[k] || 0) !== 0);
+    useMonthlyStore.getState().upsert({
+      yearMonth, income: n(income), totalExpense: n(totalExpense),
+      periodicLife: n(periodicLife), volatileLife: n(volatileLife),
+      consumption: n(consumption), school: n(school),
+      accumulatedProfit: n(accProfit), investTotal: n(investTotal),
+      investBreakdown: hasBreakdown ? bd : undefined,
+      investBreakdownProfit: hasBreakdownProfit ? bp : undefined,
+      homeDays, travelDays, schoolDays, internDays,
+      majorExpenses: suggested.filter((e) => e.name.trim()),
+    });
+    triggerUpload();
     setImportMsg(`已导入 ${topTags.length} 项`); setTimeout(() => setImportMsg(''), 2000);
   };
 
