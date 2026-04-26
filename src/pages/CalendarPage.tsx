@@ -66,14 +66,16 @@ function prevYearMonth(ym: string) {
 // ── MonthForm ─────────────────────────────────────────────────────
 const MAJOR_EXCLUDED_TAGS = ['红', '黑', '白', '周期生活', '波动生活', '消费', '吃好喝好', '消耗品'];
 
-function MonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems, onSave }: {
+type MonthFormProps = {
   yearMonth: string;
   existing?: MonthlyRecord;
   prevRecord?: MonthlyRecord;
   tagCounts: Record<TagKind, number>;
   expenseItems?: BillExpenseMonth;
   onSave: (r: MonthlyRecord) => void;
-}) {
+};
+
+function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems, onSave }: MonthFormProps) {
   const [income,       setIncome]       = useState(String(existing?.income        ?? ''));
   const [totalExpense, setTotalExpense]  = useState(String(existing?.totalExpense  ?? ''));
   const [periodicLife, setPeriodicLife]  = useState(String(existing?.periodicLife  ?? ''));
@@ -216,8 +218,32 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems, o
   };
   const labelStyle: React.CSSProperties = { fontSize: 12, color: C.sub, marginBottom: 3, fontWeight: 500 };
 
+  return {
+    income, setIncome, totalExpense, setTotalExpense, periodicLife, setPeriodicLife,
+    volatileLife, setVolatileLife, consumption, setConsumption, school, setSchool,
+    accProfit, setAccProfit, investTotal, setInvestTotal,
+    majorExpenses, breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
+    showBreakdown, setShowBreakdown, importMsg,
+    surplus, investIncome, investMonthly, investAnnual, n,
+    mainFieldRefs, breakdownRefs, breakdownProfitRefs,
+    focusNext, copyHoldingsFromReconcile, importInvestTotalFromReconcile,
+    addMajor, removeMajor, updateMajor, autoImportFromBills, handleSave,
+    fieldStyle, labelStyle,
+  };
+}
+
+type MonthFormState = ReturnType<typeof useMonthForm>;
+
+function MonthDataSection({ state }: { state: MonthFormState }) {
+  const {
+    income, setIncome, totalExpense, setTotalExpense, periodicLife, setPeriodicLife,
+    volatileLife, setVolatileLife, consumption, setConsumption, school, setSchool,
+    accProfit, setAccProfit, investTotal, setInvestTotal,
+    surplus, investIncome, investMonthly, investAnnual, n,
+    mainFieldRefs, importInvestTotalFromReconcile, fieldStyle, labelStyle,
+  } = state;
   return (
-    <div>
+    <>
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 100, backgroundColor: surplus >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
           <div style={{ fontSize: 11, color: C.sub }}>本月结余</div>
@@ -296,118 +322,163 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems, o
           </div>
         );
       })()}
+    </>
+  );
+}
 
-      {/* 理财各品类持仓 & 累计收益 */}
-      <div style={{ marginBottom: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button
-            onClick={() => setShowBreakdown((v) => !v)}
-            style={{ flex: 1, textAlign: 'left', fontSize: 12, color: C.sub, fontWeight: 500, padding: '6px 0', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}
-          >
-            <span>📈 理财各品类持仓 & 累计收益（月末）</span>
-            <span>{showBreakdown ? '▲' : '▼'}</span>
-          </button>
-          {showBreakdown && (
-            <button
-              onClick={(e) => { e.stopPropagation(); copyHoldingsFromReconcile(); }}
-              style={{ fontSize: 11, color: C.blue, border: `1px solid ${C.blue}`, borderRadius: 6, padding: '3px 8px', backgroundColor: '#fff', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}
-              title="从对账页当前持仓复制到本月各品类持仓"
-            >
-              📋 从对账页复制
-            </button>
-          )}
-        </div>
+function HoldingsSection({ state }: { state: MonthFormState }) {
+  const {
+    showBreakdown, setShowBreakdown, copyHoldingsFromReconcile,
+    breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
+    breakdownRefs, breakdownProfitRefs, focusNext,
+  } = state;
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <button
+          onClick={() => setShowBreakdown((v) => !v)}
+          style={{ flex: 1, textAlign: 'left', fontSize: 12, color: C.sub, fontWeight: 500, padding: '6px 0', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}
+        >
+          <span>📈 理财各品类持仓 & 累计收益（月末）</span>
+          <span>{showBreakdown ? '▲' : '▼'}</span>
+        </button>
         {showBreakdown && (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 6, tableLayout: 'fixed' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid #e8eaed' }}>
-                <th style={{ textAlign: 'left', padding: '4px 0', color: C.sub, fontWeight: 500, width: '30%' }}>品类</th>
-                <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '35%' }}>持仓金额</th>
-                <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '35%' }}>累计收益</th>
-              </tr>
-            </thead>
-            <tbody>
-              {INVEST_KEYS.map((k, i) => (
-                <tr key={k} style={{ borderBottom: '1px solid #f1f3f4' }}>
-                  <td style={{ padding: '5px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', backgroundColor: investMeta[k].color, flexShrink: 0 }} />
-                    {investMeta[k].label}
-                  </td>
-                  <td style={{ padding: '4px 0', textAlign: 'right' }}>
-                    <AmountInput
-                      ref={(el) => { breakdownRefs.current[i] = el; }}
-                      value={breakdown[k] ?? ''} placeholder="0"
-                      onChange={(v) => setBreakdown((p) => ({ ...p, [k]: v }))}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focusNext(breakdownRefs, i); } }}
-                      style={{ width: '90%', border: 'none', borderBottom: '1px solid #fbbf24', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0' }}
-                    />
-                  </td>
-                  <td style={{ padding: '4px 0', textAlign: 'right' }}>
-                    <AmountInput
-                      ref={(el) => { breakdownProfitRefs.current[i] = el; }}
-                      value={breakdownProfit[k] ?? ''} placeholder="0"
-                      onChange={(v) => setBreakdownProfit((p) => ({ ...p, [k]: v }))}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focusNext(breakdownProfitRefs, i); } }}
-                      style={{ width: '90%', border: 'none', borderBottom: `1px solid ${C.blue}`, outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0', color: C.blue }}
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <button
+            onClick={(e) => { e.stopPropagation(); copyHoldingsFromReconcile(); }}
+            style={{ fontSize: 11, color: C.blue, border: `1px solid ${C.blue}`, borderRadius: 6, padding: '3px 8px', backgroundColor: '#fff', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}
+            title="从对账页当前持仓复制到本月各品类持仓"
+          >
+            📋 从对账页复制
+          </button>
         )}
       </div>
-
-      {/* 大额支出 */}
-      <div style={{ marginBottom: 12 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <div style={{ fontSize: 12, color: C.sub, fontWeight: 500 }}>大额支出明细</div>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            {importMsg && <span style={{ fontSize: 11, color: C.sub }}>{importMsg}</span>}
-            <button onClick={autoImportFromBills} style={{ fontSize: 12, color: C.green, border: `1px solid ${C.green}`, borderRadius: 6, padding: '3px 10px', backgroundColor: '#fff', cursor: 'pointer' }}>↓ 从账单</button>
-            <button onClick={addMajor} style={{ fontSize: 12, color: C.blue, border: `1px solid ${C.blue}`, borderRadius: 6, padding: '3px 10px', backgroundColor: '#fff', cursor: 'pointer' }}>+ 添加</button>
-          </div>
-        </div>
-        {(() => {
-          const amounts = majorExpenses.map((x) => x.amount || 0);
-          const maxAmt = Math.max(0, ...amounts);
-          const minAmt = Math.min(...amounts.filter((a) => a > 0), maxAmt);
-          return majorExpenses.map((e, i) => {
-          // 色阶：当月大额支出相对比较，最大→红，最小→绿
-          const amt = e.amount || 0;
-          const hasRange = maxAmt > minAmt && amt > 0;
-          const ratio = hasRange ? (amt - minAmt) / (maxAmt - minAmt) : (amt > 0 ? 1 : 0);
-          const hue = 120 - ratio * 120; // 120 绿 → 0 红
-          const amtBg = amt > 0 ? `hsl(${hue}, 72%, 92%)` : '#fffbeb';
-          const amtBorder = amt > 0 ? `hsl(${hue}, 65%, 55%)` : '#fbbf24';
-          const amtColor = amt > 0 ? `hsl(${hue}, 70%, 30%)` : '#202124';
-          const typeColor = e.type === '生活' ? C.blue : C.purple;
-          return (
-          <div key={i} style={{ display: 'grid', gridTemplateColumns: '46px 1fr 76px 1fr 24px', gap: 5, marginBottom: 6, alignItems: 'center' }}>
-            <select value={e.type} onChange={(ev) => updateMajor(i, { type: ev.target.value as '生活' | '消费' })}
-              style={{ border: `1.5px solid ${typeColor}`, borderRadius: 6, padding: '6px 2px', fontSize: 11, outline: 'none', color: typeColor, fontWeight: 600, backgroundColor: `${typeColor}12` }}>
-              <option value="生活">生活</option>
-              <option value="消费">消费</option>
-            </select>
-            <input type="text" value={e.name} onChange={(ev) => updateMajor(i, { name: ev.target.value })} placeholder="项目名称" style={{ ...fieldStyle, padding: '6px 8px' }} />
-            <AmountInput value={e.amount ? String(e.amount) : ''} onChange={(v) => updateMajor(i, { amount: parseFloat(v) || 0 })} placeholder="金额"
-              style={{ ...fieldStyle, padding: '6px 8px', backgroundColor: amtBg, borderColor: amtBorder, color: amtColor, fontWeight: 600, transition: 'background-color 0.2s, border-color 0.2s, color 0.2s' }}
-            />
-            <input type="text" value={e.note ?? ''} onChange={(ev) => updateMajor(i, { note: ev.target.value })} placeholder="备注" style={{ ...fieldStyle, padding: '6px 8px', fontSize: 12 }} />
-            <button onClick={() => removeMajor(i)} style={{ color: C.red, border: 'none', background: 'none', fontSize: 16, cursor: 'pointer', padding: 0 }}>×</button>
-          </div>
-          );
-          });
-        })()}
-      </div>
-
-      <button
-        onClick={handleSave}
-        style={{ width: '100%', backgroundColor: C.blue, color: '#fff', fontWeight: 700, fontSize: 15, padding: '13px 0', borderRadius: 12, border: 'none', cursor: 'pointer', letterSpacing: 1 }}
-      >
-        保存本月数据
-      </button>
+      {showBreakdown && (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 6, tableLayout: 'fixed' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid #e8eaed' }}>
+              <th style={{ textAlign: 'left', padding: '4px 0', color: C.sub, fontWeight: 500, width: '30%' }}>品类</th>
+              <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '35%' }}>持仓金额</th>
+              <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '35%' }}>累计收益</th>
+            </tr>
+          </thead>
+          <tbody>
+            {INVEST_KEYS.map((k, i) => (
+              <tr key={k} style={{ borderBottom: '1px solid #f1f3f4' }}>
+                <td style={{ padding: '5px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', backgroundColor: investMeta[k].color, flexShrink: 0 }} />
+                  {investMeta[k].label}
+                </td>
+                <td style={{ padding: '4px 0', textAlign: 'right' }}>
+                  <AmountInput
+                    ref={(el) => { breakdownRefs.current[i] = el; }}
+                    value={breakdown[k] ?? ''} placeholder="0"
+                    onChange={(v) => setBreakdown((p) => ({ ...p, [k]: v }))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focusNext(breakdownRefs, i); } }}
+                    style={{ width: '90%', border: 'none', borderBottom: '1px solid #fbbf24', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0' }}
+                  />
+                </td>
+                <td style={{ padding: '4px 0', textAlign: 'right' }}>
+                  <AmountInput
+                    ref={(el) => { breakdownProfitRefs.current[i] = el; }}
+                    value={breakdownProfit[k] ?? ''} placeholder="0"
+                    onChange={(v) => setBreakdownProfit((p) => ({ ...p, [k]: v }))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focusNext(breakdownProfitRefs, i); } }}
+                    style={{ width: '90%', border: 'none', borderBottom: `1px solid ${C.blue}`, outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0', color: C.blue }}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
+  );
+}
+
+function MajorExpensesSection({ state }: { state: MonthFormState }) {
+  const { majorExpenses, importMsg, autoImportFromBills, addMajor, removeMajor, updateMajor, fieldStyle } = state;
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ fontSize: 12, color: C.sub, fontWeight: 500 }}>大额支出明细</div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          {importMsg && <span style={{ fontSize: 11, color: C.sub }}>{importMsg}</span>}
+          <button onClick={autoImportFromBills} style={{ fontSize: 12, color: C.green, border: `1px solid ${C.green}`, borderRadius: 6, padding: '3px 10px', backgroundColor: '#fff', cursor: 'pointer' }}>↓ 从账单</button>
+          <button onClick={addMajor} style={{ fontSize: 12, color: C.blue, border: `1px solid ${C.blue}`, borderRadius: 6, padding: '3px 10px', backgroundColor: '#fff', cursor: 'pointer' }}>+ 添加</button>
+        </div>
+      </div>
+      {(() => {
+        const amounts = majorExpenses.map((x) => x.amount || 0);
+        const maxAmt = Math.max(0, ...amounts);
+        const minAmt = Math.min(...amounts.filter((a) => a > 0), maxAmt);
+        return majorExpenses.map((e, i) => {
+        const amt = e.amount || 0;
+        const hasRange = maxAmt > minAmt && amt > 0;
+        const ratio = hasRange ? (amt - minAmt) / (maxAmt - minAmt) : (amt > 0 ? 1 : 0);
+        const hue = 120 - ratio * 120;
+        const amtBg = amt > 0 ? `hsl(${hue}, 72%, 92%)` : '#fffbeb';
+        const amtBorder = amt > 0 ? `hsl(${hue}, 65%, 55%)` : '#fbbf24';
+        const amtColor = amt > 0 ? `hsl(${hue}, 70%, 30%)` : '#202124';
+        const typeColor = e.type === '生活' ? C.blue : C.purple;
+        return (
+        <div key={i} style={{ display: 'grid', gridTemplateColumns: '46px 1fr 76px 1fr 24px', gap: 5, marginBottom: 6, alignItems: 'center' }}>
+          <select value={e.type} onChange={(ev) => updateMajor(i, { type: ev.target.value as '生活' | '消费' })}
+            style={{ border: `1.5px solid ${typeColor}`, borderRadius: 6, padding: '6px 2px', fontSize: 11, outline: 'none', color: typeColor, fontWeight: 600, backgroundColor: `${typeColor}12` }}>
+            <option value="生活">生活</option>
+            <option value="消费">消费</option>
+          </select>
+          <input type="text" value={e.name} onChange={(ev) => updateMajor(i, { name: ev.target.value })} placeholder="项目名称" style={{ ...fieldStyle, padding: '6px 8px' }} />
+          <AmountInput value={e.amount ? String(e.amount) : ''} onChange={(v) => updateMajor(i, { amount: parseFloat(v) || 0 })} placeholder="金额"
+            style={{ ...fieldStyle, padding: '6px 8px', backgroundColor: amtBg, borderColor: amtBorder, color: amtColor, fontWeight: 600, transition: 'background-color 0.2s, border-color 0.2s, color 0.2s' }}
+          />
+          <input type="text" value={e.note ?? ''} onChange={(ev) => updateMajor(i, { note: ev.target.value })} placeholder="备注" style={{ ...fieldStyle, padding: '6px 8px', fontSize: 12 }} />
+          <button onClick={() => removeMajor(i)} style={{ color: C.red, border: 'none', background: 'none', fontSize: 16, cursor: 'pointer', padding: 0 }}>×</button>
+        </div>
+        );
+        });
+      })()}
+    </div>
+  );
+}
+
+function SaveButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{ width: '100%', backgroundColor: C.blue, color: '#fff', fontWeight: 700, fontSize: 15, padding: '13px 0', borderRadius: 12, border: 'none', cursor: 'pointer', letterSpacing: 1 }}
+    >
+      保存本月数据
+    </button>
+  );
+}
+
+function MonthForm(props: MonthFormProps) {
+  const state = useMonthForm(props);
+  return (
+    <div>
+      <MonthDataSection state={state} />
+      <HoldingsSection state={state} />
+      <MajorExpensesSection state={state} />
+      <SaveButton onClick={state.handleSave} />
+    </div>
+  );
+}
+
+function MonthFormCards(props: MonthFormProps & { subtitle?: string }) {
+  const state = useMonthForm(props);
+  return (
+    <>
+      <Card title={`${props.yearMonth} 数据`} subtitle={props.subtitle}>
+        <MonthDataSection state={state} />
+      </Card>
+      <Card title="大额支出">
+        <MajorExpensesSection state={state} />
+      </Card>
+      <Card title="理财各品类持仓 & 累计收益">
+        <HoldingsSection state={state} />
+        <SaveButton onClick={state.handleSave} />
+      </Card>
+    </>
   );
 }
 
@@ -743,7 +814,6 @@ export default function CalendarPage() {
   // ── Stores ──
   const { tagMap, setTag, toggleTag, countByTag, bulkFillSchool } = useCalendarStore();
   const { config, setConfig } = useConfigStore();
-  const { current } = useSnapshotStore();
   const { records, upsert, updateDayCounts } = useMonthlyStore();
   const { tagOrder, setTagOrder, weekdayTags, setWeekdayTags } = usePrefsStore();
   const tagDrag = useDragSort(tagOrder, setTagOrder, 'horizontal');
@@ -801,22 +871,6 @@ export default function CalendarPage() {
   );
 
   // ── Calendar computed ──
-  const todayDate      = _now.getDate();
-  const daysInCurMonth = getDaysInMonth(_now.getFullYear(), _now.getMonth());
-  const daysToPayDate  = config.creditPayDate - todayDate;
-  const daysToBillDate = config.creditBillDate - todayDate;
-  const showPayWarn    = todayDate >= config.creditPayDate - 5 && todayDate <= config.creditPayDate;
-  const showBillWarn   = todayDate >= config.creditBillDate - 6 && todayDate <= config.creditBillDate;
-
-  const upcomingPaydays = config.incomeItems.filter((item) => {
-    if (!item.isActive) return false;
-    const daysToNext = item.payDay >= todayDate ? item.payDay - todayDate : (daysInCurMonth - todayDate + item.payDay);
-    return daysToNext <= 3;
-  }).map((item) => ({
-    ...item,
-    daysToNext: item.payDay >= todayDate ? item.payDay - todayDate : (daysInCurMonth - todayDate + item.payDay),
-  }));
-
   const yearMonth    = `${year}-${pad(month + 1)}`;
   const daysInMonth  = getDaysInMonth(year, month);
   const firstDayWeekIdx = (new Date(year, month, 1).getDay() + 6) % 7;
@@ -1176,102 +1230,6 @@ export default function CalendarPage() {
             </div>
           </div>
 
-          {/* Tag 选择器 */}
-          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8, marginBottom: 8, alignItems: 'center' }}>
-            {tagOrder.map((t, i) => {
-              const meta    = tagMeta[t];
-              const active  = selectedTag === t;
-              const dragging = tagDrag.draggingIdx === i;
-              const hp      = tagDrag.handleProps(i);
-              return (
-                <button key={t} ref={(el) => tagDrag.itemRef(el, i)} {...hp}
-                  onClick={() => { setSelectedTag(t); cancelRange(); }}
-                  style={{ ...hp.style, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, padding: '6px 14px', borderRadius: 20, fontSize: 13, border: active ? `2px solid ${C.blue}` : `1px solid ${C.border}`, backgroundColor: active ? '#e8f0fe' : '#ffffff', color: active ? C.blue : C.sub, fontWeight: active ? 600 : 400, cursor: 'pointer', opacity: dragging ? 0.5 : 1, transition: 'opacity 0.15s' }}
-                >
-                  {meta.icon} {meta.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* 周模板 */}
-          <div style={{ marginBottom: 12 }}>
-            <button onClick={() => setShowWeekTemplate((v) => !v)}
-              style={{ fontSize: 13, color: C.blue, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 600, marginBottom: showWeekTemplate ? 8 : 0 }}
-            >
-              {showWeekTemplate ? '▾' : '▸'} 按周模板
-            </button>
-            {showWeekTemplate && (
-              <div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 8 }}>
-                  {([1,2,3,4,5,6,0] as number[]).map((dow, colIdx) => {
-                    const LABELS = ['一','二','三','四','五','六','日'];
-                    const tag    = weekdayTags[dow];
-                    const meta   = tag ? tagMeta[tag] : null;
-                    const isWknd = dow === 0 || dow === 6;
-                    return (
-                      <button key={dow} onClick={() => cycleWeekday(dow)} style={{ borderRadius: 8, padding: '6px 0', fontSize: 12, border: `1.5px solid ${meta ? meta.color : C.border}`, backgroundColor: meta ? `${meta.color}18` : '#f8f9fa', color: meta ? meta.color : isWknd ? C.weekend : C.sub, fontWeight: meta ? 600 : 400, cursor: 'pointer', textAlign: 'center' }}>
-                        <div style={{ fontSize: 10, marginBottom: 2, color: isWknd ? C.weekend : C.sub }}>{LABELS[colIdx]}</div>
-                        <div>{meta ? meta.icon : '—'}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-                <button onClick={applyWeekdayTemplate} style={{ width: '100%', padding: '8px 0', fontSize: 13, fontWeight: 600, color: '#fff', backgroundColor: C.blue, border: 'none', borderRadius: 8, cursor: 'pointer' }}>
-                  应用到 {CN_MONTH[month]} 全月
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* 选择模式切换 */}
-          <div style={{ display: 'flex', gap: 0, marginBottom: 12, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', alignSelf: 'flex-start', width: 'fit-content' }}>
-            {(['single', 'range'] as const).map((m) => (
-              <button key={m} onClick={() => switchMode(m)} style={{ padding: '6px 16px', fontSize: 13, border: 'none', cursor: 'pointer', backgroundColor: selectMode === m ? C.blue : '#fff', color: selectMode === m ? '#fff' : C.sub, fontWeight: selectMode === m ? 600 : 400 }}>
-                {m === 'single' ? '单击' : '起止'}
-              </button>
-            ))}
-          </div>
-
-          {selectMode === 'range' && (
-            <div style={{ fontSize: 13, color: rangeStart ? C.blue : C.sub, backgroundColor: rangeStart ? '#e8f0fe' : '#f8f9fa', border: `1px solid ${rangeStart ? '#a8c7fa' : C.border}`, borderRadius: 10, padding: '8px 14px', marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>{rangeStart ? `已选起点 ${rangeStart}，点击终点日期` : '点击起点日期'}</span>
-              {rangeStart && <button onClick={cancelRange} style={{ fontSize: 12, color: C.sub, border: 'none', background: 'none', cursor: 'pointer' }}>✕ 取消</button>}
-            </div>
-          )}
-
-          {/* 月历 */}
-          <Card>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, textAlign: 'center', fontSize: 11, marginBottom: 4, fontWeight: 500 }}>
-              {WEEK_HEADERS.map((w, i) => <div key={w} style={{ color: (i === 5 || i === 6) ? C.weekend : C.sub }}>{w}</div>)}
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
-              {cells.map((cell) => {
-                if (cell.day === null) return <div key={cell.key} style={{ aspectRatio: '1' }} />;
-                const tag = tagMap[cell.key];
-                const isToday    = cell.key === today;
-                const weekend    = isWeekend(cell.key);
-                const isRangeStart = cell.key === rangeStart;
-                const inPreview  = previewRange.has(cell.key);
-                const displayTag  = inPreview ? selectedTag : tag;
-                const displayMeta = displayTag ? tagMeta[displayTag] : null;
-                let borderStyle = 'none';
-                if (isToday || isRangeStart) borderStyle = `2px solid ${C.blue}`;
-                else if (inPreview) borderStyle = `1.5px dashed ${C.blue}`;
-                return (
-                  <button key={cell.key}
-                    onClick={() => handleCellClick(cell.key)}
-                    onMouseEnter={() => { if (selectMode === 'range' && rangeStart) setRangeHover(cell.key); }}
-                    style={{ aspectRatio: '1', borderRadius: 10, fontSize: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: borderStyle, backgroundColor: displayMeta ? `${displayMeta.color}20` : weekend ? '#fff0f0' : '#f8f9fa', color: displayMeta ? displayMeta.color : weekend ? C.weekend : '#202124', cursor: 'pointer', fontWeight: 500, transition: 'all 0.1s', outline: 'none' }}
-                  >
-                    {cell.day}
-                    {displayMeta && <span style={{ fontSize: 8, marginTop: 1 }}>{displayMeta.icon}</span>}
-                  </button>
-                );
-              })}
-            </div>
-          </Card>
-
           {/* 本月统计 */}
           <Card title="本月统计" subtitle={`${yearMonth} · 已标记 ${stats.tagged}/${stats.total}`}>
             <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
@@ -1451,46 +1409,113 @@ export default function CalendarPage() {
             )}
           </Card>
 
-          {/* 月度数据录入（与年视图同步） */}
-          <Card
-            title={`${yearMonth} 数据`}
+          {/* 月度数据 / 大额支出 / 各品类持仓 三张卡片 */}
+          <MonthFormCards
+            key={yearMonth}
+            yearMonth={yearMonth}
+            existing={existingForYearMonth}
+            prevRecord={prevForYearMonth}
+            tagCounts={countByTag(yearMonth)}
+            expenseItems={billExpenseItems[yearMonth]}
+            onSave={(r) => upsert(r)}
             subtitle={existingForYearMonth ? '已有数据，可修改' : '尚未录入'}
-          >
-            <MonthForm
-              key={yearMonth}
-              yearMonth={yearMonth}
-              existing={existingForYearMonth}
-              prevRecord={prevForYearMonth}
-              tagCounts={countByTag(yearMonth)}
-              expenseItems={billExpenseItems[yearMonth]}
-              onSave={(r) => upsert(r)}
-            />
-          </Card>
+          />
 
-          {/* 信用卡 + 发薪日提醒 */}
-          {(showPayWarn || showBillWarn || upcomingPaydays.length > 0) && (
-            <div style={{ marginBottom: 16 }}>
-              {upcomingPaydays.map((item) => (
-                <div key={item.id} style={{ backgroundColor: '#e6f4ea', border: '1px solid #81c995', borderRadius: 12, padding: '12px 16px', fontSize: 13, color: '#0d9488', marginBottom: 8 }}>
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>💰 发薪提醒</div>
-                  <div>{item.name}：{item.daysToNext === 0 ? '今天发薪' : `还有 ${item.daysToNext} 天`}（每月 {item.payDay} 号，¥{formatCurrency(item.amount)}）</div>
+          {/* Tag 选择器 */}
+          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8, marginBottom: 8, alignItems: 'center' }}>
+            {tagOrder.map((t, i) => {
+              const meta    = tagMeta[t];
+              const active  = selectedTag === t;
+              const dragging = tagDrag.draggingIdx === i;
+              const hp      = tagDrag.handleProps(i);
+              return (
+                <button key={t} ref={(el) => tagDrag.itemRef(el, i)} {...hp}
+                  onClick={() => { setSelectedTag(t); cancelRange(); }}
+                  style={{ ...hp.style, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, padding: '6px 14px', borderRadius: 20, fontSize: 13, border: active ? `2px solid ${C.blue}` : `1px solid ${C.border}`, backgroundColor: active ? '#e8f0fe' : '#ffffff', color: active ? C.blue : C.sub, fontWeight: active ? 600 : 400, cursor: 'pointer', opacity: dragging ? 0.5 : 1, transition: 'opacity 0.15s' }}
+                >
+                  {meta.icon} {meta.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* 周模板 */}
+          <div style={{ marginBottom: 12 }}>
+            <button onClick={() => setShowWeekTemplate((v) => !v)}
+              style={{ fontSize: 13, color: C.blue, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 600, marginBottom: showWeekTemplate ? 8 : 0 }}
+            >
+              {showWeekTemplate ? '▾' : '▸'} 按周模板
+            </button>
+            {showWeekTemplate && (
+              <div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 8 }}>
+                  {([1,2,3,4,5,6,0] as number[]).map((dow, colIdx) => {
+                    const LABELS = ['一','二','三','四','五','六','日'];
+                    const tag    = weekdayTags[dow];
+                    const meta   = tag ? tagMeta[tag] : null;
+                    const isWknd = dow === 0 || dow === 6;
+                    return (
+                      <button key={dow} onClick={() => cycleWeekday(dow)} style={{ borderRadius: 8, padding: '6px 0', fontSize: 12, border: `1.5px solid ${meta ? meta.color : C.border}`, backgroundColor: meta ? `${meta.color}18` : '#f8f9fa', color: meta ? meta.color : isWknd ? C.weekend : C.sub, fontWeight: meta ? 600 : 400, cursor: 'pointer', textAlign: 'center' }}>
+                        <div style={{ fontSize: 10, marginBottom: 2, color: isWknd ? C.weekend : C.sub }}>{LABELS[colIdx]}</div>
+                        <div>{meta ? meta.icon : '—'}</div>
+                      </button>
+                    );
+                  })}
                 </div>
-              ))}
-              {showPayWarn && (
-                <div style={{ backgroundColor: '#fce8e6', border: '1px solid #f28b82', borderRadius: 12, padding: '12px 16px', fontSize: 13, color: '#c5221f', marginBottom: 8 }}>
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>💳 还款提醒</div>
-                  <div>{config.creditPayDate} 号还款，还有 {daysToPayDate} 天</div>
-                  <div style={{ marginTop: 4, opacity: 0.85 }}>待还金额 ¥{formatCurrency(current.accounts.credit)}</div>
-                </div>
-              )}
-              {showBillWarn && (
-                <div style={{ backgroundColor: '#fef7e0', border: '1px solid #fdd663', borderRadius: 12, padding: '12px 16px', fontSize: 13, color: '#b06000' }}>
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>🧾 出账提醒</div>
-                  <div>{config.creditBillDate} 号出账，还有 {daysToBillDate} 天，请确认消费</div>
-                </div>
-              )}
+                <button onClick={applyWeekdayTemplate} style={{ width: '100%', padding: '8px 0', fontSize: 13, fontWeight: 600, color: '#fff', backgroundColor: C.blue, border: 'none', borderRadius: 8, cursor: 'pointer' }}>
+                  应用到 {CN_MONTH[month]} 全月
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* 选择模式切换 */}
+          <div style={{ display: 'flex', gap: 0, marginBottom: 12, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', alignSelf: 'flex-start', width: 'fit-content' }}>
+            {(['single', 'range'] as const).map((m) => (
+              <button key={m} onClick={() => switchMode(m)} style={{ padding: '6px 16px', fontSize: 13, border: 'none', cursor: 'pointer', backgroundColor: selectMode === m ? C.blue : '#fff', color: selectMode === m ? '#fff' : C.sub, fontWeight: selectMode === m ? 600 : 400 }}>
+                {m === 'single' ? '单击' : '起止'}
+              </button>
+            ))}
+          </div>
+
+          {selectMode === 'range' && (
+            <div style={{ fontSize: 13, color: rangeStart ? C.blue : C.sub, backgroundColor: rangeStart ? '#e8f0fe' : '#f8f9fa', border: `1px solid ${rangeStart ? '#a8c7fa' : C.border}`, borderRadius: 10, padding: '8px 14px', marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>{rangeStart ? `已选起点 ${rangeStart}，点击终点日期` : '点击起点日期'}</span>
+              {rangeStart && <button onClick={cancelRange} style={{ fontSize: 12, color: C.sub, border: 'none', background: 'none', cursor: 'pointer' }}>✕ 取消</button>}
             </div>
           )}
+
+          {/* 月历 */}
+          <Card>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, textAlign: 'center', fontSize: 11, marginBottom: 4, fontWeight: 500 }}>
+              {WEEK_HEADERS.map((w, i) => <div key={w} style={{ color: (i === 5 || i === 6) ? C.weekend : C.sub }}>{w}</div>)}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+              {cells.map((cell) => {
+                if (cell.day === null) return <div key={cell.key} style={{ aspectRatio: '1' }} />;
+                const tag = tagMap[cell.key];
+                const isToday    = cell.key === today;
+                const weekend    = isWeekend(cell.key);
+                const isRangeStart = cell.key === rangeStart;
+                const inPreview  = previewRange.has(cell.key);
+                const displayTag  = inPreview ? selectedTag : tag;
+                const displayMeta = displayTag ? tagMeta[displayTag] : null;
+                let borderStyle = 'none';
+                if (isToday || isRangeStart) borderStyle = `2px solid ${C.blue}`;
+                else if (inPreview) borderStyle = `1.5px dashed ${C.blue}`;
+                return (
+                  <button key={cell.key}
+                    onClick={() => handleCellClick(cell.key)}
+                    onMouseEnter={() => { if (selectMode === 'range' && rangeStart) setRangeHover(cell.key); }}
+                    style={{ aspectRatio: '1', borderRadius: 10, fontSize: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: borderStyle, backgroundColor: displayMeta ? `${displayMeta.color}20` : weekend ? '#fff0f0' : '#f8f9fa', color: displayMeta ? displayMeta.color : weekend ? C.weekend : '#202124', cursor: 'pointer', fontWeight: 500, transition: 'all 0.1s', outline: 'none' }}
+                  >
+                    {cell.day}
+                    {displayMeta && <span style={{ fontSize: 8, marginTop: 1 }}>{displayMeta.icon}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </Card>
         </>
       ) : (
         /* ── 统计年：历史明细 ── */
