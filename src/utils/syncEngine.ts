@@ -9,7 +9,7 @@ import { useSyncStatus } from './syncStatus';
 const EMPTY_STATES: Record<string, Record<string, unknown>> = {
   'bill-details': { tagStats: {}, expenseItems: {}, hasOverride: false },
   'monthly-records': { records: [] },
-  'calendar-tags': { tagMap: {}, initializedFromRecords: false },
+  'calendar-tags': { tagMap: {}, initializedFromRecords: false, confirmedExpenses: {} },
   'account-snapshot': { current: DEFAULT_SNAPSHOT, history: [] },
   'app-config': { config: DEFAULT_CONFIG },
   // user-prefs 保留 UI 偏好，不清空
@@ -49,7 +49,7 @@ const stores: StoreEntry[] = [
     subscribe: (l) => useCalendarStore.subscribe(l),
     serialize: () => {
       const s = useCalendarStore.getState();
-      return { tagMap: s.tagMap, initializedFromRecords: s.initializedFromRecords };
+      return { tagMap: s.tagMap, initializedFromRecords: s.initializedFromRecords, confirmedExpenses: s.confirmedExpenses };
     },
   },
   {

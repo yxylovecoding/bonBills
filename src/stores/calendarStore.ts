@@ -8,6 +8,9 @@ type TagMap = Record<string, TagKind>;
 interface CalendarStore {
   tagMap: TagMap;
   initializedFromRecords: boolean; // 防止重复执行一次性初始化
+  // confirmedExpenses: 用户在「明细」模式下勾选的「这天确切发生的支出」
+  // key: 'YYYY-MM-DD'，value: 当日已勾选的 expenseItemId 列表（id 由 importBill.ts 派生）
+  confirmedExpenses: Record<string, string[]>;
   setTag: (date: string, tag: TagKind) => void;
   removeTag: (date: string) => void;
   toggleTag: (date: string, tag: TagKind) => void;
@@ -16,6 +19,7 @@ interface CalendarStore {
   bulkFillSchool: (fromDate: string, toDate: string) => void;
   initMonthFromCounts: (yearMonth: string, counts: { school: number; intern: number; home: number; travel: number }) => void;
   markInitialized: () => void;
+  toggleConfirmedExpense: (date: string, id: string) => void;
 }
 
 export const useCalendarStore = create<CalendarStore>()(
@@ -23,6 +27,7 @@ export const useCalendarStore = create<CalendarStore>()(
     (set, get) => ({
       tagMap: {},
       initializedFromRecords: false,
+      confirmedExpenses: {},
 
       setTag: (date, tag) =>
         set((s) => ({ tagMap: { ...s.tagMap, [date]: tag } })),
@@ -93,6 +98,17 @@ export const useCalendarStore = create<CalendarStore>()(
         }),
 
       markInitialized: () => set({ initializedFromRecords: true }),
+
+      toggleConfirmedExpense: (date, id) =>
+        set((s) => {
+          const cur = s.confirmedExpenses[date] ?? [];
+          const exists = cur.includes(id);
+          const nextIds = exists ? cur.filter((x) => x !== id) : [...cur, id];
+          const nextMap = { ...s.confirmedExpenses };
+          if (nextIds.length === 0) delete nextMap[date];
+          else nextMap[date] = nextIds;
+          return { confirmedExpenses: nextMap };
+        }),
     }),
     { name: 'calendar-tags' },
   ),

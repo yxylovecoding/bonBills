@@ -4,7 +4,7 @@ import Card from '../components/Card';
 import StatRow from '../components/StatRow';
 import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
 import { tagMeta, investMeta } from '../data/mockData';
-import { parseBillFile, type BillItem, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
+import { parseBillFile, assignExpenseIds, type BillItem, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
 import { triggerUpload } from '../utils/syncEngine';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import AmountInput from '../components/AmountInput';
@@ -508,6 +508,48 @@ function SubcategoryRow({ sub, items, total }: { sub: string; items: BillExpense
   );
 }
 
+function DayDetailPanel({ date, items, confirmedIds, onToggle }: {
+  date: string;
+  items: BillExpenseItem[];
+  confirmedIds: string[];
+  onToggle: (id: string) => void;
+}) {
+  const withIds = useMemo(() => assignExpenseIds(items), [items]);
+  const confirmedSet = useMemo(() => new Set(confirmedIds), [confirmedIds]);
+  const confirmedSum = withIds.reduce((s, { item, id }) => s + (confirmedSet.has(id) ? item.amount : 0), 0);
+  const totalSum = items.reduce((s, i) => s + i.amount, 0);
+  if (withIds.length === 0) {
+    return (
+      <Card title={`${date} 当日账单`}>
+        <div style={{ fontSize: 13, color: C.sub, textAlign: 'center', padding: '16px 0' }}>当天无账单数据</div>
+      </Card>
+    );
+  }
+  return (
+    <Card title={`${date} 当日账单`} subtitle={`已勾 ${confirmedSet.size}/${withIds.length} 条 · ¥${formatCurrency(confirmedSum)}/¥${formatCurrency(totalSum)}`}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {withIds.map(({ item, id }) => {
+          const checked = confirmedSet.has(id);
+          return (
+            <label key={id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, backgroundColor: checked ? '#e8f0fe' : '#f8f9fa', cursor: 'pointer', fontSize: 13 }}>
+              <input type="checkbox" checked={checked} onChange={() => onToggle(id)} style={{ width: 16, height: 16, accentColor: C.blue, cursor: 'pointer' }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 500, color: '#202124', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {item.note || item.subcategory || item.category || '—'}
+                </div>
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
+                  {item.category}{item.subcategory ? ` · ${item.subcategory}` : ''}{item.tags ? ` · ${item.tags}` : ''}
+                </div>
+              </div>
+              <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: checked ? C.blue : '#202124', flexShrink: 0 }}>¥{formatCurrency(item.amount)}</span>
+            </label>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
 function CategoryBreakdown({ items }: { items: BillExpenseItem[] }) {
   const [open, setOpen] = useState(false);
   const total = items.reduce((s, i) => s + i.amount, 0);
@@ -823,16 +865,17 @@ export default function CalendarPage() {
   const [year,  setYear]  = useState(_now.getFullYear());
   const [month, setMonth] = useState(_now.getMonth());
   const [selectedTag, setSelectedTag] = useState<TagKind>('school');
-  const [selectMode, setSelectMode]   = useState<'single' | 'range'>('single');
+  const [selectMode, setSelectMode]   = useState<'single' | 'range' | 'detail'>('single');
   const [rangeStart, setRangeStart]   = useState<string | null>(null);
   const [rangeHover, setRangeHover]   = useState<string | null>(null);
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [showWeekTemplate, setShowWeekTemplate] = useState(false);
 
   // ── History state ──
   const [formOpen, setFormOpen] = useState(false);
 
   // ── Stores ──
-  const { tagMap, setTag, toggleTag, countByTag, bulkFillSchool } = useCalendarStore();
+  const { tagMap, setTag, toggleTag, countByTag, bulkFillSchool, confirmedExpenses, toggleConfirmedExpense } = useCalendarStore();
   const { config, setConfig } = useConfigStore();
   const { records, upsert, updateDayCounts } = useMonthlyStore();
   const { tagOrder, setTagOrder, weekdayTags, setWeekdayTags } = usePrefsStore();
@@ -952,6 +995,7 @@ export default function CalendarPage() {
   }, [cells, tagMap, yearMonth, today]);
 
   const handleCellClick = (key: string) => {
+    if (selectMode === 'detail') { setSelectedDay((cur) => cur === key ? null : key); return; }
     if (selectMode === 'single') { toggleTag(key, selectedTag); return; }
     if (!rangeStart) { setRangeStart(key); setRangeHover(key); }
     else {
@@ -962,9 +1006,12 @@ export default function CalendarPage() {
     }
   };
   const cancelRange = () => { setRangeStart(null); setRangeHover(null); };
-  const switchMode  = (m: 'single' | 'range') => { setSelectMode(m); cancelRange(); };
-  const prevMonth   = () => { cancelRange(); if (month === 0) { setYear((y) => y - 1); setMonth(11); } else setMonth((m) => m - 1); };
-  const nextMonth   = () => { cancelRange(); if (month === 11) { setYear((y) => y + 1); setMonth(0); } else setMonth((m) => m + 1); };
+  const switchMode  = (m: 'single' | 'range' | 'detail') => {
+    setSelectMode(m); cancelRange();
+    if (m !== 'detail') setSelectedDay(null);
+  };
+  const prevMonth   = () => { cancelRange(); setSelectedDay(null); if (month === 0) { setYear((y) => y - 1); setMonth(11); } else setMonth((m) => m - 1); };
+  const nextMonth   = () => { cancelRange(); setSelectedDay(null); if (month === 11) { setYear((y) => y + 1); setMonth(0); } else setMonth((m) => m + 1); };
 
   // ── 年月快捷跳转面板 ──
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -1231,7 +1278,7 @@ export default function CalendarPage() {
                       return (
                         <button
                           key={i}
-                          onClick={() => { cancelRange(); setMonth(i); setPickerOpen(false); }}
+                          onClick={() => { cancelRange(); setSelectedDay(null); setMonth(i); setPickerOpen(false); }}
                           style={{
                             padding: '8px 0', borderRadius: 8,
                             border: 'none', cursor: 'pointer', fontSize: 13,
@@ -1280,31 +1327,73 @@ export default function CalendarPage() {
                     ? (existingForYearMonth.periodicLife + existingForYearMonth.volatileLife) : 0;
                   const totalCons = existingForYearMonth ? existingForYearMonth.consumption : 0;
 
-                  // 用历史回归权重做比例分配：
-                  // avgLife[k] = w[k] × (totalLife / Σ days[k]×w[k])
-                  // 保证 Σ days[k] × avgLife[k] = totalLife
                   const wLife = historyStats.stateDailyAvg;
                   const wCons = historyStats.stateConsumptionDailyAvg;
-                  // 日均计算只用截止今天的天数
-                  const denomLife = (['school','intern','home','travel'] as TagKind[])
-                    .reduce((s, k) => s + statsToDate[k] * wLife[k], 0);
-                  const denomCons = (['school','intern','home','travel'] as TagKind[])
-                    .reduce((s, k) => s + statsToDate[k] * wCons[k], 0);
+                  const TAG_KINDS = ['school','intern','home','travel'] as TagKind[];
+
+                  // 把当月已勾选的"确切支出"按 状态 × 类型(life/cons) 聚合
+                  // 状态来自 tagMap[date]；无标签的勾选忽略（不进入估算）
+                  // 类型分类：tags 含 周期生活|波动生活 → life；含 消费 → cons；都不含则忽略
+                  const monthItems = billExpenseItems[yearMonth] ?? [];
+                  const itemsById = new Map<string, BillExpenseItem>();
+                  for (const day of Object.keys(confirmedExpenses)) {
+                    if (!day.startsWith(yearMonth)) continue;
+                    const dayItems = assignExpenseIds(monthItems.filter((it) => it.date === day));
+                    for (const { item, id } of dayItems) itemsById.set(`${day}|${id}`, item);
+                  }
+                  const confirmedLifeByState: Record<TagKind, number> = { school: 0, intern: 0, home: 0, travel: 0 };
+                  const confirmedConsByState: Record<TagKind, number> = { school: 0, intern: 0, home: 0, travel: 0 };
+                  const confirmedDaysByState: Record<TagKind, number> = { school: 0, intern: 0, home: 0, travel: 0 };
+                  for (const [day, ids] of Object.entries(confirmedExpenses)) {
+                    if (!day.startsWith(yearMonth)) continue;
+                    const tag = tagMap[day];
+                    if (!tag) continue; // 未标记的天不参与状态聚合
+                    let dayHadAny = false;
+                    for (const id of ids) {
+                      const item = itemsById.get(`${day}|${id}`);
+                      if (!item) continue;
+                      const tags = item.tags.split(',').map(t => t.trim());
+                      if (tags.includes('周期生活') || tags.includes('波动生活')) {
+                        confirmedLifeByState[tag] += item.amount;
+                        dayHadAny = true;
+                      } else if (tags.includes('消费')) {
+                        confirmedConsByState[tag] += item.amount;
+                        dayHadAny = true;
+                      }
+                    }
+                    if (dayHadAny) confirmedDaysByState[tag] += 1;
+                  }
+
+                  // 剩余预算（不动 totalLife / totalCons 本身）
+                  const confirmedLifeAll = TAG_KINDS.reduce((s, k) => s + confirmedLifeByState[k], 0);
+                  const confirmedConsAll = TAG_KINDS.reduce((s, k) => s + confirmedConsByState[k], 0);
+                  const remainLife = Math.max(0, totalLife - confirmedLifeAll);
+                  const remainCons = Math.max(0, totalCons - confirmedConsAll);
+
+                  // 剩余加权基数（仅未确切的天）
+                  const remainDenomLife = TAG_KINDS.reduce((s, k) => s + Math.max(0, statsToDate[k] - confirmedDaysByState[k]) * wLife[k], 0);
+                  const remainDenomCons = TAG_KINDS.reduce((s, k) => s + Math.max(0, statsToDate[k] - confirmedDaysByState[k]) * wCons[k], 0);
 
                   return tagOrder.map((t) => {
                   const meta  = tagMeta[t];
                   const count = stats.counts[t];
                   const countToDate = statsToDate[t];
                   const pct   = stats.total > 0 ? (count / stats.total) * 100 : 0;
-                  // 比例缩放：各状态日均 × 当月总额 / 加权基数（截止今天）
-                  const avgLife = countToDate > 0 && denomLife > 0 ? wLife[t] * totalLife / denomLife : 0;
-                  const avgCons = countToDate > 0 && denomCons > 0 ? wCons[t] * totalCons / denomCons : 0;
+                  const cd = confirmedDaysByState[t];
+                  const remainDays = Math.max(0, countToDate - cd);
+                  // 未确切日均（沿用比例分配）
+                  const estUnconfirmedLife = remainDenomLife > 0 ? wLife[t] * remainLife / remainDenomLife : 0;
+                  const estUnconfirmedCons = remainDenomCons > 0 ? wCons[t] * remainCons / remainDenomCons : 0;
+                  // 展示日均 = (确切总额 + 估算未确切部分) / 该状态总天数
+                  const avgLife = countToDate > 0 ? (confirmedLifeByState[t] + estUnconfirmedLife * remainDays) / countToDate : 0;
+                  const avgCons = countToDate > 0 ? (confirmedConsByState[t] + estUnconfirmedCons * remainDays) / countToDate : 0;
                   const fmtLife = (v: number) => v > 0
                     ? <span style={{ backgroundColor: 'rgba(26,115,232,0.08)', color: C.blue, borderRadius: 6, padding: '2px 6px', display: 'inline-block' }}>¥{Math.round(v)}</span>
                     : <span style={{ color: '#dadce0' }}>—</span>;
                   const fmtCons = (v: number) => v > 0
                     ? <span style={{ backgroundColor: 'rgba(124,58,237,0.08)', color: C.purple, borderRadius: 6, padding: '2px 6px', display: 'inline-block' }}>¥{Math.round(v)}</span>
                     : <span style={{ color: '#dadce0' }}>—</span>;
+                  const anchor = cd > 0 ? <span style={{ fontSize: 10, color: C.sub, marginLeft: 4 }}>📌{cd}</span> : null;
                   return (
                     <tr key={t}>
                       <td style={{ padding: '6px 0', color: C.sub }}>{meta.icon} {meta.label}</td>
@@ -1314,7 +1403,7 @@ export default function CalendarPage() {
                         </div>
                       </td>
                       <td style={{ padding: '6px 0', textAlign: 'right', fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: C.sub }}>{count}</td>
-                      <td style={{ padding: '6px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>{fmtLife(avgLife)}</td>
+                      <td style={{ padding: '6px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>{fmtLife(avgLife)}{anchor}</td>
                       <td style={{ padding: '6px 0 6px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>{fmtCons(avgCons)}</td>
                     </tr>
                   );
@@ -1474,9 +1563,9 @@ export default function CalendarPage() {
 
           {/* 选择模式切换 */}
           <div style={{ display: 'flex', gap: 0, marginBottom: 12, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', alignSelf: 'flex-start', width: 'fit-content' }}>
-            {(['single', 'range'] as const).map((m) => (
+            {(['single', 'range', 'detail'] as const).map((m) => (
               <button key={m} onClick={() => switchMode(m)} style={{ padding: '6px 16px', fontSize: 13, border: 'none', cursor: 'pointer', backgroundColor: selectMode === m ? C.blue : '#fff', color: selectMode === m ? '#fff' : C.sub, fontWeight: selectMode === m ? 600 : 400 }}>
-                {m === 'single' ? '单击' : '起止'}
+                {m === 'single' ? '单击' : m === 'range' ? '起止' : '明细'}
               </button>
             ))}
           </div>
@@ -1485,6 +1574,12 @@ export default function CalendarPage() {
             <div style={{ fontSize: 13, color: rangeStart ? C.blue : C.sub, backgroundColor: rangeStart ? '#e8f0fe' : '#f8f9fa', border: `1px solid ${rangeStart ? '#a8c7fa' : C.border}`, borderRadius: 10, padding: '8px 14px', marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>{rangeStart ? `已选起点 ${rangeStart}，点击终点日期` : '点击起点日期'}</span>
               {rangeStart && <button onClick={cancelRange} style={{ fontSize: 12, color: C.sub, border: 'none', background: 'none', cursor: 'pointer' }}>✕ 取消</button>}
+            </div>
+          )}
+
+          {selectMode === 'detail' && (
+            <div style={{ fontSize: 13, color: C.sub, backgroundColor: '#f0f7ff', border: '1px solid #a8c7fa', borderRadius: 10, padding: '8px 14px', marginBottom: 12 }}>
+              点击日期查看当日账单，勾选「这天确切发生的支出」用于优化日均估算
             </div>
           )}
 
@@ -1500,25 +1595,37 @@ export default function CalendarPage() {
                 const isToday    = cell.key === today;
                 const weekend    = isWeekend(cell.key);
                 const isRangeStart = cell.key === rangeStart;
+                const isSelectedDay = cell.key === selectedDay;
                 const inPreview  = previewRange.has(cell.key);
                 const displayTag  = inPreview ? selectedTag : tag;
                 const displayMeta = displayTag ? tagMeta[displayTag] : null;
+                const hasConfirmed = (confirmedExpenses[cell.key]?.length ?? 0) > 0;
                 let borderStyle = 'none';
-                if (isToday || isRangeStart) borderStyle = `2px solid ${C.blue}`;
+                if (isToday || isRangeStart || isSelectedDay) borderStyle = `2px solid ${C.blue}`;
                 else if (inPreview) borderStyle = `1.5px dashed ${C.blue}`;
                 return (
                   <button key={cell.key}
                     onClick={() => handleCellClick(cell.key)}
                     onMouseEnter={() => { if (selectMode === 'range' && rangeStart) setRangeHover(cell.key); }}
-                    style={{ aspectRatio: '1', borderRadius: 10, fontSize: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: borderStyle, backgroundColor: displayMeta ? `${displayMeta.color}20` : weekend ? '#fff0f0' : '#f8f9fa', color: displayMeta ? displayMeta.color : weekend ? C.weekend : '#202124', cursor: 'pointer', fontWeight: 500, transition: 'all 0.1s', outline: 'none' }}
+                    style={{ aspectRatio: '1', borderRadius: 10, fontSize: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: borderStyle, backgroundColor: displayMeta ? `${displayMeta.color}20` : weekend ? '#fff0f0' : '#f8f9fa', color: displayMeta ? displayMeta.color : weekend ? C.weekend : '#202124', cursor: 'pointer', fontWeight: 500, transition: 'all 0.1s', outline: 'none', position: 'relative' }}
                   >
                     {cell.day}
                     {displayMeta && <span style={{ fontSize: 8, marginTop: 1 }}>{displayMeta.icon}</span>}
+                    {hasConfirmed && <span style={{ position: 'absolute', top: 2, right: 3, width: 5, height: 5, borderRadius: '50%', backgroundColor: C.orange }} />}
                   </button>
                 );
               })}
             </div>
           </Card>
+
+          {selectMode === 'detail' && selectedDay && (
+            <DayDetailPanel
+              date={selectedDay}
+              items={(billExpenseItems[yearMonth] ?? []).filter((it) => it.date === selectedDay)}
+              confirmedIds={confirmedExpenses[selectedDay] ?? []}
+              onToggle={(id) => toggleConfirmedExpense(selectedDay, id)}
+            />
+          )}
         </>
       ) : (
         /* ── 统计年：历史明细 ── */

@@ -24,6 +24,22 @@ export type BillExpenseItem = {
   note: string;
 };
 export type BillExpenseMonth = BillExpenseItem[];
+
+// 派生稳定 id：相同字段的多条用日内序号 dupIdx 区分
+export function expenseItemId(it: BillExpenseItem, dupIdx: number): string {
+  return `${it.date}|${it.amount}|${it.category}|${it.subcategory}|${it.note}|${dupIdx}`;
+}
+
+// 给一组同日条目分别派生 id：内部按内容 key 计 dupIdx
+export function assignExpenseIds(items: BillExpenseItem[]): { item: BillExpenseItem; id: string }[] {
+  const seen = new Map<string, number>();
+  return items.map((it) => {
+    const key = `${it.date}|${it.amount}|${it.category}|${it.subcategory}|${it.note}`;
+    const dup = seen.get(key) ?? 0;
+    seen.set(key, dup + 1);
+    return { item: it, id: expenseItemId(it, dup) };
+  });
+}
 export type BillParseResult = {
   tagStats: Record<string, BillTagMonth>;
   aggregates: Record<string, BillMonthlyAgg>;
