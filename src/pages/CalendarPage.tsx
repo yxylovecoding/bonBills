@@ -97,7 +97,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
   const [breakdownProfit, setBreakdownProfit] = useState<Partial<Record<keyof InvestHoldings, string>>>(
     () => Object.fromEntries(INVEST_KEYS.map((k) => [k, String(existing?.investBreakdownProfit?.[k] ?? '')])) as Record<keyof InvestHoldings, string>
   );
-  const [showBreakdown, setShowBreakdown] = useState(false);
+  const [showBreakdown, setShowBreakdown] = useState(true);
   const { current: snapshotCurrent } = useSnapshotStore();
   const { config } = useConfigStore();
   const mainFieldRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -210,6 +210,13 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
       majorExpenses: majorExpenses.filter((e) => e.name.trim()),
     });
   };
+
+  // 自动保存：任何字段变化都立即写回 store（首次渲染跳过）
+  const isFirstSave = useRef(true);
+  useEffect(() => {
+    if (isFirstSave.current) { isFirstSave.current = false; return; }
+    handleSave();
+  }, [income, totalExpense, periodicLife, volatileLife, consumption, school, accProfit, investTotal, majorExpenses, breakdown, breakdownProfit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fieldStyle: React.CSSProperties = {
     width: '100%', border: '1.5px solid #fbbf24', borderRadius: 8,
@@ -333,24 +340,24 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
     breakdownRefs, breakdownProfitRefs, focusNext,
   } = state;
   return (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <button
-          onClick={() => setShowBreakdown((v) => !v)}
-          style={{ flex: 1, textAlign: 'left', fontSize: 12, color: C.sub, fontWeight: 500, padding: '6px 0', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}
-        >
-          <span>📈 理财各品类持仓 & 累计收益（月末）</span>
-          <span>{showBreakdown ? '▲' : '▼'}</span>
-        </button>
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, marginBottom: 4 }}>
         {showBreakdown && (
           <button
-            onClick={(e) => { e.stopPropagation(); copyHoldingsFromReconcile(); }}
-            style={{ fontSize: 11, color: C.blue, border: `1px solid ${C.blue}`, borderRadius: 6, padding: '3px 8px', backgroundColor: '#fff', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}
+            onClick={copyHoldingsFromReconcile}
+            style={{ fontSize: 11, color: C.blue, border: `1px solid ${C.blue}`, borderRadius: 6, padding: '3px 8px', backgroundColor: '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }}
             title="从对账页当前持仓复制到本月各品类持仓"
           >
             📋 从对账页复制
           </button>
         )}
+        <button
+          onClick={() => setShowBreakdown((v) => !v)}
+          style={{ fontSize: 12, color: C.sub, background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px' }}
+          title={showBreakdown ? '收起' : '展开'}
+        >
+          {showBreakdown ? '▲' : '▼'}
+        </button>
       </div>
       {showBreakdown && (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 6, tableLayout: 'fixed' }}>
@@ -441,17 +448,6 @@ function MajorExpensesSection({ state }: { state: MonthFormState }) {
   );
 }
 
-function SaveButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{ width: '100%', backgroundColor: C.blue, color: '#fff', fontWeight: 700, fontSize: 15, padding: '13px 0', borderRadius: 12, border: 'none', cursor: 'pointer', letterSpacing: 1 }}
-    >
-      保存本月数据
-    </button>
-  );
-}
-
 function MonthForm(props: MonthFormProps) {
   const state = useMonthForm(props);
   return (
@@ -459,7 +455,6 @@ function MonthForm(props: MonthFormProps) {
       <MonthDataSection state={state} />
       <HoldingsSection state={state} />
       <MajorExpensesSection state={state} />
-      <SaveButton onClick={state.handleSave} />
     </div>
   );
 }
@@ -476,7 +471,6 @@ function MonthFormCards(props: MonthFormProps & { subtitle?: string }) {
       </Card>
       <Card title="理财各品类持仓 & 累计收益">
         <HoldingsSection state={state} />
-        <SaveButton onClick={state.handleSave} />
       </Card>
     </>
   );
@@ -510,6 +504,32 @@ function SubcategoryRow({ sub, items, total }: { sub: string; items: BillExpense
         <span style={{ fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(sum)} · {pct.toFixed(1)}%</span>
       </div>
       {open && sorted.map((it, i) => <ExpenseItemLine key={i} it={it} />)}
+    </div>
+  );
+}
+
+function CategoryBreakdown({ items }: { items: BillExpenseItem[] }) {
+  const [open, setOpen] = useState(false);
+  const total = items.reduce((s, i) => s + i.amount, 0);
+  const catMap = new Map<string, BillExpenseItem[]>();
+  for (const it of items) {
+    const c = it.category || '';
+    if (!catMap.has(c)) catMap.set(c, []);
+    catMap.get(c)!.push(it);
+  }
+  const cats = [...catMap.entries()]
+    .map(([cat, arr]) => ({ cat, items: arr, total: arr.reduce((s, i) => s + i.amount, 0) }))
+    .sort((a, b) => b.total - a.total);
+  return (
+    <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid #e8eaed' }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: 12, color: C.sub, marginBottom: open ? 6 : 0 }}
+      >
+        <span>分类支出</span>
+        <span>{open ? '▲' : '▼'}</span>
+      </button>
+      {open && cats.map((c) => <CategoryRow key={c.cat} cat={c.cat} items={c.items} total={total} />)}
     </div>
   );
 }
@@ -1382,26 +1402,9 @@ export default function CalendarPage() {
                 </>
               );
             })()}
-            {(() => {
-              const items = billExpenseItems[yearMonth];
-              if (!items || items.length === 0) return null;
-              const total = items.reduce((s, i) => s + i.amount, 0);
-              const catMap = new Map<string, BillExpenseItem[]>();
-              for (const it of items) {
-                const c = it.category || '';
-                if (!catMap.has(c)) catMap.set(c, []);
-                catMap.get(c)!.push(it);
-              }
-              const cats = [...catMap.entries()]
-                .map(([cat, arr]) => ({ cat, items: arr, total: arr.reduce((s, i) => s + i.amount, 0) }))
-                .sort((a, b) => b.total - a.total);
-              return (
-                <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid #e8eaed' }}>
-                  <div style={{ fontSize: 12, color: C.sub, marginBottom: 6 }}>分类支出</div>
-                  {cats.map((c) => <CategoryRow key={c.cat} cat={c.cat} items={c.items} total={total} />)}
-                </div>
-              );
-            })()}
+            {billExpenseItems[yearMonth] && billExpenseItems[yearMonth]!.length > 0 && (
+              <CategoryBreakdown items={billExpenseItems[yearMonth]!} />
+            )}
             {stats.tagged < stats.total && (
               <div style={{ marginTop: 12, fontSize: 13, color: C.orange, backgroundColor: '#fef7e0', border: '1px solid #fdd663', borderRadius: 12, padding: '10px 14px' }}>
                 💡 还有 {stats.total - stats.tagged} 天未标记
