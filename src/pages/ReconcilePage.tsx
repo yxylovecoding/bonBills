@@ -58,12 +58,12 @@ export default function ReconcilePage() {
     incomeBank:    parseFloat(next.incomeBank)    || 0,
   });
 
-  // 已转金额（用户直接编辑）
+  // 已转金额（用户直接编辑）— 每次进入页面默认为 0
   const [confirmed, setConfirmed] = useState<Record<TransferKey, number>>(
-    current.transfersDone as Record<TransferKey, number>,
+    () => Object.fromEntries(TRANSFER_KEYS.map(k => [k, 0])) as Record<TransferKey, number>,
   );
   const [localTransferred, setLocalTransferred] = useState<Record<TransferKey, string>>(
-    () => Object.fromEntries(TRANSFER_KEYS.map(k => [k, String(current.transfersDone[k] || 0)])) as Record<TransferKey, string>,
+    () => Object.fromEntries(TRANSFER_KEYS.map(k => [k, '0'])) as Record<TransferKey, string>,
   );
 
   const [expandedBudget, setExpandedBudget] = useState<BudgetKey | null>(null);
