@@ -44,6 +44,7 @@ export default function ReconcilePage() {
   const [localAccounts, setLocalAccounts] = useState({
     credit:        String(current.accounts.credit),
     creditMonthly: String(current.accounts.creditMonthly ?? 0),
+    savingsCard:   String(current.accounts.savingsCard ?? 0),
     campusCard:    String(current.accounts.campusCard ?? 0),
     livingBank:    String(current.accounts.livingBank),
     incomeBank:    String(current.accounts.incomeBank ?? 0),
@@ -53,10 +54,22 @@ export default function ReconcilePage() {
   const syncAccounts = (next = localAccounts) => updateAccounts({
     credit:        parseFloat(next.credit)        || 0,
     creditMonthly: parseFloat(next.creditMonthly) || 0,
+    savingsCard:   parseFloat(next.savingsCard)   || 0,
     campusCard:    parseFloat(next.campusCard)    || 0,
     livingBank:    parseFloat(next.livingBank)    || 0,
     incomeBank:    parseFloat(next.incomeBank)    || 0,
   });
+
+  // 信用卡实际待还（储蓄卡先抵本期，溢出抵下期）
+  const effectiveCreditMonthly = Math.max(
+    (current.accounts.creditMonthly ?? 0) - (current.accounts.savingsCard ?? 0),
+    0,
+  );
+  const effectiveCreditNext = Math.max(
+    (current.accounts.credit ?? 0)
+      - Math.max(current.accounts.savingsCard ?? 0, current.accounts.creditMonthly ?? 0),
+    0,
+  );
 
   // 已转金额（用户直接编辑）— 每次进入页面默认为 0
   const [confirmed, setConfirmed] = useState<Record<TransferKey, number>>(
@@ -243,7 +256,7 @@ export default function ReconcilePage() {
         })),
       ],
       expense: [
-        { icon: '💳', label: '信用卡本月待还', amount: current.accounts.creditMonthly ?? 0, note: `${config.creditPayDate}号还款` },
+        { icon: '💳', label: '信用卡本月待还', amount: effectiveCreditMonthly, note: `${config.creditPayDate}号还款${(current.accounts.savingsCard ?? 0) > 0 ? ` · ¥${fmtInt(current.accounts.creditMonthly ?? 0)}-储蓄¥${fmtInt(current.accounts.savingsCard ?? 0)}` : ''}` },
         ...(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => {
           const days  = tagCountWeek[k];
           const dLife = stats.stateDailyAvg[k];
@@ -281,7 +294,7 @@ export default function ReconcilePage() {
         return { icon: '💰', label: i.name, amount: nextAmount, note };
       }),
       expense: [
-        { icon: '💳', label: '信用卡下期', amount: Math.max((current.accounts.credit ?? 0) - (current.accounts.creditMonthly ?? 0), 0), note: '总待还-本月待还' },
+        { icon: '💳', label: '信用卡下期', amount: effectiveCreditNext, note: (current.accounts.savingsCard ?? 0) > (current.accounts.creditMonthly ?? 0) ? '总待还-储蓄卡溢出-本期' : '总待还-本月待还' },
         ...(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => {
           const days  = budget.stateDaysNextMonth[k];
           const dLife = stats.stateDailyAvg[k];
@@ -375,6 +388,7 @@ export default function ReconcilePage() {
               {([
                 { key: 'credit',        label: '总待还',   idx: 0 },
                 { key: 'creditMonthly', label: '本月待还', idx: 1 },
+                { key: 'savingsCard',   label: '储蓄卡',   idx: 2 },
               ] as const).map(({ key, label, idx }) => (
                 <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: 13, color: '#5f6368' }}>{label}</span>
@@ -401,12 +415,12 @@ export default function ReconcilePage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <span style={{ fontSize: 14, fontWeight: 600, color: '#f57c00' }}>¥</span>
               <AmountInput
-                ref={(el) => { accountInputRefs.current[2] = el; }}
+                ref={(el) => { accountInputRefs.current[3] = el; }}
                 value={localAccounts.campusCard}
                 onChange={(v) => setLocalAccounts((p) => ({ ...p, campusCard: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }))}
                 onFocus={(e) => e.target.select()}
                 onBlur={() => syncAccounts()}
-                onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(2); } }}
+                onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(3); } }}
                 style={{ width: 100, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#f57c00', textAlign: 'right' }}
               />
             </div>
@@ -418,12 +432,12 @@ export default function ReconcilePage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <span style={{ fontSize: 14, fontWeight: 600, color: '#1a73e8' }}>¥</span>
               <AmountInput
-                ref={(el) => { accountInputRefs.current[3] = el; }}
+                ref={(el) => { accountInputRefs.current[4] = el; }}
                 value={localAccounts.livingBank}
                 onChange={(v) => setLocalAccounts((p) => ({ ...p, livingBank: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }))}
                 onFocus={(e) => e.target.select()}
                 onBlur={() => syncAccounts()}
-                onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(3); } }}
+                onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(4); } }}
                 style={{ width: 100, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#1a73e8', textAlign: 'right' }}
               />
             </div>
@@ -435,12 +449,12 @@ export default function ReconcilePage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <span style={{ fontSize: 14, fontWeight: 600, color: '#188038' }}>¥</span>
               <AmountInput
-                ref={(el) => { accountInputRefs.current[4] = el; }}
+                ref={(el) => { accountInputRefs.current[5] = el; }}
                 value={localAccounts.incomeBank}
                 onChange={(v) => setLocalAccounts((p) => ({ ...p, incomeBank: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }))}
                 onFocus={(e) => e.target.select()}
                 onBlur={() => syncAccounts()}
-                onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(4); } }}
+                onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(5); } }}
                 style={{ width: 100, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#188038', textAlign: 'right' }}
               />
             </div>

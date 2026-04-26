@@ -8,6 +8,7 @@ export const DEFAULT_SNAPSHOT: AccountSnapshot = {
   accounts: {
     credit: 0,
     creditMonthly: 0,
+    savingsCard: 0,
     incomeBank: 0,
     livingBank: 0,
     campusCard: 0,
