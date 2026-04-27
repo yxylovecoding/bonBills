@@ -508,25 +508,70 @@ function SubcategoryRow({ sub, items, total }: { sub: string; items: BillExpense
   );
 }
 
-function DayDetailPanel({ date, items, confirmedIds, onToggle }: {
+function DayDetailPanel({ date, items, confirmedIds, isReviewed, onToggle, onMarkZero, onClear }: {
   date: string;
   items: BillExpenseItem[];
   confirmedIds: string[];
+  isReviewed: boolean;
   onToggle: (id: string) => void;
+  onMarkZero: () => void;
+  onClear: () => void;
 }) {
   const withIds = useMemo(() => assignExpenseIds(items), [items]);
   const confirmedSet = useMemo(() => new Set(confirmedIds), [confirmedIds]);
   const confirmedSum = withIds.reduce((s, { item, id }) => s + (confirmedSet.has(id) ? item.amount : 0), 0);
   const totalSum = items.reduce((s, i) => s + i.amount, 0);
+  const isZeroSpend = isReviewed && confirmedSet.size === 0;
   if (withIds.length === 0) {
     return (
-      <Card title={`${date} 当日账单`}>
-        <div style={{ fontSize: 13, color: C.sub, textAlign: 'center', padding: '16px 0' }}>当天无账单数据</div>
+      <Card title={`${date} 当日账单`} subtitle={isZeroSpend ? '已确认当天 0 支出' : '当天无账单数据'}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ fontSize: 13, color: C.sub, textAlign: 'center', paddingTop: 6 }}>
+            {isZeroSpend ? '这一天已记为 0 支出' : '当天无账单数据'}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={onMarkZero}
+              style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1px solid ${isZeroSpend ? C.green : C.blue}`, backgroundColor: isZeroSpend ? '#e6f4ea' : '#fff', color: isZeroSpend ? C.green : C.blue, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              记为 0 支出
+            </button>
+            {isReviewed && (
+              <button
+                onClick={onClear}
+                style={{ padding: '9px 14px', borderRadius: 8, border: `1px solid ${C.border}`, backgroundColor: '#fff', color: C.sub, fontSize: 13, cursor: 'pointer' }}
+              >
+                重置
+              </button>
+            )}
+          </div>
+        </div>
       </Card>
     );
   }
   return (
-    <Card title={`${date} 当日账单`} subtitle={`已勾 ${confirmedSet.size}/${withIds.length} 条 · ¥${formatCurrency(confirmedSum)}/¥${formatCurrency(totalSum)}`}>
+    <Card
+      title={`${date} 当日账单`}
+      subtitle={isZeroSpend
+        ? `已确认 0/${withIds.length} 条 · 当天 0 支出`
+        : `已勾 ${confirmedSet.size}/${withIds.length} 条 · ¥${formatCurrency(confirmedSum)}/¥${formatCurrency(totalSum)}`}
+    >
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+        <button
+          onClick={onMarkZero}
+          style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1px solid ${isZeroSpend ? C.green : C.blue}`, backgroundColor: isZeroSpend ? '#e6f4ea' : '#fff', color: isZeroSpend ? C.green : C.blue, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+        >
+          记为 0 支出
+        </button>
+        {isReviewed && (
+          <button
+            onClick={onClear}
+            style={{ padding: '9px 14px', borderRadius: 8, border: `1px solid ${C.border}`, backgroundColor: '#fff', color: C.sub, fontSize: 13, cursor: 'pointer' }}
+          >
+            重置
+          </button>
+        )}
+      </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {withIds.map(({ item, id }) => {
           const checked = confirmedSet.has(id);
@@ -875,7 +920,7 @@ export default function CalendarPage() {
   const [formOpen, setFormOpen] = useState(false);
 
   // ── Stores ──
-  const { tagMap, setTag, toggleTag, countByTag, bulkFillSchool, confirmedExpenses, toggleConfirmedExpense } = useCalendarStore();
+  const { tagMap, setTag, toggleTag, countByTag, bulkFillSchool, confirmedExpenses, toggleConfirmedExpense, markConfirmedExpenseZero, clearConfirmedExpenseSelection } = useCalendarStore();
   const { config, setConfig } = useConfigStore();
   const { records, upsert, updateDayCounts } = useMonthlyStore();
   const { tagOrder, setTagOrder, weekdayTags, setWeekdayTags } = usePrefsStore();
@@ -1344,24 +1389,22 @@ export default function CalendarPage() {
                   const confirmedLifeByState: Record<TagKind, number> = { school: 0, intern: 0, home: 0, travel: 0 };
                   const confirmedConsByState: Record<TagKind, number> = { school: 0, intern: 0, home: 0, travel: 0 };
                   const confirmedDaysByState: Record<TagKind, number> = { school: 0, intern: 0, home: 0, travel: 0 };
-                  for (const [day, ids] of Object.entries(confirmedExpenses)) {
+                  for (const [day, selection] of Object.entries(confirmedExpenses)) {
                     if (!day.startsWith(yearMonth)) continue;
                     const tag = tagMap[day];
                     if (!tag) continue; // 未标记的天不参与状态聚合
-                    let dayHadAny = false;
+                    const ids = selection.ids;
                     for (const id of ids) {
                       const item = itemsById.get(`${day}|${id}`);
                       if (!item) continue;
                       const tags = item.tags.split(',').map(t => t.trim());
                       if (tags.includes('周期生活') || tags.includes('波动生活')) {
                         confirmedLifeByState[tag] += item.amount;
-                        dayHadAny = true;
                       } else if (tags.includes('消费')) {
                         confirmedConsByState[tag] += item.amount;
-                        dayHadAny = true;
                       }
                     }
-                    if (dayHadAny) confirmedDaysByState[tag] += 1;
+                    if (selection.reviewed) confirmedDaysByState[tag] += 1;
                   }
 
                   // 剩余预算（不动 totalLife / totalCons 本身）
@@ -1579,7 +1622,7 @@ export default function CalendarPage() {
 
           {selectMode === 'detail' && (
             <div style={{ fontSize: 13, color: C.sub, backgroundColor: '#f0f7ff', border: '1px solid #a8c7fa', borderRadius: 10, padding: '8px 14px', marginBottom: 12 }}>
-              点击日期查看当日账单，勾选「这天确切发生的支出」用于优化日均估算
+              点击日期查看当日账单，勾选确切支出；也可以直接记为 0 支出，用于优化日均估算
             </div>
           )}
 
@@ -1599,7 +1642,10 @@ export default function CalendarPage() {
                 const inPreview  = previewRange.has(cell.key);
                 const displayTag  = inPreview ? selectedTag : tag;
                 const displayMeta = displayTag ? tagMeta[displayTag] : null;
-                const hasConfirmed = (confirmedExpenses[cell.key]?.length ?? 0) > 0;
+                const confirmedState = confirmedExpenses[cell.key];
+                const hasReviewed = Boolean(confirmedState?.reviewed);
+                const hasConfirmed = (confirmedState?.ids.length ?? 0) > 0;
+                const isZeroConfirmed = hasReviewed && !hasConfirmed;
                 let borderStyle = 'none';
                 if (isToday || isRangeStart || isSelectedDay) borderStyle = `2px solid ${C.blue}`;
                 else if (inPreview) borderStyle = `1.5px dashed ${C.blue}`;
@@ -1611,7 +1657,7 @@ export default function CalendarPage() {
                   >
                     {cell.day}
                     {displayMeta && <span style={{ fontSize: 8, marginTop: 1 }}>{displayMeta.icon}</span>}
-                    {hasConfirmed && <span style={{ position: 'absolute', top: 2, right: 3, width: 5, height: 5, borderRadius: '50%', backgroundColor: C.orange }} />}
+                    {hasReviewed && <span style={{ position: 'absolute', top: 2, right: 3, width: 5, height: 5, borderRadius: '50%', backgroundColor: isZeroConfirmed ? C.green : C.orange }} />}
                   </button>
                 );
               })}
@@ -1622,8 +1668,11 @@ export default function CalendarPage() {
             <DayDetailPanel
               date={selectedDay}
               items={(billExpenseItems[yearMonth] ?? []).filter((it) => it.date === selectedDay)}
-              confirmedIds={confirmedExpenses[selectedDay] ?? []}
+              confirmedIds={confirmedExpenses[selectedDay]?.ids ?? []}
+              isReviewed={Boolean(confirmedExpenses[selectedDay]?.reviewed)}
               onToggle={(id) => toggleConfirmedExpense(selectedDay, id)}
+              onMarkZero={() => markConfirmedExpenseZero(selectedDay)}
+              onClear={() => clearConfirmedExpenseSelection(selectedDay)}
             />
           )}
         </>

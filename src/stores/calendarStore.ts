@@ -4,13 +4,31 @@ import type { TagKind } from '../models/types';
 
 // tagMap: { "2026-04-11": "school", ... }
 type TagMap = Record<string, TagKind>;
+type ConfirmedExpenseSelection = { ids: string[]; reviewed: boolean };
+type LegacyConfirmedExpenses = Record<string, string[] | ConfirmedExpenseSelection>;
+
+function normalizeConfirmedExpenses(input: unknown): Record<string, ConfirmedExpenseSelection> {
+  if (!input || typeof input !== 'object') return {};
+  const result: Record<string, ConfirmedExpenseSelection> = {};
+  for (const [date, value] of Object.entries(input as LegacyConfirmedExpenses)) {
+    if (Array.isArray(value)) {
+      result[date] = { ids: value, reviewed: value.length > 0 };
+      continue;
+    }
+    if (!value || typeof value !== 'object') continue;
+    const ids = Array.isArray(value.ids) ? value.ids : [];
+    const reviewed = typeof value.reviewed === 'boolean' ? value.reviewed : ids.length > 0;
+    result[date] = { ids, reviewed };
+  }
+  return result;
+}
 
 interface CalendarStore {
   tagMap: TagMap;
   initializedFromRecords: boolean; // 防止重复执行一次性初始化
   // confirmedExpenses: 用户在「明细」模式下勾选的「这天确切发生的支出」
-  // key: 'YYYY-MM-DD'，value: 当日已勾选的 expenseItemId 列表（id 由 importBill.ts 派生）
-  confirmedExpenses: Record<string, string[]>;
+  // key: 'YYYY-MM-DD'，value: 已确认状态 + 当日已勾选的 expenseItemId 列表（id 由 importBill.ts 派生）
+  confirmedExpenses: Record<string, ConfirmedExpenseSelection>;
   setTag: (date: string, tag: TagKind) => void;
   removeTag: (date: string) => void;
   toggleTag: (date: string, tag: TagKind) => void;
@@ -20,6 +38,8 @@ interface CalendarStore {
   initMonthFromCounts: (yearMonth: string, counts: { school: number; intern: number; home: number; travel: number }) => void;
   markInitialized: () => void;
   toggleConfirmedExpense: (date: string, id: string) => void;
+  markConfirmedExpenseZero: (date: string) => void;
+  clearConfirmedExpenseSelection: (date: string) => void;
 }
 
 export const useCalendarStore = create<CalendarStore>()(
@@ -101,15 +121,40 @@ export const useCalendarStore = create<CalendarStore>()(
 
       toggleConfirmedExpense: (date, id) =>
         set((s) => {
-          const cur = s.confirmedExpenses[date] ?? [];
+          const cur = s.confirmedExpenses[date]?.ids ?? [];
           const exists = cur.includes(id);
           const nextIds = exists ? cur.filter((x) => x !== id) : [...cur, id];
           const nextMap = { ...s.confirmedExpenses };
-          if (nextIds.length === 0) delete nextMap[date];
-          else nextMap[date] = nextIds;
+          nextMap[date] = { ids: nextIds, reviewed: true };
+          return { confirmedExpenses: nextMap };
+        }),
+
+      markConfirmedExpenseZero: (date) =>
+        set((s) => ({
+          confirmedExpenses: {
+            ...s.confirmedExpenses,
+            [date]: { ids: [], reviewed: true },
+          },
+        })),
+
+      clearConfirmedExpenseSelection: (date) =>
+        set((s) => {
+          const nextMap = { ...s.confirmedExpenses };
+          delete nextMap[date];
           return { confirmedExpenses: nextMap };
         }),
     }),
-    { name: 'calendar-tags' },
+    {
+      name: 'calendar-tags',
+      version: 2,
+      migrate: (persistedState) => {
+        if (!persistedState || typeof persistedState !== 'object') return persistedState;
+        const state = persistedState as { confirmedExpenses?: unknown };
+        return {
+          ...state,
+          confirmedExpenses: normalizeConfirmedExpenses(state.confirmedExpenses),
+        };
+      },
+    },
   ),
 );
