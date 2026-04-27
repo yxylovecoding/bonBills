@@ -11,9 +11,11 @@ interface PrefsStore {
   tagOrder: TagKind[];
   accountOrder: AccountKey[];
   weekdayTags: WeekdayTags;
+  showPayrollCutoffMarkers: boolean;
   setTagOrder: (order: TagKind[]) => void;
   setAccountOrder: (order: AccountKey[]) => void;
   setWeekdayTags: (tags: WeekdayTags) => void;
+  setShowPayrollCutoffMarkers: (show: boolean) => void;
 }
 
 export const usePrefsStore = create<PrefsStore>()(
@@ -22,9 +24,11 @@ export const usePrefsStore = create<PrefsStore>()(
       tagOrder: ['intern', 'school', 'home', 'travel'],
       accountOrder: ['credit', 'campusCard', 'livingBank'],
       weekdayTags: {},
+      showPayrollCutoffMarkers: true,
       setTagOrder: (tagOrder) => set({ tagOrder }),
       setAccountOrder: (accountOrder) => set({ accountOrder }),
       setWeekdayTags: (weekdayTags) => set({ weekdayTags }),
+      setShowPayrollCutoffMarkers: (showPayrollCutoffMarkers) => set({ showPayrollCutoffMarkers }),
     }),
     { name: 'user-prefs' },
   ),

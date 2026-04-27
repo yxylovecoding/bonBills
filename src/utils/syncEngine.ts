@@ -76,7 +76,12 @@ const stores: StoreEntry[] = [
     subscribe: (l) => usePrefsStore.subscribe(l),
     serialize: () => {
       const s = usePrefsStore.getState();
-      return { tagOrder: s.tagOrder, accountOrder: s.accountOrder, weekdayTags: s.weekdayTags };
+      return {
+        tagOrder: s.tagOrder,
+        accountOrder: s.accountOrder,
+        weekdayTags: s.weekdayTags,
+        showPayrollCutoffMarkers: s.showPayrollCutoffMarkers,
+      };
     },
   },
 ];

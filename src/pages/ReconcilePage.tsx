@@ -9,11 +9,13 @@ import { useSnapshotStore } from '../stores/snapshotStore';
 import { useConfigStore } from '../stores/configStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { useCalendarStore } from '../stores/calendarStore';
-import { calcBudget, resolvePayDay } from '../calculations/budget';
+import { calcBudget } from '../calculations/budget';
 import { calcHistoryStats } from '../calculations/history';
 import { calcRebalance } from '../calculations/rebalance';
 import { investMeta, tagMeta } from '../data/mockData';
 import type { DailyTag, InvestKey, TagKind } from '../models/types';
+import { useHolidayYears } from '../utils/holidays';
+import { dateLabel, resolveIncomeForMonth, type ResolvedIncomeItem } from '../utils/payroll';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', sub: '#5f6368', orange: '#e8710a' };
 
@@ -98,6 +100,12 @@ export default function ReconcilePage() {
 
   // 今天
   const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth();
+  const nextMonthDate = new Date(currentYear, currentMonth + 1, 1);
+  const nextYear = nextMonthDate.getFullYear();
+  const nextMonth = nextMonthDate.getMonth();
+  const { holidayDataByYear, holidayWarning } = useHolidayYears([currentYear - 1, currentYear, nextYear]);
 
   // 历史均值（只取近两年）
   const twoYearsAgo = `${today.getFullYear() - 1}-01`;
@@ -109,37 +117,28 @@ export default function ReconcilePage() {
     [tagMap],
   );
 
-  // 当月各标签天数（日薪计算用）
-  const curYM = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-  const tagCountThisMonth = useMemo(() => {
-    const counts: Record<string, number> = { intern: 0, school: 0, home: 0, travel: 0 };
-    for (const [date, tag] of Object.entries(tagMap)) {
-      if (date.startsWith(curYM)) counts[tag] = (counts[tag] || 0) + 1;
-    }
-    return counts;
-  }, [tagMap, curYM]);
+  const curYM = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
+  const currentResolvedIncomeItems = useMemo(
+    () => config.incomeItems.map((item) => resolveIncomeForMonth(item, currentYear, currentMonth, tagMap, holidayDataByYear)),
+    [config.incomeItems, currentYear, currentMonth, tagMap, holidayDataByYear],
+  );
+  const nextResolvedIncomeItems = useMemo(
+    () => config.incomeItems.map((item) => resolveIncomeForMonth(item, nextYear, nextMonth, tagMap, holidayDataByYear)),
+    [config.incomeItems, nextYear, nextMonth, tagMap, holidayDataByYear],
+  );
 
-  // 次月各标签天数（月外收入计算用）
-  const nextMonthDate = new Date(today.getFullYear(), today.getMonth() + 1, 1);
-  const nextYM = `${nextMonthDate.getFullYear()}-${String(nextMonthDate.getMonth() + 1).padStart(2, '0')}`;
-  const tagCountNextMonth = useMemo(() => {
-    const counts: Record<string, number> = { intern: 0, school: 0, home: 0, travel: 0 };
-    for (const [date, tag] of Object.entries(tagMap)) {
-      if (date.startsWith(nextYM)) counts[tag] = (counts[tag] || 0) + 1;
-    }
-    return counts;
-  }, [tagMap, nextYM]);
-
-  // 有效收入项（日薪模式按标签天数计算实际金额）
-  const effectiveIncomeItems = useMemo(() =>
-    config.incomeItems.map((item) => {
-      if (item.isActive && item.dailyRate !== undefined && item.tagKind) {
-        return { ...item, amount: item.dailyRate * (tagCountThisMonth[item.tagKind] || 0) };
-      }
-      return item;
-    }), [config.incomeItems, tagCountThisMonth]);
-
-  const effectiveConfig = useMemo(() => ({ ...config, incomeItems: effectiveIncomeItems }), [config, effectiveIncomeItems]);
+  const effectiveConfig = useMemo(() => ({
+    ...config,
+    incomeItems: currentResolvedIncomeItems.map((item) => ({
+      id: item.id,
+      name: item.name,
+      amount: item.resolvedAmount,
+      payDay: Number(item.resolvedPayDate.slice(8, 10)),
+      isActive: item.isActive,
+      dailyRate: item.dailyRate,
+      tagKind: item.tagKind,
+    })),
+  }), [config, currentResolvedIncomeItems]);
 
   // 预算计算（传入当前账户余额，启用收入优先逻辑）
   const budget = useMemo(
@@ -225,13 +224,21 @@ export default function ReconcilePage() {
 
   const todayDate = today.getDate();
   const weekEnd = todayDate + Math.min(budget.daysLeftInMonth, 7);
-  const rPD = (payDay: number) => resolvePayDay(payDay, today.getFullYear(), today.getMonth());
-  const pdLabel = (payDay: number) => payDay === 0 ? '月底' : `${rPD(payDay)}号`;
-
-  const makeIncomeNote = (i: typeof effectiveIncomeItems[0], base: string) =>
-    i.dailyRate !== undefined && i.tagKind
-      ? `${base}（${tagCountThisMonth[i.tagKind] || 0}天×¥${i.dailyRate}/天）`
-      : base;
+  const payDateDay = (item: ResolvedIncomeItem) => Number(item.resolvedPayDate.slice(8, 10));
+  const makeIncomeNote = (item: ResolvedIncomeItem, status: 'upcoming' | 'received' | 'next') => {
+    const baseLabel = status === 'received'
+      ? `${payDateDay(item)}号已发`
+      : status === 'next'
+        ? `次月${payDateDay(item)}号发薪`
+        : `${payDateDay(item)}号发薪`;
+    if (item.isInternPayroll && item.payrollCycle) {
+      return `${baseLabel}（截止${dateLabel(item.payrollCycle.cutoffDate)}；${item.payrollCycle.internDays}天×¥${item.dailyRate ?? 0}/天）`;
+    }
+    if (item.dailyRate !== undefined && item.tagKind) {
+      return `${baseLabel}（${item.resolvedDayCount ?? 0}天×¥${item.dailyRate}/天）`;
+    }
+    return baseLabel;
+  };
 
   // 周内（近7天）各状态实际天数（直接从 tagMap 计数，不用比例估算）
   const tagCountWeek = useMemo(() => {
@@ -260,8 +267,8 @@ export default function ReconcilePage() {
     weekly: {
       income: [
         { icon: '🏦', label: '生活账户余额', amount: current.accounts.livingBank ?? 0, note: '当前余额' },
-        ...effectiveIncomeItems.filter(i => { const pd = rPD(i.payDay); return i.isActive && pd > todayDate && pd <= weekEnd; }).map(i => ({
-          icon: '💰', label: i.name, amount: i.amount, note: makeIncomeNote(i, `${pdLabel(i.payDay)}发薪`),
+        ...currentResolvedIncomeItems.filter((item) => item.isActive && payDateDay(item) > todayDate && payDateDay(item) <= weekEnd).map((item) => ({
+          icon: '💰', label: item.name, amount: item.resolvedAmount, note: makeIncomeNote(item, 'upcoming'),
         })),
       ],
       expense: [
@@ -277,10 +284,14 @@ export default function ReconcilePage() {
     monthly: {
       income: [
         { icon: '🏦', label: '生活账户余额', amount: current.accounts.livingBank ?? 0, note: '当前余额' },
-        ...effectiveIncomeItems.filter(i => i.isActive).map(i => {
-          const pd = rPD(i.payDay);
-          const received = pd <= todayDate;
-          return { icon: received ? '✅' : '💰', label: i.name, amount: received ? 0 : i.amount, note: makeIncomeNote(i, received ? `${pdLabel(i.payDay)}已发` : `${pdLabel(i.payDay)}待发`) };
+        ...currentResolvedIncomeItems.filter((item) => item.isActive).map((item) => {
+          const received = payDateDay(item) <= todayDate;
+          return {
+            icon: received ? '✅' : '💰',
+            label: item.name,
+            amount: received ? 0 : item.resolvedAmount,
+            note: makeIncomeNote(item, received ? 'received' : 'upcoming'),
+          };
         }),
       ],
       expense: [
@@ -294,15 +305,12 @@ export default function ReconcilePage() {
       ],
     },
     beyond: {
-      income: config.incomeItems.filter(i => i.isActive).map(i => {
-        const nextAmount = (i.dailyRate !== undefined && i.tagKind)
-          ? i.dailyRate * (tagCountNextMonth[i.tagKind] || 0)
-          : i.amount;
-        const note = (i.dailyRate !== undefined && i.tagKind)
-          ? `次月${pdLabel(i.payDay)}（${tagCountNextMonth[i.tagKind] || 0}天×¥${i.dailyRate}/天）`
-          : `次月${pdLabel(i.payDay)}`;
-        return { icon: '💰', label: i.name, amount: nextAmount, note };
-      }),
+      income: nextResolvedIncomeItems.filter((item) => item.isActive).map((item) => ({
+        icon: '💰',
+        label: item.name,
+        amount: item.resolvedAmount,
+        note: makeIncomeNote(item, 'next'),
+      })),
       expense: [
         { icon: '💳', label: '信用卡下期', amount: effectiveCreditNext, note: (current.accounts.savingsCard ?? 0) > (current.accounts.creditMonthly ?? 0) ? '总待还-储蓄卡溢出-本期' : '总待还-本月待还' },
         ...(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => {
@@ -349,6 +357,11 @@ export default function ReconcilePage() {
       <p style={{ fontSize: 13, color: C.sub, margin: '0 0 16px' }}>
         今天 {today.getFullYear()}-{String(today.getMonth()+1).padStart(2,'0')}-{String(today.getDate()).padStart(2,'0')}，对账模式：<span style={{ color: C.blue, fontWeight: 600 }}>{reconcileMode}</span>
       </p>
+      {holidayWarning && (
+        <div style={{ margin: '0 0 16px', fontSize: 12, color: C.orange, backgroundColor: '#fff4e8', border: '1px solid #fed7aa', borderRadius: 10, padding: '8px 10px' }}>
+          {holidayWarning}
+        </div>
+      )}
 
       {/* 对账流程引导 */}
       <Card title="对账流程">

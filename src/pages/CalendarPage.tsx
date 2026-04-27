@@ -16,6 +16,8 @@ import { useMonthlyStore } from '../stores/monthlyStore';
 import { usePrefsStore } from '../stores/prefsStore';
 import { useDragSort } from '../hooks/useDragSort';
 import type { TagKind, MonthlyRecord, MajorExpense, InvestHoldings } from '../models/types';
+import { useHolidayYears } from '../utils/holidays';
+import { getPayrollScheduleForMonth } from '../utils/payroll';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', border: '#e0e0e0', weekend: '#ea4335', orange: '#e8710a' };
 const CN_MONTH = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
@@ -923,8 +925,12 @@ export default function CalendarPage() {
   const { tagMap, setTag, toggleTag, countByTag, bulkFillSchool, confirmedExpenses, toggleConfirmedExpense, markConfirmedExpenseZero, clearConfirmedExpenseSelection } = useCalendarStore();
   const { config, setConfig } = useConfigStore();
   const { records, upsert, updateDayCounts } = useMonthlyStore();
-  const { tagOrder, setTagOrder, weekdayTags, setWeekdayTags } = usePrefsStore();
+  const {
+    tagOrder, setTagOrder, weekdayTags, setWeekdayTags,
+    showPayrollCutoffMarkers, setShowPayrollCutoffMarkers,
+  } = usePrefsStore();
   const tagDrag = useDragSort(tagOrder, setTagOrder, 'horizontal');
+  const { holidayDataByYear, holidayWarning } = useHolidayYears([year]);
 
 
   // ── 批量补填"学"：历史未标记天 + 切换月份时自动补当月 ──
@@ -982,6 +988,10 @@ export default function CalendarPage() {
   const yearMonth    = `${year}-${pad(month + 1)}`;
   const daysInMonth  = getDaysInMonth(year, month);
   const firstDayWeekIdx = (new Date(year, month, 1).getDay() + 6) % 7;
+  const payrollCutoffDate = useMemo(
+    () => getPayrollScheduleForMonth(year, month, holidayDataByYear).cutoffDate,
+    [year, month, holidayDataByYear],
+  );
 
   const cells = useMemo(() => {
     const arr: { key: string; day: number | null }[] = [];
@@ -1240,11 +1250,16 @@ export default function CalendarPage() {
         </button>
         </div>
       </div>
+      {holidayWarning && (
+        <div style={{ margin: '0 0 16px', fontSize: 12, color: C.orange, backgroundColor: '#fff4e8', border: '1px solid #fed7aa', borderRadius: 10, padding: '8px 10px' }}>
+          {holidayWarning}
+        </div>
+      )}
 
       {settingsOpen && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           onClick={() => setSettingsOpen(false)}>
-          <div style={{ backgroundColor: '#fff', borderRadius: 16, padding: 24, width: 280, boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}
+          <div style={{ backgroundColor: '#fff', borderRadius: 16, padding: 24, width: 300, boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}
             onClick={e => e.stopPropagation()}>
             <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>设置</div>
             <div style={{ marginBottom: 16 }}>
@@ -1252,6 +1267,18 @@ export default function CalendarPage() {
               <input type="number" value={thresholdInput} onChange={e => setThresholdInput(e.target.value)}
                 style={{ width: '100%', border: '1.5px solid #dadce0', borderRadius: 8, padding: '8px 10px', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
             </div>
+            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 20, cursor: 'pointer' }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#202124' }}>显示发薪数据截止日标记</div>
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>仅影响月历上的“截”标记显示，不影响实习工资计算</div>
+              </div>
+              <input
+                type="checkbox"
+                checked={showPayrollCutoffMarkers}
+                onChange={(e) => setShowPayrollCutoffMarkers(e.target.checked)}
+                style={{ width: 16, height: 16, accentColor: C.blue, flexShrink: 0 }}
+              />
+            </label>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button onClick={() => setSettingsOpen(false)}
                 style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', color: C.sub, fontSize: 13, cursor: 'pointer' }}>
@@ -1638,6 +1665,7 @@ export default function CalendarPage() {
                 const tag = tagMap[cell.key];
                 const isToday    = cell.key === today;
                 const weekend    = isWeekend(cell.key);
+                const isPayrollCutoff = showPayrollCutoffMarkers && cell.key === payrollCutoffDate;
                 const isRangeStart = cell.key === rangeStart;
                 const isSelectedDay = cell.key === selectedDay;
                 const inPreview  = previewRange.has(cell.key);
@@ -1658,7 +1686,8 @@ export default function CalendarPage() {
                   >
                     {cell.day}
                     {displayMeta && <span style={{ fontSize: 8, marginTop: 1 }}>{displayMeta.icon}</span>}
-                    {hasReviewed && <span style={{ position: 'absolute', top: 2, right: 3, width: 5, height: 5, borderRadius: '50%', backgroundColor: isZeroConfirmed ? C.green : C.orange }} />}
+                    {isPayrollCutoff && <span style={{ position: 'absolute', top: 3, right: 4, fontSize: 9, fontWeight: 700, color: C.blue }}>截</span>}
+                    {hasReviewed && <span style={{ position: 'absolute', top: 3, left: 4, width: 5, height: 5, borderRadius: '50%', backgroundColor: isZeroConfirmed ? C.green : C.orange }} />}
                   </button>
                 );
               })}
