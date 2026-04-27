@@ -9,7 +9,7 @@ import { triggerUpload } from '../utils/syncEngine';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import AmountInput from '../components/AmountInput';
 import { calcHistoryStats } from '../calculations/history';
-import { useCalendarStore } from '../stores/calendarStore';
+import { normalizeConfirmedSelection, useCalendarStore } from '../stores/calendarStore';
 import { useConfigStore } from '../stores/configStore';
 import { useSnapshotStore } from '../stores/snapshotStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
@@ -1393,7 +1393,8 @@ export default function CalendarPage() {
                     if (!day.startsWith(yearMonth)) continue;
                     const tag = tagMap[day];
                     if (!tag) continue; // 未标记的天不参与状态聚合
-                    const ids = selection.ids;
+                    const normalized = normalizeConfirmedSelection(selection);
+                    const ids = normalized.ids;
                     for (const id of ids) {
                       const item = itemsById.get(`${day}|${id}`);
                       if (!item) continue;
@@ -1404,7 +1405,7 @@ export default function CalendarPage() {
                         confirmedConsByState[tag] += item.amount;
                       }
                     }
-                    if (selection.reviewed) confirmedDaysByState[tag] += 1;
+                    if (normalized.reviewed) confirmedDaysByState[tag] += 1;
                   }
 
                   // 剩余预算（不动 totalLife / totalCons 本身）
@@ -1642,9 +1643,9 @@ export default function CalendarPage() {
                 const inPreview  = previewRange.has(cell.key);
                 const displayTag  = inPreview ? selectedTag : tag;
                 const displayMeta = displayTag ? tagMeta[displayTag] : null;
-                const confirmedState = confirmedExpenses[cell.key];
-                const hasReviewed = Boolean(confirmedState?.reviewed);
-                const hasConfirmed = (confirmedState?.ids.length ?? 0) > 0;
+                const confirmedState = normalizeConfirmedSelection(confirmedExpenses[cell.key]);
+                const hasReviewed = confirmedState.reviewed;
+                const hasConfirmed = confirmedState.ids.length > 0;
                 const isZeroConfirmed = hasReviewed && !hasConfirmed;
                 let borderStyle = 'none';
                 if (isToday || isRangeStart || isSelectedDay) borderStyle = `2px solid ${C.blue}`;
@@ -1664,17 +1665,20 @@ export default function CalendarPage() {
             </div>
           </Card>
 
-          {selectMode === 'detail' && selectedDay && (
-            <DayDetailPanel
-              date={selectedDay}
-              items={(billExpenseItems[yearMonth] ?? []).filter((it) => it.date === selectedDay)}
-              confirmedIds={confirmedExpenses[selectedDay]?.ids ?? []}
-              isReviewed={Boolean(confirmedExpenses[selectedDay]?.reviewed)}
-              onToggle={(id) => toggleConfirmedExpense(selectedDay, id)}
-              onMarkZero={() => markConfirmedExpenseZero(selectedDay)}
-              onClear={() => clearConfirmedExpenseSelection(selectedDay)}
-            />
-          )}
+          {selectMode === 'detail' && selectedDay && (() => {
+            const selectedConfirmedState = normalizeConfirmedSelection(confirmedExpenses[selectedDay]);
+            return (
+              <DayDetailPanel
+                date={selectedDay}
+                items={(billExpenseItems[yearMonth] ?? []).filter((it) => it.date === selectedDay)}
+                confirmedIds={selectedConfirmedState.ids}
+                isReviewed={selectedConfirmedState.reviewed}
+                onToggle={(id) => toggleConfirmedExpense(selectedDay, id)}
+                onMarkZero={() => markConfirmedExpenseZero(selectedDay)}
+                onClear={() => clearConfirmedExpenseSelection(selectedDay)}
+              />
+            );
+          })()}
         </>
       ) : (
         /* ── 统计年：历史明细 ── */

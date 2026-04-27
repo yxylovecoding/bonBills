@@ -7,18 +7,21 @@ type TagMap = Record<string, TagKind>;
 type ConfirmedExpenseSelection = { ids: string[]; reviewed: boolean };
 type LegacyConfirmedExpenses = Record<string, string[] | ConfirmedExpenseSelection>;
 
+export function normalizeConfirmedSelection(value: unknown): ConfirmedExpenseSelection {
+  if (Array.isArray(value)) return { ids: value, reviewed: value.length > 0 };
+  if (!value || typeof value !== 'object') return { ids: [], reviewed: false };
+  const ids = Array.isArray((value as { ids?: unknown[] }).ids) ? (value as { ids: string[] }).ids : [];
+  const reviewed = typeof (value as { reviewed?: unknown }).reviewed === 'boolean'
+    ? (value as { reviewed: boolean }).reviewed
+    : ids.length > 0;
+  return { ids, reviewed };
+}
+
 function normalizeConfirmedExpenses(input: unknown): Record<string, ConfirmedExpenseSelection> {
   if (!input || typeof input !== 'object') return {};
   const result: Record<string, ConfirmedExpenseSelection> = {};
   for (const [date, value] of Object.entries(input as LegacyConfirmedExpenses)) {
-    if (Array.isArray(value)) {
-      result[date] = { ids: value, reviewed: value.length > 0 };
-      continue;
-    }
-    if (!value || typeof value !== 'object') continue;
-    const ids = Array.isArray(value.ids) ? value.ids : [];
-    const reviewed = typeof value.reviewed === 'boolean' ? value.reviewed : ids.length > 0;
-    result[date] = { ids, reviewed };
+    result[date] = normalizeConfirmedSelection(value);
   }
   return result;
 }
@@ -121,7 +124,7 @@ export const useCalendarStore = create<CalendarStore>()(
 
       toggleConfirmedExpense: (date, id) =>
         set((s) => {
-          const cur = s.confirmedExpenses[date]?.ids ?? [];
+          const cur = normalizeConfirmedSelection(s.confirmedExpenses[date]).ids;
           const exists = cur.includes(id);
           const nextIds = exists ? cur.filter((x) => x !== id) : [...cur, id];
           const nextMap = { ...s.confirmedExpenses };
@@ -153,6 +156,14 @@ export const useCalendarStore = create<CalendarStore>()(
         return {
           ...state,
           confirmedExpenses: normalizeConfirmedExpenses(state.confirmedExpenses),
+        };
+      },
+      merge: (persistedState, currentState) => {
+        const persisted = (persistedState && typeof persistedState === 'object') ? persistedState as { confirmedExpenses?: unknown } : {};
+        return {
+          ...currentState,
+          ...persisted,
+          confirmedExpenses: normalizeConfirmedExpenses(persisted.confirmedExpenses),
         };
       },
     },
