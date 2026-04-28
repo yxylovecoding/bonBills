@@ -328,6 +328,14 @@ export default function ReconcilePage() {
   const sumDetailInc = (key: BudgetKey) =>
     budgetDetails[key].income.reduce((s, i) => s + i.amount, 0);
 
+  // 月内结余结转：月外吸纳月内的本层结余（正→月外收入，负→月外支出）
+  const monthlyBalance = sumDetailInc('monthly') - sumDetailExp('monthly');
+  if (monthlyBalance >= 0) {
+    budgetDetails.beyond.income.unshift({ icon: '🔁', label: '月内结余结转', amount: monthlyBalance, note: '月内 (本月余) 结余' });
+  } else {
+    budgetDetails.beyond.expense.unshift({ icon: '🔁', label: '月内赤字结转', amount: -monthlyBalance, note: '月内 (本月余) 赤字' });
+  }
+
   const budgetRows: { key: BudgetKey; name: string; inc: number; exp: number }[] = [
     { key: 'weekly',  name: '周内 (近7天)',  inc: sumDetailInc('weekly'),  exp: sumDetailExp('weekly') },
     { key: 'monthly', name: '月内 (本月余)', inc: sumDetailInc('monthly'), exp: sumDetailExp('monthly') },
