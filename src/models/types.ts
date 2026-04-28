@@ -154,3 +154,35 @@ export interface BudgetResult {
 
 // ── RebalanceResult ───────────────────────────────────────────────
 export type RebalanceResult = Record<InvestKey, number>;
+
+// ── Consumables ───────────────────────────────────────────────────
+// 自动分组键：子类别 + note 首词（空 note 时仅子类别）
+export interface ConsumableProduct {
+  id: string;
+  name: string;          // 用户可编辑的展示名
+  unit?: string;         // 例如 "ml" / "包" / "片"
+  matchKeys: string[];   // 自动匹配的 "${subcategory}|${noteFirstWord}" 列表
+  archived?: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// 每条账单条目可附加规格/数量/绑定信息（key = expenseItemId）
+export interface PurchaseExtra {
+  spec?: string;         // 用户填写的规格描述，例如 "500ml × 2"
+  qty?: number;          // 数量（与 unit 配合算单位价）
+  productId?: string;    // 手动绑定到指定商品（覆盖自动分组）
+  excluded?: boolean;    // 标记为不属于消耗品（隐藏出列表）
+}
+
+export interface PriceCandidate {
+  id: string;
+  productId: string;
+  source: string;        // "山姆" / "京东" / "拼多多" / 自由文本
+  spec?: string;
+  qty?: number;
+  totalPrice: number;
+  note?: string;
+  pinned?: boolean;      // 标记为下次购买
+  addedAt: number;
+}
