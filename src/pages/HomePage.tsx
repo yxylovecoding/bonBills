@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -76,7 +75,6 @@ function TrendCharts({ records }: { records: MonthlyRecord[] }) {
 
 // ── 主页 ──────────────────────────────────────────────────────────
 export default function HomePage() {
-  const navigate = useNavigate();
   const { current } = useSnapshotStore();
   const { config, setConfig } = useConfigStore();
   const { records } = useMonthlyStore();
@@ -157,24 +155,7 @@ export default function HomePage() {
             {today.getFullYear()}年{today.getMonth() + 1}月 · 第 {today.getDate()} 天
           </p>
         </div>
-        <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-          <button
-            onClick={() => navigate('/consumables')}
-            title="消耗品 / 比价"
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              padding: '3px 10px',
-              borderRadius: 12,
-              border: '1px solid #dadce0',
-              backgroundColor: '#f8f9fa',
-              color: C.blue,
-              cursor: 'pointer',
-              lineHeight: 1.2,
-            }}
-          >
-            🛒 比价
-          </button>
+        <div style={{ textAlign: 'right', flexShrink: 0 }}>
           <div style={{ fontSize: 30, fontWeight: 700, fontFamily: 'monospace', color: '#202124', letterSpacing: 1 }}>
             {fire.lifeClockStr}
           </div>

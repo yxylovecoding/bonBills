@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Card from '../components/Card';
 import StatRow from '../components/StatRow';
 import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
@@ -901,6 +901,7 @@ function YearSection({ year, recs, allRecords, onJumpToMonth, expenseItemsByMont
 
 // ── Main Page ─────────────────────────────────────────────────────
 export default function CalendarPage() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [tab, setTab] = useState<'month' | 'year'>(
     searchParams.get('tab') === 'year' ? 'year' : 'month'
@@ -1220,6 +1221,13 @@ export default function CalendarPage() {
           {tab === 'month' ? '日历标记' : '历史记录'}
         </h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={() => navigate('/consumables')}
+            title="消耗品 / 比价"
+            style={{ fontSize: 12, padding: '5px 10px', borderRadius: 8, border: `1px solid ${C.border}`, backgroundColor: '#fff', color: C.blue, cursor: 'pointer', fontWeight: 600 }}
+          >
+            🛒 比价
+          </button>
           <button
             onClick={() => billFileRef.current?.click()}
             style={{ fontSize: 12, padding: '5px 10px', borderRadius: 8, border: `1px solid ${C.border}`, backgroundColor: '#fff', color: C.sub, cursor: 'pointer' }}
