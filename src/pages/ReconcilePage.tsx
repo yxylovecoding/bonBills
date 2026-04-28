@@ -254,14 +254,14 @@ export default function ReconcilePage() {
 
   // 预算明细（收入按发薪日判断是否已发，日薪项显示计算方式）
 
-  // 信用卡本月待还条目：当日 <26 归入周内（临近还款日 13），当日 >=26 归入月内（账单日已结新一期）
+  // 信用卡本月待还条目：1 <= date <= 13（还款日 13 之前/当日）归入周内；其他日期归入月外
   const creditMonthlyItem: BudgetDetailItem = {
     icon: '💳',
     label: '信用卡本月待还',
     amount: effectiveCreditMonthly,
     note: `${config.creditPayDate}号还款${(current.accounts.savingsCard ?? 0) > 0 ? ` · ¥${fmtInt(current.accounts.creditMonthly ?? 0)}-储蓄¥${fmtInt(current.accounts.savingsCard ?? 0)}` : ''}`,
   };
-  const creditInWeekly = todayDate < 26;
+  const creditInWeekly = todayDate >= 1 && todayDate <= 13;
 
   const budgetDetails: Record<BudgetKey, { income: BudgetDetailItem[]; expense: BudgetDetailItem[] }> = {
     weekly: {
@@ -295,7 +295,6 @@ export default function ReconcilePage() {
         }),
       ],
       expense: [
-        ...(!creditInWeekly ? [creditMonthlyItem] : []),
         ...(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => {
           const days  = budget.stateDaysLeft[k];
           const dLife = stats.stateDailyAvg[k];
@@ -312,6 +311,7 @@ export default function ReconcilePage() {
         note: makeIncomeNote(item, 'next'),
       })),
       expense: [
+        ...(!creditInWeekly ? [creditMonthlyItem] : []),
         { icon: '💳', label: '信用卡下期', amount: effectiveCreditNext, note: (current.accounts.savingsCard ?? 0) > (current.accounts.creditMonthly ?? 0) ? '总待还-储蓄卡溢出-本期' : '总待还-本月待还' },
         ...(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => {
           const days  = budget.stateDaysNextMonth[k];
