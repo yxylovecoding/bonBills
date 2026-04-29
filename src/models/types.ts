@@ -156,12 +156,14 @@ export interface BudgetResult {
 export type RebalanceResult = Record<InvestKey, number>;
 
 // ── Consumables ───────────────────────────────────────────────────
-// 自动分组键：子类别 + note 首词（空 note 时仅子类别）
+// 自动分组键：子类别 + 业务 tag（无业务 tag 时回退到 note 首词）
 export interface ConsumableProduct {
   id: string;
   name: string;          // 用户可编辑的展示名
   unit?: string;         // 例如 "ml" / "包" / "片"
-  matchKeys: string[];   // 自动匹配的 "${subcategory}|${noteFirstWord}" 列表
+  matchKeys: string[];   // 自动匹配的 "${subcategory}|${productTag}" 列表
+  subcategory?: string;  // 一级分类（与账单 subcategory 对齐，便于按段分组）
+  usedUpAt?: string;     // 手动标「已用完」的时间戳（ISO），收到更新购买后自动失效
   archived?: boolean;
   createdAt: number;
   updatedAt: number;

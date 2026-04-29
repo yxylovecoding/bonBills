@@ -5,18 +5,22 @@ import type {
   PurchaseExtra,
   PriceCandidate,
 } from '../models/types';
-import { genId } from '../utils/consumables';
+import { DEFAULT_TAG_BLACKLIST, genId } from '../utils/consumables';
 
 interface ConsumableStore {
   products: ConsumableProduct[];
   purchaseExtras: Record<string, PurchaseExtra>;   // key = expenseItemId
   candidates: PriceCandidate[];
+  tagBlacklist: string[];
 
-  createProduct: (input: { name: string; matchKeys?: string[]; unit?: string }) => string;
+  createProduct: (input: { name: string; matchKeys?: string[]; unit?: string; subcategory?: string }) => string;
   updateProduct: (id: string, patch: Partial<Omit<ConsumableProduct, 'id' | 'createdAt'>>) => void;
   deleteProduct: (id: string) => void;
   attachMatchKey: (id: string, key: string) => void;
   detachMatchKey: (id: string, key: string) => void;
+  markUsedUp: (id: string) => void;
+  clearUsedUp: (id: string) => void;
+  updateBlacklist: (list: string[]) => void;
 
   setPurchaseExtra: (itemId: string, patch: Partial<PurchaseExtra>) => void;
   clearPurchaseExtra: (itemId: string) => void;
@@ -33,6 +37,7 @@ export const useConsumableStore = create<ConsumableStore>()(
       products: [],
       purchaseExtras: {},
       candidates: [],
+      tagBlacklist: DEFAULT_TAG_BLACKLIST,
 
       createProduct: (input) => {
         const id = genId('prod');
@@ -42,6 +47,7 @@ export const useConsumableStore = create<ConsumableStore>()(
           name: input.name.trim() || '未命名',
           unit: input.unit,
           matchKeys: Array.from(new Set(input.matchKeys || [])),
+          subcategory: input.subcategory,
           createdAt: now,
           updatedAt: now,
         };
@@ -88,6 +94,23 @@ export const useConsumableStore = create<ConsumableStore>()(
             p.id === id ? { ...p, matchKeys: p.matchKeys.filter((k) => k !== key), updatedAt: Date.now() } : p,
           ),
         })),
+
+      markUsedUp: (id) =>
+        set((s) => ({
+          products: s.products.map((p) =>
+            p.id === id ? { ...p, usedUpAt: new Date().toISOString(), updatedAt: Date.now() } : p,
+          ),
+        })),
+
+      clearUsedUp: (id) =>
+        set((s) => ({
+          products: s.products.map((p) =>
+            p.id === id ? { ...p, usedUpAt: undefined, updatedAt: Date.now() } : p,
+          ),
+        })),
+
+      updateBlacklist: (list) =>
+        set(() => ({ tagBlacklist: Array.from(new Set(list.map((t) => t.trim()).filter(Boolean))) })),
 
       setPurchaseExtra: (itemId, patch) =>
         set((s) => {
@@ -142,6 +165,7 @@ export const useConsumableStore = create<ConsumableStore>()(
         products: state.products,
         purchaseExtras: state.purchaseExtras,
         candidates: state.candidates,
+        tagBlacklist: state.tagBlacklist,
       }),
     },
   ),

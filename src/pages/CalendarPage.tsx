@@ -1223,10 +1223,10 @@ export default function CalendarPage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
             onClick={() => navigate('/consumables')}
-            title="消耗品 / 比价"
+            title="消费品 · 库存 / 比价"
             style={{ fontSize: 12, padding: '5px 10px', borderRadius: 8, border: `1px solid ${C.border}`, backgroundColor: '#fff', color: C.blue, cursor: 'pointer', fontWeight: 600 }}
           >
-            🛒 比价
+            🛒 消费品
           </button>
           <button
             onClick={() => billFileRef.current?.click()}

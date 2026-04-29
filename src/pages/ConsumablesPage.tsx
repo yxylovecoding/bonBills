@@ -8,10 +8,12 @@ import {
   extractConsumablePurchases,
   groupPurchasesByProduct,
   calcConsumptionStats,
+  calcInventoryStatus,
   buildPriceRows,
   suggestProductName,
   type ConsumablePurchase,
   type PriceRow,
+  type InventoryInfo,
 } from '../utils/consumables';
 
 const C = {
@@ -299,16 +301,23 @@ function PriceRowView({
   );
 }
 
+type Mode = 'inventory' | 'price';
+
+const SUBCAT_FALLBACK = '未归类';
+
 export default function ConsumablesPage() {
   const { expenseItems } = useBillDetailStore();
   const {
     products,
     purchaseExtras,
     candidates,
+    tagBlacklist,
     createProduct,
     updateProduct,
     deleteProduct,
     attachMatchKey,
+    markUsedUp,
+    clearUsedUp,
     setPurchaseExtra,
     clearPurchaseExtra,
     addCandidate,
@@ -317,7 +326,13 @@ export default function ConsumablesPage() {
     setPinnedCandidate,
   } = useConsumableStore();
 
-  const purchases = useMemo(() => extractConsumablePurchases(expenseItems), [expenseItems]);
+  const [mode, setMode] = useState<Mode>('inventory');
+  const [showUsedUp, setShowUsedUp] = useState(false);
+
+  const purchases = useMemo(
+    () => extractConsumablePurchases(expenseItems, tagBlacklist),
+    [expenseItems, tagBlacklist],
+  );
   const { grouped, suggestions } = useMemo(
     () => groupPurchasesByProduct(products, purchases, purchaseExtras),
     [products, purchases, purchaseExtras],
@@ -326,16 +341,69 @@ export default function ConsumablesPage() {
   const activeProducts = products.filter((p) => !p.archived);
   const archivedProducts = products.filter((p) => p.archived);
 
+  // 为每个 product 计算库存状态（用于 inventory 排序 + 隐藏 manual-out）
+  const productInfo = useMemo(() => {
+    const map = new Map<string, { stats: ReturnType<typeof calcConsumptionStats>; inv: InventoryInfo }>();
+    for (const p of activeProducts) {
+      const stats = calcConsumptionStats(grouped[p.id] || []);
+      const inv = calcInventoryStatus(stats, p.usedUpAt);
+      map.set(p.id, { stats, inv });
+    }
+    return map;
+  }, [activeProducts, grouped]);
+
+  // 按 subcategory 分组
+  const productsBySubcat = useMemo(() => {
+    const map = new Map<string, typeof activeProducts>();
+    for (const p of activeProducts) {
+      const sub = (p.subcategory || '').trim() || SUBCAT_FALLBACK;
+      if (!map.has(sub)) map.set(sub, []);
+      map.get(sub)!.push(p);
+    }
+    // 把 SUBCAT_FALLBACK 放最末
+    const entries = Array.from(map.entries()).sort((a, b) => {
+      if (a[0] === SUBCAT_FALLBACK) return 1;
+      if (b[0] === SUBCAT_FALLBACK) return -1;
+      return a[0].localeCompare(b[0], 'zh');
+    });
+    return entries;
+  }, [activeProducts]);
+
+  const usedUpCount = activeProducts.filter((p) => productInfo.get(p.id)?.inv.status === 'manual-out').length;
+
   const totalCount = purchases.length;
   const totalSpend = purchases.reduce((s, p) => s + p.item.amount, 0);
 
   return (
     <div>
-      <div style={{ margin: '0 0 16px' }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 2px' }}>消耗品 · 比价</h1>
-        <p style={{ fontSize: 13, color: C.sub, margin: 0 }}>
-          自动汇总账单中带「消耗品」标签的购买，记录消耗速度、便于下次购买比价。
-        </p>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '0 0 16px', gap: 12 }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 2px' }}>消费品</h1>
+          <p style={{ fontSize: 13, color: C.sub, margin: 0 }}>
+            自动汇总账单中带「消耗品」标签的购买，按子类分组管理库存与比价。
+          </p>
+        </div>
+        <div style={{ display: 'flex', backgroundColor: '#e8eaed', borderRadius: 20, padding: 3, gap: 2, flexShrink: 0 }}>
+          {(['inventory', 'price'] as const).map((m) => {
+            const active = mode === m;
+            return (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                style={{
+                  padding: '5px 14px', borderRadius: 16, border: 'none', cursor: 'pointer',
+                  fontSize: 13, fontWeight: 600,
+                  backgroundColor: active ? '#fff' : 'transparent',
+                  color: active ? C.blue : C.sub,
+                  boxShadow: active ? '0 1px 3px rgba(0,0,0,0.15)' : 'none',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {m === 'inventory' ? '库存' : '比价'}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <Card title="总览" subtitle={`商品 ${activeProducts.length} · 历史购买 ${totalCount}`}>
@@ -360,33 +428,71 @@ export default function ConsumablesPage() {
         )}
       </Card>
 
-      {activeProducts.length > 0 && (
-        <Card title="在用商品" subtitle="按购买间隔评估消耗速度">
-          {activeProducts.map((p) => (
-            <ProductCard
-              key={p.id}
-              productId={p.id}
-              name={p.name}
-              unit={p.unit}
-              purchases={grouped[p.id] || []}
-              candidates={candidates}
-              extras={purchaseExtras}
-              onRename={(id, n) => updateProduct(id, { name: n })}
-              onDelete={(id) => {
-                if (confirm('删除商品？历史购买仍会回到「未归类」。')) deleteProduct(id);
-              }}
-              onSetUnit={(id, u) => updateProduct(id, { unit: u || undefined })}
-              onSetExtra={setPurchaseExtra}
-              onClearExtra={clearPurchaseExtra}
-              onAddCandidate={(productId, source, totalPrice, spec, qty, note) =>
-                addCandidate({ productId, source, totalPrice, spec, qty, note })
+      {productsBySubcat.map(([sub, list]) => {
+        // 隐藏 manual-out（除非 showUsedUp）
+        const visible = list.filter((p) => {
+          const inv = productInfo.get(p.id)?.inv;
+          if (inv?.status === 'manual-out' && !showUsedUp) return false;
+          return true;
+        });
+        if (visible.length === 0) return null;
+        return (
+          <Card key={sub} title={sub} subtitle={`${visible.length} 个商品`}>
+            {visible.map((p) => {
+              const info = productInfo.get(p.id);
+              if (mode === 'inventory') {
+                return (
+                  <InventoryRow
+                    key={p.id}
+                    productId={p.id}
+                    name={p.name}
+                    unit={p.unit}
+                    purchases={grouped[p.id] || []}
+                    extras={purchaseExtras}
+                    candidates={candidates}
+                    inv={info?.inv || { status: 'no-data' }}
+                    onRename={(id, n) => updateProduct(id, { name: n })}
+                    onMarkUsedUp={markUsedUp}
+                    onClearUsedUp={clearUsedUp}
+                  />
+                );
               }
-              onUpdateCandidate={updateCandidate}
-              onDeleteCandidate={deleteCandidate}
-              onSetPinned={setPinnedCandidate}
-            />
-          ))}
-        </Card>
+              return (
+                <ProductCard
+                  key={p.id}
+                  productId={p.id}
+                  name={p.name}
+                  unit={p.unit}
+                  purchases={grouped[p.id] || []}
+                  candidates={candidates}
+                  extras={purchaseExtras}
+                  onRename={(id, n) => updateProduct(id, { name: n })}
+                  onDelete={(id) => {
+                    if (confirm('删除商品？历史购买仍会回到「未归类」。')) deleteProduct(id);
+                  }}
+                  onSetUnit={(id, u) => updateProduct(id, { unit: u || undefined })}
+                  onSetExtra={setPurchaseExtra}
+                  onClearExtra={clearPurchaseExtra}
+                  onAddCandidate={(productId, source, totalPrice, spec, qty, note) =>
+                    addCandidate({ productId, source, totalPrice, spec, qty, note })
+                  }
+                  onUpdateCandidate={updateCandidate}
+                  onDeleteCandidate={deleteCandidate}
+                  onSetPinned={setPinnedCandidate}
+                />
+              );
+            })}
+          </Card>
+        );
+      })}
+
+      {usedUpCount > 0 && (
+        <button
+          onClick={() => setShowUsedUp((v) => !v)}
+          style={{ width: '100%', padding: '8px 0', fontSize: 12, color: C.sub, backgroundColor: 'transparent', border: '1px dashed ' + C.border, borderRadius: 8, cursor: 'pointer', fontWeight: 600, marginBottom: 16 }}
+        >
+          {showUsedUp ? `收起已用完 (${usedUpCount}) ▲` : `显示已用完 (${usedUpCount}) ▼`}
+        </button>
       )}
 
       {Object.keys(suggestions).length > 0 && (
@@ -404,7 +510,7 @@ export default function ConsumablesPage() {
                 suggestedName={suggestedName}
                 totalSpend={totalSpend}
                 products={activeProducts}
-                onCreate={(name) => createProduct({ name, matchKeys: [key] })}
+                onCreate={(name) => createProduct({ name, matchKeys: [key], subcategory: sample.item.subcategory })}
                 onMergeTo={(productId) => attachMatchKey(productId, key)}
                 onExclude={(itemId) => setPurchaseExtra(itemId, { excluded: true })}
               />
@@ -427,6 +533,126 @@ export default function ConsumablesPage() {
             </div>
           ))}
         </Card>
+      )}
+    </div>
+  );
+}
+
+function InventoryRow({
+  productId,
+  name,
+  unit,
+  purchases,
+  extras,
+  candidates,
+  inv,
+  onRename,
+  onMarkUsedUp,
+  onClearUsedUp,
+}: {
+  productId: string;
+  name: string;
+  unit?: string;
+  purchases: ConsumablePurchase[];
+  extras: Record<string, import('../models/types').PurchaseExtra>;
+  candidates: ReturnType<typeof useConsumableStore.getState>['candidates'];
+  inv: InventoryInfo;
+  onRename: (id: string, n: string) => void;
+  onMarkUsedUp: (id: string) => void;
+  onClearUsedUp: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [draftName, setDraftName] = useState(name);
+
+  const rows = useMemo(
+    () => buildPriceRows(purchases, [], extras).filter((r) => r.kind === 'purchase'),
+    [purchases, extras],
+  );
+  void candidates; // 保留接口对称，inventory 行不展开候选
+
+  let badgeColor = C.sub;
+  let badgeBg = '#f1f3f4';
+  let badgeText = '—';
+  switch (inv.status) {
+    case 'ok': badgeColor = C.green; badgeBg = '#e6f4ea'; badgeText = '充足'; break;
+    case 'soon': badgeColor = C.orange; badgeBg = '#fff4e8'; badgeText = '将耗尽'; break;
+    case 'overdue': badgeColor = C.red; badgeBg = '#fce8e6'; badgeText = '需补货'; break;
+    case 'manual-out': badgeColor = '#fff'; badgeBg = C.sub; badgeText = '已用完'; break;
+    case 'no-data': badgeText = '无数据'; break;
+  }
+
+  const isOut = inv.status === 'manual-out';
+
+  return (
+    <div style={{ backgroundColor: isOut ? '#fafafa' : C.bgSoft, borderRadius: 12, padding: '10px 12px', marginBottom: 8, border: '1px solid ' + C.border, opacity: isOut ? 0.7 : 1 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <input
+          value={draftName}
+          onChange={(e) => setDraftName(e.target.value)}
+          onBlur={() => draftName !== name && onRename(productId, draftName.trim() || name)}
+          style={{ flex: 1, border: 'none', background: 'transparent', fontSize: 14, fontWeight: 700, outline: 'none', minWidth: 0 }}
+        />
+        <span style={{ display: 'inline-block', fontSize: 11, color: badgeColor, backgroundColor: badgeBg, padding: '3px 10px', borderRadius: 10, fontWeight: 700 }}>
+          {badgeText}
+        </span>
+        {isOut ? (
+          <button
+            onClick={() => onClearUsedUp(productId)}
+            style={{ fontSize: 11, padding: '4px 10px', borderRadius: 8, border: '1px solid ' + C.border, background: '#fff', color: C.blue, cursor: 'pointer', fontWeight: 600 }}
+          >
+            取消
+          </button>
+        ) : (
+          <button
+            onClick={() => onMarkUsedUp(productId)}
+            style={{ fontSize: 11, padding: '4px 10px', borderRadius: 8, border: '1px solid ' + C.border, background: '#fff', color: C.red, cursor: 'pointer', fontWeight: 600 }}
+          >
+            已用完
+          </button>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 11, color: C.sub }}>
+        {inv.lastDate ? (
+          <span>上次 {inv.lastDate}{inv.daysSinceLast !== undefined ? ` · ${inv.daysSinceLast} 天前` : ''}</span>
+        ) : (
+          <span>暂无购买</span>
+        )}
+        {inv.avgIntervalDays !== undefined && (
+          <span>· 平均 {inv.avgIntervalDays} 天/件</span>
+        )}
+        {inv.expectedNextDate && !isOut && (
+          <span>· 预期 {inv.expectedNextDate}</span>
+        )}
+        <span style={{ flex: 1 }} />
+        {purchases.length > 0 && (
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            style={{ fontSize: 11, color: C.blue, background: 'transparent', border: 'none', cursor: 'pointer', fontWeight: 600, padding: 0 }}
+          >
+            {expanded ? '收起 ▲' : `历史 ${purchases.length} 条 ▼`}
+          </button>
+        )}
+      </div>
+
+      {expanded && (
+        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {rows.map((row) => (
+            <div key={row.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, padding: '4px 8px', backgroundColor: '#fff', borderRadius: 6 }}>
+              <span style={{ color: C.sub }}>{row.date}</span>
+              <span>{row.source}</span>
+              {row.spec && <span style={{ color: C.sub }}>· {row.spec}</span>}
+              {row.qty != null && <span style={{ color: C.sub }}>×{row.qty}</span>}
+              <span style={{ flex: 1 }} />
+              {row.unitPrice !== undefined && unit && (
+                <span style={{ color: C.purple, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                  ¥{formatCurrency(row.unitPrice)}/{unit}
+                </span>
+              )}
+              <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>¥{formatCurrency(row.totalPrice)}</span>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -519,7 +745,7 @@ function UngroupedRow({
               <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>¥{formatCurrency(it.item.amount)}</span>
               <button
                 onClick={() => onExclude(it.id)}
-                title="标记为不属于消耗品（隐藏）"
+                title="标记为不属于消费品（隐藏）"
                 style={{ background: 'none', border: 'none', color: '#bdc1c6', fontSize: 13, cursor: 'pointer' }}
               >
                 ×
