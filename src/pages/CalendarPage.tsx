@@ -461,7 +461,11 @@ function MonthForm(props: MonthFormProps) {
 function MonthFormCards(props: MonthFormProps & { subtitle?: string }) {
   const state = useMonthForm(props);
   const majorTotal = state.majorExpenses.reduce((s, e) => s + Math.round(e.amount || 0), 0);
-  const majorSubtitle = majorTotal > 0 ? `¥${Math.round(majorTotal / 1000)}k` : undefined;
+  const majorSubtitle = (() => {
+    if (majorTotal <= 0) return undefined;
+    const k = Math.round(majorTotal / 100) / 10;
+    return `¥${Number.isInteger(k) ? k.toFixed(0) : k.toFixed(1)}k`;
+  })();
   return (
     <>
       <Card title={`${props.yearMonth} 数据`} subtitle={props.subtitle}>
