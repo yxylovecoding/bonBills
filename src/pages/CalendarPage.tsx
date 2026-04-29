@@ -461,11 +461,15 @@ function MonthForm(props: MonthFormProps) {
 function MonthFormCards(props: MonthFormProps & { subtitle?: string }) {
   const state = useMonthForm(props);
   const majorTotal = state.majorExpenses.reduce((s, e) => s + Math.round(e.amount || 0), 0);
-  const majorSubtitle = (() => {
-    if (majorTotal <= 0) return undefined;
-    const k = Math.round(majorTotal / 100) / 10;
-    return `¥${Number.isInteger(k) ? k.toFixed(0) : k.toFixed(1)}k`;
-  })();
+  const lifeTotal = state.majorExpenses.reduce((s, e) => s + (e.type === '生活' ? Math.round(e.amount || 0) : 0), 0);
+  const consumeTotal = state.majorExpenses.reduce((s, e) => s + (e.type === '消费' ? Math.round(e.amount || 0) : 0), 0);
+  const fmtK = (v: number) => {
+    const k = Math.round(v / 100) / 10;
+    return `${Number.isInteger(k) ? k.toFixed(0) : k.toFixed(1)}k`;
+  };
+  const majorSubtitle = majorTotal > 0
+    ? `¥${fmtK(majorTotal)} (生活${fmtK(lifeTotal)}, 消费${fmtK(consumeTotal)})`
+    : undefined;
   return (
     <>
       <Card title={`${props.yearMonth} 数据`} subtitle={props.subtitle}>
