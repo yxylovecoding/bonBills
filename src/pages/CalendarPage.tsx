@@ -408,13 +408,10 @@ function MajorExpensesSection({ state }: { state: MonthFormState }) {
   const { majorExpenses, importMsg, autoImportFromBills, addMajor, removeMajor, updateMajor, fieldStyle } = state;
   return (
     <div style={{ marginBottom: 12 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <div style={{ fontSize: 12, color: C.sub, fontWeight: 500 }}>大额支出明细</div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          {importMsg && <span style={{ fontSize: 11, color: C.sub }}>{importMsg}</span>}
-          <button onClick={autoImportFromBills} style={{ fontSize: 12, color: C.green, border: `1px solid ${C.green}`, borderRadius: 6, padding: '3px 10px', backgroundColor: '#fff', cursor: 'pointer' }}>↓ 从账单</button>
-          <button onClick={addMajor} style={{ fontSize: 12, color: C.blue, border: `1px solid ${C.blue}`, borderRadius: 6, padding: '3px 10px', backgroundColor: '#fff', cursor: 'pointer' }}>+ 添加</button>
-        </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+        {importMsg && <span style={{ fontSize: 11, color: C.sub }}>{importMsg}</span>}
+        <button onClick={autoImportFromBills} style={{ fontSize: 12, color: C.green, border: `1px solid ${C.green}`, borderRadius: 6, padding: '3px 10px', backgroundColor: '#fff', cursor: 'pointer' }}>↓ 从账单</button>
+        <button onClick={addMajor} style={{ fontSize: 12, color: C.blue, border: `1px solid ${C.blue}`, borderRadius: 6, padding: '3px 10px', backgroundColor: '#fff', cursor: 'pointer' }}>+ 添加</button>
       </div>
       {(() => {
         const amounts = majorExpenses.map((x) => x.amount || 0);
@@ -437,7 +434,7 @@ function MajorExpensesSection({ state }: { state: MonthFormState }) {
             <option value="消费">消费</option>
           </select>
           <input type="text" value={e.name} onChange={(ev) => updateMajor(i, { name: ev.target.value })} placeholder="项目名称" style={{ ...fieldStyle, padding: '6px 8px' }} />
-          <AmountInput value={e.amount ? String(e.amount) : ''} onChange={(v) => updateMajor(i, { amount: parseFloat(v) || 0 })} placeholder="金额"
+          <AmountInput value={e.amount ? String(Math.round(e.amount)) : ''} onChange={(v) => updateMajor(i, { amount: Math.round(parseFloat(v) || 0) })} placeholder="金额"
             style={{ ...fieldStyle, padding: '6px 8px', backgroundColor: amtBg, borderColor: amtBorder, color: amtColor, fontWeight: 600, transition: 'background-color 0.2s, border-color 0.2s, color 0.2s' }}
           />
           <input type="text" value={e.note ?? ''} onChange={(ev) => updateMajor(i, { note: ev.target.value })} placeholder="备注" style={{ ...fieldStyle, padding: '6px 8px', fontSize: 12 }} />
@@ -463,12 +460,14 @@ function MonthForm(props: MonthFormProps) {
 
 function MonthFormCards(props: MonthFormProps & { subtitle?: string }) {
   const state = useMonthForm(props);
+  const majorTotal = state.majorExpenses.reduce((s, e) => s + Math.round(e.amount || 0), 0);
+  const majorSubtitle = majorTotal > 0 ? `¥${Math.round(majorTotal / 1000)}k` : undefined;
   return (
     <>
       <Card title={`${props.yearMonth} 数据`} subtitle={props.subtitle}>
         <MonthDataSection state={state} />
       </Card>
-      <Card title="大额支出">
+      <Card title="大额支出" subtitle={majorSubtitle}>
         <MajorExpensesSection state={state} />
       </Card>
       <Card title="理财各品类持仓 & 累计收益">
