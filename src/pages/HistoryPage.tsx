@@ -548,10 +548,10 @@ export default function HistoryPage() {
         {(() => {
           const monthlySurplus = stats.monthlyIncomeAvg - stats.totalExpenseAvg;
           const sceneDailyRows: { tagKind: TagKind; val: number }[] = [
-            { tagKind: 'school', val: stats.schoolDailyAvg },
-            { tagKind: 'home',   val: 89.5 },
-            { tagKind: 'intern', val: 156.3 },
-            { tagKind: 'travel', val: 312.0 },
+            { tagKind: 'school', val: stats.stateDailyAvg.school },
+            { tagKind: 'home',   val: stats.stateDailyAvg.home },
+            { tagKind: 'intern', val: stats.stateDailyAvg.intern },
+            { tagKind: 'travel', val: stats.stateDailyAvg.travel },
           ];
           return (
             <>
