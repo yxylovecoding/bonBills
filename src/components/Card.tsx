@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 
 interface CardProps {
@@ -5,9 +6,14 @@ interface CardProps {
   subtitle?: string;
   children: ReactNode;
   className?: string;
+  collapsible?: boolean;
+  defaultCollapsed?: boolean;
 }
 
-export default function Card({ title, subtitle, children, className = '' }: CardProps) {
+export default function Card({ title, subtitle, children, className = '', collapsible = false, defaultCollapsed = false }: CardProps) {
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const showHeader = !!(title || subtitle);
+  const isCollapsed = collapsible && collapsed;
   return (
     <section
       className={className}
@@ -20,18 +26,24 @@ export default function Card({ title, subtitle, children, className = '' }: Card
         overflow: 'hidden',
       }}
     >
-      {(title || subtitle) && (
+      {showHeader && (
         <div
+          onClick={collapsible ? () => setCollapsed((v) => !v) : undefined}
           style={{
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'baseline',
-            marginBottom: 14,
+            marginBottom: isCollapsed ? 0 : 14,
+            cursor: collapsible ? 'pointer' : 'default',
+            userSelect: collapsible ? 'none' : 'auto',
           }}
         >
           {title && (
-            <h2 style={{ fontSize: 15, fontWeight: 600, color: '#202124', margin: 0 }}>
+            <h2 style={{ fontSize: 15, fontWeight: 600, color: '#202124', margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
               {title}
+              {collapsible && (
+                <span style={{ fontSize: 11, color: '#5f6368', transform: isCollapsed ? 'none' : 'rotate(180deg)', transition: 'transform 0.2s', display: 'inline-block' }}>▼</span>
+              )}
             </h2>
           )}
           {subtitle && (
@@ -39,7 +51,7 @@ export default function Card({ title, subtitle, children, className = '' }: Card
           )}
         </div>
       )}
-      {children}
+      {!isCollapsed && children}
     </section>
   );
 }

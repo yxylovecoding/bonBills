@@ -372,7 +372,7 @@ export default function ReconcilePage() {
       )}
 
       {/* 对账流程引导 */}
-      <Card title="对账流程">
+      <Card title="对账流程" collapsible defaultCollapsed>
         {STEPS.map((step, i) => {
           const done = doneSteps.has(i);
           return (

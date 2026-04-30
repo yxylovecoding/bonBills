@@ -235,7 +235,7 @@ export default function HomePage() {
       </Card>
 
       {/* 收入管理 */}
-      <Card title="收入管理" subtitle="支持固定月收入和按天计薪两种模式">
+      <Card title="收入管理" subtitle="支持固定月收入和按天计薪两种模式" collapsible defaultCollapsed>
         {holidayWarning && (
           <div style={{ marginBottom: 10, fontSize: 12, color: C.orange, backgroundColor: '#fff4e8', border: '1px solid #fed7aa', borderRadius: 10, padding: '8px 10px' }}>
             {holidayWarning}
