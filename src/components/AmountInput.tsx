@@ -8,6 +8,14 @@ export interface AmountInputProps
   onChange: (value: string) => void;
 }
 
+const sanitizeAmount = (raw: string): string | null => {
+  if (raw === '') return '';
+  if (!/^[\d+\-*/(). ]*$/.test(raw)) return null;
+  const tokens = raw.split(/[+\-*/() ]/);
+  if (tokens.some((t) => (t.match(/\./g) || []).length > 1)) return null;
+  return raw;
+};
+
 const AmountInput = forwardRef<HTMLInputElement, AmountInputProps>(
   ({ value, onChange, onBlur, onKeyDown, onFocus, inputMode, ...rest }, ref) => {
     const applyFormula = (raw: string) => {
@@ -20,7 +28,11 @@ const AmountInput = forwardRef<HTMLInputElement, AmountInputProps>(
         type="text"
         inputMode={inputMode ?? 'decimal'}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => {
+          const next = sanitizeAmount(e.target.value);
+          if (next === null) return;
+          onChange(next);
+        }}
         onFocus={(e) => {
           e.target.select();
           onFocus?.(e);

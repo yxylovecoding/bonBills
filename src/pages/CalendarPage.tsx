@@ -66,7 +66,7 @@ function prevYearMonth(ym: string) {
 }
 
 // ── MonthForm ─────────────────────────────────────────────────────
-const MAJOR_EXCLUDED_TAGS = ['红', '黑', '白', '周期生活', '波动生活', '消费', '吃好喝好', '消耗品'];
+const MAJOR_EXCLUDED_TAGS = ['红', '黑', '白', '周期生活', '波动生活', '消费', '吃好喝好', '消耗品', 'doing', 'done'];
 
 type MonthFormProps = {
   yearMonth: string;
@@ -85,7 +85,6 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
   const [consumption,  setConsumption]   = useState(String(existing?.consumption   ?? ''));
   const [school,       setSchool]        = useState(String(existing?.school        ?? ''));
   const [accProfit,    setAccProfit]     = useState(String(existing?.accumulatedProfit ?? ''));
-  const [investTotal,  setInvestTotal]   = useState(String(existing?.investTotal   ?? ''));
 
   const homeDays   = tagCounts.home   > 0 ? tagCounts.home   : (existing?.homeDays   ?? 0);
   const travelDays = tagCounts.travel > 0 ? tagCounts.travel : (existing?.travelDays ?? 0);
@@ -105,24 +104,17 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
   const mainFieldRefs = useRef<(HTMLInputElement | null)[]>([]);
   const breakdownRefs = useRef<(HTMLInputElement | null)[]>([]);
   const breakdownProfitRefs = useRef<(HTMLInputElement | null)[]>([]);
-  const focusNext = (refs: React.MutableRefObject<(HTMLInputElement | null)[]>, i: number) => {
-    setTimeout(() => refs.current[i + 1]?.focus(), 0);
-  };
   const copyHoldingsFromReconcile = () => {
     setBreakdown(
       Object.fromEntries(INVEST_KEYS.map((k) => [k, String(snapshotCurrent.investHoldings[k] ?? 0)])) as Partial<Record<keyof InvestHoldings, string>>,
     );
   };
 
-  const importInvestTotalFromReconcile = () => {
-    const total = INVEST_KEYS.reduce((sum, k) => sum + (snapshotCurrent.investHoldings[k] || 0), 0);
-    setInvestTotal(total.toFixed(2));
-  };
-
   const n = (v: string) => parseFloat(v) || 0;
+  const investTotal = INVEST_KEYS.reduce((sum, k) => sum + (parseFloat(breakdown[k] ?? '') || 0), 0);
   const surplus = n(income) - n(totalExpense);
   const investIncome = prevRecord ? n(accProfit) - (prevRecord.accumulatedProfit ?? 0) : null;
-  const investMonthly = investIncome !== null && n(investTotal) > 0 ? investIncome / n(investTotal) : null;
+  const investMonthly = investIncome !== null && investTotal > 0 ? investIncome / investTotal : null;
   const investAnnual = investMonthly !== null ? investMonthly * 12 : null;
 
   const addMajor    = () => setMajorExpenses((p) => [...p, { type: '生活', name: '', amount: 0 }]);
@@ -186,7 +178,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
       yearMonth, income: n(income), totalExpense: n(totalExpense),
       periodicLife: n(periodicLife), volatileLife: n(volatileLife),
       consumption: n(consumption), school: n(school),
-      accumulatedProfit: n(accProfit), investTotal: n(investTotal),
+      accumulatedProfit: n(accProfit), investTotal,
       investBreakdown: hasBreakdown ? bd : undefined,
       investBreakdownProfit: hasBreakdownProfit ? bp : undefined,
       homeDays, travelDays, schoolDays, internDays,
@@ -205,7 +197,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
       yearMonth, income: n(income), totalExpense: n(totalExpense),
       periodicLife: n(periodicLife), volatileLife: n(volatileLife),
       consumption: n(consumption), school: n(school),
-      accumulatedProfit: n(accProfit), investTotal: n(investTotal),
+      accumulatedProfit: n(accProfit), investTotal,
       investBreakdown: hasBreakdown ? bd : undefined,
       investBreakdownProfit: hasBreakdownProfit ? bp : undefined,
       homeDays, travelDays, schoolDays, internDays,
@@ -218,7 +210,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
   useEffect(() => {
     if (isFirstSave.current) { isFirstSave.current = false; return; }
     handleSave();
-  }, [income, totalExpense, periodicLife, volatileLife, consumption, school, accProfit, investTotal, majorExpenses, breakdown, breakdownProfit]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [income, totalExpense, periodicLife, volatileLife, consumption, school, accProfit, majorExpenses, breakdown, breakdownProfit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fieldStyle: React.CSSProperties = {
     width: '100%', border: '1.5px solid #fbbf24', borderRadius: 8,
@@ -230,12 +222,12 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
   return {
     income, setIncome, totalExpense, setTotalExpense, periodicLife, setPeriodicLife,
     volatileLife, setVolatileLife, consumption, setConsumption, school, setSchool,
-    accProfit, setAccProfit, investTotal, setInvestTotal,
+    accProfit, setAccProfit, investTotal,
     majorExpenses, breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
     showBreakdown, setShowBreakdown, importMsg,
     surplus, investIncome, investMonthly, investAnnual, n,
     mainFieldRefs, breakdownRefs, breakdownProfitRefs,
-    focusNext, copyHoldingsFromReconcile, importInvestTotalFromReconcile,
+    copyHoldingsFromReconcile,
     addMajor, removeMajor, updateMajor, autoImportFromBills, handleSave,
     fieldStyle, labelStyle,
   };
@@ -247,9 +239,9 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
   const {
     income, setIncome, totalExpense, setTotalExpense, periodicLife, setPeriodicLife,
     volatileLife, setVolatileLife, consumption, setConsumption, school, setSchool,
-    accProfit, setAccProfit, investTotal, setInvestTotal,
+    accProfit, setAccProfit, investTotal,
     surplus, investIncome, investMonthly, investAnnual, n,
-    mainFieldRefs, importInvestTotalFromReconcile, fieldStyle, labelStyle,
+    mainFieldRefs, breakdownRefs, fieldStyle, labelStyle,
   } = state;
   return (
     <>
@@ -273,36 +265,30 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
         {([
-          { label: '总收入',    val: income,       set: setIncome,       editable: false },
-          { label: '总支出',    val: totalExpense,  set: setTotalExpense,  editable: false },
-          { label: '周期生活',  val: periodicLife,  set: setPeriodicLife,  editable: false },
-          { label: '波动生活',  val: volatileLife,  set: setVolatileLife,  editable: false },
-          { label: '消费（交行）', val: consumption, set: setConsumption,   editable: false },
-          { label: '校园卡支出', val: school,       set: setSchool,        editable: false },
-          { label: '累计盈利',  val: accProfit,     set: setAccProfit,     editable: true  },
-          { label: '理财总额',  val: investTotal,   set: setInvestTotal,   editable: true  },
-        ] as const).map(({ label, val, set, editable }, i) => {
-          const editableIndices = [6, 7];
-          const editIdx = editableIndices.indexOf(i);
+          { label: '总收入',     val: income,       set: setIncome,        kind: 'auto' as const },
+          { label: '总支出',     val: totalExpense, set: setTotalExpense,  kind: 'auto' as const },
+          { label: '周期生活',   val: periodicLife, set: setPeriodicLife,  kind: 'auto' as const },
+          { label: '波动生活',   val: volatileLife, set: setVolatileLife,  kind: 'auto' as const },
+          { label: '消费（交行）', val: consumption,  set: setConsumption,   kind: 'auto' as const },
+          { label: '校园卡支出', val: school,       set: setSchool,        kind: 'auto' as const },
+          { label: '累计盈利',   val: accProfit,    set: setAccProfit,     kind: 'edit' as const },
+          { label: '理财总额',   val: String(investTotal || ''), set: undefined, kind: 'sum'  as const },
+        ]).map(({ label, val, set, kind }) => {
           return (
             <div key={label}>
               <div style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 4 }}>
                 {label}
-                {!editable && <span style={{ fontSize: 10, color: C.sub }}>（账单自动）</span>}
-                {label === '理财总额' && (
-                  <button onClick={importInvestTotalFromReconcile} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, border: `1px solid ${C.blue}`, backgroundColor: 'transparent', color: C.blue, cursor: 'pointer' }}>
-                    ← 对账
-                  </button>
-                )}
+                {kind === 'auto' && <span style={{ fontSize: 10, color: C.sub }}>（账单自动）</span>}
+                {kind === 'sum' && <span style={{ fontSize: 10, color: C.sub }}>（持仓求和）</span>}
               </div>
-              {editable ? (
+              {kind === 'edit' && set ? (
                 <AmountInput
-                  ref={(el) => { mainFieldRefs.current[editIdx] = el; }}
+                  ref={(el) => { mainFieldRefs.current[0] = el; }}
                   value={val}
                   onChange={set}
                   placeholder="0.00"
                   style={fieldStyle}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && editIdx < editableIndices.length - 1) { e.preventDefault(); setTimeout(() => mainFieldRefs.current[editIdx + 1]?.focus(), 0); } }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setTimeout(() => breakdownRefs.current[0]?.focus(), 0); } }}
                 />
               ) : (
                 <div style={{ padding: '8px 10px', fontSize: 13, fontVariantNumeric: 'tabular-nums', borderRadius: 8, backgroundColor: '#f1f3f4', color: '#3c4043', minHeight: 20 }}>
@@ -339,7 +325,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
   const {
     showBreakdown, setShowBreakdown, copyHoldingsFromReconcile,
     breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
-    breakdownRefs, breakdownProfitRefs, focusNext,
+    breakdownRefs, breakdownProfitRefs,
   } = state;
   return (
     <div>
@@ -382,7 +368,12 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                     ref={(el) => { breakdownRefs.current[i] = el; }}
                     value={breakdown[k] ?? ''} placeholder="0"
                     onChange={(v) => setBreakdown((p) => ({ ...p, [k]: v }))}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focusNext(breakdownRefs, i); } }}
+                    onKeyDown={(e) => {
+                      if (e.key !== 'Enter') return;
+                      e.preventDefault();
+                      if (i < INVEST_KEYS.length - 1) breakdownRefs.current[i + 1]?.focus();
+                      else breakdownProfitRefs.current[0]?.focus();
+                    }}
                     style={{ width: '90%', border: 'none', borderBottom: '1px solid #fbbf24', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0' }}
                   />
                 </td>
@@ -391,7 +382,12 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                     ref={(el) => { breakdownProfitRefs.current[i] = el; }}
                     value={breakdownProfit[k] ?? ''} placeholder="0"
                     onChange={(v) => setBreakdownProfit((p) => ({ ...p, [k]: v }))}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); focusNext(breakdownProfitRefs, i); } }}
+                    onKeyDown={(e) => {
+                      if (e.key !== 'Enter') return;
+                      e.preventDefault();
+                      if (i < INVEST_KEYS.length - 1) breakdownProfitRefs.current[i + 1]?.focus();
+                      else e.currentTarget.blur();
+                    }}
                     style={{ width: '90%', border: 'none', borderBottom: `1px solid ${C.blue}`, outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0', color: C.blue }}
                   />
                 </td>
