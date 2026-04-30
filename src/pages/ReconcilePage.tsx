@@ -733,9 +733,9 @@ export default function ReconcilePage() {
               const costBasis = profit !== null ? cur - profit : null;
               const profitRate = costBasis !== null && costBasis > 0 ? profit! / costBasis : null;
               const suggested = Math.round(rebalanceSuggested[k]);
-              // 需加 = max(建议 - 已加, 0)，实时根据 localConfirmed 计算
+              // 需加/需赎 = 建议 - 已加，赎回时为负数
               const localDone = parseFloat(localConfirmed[k]) || 0;
-              const remaining = Math.max(suggested - localDone, 0);
+              const remaining = suggested - localDone;
               return (
                 <tr key={k} style={{ backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff', borderBottom: '1px solid #f1f3f4' }}>
                   <td style={{ padding: '8px 0', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -769,9 +769,15 @@ export default function ReconcilePage() {
                       <span style={{ fontSize: 11, color: C.sub }}>—</span>
                     )}
                   </td>
-                  {/* 需加（实时 = 建议 - 已加，整数显示） */}
-                  <td style={{ padding: '8px 0', textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: remaining > 0 ? C.orange : C.sub }}>
-                    {suggested > 0 ? (remaining > 0 ? `+${Math.round(remaining)}` : '✓') : '—'}
+                  {/* 需加/需赎（实时 = 建议 - 已加；正=加仓，负=赎回） */}
+                  <td style={{ padding: '8px 0', textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: remaining > 0 ? C.orange : remaining < 0 ? C.blue : C.sub }}>
+                    {suggested === 0
+                      ? '—'
+                      : Math.abs(remaining) < 0.5
+                        ? '✓'
+                        : remaining > 0
+                          ? `+${Math.round(remaining)}`
+                          : `${Math.round(remaining)}`}
                   </td>
                   {/* 已加（编辑后按执行键生效） */}
                   <td style={{ padding: '4px 0', textAlign: 'right' }}>

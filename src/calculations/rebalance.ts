@@ -14,16 +14,37 @@ export function calcRebalance(
     diffs[k] = totalAfter * targets[k] - holdings[k];
   }
 
-  // 只给欠配品类分配新资金
-  const underKeys = keys.filter((k) => diffs[k] > 0);
-  const totalUnder = underKeys.reduce((s, k) => s + diffs[k], 0);
-
   const result: RebalanceResult = {} as RebalanceResult;
-  for (const k of keys) {
-    result[k] = totalUnder > 0 && diffs[k] > 0
-      ? newFunds * (diffs[k] / totalUnder)
-      : 0;
+
+  if (newFunds > 0) {
+    // 加仓：只给欠配品类分配，按欠配额比例
+    const totalUnder = keys.reduce((s, k) => s + (diffs[k] > 0 ? diffs[k] : 0), 0);
+    for (const k of keys) {
+      result[k] = totalUnder > 0 && diffs[k] > 0
+        ? newFunds * (diffs[k] / totalUnder)
+        : 0;
+    }
+  } else if (newFunds < 0) {
+    // 赎回：只从超配品类减仓，按超配额绝对值比例
+    const totalOverAbs = keys.reduce((s, k) => s + (diffs[k] < 0 ? -diffs[k] : 0), 0);
+    if (totalOverAbs > 0) {
+      for (const k of keys) {
+        result[k] = diffs[k] < 0
+          ? newFunds * ((-diffs[k]) / totalOverAbs)
+          : 0;
+      }
+    } else {
+      // 持仓已贴近目标、无超配品类：按目标比例等比赎回
+      for (const k of keys) {
+        result[k] = newFunds * targets[k];
+      }
+    }
+  } else {
+    for (const k of keys) {
+      result[k] = 0;
+    }
   }
+
   return result;
 }
 
