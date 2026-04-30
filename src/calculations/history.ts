@@ -131,6 +131,16 @@ export function calcHistoryStats(
 
   const clamp = (v: number) => Math.max(v, 0);
 
+  // 各状态出现的月份数
+  const allDays = records.map((r) => getStateDays(r));
+  const TAG_KEYS: TagKind[] = ['school', 'intern', 'home', 'travel'];
+  const monthsWithState = { school: 0, intern: 0, home: 0, travel: 0 };
+  for (const d of allDays) {
+    for (const k of TAG_KEYS) if (d[k] > 0) monthsWithState[k]++;
+  }
+
+  const MIN_MONTHS = 3; // 少于 3 个月的状态不信任回归，用残差法
+
   // 回归①：生活支出（periodicLife + volatileLife）
   const betaLife = ridgeSolve(X, yVals, lambda);
   const stateDailyAvg = {
@@ -151,6 +161,29 @@ export function calcHistoryStats(
     home:   clamp(betaConsumption[2]),
     travel: clamp(betaConsumption[3]),
   };
+
+  // 稀疏状态修正：数据不足时用残差法替代回归系数
+  for (const sparseKey of TAG_KEYS) {
+    if (monthsWithState[sparseKey] === 0 || monthsWithState[sparseKey] >= MIN_MONTHS) continue;
+    let residualLife = 0, residualCons = 0, totalDays = 0;
+    for (let i = 0; i < n; i++) {
+      const d = allDays[i];
+      if (d[sparseKey] <= 0) continue;
+      let otherLife = 0, otherCons = 0;
+      for (const ok of TAG_KEYS) {
+        if (ok === sparseKey || monthsWithState[ok] < MIN_MONTHS) continue;
+        otherLife += stateDailyAvg[ok] * d[ok];
+        otherCons += stateConsumptionDailyAvg[ok] * d[ok];
+      }
+      residualLife += yVals[i] - otherLife;
+      residualCons += yConsumption[i] - otherCons;
+      totalDays += d[sparseKey];
+    }
+    if (totalDays > 0) {
+      stateDailyAvg[sparseKey] = clamp(residualLife / totalDays);
+      stateConsumptionDailyAvg[sparseKey] = clamp(residualCons / totalDays);
+    }
+  }
 
   return {
     periodicLifeAvg, volatileLifeAvg, consumptionAvg,
