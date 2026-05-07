@@ -1,13 +1,16 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+// 算法返回的实际归类（命中 short 或 long）
 export type LifePeriod = 'short' | 'long';
+// 用户配置值：可加 'ignore'（已审视、明确不参与判定，与"默认"行为相同但状态明确）
+export type OverrideValue = LifePeriod | 'ignore';
 
 export interface LifePeriodOverrides {
   // key 是名称：分类用 category，子分类用 `${category}|${subcategory}`，标签用 tag 名
-  categories: Record<string, LifePeriod>;
-  subcategories: Record<string, LifePeriod>;
-  tags: Record<string, LifePeriod>;
+  categories: Record<string, OverrideValue>;
+  subcategories: Record<string, OverrideValue>;
+  tags: Record<string, OverrideValue>;
 }
 
 const EMPTY: LifePeriodOverrides = { categories: {}, subcategories: {}, tags: {} };
@@ -16,7 +19,7 @@ export type OverrideDimension = 'category' | 'subcategory' | 'tag';
 
 interface LifePeriodOverrideStore {
   overrides: LifePeriodOverrides;
-  setOverride: (dim: OverrideDimension, name: string, period: LifePeriod | null) => void;
+  setOverride: (dim: OverrideDimension, name: string, value: OverrideValue | null) => void;
   resetAll: () => void;
 }
 
@@ -33,12 +36,12 @@ export const useLifePeriodOverrideStore = create<LifePeriodOverrideStore>()(
   persist(
     (set) => ({
       overrides: EMPTY,
-      setOverride: (dim, name, period) =>
+      setOverride: (dim, name, value) =>
         set((s) => {
           const bk = bucketKey(dim);
           const next = { ...s.overrides[bk] };
-          if (period === null) delete next[name];
-          else next[name] = period;
+          if (value === null) delete next[name];
+          else next[name] = value;
           return { overrides: { ...s.overrides, [bk]: next } };
         }),
       resetAll: () => set({ overrides: EMPTY }),
@@ -65,17 +68,19 @@ export const useLifePeriodOverrideStore = create<LifePeriodOverrideStore>()(
   ),
 );
 
-// 工具：判断一条账单根据 overrides 应被划为哪一周期；返回 null 表示无 override
-// 优先级：subcategory > tag（不再使用母分类）
+// 工具：判断一条账单根据 overrides 应被划为哪一周期；返回 null 表示无命中
+// 优先级：subcategory > tag。'ignore' 等同于"未配置"，不阻塞后续维度查找
 export function resolveLifePeriod(
   item: { category: string; subcategory: string; tags: string },
   overrides: LifePeriodOverrides,
 ): LifePeriod | null {
   const subKey = subcategoryKey(item.category, item.subcategory);
-  if (overrides.subcategories[subKey]) return overrides.subcategories[subKey];
+  const sub = overrides.subcategories[subKey];
+  if (sub === 'short' || sub === 'long') return sub;
   const tagList = item.tags.split(',').map((t) => t.trim()).filter(Boolean);
   for (const t of tagList) {
-    if (overrides.tags[t]) return overrides.tags[t];
+    const tg = overrides.tags[t];
+    if (tg === 'short' || tg === 'long') return tg;
   }
   return null;
 }

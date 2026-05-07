@@ -7,7 +7,7 @@ import { tagMeta, investMeta } from '../data/mockData';
 import { parseBillFile, assignExpenseIds, type BillItem, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
 import { triggerUpload } from '../utils/syncEngine';
 import { useBillDetailStore } from '../stores/billDetailStore';
-import { useLifePeriodOverrideStore, type LifePeriod, type OverrideDimension } from '../stores/lifePeriodOverrideStore';
+import { useLifePeriodOverrideStore, type LifePeriod, type OverrideValue, type OverrideDimension } from '../stores/lifePeriodOverrideStore';
 import AmountInput from '../components/AmountInput';
 import { calcHistoryStats } from '../calculations/history';
 import { buildLifePeriodStats, suggestPeriod, isInconsistent, type LifePeriodStatRow } from '../calculations/lifePeriodStats';
@@ -72,21 +72,26 @@ function PeriodChip({
   current,
   suggestion,
   onChange,
+  allowIgnore,
 }: {
-  current: LifePeriod | undefined;
+  current: OverrideValue | undefined;
   suggestion: LifePeriod | null;
-  onChange: (next: LifePeriod | null) => void;
+  onChange: (next: OverrideValue | null) => void;
+  allowIgnore?: boolean;
 }) {
-  const opts: { v: LifePeriod | null; label: string; bg: string; fg: string }[] = [
-    { v: null,    label: '默认', bg: '#f1f3f4', fg: '#5f6368' },
-    { v: 'short', label: '短',   bg: '#e8f0fe', fg: '#1a73e8' },
-    { v: 'long',  label: '长',   bg: '#fff4e8', fg: '#e8710a' },
+  const opts: { v: OverrideValue | null; label: string; bg: string; fg: string }[] = [
+    { v: null,     label: '默认', bg: '#f1f3f4', fg: '#5f6368' },
+    { v: 'short',  label: '短',   bg: '#e8f0fe', fg: '#1a73e8' },
+    { v: 'long',   label: '长',   bg: '#fff4e8', fg: '#e8710a' },
   ];
+  if (allowIgnore) {
+    opts.push({ v: 'ignore', label: '忽略', bg: '#f3e8ff', fg: '#7c3aed' });
+  }
   return (
     <div style={{ display: 'flex', gap: 4 }}>
       {opts.map((o) => {
         const active = (o.v === null && current === undefined) || current === o.v;
-        const isSuggested = current === undefined && o.v !== null && suggestion === o.v;
+        const isSuggested = current === undefined && (o.v === 'short' || o.v === 'long') && suggestion === o.v;
         return (
           <button
             key={String(o.v)}
@@ -113,13 +118,15 @@ function PeriodRow({
   inconsistent,
   onChange,
   displayName,
+  allowIgnore,
 }: {
   row: LifePeriodStatRow;
-  current: LifePeriod | undefined;
+  current: OverrideValue | undefined;
   suggestion: LifePeriod | null;
   inconsistent: boolean;
-  onChange: (next: LifePeriod | null) => void;
+  onChange: (next: OverrideValue | null) => void;
   displayName: string;
+  allowIgnore?: boolean;
 }) {
   return (
     <div style={{
@@ -138,7 +145,7 @@ function PeriodRow({
           {row.longCount > 0 && <span style={{ color: '#e8710a' }}>长×{row.longCount}</span>}
         </div>
       </div>
-      <PeriodChip current={current} suggestion={suggestion} onChange={onChange} />
+      <PeriodChip current={current} suggestion={suggestion} onChange={onChange} allowIgnore={allowIgnore} />
     </div>
   );
 }
@@ -165,8 +172,8 @@ function SettingsModal({
   tagMap: Record<string, TagKind>;
   confirmedExpenses: Record<string, { ids: string[]; reviewed: boolean } | string[]>;
   expenseItems: Record<string, BillExpenseMonth>;
-  overrides: { categories: Record<string, LifePeriod>; subcategories: Record<string, LifePeriod>; tags: Record<string, LifePeriod> };
-  setOverride: (dim: OverrideDimension, name: string, period: LifePeriod | null) => void;
+  overrides: { categories: Record<string, OverrideValue>; subcategories: Record<string, OverrideValue>; tags: Record<string, OverrideValue> };
+  setOverride: (dim: OverrideDimension, name: string, value: OverrideValue | null) => void;
 }) {
   const [periodTab, setPeriodTab] = useState<'subcategory' | 'tag'>('subcategory');
   const stats = useMemo(
@@ -225,7 +232,7 @@ function SettingsModal({
               )}
             </div>
             <div style={{ fontSize: 11, color: '#5f6368', marginBottom: 10 }}>
-              命中的账单将自动归为短/长周期生活，不再需要逐条勾选。优先级：子分类 &gt; 标签。虚线 = 历史勾选推荐值；⚠️ = 历史勾选不一致。
+              命中的账单将自动归为短/长周期生活，不再需要逐条勾选。优先级：子分类 &gt; 标签。标签可设「忽略」表示与长短无关。虚线 = 历史推荐值；⚠️ = 历史勾选不一致。
             </div>
             <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
               <button onClick={() => setPeriodTab('subcategory')} style={tabBtnStyle(periodTab === 'subcategory')}>子分类 ({stats.subcategories.length})</button>
@@ -253,6 +260,7 @@ function SettingsModal({
                       suggestion={sug}
                       inconsistent={inc}
                       displayName={displayName}
+                      allowIgnore={periodTab === 'tag'}
                       onChange={(next) => setOverride(periodTab, row.name, next)}
                     />
                   );

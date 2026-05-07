@@ -21,6 +21,8 @@ import { useHolidayYears } from '../utils/holidays';
 import { dateLabel, daysUntilDate, resolveIncomeForMonth } from '../utils/payroll';
 
 import { version as APP_VERSION } from '../../package.json';
+// 本版改动概括（≤8 字），随每次迭代更新
+const RELEASE_NOTE = '标签可忽略';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 
 function fmt万(v: number) { return (v / 10000).toFixed(2) + '万'; }
@@ -167,6 +169,9 @@ export default function HomePage() {
             {fire.lifeClockStr}
           </div>
           <div style={{ fontSize: 11, color: C.sub }}>{fire.lifeClockPeriod}</div>
+          <div title={`v${APP_VERSION} 本版改动`} style={{ display: 'inline-block', marginTop: 4, fontSize: 10, fontWeight: 500, color: C.blue, backgroundColor: '#e8f0fe', padding: '2px 6px', borderRadius: 6 }}>
+            ✨ {RELEASE_NOTE}
+          </div>
         </div>
       </div>
 
