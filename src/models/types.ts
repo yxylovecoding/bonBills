@@ -106,9 +106,10 @@ export interface CurrentStats {
   totalExpenseAvg: number;
   monthlyIncomeAvg: number;
   schoolDailyAvg: number;
-  stateDailyAvg: { school: number; intern: number; home: number; travel: number };             // 生活支出日均
+  stateDailyAvg: { school: number; intern: number; home: number; travel: number };             // 生活支出日均（含长周期均摊 base）
   stateConsumptionDailyAvg: { school: number; intern: number; home: number; travel: number }; // 消费支出日均
   stateDailyConfidence: { school: number; intern: number; home: number; travel: number };      // 各状态历史总天数
+  longLifeDailyBase: number;  // 长周期生活均摊基础日均（不分场景，已计入 stateDailyAvg）
   savingsRate: number;
   totalLife: number;
 }

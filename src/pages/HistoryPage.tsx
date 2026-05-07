@@ -9,6 +9,7 @@ import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
 import AmountInput from '../components/AmountInput';
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { useCalendarStore } from '../stores/calendarStore';
+import { useBillDetailStore } from '../stores/billDetailStore';
 import { calcHistoryStats } from '../calculations/history';
 import { investMeta, tagMeta } from '../data/mockData';
 import type { MonthlyRecord, MajorExpense, InvestHoldings, TagKind } from '../models/types';
@@ -472,10 +473,14 @@ function YearSection({ year, recs, allRecords }: { year: string; recs: MonthlyRe
 // ── 主组件 ────────────────────────────────────────────────────────
 export default function HistoryPage() {
   const { records, upsert } = useMonthlyStore();
-  const { countByTag } = useCalendarStore();
+  const { countByTag, tagMap, confirmedExpenses } = useCalendarStore();
+  const { expenseItems } = useBillDetailStore();
   const [formOpen, setFormOpen] = useState(false);
   const twoYearsAgo = `${new Date().getFullYear() - 1}-01`;
-  const stats = useMemo(() => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo)), [records]);
+  const stats = useMemo(
+    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, expenseItems),
+    [records, tagMap, confirmedExpenses, expenseItems],
+  );
 
   const thisMonth = currentYearMonth();
   const existingThisMonth = records.find((r) => r.yearMonth === thisMonth);
@@ -577,6 +582,12 @@ export default function HistoryPage() {
                   })}
                 </tbody>
               </table>
+              {stats.longLifeDailyBase > 0 && (
+                <div style={{ marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, padding: '6px 10px', backgroundColor: '#f1f3f4', borderRadius: 8 }}>
+                  <span style={{ color: C.sub }}>📦 长周期均摊 <span style={{ fontSize: 10 }}>(已含)</span></span>
+                  <span style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: C.sub }}>¥{formatCurrency(stats.longLifeDailyBase)}/天</span>
+                </div>
+              )}
             </>
           );
         })()}

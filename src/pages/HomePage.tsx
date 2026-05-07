@@ -11,6 +11,7 @@ import { useSnapshotStore } from '../stores/snapshotStore';
 import { useConfigStore } from '../stores/configStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { useCalendarStore } from '../stores/calendarStore';
+import { useBillDetailStore } from '../stores/billDetailStore';
 import { calcHistoryStats } from '../calculations/history';
 import { calcFire } from '../calculations/fire';
 import { tagMeta } from '../data/mockData';
@@ -78,7 +79,8 @@ export default function HomePage() {
   const { current } = useSnapshotStore();
   const { config, setConfig } = useConfigStore();
   const { records } = useMonthlyStore();
-  const { tagMap } = useCalendarStore();
+  const { tagMap, confirmedExpenses } = useCalendarStore();
+  const { expenseItems } = useBillDetailStore();
 
   const today = new Date();
   const currentYear = today.getFullYear();
@@ -86,7 +88,10 @@ export default function HomePage() {
   const { holidayDataByYear, holidayWarning } = useHolidayYears([currentYear - 1, currentYear]);
 
   const twoYearsAgo = `${today.getFullYear() - 1}-01`;
-  const stats = useMemo(() => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo)), [records]);
+  const stats = useMemo(
+    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, expenseItems),
+    [records, tagMap, confirmedExpenses, expenseItems],
+  );
 
   // 近一年校园卡日均
   const oneYearAgo = `${today.getFullYear() - 1}-${String(today.getMonth() + 1).padStart(2, '0')}`;
@@ -189,6 +194,12 @@ export default function HomePage() {
                 })}
               </tbody>
             </table>
+            {stats.longLifeDailyBase > 0 && (
+              <div style={{ marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, padding: '6px 10px', backgroundColor: '#f1f3f4', borderRadius: 8 }}>
+                <span style={{ color: C.sub }}>📦 长周期均摊 <span style={{ fontSize: 10 }}>(已含)</span></span>
+                <span style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: C.sub }}>¥{formatCurrency(stats.longLifeDailyBase)}/天</span>
+              </div>
+            )}
           </>
         )}
         {campusDailyAvgYear > 0 && (

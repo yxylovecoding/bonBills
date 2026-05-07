@@ -9,6 +9,7 @@ import { useSnapshotStore } from '../stores/snapshotStore';
 import { useConfigStore } from '../stores/configStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { useCalendarStore } from '../stores/calendarStore';
+import { useBillDetailStore } from '../stores/billDetailStore';
 import { calcBudget } from '../calculations/budget';
 import { calcHistoryStats } from '../calculations/history';
 import { calcRebalance } from '../calculations/rebalance';
@@ -39,7 +40,8 @@ export default function ReconcilePage() {
   const { current, updateAccounts, updateTransfers, updateHoldings, saveSnapshot } = useSnapshotStore();
   const { config } = useConfigStore();
   const { records } = useMonthlyStore();
-  const { tagMap } = useCalendarStore();
+  const { tagMap, confirmedExpenses } = useCalendarStore();
+  const { expenseItems } = useBillDetailStore();
 
 
   // 账户余额本地编辑
@@ -109,7 +111,10 @@ export default function ReconcilePage() {
 
   // 历史均值（只取近两年）
   const twoYearsAgo = `${today.getFullYear() - 1}-01`;
-  const stats = useMemo(() => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap), [records, tagMap]);
+  const stats = useMemo(
+    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, expenseItems),
+    [records, tagMap, confirmedExpenses, expenseItems],
+  );
 
   // 将 tagMap 转为 DailyTag[]
   const tags: DailyTag[] = useMemo(

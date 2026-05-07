@@ -1,4 +1,7 @@
 import type { MonthlyRecord, CurrentStats, TagKind } from '../models/types';
+import type { BillExpenseMonth } from '../utils/importBill';
+import { assignExpenseIds } from '../utils/importBill';
+import { normalizeConfirmedSelection } from '../stores/calendarStore';
 
 // ── Ridge 回归（正规方程 + 对角正则化，避免奇异）────────────────
 function ridgeSolve(X: number[][], y: number[], lambda = 0.1): number[] {
@@ -48,11 +51,87 @@ function buildTagCountsByMonth(tagMap: Record<string, TagKind>): Record<string, 
   return result;
 }
 
+const TAG_KEYS: TagKind[] = ['school', 'intern', 'home', 'travel'];
+type ByTag = Record<TagKind, number>;
+const zeroByTag = (): ByTag => ({ school: 0, intern: 0, home: 0, travel: 0 });
+
+// 单月已确切预聚合
+type MonthConfirmed = {
+  shortLife: ByTag;
+  shortCons: ByTag;
+  shortLifeDays: ByTag;
+  shortConsDays: ByTag;
+  longLife: number;
+};
+
+function buildConfirmedAggregatesByMonth(
+  records: MonthlyRecord[],
+  tagMap: Record<string, TagKind>,
+  confirmedExpenses: Record<string, { ids: string[]; reviewed: boolean } | string[]>,
+  expenseItems: Record<string, BillExpenseMonth>,
+): MonthConfirmed[] {
+  return records.map((r) => {
+    const out: MonthConfirmed = {
+      shortLife: zeroByTag(),
+      shortCons: zeroByTag(),
+      shortLifeDays: zeroByTag(),
+      shortConsDays: zeroByTag(),
+      longLife: 0,
+    };
+    const monthItems = expenseItems[r.yearMonth];
+    if (!monthItems || monthItems.length === 0) return out;
+
+    // 当月所有 reviewed 的日期
+    for (const [date, raw] of Object.entries(confirmedExpenses)) {
+      if (!date.startsWith(r.yearMonth)) continue;
+      const sel = normalizeConfirmedSelection(raw);
+      if (!sel.reviewed) continue;
+      const state = tagMap[date];
+      if (!state) continue;
+
+      const dayItems = assignExpenseIds(monthItems.filter((it) => it.date === date));
+      const selectedIds = new Set(sel.ids);
+      let dayHadShortLife = false;
+      let dayHadShortCons = false;
+
+      for (const { item, id } of dayItems) {
+        const tags = item.tags.split(',').map((t) => t.trim());
+        const isLife = tags.includes('周期生活') || tags.includes('波动生活');
+        const isCons = tags.includes('消费');
+        const selected = selectedIds.has(id);
+
+        if (isLife) {
+          if (selected) {
+            out.shortLife[state] += item.amount;
+            dayHadShortLife = true;
+          } else {
+            out.longLife += item.amount;
+          }
+        } else if (isCons) {
+          if (selected) {
+            out.shortCons[state] += item.amount;
+            dayHadShortCons = true;
+          }
+          // 未勾选的消费不做特殊处理，留在 y 里给回归
+        }
+      }
+
+      if (dayHadShortLife) out.shortLifeDays[state] += 1;
+      if (dayHadShortCons) out.shortConsDays[state] += 1;
+    }
+
+    return out;
+  });
+}
+
 // ── 主计算函数 ────────────────────────────────────────────────────
 // tagMap 可选传入；有数据的月份优先用 tagMap 的实际天数，否则 fallback 到 MonthlyRecord 字段
+// confirmedExpenses + expenseItems 可选传入；用于"扣除式反哺"+ 长周期均摊
 export function calcHistoryStats(
   records: MonthlyRecord[],
   tagMap: Record<string, TagKind> = {},
+  confirmedExpenses: Record<string, { ids: string[]; reviewed: boolean } | string[]> = {},
+  expenseItems: Record<string, BillExpenseMonth> = {},
 ): CurrentStats {
   const n = records.length;
   if (n === 0) {
@@ -62,6 +141,7 @@ export function calcHistoryStats(
       stateDailyAvg: { school: 0, intern: 0, home: 0, travel: 0 },
       stateConsumptionDailyAvg: { school: 0, intern: 0, home: 0, travel: 0 },
       stateDailyConfidence: { school: 0, intern: 0, home: 0, travel: 0 },
+      longLifeDailyBase: 0,
       savingsRate: 0, totalLife: 0,
     };
   }
@@ -82,7 +162,7 @@ export function calcHistoryStats(
   const savingsRate  = totalIncome > 0 ? (totalIncome - totalExpense) / totalIncome : 0;
 
   // 按月解析实际各状态天数：tagMap 优先，fallback 到 MonthlyRecord 字段或推算
-  function getStateDays(r: MonthlyRecord): { school: number; intern: number; home: number; travel: number } {
+  function getStateDays(r: MonthlyRecord): ByTag {
     const tc = tagCountsByMonth[r.yearMonth];
     if (tc) return tc; // tagMap 有该月数据，直接用
     // fallback：从 MonthlyRecord 字段推算
@@ -104,84 +184,151 @@ export function calcHistoryStats(
     : 0;
 
   // 各状态历史总天数（置信度）
-  const stateDailyConfidence = records.reduce(
-    (acc, r) => {
-      const d = getStateDays(r);
-      return {
-        school: acc.school + d.school,
-        intern: acc.intern + d.intern,
-        home:   acc.home   + d.home,
-        travel: acc.travel + d.travel,
-      };
-    },
-    { school: 0, intern: 0, home: 0, travel: 0 },
-  );
+  const allDays = records.map((r) => getStateDays(r));
+  const stateDailyConfidence: ByTag = zeroByTag();
+  for (const d of allDays) {
+    for (const k of TAG_KEYS) stateDailyConfidence[k] += d[k];
+  }
 
-  // ── Ridge 回归：估算各状态生活支出日均 ──────────────────────────
-  // X 列：[schoolDays, internDays, homeDays, travelDays]
-  // y  ：periodicLife + volatileLife（生活支出，不含消费）
-  const yVals = records.map((r) => r.periodicLife + r.volatileLife);
-  const yMean = yVals.reduce((s, v) => s + v, 0) / n;
-  const lambda = Math.max(yMean * 0.01, 0.1);
+  // ── 已确切预聚合 ──────────────────────────────────────────────
+  const confirmed = buildConfirmedAggregatesByMonth(records, tagMap, confirmedExpenses, expenseItems);
 
-  const X: number[][] = records.map((r) => {
-    const d = getStateDays(r);
-    return [d.school, d.intern, d.home, d.travel];
+  // 历史汇总
+  const totalConfShortLife: ByTag = zeroByTag();
+  const totalConfShortCons: ByTag = zeroByTag();
+  const totalConfLifeDays:  ByTag = zeroByTag();
+  const totalConfConsDays:  ByTag = zeroByTag();
+  let totalLongLife = 0;
+  for (const c of confirmed) {
+    for (const k of TAG_KEYS) {
+      totalConfShortLife[k] += c.shortLife[k];
+      totalConfShortCons[k] += c.shortCons[k];
+      totalConfLifeDays[k]  += c.shortLifeDays[k];
+      totalConfConsDays[k]  += c.shortConsDays[k];
+    }
+    totalLongLife += c.longLife;
+  }
+
+  // 长周期均摊 base：不分场景，按全历史已标记天数均摊
+  const totalDaysAll = TAG_KEYS.reduce((s, k) => s + stateDailyConfidence[k], 0);
+  const longLifeDailyBase = totalDaysAll > 0 ? totalLongLife / totalDaysAll : 0;
+
+  // ── 残差回归：生活（扣除已勾短周期 + 长周期），消费（仅扣已勾短周期）──
+  const yLifeResidual = records.map((r, i) => {
+    const c = confirmed[i];
+    const sumShort = TAG_KEYS.reduce((s, k) => s + c.shortLife[k], 0);
+    return (r.periodicLife + r.volatileLife) - sumShort - c.longLife;
+  });
+  const yConsResidual = records.map((r, i) => {
+    const c = confirmed[i];
+    const sumShort = TAG_KEYS.reduce((s, k) => s + c.shortCons[k], 0);
+    return r.consumption - sumShort;
+  });
+
+  const XLifeResidual: number[][] = records.map((_, i) => {
+    const d = allDays[i];
+    const c = confirmed[i];
+    return [
+      Math.max(0, d.school - c.shortLifeDays.school),
+      Math.max(0, d.intern - c.shortLifeDays.intern),
+      Math.max(0, d.home   - c.shortLifeDays.home),
+      Math.max(0, d.travel - c.shortLifeDays.travel),
+    ];
+  });
+  const XConsResidual: number[][] = records.map((_, i) => {
+    const d = allDays[i];
+    const c = confirmed[i];
+    return [
+      Math.max(0, d.school - c.shortConsDays.school),
+      Math.max(0, d.intern - c.shortConsDays.intern),
+      Math.max(0, d.home   - c.shortConsDays.home),
+      Math.max(0, d.travel - c.shortConsDays.travel),
+    ];
   });
 
   const clamp = (v: number) => Math.max(v, 0);
 
-  // 各状态出现的月份数
-  const allDays = records.map((r) => getStateDays(r));
-  const TAG_KEYS: TagKind[] = ['school', 'intern', 'home', 'travel'];
-  const monthsWithState = { school: 0, intern: 0, home: 0, travel: 0 };
-  for (const d of allDays) {
-    for (const k of TAG_KEYS) if (d[k] > 0) monthsWithState[k]++;
+  // 各状态在残差 X 中仍有剩余天数的月份计数（用于稀疏判断）
+  const monthsWithLifeResidual: ByTag = zeroByTag();
+  const monthsWithConsResidual: ByTag = zeroByTag();
+  for (let i = 0; i < n; i++) {
+    for (let kIdx = 0; kIdx < TAG_KEYS.length; kIdx++) {
+      const k = TAG_KEYS[kIdx];
+      if (XLifeResidual[i][kIdx] > 0) monthsWithLifeResidual[k]++;
+      if (XConsResidual[i][kIdx] > 0) monthsWithConsResidual[k]++;
+    }
   }
 
   const MIN_MONTHS = 3; // 少于 3 个月的状态不信任回归，用残差法
 
-  // 回归①：生活支出（periodicLife + volatileLife）
-  const betaLife = ridgeSolve(X, yVals, lambda);
-  const stateDailyAvg = {
-    school: clamp(betaLife[0]),
-    intern: clamp(betaLife[1]),
-    home:   clamp(betaLife[2]),
-    travel: clamp(betaLife[3]),
-  };
-
-  // 回归②：消费支出（consumption）
-  const yConsumption = records.map((r) => r.consumption);
-  const yConsumptionMean = yConsumption.reduce((s, v) => s + v, 0) / n;
-  const lambdaC = Math.max(yConsumptionMean * 0.01, 0.1);
-  const betaConsumption = ridgeSolve(X, yConsumption, lambdaC);
-  const stateConsumptionDailyAvg = {
-    school: clamp(betaConsumption[0]),
-    intern: clamp(betaConsumption[1]),
-    home:   clamp(betaConsumption[2]),
-    travel: clamp(betaConsumption[3]),
-  };
-
-  // 稀疏状态修正：数据不足时用残差法替代回归系数
-  for (const sparseKey of TAG_KEYS) {
-    if (monthsWithState[sparseKey] === 0 || monthsWithState[sparseKey] >= MIN_MONTHS) continue;
-    let residualLife = 0, residualCons = 0, totalDays = 0;
-    for (let i = 0; i < n; i++) {
-      const d = allDays[i];
-      if (d[sparseKey] <= 0) continue;
-      let otherLife = 0, otherCons = 0;
-      for (const ok of TAG_KEYS) {
-        if (ok === sparseKey || monthsWithState[ok] < MIN_MONTHS) continue;
-        otherLife += stateDailyAvg[ok] * d[ok];
-        otherCons += stateConsumptionDailyAvg[ok] * d[ok];
+  // 通用：跑 Ridge + 残差兜底，得到各状态的 β
+  function solveWithResidualFallback(
+    XR: number[][],
+    yR: number[],
+    monthsAvail: ByTag,
+  ): ByTag {
+    const yMean = yR.reduce((s, v) => s + v, 0) / n;
+    const lambda = Math.max(yMean * 0.01, 0.1);
+    const beta = ridgeSolve(XR, yR, lambda);
+    const result: ByTag = {
+      school: clamp(beta[0]),
+      intern: clamp(beta[1]),
+      home:   clamp(beta[2]),
+      travel: clamp(beta[3]),
+    };
+    // 稀疏修正：数据不足的状态用残差法
+    for (const sparseKey of TAG_KEYS) {
+      if (monthsAvail[sparseKey] === 0 || monthsAvail[sparseKey] >= MIN_MONTHS) continue;
+      let residual = 0;
+      let totalDays = 0;
+      const sparseIdx = TAG_KEYS.indexOf(sparseKey);
+      for (let i = 0; i < n; i++) {
+        const sparseDays = XR[i][sparseIdx];
+        if (sparseDays <= 0) continue;
+        let other = 0;
+        for (let oIdx = 0; oIdx < TAG_KEYS.length; oIdx++) {
+          const ok = TAG_KEYS[oIdx];
+          if (ok === sparseKey || monthsAvail[ok] < MIN_MONTHS) continue;
+          other += result[ok] * XR[i][oIdx];
+        }
+        residual += yR[i] - other;
+        totalDays += sparseDays;
       }
-      residualLife += yVals[i] - otherLife;
-      residualCons += yConsumption[i] - otherCons;
-      totalDays += d[sparseKey];
+      if (totalDays > 0) result[sparseKey] = clamp(residual / totalDays);
     }
-    if (totalDays > 0) {
-      stateDailyAvg[sparseKey] = clamp(residualLife / totalDays);
-      stateConsumptionDailyAvg[sparseKey] = clamp(residualCons / totalDays);
+    return result;
+  }
+
+  const betaLife = solveWithResidualFallback(XLifeResidual, yLifeResidual, monthsWithLifeResidual);
+  const betaCons = solveWithResidualFallback(XConsResidual, yConsResidual, monthsWithConsResidual);
+
+  // ── 合并：场景日均 = 短周期部分 + 长周期 base（仅生活）──
+  const stateDailyAvg: ByTag = zeroByTag();
+  const stateConsumptionDailyAvg: ByTag = zeroByTag();
+  for (const s of TAG_KEYS) {
+    const totalDays = stateDailyConfidence[s];
+    if (totalDays <= 0) {
+      stateDailyAvg[s] = 0;
+      stateConsumptionDailyAvg[s] = 0;
+      continue;
+    }
+
+    // 生活
+    const remainLife = totalDays - totalConfLifeDays[s];
+    let shortLifeAvg: number;
+    if (remainLife <= 0) {
+      shortLifeAvg = totalConfShortLife[s] / totalDays;
+    } else {
+      shortLifeAvg = (totalConfShortLife[s] + betaLife[s] * remainLife) / totalDays;
+    }
+    stateDailyAvg[s] = shortLifeAvg + longLifeDailyBase;
+
+    // 消费
+    const remainCons = totalDays - totalConfConsDays[s];
+    if (remainCons <= 0) {
+      stateConsumptionDailyAvg[s] = totalConfShortCons[s] / totalDays;
+    } else {
+      stateConsumptionDailyAvg[s] = (totalConfShortCons[s] + betaCons[s] * remainCons) / totalDays;
     }
   }
 
@@ -189,6 +336,7 @@ export function calcHistoryStats(
     periodicLifeAvg, volatileLifeAvg, consumptionAvg,
     totalExpenseAvg, monthlyIncomeAvg, schoolDailyAvg,
     stateDailyAvg, stateConsumptionDailyAvg, stateDailyConfidence,
+    longLifeDailyBase,
     savingsRate, totalLife: periodicLifeAvg + volatileLifeAvg,
   };
 }

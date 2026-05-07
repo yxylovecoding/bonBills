@@ -928,6 +928,7 @@ export default function CalendarPage() {
   const { tagMap, setTag, toggleTag, countByTag, bulkFillSchool, confirmedExpenses, toggleConfirmedExpense, markConfirmedExpenseZero, clearConfirmedExpenseSelection } = useCalendarStore();
   const { config, setConfig } = useConfigStore();
   const { records, upsert, updateDayCounts } = useMonthlyStore();
+  const { tagStats: billTagStats, expenseItems: billExpenseItems, updateFromImport: billUpdateFromImport } = useBillDetailStore();
   const {
     tagOrder, setTagOrder, weekdayTags, setWeekdayTags,
     showPayrollCutoffMarkers, setShowPayrollCutoffMarkers,
@@ -983,8 +984,8 @@ export default function CalendarPage() {
   // ── 历史回归均值（近两年，用作当月按比例拆分的权重）──
   const twoYearsAgo = `${_now.getFullYear() - 1}-01`;
   const historyStats = useMemo(
-    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap),
-    [records, tagMap],
+    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, billExpenseItems),
+    [records, tagMap, confirmedExpenses, billExpenseItems],
   );
 
   // ── Calendar computed ──
@@ -1076,7 +1077,6 @@ export default function CalendarPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [thresholdInput, setThresholdInput] = useState(String(config.majorExpenseThreshold ?? 500));
   const [expandedTag, setExpandedTag] = useState<null | 'eat' | 'red' | 'black'>(null);
-  const { tagStats: billTagStats, expenseItems: billExpenseItems, updateFromImport: billUpdateFromImport } = useBillDetailStore();
   const [billImportMsg, setBillImportMsg] = useState<string>('');
   const billFileRef = useRef<HTMLInputElement>(null);
   const [billDragOver, setBillDragOver] = useState(false);
