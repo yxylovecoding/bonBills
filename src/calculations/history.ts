@@ -228,9 +228,32 @@ export function calcHistoryStats(
     totalLongLife += c.longLife;
   }
 
-  // 长周期均摊 base：不分场景，按全历史已标记天数均摊
-  const totalDaysAll = TAG_KEYS.reduce((s, k) => s + stateDailyConfidence[k], 0);
-  const longLifeDailyBase = totalDaysAll > 0 ? totalLongLife / totalDaysAll : 0;
+  // 长周期均摊 base：按月独立算「月长周期日均」后做时间衰减加权平均
+  // 半衰期 6 个月：最新月权重 1，6 月前权重 0.5，12 月前权重 0.25
+  // 这样话费等价格型支出在涨价后 base 能快速反映，季度订阅也不会被漏掉
+  void totalLongLife; // 已不再直接使用（保留是为了调试/观察），改用月度展开
+  const HALF_LIFE_MONTHS = 6;
+  function ymToIndex(ym: string): number {
+    const [y, m] = ym.split('-').map(Number);
+    return y * 12 + (m - 1);
+  }
+  let maxYmIdx = -Infinity;
+  for (const r of records) {
+    const idx = ymToIndex(r.yearMonth);
+    if (idx > maxYmIdx) maxYmIdx = idx;
+  }
+  let baseWeightSum = 0;
+  let baseValueSum = 0;
+  for (let i = 0; i < n; i++) {
+    const totalDaysM = TAG_KEYS.reduce((s, k) => s + allDays[i][k], 0);
+    if (totalDaysM <= 0) continue;
+    const monthlyBase = confirmed[i].longLife / totalDaysM;
+    const monthsAgo = maxYmIdx - ymToIndex(records[i].yearMonth);
+    const weight = Math.pow(0.5, monthsAgo / HALF_LIFE_MONTHS);
+    baseWeightSum += weight;
+    baseValueSum += weight * monthlyBase;
+  }
+  const longLifeDailyBase = baseWeightSum > 0 ? baseValueSum / baseWeightSum : 0;
 
   // ── 残差回归：生活（扣除已勾短周期 + 长周期），消费（仅扣已勾短周期）──
   const yLifeResidual = records.map((r, i) => {
