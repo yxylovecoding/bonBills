@@ -773,21 +773,17 @@ function DayDetailPanel({ date, items, confirmedIds, isReviewed, onToggle, onMar
 }) {
   const withIds = useMemo(() => assignExpenseIds(items), [items]);
   const confirmedSet = useMemo(() => new Set(confirmedIds), [confirmedIds]);
-  // override 命中 short → 视觉等同已勾；命中 long → 视觉等同未勾；无 override → 看 confirmedSet
-  const effectiveChecked = (item: BillExpenseItem, id: string): { checked: boolean; auto: LifePeriod | null } => {
-    const ov = resolveOverride(item);
-    if (ov === 'short') return { checked: true, auto: 'short' };
-    if (ov === 'long')  return { checked: false, auto: 'long' };
-    return { checked: confirmedSet.has(id), auto: null };
-  };
-  const confirmedSum = withIds.reduce((s, { item, id }) => {
-    const { checked } = effectiveChecked(item, id);
-    return s + (checked ? item.amount : 0);
-  }, 0);
-  const effectiveCount = withIds.reduce((c, { item, id }) => {
-    const { checked } = effectiveChecked(item, id);
-    return c + (checked ? 1 : 0);
-  }, 0);
+  const rows = withIds.map(({ item, id }) => {
+    const auto = resolveOverride(item);
+    const checked = auto === 'short' ? true : auto === 'long' ? false : confirmedSet.has(id);
+    return { item, id, checked, auto, needsManual: auto === null };
+  });
+  const manualRows = rows.filter((row) => row.needsManual);
+  const autoRows = rows.filter((row) => !row.needsManual);
+  const displayRows = [...manualRows, ...autoRows];
+  const manualTotal = manualRows.reduce((s, row) => s + row.item.amount, 0);
+  const confirmedSum = rows.reduce((s, row) => s + (row.checked ? row.item.amount : 0), 0);
+  const effectiveCount = rows.reduce((c, row) => c + (row.checked ? 1 : 0), 0);
   const totalSum = items.reduce((s, i) => s + i.amount, 0);
   const isZeroSpend = isReviewed && effectiveCount === 0;
   if (withIds.length === 0) {
@@ -840,20 +836,39 @@ function DayDetailPanel({ date, items, confirmedIds, isReviewed, onToggle, onMar
           </button>
         )}
       </div>
+      {manualRows.length > 0 && (
+        <div style={{
+          marginBottom: 10,
+          padding: '8px 10px',
+          borderRadius: 8,
+          border: `1px solid ${isReviewed ? '#d2e3fc' : '#fed7aa'}`,
+          backgroundColor: isReviewed ? '#f8fbff' : '#fff7ed',
+          color: isReviewed ? C.blue : C.orange,
+          fontSize: 12,
+          lineHeight: 1.5,
+        }}>
+          {isReviewed
+            ? `这天有 ${manualRows.length} 条账单没被规则覆盖，已按你的手动分类结果处理。`
+            : `这天有 ${manualRows.length} 条账单没被规则覆盖，请手动分类。`}
+          <span style={{ marginLeft: 6, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+            ¥{formatCurrency(manualTotal)}
+          </span>
+        </div>
+      )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {withIds.map(({ item, id }) => {
-          const { checked, auto } = effectiveChecked(item, id);
+        {displayRows.map(({ item, id, checked, auto, needsManual }) => {
           const bg = auto
             ? (auto === 'short' ? '#e8f0fe' : '#fff4e8')
-            : (checked ? '#e8f0fe' : '#f8f9fa');
+            : (checked ? '#e8f0fe' : (isReviewed ? '#f8f9fa' : '#fffaf0'));
           return (
             <label
               key={id}
-              title={auto ? '已被「长/短周期分类规则」覆盖，去设置修改' : ''}
+              title={auto ? '已被「长/短周期分类规则」覆盖，去设置修改' : '这条账单没被规则覆盖，需要你手动分类'}
               style={{
                 display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8,
                 backgroundColor: bg, cursor: auto ? 'not-allowed' : 'pointer', fontSize: 13,
                 opacity: auto && auto === 'long' ? 0.7 : 1,
+                border: needsManual && !isReviewed ? '1px solid #fdba74' : '1px solid transparent',
               }}
             >
               <input
@@ -874,6 +889,14 @@ function DayDetailPanel({ date, items, confirmedIds, isReviewed, onToggle, onMar
                       marginLeft: 6, padding: '1px 5px', borderRadius: 4, fontSize: 10, fontWeight: 600,
                       backgroundColor: auto === 'short' ? '#1a73e8' : '#e8710a', color: '#fff',
                     }}>📌 自动归{auto === 'short' ? '短' : '长'}</span>
+                  )}
+                  {!auto && (
+                    <span style={{
+                      marginLeft: 6, padding: '1px 5px', borderRadius: 4, fontSize: 10, fontWeight: 600,
+                      backgroundColor: isReviewed ? '#f1f3f4' : '#fff7ed',
+                      color: isReviewed ? C.sub : C.orange,
+                      border: isReviewed ? '1px solid #dadce0' : '1px solid #fdba74',
+                    }}>{isReviewed ? '手动项' : '待手动分类'}</span>
                   )}
                 </div>
               </div>
