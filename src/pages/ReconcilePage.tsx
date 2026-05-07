@@ -302,6 +302,7 @@ export default function ReconcilePage() {
         }),
       ],
       expense: [
+        ...(effectiveCreditMonthly > 0 ? [creditMonthlyItem] : []),
         ...(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => {
           const days  = budget.stateDaysLeft[k];
           const dLife = stats.stateDailyAvg[k];
