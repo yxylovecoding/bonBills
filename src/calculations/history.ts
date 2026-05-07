@@ -2,6 +2,8 @@ import type { MonthlyRecord, CurrentStats, TagKind } from '../models/types';
 import type { BillExpenseMonth } from '../utils/importBill';
 import { assignExpenseIds } from '../utils/importBill';
 import { normalizeConfirmedSelection } from '../stores/calendarStore';
+import type { LifePeriodOverrides } from '../stores/lifePeriodOverrideStore';
+import { resolveLifePeriod } from '../stores/lifePeriodOverrideStore';
 
 // ── Ridge 回归（正规方程 + 对角正则化，避免奇异）────────────────
 function ridgeSolve(X: number[][], y: number[], lambda = 0.1): number[] {
@@ -56,10 +58,13 @@ type ByTag = Record<TagKind, number>;
 const zeroByTag = (): ByTag => ({ school: 0, intern: 0, home: 0, travel: 0 });
 
 // 单月已确切预聚合
+//   shortLife/longLife：金额已被显式归属到短/长周期
+//   resolvedLifeDays：该天所有 isLife 账单都已被显式归属（不论归到 short 还是 long）的天数
+//   shortCons + shortConsDays：消费部分仅由 reviewed+勾选 决定，无 override
 type MonthConfirmed = {
   shortLife: ByTag;
   shortCons: ByTag;
-  shortLifeDays: ByTag;
+  resolvedLifeDays: ByTag;
   shortConsDays: ByTag;
   longLife: number;
 };
@@ -69,54 +74,67 @@ function buildConfirmedAggregatesByMonth(
   tagMap: Record<string, TagKind>,
   confirmedExpenses: Record<string, { ids: string[]; reviewed: boolean } | string[]>,
   expenseItems: Record<string, BillExpenseMonth>,
+  overrides: LifePeriodOverrides,
 ): MonthConfirmed[] {
   return records.map((r) => {
     const out: MonthConfirmed = {
       shortLife: zeroByTag(),
       shortCons: zeroByTag(),
-      shortLifeDays: zeroByTag(),
+      resolvedLifeDays: zeroByTag(),
       shortConsDays: zeroByTag(),
       longLife: 0,
     };
     const monthItems = expenseItems[r.yearMonth];
     if (!monthItems || monthItems.length === 0) return out;
 
-    // 当月所有 reviewed 的日期
-    for (const [date, raw] of Object.entries(confirmedExpenses)) {
-      if (!date.startsWith(r.yearMonth)) continue;
-      const sel = normalizeConfirmedSelection(raw);
-      if (!sel.reviewed) continue;
-      const state = tagMap[date];
-      if (!state) continue;
+    // 按日期分组当月账单
+    const itemsByDate = new Map<string, { item: ReturnType<typeof assignExpenseIds>[number]['item']; id: string }[]>();
+    for (const date of new Set(monthItems.map((it) => it.date))) {
+      itemsByDate.set(date, assignExpenseIds(monthItems.filter((it) => it.date === date)));
+    }
 
-      const dayItems = assignExpenseIds(monthItems.filter((it) => it.date === date));
+    for (const [date, dayItems] of itemsByDate) {
+      const state = tagMap[date];
+      if (!state) continue; // 无 tag 的天暂不归任何 state（也不进入 short/long 桶；金额仍在 y 里）
+
+      const sel = normalizeConfirmedSelection(confirmedExpenses[date]);
+      const reviewed = sel.reviewed;
       const selectedIds = new Set(sel.ids);
-      let dayHadShortLife = false;
+
+      let lifeAllResolved = true; // 该天所有 isLife 是否都被显式归属
       let dayHadShortCons = false;
 
       for (const { item, id } of dayItems) {
-        const tags = item.tags.split(',').map((t) => t.trim());
-        const isLife = tags.includes('周期生活') || tags.includes('波动生活');
-        const isCons = tags.includes('消费');
-        const selected = selectedIds.has(id);
+        const tagList = item.tags.split(',').map((t) => t.trim());
+        const isLife = tagList.includes('周期生活') || tagList.includes('波动生活');
+        const isCons = tagList.includes('消费');
 
         if (isLife) {
-          if (selected) {
-            out.shortLife[state] += item.amount;
-            dayHadShortLife = true;
-          } else {
+          // 优先级：override > reviewed-勾选 > 留在残差 y 里
+          const ov = resolveLifePeriod(item, overrides);
+          if (ov === 'long') {
             out.longLife += item.amount;
+          } else if (ov === 'short') {
+            out.shortLife[state] += item.amount;
+          } else if (reviewed) {
+            if (selectedIds.has(id)) out.shortLife[state] += item.amount;
+            else out.longLife += item.amount;
+          } else {
+            // 未 reviewed 且无 override → 这条 isLife 留在月度 y 里给回归
+            lifeAllResolved = false;
           }
         } else if (isCons) {
-          if (selected) {
+          // 消费仅在 reviewed 且勾选 时归短期；未勾选/未 reviewed 留 y
+          if (reviewed && selectedIds.has(id)) {
             out.shortCons[state] += item.amount;
             dayHadShortCons = true;
           }
-          // 未勾选的消费不做特殊处理，留在 y 里给回归
         }
       }
 
-      if (dayHadShortLife) out.shortLifeDays[state] += 1;
+      // 该天 isLife 全部被显式归属 → resolvedLifeDays + 1（用于 X_life 残差扣除）
+      // 没有 isLife 账单的天也算 "resolved"（life 部分本来就没有需要分配的金额）
+      if (lifeAllResolved) out.resolvedLifeDays[state] += 1;
       if (dayHadShortCons) out.shortConsDays[state] += 1;
     }
 
@@ -132,6 +150,7 @@ export function calcHistoryStats(
   tagMap: Record<string, TagKind> = {},
   confirmedExpenses: Record<string, { ids: string[]; reviewed: boolean } | string[]> = {},
   expenseItems: Record<string, BillExpenseMonth> = {},
+  overrides: LifePeriodOverrides = { categories: {}, subcategories: {}, tags: {} },
 ): CurrentStats {
   const n = records.length;
   if (n === 0) {
@@ -191,19 +210,19 @@ export function calcHistoryStats(
   }
 
   // ── 已确切预聚合 ──────────────────────────────────────────────
-  const confirmed = buildConfirmedAggregatesByMonth(records, tagMap, confirmedExpenses, expenseItems);
+  const confirmed = buildConfirmedAggregatesByMonth(records, tagMap, confirmedExpenses, expenseItems, overrides);
 
   // 历史汇总
   const totalConfShortLife: ByTag = zeroByTag();
   const totalConfShortCons: ByTag = zeroByTag();
-  const totalConfLifeDays:  ByTag = zeroByTag();
+  const totalResolvedLifeDays: ByTag = zeroByTag();
   const totalConfConsDays:  ByTag = zeroByTag();
   let totalLongLife = 0;
   for (const c of confirmed) {
     for (const k of TAG_KEYS) {
       totalConfShortLife[k] += c.shortLife[k];
       totalConfShortCons[k] += c.shortCons[k];
-      totalConfLifeDays[k]  += c.shortLifeDays[k];
+      totalResolvedLifeDays[k] += c.resolvedLifeDays[k];
       totalConfConsDays[k]  += c.shortConsDays[k];
     }
     totalLongLife += c.longLife;
@@ -229,10 +248,10 @@ export function calcHistoryStats(
     const d = allDays[i];
     const c = confirmed[i];
     return [
-      Math.max(0, d.school - c.shortLifeDays.school),
-      Math.max(0, d.intern - c.shortLifeDays.intern),
-      Math.max(0, d.home   - c.shortLifeDays.home),
-      Math.max(0, d.travel - c.shortLifeDays.travel),
+      Math.max(0, d.school - c.resolvedLifeDays.school),
+      Math.max(0, d.intern - c.resolvedLifeDays.intern),
+      Math.max(0, d.home   - c.resolvedLifeDays.home),
+      Math.max(0, d.travel - c.resolvedLifeDays.travel),
     ];
   });
   const XConsResidual: number[][] = records.map((_, i) => {
@@ -314,7 +333,7 @@ export function calcHistoryStats(
     }
 
     // 生活
-    const remainLife = totalDays - totalConfLifeDays[s];
+    const remainLife = totalDays - totalResolvedLifeDays[s];
     let shortLifeAvg: number;
     if (remainLife <= 0) {
       shortLifeAvg = totalConfShortLife[s] / totalDays;

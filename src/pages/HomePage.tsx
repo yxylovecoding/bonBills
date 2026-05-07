@@ -12,6 +12,7 @@ import { useConfigStore } from '../stores/configStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { useCalendarStore } from '../stores/calendarStore';
 import { useBillDetailStore } from '../stores/billDetailStore';
+import { useLifePeriodOverrideStore } from '../stores/lifePeriodOverrideStore';
 import { calcHistoryStats } from '../calculations/history';
 import { calcFire } from '../calculations/fire';
 import { tagMeta } from '../data/mockData';
@@ -81,6 +82,7 @@ export default function HomePage() {
   const { records } = useMonthlyStore();
   const { tagMap, confirmedExpenses } = useCalendarStore();
   const { expenseItems } = useBillDetailStore();
+  const { overrides: lifePeriodOverrides } = useLifePeriodOverrideStore();
 
   const today = new Date();
   const currentYear = today.getFullYear();
@@ -89,8 +91,8 @@ export default function HomePage() {
 
   const twoYearsAgo = `${today.getFullYear() - 1}-01`;
   const stats = useMemo(
-    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, expenseItems),
-    [records, tagMap, confirmedExpenses, expenseItems],
+    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, expenseItems, lifePeriodOverrides),
+    [records, tagMap, confirmedExpenses, expenseItems, lifePeriodOverrides],
   );
 
   // 近一年校园卡日均

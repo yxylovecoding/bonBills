@@ -10,6 +10,7 @@ import AmountInput from '../components/AmountInput';
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { useCalendarStore } from '../stores/calendarStore';
 import { useBillDetailStore } from '../stores/billDetailStore';
+import { useLifePeriodOverrideStore } from '../stores/lifePeriodOverrideStore';
 import { calcHistoryStats } from '../calculations/history';
 import { investMeta, tagMeta } from '../data/mockData';
 import type { MonthlyRecord, MajorExpense, InvestHoldings, TagKind } from '../models/types';
@@ -475,11 +476,12 @@ export default function HistoryPage() {
   const { records, upsert } = useMonthlyStore();
   const { countByTag, tagMap, confirmedExpenses } = useCalendarStore();
   const { expenseItems } = useBillDetailStore();
+  const { overrides: lifePeriodOverrides } = useLifePeriodOverrideStore();
   const [formOpen, setFormOpen] = useState(false);
   const twoYearsAgo = `${new Date().getFullYear() - 1}-01`;
   const stats = useMemo(
-    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, expenseItems),
-    [records, tagMap, confirmedExpenses, expenseItems],
+    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, expenseItems, lifePeriodOverrides),
+    [records, tagMap, confirmedExpenses, expenseItems, lifePeriodOverrides],
   );
 
   const thisMonth = currentYearMonth();

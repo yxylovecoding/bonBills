@@ -1,6 +1,7 @@
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useCalendarStore } from '../stores/calendarStore';
 import { DEFAULT_CONFIG, useConfigStore } from '../stores/configStore';
+import { useLifePeriodOverrideStore } from '../stores/lifePeriodOverrideStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { usePrefsStore } from '../stores/prefsStore';
 import { DEFAULT_SNAPSHOT, useSnapshotStore } from '../stores/snapshotStore';
@@ -12,6 +13,7 @@ const EMPTY_STATES: Record<string, Record<string, unknown>> = {
   'calendar-tags': { tagMap: {}, initializedFromRecords: false, confirmedExpenses: {} },
   'account-snapshot': { current: DEFAULT_SNAPSHOT, history: [] },
   'app-config': { config: DEFAULT_CONFIG },
+  'life-period-overrides': { overrides: { categories: {}, subcategories: {}, tags: {} } },
   // user-prefs 保留 UI 偏好，不清空
 };
 
@@ -68,6 +70,13 @@ const stores: StoreEntry[] = [
     setState: (p) => useConfigStore.setState(p),
     subscribe: (l) => useConfigStore.subscribe(l),
     serialize: () => ({ config: useConfigStore.getState().config }),
+  },
+  {
+    key: 'life-period-overrides',
+    getState: () => useLifePeriodOverrideStore.getState(),
+    setState: (p) => useLifePeriodOverrideStore.setState(p),
+    subscribe: (l) => useLifePeriodOverrideStore.subscribe(l),
+    serialize: () => ({ overrides: useLifePeriodOverrideStore.getState().overrides }),
   },
   {
     key: 'user-prefs',

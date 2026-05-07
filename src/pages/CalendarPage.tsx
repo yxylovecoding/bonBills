@@ -7,8 +7,10 @@ import { tagMeta, investMeta } from '../data/mockData';
 import { parseBillFile, assignExpenseIds, type BillItem, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
 import { triggerUpload } from '../utils/syncEngine';
 import { useBillDetailStore } from '../stores/billDetailStore';
+import { useLifePeriodOverrideStore, type LifePeriod, type OverrideDimension } from '../stores/lifePeriodOverrideStore';
 import AmountInput from '../components/AmountInput';
 import { calcHistoryStats } from '../calculations/history';
+import { buildLifePeriodStats, suggestPeriod, isInconsistent, type LifePeriodStatRow } from '../calculations/lifePeriodStats';
 import { normalizeConfirmedSelection, useCalendarStore } from '../stores/calendarStore';
 import { useConfigStore } from '../stores/configStore';
 import { useSnapshotStore } from '../stores/snapshotStore';
@@ -63,6 +65,222 @@ function currentYearMonth() {
 function prevYearMonth(ym: string) {
   const [y, m] = ym.split('-').map(Number);
   return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+}
+
+// ── 长/短周期 override 设置弹窗 ────────────────────────────────────
+function PeriodChip({
+  current,
+  suggestion,
+  onChange,
+}: {
+  current: LifePeriod | undefined;
+  suggestion: LifePeriod | null;
+  onChange: (next: LifePeriod | null) => void;
+}) {
+  const opts: { v: LifePeriod | null; label: string; bg: string; fg: string }[] = [
+    { v: null,    label: '默认', bg: '#f1f3f4', fg: '#5f6368' },
+    { v: 'short', label: '短',   bg: '#e8f0fe', fg: '#1a73e8' },
+    { v: 'long',  label: '长',   bg: '#fff4e8', fg: '#e8710a' },
+  ];
+  return (
+    <div style={{ display: 'flex', gap: 4 }}>
+      {opts.map((o) => {
+        const active = (o.v === null && current === undefined) || current === o.v;
+        const isSuggested = current === undefined && o.v !== null && suggestion === o.v;
+        return (
+          <button
+            key={String(o.v)}
+            onClick={() => onChange(o.v)}
+            style={{
+              padding: '3px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              border: active ? `1.5px solid ${o.fg}` : (isSuggested ? `1px dashed ${o.fg}` : '1px solid #dadce0'),
+              backgroundColor: active ? o.bg : '#fff',
+              color: active ? o.fg : (isSuggested ? o.fg : '#5f6368'),
+            }}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function PeriodRow({
+  row,
+  current,
+  suggestion,
+  inconsistent,
+  onChange,
+  displayName,
+}: {
+  row: LifePeriodStatRow;
+  current: LifePeriod | undefined;
+  suggestion: LifePeriod | null;
+  inconsistent: boolean;
+  onChange: (next: LifePeriod | null) => void;
+  displayName: string;
+}) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+      padding: '6px 8px', borderRadius: 8, marginBottom: 4,
+      border: inconsistent && current === undefined ? '1px solid #f59e0b' : '1px solid transparent',
+      backgroundColor: inconsistent && current === undefined ? '#fffbeb' : '#fafbfc',
+    }}>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ fontSize: 12, fontWeight: 500, color: '#202124', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {inconsistent && current === undefined && <span title="历史勾选不一致" style={{ color: '#f59e0b', marginRight: 4 }}>⚠️</span>}
+          {displayName}
+        </div>
+        <div style={{ fontSize: 10, color: '#5f6368', marginTop: 1, fontVariantNumeric: 'tabular-nums' }}>
+          {row.shortCount > 0 && <span style={{ color: '#1a73e8', marginRight: 8 }}>短×{row.shortCount}</span>}
+          {row.longCount > 0 && <span style={{ color: '#e8710a' }}>长×{row.longCount}</span>}
+        </div>
+      </div>
+      <PeriodChip current={current} suggestion={suggestion} onChange={onChange} />
+    </div>
+  );
+}
+
+function SettingsModal({
+  onClose,
+  thresholdInput,
+  setThresholdInput,
+  showPayrollCutoffMarkers,
+  setShowPayrollCutoffMarkers,
+  onSave,
+  tagMap,
+  confirmedExpenses,
+  expenseItems,
+  overrides,
+  setOverride,
+}: {
+  onClose: () => void;
+  thresholdInput: string;
+  setThresholdInput: (v: string) => void;
+  showPayrollCutoffMarkers: boolean;
+  setShowPayrollCutoffMarkers: (v: boolean) => void;
+  onSave: () => void;
+  tagMap: Record<string, TagKind>;
+  confirmedExpenses: Record<string, { ids: string[]; reviewed: boolean } | string[]>;
+  expenseItems: Record<string, BillExpenseMonth>;
+  overrides: { categories: Record<string, LifePeriod>; subcategories: Record<string, LifePeriod>; tags: Record<string, LifePeriod> };
+  setOverride: (dim: OverrideDimension, name: string, period: LifePeriod | null) => void;
+}) {
+  const [periodTab, setPeriodTab] = useState<OverrideDimension>('subcategory');
+  const stats = useMemo(
+    () => buildLifePeriodStats(tagMap, confirmedExpenses, expenseItems),
+    [tagMap, confirmedExpenses, expenseItems],
+  );
+
+  const tabRows = periodTab === 'category' ? stats.categories
+    : periodTab === 'subcategory' ? stats.subcategories
+    : stats.tags;
+  const overrideMap = periodTab === 'category' ? overrides.categories
+    : periodTab === 'subcategory' ? overrides.subcategories
+    : overrides.tags;
+
+  const tabBtnStyle = (active: boolean): React.CSSProperties => ({
+    flex: 1, padding: '6px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+    border: 'none',
+    backgroundColor: active ? '#e8f0fe' : '#f1f3f4',
+    color: active ? '#1a73e8' : '#5f6368',
+  });
+
+  const overrideCount =
+    Object.keys(overrides.categories).length +
+    Object.keys(overrides.subcategories).length +
+    Object.keys(overrides.tags).length;
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={onClose}>
+      <div style={{ backgroundColor: '#fff', borderRadius: 16, width: '100%', maxWidth: 380, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}
+        onClick={(e) => e.stopPropagation()}>
+        {/* 头部 */}
+        <div style={{ padding: '20px 20px 12px' }}>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>设置</div>
+        </div>
+        {/* 滚动内容 */}
+        <div style={{ overflowY: 'auto', padding: '0 20px', flex: 1 }}>
+          {/* 大额阈值 */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 12, color: '#5f6368', marginBottom: 6 }}>大额支出筛选门槛（元）</div>
+            <input type="number" value={thresholdInput} onChange={(e) => setThresholdInput(e.target.value)}
+              style={{ width: '100%', border: '1.5px solid #dadce0', borderRadius: 8, padding: '8px 10px', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+          </div>
+          {/* 截标记开关 */}
+          <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16, cursor: 'pointer' }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#202124' }}>显示发薪数据截止日标记</div>
+              <div style={{ fontSize: 11, color: '#5f6368', marginTop: 2 }}>仅影响月历上的"截"标记显示，不影响实习工资计算</div>
+            </div>
+            <input type="checkbox" checked={showPayrollCutoffMarkers} onChange={(e) => setShowPayrollCutoffMarkers(e.target.checked)}
+              style={{ width: 16, height: 16, accentColor: '#1a73e8', flexShrink: 0 }} />
+          </label>
+          {/* 长短周期分类 */}
+          <div style={{ borderTop: '1px solid #f1f3f4', paddingTop: 14, marginBottom: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#202124', marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>长/短周期分类规则</span>
+              {overrideCount > 0 && (
+                <span style={{ fontSize: 10, fontWeight: 500, color: '#1a73e8', backgroundColor: '#e8f0fe', padding: '2px 6px', borderRadius: 6 }}>
+                  已设 {overrideCount}
+                </span>
+              )}
+            </div>
+            <div style={{ fontSize: 11, color: '#5f6368', marginBottom: 10 }}>
+              命中的账单将自动归为短/长周期生活，不再需要逐条勾选。优先级：子分类 &gt; 分类 &gt; 标签。虚线 = 历史勾选推荐值；⚠️ = 历史勾选不一致。
+            </div>
+            <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+              <button onClick={() => setPeriodTab('subcategory')} style={tabBtnStyle(periodTab === 'subcategory')}>子分类 ({stats.subcategories.length})</button>
+              <button onClick={() => setPeriodTab('category')} style={tabBtnStyle(periodTab === 'category')}>分类 ({stats.categories.length})</button>
+              <button onClick={() => setPeriodTab('tag')} style={tabBtnStyle(periodTab === 'tag')}>标签 ({stats.tags.length})</button>
+            </div>
+            {tabRows.length === 0 ? (
+              <div style={{ fontSize: 11, color: '#9aa0a6', padding: '16px 8px', textAlign: 'center' }}>
+                暂无数据。在日历「明细」模式下勾选过的账单会出现在这里。
+              </div>
+            ) : (
+              <div>
+                {tabRows.map((row) => {
+                  const current = overrideMap[row.name];
+                  const sug = suggestPeriod(row);
+                  const inc = isInconsistent(row);
+                  // displayName：子分类把 "category|subcategory" 美化为 "category · subcategory"
+                  const displayName = periodTab === 'subcategory' && row.name.includes('|')
+                    ? row.name.split('|').filter(Boolean).join(' · ')
+                    : row.name;
+                  return (
+                    <PeriodRow
+                      key={row.name}
+                      row={row}
+                      current={current}
+                      suggestion={sug}
+                      inconsistent={inc}
+                      displayName={displayName}
+                      onChange={(next) => setOverride(periodTab, row.name, next)}
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+        {/* 底部按钮 */}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '12px 20px 20px', borderTop: '1px solid #f1f3f4' }}>
+          <button onClick={onClose}
+            style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', color: '#5f6368', fontSize: 13, cursor: 'pointer' }}>
+            取消
+          </button>
+          <button onClick={onSave}
+            style={{ padding: '8px 16px', borderRadius: 8, border: 'none', backgroundColor: '#1a73e8', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            保存
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ── MonthForm ─────────────────────────────────────────────────────
@@ -929,6 +1147,7 @@ export default function CalendarPage() {
   const { config, setConfig } = useConfigStore();
   const { records, upsert, updateDayCounts } = useMonthlyStore();
   const { tagStats: billTagStats, expenseItems: billExpenseItems, updateFromImport: billUpdateFromImport } = useBillDetailStore();
+  const { overrides: lifePeriodOverrides, setOverride: setLifePeriodOverride } = useLifePeriodOverrideStore();
   const {
     tagOrder, setTagOrder, weekdayTags, setWeekdayTags,
     showPayrollCutoffMarkers, setShowPayrollCutoffMarkers,
@@ -984,8 +1203,8 @@ export default function CalendarPage() {
   // ── 历史回归均值（近两年，用作当月按比例拆分的权重）──
   const twoYearsAgo = `${_now.getFullYear() - 1}-01`;
   const historyStats = useMemo(
-    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, billExpenseItems),
-    [records, tagMap, confirmedExpenses, billExpenseItems],
+    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, billExpenseItems, lifePeriodOverrides),
+    [records, tagMap, confirmedExpenses, billExpenseItems, lifePeriodOverrides],
   );
 
   // ── Calendar computed ──
@@ -1260,40 +1479,19 @@ export default function CalendarPage() {
       )}
 
       {settingsOpen && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          onClick={() => setSettingsOpen(false)}>
-          <div style={{ backgroundColor: '#fff', borderRadius: 16, padding: 24, width: 300, boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}
-            onClick={e => e.stopPropagation()}>
-            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>设置</div>
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, color: C.sub, marginBottom: 6 }}>大额支出筛选门槛（元）</div>
-              <input type="number" value={thresholdInput} onChange={e => setThresholdInput(e.target.value)}
-                style={{ width: '100%', border: '1.5px solid #dadce0', borderRadius: 8, padding: '8px 10px', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
-            </div>
-            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 20, cursor: 'pointer' }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#202124' }}>显示发薪数据截止日标记</div>
-                <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>仅影响月历上的“截”标记显示，不影响实习工资计算</div>
-              </div>
-              <input
-                type="checkbox"
-                checked={showPayrollCutoffMarkers}
-                onChange={(e) => setShowPayrollCutoffMarkers(e.target.checked)}
-                style={{ width: 16, height: 16, accentColor: C.blue, flexShrink: 0 }}
-              />
-            </label>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={() => setSettingsOpen(false)}
-                style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', color: C.sub, fontSize: 13, cursor: 'pointer' }}>
-                取消
-              </button>
-              <button onClick={() => { setConfig({ majorExpenseThreshold: parseFloat(thresholdInput) || 500 }); setSettingsOpen(false); }}
-                style={{ padding: '8px 16px', borderRadius: 8, border: 'none', backgroundColor: C.blue, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                保存
-              </button>
-            </div>
-          </div>
-        </div>
+        <SettingsModal
+          onClose={() => setSettingsOpen(false)}
+          thresholdInput={thresholdInput}
+          setThresholdInput={setThresholdInput}
+          showPayrollCutoffMarkers={showPayrollCutoffMarkers}
+          setShowPayrollCutoffMarkers={setShowPayrollCutoffMarkers}
+          onSave={() => { setConfig({ majorExpenseThreshold: parseFloat(thresholdInput) || 500 }); setSettingsOpen(false); }}
+          tagMap={tagMap}
+          confirmedExpenses={confirmedExpenses}
+          expenseItems={billExpenseItems}
+          overrides={lifePeriodOverrides}
+          setOverride={setLifePeriodOverride}
+        />
       )}
 
       {tab === 'month' ? (
