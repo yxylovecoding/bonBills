@@ -22,10 +22,11 @@ import { dateLabel, resolveIncomeForMonth, type ResolvedIncomeItem } from '../ut
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', sub: '#5f6368', orange: '#e8710a' };
 
 
-const TRANSFER_KEYS = ['campusCard', 'living', 'consumption', 'wishJar', 'invest'] as const;
+const TRANSFER_KEYS = ['campusCard', 'repayment', 'living', 'consumption', 'wishJar', 'invest'] as const;
 type TransferKey = typeof TRANSFER_KEYS[number];
 const TRANSFER_META: Record<TransferKey, { label: string; accountKey?: string }> = {
   campusCard:  { label: '🎓 校园卡',   accountKey: 'campusCard' },
+  repayment:   { label: '💳 还款',      accountKey: 'savingsCard' },
   living:      { label: '🏦 生活',      accountKey: 'livingBank' },
   consumption: { label: '💼 消费',      accountKey: 'consumptionBank' },
   wishJar:     { label: '🏺 心愿罐' },
@@ -339,9 +340,11 @@ export default function ReconcilePage() {
   // 建议转账直接引用「预算计算」里展开后的月内支出口径，避免两边口径不一致
   const monthlyExpenseForTransfer = sumDetailExp('monthly');
   const campusShortfallForTransfer = Math.max(budget.needs.campusCard - (current.accounts.campusCard ?? 0), 0);
-  const livingNeedForTransfer = Math.max(monthlyExpenseForTransfer - budget.needs.campusCard, 0);
+  const repaymentNeedForTransfer = current.accounts.creditMonthly ?? 0;
+  const repaymentShortfallForTransfer = Math.max(repaymentNeedForTransfer - (current.accounts.savingsCard ?? 0), 0);
+  const livingNeedForTransfer = Math.max(monthlyExpenseForTransfer - repaymentNeedForTransfer - budget.needs.campusCard, 0);
   const livingShortfallForTransfer = Math.max(livingNeedForTransfer - (current.accounts.livingBank ?? 0), 0);
-  const essentialTotalForTransfer = campusShortfallForTransfer + livingShortfallForTransfer;
+  const essentialTotalForTransfer = campusShortfallForTransfer + repaymentShortfallForTransfer + livingShortfallForTransfer;
   const incomeAvailableForTransfer = current.accounts.incomeBank ?? 0;
   const needsRedemptionForTransfer = Math.max(essentialTotalForTransfer - incomeAvailableForTransfer, 0);
   const incomeAfterEssentialsForTransfer = Math.max(incomeAvailableForTransfer - essentialTotalForTransfer, 0);
@@ -622,9 +625,14 @@ export default function ReconcilePage() {
               calc: `月需¥${fmtInt(budget.needs.campusCard)}（${budget.stateDaysLeft.school}天×¥${Math.round(stats.schoolDailyAvg)}/天）− 余¥${fmtInt(current.accounts.campusCard ?? 0)}`,
             },
             {
+              key: 'repayment',
+              rec: repaymentShortfallForTransfer,
+              calc: `本月待还¥${fmtInt(repaymentNeedForTransfer)} − 储蓄卡¥${fmtInt(current.accounts.savingsCard ?? 0)}`,
+            },
+            {
               key: 'living',
               rec: livingShortfallForTransfer,
-              calc: `月需¥${fmtInt(livingNeedForTransfer)}（月内支出¥${fmtInt(monthlyExpenseForTransfer)} − 校园卡¥${fmtInt(budget.needs.campusCard)}）− 余¥${fmtInt(current.accounts.livingBank ?? 0)}`,
+              calc: `月需¥${fmtInt(livingNeedForTransfer)}（月内支出¥${fmtInt(monthlyExpenseForTransfer)} − 还款¥${fmtInt(repaymentNeedForTransfer)} − 校园卡¥${fmtInt(budget.needs.campusCard)}）− 余¥${fmtInt(current.accounts.livingBank ?? 0)}`,
             },
             {
               key: 'consumption',

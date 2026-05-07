@@ -26,6 +26,7 @@ export const DEFAULT_SNAPSHOT: AccountSnapshot = {
   },
   transfersDone: {
     campusCard: 0,
+    repayment: 0,
     living: 0,
     consumption: 0,
     wishJar: 0,

@@ -28,7 +28,7 @@ export interface AccountBalances {
 export function calcBudget(
   config: AppConfig,
   stats: CurrentStats,
-  _transfersDone: { campusCard: number; living: number; consumption: number; wishJar: number; invest: number },
+  _transfersDone: Record<string, number>,
   tags: DailyTag[],
   today: Date,
   accounts?: Partial<AccountBalances>,

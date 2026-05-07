@@ -57,6 +57,7 @@ export interface AccountSnapshot {
   investHoldings: InvestHoldings;
   transfersDone: {
     campusCard: number;
+    repayment: number;
     living: number;
     consumption: number;
     wishJar: number;
