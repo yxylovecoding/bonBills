@@ -15,7 +15,7 @@ import { normalizeConfirmedSelection, useCalendarStore } from '../stores/calenda
 import { useConfigStore } from '../stores/configStore';
 import { useSnapshotStore } from '../stores/snapshotStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
-import { usePrefsStore } from '../stores/prefsStore';
+import { usePrefsStore, REVIEWABLE_CATEGORIES, type ReviewableCategory } from '../stores/prefsStore';
 import { useDragSort } from '../hooks/useDragSort';
 import type { TagKind, MonthlyRecord, MajorExpense, InvestHoldings } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
@@ -156,6 +156,8 @@ function SettingsModal({
   setThresholdInput,
   showPayrollCutoffMarkers,
   setShowPayrollCutoffMarkers,
+  reviewableCategories,
+  setReviewableCategories,
   onSave,
   tagMap,
   confirmedExpenses,
@@ -168,6 +170,8 @@ function SettingsModal({
   setThresholdInput: (v: string) => void;
   showPayrollCutoffMarkers: boolean;
   setShowPayrollCutoffMarkers: (v: boolean) => void;
+  reviewableCategories: ReviewableCategory[];
+  setReviewableCategories: (cats: ReviewableCategory[]) => void;
   onSave: () => void;
   tagMap: Record<string, TagKind>;
   confirmedExpenses: Record<string, { ids: string[]; reviewed: boolean } | string[]>;
@@ -221,6 +225,30 @@ function SettingsModal({
             <input type="checkbox" checked={showPayrollCutoffMarkers} onChange={(e) => setShowPayrollCutoffMarkers(e.target.checked)}
               style={{ width: 16, height: 16, accentColor: '#1a73e8', flexShrink: 0 }} />
           </label>
+          {/* 明细模式：勾选时显示哪些类型 */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#202124', marginBottom: 4 }}>明细模式：勾选时显示</div>
+            <div style={{ fontSize: 11, color: '#5f6368', marginBottom: 8 }}>仅显示选中标签的账单，便于聚焦勾选</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {REVIEWABLE_CATEGORIES.map((cat) => {
+                const checked = reviewableCategories.includes(cat);
+                return (
+                  <label key={cat} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, backgroundColor: checked ? '#e8f0fe' : '#f1f3f4', cursor: 'pointer', fontSize: 12, color: checked ? '#1a73e8' : '#5f6368', fontWeight: 500 }}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        if (e.target.checked) setReviewableCategories([...reviewableCategories, cat]);
+                        else setReviewableCategories(reviewableCategories.filter((c) => c !== cat));
+                      }}
+                      style={{ width: 14, height: 14, accentColor: '#1a73e8' }}
+                    />
+                    {cat}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
           {/* 长短周期分类 */}
           <div style={{ borderTop: '1px solid #f1f3f4', paddingTop: 14, marginBottom: 8 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#202124', marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1153,6 +1181,7 @@ export default function CalendarPage() {
   const {
     tagOrder, setTagOrder, weekdayTags, setWeekdayTags,
     showPayrollCutoffMarkers, setShowPayrollCutoffMarkers,
+    reviewableCategories, setReviewableCategories,
   } = usePrefsStore();
   const tagDrag = useDragSort(tagOrder, setTagOrder, 'horizontal');
   const { holidayDataByYear, holidayWarning } = useHolidayYears([year]);
@@ -1487,6 +1516,8 @@ export default function CalendarPage() {
           setThresholdInput={setThresholdInput}
           showPayrollCutoffMarkers={showPayrollCutoffMarkers}
           setShowPayrollCutoffMarkers={setShowPayrollCutoffMarkers}
+          reviewableCategories={reviewableCategories}
+          setReviewableCategories={setReviewableCategories}
           onSave={() => { setConfig({ majorExpenseThreshold: parseFloat(thresholdInput) || 500 }); setSettingsOpen(false); }}
           tagMap={tagMap}
           confirmedExpenses={confirmedExpenses}
@@ -1899,10 +1930,17 @@ export default function CalendarPage() {
 
           {selectMode === 'detail' && selectedDay && (() => {
             const selectedConfirmedState = normalizeConfirmedSelection(confirmedExpenses[selectedDay]);
+            const allowedSet = new Set(reviewableCategories);
+            const dayItems = (billExpenseItems[yearMonth] ?? []).filter((it) => {
+              if (it.date !== selectedDay) return false;
+              if (allowedSet.size === 0) return false;
+              const tagList = (it.tags || '').split(',').map((t) => t.trim()).filter(Boolean);
+              return tagList.some((t) => allowedSet.has(t as ReviewableCategory));
+            });
             return (
               <DayDetailPanel
                 date={selectedDay}
-                items={(billExpenseItems[yearMonth] ?? []).filter((it) => it.date === selectedDay)}
+                items={dayItems}
                 confirmedIds={selectedConfirmedState.ids}
                 isReviewed={selectedConfirmedState.reviewed}
                 onToggle={(id) => toggleConfirmedExpense(selectedDay, id)}

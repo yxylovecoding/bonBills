@@ -90,6 +90,7 @@ const stores: StoreEntry[] = [
         accountOrder: s.accountOrder,
         weekdayTags: s.weekdayTags,
         showPayrollCutoffMarkers: s.showPayrollCutoffMarkers,
+        reviewableCategories: s.reviewableCategories,
       };
     },
   },

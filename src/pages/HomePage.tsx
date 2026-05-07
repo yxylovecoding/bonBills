@@ -22,7 +22,7 @@ import { dateLabel, daysUntilDate, resolveIncomeForMonth } from '../utils/payrol
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤8 字），随每次迭代更新
-const RELEASE_NOTE = '标签可忽略';
+const RELEASE_NOTE = '勾选筛标签';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 
 function fmt万(v: number) { return (v / 10000).toFixed(2) + '万'; }
