@@ -168,18 +168,14 @@ function SettingsModal({
   overrides: { categories: Record<string, LifePeriod>; subcategories: Record<string, LifePeriod>; tags: Record<string, LifePeriod> };
   setOverride: (dim: OverrideDimension, name: string, period: LifePeriod | null) => void;
 }) {
-  const [periodTab, setPeriodTab] = useState<OverrideDimension>('subcategory');
+  const [periodTab, setPeriodTab] = useState<'subcategory' | 'tag'>('subcategory');
   const stats = useMemo(
     () => buildLifePeriodStats(tagMap, confirmedExpenses, expenseItems),
     [tagMap, confirmedExpenses, expenseItems],
   );
 
-  const tabRows = periodTab === 'category' ? stats.categories
-    : periodTab === 'subcategory' ? stats.subcategories
-    : stats.tags;
-  const overrideMap = periodTab === 'category' ? overrides.categories
-    : periodTab === 'subcategory' ? overrides.subcategories
-    : overrides.tags;
+  const tabRows = periodTab === 'subcategory' ? stats.subcategories : stats.tags;
+  const overrideMap = periodTab === 'subcategory' ? overrides.subcategories : overrides.tags;
 
   const tabBtnStyle = (active: boolean): React.CSSProperties => ({
     flex: 1, padding: '6px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer',
@@ -189,7 +185,6 @@ function SettingsModal({
   });
 
   const overrideCount =
-    Object.keys(overrides.categories).length +
     Object.keys(overrides.subcategories).length +
     Object.keys(overrides.tags).length;
 
@@ -230,11 +225,10 @@ function SettingsModal({
               )}
             </div>
             <div style={{ fontSize: 11, color: '#5f6368', marginBottom: 10 }}>
-              命中的账单将自动归为短/长周期生活，不再需要逐条勾选。优先级：子分类 &gt; 分类 &gt; 标签。虚线 = 历史勾选推荐值；⚠️ = 历史勾选不一致。
+              命中的账单将自动归为短/长周期生活，不再需要逐条勾选。优先级：子分类 &gt; 标签。虚线 = 历史勾选推荐值；⚠️ = 历史勾选不一致。
             </div>
             <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
               <button onClick={() => setPeriodTab('subcategory')} style={tabBtnStyle(periodTab === 'subcategory')}>子分类 ({stats.subcategories.length})</button>
-              <button onClick={() => setPeriodTab('category')} style={tabBtnStyle(periodTab === 'category')}>分类 ({stats.categories.length})</button>
               <button onClick={() => setPeriodTab('tag')} style={tabBtnStyle(periodTab === 'tag')}>标签 ({stats.tags.length})</button>
             </div>
             {tabRows.length === 0 ? (

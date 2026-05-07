@@ -15,7 +15,6 @@ export type LifePeriodStatRow = {
 };
 
 export type LifePeriodStats = {
-  categories: LifePeriodStatRow[];
   subcategories: LifePeriodStatRow[]; // name = "category|subcategory"
   tags: LifePeriodStatRow[];
 };
@@ -34,7 +33,6 @@ export function buildLifePeriodStats(
   confirmedExpenses: Record<string, { ids: string[]; reviewed: boolean } | string[]>,
   expenseItems: Record<string, BillExpenseMonth>,
 ): LifePeriodStats {
-  const cats = new Map<string, LifePeriodStatRow>();
   const subs = new Map<string, LifePeriodStatRow>();
   const tags = new Map<string, LifePeriodStatRow>();
 
@@ -58,13 +56,10 @@ export function buildLifePeriodStats(
       const catName = item.category || '(未分类)';
       const subName = subcategoryKey(catName, item.subcategory || '');
 
-      const catRow = ensureRow(cats, catName);
       const subRow = ensureRow(subs, subName);
       if (isShort) {
-        catRow.shortCount++; catRow.shortAmount += item.amount;
         subRow.shortCount++; subRow.shortAmount += item.amount;
       } else {
-        catRow.longCount++;  catRow.longAmount  += item.amount;
         subRow.longCount++;  subRow.longAmount  += item.amount;
       }
 
@@ -81,7 +76,6 @@ export function buildLifePeriodStats(
     (b.shortCount + b.longCount) - (a.shortCount + a.longCount);
 
   return {
-    categories: Array.from(cats.values()).sort(sortByTotal),
     subcategories: Array.from(subs.values()).sort(sortByTotal),
     tags: Array.from(tags.values()).sort(sortByTotal),
   };

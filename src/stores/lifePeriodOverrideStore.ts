@@ -66,14 +66,13 @@ export const useLifePeriodOverrideStore = create<LifePeriodOverrideStore>()(
 );
 
 // 工具：判断一条账单根据 overrides 应被划为哪一周期；返回 null 表示无 override
+// 优先级：subcategory > tag（不再使用母分类）
 export function resolveLifePeriod(
   item: { category: string; subcategory: string; tags: string },
   overrides: LifePeriodOverrides,
 ): LifePeriod | null {
-  // 优先级：subcategory > category > tag
   const subKey = subcategoryKey(item.category, item.subcategory);
   if (overrides.subcategories[subKey]) return overrides.subcategories[subKey];
-  if (item.category && overrides.categories[item.category]) return overrides.categories[item.category];
   const tagList = item.tags.split(',').map((t) => t.trim()).filter(Boolean);
   for (const t of tagList) {
     if (overrides.tags[t]) return overrides.tags[t];
