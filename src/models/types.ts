@@ -80,6 +80,7 @@ export interface MonthlyRecord {
   investTotal: number;          // 本月理财总额
   investBreakdown?: Partial<InvestHoldings>;       // 各品类持仓（月末）
   investBreakdownProfit?: Partial<InvestHoldings>; // 各品类累计收益（月末）
+  investProfitComponents?: Partial<Record<'us' | 'usBond', { cny: number; rate: number; usd: number }>>;
   volatileLife: number;
   periodicLife: number;
   consumption: number;

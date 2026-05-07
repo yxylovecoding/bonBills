@@ -347,6 +347,15 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
     () => Object.fromEntries(INVEST_KEYS.map((k) => [k, String(existing?.investBreakdownProfit?.[k] ?? '')])) as Record<keyof InvestHoldings, string>
   );
   const [showBreakdown, setShowBreakdown] = useState(true);
+  const [usdComponents, setUsdComponents] = useState<Partial<Record<'us' | 'usBond', { cny: string; rate: string; usd: string }>>>(() => {
+    const init: Partial<Record<'us' | 'usBond', { cny: string; rate: string; usd: string }>> = {};
+    for (const k of ['us', 'usBond'] as const) {
+      const c = existing?.investProfitComponents?.[k];
+      if (c) init[k] = { cny: String(c.cny), rate: String(c.rate), usd: String(c.usd) };
+    }
+    return init;
+  });
+  const [profitModalKey, setProfitModalKey] = useState<'us' | 'usBond' | null>(null);
   const { current: snapshotCurrent } = useSnapshotStore();
   const { config } = useConfigStore();
   const mainFieldRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -429,11 +438,26 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
       accumulatedProfit: n(accProfit), investTotal,
       investBreakdown: hasBreakdown ? bd : undefined,
       investBreakdownProfit: hasBreakdownProfit ? bp : undefined,
+      investProfitComponents: existing?.investProfitComponents,
       homeDays, travelDays, schoolDays, internDays,
       majorExpenses: suggested.filter((e) => e.name.trim()),
     });
     triggerUpload();
     setImportMsg(`已导入 ${topTags.length} 项`); setTimeout(() => setImportMsg(''), 2000);
+  };
+
+  const buildProfitComponents = (): MonthlyRecord['investProfitComponents'] => {
+    const out: NonNullable<MonthlyRecord['investProfitComponents']> = {};
+    for (const k of ['us', 'usBond'] as const) {
+      const c = usdComponents[k];
+      if (!c) continue;
+      const cny = parseFloat(c.cny);
+      const rate = parseFloat(c.rate);
+      const usd = parseFloat(c.usd);
+      if (isNaN(cny) || isNaN(rate) || isNaN(usd)) continue;
+      out[k] = { cny, rate, usd };
+    }
+    return Object.keys(out).length ? out : undefined;
   };
 
   const handleSave = () => {
@@ -448,6 +472,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
       accumulatedProfit: n(accProfit), investTotal,
       investBreakdown: hasBreakdown ? bd : undefined,
       investBreakdownProfit: hasBreakdownProfit ? bp : undefined,
+      investProfitComponents: buildProfitComponents(),
       homeDays, travelDays, schoolDays, internDays,
       majorExpenses: majorExpenses.filter((e) => e.name.trim()),
     });
@@ -472,6 +497,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
     volatileLife, setVolatileLife, consumption, setConsumption, school, setSchool,
     accProfit, setAccProfit, investTotal,
     majorExpenses, breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
+    usdComponents, setUsdComponents, profitModalKey, setProfitModalKey,
     showBreakdown, setShowBreakdown, importMsg,
     surplus, investIncome, investMonthly, investAnnual, n,
     mainFieldRefs, breakdownRefs, breakdownProfitRefs,
@@ -569,11 +595,83 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
   );
 }
 
+function UsdProfitModal({
+  investKey,
+  initial,
+  onCancel,
+  onConfirm,
+}: {
+  investKey: 'us' | 'usBond';
+  initial?: { cny: string; rate: string; usd: string };
+  onCancel: () => void;
+  onConfirm: (c: { cny: string; rate: string; usd: string }) => void;
+}) {
+  const [cny, setCny] = useState(initial?.cny ?? '');
+  const [rate, setRate] = useState(initial?.rate ?? '');
+  const [usd, setUsd] = useState(initial?.usd ?? '');
+  const refs = useRef<(HTMLInputElement | null)[]>([]);
+  const total = (parseFloat(cny) || 0) + (parseFloat(rate) || 0) * (parseFloat(usd) || 0);
+  const totalRounded = Math.round(total * 100) / 100;
+  const focusNext = (i: number) => setTimeout(() => refs.current[i + 1]?.focus(), 0);
+  const inputStyle: React.CSSProperties = {
+    width: '100%', border: '1.5px solid #fbbf24', borderRadius: 8,
+    padding: '8px 10px', fontSize: 13, fontVariantNumeric: 'tabular-nums',
+    outline: 'none', backgroundColor: '#fffbeb', boxSizing: 'border-box',
+  };
+  return (
+    <div
+      onClick={onCancel}
+      style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: '100%', maxWidth: 360, backgroundColor: '#fff', borderRadius: 12, padding: 16, boxShadow: '0 4px 24px rgba(0,0,0,0.18)' }}
+      >
+        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>{investMeta[investKey].label} 累计收益拆分</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {[
+            { label: '人民币收益 (¥)', val: cny, set: setCny },
+            { label: '美元汇率',       val: rate, set: setRate },
+            { label: '美元收益 ($)',   val: usd, set: setUsd },
+          ].map(({ label, val, set }, i, arr) => (
+            <div key={label}>
+              <div style={{ fontSize: 12, color: C.sub, marginBottom: 3 }}>{label}</div>
+              <AmountInput
+                ref={(el) => { refs.current[i] = el; }}
+                value={val}
+                onChange={set}
+                placeholder="0"
+                style={inputStyle}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (i < arr.length - 1) focusNext(i);
+                    else onConfirm({ cny, rate, usd });
+                  }
+                }}
+              />
+            </div>
+          ))}
+        </div>
+        <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, backgroundColor: '#f1f3f4', display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+          <span style={{ color: C.sub }}>累计收益 = 人民币 + 汇率 × 美元</span>
+          <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: totalRounded >= 0 ? C.red : C.green }}>{totalRounded >= 0 ? '+' : ''}{formatCurrency(totalRounded)}</span>
+        </div>
+        <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button onClick={onCancel} style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', cursor: 'pointer', fontSize: 13 }}>取消</button>
+          <button onClick={() => onConfirm({ cny, rate, usd })} style={{ padding: '6px 14px', borderRadius: 8, border: 'none', backgroundColor: C.blue, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>确认</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function HoldingsSection({ state }: { state: MonthFormState }) {
   const {
     showBreakdown, setShowBreakdown, copyHoldingsFromReconcile,
     breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
     breakdownRefs, breakdownProfitRefs,
+    usdComponents, profitModalKey, setProfitModalKey,
   } = state;
   return (
     <div>
@@ -626,23 +724,50 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                   />
                 </td>
                 <td style={{ padding: '4px 0', textAlign: 'right' }}>
-                  <AmountInput
-                    ref={(el) => { breakdownProfitRefs.current[i] = el; }}
-                    value={breakdownProfit[k] ?? ''} placeholder="0"
-                    onChange={(v) => setBreakdownProfit((p) => ({ ...p, [k]: v }))}
-                    onKeyDown={(e) => {
-                      if (e.key !== 'Enter') return;
-                      e.preventDefault();
-                      if (i < INVEST_KEYS.length - 1) breakdownProfitRefs.current[i + 1]?.focus();
-                      else e.currentTarget.blur();
-                    }}
-                    style={{ width: '90%', border: 'none', borderBottom: `1px solid ${C.blue}`, outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0', color: C.blue }}
-                  />
+                  {(k === 'us' || k === 'usBond') ? (
+                    <button
+                      type="button"
+                      onClick={() => setProfitModalKey(k)}
+                      style={{ width: '90%', border: 'none', borderBottom: `1px dashed ${C.blue}`, background: 'transparent', cursor: 'pointer', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0', color: C.blue }}
+                      title="点击拆分为人民币 + 汇率 × 美元"
+                    >
+                      {breakdownProfit[k] && breakdownProfit[k] !== '0' && breakdownProfit[k] !== '' ? breakdownProfit[k] : '—'}
+                    </button>
+                  ) : (
+                    <AmountInput
+                      ref={(el) => { breakdownProfitRefs.current[i] = el; }}
+                      value={breakdownProfit[k] ?? ''} placeholder="0"
+                      onChange={(v) => setBreakdownProfit((p) => ({ ...p, [k]: v }))}
+                      onKeyDown={(e) => {
+                        if (e.key !== 'Enter') return;
+                        e.preventDefault();
+                        if (i < INVEST_KEYS.length - 1) breakdownProfitRefs.current[i + 1]?.focus();
+                        else e.currentTarget.blur();
+                      }}
+                      style={{ width: '90%', border: 'none', borderBottom: `1px solid ${C.blue}`, outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0', color: C.blue }}
+                    />
+                  )}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+      )}
+      {profitModalKey && (
+        <UsdProfitModal
+          investKey={profitModalKey}
+          initial={usdComponents[profitModalKey]}
+          onCancel={() => setProfitModalKey(null)}
+          onConfirm={(c) => {
+            state.setUsdComponents((prev) => ({ ...prev, [profitModalKey]: c }));
+            const cny = parseFloat(c.cny) || 0;
+            const rate = parseFloat(c.rate) || 0;
+            const usd = parseFloat(c.usd) || 0;
+            const total = Math.round((cny + rate * usd) * 100) / 100;
+            setBreakdownProfit((p) => ({ ...p, [profitModalKey]: String(total) }));
+            setProfitModalKey(null);
+          }}
+        />
       )}
     </div>
   );
@@ -1412,6 +1537,7 @@ export default function CalendarPage() {
           investTotal: prev?.investTotal ?? 0,
           investBreakdown: prev?.investBreakdown,
           investBreakdownProfit: prev?.investBreakdownProfit,
+          investProfitComponents: prev?.investProfitComponents,
           homeDays: prev?.homeDays ?? 0,
           travelDays: prev?.travelDays ?? 0,
           majorExpenses: prev?.majorExpenses ?? [],
