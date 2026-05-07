@@ -8,6 +8,7 @@ const STORE_KEYS = [
   'account-snapshot',
   'app-config',
   'user-prefs',
+  'life-period-overrides',
 ] as const;
 
 type StoreKey = typeof STORE_KEYS[number];
