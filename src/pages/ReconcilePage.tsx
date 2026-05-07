@@ -336,6 +336,20 @@ export default function ReconcilePage() {
   const sumDetailInc = (key: BudgetKey) =>
     budgetDetails[key].income.reduce((s, i) => s + i.amount, 0);
 
+  // 建议转账直接引用「预算计算」里展开后的月内支出口径，避免两边口径不一致
+  const monthlyExpenseForTransfer = sumDetailExp('monthly');
+  const campusShortfallForTransfer = Math.max(budget.needs.campusCard - (current.accounts.campusCard ?? 0), 0);
+  const livingNeedForTransfer = Math.max(monthlyExpenseForTransfer - budget.needs.campusCard, 0);
+  const livingShortfallForTransfer = Math.max(livingNeedForTransfer - (current.accounts.livingBank ?? 0), 0);
+  const essentialTotalForTransfer = campusShortfallForTransfer + livingShortfallForTransfer;
+  const incomeAvailableForTransfer = current.accounts.incomeBank ?? 0;
+  const needsRedemptionForTransfer = Math.max(essentialTotalForTransfer - incomeAvailableForTransfer, 0);
+  const incomeAfterEssentialsForTransfer = Math.max(incomeAvailableForTransfer - essentialTotalForTransfer, 0);
+  const investForTransfer = Math.round(incomeAfterEssentialsForTransfer * 0.5);
+  const consumeTotalForTransfer = incomeAfterEssentialsForTransfer - investForTransfer;
+  const wishJarForTransfer = Math.round(consumeTotalForTransfer * 0.8);
+  const consumptionForTransfer = consumeTotalForTransfer - wishJarForTransfer;
+
   // 月内结余结转：月外吸纳月内的本层结余（正→月外收入，负→月外支出）
   const monthlyBalance = sumDetailInc('monthly') - sumDetailExp('monthly');
   if (monthlyBalance >= 0) {
@@ -589,9 +603,9 @@ export default function ReconcilePage() {
       <Card title="② 建议转账" subtitle="收入优先补齐必要账户，剩余按比例分配">
 
         {/* 收入资金流向概览 */}
-        {budget.recommended.needsRedemption > 0 ? (
+        {needsRedemptionForTransfer > 0 ? (
           <div style={{ backgroundColor: '#fce8e6', border: '1px solid #f28b82', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>
-            ⚠️ 收入账户 <b>¥{fmtInt(current.accounts.incomeBank ?? 0)}</b> 不足以补齐必要账户，建议赎回理财 <b style={{ color: C.red }}>¥{fmtInt(budget.recommended.needsRedemption)}</b>
+            ⚠️ 收入账户 <b>¥{fmtInt(current.accounts.incomeBank ?? 0)}</b> 不足以补齐必要账户，建议赎回理财 <b style={{ color: C.red }}>¥{fmtInt(needsRedemptionForTransfer)}</b>
           </div>
         ) : (
           <div style={{ backgroundColor: '#e6f4ea', border: '1px solid #81c995', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>
@@ -601,43 +615,40 @@ export default function ReconcilePage() {
 
         {/* 统一转账列表 */}
         {(() => {
-          const campusShortfall = Math.max(budget.needs.campusCard - (current.accounts.campusCard ?? 0), 0);
-          const livingShortfall = Math.max(budget.needs.living - (current.accounts.livingBank ?? 0), 0);
           const transferRows: { key: TransferKey; rec: number; calc: string }[] = [
             {
               key: 'campusCard',
-              rec: campusShortfall,
+              rec: campusShortfallForTransfer,
               calc: `月需¥${fmtInt(budget.needs.campusCard)}（${budget.stateDaysLeft.school}天×¥${Math.round(stats.schoolDailyAvg)}/天）− 余¥${fmtInt(current.accounts.campusCard ?? 0)}`,
             },
             {
               key: 'living',
-              rec: livingShortfall,
-              calc: `月需¥${fmtInt(budget.needs.living)}（月内¥${fmtInt(budget.monthly.expense)} − 校园卡¥${fmtInt(budget.needs.campusCard)}）− 余¥${fmtInt(current.accounts.livingBank ?? 0)}`,
+              rec: livingShortfallForTransfer,
+              calc: `月需¥${fmtInt(livingNeedForTransfer)}（月内支出¥${fmtInt(monthlyExpenseForTransfer)} − 校园卡¥${fmtInt(budget.needs.campusCard)}）− 余¥${fmtInt(current.accounts.livingBank ?? 0)}`,
             },
             {
               key: 'consumption',
-              rec: budget.recommended.consumption,
-              calc: `可分配¥${fmtInt(budget.recommended.incomeAfterEssentials)}×50%消费×20%`,
+              rec: consumptionForTransfer,
+              calc: `可分配¥${fmtInt(incomeAfterEssentialsForTransfer)}×50%消费×20%`,
             },
             {
               key: 'wishJar',
-              rec: budget.recommended.wishJar,
-              calc: `可分配¥${fmtInt(budget.recommended.incomeAfterEssentials)}×50%消费×80%`,
+              rec: wishJarForTransfer,
+              calc: `可分配¥${fmtInt(incomeAfterEssentialsForTransfer)}×50%消费×80%`,
             },
             {
               key: 'invest',
-              rec: budget.recommended.invest,
-              calc: `可分配¥${fmtInt(budget.recommended.incomeAfterEssentials)}×50%`,
+              rec: investForTransfer,
+              calc: `可分配¥${fmtInt(incomeAfterEssentialsForTransfer)}×50%`,
             },
           ];
-          const essentialTotal = campusShortfall + livingShortfall;
           return transferRows.map((row, i) => {
             const transferred = parseFloat(localTransferred[row.key] || '0') || 0;
             const remain = Math.max(row.rec - transferred, 0);
             const header = row.key === 'campusCard'
-              ? { label: '补充必要', amount: essentialTotal, color: C.blue }
+              ? { label: '补充必要', amount: essentialTotalForTransfer, color: C.blue }
               : row.key === 'consumption'
-                ? { label: '可分配', amount: budget.recommended.incomeAfterEssentials, color: C.green }
+                ? { label: '可分配', amount: incomeAfterEssentialsForTransfer, color: C.green }
                 : null;
             return (
               <Fragment key={row.key}>
