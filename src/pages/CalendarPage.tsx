@@ -7,7 +7,7 @@ import { tagMeta, investMeta } from '../data/mockData';
 import { parseBillFile, assignExpenseIds, type BillItem, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
 import { triggerUpload } from '../utils/syncEngine';
 import { useBillDetailStore } from '../stores/billDetailStore';
-import { useLifePeriodOverrideStore, type LifePeriod, type OverrideValue, type OverrideDimension } from '../stores/lifePeriodOverrideStore';
+import { useLifePeriodOverrideStore, resolveLifePeriod, type LifePeriod, type OverrideValue, type OverrideDimension } from '../stores/lifePeriodOverrideStore';
 import AmountInput from '../components/AmountInput';
 import { calcHistoryStats } from '../calculations/history';
 import { buildLifePeriodStats, suggestPeriod, isInconsistent, type LifePeriodStatRow } from '../calculations/lifePeriodStats';
@@ -761,7 +761,7 @@ function SubcategoryRow({ sub, items, total }: { sub: string; items: BillExpense
   );
 }
 
-function DayDetailPanel({ date, items, confirmedIds, isReviewed, onToggle, onMarkZero, onClear }: {
+function DayDetailPanel({ date, items, confirmedIds, isReviewed, onToggle, onMarkZero, onClear, resolveOverride }: {
   date: string;
   items: BillExpenseItem[];
   confirmedIds: string[];
@@ -769,12 +769,27 @@ function DayDetailPanel({ date, items, confirmedIds, isReviewed, onToggle, onMar
   onToggle: (id: string) => void;
   onMarkZero: () => void;
   onClear: () => void;
+  resolveOverride: (item: BillExpenseItem) => LifePeriod | null;
 }) {
   const withIds = useMemo(() => assignExpenseIds(items), [items]);
   const confirmedSet = useMemo(() => new Set(confirmedIds), [confirmedIds]);
-  const confirmedSum = withIds.reduce((s, { item, id }) => s + (confirmedSet.has(id) ? item.amount : 0), 0);
+  // override 命中 short → 视觉等同已勾；命中 long → 视觉等同未勾；无 override → 看 confirmedSet
+  const effectiveChecked = (item: BillExpenseItem, id: string): { checked: boolean; auto: LifePeriod | null } => {
+    const ov = resolveOverride(item);
+    if (ov === 'short') return { checked: true, auto: 'short' };
+    if (ov === 'long')  return { checked: false, auto: 'long' };
+    return { checked: confirmedSet.has(id), auto: null };
+  };
+  const confirmedSum = withIds.reduce((s, { item, id }) => {
+    const { checked } = effectiveChecked(item, id);
+    return s + (checked ? item.amount : 0);
+  }, 0);
+  const effectiveCount = withIds.reduce((c, { item, id }) => {
+    const { checked } = effectiveChecked(item, id);
+    return c + (checked ? 1 : 0);
+  }, 0);
   const totalSum = items.reduce((s, i) => s + i.amount, 0);
-  const isZeroSpend = isReviewed && confirmedSet.size === 0;
+  const isZeroSpend = isReviewed && effectiveCount === 0;
   if (withIds.length === 0) {
     return (
       <Card title={`${date} 当日账单`} subtitle={isZeroSpend ? '已确认当天 0 支出' : '当天无账单数据'}>
@@ -807,7 +822,7 @@ function DayDetailPanel({ date, items, confirmedIds, isReviewed, onToggle, onMar
       title={`${date} 当日账单`}
       subtitle={isZeroSpend
         ? `已确认 0/${withIds.length} 条 · 当天 0 支出`
-        : `已勾 ${confirmedSet.size}/${withIds.length} 条 · ¥${formatCurrency(confirmedSum)}/¥${formatCurrency(totalSum)}`}
+        : `已勾 ${effectiveCount}/${withIds.length} 条 · ¥${formatCurrency(confirmedSum)}/¥${formatCurrency(totalSum)}`}
     >
       <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
         <button
@@ -827,19 +842,42 @@ function DayDetailPanel({ date, items, confirmedIds, isReviewed, onToggle, onMar
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {withIds.map(({ item, id }) => {
-          const checked = confirmedSet.has(id);
+          const { checked, auto } = effectiveChecked(item, id);
+          const bg = auto
+            ? (auto === 'short' ? '#e8f0fe' : '#fff4e8')
+            : (checked ? '#e8f0fe' : '#f8f9fa');
           return (
-            <label key={id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, backgroundColor: checked ? '#e8f0fe' : '#f8f9fa', cursor: 'pointer', fontSize: 13 }}>
-              <input type="checkbox" checked={checked} onChange={() => onToggle(id)} style={{ width: 16, height: 16, accentColor: C.blue, cursor: 'pointer' }} />
+            <label
+              key={id}
+              title={auto ? '已被「长/短周期分类规则」覆盖，去设置修改' : ''}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8,
+                backgroundColor: bg, cursor: auto ? 'not-allowed' : 'pointer', fontSize: 13,
+                opacity: auto && auto === 'long' ? 0.7 : 1,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={!!auto}
+                onChange={() => { if (!auto) onToggle(id); }}
+                style={{ width: 16, height: 16, accentColor: auto === 'long' ? C.orange : C.blue, cursor: auto ? 'not-allowed' : 'pointer' }}
+              />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 500, color: '#202124', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {item.note || item.subcategory || item.category || '—'}
                 </div>
                 <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
                   {item.category}{item.subcategory ? ` · ${item.subcategory}` : ''}{item.tags ? ` · ${item.tags}` : ''}
+                  {auto && (
+                    <span style={{
+                      marginLeft: 6, padding: '1px 5px', borderRadius: 4, fontSize: 10, fontWeight: 600,
+                      backgroundColor: auto === 'short' ? '#1a73e8' : '#e8710a', color: '#fff',
+                    }}>📌 自动归{auto === 'short' ? '短' : '长'}</span>
+                  )}
                 </div>
               </div>
-              <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: checked ? C.blue : '#202124', flexShrink: 0 }}>¥{formatCurrency(item.amount)}</span>
+              <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: checked ? (auto === 'long' ? C.orange : C.blue) : '#202124', flexShrink: 0 }}>¥{formatCurrency(item.amount)}</span>
             </label>
           );
         })}
@@ -1946,6 +1984,7 @@ export default function CalendarPage() {
                 onToggle={(id) => toggleConfirmedExpense(selectedDay, id)}
                 onMarkZero={() => markConfirmedExpenseZero(selectedDay)}
                 onClear={() => clearConfirmedExpenseSelection(selectedDay)}
+                resolveOverride={(it) => resolveLifePeriod(it, lifePeriodOverrides)}
               />
             );
           })()}
