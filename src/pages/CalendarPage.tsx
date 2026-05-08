@@ -355,6 +355,10 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
     }
     return init;
   });
+  const [sharedUsdRate, setSharedUsdRate] = useState(() => {
+    const rate = existing?.investProfitComponents?.us?.rate ?? existing?.investProfitComponents?.usBond?.rate;
+    return rate !== undefined ? String(rate) : '';
+  });
   const [profitModalKey, setProfitModalKey] = useState<'us' | 'usBond' | null>(null);
   const { current: snapshotCurrent } = useSnapshotStore();
   const { config } = useConfigStore();
@@ -462,7 +466,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
       const c = usdComponents[k];
       if (!c) continue;
       const cny = parseFloat(c.cny);
-      const rate = parseFloat(c.rate);
+      const rate = parseFloat(sharedUsdRate);
       const usd = parseFloat(c.usd);
       if (isNaN(cny) || isNaN(rate) || isNaN(usd)) continue;
       out[k] = { cny, rate, usd };
@@ -493,7 +497,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
   useEffect(() => {
     if (isFirstSave.current) { isFirstSave.current = false; return; }
     handleSave();
-  }, [income, totalExpense, periodicLife, volatileLife, consumption, school, accProfit, majorExpenses, breakdown, breakdownProfit]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [income, totalExpense, periodicLife, volatileLife, consumption, school, accProfit, majorExpenses, breakdown, breakdownProfit, usdComponents, sharedUsdRate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fieldStyle: React.CSSProperties = {
     width: '100%', border: '1.5px solid #fbbf24', borderRadius: 8,
@@ -507,7 +511,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
     volatileLife, setVolatileLife, consumption, setConsumption, school, setSchool,
     accProfit, setAccProfit, investTotal,
     majorExpenses, breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
-    usdComponents, setUsdComponents, profitModalKey, setProfitModalKey,
+    usdComponents, setUsdComponents, sharedUsdRate, setSharedUsdRate, profitModalKey, setProfitModalKey,
     showBreakdown, setShowBreakdown, importMsg,
     surplus, investIncome, investMonthly, investAnnual, n,
     getBreakdownMonthlyProfit,
@@ -609,16 +613,18 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
 function UsdProfitModal({
   investKey,
   initial,
+  sharedRate,
   onCancel,
   onConfirm,
 }: {
   investKey: 'us' | 'usBond';
   initial?: { cny: string; rate: string; usd: string };
+  sharedRate: string;
   onCancel: () => void;
   onConfirm: (c: { cny: string; rate: string; usd: string }) => void;
 }) {
   const [cny, setCny] = useState(initial?.cny ?? '');
-  const [rate, setRate] = useState(initial?.rate ?? '');
+  const [rate, setRate] = useState(sharedRate || initial?.rate || '');
   const [usd, setUsd] = useState(initial?.usd ?? '');
   const refs = useRef<(HTMLInputElement | null)[]>([]);
   const total = (parseFloat(cny) || 0) + (parseFloat(rate) || 0) * (parseFloat(usd) || 0);
@@ -642,7 +648,7 @@ function UsdProfitModal({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {[
             { label: '人民币收益 (¥)', val: cny, set: setCny },
-            { label: '美元汇率',       val: rate, set: setRate },
+            { label: '美元汇率（美股/美债共用）', val: rate, set: setRate },
             { label: '美元收益 ($)',   val: usd, set: setUsd },
           ].map(({ label, val, set }, i, arr) => (
             <div key={label}>
@@ -684,6 +690,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
     getBreakdownMonthlyProfit,
     breakdownRefs, breakdownProfitRefs,
     usdComponents, profitModalKey, setProfitModalKey,
+    sharedUsdRate, setSharedUsdRate,
   } = state;
   return (
     <div>
@@ -775,15 +782,26 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
       {profitModalKey && (
         <UsdProfitModal
           investKey={profitModalKey}
-          initial={usdComponents[profitModalKey]}
+          initial={usdComponents[profitModalKey] ? { ...usdComponents[profitModalKey], rate: sharedUsdRate } : { cny: '', rate: sharedUsdRate, usd: '' }}
+          sharedRate={sharedUsdRate}
           onCancel={() => setProfitModalKey(null)}
           onConfirm={(c) => {
-            state.setUsdComponents((prev) => ({ ...prev, [profitModalKey]: c }));
-            const cny = parseFloat(c.cny) || 0;
+            const nextComponents = { ...usdComponents, [profitModalKey]: c };
+            setSharedUsdRate(c.rate);
             const rate = parseFloat(c.rate) || 0;
-            const usd = parseFloat(c.usd) || 0;
-            const total = Math.round((cny + rate * usd) * 100) / 100;
-            setBreakdownProfit((p) => ({ ...p, [profitModalKey]: String(total) }));
+            state.setUsdComponents(nextComponents);
+            setBreakdownProfit((p) => {
+              const next = { ...p };
+              for (const k of ['us', 'usBond'] as const) {
+                const item = nextComponents[k];
+                if (!item) continue;
+                const cny = parseFloat(item.cny) || 0;
+                const usd = parseFloat(item.usd) || 0;
+                const total = Math.round((cny + rate * usd) * 100) / 100;
+                next[k] = String(total);
+              }
+              return next;
+            });
             setProfitModalKey(null);
           }}
         />
