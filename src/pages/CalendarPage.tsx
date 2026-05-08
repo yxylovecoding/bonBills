@@ -368,11 +368,21 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
   };
 
   const n = (v: string) => parseFloat(v) || 0;
+  const nOrNull = (v: string | undefined) => {
+    if (v === undefined || v.trim() === '') return null;
+    const parsed = parseFloat(v);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
   const investTotal = INVEST_KEYS.reduce((sum, k) => sum + (parseFloat(breakdown[k] ?? '') || 0), 0);
   const surplus = n(income) - n(totalExpense);
   const investIncome = prevRecord ? n(accProfit) - (prevRecord.accumulatedProfit ?? 0) : null;
   const investMonthly = investIncome !== null && investTotal > 0 ? investIncome / investTotal : null;
   const investAnnual = investMonthly !== null ? investMonthly * 12 : null;
+  const getBreakdownMonthlyProfit = (k: keyof InvestHoldings) => {
+    const profit = nOrNull(breakdownProfit[k]);
+    const prevProfit = prevRecord?.investBreakdownProfit?.[k];
+    return profit !== null && prevProfit !== undefined && prevProfit !== null ? profit - prevProfit : null;
+  };
 
   const addMajor    = () => setMajorExpenses((p) => [...p, { type: '生活', name: '', amount: 0 }]);
   const removeMajor = (i: number) => setMajorExpenses((p) => p.filter((_, idx) => idx !== i));
@@ -500,6 +510,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
     usdComponents, setUsdComponents, profitModalKey, setProfitModalKey,
     showBreakdown, setShowBreakdown, importMsg,
     surplus, investIncome, investMonthly, investAnnual, n,
+    getBreakdownMonthlyProfit,
     mainFieldRefs, breakdownRefs, breakdownProfitRefs,
     copyHoldingsFromReconcile,
     addMajor, removeMajor, updateMajor, autoImportFromBills, handleSave,
@@ -670,6 +681,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
   const {
     showBreakdown, setShowBreakdown, copyHoldingsFromReconcile,
     breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
+    getBreakdownMonthlyProfit,
     breakdownRefs, breakdownProfitRefs,
     usdComponents, profitModalKey, setProfitModalKey,
   } = state;
@@ -697,59 +709,66 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 6, tableLayout: 'fixed' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid #e8eaed' }}>
-              <th style={{ textAlign: 'left', padding: '4px 0', color: C.sub, fontWeight: 500, width: '30%' }}>品类</th>
-              <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '35%' }}>持仓金额</th>
-              <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '35%' }}>累计收益</th>
+              <th style={{ textAlign: 'left', padding: '4px 0', color: C.sub, fontWeight: 500, width: '25%' }}>品类</th>
+              <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '25%' }}>持仓金额</th>
+              <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '25%' }}>累计收益</th>
+              <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '25%' }}>本月收益</th>
             </tr>
           </thead>
           <tbody>
-            {INVEST_KEYS.map((k, i) => (
-              <tr key={k} style={{ borderBottom: '1px solid #f1f3f4' }}>
-                <td style={{ padding: '5px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', backgroundColor: investMeta[k].color, flexShrink: 0 }} />
-                  {investMeta[k].label}
-                </td>
-                <td style={{ padding: '4px 0', textAlign: 'right' }}>
-                  <AmountInput
-                    ref={(el) => { breakdownRefs.current[i] = el; }}
-                    value={breakdown[k] ?? ''} placeholder="0"
-                    onChange={(v) => setBreakdown((p) => ({ ...p, [k]: v }))}
-                    onKeyDown={(e) => {
-                      if (e.key !== 'Enter') return;
-                      e.preventDefault();
-                      if (i < INVEST_KEYS.length - 1) breakdownRefs.current[i + 1]?.focus();
-                      else breakdownProfitRefs.current[0]?.focus();
-                    }}
-                    style={{ width: '90%', border: 'none', borderBottom: '1px solid #fbbf24', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0' }}
-                  />
-                </td>
-                <td style={{ padding: '4px 0', textAlign: 'right' }}>
-                  {(k === 'us' || k === 'usBond') ? (
-                    <button
-                      type="button"
-                      onClick={() => setProfitModalKey(k)}
-                      style={{ width: '90%', border: 'none', borderBottom: `1px dashed ${C.blue}`, background: 'transparent', cursor: 'pointer', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0', color: C.blue }}
-                      title="点击拆分为人民币 + 汇率 × 美元"
-                    >
-                      {breakdownProfit[k] && breakdownProfit[k] !== '0' && breakdownProfit[k] !== '' ? breakdownProfit[k] : '—'}
-                    </button>
-                  ) : (
+            {INVEST_KEYS.map((k, i) => {
+              const monthlyProfit = getBreakdownMonthlyProfit(k);
+              return (
+                <tr key={k} style={{ borderBottom: '1px solid #f1f3f4' }}>
+                  <td style={{ padding: '5px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', backgroundColor: investMeta[k].color, flexShrink: 0 }} />
+                    {investMeta[k].label}
+                  </td>
+                  <td style={{ padding: '4px 0', textAlign: 'right' }}>
                     <AmountInput
-                      ref={(el) => { breakdownProfitRefs.current[i] = el; }}
-                      value={breakdownProfit[k] ?? ''} placeholder="0"
-                      onChange={(v) => setBreakdownProfit((p) => ({ ...p, [k]: v }))}
+                      ref={(el) => { breakdownRefs.current[i] = el; }}
+                      value={breakdown[k] ?? ''} placeholder="0"
+                      onChange={(v) => setBreakdown((p) => ({ ...p, [k]: v }))}
                       onKeyDown={(e) => {
                         if (e.key !== 'Enter') return;
                         e.preventDefault();
-                        if (i < INVEST_KEYS.length - 1) breakdownProfitRefs.current[i + 1]?.focus();
-                        else e.currentTarget.blur();
+                        if (i < INVEST_KEYS.length - 1) breakdownRefs.current[i + 1]?.focus();
+                        else breakdownProfitRefs.current[0]?.focus();
                       }}
-                      style={{ width: '90%', border: 'none', borderBottom: `1px solid ${C.blue}`, outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0', color: C.blue }}
+                      style={{ width: '90%', border: 'none', borderBottom: '1px solid #fbbf24', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0' }}
                     />
-                  )}
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  <td style={{ padding: '4px 0', textAlign: 'right' }}>
+                    {(k === 'us' || k === 'usBond') ? (
+                      <button
+                        type="button"
+                        onClick={() => setProfitModalKey(k)}
+                        style={{ width: '90%', border: 'none', borderBottom: `1px dashed ${C.blue}`, background: 'transparent', cursor: 'pointer', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0', color: C.blue }}
+                        title="点击拆分为人民币 + 汇率 × 美元"
+                      >
+                        {breakdownProfit[k] && breakdownProfit[k] !== '0' && breakdownProfit[k] !== '' ? breakdownProfit[k] : '—'}
+                      </button>
+                    ) : (
+                      <AmountInput
+                        ref={(el) => { breakdownProfitRefs.current[i] = el; }}
+                        value={breakdownProfit[k] ?? ''} placeholder="0"
+                        onChange={(v) => setBreakdownProfit((p) => ({ ...p, [k]: v }))}
+                        onKeyDown={(e) => {
+                          if (e.key !== 'Enter') return;
+                          e.preventDefault();
+                          if (i < INVEST_KEYS.length - 1) breakdownProfitRefs.current[i + 1]?.focus();
+                          else e.currentTarget.blur();
+                        }}
+                        style={{ width: '90%', border: 'none', borderBottom: `1px solid ${C.blue}`, outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0', color: C.blue }}
+                      />
+                    )}
+                  </td>
+                  <td style={{ padding: '4px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: monthlyProfit !== null ? (monthlyProfit >= 0 ? C.red : C.green) : C.sub }}>
+                    {monthlyProfit !== null ? `${monthlyProfit >= 0 ? '+' : ''}${Math.round(monthlyProfit)}` : '—'}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}
@@ -1155,6 +1174,7 @@ function MonthRow({ record, prev, onJumpToMonth, expenseItems }: { record: Month
                       <th style={{ textAlign: 'left',  padding: '3px 0', color: C.sub, fontWeight: 500 }}>品类</th>
                       <th style={{ textAlign: 'right', padding: '3px 0', color: C.sub, fontWeight: 500 }}>持仓</th>
                       <th style={{ textAlign: 'right', padding: '3px 0', color: C.sub, fontWeight: 500 }}>累计收益</th>
+                      <th style={{ textAlign: 'right', padding: '3px 0', color: C.sub, fontWeight: 500 }}>本月收益</th>
                       <th style={{ textAlign: 'right', padding: '3px 0', color: C.sub, fontWeight: 500 }}>收益率</th>
                     </tr>
                   </thead>
@@ -1174,6 +1194,9 @@ function MonthRow({ record, prev, onJumpToMonth, expenseItems }: { record: Month
                           <td style={{ padding: '4px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(cur)}</td>
                           <td style={{ padding: '4px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: profit !== null ? (profit >= 0 ? C.red : C.green) : C.sub }}>
                             {profit !== null ? `${profit >= 0 ? '+' : ''}${Math.round(profit)}` : '—'}
+                          </td>
+                          <td style={{ padding: '4px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: monthlyProfit !== null ? (monthlyProfit >= 0 ? C.red : C.green) : C.sub }}>
+                            {monthlyProfit !== null ? `${monthlyProfit >= 0 ? '+' : ''}${Math.round(monthlyProfit)}` : '—'}
                           </td>
                           <td style={{ padding: '4px 0', textAlign: 'right', color: rate !== null ? (rate >= 0 ? C.red : C.green) : C.sub }}>
                             {rate !== null ? `${rate >= 0 ? '+' : ''}${(rate * 100).toFixed(1)}%` : '—'}

@@ -69,12 +69,22 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
   const [showBreakdown, setShowBreakdown] = useState(false);
 
   const n = (v: string) => parseFloat(v) || 0;
+  const nOrNull = (v: string | undefined) => {
+    if (v === undefined || v.trim() === '') return null;
+    const parsed = parseFloat(v);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
 
   // 自动计算
   const surplus      = n(income) - n(totalExpense);
   const investIncome = prevRecord ? n(accProfit) - (prevRecord.accumulatedProfit ?? 0) : null;
   const investAnnual = investIncome !== null && n(investTotal) > 0
     ? (investIncome / n(investTotal)) * 12 : null;
+  const getBreakdownMonthlyProfit = (k: keyof InvestHoldings) => {
+    const profit = nOrNull(breakdownProfit[k]);
+    const prevProfit = prevRecord?.investBreakdownProfit?.[k];
+    return profit !== null && prevProfit !== undefined && prevProfit !== null ? profit - prevProfit : null;
+  };
 
   const addMajor = () => setMajorExpenses((p) => [...p, { type: '生活', name: '', amount: 0 }]);
   const removeMajor = (i: number) => setMajorExpenses((p) => p.filter((_, idx) => idx !== i));
@@ -163,34 +173,41 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 6, tableLayout: 'fixed' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid #e8eaed' }}>
-                <th style={{ textAlign: 'left', padding: '4px 0', color: C.sub, fontWeight: 500, width: '30%' }}>品类</th>
-                <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '35%' }}>持仓金额</th>
-                <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '35%' }}>累计收益</th>
+                <th style={{ textAlign: 'left', padding: '4px 0', color: C.sub, fontWeight: 500, width: '25%' }}>品类</th>
+                <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '25%' }}>持仓金额</th>
+                <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '25%' }}>累计收益</th>
+                <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '25%' }}>本月收益</th>
               </tr>
             </thead>
             <tbody>
-              {INVEST_KEYS.map((k) => (
-                <tr key={k} style={{ borderBottom: '1px solid #f1f3f4' }}>
-                  <td style={{ padding: '5px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', backgroundColor: investMeta[k].color, flexShrink: 0 }} />
-                    {investMeta[k].label}
-                  </td>
-                  <td style={{ padding: '4px 0', textAlign: 'right' }}>
-                    <AmountInput
-                      value={breakdown[k] ?? ''} placeholder="0"
-                      onChange={(v) => setBreakdown((p) => ({ ...p, [k]: v }))}
-                      style={{ width: '90%', border: 'none', borderBottom: '1px solid #fbbf24', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0' }}
-                    />
-                  </td>
-                  <td style={{ padding: '4px 0', textAlign: 'right' }}>
-                    <AmountInput
-                      value={breakdownProfit[k] ?? ''} placeholder="0"
-                      onChange={(v) => setBreakdownProfit((p) => ({ ...p, [k]: v }))}
-                      style={{ width: '90%', border: 'none', borderBottom: `1px solid ${C.blue}`, outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0', color: C.blue }}
-                    />
-                  </td>
-                </tr>
-              ))}
+              {INVEST_KEYS.map((k) => {
+                const monthlyProfit = getBreakdownMonthlyProfit(k);
+                return (
+                  <tr key={k} style={{ borderBottom: '1px solid #f1f3f4' }}>
+                    <td style={{ padding: '5px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', backgroundColor: investMeta[k].color, flexShrink: 0 }} />
+                      {investMeta[k].label}
+                    </td>
+                    <td style={{ padding: '4px 0', textAlign: 'right' }}>
+                      <AmountInput
+                        value={breakdown[k] ?? ''} placeholder="0"
+                        onChange={(v) => setBreakdown((p) => ({ ...p, [k]: v }))}
+                        style={{ width: '90%', border: 'none', borderBottom: '1px solid #fbbf24', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0' }}
+                      />
+                    </td>
+                    <td style={{ padding: '4px 0', textAlign: 'right' }}>
+                      <AmountInput
+                        value={breakdownProfit[k] ?? ''} placeholder="0"
+                        onChange={(v) => setBreakdownProfit((p) => ({ ...p, [k]: v }))}
+                        style={{ width: '90%', border: 'none', borderBottom: `1px solid ${C.blue}`, outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0', color: C.blue }}
+                      />
+                    </td>
+                    <td style={{ padding: '4px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: monthlyProfit !== null ? (monthlyProfit >= 0 ? C.red : C.green) : C.sub }}>
+                      {monthlyProfit !== null ? `${monthlyProfit >= 0 ? '+' : ''}${Math.round(monthlyProfit)}` : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -307,6 +324,7 @@ function MonthRow({ record, prev }: { record: MonthlyRecord; prev?: MonthlyRecor
                       <th style={{ textAlign: 'left', padding: '3px 0', color: C.sub, fontWeight: 500 }}>品类</th>
                       <th style={{ textAlign: 'right', padding: '3px 0', color: C.sub, fontWeight: 500 }}>持仓</th>
                       <th style={{ textAlign: 'right', padding: '3px 0', color: C.sub, fontWeight: 500 }}>累计收益</th>
+                      <th style={{ textAlign: 'right', padding: '3px 0', color: C.sub, fontWeight: 500 }}>本月收益</th>
                       <th style={{ textAlign: 'right', padding: '3px 0', color: C.sub, fontWeight: 500 }}>收益率</th>
                     </tr>
                   </thead>
@@ -314,8 +332,9 @@ function MonthRow({ record, prev }: { record: MonthlyRecord; prev?: MonthlyRecor
                     {INVEST_KEYS.filter((k) => (record.investBreakdown![k] ?? 0) > 0).map((k) => {
                       const cur = record.investBreakdown![k] ?? 0;
                       const profit = record.investBreakdownProfit?.[k] ?? null;
-                      const costBasis = profit !== null ? cur - profit : null;
-                      const rate = costBasis !== null && costBasis > 0 ? profit! / costBasis : null;
+                      const prevProfit = prev?.investBreakdownProfit?.[k] ?? null;
+                      const monthlyProfit = (profit !== null && prevProfit !== null) ? profit - prevProfit : null;
+                      const rate = (monthlyProfit !== null && cur > 0) ? monthlyProfit / cur : null;
                       return (
                         <tr key={k} style={{ borderBottom: '1px solid #f5f5f5' }}>
                           <td style={{ padding: '4px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -325,6 +344,9 @@ function MonthRow({ record, prev }: { record: MonthlyRecord; prev?: MonthlyRecor
                           <td style={{ padding: '4px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(cur)}</td>
                           <td style={{ padding: '4px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: profit !== null ? (profit >= 0 ? C.red : C.green) : C.sub }}>
                             {profit !== null ? `${profit >= 0 ? '+' : ''}${Math.round(profit)}` : '—'}
+                          </td>
+                          <td style={{ padding: '4px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: monthlyProfit !== null ? (monthlyProfit >= 0 ? C.red : C.green) : C.sub }}>
+                            {monthlyProfit !== null ? `${monthlyProfit >= 0 ? '+' : ''}${Math.round(monthlyProfit)}` : '—'}
                           </td>
                           <td style={{ padding: '4px 0', textAlign: 'right', color: rate !== null ? (rate >= 0 ? C.red : C.green) : C.sub }}>
                             {rate !== null ? `${rate >= 0 ? '+' : ''}${(rate * 100).toFixed(1)}%` : '—'}
