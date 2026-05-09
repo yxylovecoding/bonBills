@@ -24,6 +24,7 @@ import { getPayrollScheduleForMonth } from '../utils/payroll';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', border: '#e0e0e0', weekend: '#ea4335', orange: '#e8710a' };
 const CN_MONTH = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
 const WEEK_HEADERS = ['一', '二', '三', '四', '五', '六', '日'];
+const HISTORY_GRID_COLUMNS = '64px 1fr 1fr 1fr 88px';
 
 // ── Calendar helpers ──────────────────────────────────────────────
 function pad(n: number) { return String(n).padStart(2, '0'); }
@@ -43,6 +44,10 @@ function getRange(a: string, b: string): string[] {
     cur.setDate(cur.getDate() + 1);
   }
   return result;
+}
+
+function formatSignedCurrency(value: number) {
+  return `${value >= 0 ? '+' : '-'}¥${formatCurrency(Math.abs(value))}`;
 }
 
 // ── Bill tag detail helpers ───────────────────────────────────────
@@ -428,6 +433,11 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
       setImportMsg('无≥500条目'); setTimeout(() => setImportMsg(''), 2000); return;
     }
     topTags.sort((a, b) => tagTotals.get(b)! - tagTotals.get(a)!);
+    const noteByKey = new Map(
+      majorExpenses
+        .filter((e) => e.note && e.note.trim())
+        .map((e) => [`${e.type}|${e.name}`, e.note!.trim()]),
+    );
     const suggested: MajorExpense[] = topTags.map(tag => {
       let lifeAmt = 0, consumeAmt = 0;
       for (const i of tagIndices.get(tag)!) {
@@ -437,7 +447,8 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
         if (itemTags.includes('波动生活') || itemTags.includes('周期生活')) lifeAmt += item.amount;
       }
       const type: '生活' | '消费' = consumeAmt > lifeAmt ? '消费' : '生活';
-      return { type, name: tag, amount: Math.round(tagTotals.get(tag)! * 100) / 100 };
+      const note = noteByKey.get(`${type}|${tag}`) ?? noteByKey.get(`生活|${tag}`) ?? noteByKey.get(`消费|${tag}`);
+      return { type, name: tag, amount: Math.round(tagTotals.get(tag)! * 100) / 100, ...(note ? { note } : {}) };
     });
     setMajorExpenses(suggested);
     // 立即保存到 store 并上传服务器
@@ -1139,7 +1150,7 @@ function MonthRow({ record, prev, onJumpToMonth, expenseItems }: { record: Month
       <button
         onClick={() => setOpen((o) => !o)}
         style={{
-          width: '100%', display: 'grid', gridTemplateColumns: '64px 1fr 1fr 1fr 56px',
+          width: '100%', display: 'grid', gridTemplateColumns: HISTORY_GRID_COLUMNS,
           alignItems: 'center', padding: '12px 10px', borderRadius: 10, border: 'none',
           backgroundColor: open ? '#e8f0fe' : '#fafafa', cursor: 'pointer',
           textAlign: 'left', transition: 'background-color 0.15s',
@@ -1298,12 +1309,13 @@ function MonthRow({ record, prev, onJumpToMonth, expenseItems }: { record: Month
             <div style={{ borderTop: '1px solid #dbe8fb', paddingTop: 10, marginTop: 8 }}>
               <div style={{ fontSize: 12, color: C.sub, marginBottom: 6 }}>大额支出</div>
               {record.majorExpenses.map((e, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '3px 0' }}>
-                  <span>
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13, padding: '3px 0' }}>
+                  <span style={{ minWidth: 0 }}>
                     <span style={{ display: 'inline-block', padding: '1px 6px', borderRadius: 4, fontSize: 11, marginRight: 6, backgroundColor: e.type === '生活' ? '#e8f0fe' : '#f3e8fd', color: e.type === '生活' ? C.blue : C.purple }}>{e.type}</span>
                     {e.name}
+                    {e.note && <span style={{ color: C.sub, fontSize: 12, marginLeft: 6 }}>{e.note}</span>}
                   </span>
-                  <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>¥{formatCurrency(e.amount)}</span>
+                  <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, flexShrink: 0 }}>¥{formatCurrency(e.amount)}</span>
                 </div>
               ))}
             </div>
@@ -1314,8 +1326,26 @@ function MonthRow({ record, prev, onJumpToMonth, expenseItems }: { record: Month
   );
 }
 
+type YearProfitMode = 'rate' | 'amount';
+
 // ── YearSection ───────────────────────────────────────────────────
-function YearSection({ year, recs, allRecords, onJumpToMonth, expenseItemsByMonth }: { year: string; recs: MonthlyRecord[]; allRecords: MonthlyRecord[]; onJumpToMonth?: (ym: string) => void; expenseItemsByMonth?: Record<string, BillExpenseMonth> }) {
+function YearSection({
+  year,
+  recs,
+  allRecords,
+  yearProfitMode,
+  onToggleYearProfitMode,
+  onJumpToMonth,
+  expenseItemsByMonth,
+}: {
+  year: string;
+  recs: MonthlyRecord[];
+  allRecords: MonthlyRecord[];
+  yearProfitMode: YearProfitMode;
+  onToggleYearProfitMode: () => void;
+  onJumpToMonth?: (ym: string) => void;
+  expenseItemsByMonth?: Record<string, BillExpenseMonth>;
+}) {
   const currentYear = String(_NOW.getFullYear());
   const [expanded, setExpanded] = useState(year === currentYear);
   const totalIncome  = recs.reduce((s, r) => s + r.income, 0);
@@ -1324,20 +1354,25 @@ function YearSection({ year, recs, allRecords, onJumpToMonth, expenseItemsByMont
   const hasMonths = `${year}-01` >= YEARLY_ONLY_BEFORE;
 
   // 年度收益率：每月收益率（=本月收益/本月理财额）之和
+  const monthlyProfits = recs.map(r => {
+    const prev = allRecords.find(x => x.yearMonth === prevYearMonth(r.yearMonth));
+    return prev ? r.accumulatedProfit - (prev.accumulatedProfit ?? 0) : null;
+  }).filter((x): x is number => x !== null);
   const monthlyRates = recs.map(r => {
     const prev = allRecords.find(x => x.yearMonth === prevYearMonth(r.yearMonth));
     if (!prev || r.investTotal <= 0) return null;
-    const investIncome = r.accumulatedProfit - (prev.accumulatedProfit ?? 0);
-    return investIncome / r.investTotal;
+    return (r.accumulatedProfit - (prev.accumulatedProfit ?? 0)) / r.investTotal;
   }).filter((x): x is number => x !== null);
   const yearRate = monthlyRates.length > 0 ? monthlyRates.reduce((a, b) => a + b, 0) : null;
+  const yearProfitAmount = monthlyProfits.length > 0 ? monthlyProfits.reduce((a, b) => a + b, 0) : null;
+  const yearProfitValue = yearProfitMode === 'rate' ? yearRate : yearProfitAmount;
 
   return (
     <div style={{ marginBottom: 4 }}>
       <button
         onClick={() => setExpanded((o) => !o)}
         style={{
-          width: '100%', display: 'grid', gridTemplateColumns: '64px 1fr 1fr 1fr 56px',
+          width: '100%', display: 'grid', gridTemplateColumns: HISTORY_GRID_COLUMNS,
           alignItems: 'center', padding: '12px 10px', borderRadius: 10, border: 'none',
           backgroundColor: expanded ? '#e8f0fe' : '#f1f3f4', cursor: 'pointer',
           textAlign: 'left', transition: 'background-color 0.15s',
@@ -1349,8 +1384,25 @@ function YearSection({ year, recs, allRecords, onJumpToMonth, expenseItemsByMont
         <span style={{ fontSize: 13, fontWeight: 600, color: surplus >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
           {surplus >= 0 ? '+' : '-'}{formatCurrency(Math.abs(surplus))}
         </span>
-        <span style={{ fontSize: 12, fontWeight: 600, color: yearRate !== null ? (yearRate >= 0 ? C.red : C.green) : C.sub, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
-          {yearRate !== null ? `${(yearRate * 100).toFixed(1)}%` : '—'}
+        <span
+          role="button"
+          tabIndex={0}
+          title={yearProfitMode === 'rate' ? '点击切换为收益金额' : '点击切换为收益率'}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleYearProfitMode();
+          }}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            e.preventDefault();
+            e.stopPropagation();
+            onToggleYearProfitMode();
+          }}
+          style={{ fontSize: 12, fontWeight: 600, color: yearProfitValue !== null ? (yearProfitValue >= 0 ? C.red : C.green) : C.sub, fontVariantNumeric: 'tabular-nums', textAlign: 'right', cursor: 'pointer' }}
+        >
+          {yearProfitMode === 'rate'
+            ? (yearRate !== null ? `${(yearRate * 100).toFixed(1)}%` : '—')
+            : (yearProfitAmount !== null ? formatSignedCurrency(yearProfitAmount) : '—')}
         </span>
       </button>
       {expanded && (
@@ -1398,6 +1450,8 @@ export default function CalendarPage() {
 
   // ── History state ──
   const [formOpen, setFormOpen] = useState(false);
+  const [yearProfitMode, setYearProfitMode] = useState<YearProfitMode>('rate');
+  const toggleYearProfitMode = () => setYearProfitMode((m) => m === 'rate' ? 'amount' : 'rate');
 
   // ── Stores ──
   const { tagMap, setTag, toggleTag, countByTag, bulkFillSchool, confirmedExpenses, toggleConfirmedExpense, markConfirmedExpenseZero, clearConfirmedExpenseSelection } = useCalendarStore();
@@ -1666,12 +1720,19 @@ export default function CalendarPage() {
   }, [records, year, _now]);
 
   const tableHeader = (
-    <div style={{ display: 'grid', gridTemplateColumns: '64px 1fr 1fr 1fr 56px', padding: '6px 10px', fontSize: 11, color: C.sub, fontWeight: 500, marginBottom: 4 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: HISTORY_GRID_COLUMNS, padding: '6px 10px', fontSize: 11, color: C.sub, fontWeight: 500, marginBottom: 4 }}>
       <span>年/月</span>
       <span style={{ textAlign: 'right' }}>收入</span>
       <span style={{ textAlign: 'right' }}>支出</span>
       <span style={{ textAlign: 'right' }}>结余</span>
-      <span style={{ textAlign: 'right' }}>收益率</span>
+      <button
+        type="button"
+        onClick={toggleYearProfitMode}
+        title={yearProfitMode === 'rate' ? '点击切换为收益金额' : '点击切换为收益率'}
+        style={{ textAlign: 'right', color: C.sub, font: 'inherit', fontWeight: 500, border: 'none', background: 'transparent', padding: 0, cursor: 'pointer' }}
+      >
+        {yearProfitMode === 'rate' ? '收益率' : '收益'}
+      </button>
     </div>
   );
 
@@ -2212,7 +2273,16 @@ export default function CalendarPage() {
           <Card title="历史明细" subtitle="点击年份展开月度">
             {tableHeader}
             {years.map(([yr, recs]) => (
-              <YearSection key={yr} year={yr} recs={recs} allRecords={records} onJumpToMonth={handleJumpToMonth} expenseItemsByMonth={billExpenseItems} />
+              <YearSection
+                key={yr}
+                year={yr}
+                recs={recs}
+                allRecords={records}
+                yearProfitMode={yearProfitMode}
+                onToggleYearProfitMode={toggleYearProfitMode}
+                onJumpToMonth={handleJumpToMonth}
+                expenseItemsByMonth={billExpenseItems}
+              />
             ))}
           </Card>
         </>
