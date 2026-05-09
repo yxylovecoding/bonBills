@@ -344,7 +344,6 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
   const schoolDays = tagCounts.school > 0 ? tagCounts.school : (existing?.schoolDays ?? 0);
   const internDays = tagCounts.intern > 0 ? tagCounts.intern : (existing?.internDays ?? 0);
 
-  const [majorExpenses, setMajorExpenses] = useState<MajorExpense[]>(existing?.majorExpenses ?? []);
   const [majorExpensesNote, setMajorExpensesNote] = useState<string>(existing?.majorExpensesNote ?? '');
   const [breakdown, setBreakdown] = useState<Partial<Record<keyof InvestHoldings, string>>>(
     () => Object.fromEntries(INVEST_KEYS.map((k) => [k, String(existing?.investBreakdown?.[k] ?? '')])) as Record<keyof InvestHoldings, string>
@@ -394,15 +393,9 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
     return profit !== null && prevProfit !== undefined && prevProfit !== null ? profit - prevProfit : null;
   };
 
-  const addMajor    = () => setMajorExpenses((p) => [...p, { type: '生活', name: '', amount: 0 }]);
-  const removeMajor = (i: number) => setMajorExpenses((p) => p.filter((_, idx) => idx !== i));
-  const updateMajor = (i: number, patch: Partial<MajorExpense>) =>
-    setMajorExpenses((p) => p.map((e, idx) => idx === i ? { ...e, ...patch } : e));
-
-  const [importMsg, setImportMsg] = useState('');
-  const autoImportFromBills = () => {
+  const majorExpenses = useMemo<MajorExpense[]>(() => {
     if (!expenseItems || expenseItems.length === 0) {
-      setImportMsg('无账单数据'); setTimeout(() => setImportMsg(''), 2000); return;
+      return existing?.majorExpenses ?? [];
     }
     // 按标签聚合：统计每个标签对应的条目集合与总金额
     const tagIndices = new Map<string, Set<number>>();
@@ -413,15 +406,14 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
         tagIndices.get(tag)!.add(i);
       }
     }
-    // 过滤：排除指定宽泛标签，只保留总额 ≥ 500 的标签
+    const threshold = config.majorExpenseThreshold ?? 500;
     const tagTotals = new Map<string, number>();
     for (const [tag, idxs] of tagIndices) {
       if (MAJOR_EXCLUDED_TAGS.includes(tag)) continue;
       const total = [...idxs].reduce((s, i) => s + expenseItems[i].amount, 0);
-      const threshold = config.majorExpenseThreshold ?? 500;
       if (total >= threshold) tagTotals.set(tag, total);
     }
-    // 去除子标签：若标签 B 的条目集合 ⊆ 标签 A 的条目集合，则 B 是子事件，不显示
+    // 去除子标签：若标签 B 的条目集合 ⊆ 标签 A 的条目集合，则 B 是子事件
     const topTags = [...tagTotals.keys()].filter(tag => {
       const myIdxs = tagIndices.get(tag)!;
       return ![...tagTotals.keys()].some(other => {
@@ -430,11 +422,8 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
         return [...myIdxs].every(i => otherIdxs.has(i));
       });
     });
-    if (topTags.length === 0) {
-      setImportMsg('无≥500条目'); setTimeout(() => setImportMsg(''), 2000); return;
-    }
     topTags.sort((a, b) => tagTotals.get(b)! - tagTotals.get(a)!);
-    const suggested: MajorExpense[] = topTags.map(tag => {
+    return topTags.map(tag => {
       let lifeAmt = 0, consumeAmt = 0;
       for (const i of tagIndices.get(tag)!) {
         const item = expenseItems[i];
@@ -445,27 +434,8 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
       const type: '生活' | '消费' = consumeAmt > lifeAmt ? '消费' : '生活';
       return { type, name: tag, amount: Math.round(tagTotals.get(tag)! * 100) / 100 };
     });
-    setMajorExpenses(suggested);
-    // 立即保存到 store 并上传服务器
-    const bd = Object.fromEntries(INVEST_KEYS.map((k) => [k, parseFloat(breakdown[k] ?? '') || 0])) as unknown as InvestHoldings;
-    const hasBreakdown = INVEST_KEYS.some((k) => (bd[k] || 0) > 0);
-    const bp = Object.fromEntries(INVEST_KEYS.map((k) => [k, parseFloat(breakdownProfit[k] ?? '') || 0])) as unknown as InvestHoldings;
-    const hasBreakdownProfit = INVEST_KEYS.some((k) => (bp[k] || 0) !== 0);
-    useMonthlyStore.getState().upsert({
-      yearMonth, income: n(income), totalExpense: n(totalExpense),
-      periodicLife: n(periodicLife), volatileLife: n(volatileLife),
-      consumption: n(consumption), school: n(school),
-      accumulatedProfit: n(accProfit), investTotal,
-      investBreakdown: hasBreakdown ? bd : undefined,
-      investBreakdownProfit: hasBreakdownProfit ? bp : undefined,
-      investProfitComponents: existing?.investProfitComponents,
-      homeDays, travelDays, schoolDays, internDays,
-      majorExpenses: suggested.filter((e) => e.name.trim()),
-      majorExpensesNote: majorExpensesNote.trim() || undefined,
-    });
-    triggerUpload();
-    setImportMsg(`已导入 ${topTags.length} 项`); setTimeout(() => setImportMsg(''), 2000);
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expenseItems, config.majorExpenseThreshold]);
 
   const buildProfitComponents = (): MonthlyRecord['investProfitComponents'] => {
     const out: NonNullable<MonthlyRecord['investProfitComponents']> = {};
@@ -520,12 +490,12 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
     accProfit, setAccProfit, investTotal,
     majorExpenses, majorExpensesNote, setMajorExpensesNote, breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
     usdComponents, setUsdComponents, sharedUsdRate, setSharedUsdRate, profitModalKey, setProfitModalKey,
-    showBreakdown, setShowBreakdown, importMsg,
+    showBreakdown, setShowBreakdown,
     surplus, investIncome, investMonthly, investAnnual, n,
     getBreakdownMonthlyProfit,
     mainFieldRefs, breakdownRefs, breakdownProfitRefs,
     copyHoldingsFromReconcile,
-    addMajor, removeMajor, updateMajor, autoImportFromBills, handleSave,
+    handleSave,
     fieldStyle, labelStyle,
   };
 }
@@ -819,14 +789,9 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
 }
 
 function MajorExpensesSection({ state }: { state: MonthFormState }) {
-  const { majorExpenses, majorExpensesNote, setMajorExpensesNote, importMsg, autoImportFromBills, addMajor, removeMajor, updateMajor, fieldStyle } = state;
+  const { majorExpenses, majorExpensesNote, setMajorExpensesNote, fieldStyle } = state;
   return (
     <div style={{ marginBottom: 12 }}>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-        {importMsg && <span style={{ fontSize: 11, color: C.sub }}>{importMsg}</span>}
-        <button onClick={autoImportFromBills} style={{ fontSize: 12, color: C.green, border: `1px solid ${C.green}`, borderRadius: 6, padding: '3px 10px', backgroundColor: '#fff', cursor: 'pointer' }}>↓ 从账单</button>
-        <button onClick={addMajor} style={{ fontSize: 12, color: C.blue, border: `1px solid ${C.blue}`, borderRadius: 6, padding: '3px 10px', backgroundColor: '#fff', cursor: 'pointer' }}>+ 添加</button>
-      </div>
       {(() => {
         const amounts = majorExpenses.map((x) => x.amount || 0);
         const maxAmt = Math.max(0, ...amounts);
@@ -841,17 +806,10 @@ function MajorExpensesSection({ state }: { state: MonthFormState }) {
         const amtColor = amt > 0 ? `hsl(${hue}, 70%, 30%)` : '#202124';
         const typeColor = e.type === '生活' ? C.blue : C.purple;
         return (
-        <div key={i} style={{ display: 'grid', gridTemplateColumns: '46px 1fr 76px 24px', gap: 5, marginBottom: 6, alignItems: 'center' }}>
-          <select value={e.type} onChange={(ev) => updateMajor(i, { type: ev.target.value as '生活' | '消费' })}
-            style={{ border: `1.5px solid ${typeColor}`, borderRadius: 6, padding: '6px 2px', fontSize: 11, outline: 'none', color: typeColor, fontWeight: 600, backgroundColor: `${typeColor}12` }}>
-            <option value="生活">生活</option>
-            <option value="消费">消费</option>
-          </select>
-          <input type="text" value={e.name} onChange={(ev) => updateMajor(i, { name: ev.target.value })} placeholder="项目名称" style={{ ...fieldStyle, padding: '6px 8px' }} />
-          <AmountInput value={e.amount ? String(Math.round(e.amount)) : ''} onChange={(v) => updateMajor(i, { amount: Math.round(parseFloat(v) || 0) })} placeholder="金额"
-            style={{ ...fieldStyle, padding: '6px 8px', backgroundColor: amtBg, borderColor: amtBorder, color: amtColor, fontWeight: 600, transition: 'background-color 0.2s, border-color 0.2s, color 0.2s' }}
-          />
-          <button onClick={() => removeMajor(i)} style={{ color: C.red, border: 'none', background: 'none', fontSize: 16, cursor: 'pointer', padding: 0 }}>×</button>
+        <div key={i} style={{ display: 'grid', gridTemplateColumns: '46px 1fr 76px', gap: 5, marginBottom: 6, alignItems: 'center' }}>
+          <span style={{ border: `1.5px solid ${typeColor}`, borderRadius: 6, padding: '6px 2px', fontSize: 11, color: typeColor, fontWeight: 600, backgroundColor: `${typeColor}12`, textAlign: 'center' }}>{e.type}</span>
+          <span style={{ fontSize: 13, padding: '6px 8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.name}</span>
+          <span style={{ ...fieldStyle, padding: '6px 8px', backgroundColor: amtBg, borderColor: amtBorder, color: amtColor, fontWeight: 600, textAlign: 'right', display: 'block' }}>{amt ? Math.round(amt) : ''}</span>
         </div>
         );
         });
