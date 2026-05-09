@@ -70,7 +70,6 @@ export interface MajorExpense {
   type: '生活' | '消费';
   name: string;
   amount: number;
-  note?: string;
 }
 
 export interface MonthlyRecord {
@@ -87,6 +86,7 @@ export interface MonthlyRecord {
   consumption: number;
   school: number;
   majorExpenses?: MajorExpense[];
+  majorExpensesNote?: string;
   // 从日历聚合
   homeDays: number;
   travelDays: number;

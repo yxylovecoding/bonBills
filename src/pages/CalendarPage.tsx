@@ -345,6 +345,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
   const internDays = tagCounts.intern > 0 ? tagCounts.intern : (existing?.internDays ?? 0);
 
   const [majorExpenses, setMajorExpenses] = useState<MajorExpense[]>(existing?.majorExpenses ?? []);
+  const [majorExpensesNote, setMajorExpensesNote] = useState<string>(existing?.majorExpensesNote ?? '');
   const [breakdown, setBreakdown] = useState<Partial<Record<keyof InvestHoldings, string>>>(
     () => Object.fromEntries(INVEST_KEYS.map((k) => [k, String(existing?.investBreakdown?.[k] ?? '')])) as Record<keyof InvestHoldings, string>
   );
@@ -433,11 +434,6 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
       setImportMsg('无≥500条目'); setTimeout(() => setImportMsg(''), 2000); return;
     }
     topTags.sort((a, b) => tagTotals.get(b)! - tagTotals.get(a)!);
-    const noteByKey = new Map(
-      majorExpenses
-        .filter((e) => e.note && e.note.trim())
-        .map((e) => [`${e.type}|${e.name}`, e.note!.trim()]),
-    );
     const suggested: MajorExpense[] = topTags.map(tag => {
       let lifeAmt = 0, consumeAmt = 0;
       for (const i of tagIndices.get(tag)!) {
@@ -447,8 +443,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
         if (itemTags.includes('波动生活') || itemTags.includes('周期生活')) lifeAmt += item.amount;
       }
       const type: '生活' | '消费' = consumeAmt > lifeAmt ? '消费' : '生活';
-      const note = noteByKey.get(`${type}|${tag}`) ?? noteByKey.get(`生活|${tag}`) ?? noteByKey.get(`消费|${tag}`);
-      return { type, name: tag, amount: Math.round(tagTotals.get(tag)! * 100) / 100, ...(note ? { note } : {}) };
+      return { type, name: tag, amount: Math.round(tagTotals.get(tag)! * 100) / 100 };
     });
     setMajorExpenses(suggested);
     // 立即保存到 store 并上传服务器
@@ -466,6 +461,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
       investProfitComponents: existing?.investProfitComponents,
       homeDays, travelDays, schoolDays, internDays,
       majorExpenses: suggested.filter((e) => e.name.trim()),
+      majorExpensesNote: majorExpensesNote.trim() || undefined,
     });
     triggerUpload();
     setImportMsg(`已导入 ${topTags.length} 项`); setTimeout(() => setImportMsg(''), 2000);
@@ -500,6 +496,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
       investProfitComponents: buildProfitComponents(),
       homeDays, travelDays, schoolDays, internDays,
       majorExpenses: majorExpenses.filter((e) => e.name.trim()),
+      majorExpensesNote: majorExpensesNote.trim() || undefined,
     });
   };
 
@@ -508,7 +505,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
   useEffect(() => {
     if (isFirstSave.current) { isFirstSave.current = false; return; }
     handleSave();
-  }, [income, totalExpense, periodicLife, volatileLife, consumption, school, accProfit, majorExpenses, breakdown, breakdownProfit, usdComponents, sharedUsdRate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [income, totalExpense, periodicLife, volatileLife, consumption, school, accProfit, majorExpenses, majorExpensesNote, breakdown, breakdownProfit, usdComponents, sharedUsdRate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fieldStyle: React.CSSProperties = {
     width: '100%', border: '1.5px solid #fbbf24', borderRadius: 8,
@@ -521,7 +518,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
     income, setIncome, totalExpense, setTotalExpense, periodicLife, setPeriodicLife,
     volatileLife, setVolatileLife, consumption, setConsumption, school, setSchool,
     accProfit, setAccProfit, investTotal,
-    majorExpenses, breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
+    majorExpenses, majorExpensesNote, setMajorExpensesNote, breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
     usdComponents, setUsdComponents, sharedUsdRate, setSharedUsdRate, profitModalKey, setProfitModalKey,
     showBreakdown, setShowBreakdown, importMsg,
     surplus, investIncome, investMonthly, investAnnual, n,
@@ -822,7 +819,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
 }
 
 function MajorExpensesSection({ state }: { state: MonthFormState }) {
-  const { majorExpenses, importMsg, autoImportFromBills, addMajor, removeMajor, updateMajor, fieldStyle } = state;
+  const { majorExpenses, majorExpensesNote, setMajorExpensesNote, importMsg, autoImportFromBills, addMajor, removeMajor, updateMajor, fieldStyle } = state;
   return (
     <div style={{ marginBottom: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6, marginBottom: 8 }}>
@@ -844,7 +841,7 @@ function MajorExpensesSection({ state }: { state: MonthFormState }) {
         const amtColor = amt > 0 ? `hsl(${hue}, 70%, 30%)` : '#202124';
         const typeColor = e.type === '生活' ? C.blue : C.purple;
         return (
-        <div key={i} style={{ display: 'grid', gridTemplateColumns: '46px 1fr 76px 1fr 24px', gap: 5, marginBottom: 6, alignItems: 'center' }}>
+        <div key={i} style={{ display: 'grid', gridTemplateColumns: '46px 1fr 76px 24px', gap: 5, marginBottom: 6, alignItems: 'center' }}>
           <select value={e.type} onChange={(ev) => updateMajor(i, { type: ev.target.value as '生活' | '消费' })}
             style={{ border: `1.5px solid ${typeColor}`, borderRadius: 6, padding: '6px 2px', fontSize: 11, outline: 'none', color: typeColor, fontWeight: 600, backgroundColor: `${typeColor}12` }}>
             <option value="生活">生活</option>
@@ -854,12 +851,35 @@ function MajorExpensesSection({ state }: { state: MonthFormState }) {
           <AmountInput value={e.amount ? String(Math.round(e.amount)) : ''} onChange={(v) => updateMajor(i, { amount: Math.round(parseFloat(v) || 0) })} placeholder="金额"
             style={{ ...fieldStyle, padding: '6px 8px', backgroundColor: amtBg, borderColor: amtBorder, color: amtColor, fontWeight: 600, transition: 'background-color 0.2s, border-color 0.2s, color 0.2s' }}
           />
-          <input type="text" value={e.note ?? ''} onChange={(ev) => updateMajor(i, { note: ev.target.value })} placeholder="备注" style={{ ...fieldStyle, padding: '6px 8px', fontSize: 12 }} />
           <button onClick={() => removeMajor(i)} style={{ color: C.red, border: 'none', background: 'none', fontSize: 16, cursor: 'pointer', padding: 0 }}>×</button>
         </div>
         );
         });
       })()}
+      <textarea
+        value={majorExpensesNote}
+        onChange={(ev) => setMajorExpensesNote(ev.target.value)}
+        placeholder="备注（可选）"
+        rows={1}
+        style={{
+          ...fieldStyle,
+          width: '100%',
+          marginTop: 6,
+          padding: '6px 8px',
+          fontSize: 12,
+          resize: 'none',
+          overflow: 'hidden',
+          minHeight: 30,
+          boxSizing: 'border-box',
+          fontFamily: 'inherit',
+        }}
+        onInput={(ev) => {
+          const el = ev.currentTarget;
+          el.style.height = 'auto';
+          el.style.height = el.scrollHeight + 'px';
+        }}
+        ref={(el) => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
+      />
     </div>
   );
 }
@@ -1305,19 +1325,23 @@ function MonthRow({ record, prev, onJumpToMonth, expenseItems }: { record: Month
               </button>
             )}
           </div>
-          {record.majorExpenses && record.majorExpenses.length > 0 && (
+          {((record.majorExpenses && record.majorExpenses.length > 0) || record.majorExpensesNote) && (
             <div style={{ borderTop: '1px solid #dbe8fb', paddingTop: 10, marginTop: 8 }}>
               <div style={{ fontSize: 12, color: C.sub, marginBottom: 6 }}>大额支出</div>
-              {record.majorExpenses.map((e, i) => (
+              {record.majorExpenses?.map((e, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13, padding: '3px 0' }}>
                   <span style={{ minWidth: 0 }}>
                     <span style={{ display: 'inline-block', padding: '1px 6px', borderRadius: 4, fontSize: 11, marginRight: 6, backgroundColor: e.type === '生活' ? '#e8f0fe' : '#f3e8fd', color: e.type === '生活' ? C.blue : C.purple }}>{e.type}</span>
                     {e.name}
-                    {e.note && <span style={{ color: C.sub, fontSize: 12, marginLeft: 6 }}>{e.note}</span>}
                   </span>
                   <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, flexShrink: 0 }}>¥{formatCurrency(e.amount)}</span>
                 </div>
               ))}
+              {record.majorExpensesNote && (
+                <div style={{ fontSize: 12, color: C.sub, marginTop: 6, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+                  {record.majorExpensesNote}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1636,6 +1660,7 @@ export default function CalendarPage() {
           homeDays: prev?.homeDays ?? 0,
           travelDays: prev?.travelDays ?? 0,
           majorExpenses: prev?.majorExpenses ?? [],
+          majorExpensesNote: prev?.majorExpensesNote,
         });
         updated += 1;
       }

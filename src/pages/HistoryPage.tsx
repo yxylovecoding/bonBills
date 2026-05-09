@@ -58,6 +58,7 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
   const schoolDays = tagCounts.school > 0 ? tagCounts.school : (existing?.schoolDays ?? 0);
   const internDays = tagCounts.intern > 0 ? tagCounts.intern : (existing?.internDays ?? 0);
   const [majorExpenses, setMajorExpenses]  = useState<MajorExpense[]>(existing?.majorExpenses ?? []);
+  const [majorExpensesNote, setMajorExpensesNote] = useState<string>(existing?.majorExpensesNote ?? '');
   // 各品类持仓（月末）
   const [breakdown, setBreakdown] = useState<Partial<Record<keyof InvestHoldings, string>>>(
     () => Object.fromEntries(INVEST_KEYS.map((k) => [k, String(existing?.investBreakdown?.[k] ?? '')])) as Record<keyof InvestHoldings, string>
@@ -110,6 +111,7 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
       investBreakdownProfit: hasBreakdownProfit ? bp : undefined,
       homeDays, travelDays, schoolDays, internDays,
       majorExpenses: majorExpenses.filter((e) => e.name.trim()),
+      majorExpensesNote: majorExpensesNote.trim() || undefined,
     });
   };
 
@@ -252,6 +254,30 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
             <button onClick={() => removeMajor(i)} style={{ color: C.red, border: 'none', background: 'none', fontSize: 16, cursor: 'pointer', padding: '0 4px' }}>×</button>
           </div>
         ))}
+        <textarea
+          value={majorExpensesNote}
+          onChange={(ev) => setMajorExpensesNote(ev.target.value)}
+          placeholder="备注（可选）"
+          rows={1}
+          style={{
+            ...fieldStyle,
+            width: '100%',
+            marginTop: 6,
+            padding: '6px 8px',
+            fontSize: 12,
+            resize: 'none',
+            overflow: 'hidden',
+            minHeight: 30,
+            boxSizing: 'border-box',
+            fontFamily: 'inherit',
+          }}
+          onInput={(ev) => {
+            const el = ev.currentTarget;
+            el.style.height = 'auto';
+            el.style.height = el.scrollHeight + 'px';
+          }}
+          ref={(el) => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
+        />
       </div>
 
       <button
@@ -372,10 +398,10 @@ function MonthRow({ record, prev }: { record: MonthlyRecord; prev?: MonthlyRecor
             ))}
             {record.school > 0 && <span>校园卡 ¥{formatCurrency(record.school)}</span>}
           </div>
-          {record.majorExpenses && record.majorExpenses.length > 0 && (
+          {((record.majorExpenses && record.majorExpenses.length > 0) || record.majorExpensesNote) && (
             <div style={{ borderTop: '1px solid #dbe8fb', paddingTop: 10, marginTop: 8 }}>
               <div style={{ fontSize: 12, color: C.sub, marginBottom: 6 }}>大额支出</div>
-              {record.majorExpenses.map((e, i) => (
+              {record.majorExpenses?.map((e, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '3px 0' }}>
                   <span>
                     <span style={{ display: 'inline-block', padding: '1px 6px', borderRadius: 4, fontSize: 11, marginRight: 6, backgroundColor: e.type === '生活' ? '#e8f0fe' : '#f3e8fd', color: e.type === '生活' ? C.blue : C.purple }}>{e.type}</span>
@@ -384,6 +410,11 @@ function MonthRow({ record, prev }: { record: MonthlyRecord; prev?: MonthlyRecor
                   <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>¥{formatCurrency(e.amount)}</span>
                 </div>
               ))}
+              {record.majorExpensesNote && (
+                <div style={{ fontSize: 12, color: C.sub, marginTop: 6, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+                  {record.majorExpensesNote}
+                </div>
+              )}
             </div>
           )}
         </div>
