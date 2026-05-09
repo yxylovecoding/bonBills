@@ -320,6 +320,11 @@ function SettingsModal({
 
 // ── MonthForm ─────────────────────────────────────────────────────
 const MAJOR_EXCLUDED_TAGS = ['红', '黑', '白', '周期生活', '波动生活', '消费', '吃好喝好', '消耗品', 'doing', 'done'];
+// 纯「数字 + 单位」的标签（如 500ml、1.5kg、8L）不视为大额支出聚合维度
+const QUANTITY_TAG_PATTERN = /^\d+(\.\d+)?\s*(kg|mg|ml|l|g|斤|两|升|毫升)$/i;
+function isMajorExcludedTag(tag: string): boolean {
+  return MAJOR_EXCLUDED_TAGS.includes(tag) || QUANTITY_TAG_PATTERN.test(tag);
+}
 
 type MonthFormProps = {
   yearMonth: string;
@@ -409,7 +414,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
     const threshold = config.majorExpenseThreshold ?? 500;
     const tagTotals = new Map<string, number>();
     for (const [tag, idxs] of tagIndices) {
-      if (MAJOR_EXCLUDED_TAGS.includes(tag)) continue;
+      if (isMajorExcludedTag(tag)) continue;
       const total = [...idxs].reduce((s, i) => s + expenseItems[i].amount, 0);
       if (total >= threshold) tagTotals.set(tag, total);
     }
