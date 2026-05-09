@@ -413,13 +413,18 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
       const total = [...idxs].reduce((s, i) => s + expenseItems[i].amount, 0);
       if (total >= threshold) tagTotals.set(tag, total);
     }
-    // 去除子标签：若标签 B 的条目集合 ⊆ 标签 A 的条目集合，则 B 是子事件
+    // 去除子标签：B 的条目集合 ⊊ A 的条目集合（真子集）→ B 被过滤
+    // 集合相等时，按 tag 名 tie-break，保留较小者，避免互相过滤导致两边都丢
     const topTags = [...tagTotals.keys()].filter(tag => {
       const myIdxs = tagIndices.get(tag)!;
       return ![...tagTotals.keys()].some(other => {
         if (other === tag) return false;
         const otherIdxs = tagIndices.get(other)!;
-        return [...myIdxs].every(i => otherIdxs.has(i));
+        if (otherIdxs.size < myIdxs.size) return false;
+        const contained = [...myIdxs].every(i => otherIdxs.has(i));
+        if (!contained) return false;
+        if (otherIdxs.size > myIdxs.size) return true; // 真子集
+        return other < tag; // 集合相等，名字小的保留
       });
     });
     topTags.sort((a, b) => tagTotals.get(b)! - tagTotals.get(a)!);
