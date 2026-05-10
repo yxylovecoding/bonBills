@@ -19,12 +19,13 @@ import { tagMeta } from '../data/mockData';
 import type { IncomeItem, TagKind, MonthlyRecord } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { dateLabel, daysUntilDate, resolveIncomeForMonth } from '../utils/payroll';
+import { TAX_RULE_PRESETS } from '../utils/tax';
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '扣税规则';
+const RELEASE_NOTE = '扣税预设';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
-const DEFAULT_TAX_RULE_TEXT = '劳务报酬';
+const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 
 function fmt万(v: number) { return (v / 10000).toFixed(2) + '万'; }
 function Divider() { return <div style={{ height: 1, backgroundColor: '#f1f3f4', margin: '8px 0' }} />; }
@@ -141,6 +142,9 @@ export default function HomePage() {
       return { ...item, taxRuleText: DEFAULT_TAX_RULE_TEXT };
     });
     syncIncome(items);
+  };
+  const setTaxRuleText = (id: string, ruleText: string) => {
+    syncIncome(localIncome.map((item) => item.id === id ? { ...item, taxRuleText: ruleText } : item));
   };
   const toggleDailyRate = (id: string) => {
     const items = localIncome.map((item) => {
@@ -341,10 +345,30 @@ export default function HomePage() {
                 </div>
                 {hasTaxRule && (
                   <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {TAX_RULE_PRESETS.map((preset) => {
+                        const active = item.taxRuleText === preset.text;
+                        return (
+                          <button
+                            key={preset.key}
+                            onClick={() => setTaxRuleText(item.id, preset.text)}
+                            style={{ fontSize: 11, padding: '3px 8px', borderRadius: 999, border: `1px solid ${active ? C.red : '#dadce0'}`, backgroundColor: active ? '#fce8e6' : '#fff', color: active ? C.red : C.sub, cursor: 'pointer', fontWeight: 600 }}
+                          >
+                            {preset.label}
+                          </button>
+                        );
+                      })}
+                      <button
+                        onClick={() => setTaxRuleText(item.id, item.taxRuleText?.trim() ? item.taxRuleText : '税=')}
+                        style={{ fontSize: 11, padding: '3px 8px', borderRadius: 999, border: `1px solid ${TAX_RULE_PRESETS.some((preset) => preset.text === item.taxRuleText) ? '#dadce0' : C.blue}`, backgroundColor: TAX_RULE_PRESETS.some((preset) => preset.text === item.taxRuleText) ? '#fff' : '#e8f0fe', color: TAX_RULE_PRESETS.some((preset) => preset.text === item.taxRuleText) ? C.sub : C.blue, cursor: 'pointer', fontWeight: 600 }}
+                      >
+                        自定义
+                      </button>
+                    </div>
                     <input
                       value={item.taxRuleText ?? ''}
                       onChange={(e) => updateIncomeField(item.id, 'taxRuleText', e.target.value)}
-                      placeholder="例：劳务报酬；扣10%；起征800 税率20%；税=收入*0.8*20%"
+                      placeholder="例：税=(0.8x-5000)*20%；税=(0.8*收入-5000)*0.2"
                       style={{ width: '100%', boxSizing: 'border-box', border: '1px solid #fad2cf', borderRadius: 8, outline: 'none', backgroundColor: '#fff', fontSize: 12, color: '#202124', padding: '6px 8px' }}
                     />
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 11 }}>

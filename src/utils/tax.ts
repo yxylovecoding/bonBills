@@ -6,6 +6,19 @@ export interface IncomeTaxResult {
   ruleError?: string;
 }
 
+export const TAX_RULE_PRESETS = [
+  {
+    key: 'bytedanceIntern',
+    label: '字节实习',
+    text: '税=(0.8x-5000)*20%',
+  },
+  {
+    key: 'laborService',
+    label: '普通劳务',
+    text: '劳务报酬',
+  },
+] as const;
+
 const MONEY_ROUNDING = 100;
 
 function roundMoney(value: number) {
@@ -75,9 +88,14 @@ function evaluateTaxFormula(formula: string, grossAmount: number) {
   let expression = normalizeRule(formula).toLowerCase();
   expression = expression.replace(/(\d+(?:\.\d+)?)\s*%/g, '($1/100)');
   expression = expression
-    .replace(/最大值?|max/g, 'Math.max')
-    .replace(/最小值?|min/g, 'Math.min')
-    .replace(/收入|税前|金额|gross|amount|\bx\b/g, `(${grossAmount})`);
+    .replace(/最大值?|max/g, '__MAX__')
+    .replace(/最小值?|min/g, '__MIN__');
+
+  expression = expression
+    .replace(/(\d(?:\.\d+)?|\))\s*(收入|税前|金额|gross|amount|x)/g, '$1*$2')
+    .replace(/收入|税前|金额|gross|amount|x/g, `(${grossAmount})`)
+    .replace(/__MAX__/g, 'Math.max')
+    .replace(/__MIN__/g, 'Math.min');
 
   const withoutAllowedFunctions = expression.replace(/Math\.(?:max|min)/g, '');
   if (!/^[0-9+\-*/().,\s]+$/.test(withoutAllowedFunctions)) return null;
@@ -132,16 +150,6 @@ export function calculateIncomeTax(grossAmount: number, taxRuleText?: string): I
     };
   }
 
-  if (/劳务|实习|报酬|兼职/.test(rule)) {
-    const result = calculateLaborServiceTax(safeGross);
-    return {
-      grossAmount: safeGross,
-      taxAmount: result.taxAmount,
-      netAmount: roundMoney(safeGross - result.taxAmount),
-      ruleSummary: result.summary,
-    };
-  }
-
   const formula = extractFormula(rule);
   if (formula) {
     const taxAmount = evaluateTaxFormula(formula, safeGross);
@@ -154,6 +162,16 @@ export function calculateIncomeTax(grossAmount: number, taxRuleText?: string): I
         ruleSummary: '按公式扣税',
       };
     }
+  }
+
+  if (/劳务|报酬|兼职/.test(rule)) {
+    const result = calculateLaborServiceTax(safeGross);
+    return {
+      grossAmount: safeGross,
+      taxAmount: result.taxAmount,
+      netAmount: roundMoney(safeGross - result.taxAmount),
+      ruleSummary: result.summary,
+    };
   }
 
   const thresholdRate = calculateThresholdRateTax(rule, safeGross);
