@@ -15,13 +15,14 @@ import { calcBudget } from '../calculations/budget';
 import { calcHistoryStats } from '../calculations/history';
 import { calcRebalance } from '../calculations/rebalance';
 import { investMeta, tagMeta } from '../data/mockData';
-import type { DailyTag, InvestKey, TagKind } from '../models/types';
+import type { DailyTag, InvestAllocTargets, InvestKey, TagKind } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { tryEvalFormula } from '../utils/formula';
 import { dateLabel, resolveIncomeForMonth, type ResolvedIncomeItem } from '../utils/payroll';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', sub: '#5f6368', orange: '#e8710a' };
 const RESERVABLE_HOLDING_KEY: InvestKey = 'longBond';
+const INVEST_TARGET_KEYS: InvestKey[] = ['us', 'eu', 'asia', 'a', 'longBond', 'usBond', 'gold'];
 
 const parseAmountPart = (raw: string | undefined) => {
   const value = raw?.trim() ?? '';
@@ -32,6 +33,72 @@ const parseAmountPart = (raw: string | undefined) => {
 };
 
 const normalizeAmountInput = (v: string) => /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v;
+const targetInputFromConfig = (targets: InvestAllocTargets) =>
+  Object.fromEntries(INVEST_TARGET_KEYS.map((k) => [k, String(Math.round((targets[k] ?? 0) * 10000) / 100)])) as Record<InvestKey, string>;
+const effectiveInvestTargets = (targets: InvestAllocTargets) =>
+  INVEST_TARGET_KEYS.some((k) => (targets[k] ?? 0) > 0) ? targets : DEFAULT_CONFIG.investAllocTargets;
+
+function RebalanceSettingsModal({
+  targetInputs,
+  setTargetInputs,
+  onClose,
+  onSave,
+}: {
+  targetInputs: Record<InvestKey, string>;
+  setTargetInputs: (v: Record<InvestKey, string>) => void;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  const total = INVEST_TARGET_KEYS.reduce((sum, k) => sum + (parseFloat(targetInputs[k]) || 0), 0);
+  const totalOk = Math.abs(total - 100) < 0.01;
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={onClose}>
+      <div style={{ backgroundColor: '#fff', borderRadius: 16, width: '100%', maxWidth: 380, boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}
+        onClick={(e) => e.stopPropagation()}>
+        <div style={{ padding: '20px 20px 12px' }}>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>再平衡设置</div>
+        </div>
+        <div style={{ padding: '0 20px 4px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#202124' }}>目标比例</div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: totalOk ? C.green : C.orange }}>
+              合计 {total.toFixed(2)}%
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            {INVEST_TARGET_KEYS.map((k) => (
+              <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 6, backgroundColor: '#f8f9fa', borderRadius: 8, padding: '7px 8px' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: investMeta[k].color, flexShrink: 0 }} />
+                <span style={{ flex: 1, fontSize: 12, color: C.sub, whiteSpace: 'nowrap' }}>{investMeta[k].label}</span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  value={targetInputs[k]}
+                  onChange={(e) => setTargetInputs({ ...targetInputs, [k]: e.target.value })}
+                  onFocus={(e) => e.target.select()}
+                  style={{ width: 54, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, textAlign: 'right', color: '#202124', fontVariantNumeric: 'tabular-nums' }}
+                />
+                <span style={{ fontSize: 11, color: C.sub }}>%</span>
+              </label>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '12px 20px 20px', borderTop: '1px solid #f1f3f4' }}>
+          <button onClick={onClose}
+            style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', color: C.sub, fontSize: 13, cursor: 'pointer' }}>
+            取消
+          </button>
+          <button onClick={onSave}
+            style={{ padding: '8px 16px', borderRadius: 8, border: 'none', backgroundColor: C.blue, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            保存
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 
 const TRANSFER_KEYS = ['campusCard', 'repayment', 'living', 'consumption', 'wishJar', 'invest'] as const;
@@ -52,7 +119,7 @@ interface BudgetDetailItem { icon: string; label: string; amount: number; note?:
 export default function ReconcilePage() {
   const navigate = useNavigate();
   const { current, updateAccounts, updateTransfers, updateHoldings, updateHoldingReserves, saveSnapshot } = useSnapshotStore();
-  const { config } = useConfigStore();
+  const { config, setConfig } = useConfigStore();
   const { records } = useMonthlyStore();
   const { tagMap, confirmedExpenses } = useCalendarStore();
   const { expenseItems } = useBillDetailStore();
@@ -100,6 +167,10 @@ export default function ReconcilePage() {
 
   const [expandedBudget, setExpandedBudget] = useState<BudgetKey | null>(null);
   const [expandedTransfer, setExpandedTransfer] = useState<TransferKey | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [investTargetInputs, setInvestTargetInputs] = useState<Record<InvestKey, string>>(
+    () => targetInputFromConfig(effectiveInvestTargets(config.investAllocTargets)),
+  );
   const [saved, setSaved] = useState(false);
 
   // 理财本次投入金额
@@ -425,10 +496,35 @@ export default function ReconcilePage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 4px' }}>对账 / 转账</h1>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, margin: '0 0 4px' }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>对账 / 转账</h1>
+        <button
+          onClick={() => {
+            setInvestTargetInputs(targetInputFromConfig(effectiveInvestTargets(config.investAllocTargets)));
+            setSettingsOpen(true);
+          }}
+          style={{ fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', color: C.sub, lineHeight: 1 }}
+        >
+          ⚙️
+        </button>
+      </div>
       <p style={{ fontSize: 13, color: C.sub, margin: '0 0 16px' }}>
         今天 {today.getFullYear()}-{String(today.getMonth()+1).padStart(2,'0')}-{String(today.getDate()).padStart(2,'0')}，对账模式：<span style={{ color: C.blue, fontWeight: 600 }}>{reconcileMode}</span>
       </p>
+      {settingsOpen && (
+        <RebalanceSettingsModal
+          targetInputs={investTargetInputs}
+          setTargetInputs={setInvestTargetInputs}
+          onClose={() => setSettingsOpen(false)}
+          onSave={() => {
+            const investAllocTargets = Object.fromEntries(
+              INVEST_TARGET_KEYS.map((k) => [k, (parseFloat(investTargetInputs[k]) || 0) / 100]),
+            ) as unknown as InvestAllocTargets;
+            setConfig({ investAllocTargets });
+            setSettingsOpen(false);
+          }}
+        />
+      )}
       {holidayWarning && (
         <div style={{ margin: '0 0 16px', fontSize: 12, color: C.orange, backgroundColor: '#fff4e8', border: '1px solid #fed7aa', borderRadius: 10, padding: '8px 10px' }}>
           {holidayWarning}

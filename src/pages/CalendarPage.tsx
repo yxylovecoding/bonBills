@@ -12,12 +12,12 @@ import AmountInput from '../components/AmountInput';
 import { calcHistoryStats } from '../calculations/history';
 import { buildLifePeriodStats, suggestPeriod, isInconsistent, type LifePeriodStatRow } from '../calculations/lifePeriodStats';
 import { normalizeConfirmedSelection, useCalendarStore } from '../stores/calendarStore';
-import { DEFAULT_CONFIG, useConfigStore } from '../stores/configStore';
+import { useConfigStore } from '../stores/configStore';
 import { useSnapshotStore } from '../stores/snapshotStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { usePrefsStore, REVIEWABLE_CATEGORIES, type ReviewableCategory } from '../stores/prefsStore';
 import { useDragSort } from '../hooks/useDragSort';
-import type { TagKind, MonthlyRecord, MajorExpense, InvestHoldings, InvestAllocTargets } from '../models/types';
+import type { TagKind, MonthlyRecord, MajorExpense, InvestHoldings } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { getPayrollScheduleForMonth } from '../utils/payroll';
 
@@ -25,10 +25,6 @@ const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed'
 const CN_MONTH = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
 const WEEK_HEADERS = ['一', '二', '三', '四', '五', '六', '日'];
 const HISTORY_GRID_COLUMNS = '64px 1fr 1fr 1fr 88px';
-const targetInputFromConfig = (targets: InvestAllocTargets) =>
-  Object.fromEntries(INVEST_KEYS.map((k) => [k, String(Math.round((targets[k] ?? 0) * 10000) / 100)])) as Record<keyof InvestHoldings, string>;
-const effectiveInvestTargets = (targets: InvestAllocTargets) =>
-  INVEST_KEYS.some((k) => (targets[k] ?? 0) > 0) ? targets : DEFAULT_CONFIG.investAllocTargets;
 
 // ── Calendar helpers ──────────────────────────────────────────────
 function pad(n: number) { return String(n).padStart(2, '0'); }
@@ -163,8 +159,6 @@ function SettingsModal({
   onClose,
   thresholdInput,
   setThresholdInput,
-  investTargetInputs,
-  setInvestTargetInputs,
   showPayrollCutoffMarkers,
   setShowPayrollCutoffMarkers,
   reviewableCategories,
@@ -179,8 +173,6 @@ function SettingsModal({
   onClose: () => void;
   thresholdInput: string;
   setThresholdInput: (v: string) => void;
-  investTargetInputs: Record<keyof InvestHoldings, string>;
-  setInvestTargetInputs: (v: Record<keyof InvestHoldings, string>) => void;
   showPayrollCutoffMarkers: boolean;
   setShowPayrollCutoffMarkers: (v: boolean) => void;
   reviewableCategories: ReviewableCategory[];
@@ -211,8 +203,6 @@ function SettingsModal({
   const overrideCount =
     Object.keys(overrides.subcategories).length +
     Object.keys(overrides.tags).length;
-  const investTargetTotal = INVEST_KEYS.reduce((sum, k) => sum + (parseFloat(investTargetInputs[k]) || 0), 0);
-  const targetTotalOk = Math.abs(investTargetTotal - 100) < 0.01;
 
   return (
     <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
@@ -230,32 +220,6 @@ function SettingsModal({
             <div style={{ fontSize: 12, color: '#5f6368', marginBottom: 6 }}>大额支出筛选门槛（元）</div>
             <input type="number" value={thresholdInput} onChange={(e) => setThresholdInput(e.target.value)}
               style={{ width: '100%', border: '1.5px solid #dadce0', borderRadius: 8, padding: '8px 10px', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
-          </div>
-          {/* 理财再平衡目标比例 */}
-          <div style={{ borderTop: '1px solid #f1f3f4', paddingTop: 14, marginBottom: 16 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#202124' }}>理财再平衡目标比例</div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: targetTotalOk ? '#0d9488' : '#e8710a' }}>
-                合计 {investTargetTotal.toFixed(2)}%
-              </div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              {INVEST_KEYS.map((k) => (
-                <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 6, backgroundColor: '#f8f9fa', borderRadius: 8, padding: '7px 8px' }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: investMeta[k].color, flexShrink: 0 }} />
-                  <span style={{ flex: 1, fontSize: 12, color: '#5f6368', whiteSpace: 'nowrap' }}>{investMeta[k].label}</span>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    value={investTargetInputs[k]}
-                    onChange={(e) => setInvestTargetInputs({ ...investTargetInputs, [k]: e.target.value })}
-                    onFocus={(e) => e.target.select()}
-                    style={{ width: 54, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, textAlign: 'right', color: '#202124', fontVariantNumeric: 'tabular-nums' }}
-                  />
-                  <span style={{ fontSize: 11, color: '#5f6368' }}>%</span>
-                </label>
-              ))}
-            </div>
           </div>
           {/* 截标记开关 */}
           <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16, cursor: 'pointer' }}>
@@ -1635,9 +1599,6 @@ export default function CalendarPage() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [thresholdInput, setThresholdInput] = useState(String(config.majorExpenseThreshold ?? 500));
-  const [investTargetInputs, setInvestTargetInputs] = useState<Record<keyof InvestHoldings, string>>(
-    () => targetInputFromConfig(effectiveInvestTargets(config.investAllocTargets)),
-  );
   const [expandedTag, setExpandedTag] = useState<null | 'eat' | 'red' | 'black'>(null);
   const [billImportMsg, setBillImportMsg] = useState<string>('');
   const billFileRef = useRef<HTMLInputElement>(null);
@@ -1820,7 +1781,6 @@ export default function CalendarPage() {
         </div>
         <button onClick={() => {
           setThresholdInput(String(config.majorExpenseThreshold ?? 500));
-          setInvestTargetInputs(targetInputFromConfig(effectiveInvestTargets(config.investAllocTargets)));
           setSettingsOpen(true);
         }}
           style={{ fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', color: C.sub, lineHeight: 1 }}>
@@ -1839,22 +1799,11 @@ export default function CalendarPage() {
           onClose={() => setSettingsOpen(false)}
           thresholdInput={thresholdInput}
           setThresholdInput={setThresholdInput}
-          investTargetInputs={investTargetInputs}
-          setInvestTargetInputs={setInvestTargetInputs}
           showPayrollCutoffMarkers={showPayrollCutoffMarkers}
           setShowPayrollCutoffMarkers={setShowPayrollCutoffMarkers}
           reviewableCategories={reviewableCategories}
           setReviewableCategories={setReviewableCategories}
-          onSave={() => {
-            const investAllocTargets = Object.fromEntries(
-              INVEST_KEYS.map((k) => [k, (parseFloat(investTargetInputs[k]) || 0) / 100]),
-            ) as unknown as InvestAllocTargets;
-            setConfig({
-              majorExpenseThreshold: parseFloat(thresholdInput) || 500,
-              investAllocTargets,
-            });
-            setSettingsOpen(false);
-          }}
+          onSave={() => { setConfig({ majorExpenseThreshold: parseFloat(thresholdInput) || 500 }); setSettingsOpen(false); }}
           tagMap={tagMap}
           confirmedExpenses={confirmedExpenses}
           expenseItems={billExpenseItems}
