@@ -4,6 +4,7 @@ export function calcRebalance(
   holdings: InvestHoldings,
   targets: InvestAllocTargets,
   newFunds: number,
+  allowSell = false,
 ): RebalanceResult {
   const keys = Object.keys(holdings) as InvestKey[];
   const currentTotal = keys.reduce((s, k) => s + holdings[k], 0);
@@ -15,6 +16,13 @@ export function calcRebalance(
   }
 
   const result: RebalanceResult = {} as RebalanceResult;
+
+  if (allowSell) {
+    for (const k of keys) {
+      result[k] = diffs[k];
+    }
+    return result;
+  }
 
   if (newFunds > 0) {
     // 加仓：只给欠配品类分配，按欠配额比例

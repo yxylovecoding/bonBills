@@ -92,6 +92,7 @@ export default function ReconcilePage() {
 
   // 理财本次投入金额
   const [investInput, setInvestInput] = useState('');
+  const [allowRebalanceSell, setAllowRebalanceSell] = useState(false);
 
   // 理财持仓本地编辑
   const [localHoldings, setLocalHoldings] = useState<Record<InvestKey, string>>(
@@ -161,8 +162,8 @@ export default function ReconcilePage() {
 
   // 理财再平衡建议（算法值）
   const rebalanceSuggested = useMemo(
-    () => calcRebalance(current.investHoldings, config.investAllocTargets, parseFloat(investInput) || 0),
-    [current.investHoldings, config.investAllocTargets, investInput],
+    () => calcRebalance(current.investHoldings, config.investAllocTargets, parseFloat(investInput) || 0, allowRebalanceSell),
+    [current.investHoldings, config.investAllocTargets, investInput, allowRebalanceSell],
   );
   const investKeys = Object.keys(current.investHoldings) as InvestKey[];
 
@@ -716,7 +717,7 @@ export default function ReconcilePage() {
 
       {/* Step 3: 理财配置 & 再平衡 */}
       <div id="sec-invest">
-      <Card title="③ 理财配置 & 再平衡" subtitle="编辑持仓金额，输入本次投入后执行">
+      <Card title="③ 理财配置 & 再平衡" subtitle="编辑持仓金额，可选择仅加仓或加减仓换仓">
         {/* 本次投入总额 */}
         <div style={{ display: 'flex', alignItems: 'center', border: '1.5px solid #fbbf24', borderRadius: 10, padding: '10px 12px', backgroundColor: '#fffbeb', marginBottom: 14 }}>
           <span style={{ color: C.sub, fontSize: 14, marginRight: 4 }}>本次投入 ¥</span>
@@ -728,6 +729,15 @@ export default function ReconcilePage() {
             style={{ flex: 1, border: 'none', outline: 'none', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', backgroundColor: 'transparent', textAlign: 'right' }}
           />
         </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px', marginBottom: 14, fontSize: 13, color: allowRebalanceSell ? C.blue : C.sub, fontWeight: 600, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={allowRebalanceSell}
+            onChange={(e) => setAllowRebalanceSell(e.target.checked)}
+            style={{ width: 16, height: 16, accentColor: C.blue, cursor: 'pointer' }}
+          />
+          <span>允许减仓换仓</span>
+        </label>
         {/* 色条 */}
         <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginBottom: 14 }}>
           {investKeys.map((k) => (
@@ -749,8 +759,8 @@ export default function ReconcilePage() {
               <th style={thStyle}>品类</th>
               <th style={{ ...thStyle, textAlign: 'right' }}>当前金额</th>
               <th style={{ ...thStyle, textAlign: 'right' }}>累计收益率</th>
-              <th style={{ ...thStyle, textAlign: 'right', color: C.orange }}>需加</th>
-              <th style={{ ...thStyle, textAlign: 'right', color: C.green }}>已加</th>
+              <th style={{ ...thStyle, textAlign: 'right', color: allowRebalanceSell ? C.blue : C.orange }}>{allowRebalanceSell ? '需加/赎' : '需加'}</th>
+              <th style={{ ...thStyle, textAlign: 'right', color: C.green }}>{allowRebalanceSell ? '已执行' : '已加'}</th>
             </tr>
           </thead>
           <tbody>
@@ -825,7 +835,7 @@ export default function ReconcilePage() {
           </tbody>
         </table>
 
-        {/* 执行按钮：将"已加"数值写入持仓，然后清零 */}
+        {/* 执行按钮：将"已加/已执行"数值写入持仓，然后清零 */}
         <button
           onClick={() => {
             const newHoldings = { ...current.investHoldings };
@@ -837,7 +847,7 @@ export default function ReconcilePage() {
             }
             updateHoldings(newHoldings);
             setLocalHoldings(Object.fromEntries(investKeys.map((k) => [k, String(newHoldings[k])])) as Record<InvestKey, string>);
-            // 重置已加为 0
+            // 重置已加/已执行为 0
             setLocalConfirmed(Object.fromEntries(investKeys.map((k) => [k, '0'])) as Record<InvestKey, string>);
           }}
           style={{
@@ -846,7 +856,7 @@ export default function ReconcilePage() {
             cursor: 'pointer', marginBottom: 12,
           }}
         >
-          执行加仓
+          {allowRebalanceSell ? '执行再平衡' : '执行加仓'}
         </button>
       </Card>
       </div>
