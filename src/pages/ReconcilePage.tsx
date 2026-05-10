@@ -6,7 +6,7 @@ import AmountInput from '../components/AmountInput';
 
 const fmtInt = (v: number) => Math.round(v).toLocaleString('zh-CN');
 import { useSnapshotStore } from '../stores/snapshotStore';
-import { useConfigStore } from '../stores/configStore';
+import { DEFAULT_CONFIG, useConfigStore } from '../stores/configStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { useCalendarStore } from '../stores/calendarStore';
 import { useBillDetailStore } from '../stores/billDetailStore';
@@ -193,11 +193,17 @@ export default function ReconcilePage() {
       current.investHoldings[RESERVABLE_HOLDING_KEY] - (current.investHoldingReserves?.[RESERVABLE_HOLDING_KEY] ?? 0),
     ),
   }), [current.investHoldings, current.investHoldingReserves]);
-  const rebalanceSuggested = useMemo(
-    () => calcRebalance(effectiveInvestHoldings, config.investAllocTargets, parseFloat(investInput) || 0, allowRebalanceSell),
-    [effectiveInvestHoldings, config.investAllocTargets, investInput, allowRebalanceSell],
-  );
   const investKeys = Object.keys(current.investHoldings) as InvestKey[];
+  const investAllocTargets = useMemo(
+    () => investKeys.some((k) => (config.investAllocTargets[k] ?? 0) > 0)
+      ? config.investAllocTargets
+      : DEFAULT_CONFIG.investAllocTargets,
+    [config.investAllocTargets, investKeys],
+  );
+  const rebalanceSuggested = useMemo(
+    () => calcRebalance(effectiveInvestHoldings, investAllocTargets, parseFloat(investInput) || 0, allowRebalanceSell),
+    [effectiveInvestHoldings, investAllocTargets, investInput, allowRebalanceSell],
+  );
 
   // 最新一期有各品类累计收益数据的月度记录
   const latestBreakdownProfit = useMemo(
