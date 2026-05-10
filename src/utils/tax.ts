@@ -30,14 +30,15 @@ export const TAX_RULE_PRESETS = [
 
 const MONEY_ROUNDING = 100;
 const ANNUAL_BASIC_DEDUCTION = 60000;
-const ANNUAL_TAX_BRACKETS = [
-  { limit: 36000, rate: 0.03, quickDeduction: 0 },
-  { limit: 144000, rate: 0.10, quickDeduction: 2520 },
-  { limit: 300000, rate: 0.20, quickDeduction: 16920 },
-  { limit: 420000, rate: 0.25, quickDeduction: 31920 },
-  { limit: 660000, rate: 0.30, quickDeduction: 52920 },
-  { limit: 960000, rate: 0.35, quickDeduction: 85920 },
-  { limit: Infinity, rate: 0.45, quickDeduction: 181920 },
+const ANNUAL_GROSS_INCOME_TAX_BRACKETS = [
+  { grossLimit: 60000, rate: 0, quickDeduction: 0 },
+  { grossLimit: 96000, rate: 0.03, quickDeduction: 1800 },
+  { grossLimit: 204000, rate: 0.10, quickDeduction: 8520 },
+  { grossLimit: 360000, rate: 0.20, quickDeduction: 28920 },
+  { grossLimit: 480000, rate: 0.25, quickDeduction: 46920 },
+  { grossLimit: 720000, rate: 0.30, quickDeduction: 70920 },
+  { grossLimit: 1020000, rate: 0.35, quickDeduction: 106920 },
+  { grossLimit: Infinity, rate: 0.45, quickDeduction: 208920 },
 ] as const;
 
 function roundMoney(value: number) {
@@ -56,8 +57,8 @@ function ceilMoney(value: number) {
 export function calculateAnnualComprehensiveTax(grossAnnualIncome: number): AnnualComprehensiveTaxResult {
   const safeGross = roundMoney(Math.max(Number.isFinite(grossAnnualIncome) ? grossAnnualIncome : 0, 0));
   const taxableIncome = roundMoney(Math.max(safeGross - ANNUAL_BASIC_DEDUCTION, 0));
-  const bracket = ANNUAL_TAX_BRACKETS.find((item) => taxableIncome <= item.limit) ?? ANNUAL_TAX_BRACKETS[ANNUAL_TAX_BRACKETS.length - 1];
-  const taxAmount = clampTax(taxableIncome * bracket.rate - bracket.quickDeduction, safeGross);
+  const bracket = ANNUAL_GROSS_INCOME_TAX_BRACKETS.find((item) => safeGross <= item.grossLimit) ?? ANNUAL_GROSS_INCOME_TAX_BRACKETS[ANNUAL_GROSS_INCOME_TAX_BRACKETS.length - 1];
+  const taxAmount = clampTax(safeGross * bracket.rate - bracket.quickDeduction, safeGross);
   const netAnnualIncome = roundMoney(safeGross - taxAmount);
 
   return {
@@ -66,7 +67,7 @@ export function calculateAnnualComprehensiveTax(grossAnnualIncome: number): Annu
     taxAmount,
     netAnnualIncome,
     effectiveTaxRate: safeGross > 0 ? taxAmount / safeGross : 0,
-    marginalTaxRate: taxableIncome > 0 ? bracket.rate : 0,
+    marginalTaxRate: bracket.rate,
   };
 }
 
