@@ -1,4 +1,5 @@
 import type { AppConfig, CurrentStats } from '../models/types';
+import { estimateGrossAnnualIncomeForNet } from '../utils/tax';
 
 export function getAge(birthDate: string): number {
   const birth = new Date(birthDate);
@@ -17,6 +18,12 @@ export interface FireResult {
   progress: number;
   monthlyNeeded: number;
   monthlySurplus: number;
+  requiredAnnualSavings: number;
+  requiredAnnualNetIncome: number;
+  requiredAnnualGrossIncome: number;
+  requiredAnnualTax: number;
+  requiredMonthlyNetIncome: number;
+  requiredMarginalTaxRate: number;
   lifeProgress: number;
   lifeClockStr: string;
   lifeClockPeriod: string;
@@ -36,8 +43,16 @@ export function calcFire(
 
   const progress = fireTarget > 0 ? investTotal / fireTarget : 0;
   const yearsLeft = Math.max(config.retireAge - age, 1);
-  const monthlyNeeded = (fireTarget - investTotal) / (yearsLeft * 12);
+  const remainingTarget = Math.max(fireTarget - investTotal, 0);
+  const requiredAnnualSavings = remainingTarget / yearsLeft;
+  const monthlyNeeded = requiredAnnualSavings / 12;
   const monthlySurplus = stats.monthlyIncomeAvg - stats.totalExpenseAvg;
+  const requiredAnnualNetIncome = annualExpense + requiredAnnualSavings;
+  const requiredIncomeTax = estimateGrossAnnualIncomeForNet(requiredAnnualNetIncome);
+  const requiredAnnualGrossIncome = requiredIncomeTax.grossAnnualIncome;
+  const requiredAnnualTax = requiredIncomeTax.taxAmount;
+  const requiredMonthlyNetIncome = requiredAnnualNetIncome / 12;
+  const requiredMarginalTaxRate = requiredIncomeTax.marginalTaxRate;
 
   // 人生时钟
   const lifeProgress = age / config.lifeExpectancy;
@@ -47,5 +62,22 @@ export function calcFire(
   const lifeClockStr = `${h}:${String(m).padStart(2, '0')}`;
   const lifeClockPeriod = h < 6 ? '凌晨' : h < 12 ? '上午' : h < 18 ? '下午' : '傍晚';
 
-  return { age, fireTarget, target4pct, targetAge, progress, monthlyNeeded, monthlySurplus, lifeProgress, lifeClockStr, lifeClockPeriod };
+  return {
+    age,
+    fireTarget,
+    target4pct,
+    targetAge,
+    progress,
+    monthlyNeeded,
+    monthlySurplus,
+    requiredAnnualSavings,
+    requiredAnnualNetIncome,
+    requiredAnnualGrossIncome,
+    requiredAnnualTax,
+    requiredMonthlyNetIncome,
+    requiredMarginalTaxRate,
+    lifeProgress,
+    lifeClockStr,
+    lifeClockPeriod,
+  };
 }
