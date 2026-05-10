@@ -23,6 +23,16 @@ import { dateLabel, resolveIncomeForMonth, type ResolvedIncomeItem } from '../ut
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', sub: '#5f6368', orange: '#e8710a' };
 const RESERVABLE_HOLDING_KEY: InvestKey = 'longBond';
 const INVEST_TARGET_KEYS: InvestKey[] = ['us', 'eu', 'asia', 'a', 'longBond', 'usBond', 'gold'];
+const INVEST_GROUPS = [
+  { key: 'stock', label: '股', keys: ['us', 'eu', 'asia', 'a'] as InvestKey[], color: C.blue },
+  { key: 'bond', label: '债', keys: ['longBond', 'usBond'] as InvestKey[], color: C.green },
+  { key: 'commodity', label: '商', keys: ['gold'] as InvestKey[], color: C.orange },
+] as const;
+type InvestGroupKey = typeof INVEST_GROUPS[number]['key'];
+type GroupedTargetInputs = {
+  groups: Record<InvestGroupKey, string>;
+  assets: Record<InvestKey, string>;
+};
 
 const parseAmountPart = (raw: string | undefined) => {
   const value = raw?.trim() ?? '';
@@ -33,24 +43,46 @@ const parseAmountPart = (raw: string | undefined) => {
 };
 
 const normalizeAmountInput = (v: string) => /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v;
-const targetInputFromConfig = (targets: InvestAllocTargets) =>
-  Object.fromEntries(INVEST_TARGET_KEYS.map((k) => [k, String(Math.round((targets[k] ?? 0) * 10000) / 100)])) as Record<InvestKey, string>;
 const effectiveInvestTargets = (targets: InvestAllocTargets) =>
   INVEST_TARGET_KEYS.some((k) => (targets[k] ?? 0) > 0) ? targets : DEFAULT_CONFIG.investAllocTargets;
+const fmtPctInput = (value: number) => String(Math.round(value * 100) / 100);
+const groupedTargetInputFromConfig = (targets: InvestAllocTargets): GroupedTargetInputs => {
+  const groups = {} as Record<InvestGroupKey, string>;
+  const assets = {} as Record<InvestKey, string>;
+  for (const group of INVEST_GROUPS) {
+    const groupTotal = group.keys.reduce((sum, k) => sum + (targets[k] ?? 0) * 100, 0);
+    groups[group.key] = fmtPctInput(groupTotal);
+    for (const k of group.keys) {
+      assets[k] = groupTotal > 0 ? fmtPctInput(((targets[k] ?? 0) * 100 / groupTotal) * 100) : '0';
+    }
+  }
+  return { groups, assets };
+};
+const groupedTargetInputsToConfig = (inputs: GroupedTargetInputs): InvestAllocTargets =>
+  Object.fromEntries(INVEST_TARGET_KEYS.map((k) => {
+    const group = INVEST_GROUPS.find((g) => g.keys.includes(k))!;
+    const groupPct = parseFloat(inputs.groups[group.key]) || 0;
+    const assetPct = parseFloat(inputs.assets[k]) || 0;
+    return [k, (groupPct / 100) * (assetPct / 100)];
+  })) as unknown as InvestAllocTargets;
 
 function RebalanceSettingsModal({
-  targetInputs,
-  setTargetInputs,
+  groupedTargetInputs,
+  setGroupedTargetInputs,
   onClose,
   onSave,
 }: {
-  targetInputs: Record<InvestKey, string>;
-  setTargetInputs: (v: Record<InvestKey, string>) => void;
+  groupedTargetInputs: GroupedTargetInputs;
+  setGroupedTargetInputs: (v: GroupedTargetInputs) => void;
   onClose: () => void;
   onSave: () => void;
 }) {
-  const total = INVEST_TARGET_KEYS.reduce((sum, k) => sum + (parseFloat(targetInputs[k]) || 0), 0);
+  const total = INVEST_GROUPS.reduce((sum, group) => sum + (parseFloat(groupedTargetInputs.groups[group.key]) || 0), 0);
   const totalOk = Math.abs(total - 100) < 0.01;
+  const setGroupInput = (group: InvestGroupKey, value: string) =>
+    setGroupedTargetInputs({ ...groupedTargetInputs, groups: { ...groupedTargetInputs.groups, [group]: value } });
+  const setAssetInput = (key: InvestKey, value: string) =>
+    setGroupedTargetInputs({ ...groupedTargetInputs, assets: { ...groupedTargetInputs.assets, [key]: value } });
 
   return (
     <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
@@ -61,28 +93,59 @@ function RebalanceSettingsModal({
           <div style={{ fontSize: 16, fontWeight: 700 }}>再平衡设置</div>
         </div>
         <div style={{ padding: '0 20px 4px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#202124' }}>目标比例</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#202124' }}>大类目标比例</div>
             <div style={{ fontSize: 11, fontWeight: 600, color: totalOk ? C.green : C.orange }}>
               合计 {total.toFixed(2)}%
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            {INVEST_TARGET_KEYS.map((k) => (
-              <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 6, backgroundColor: '#f8f9fa', borderRadius: 8, padding: '7px 8px' }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: investMeta[k].color, flexShrink: 0 }} />
-                <span style={{ flex: 1, fontSize: 12, color: C.sub, whiteSpace: 'nowrap' }}>{investMeta[k].label}</span>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  value={targetInputs[k]}
-                  onChange={(e) => setTargetInputs({ ...targetInputs, [k]: e.target.value })}
-                  onFocus={(e) => e.target.select()}
-                  style={{ width: 54, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, textAlign: 'right', color: '#202124', fontVariantNumeric: 'tabular-nums' }}
-                />
-                <span style={{ fontSize: 11, color: C.sub }}>%</span>
-              </label>
-            ))}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {INVEST_GROUPS.map((group) => {
+              const groupTotal = parseFloat(groupedTargetInputs.groups[group.key]) || 0;
+              const assetTotal = group.keys.reduce((sum, k) => sum + (parseFloat(groupedTargetInputs.assets[k]) || 0), 0);
+              const remaining = 100 - assetTotal;
+              const remainingOk = Math.abs(remaining) < 0.01;
+              return (
+                <div key={group.key} style={{ border: '1px solid #f1f3f4', borderRadius: 10, padding: '9px 10px', backgroundColor: '#fff' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: group.color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#202124' }}>{group.label}</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      value={groupedTargetInputs.groups[group.key]}
+                      onChange={(e) => setGroupInput(group.key, e.target.value)}
+                      onFocus={(e) => e.target.select()}
+                      style={{ marginLeft: 'auto', width: 58, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 700, textAlign: 'right', color: '#202124', fontVariantNumeric: 'tabular-nums' }}
+                    />
+                    <span style={{ fontSize: 11, color: C.sub }}>%</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    {group.keys.map((k) => (
+                      <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 6, backgroundColor: '#f8f9fa', borderRadius: 8, padding: '6px 8px' }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: investMeta[k].color, flexShrink: 0 }} />
+                        <span style={{ flex: 1, fontSize: 12, color: C.sub, whiteSpace: 'nowrap' }}>{investMeta[k].label}</span>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          value={groupedTargetInputs.assets[k]}
+                          onChange={(e) => setAssetInput(k, e.target.value)}
+                          onFocus={(e) => e.target.select()}
+                          style={{ width: 48, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, textAlign: 'right', color: '#202124', fontVariantNumeric: 'tabular-nums' }}
+                        />
+                        <span style={{ fontSize: 11, color: C.sub }}>%</span>
+                      </label>
+                    ))}
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 11, color: remainingOk ? C.green : C.orange }}>
+                    {group.label}类剩余 {remaining.toFixed(2)}% 未分配
+                    {groupTotal > 0 && (
+                      <span style={{ color: C.sub }}> · 占总资产 {groupTotal.toFixed(2)}%</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '12px 20px 20px', borderTop: '1px solid #f1f3f4' }}>
@@ -168,8 +231,8 @@ export default function ReconcilePage() {
   const [expandedBudget, setExpandedBudget] = useState<BudgetKey | null>(null);
   const [expandedTransfer, setExpandedTransfer] = useState<TransferKey | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [investTargetInputs, setInvestTargetInputs] = useState<Record<InvestKey, string>>(
-    () => targetInputFromConfig(effectiveInvestTargets(config.investAllocTargets)),
+  const [groupedTargetInputs, setGroupedTargetInputs] = useState<GroupedTargetInputs>(
+    () => groupedTargetInputFromConfig(effectiveInvestTargets(config.investAllocTargets)),
   );
   const [saved, setSaved] = useState(false);
 
@@ -500,7 +563,7 @@ export default function ReconcilePage() {
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>对账 / 转账</h1>
         <button
           onClick={() => {
-            setInvestTargetInputs(targetInputFromConfig(effectiveInvestTargets(config.investAllocTargets)));
+            setGroupedTargetInputs(groupedTargetInputFromConfig(effectiveInvestTargets(config.investAllocTargets)));
             setSettingsOpen(true);
           }}
           style={{ fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', color: C.sub, lineHeight: 1 }}
@@ -513,13 +576,11 @@ export default function ReconcilePage() {
       </p>
       {settingsOpen && (
         <RebalanceSettingsModal
-          targetInputs={investTargetInputs}
-          setTargetInputs={setInvestTargetInputs}
+          groupedTargetInputs={groupedTargetInputs}
+          setGroupedTargetInputs={setGroupedTargetInputs}
           onClose={() => setSettingsOpen(false)}
           onSave={() => {
-            const investAllocTargets = Object.fromEntries(
-              INVEST_TARGET_KEYS.map((k) => [k, (parseFloat(investTargetInputs[k]) || 0) / 100]),
-            ) as unknown as InvestAllocTargets;
+            const investAllocTargets = groupedTargetInputsToConfig(groupedTargetInputs);
             setConfig({ investAllocTargets });
             setSettingsOpen(false);
           }}
