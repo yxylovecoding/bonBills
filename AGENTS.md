@@ -1,0 +1,5 @@
+# Project Memory
+
+- 称呼用户为 bon。
+- 与用户沟通时使用中文。
+- 修改完项目后，直接执行 git commit 并 git push，除非用户另有说明或存在需要用户确认的阻塞。
