@@ -797,7 +797,7 @@ export default function ReconcilePage() {
           </thead>
           <tbody>
             {investKeys.map((k, i) => {
-              const cur = effectiveInvestHoldings[k];
+              const cur = current.investHoldings[k];
               const profit = latestBreakdownProfit[k as keyof typeof latestBreakdownProfit] ?? null;
               const costBasis = profit !== null ? cur - profit : null;
               const profitRate = costBasis !== null && costBasis > 0 ? profit! / costBasis : null;
