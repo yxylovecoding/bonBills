@@ -31,17 +31,7 @@ const parseAmountPart = (raw: string | undefined) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const parseHoldingInput = (key: InvestKey, raw: string) => {
-  if (key !== RESERVABLE_HOLDING_KEY) return { amount: parseAmountPart(raw), reserve: 0 };
-  const normalized = raw.replace(/（/g, '(').replace(/）/g, ')');
-  const match = normalized.match(/^(.*?)\s*\((.*?)\)\s*$/);
-  const amount = parseAmountPart(match ? match[1] : normalized);
-  const reserve = Math.max(0, parseAmountPart(match ? match[2] : ''));
-  return { amount, reserve };
-};
-
-const formatHoldingInput = (key: InvestKey, amount: number, reserve = 0) =>
-  key === RESERVABLE_HOLDING_KEY && reserve > 0 ? `${amount}(${reserve})` : String(amount);
+const normalizeAmountInput = (v: string) => /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v;
 
 
 const TRANSFER_KEYS = ['campusCard', 'repayment', 'living', 'consumption', 'wishJar', 'invest'] as const;
@@ -120,15 +110,23 @@ export default function ReconcilePage() {
   const [localHoldings, setLocalHoldings] = useState<Record<InvestKey, string>>(
     () => Object.fromEntries((Object.keys(current.investHoldings) as InvestKey[]).map((k) => [
       k,
-      formatHoldingInput(k, current.investHoldings[k], current.investHoldingReserves?.[k] ?? 0),
+      String(current.investHoldings[k]),
+    ])) as Record<InvestKey, string>
+  );
+  const [localHoldingReserves, setLocalHoldingReserves] = useState<Record<InvestKey, string>>(
+    () => Object.fromEntries((Object.keys(current.investHoldings) as InvestKey[]).map((k) => [
+      k,
+      String(current.investHoldingReserves?.[k] ?? 0),
     ])) as Record<InvestKey, string>
   );
   const holdingInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const longBondReserveInputRef = useRef<HTMLInputElement | null>(null);
   const transferInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const syncHolding = (k: InvestKey) => {
-    const parsed = parseHoldingInput(k, localHoldings[k]);
-    updateHoldings({ ...current.investHoldings, [k]: parsed.amount });
-    if (k === RESERVABLE_HOLDING_KEY) updateHoldingReserves({ [k]: parsed.reserve });
+    updateHoldings({ ...current.investHoldings, [k]: parseAmountPart(localHoldings[k]) });
+    if (k === RESERVABLE_HOLDING_KEY) {
+      updateHoldingReserves({ [k]: Math.max(0, parseAmountPart(localHoldingReserves[k])) });
+    }
   };
 
   // 今天
@@ -782,11 +780,11 @@ export default function ReconcilePage() {
         {/* 持仓表（固定列宽） */}
         <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse', marginBottom: 16, tableLayout: 'fixed' }}>
           <colgroup>
-            <col style={{ width: '20%' }} />
-            <col style={{ width: '22%' }} />
-            <col style={{ width: '20%' }} />
+            <col style={{ width: '18%' }} />
+            <col style={{ width: '30%' }} />
+            <col style={{ width: '18%' }} />
             <col style={{ width: '14%' }} />
-            <col style={{ width: '24%' }} />
+            <col style={{ width: '20%' }} />
           </colgroup>
           <thead>
             <tr style={{ borderBottom: '2px solid #e8eaed' }}>
@@ -814,17 +812,46 @@ export default function ReconcilePage() {
                     {investMeta[k].label}
                   </td>
                   <td style={{ padding: '4px 0', textAlign: 'right' }}>
-                    <AmountInput
-                      ref={(el) => { holdingInputRefs.current[i] = el; }}
-                      value={localHoldings[k]}
-                      onChange={(v) => setLocalHoldings((p) => ({ ...p, [k]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }))}
-                      onFocus={(e) => e.target.select()}
-                      onBlur={() => syncHolding(k)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') { syncHolding(k); holdingInputRefs.current[i + 1]?.focus(); }
-                      }}
-                      style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124', textAlign: 'right' }}
-                    />
+                    {k === RESERVABLE_HOLDING_KEY ? (
+                      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'flex-end', gap: 2, width: '100%', fontVariantNumeric: 'tabular-nums' }}>
+                        <AmountInput
+                          ref={(el) => { holdingInputRefs.current[i] = el; }}
+                          value={localHoldings[k]}
+                          onChange={(v) => setLocalHoldings((p) => ({ ...p, [k]: normalizeAmountInput(v) }))}
+                          onFocus={(e) => e.target.select()}
+                          onBlur={() => syncHolding(k)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') { syncHolding(k); longBondReserveInputRef.current?.focus(); }
+                          }}
+                          style={{ width: 72, minWidth: 0, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124', textAlign: 'right' }}
+                        />
+                        <span style={{ color: C.sub, fontSize: 12, lineHeight: 1 }}>(</span>
+                        <AmountInput
+                          ref={longBondReserveInputRef}
+                          value={localHoldingReserves[k]}
+                          onChange={(v) => setLocalHoldingReserves((p) => ({ ...p, [k]: normalizeAmountInput(v) }))}
+                          onFocus={(e) => e.target.select()}
+                          onBlur={() => syncHolding(k)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') { syncHolding(k); holdingInputRefs.current[i + 1]?.focus(); }
+                          }}
+                          style={{ width: 54, minWidth: 0, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.sub, textAlign: 'right' }}
+                        />
+                        <span style={{ color: C.sub, fontSize: 12, lineHeight: 1 }}>)</span>
+                      </div>
+                    ) : (
+                      <AmountInput
+                        ref={(el) => { holdingInputRefs.current[i] = el; }}
+                        value={localHoldings[k]}
+                        onChange={(v) => setLocalHoldings((p) => ({ ...p, [k]: normalizeAmountInput(v) }))}
+                        onFocus={(e) => e.target.select()}
+                        onBlur={() => syncHolding(k)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') { syncHolding(k); holdingInputRefs.current[i + 1]?.focus(); }
+                        }}
+                        style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124', textAlign: 'right' }}
+                      />
+                    )}
                   </td>
                   {/* 累计收益率 */}
                   <td style={{ padding: '8px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
@@ -882,7 +909,7 @@ export default function ReconcilePage() {
             updateHoldings(newHoldings);
             setLocalHoldings(Object.fromEntries(investKeys.map((k) => [
               k,
-              formatHoldingInput(k, newHoldings[k], current.investHoldingReserves?.[k] ?? 0),
+              String(newHoldings[k]),
             ])) as Record<InvestKey, string>);
             // 重置已加/已执行为 0
             setLocalConfirmed(Object.fromEntries(investKeys.map((k) => [k, '0'])) as Record<InvestKey, string>);
