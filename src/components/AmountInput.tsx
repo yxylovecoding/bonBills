@@ -9,11 +9,12 @@ export interface AmountInputProps
 }
 
 const sanitizeAmount = (raw: string): string | null => {
-  if (raw === '') return '';
-  if (!/^[\d+\-*/(). ]*$/.test(raw)) return null;
-  const tokens = raw.split(/[+\-*/() ]/);
+  const normalized = raw.replace(/（/g, '(').replace(/）/g, ')');
+  if (normalized === '') return '';
+  if (!/^[\d+\-*/(). ]*$/.test(normalized)) return null;
+  const tokens = normalized.split(/[+\-*/() ]/);
   if (tokens.some((t) => (t.match(/\./g) || []).length > 1)) return null;
-  return raw;
+  return normalized;
 };
 
 const AmountInput = forwardRef<HTMLInputElement, AmountInputProps>(

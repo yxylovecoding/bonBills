@@ -17,9 +17,31 @@ import { calcRebalance } from '../calculations/rebalance';
 import { investMeta, tagMeta } from '../data/mockData';
 import type { DailyTag, InvestKey, TagKind } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
+import { tryEvalFormula } from '../utils/formula';
 import { dateLabel, resolveIncomeForMonth, type ResolvedIncomeItem } from '../utils/payroll';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', sub: '#5f6368', orange: '#e8710a' };
+const RESERVABLE_HOLDING_KEY: InvestKey = 'longBond';
+
+const parseAmountPart = (raw: string | undefined) => {
+  const value = raw?.trim() ?? '';
+  if (!value) return 0;
+  const evaluated = tryEvalFormula(value);
+  const parsed = parseFloat(evaluated ?? value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const parseHoldingInput = (key: InvestKey, raw: string) => {
+  if (key !== RESERVABLE_HOLDING_KEY) return { amount: parseAmountPart(raw), reserve: 0 };
+  const normalized = raw.replace(/（/g, '(').replace(/）/g, ')');
+  const match = normalized.match(/^(.*?)\s*\((.*?)\)\s*$/);
+  const amount = parseAmountPart(match ? match[1] : normalized);
+  const reserve = Math.max(0, parseAmountPart(match ? match[2] : ''));
+  return { amount, reserve };
+};
+
+const formatHoldingInput = (key: InvestKey, amount: number, reserve = 0) =>
+  key === RESERVABLE_HOLDING_KEY && reserve > 0 ? `${amount}(${reserve})` : String(amount);
 
 
 const TRANSFER_KEYS = ['campusCard', 'repayment', 'living', 'consumption', 'wishJar', 'invest'] as const;
@@ -39,7 +61,7 @@ interface BudgetDetailItem { icon: string; label: string; amount: number; note?:
 
 export default function ReconcilePage() {
   const navigate = useNavigate();
-  const { current, updateAccounts, updateTransfers, updateHoldings, saveSnapshot } = useSnapshotStore();
+  const { current, updateAccounts, updateTransfers, updateHoldings, updateHoldingReserves, saveSnapshot } = useSnapshotStore();
   const { config } = useConfigStore();
   const { records } = useMonthlyStore();
   const { tagMap, confirmedExpenses } = useCalendarStore();
@@ -96,12 +118,17 @@ export default function ReconcilePage() {
 
   // 理财持仓本地编辑
   const [localHoldings, setLocalHoldings] = useState<Record<InvestKey, string>>(
-    () => Object.fromEntries((Object.keys(current.investHoldings) as InvestKey[]).map((k) => [k, String(current.investHoldings[k])])) as Record<InvestKey, string>
+    () => Object.fromEntries((Object.keys(current.investHoldings) as InvestKey[]).map((k) => [
+      k,
+      formatHoldingInput(k, current.investHoldings[k], current.investHoldingReserves?.[k] ?? 0),
+    ])) as Record<InvestKey, string>
   );
   const holdingInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const transferInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const syncHolding = (k: InvestKey) => {
-    updateHoldings({ ...current.investHoldings, [k]: parseFloat(localHoldings[k]) || 0 });
+    const parsed = parseHoldingInput(k, localHoldings[k]);
+    updateHoldings({ ...current.investHoldings, [k]: parsed.amount });
+    if (k === RESERVABLE_HOLDING_KEY) updateHoldingReserves({ [k]: parsed.reserve });
   };
 
   // 今天
@@ -161,9 +188,16 @@ export default function ReconcilePage() {
   );
 
   // 理财再平衡建议（算法值）
+  const effectiveInvestHoldings = useMemo(() => ({
+    ...current.investHoldings,
+    [RESERVABLE_HOLDING_KEY]: Math.max(
+      0,
+      current.investHoldings[RESERVABLE_HOLDING_KEY] - (current.investHoldingReserves?.[RESERVABLE_HOLDING_KEY] ?? 0),
+    ),
+  }), [current.investHoldings, current.investHoldingReserves]);
   const rebalanceSuggested = useMemo(
-    () => calcRebalance(current.investHoldings, config.investAllocTargets, parseFloat(investInput) || 0, allowRebalanceSell),
-    [current.investHoldings, config.investAllocTargets, investInput, allowRebalanceSell],
+    () => calcRebalance(effectiveInvestHoldings, config.investAllocTargets, parseFloat(investInput) || 0, allowRebalanceSell),
+    [effectiveInvestHoldings, config.investAllocTargets, investInput, allowRebalanceSell],
   );
   const investKeys = Object.keys(current.investHoldings) as InvestKey[];
 
@@ -180,7 +214,7 @@ export default function ReconcilePage() {
   const [localConfirmed, setLocalConfirmed] = useState<Record<InvestKey, string>>(
     () => Object.fromEntries(investKeys.map((k) => [k, '0'])) as Record<InvestKey, string>
   );
-  const totalInvest = investKeys.reduce((s, k) => s + current.investHoldings[k], 0);
+  const totalInvest = investKeys.reduce((s, k) => s + effectiveInvestHoldings[k], 0);
 
 
   // 一键执行转账：把已转金额加到对应账户，收入账户相应减少，然后已转归零
@@ -741,7 +775,7 @@ export default function ReconcilePage() {
         {/* 色条 */}
         <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginBottom: 14 }}>
           {investKeys.map((k) => (
-            <div key={k} style={{ width: `${totalInvest > 0 ? (current.investHoldings[k] / totalInvest) * 100 : 0}%`, backgroundColor: investMeta[k].color }} />
+            <div key={k} style={{ width: `${totalInvest > 0 ? (effectiveInvestHoldings[k] / totalInvest) * 100 : 0}%`, backgroundColor: investMeta[k].color }} />
           ))}
         </div>
 
@@ -765,7 +799,7 @@ export default function ReconcilePage() {
           </thead>
           <tbody>
             {investKeys.map((k, i) => {
-              const cur = current.investHoldings[k];
+              const cur = effectiveInvestHoldings[k];
               const profit = latestBreakdownProfit[k as keyof typeof latestBreakdownProfit] ?? null;
               const costBasis = profit !== null ? cur - profit : null;
               const profitRate = costBasis !== null && costBasis > 0 ? profit! / costBasis : null;
@@ -846,7 +880,10 @@ export default function ReconcilePage() {
               }
             }
             updateHoldings(newHoldings);
-            setLocalHoldings(Object.fromEntries(investKeys.map((k) => [k, String(newHoldings[k])])) as Record<InvestKey, string>);
+            setLocalHoldings(Object.fromEntries(investKeys.map((k) => [
+              k,
+              formatHoldingInput(k, newHoldings[k], current.investHoldingReserves?.[k] ?? 0),
+            ])) as Record<InvestKey, string>);
             // 重置已加/已执行为 0
             setLocalConfirmed(Object.fromEntries(investKeys.map((k) => [k, '0'])) as Record<InvestKey, string>);
           }}

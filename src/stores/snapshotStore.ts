@@ -24,6 +24,7 @@ export const DEFAULT_SNAPSHOT: AccountSnapshot = {
     usBond: 0,
     gold: 0,
   },
+  investHoldingReserves: {},
   transfersDone: {
     campusCard: 0,
     repayment: 0,
@@ -40,6 +41,7 @@ interface SnapshotStore {
   updateAccounts: (accounts: Partial<AccountSnapshot['accounts']>) => void;
   updateTransfers: (transfers: Partial<AccountSnapshot['transfersDone']>) => void;
   updateHoldings: (holdings: Partial<AccountSnapshot['investHoldings']>) => void;
+  updateHoldingReserves: (reserves: Partial<AccountSnapshot['investHoldings']>) => void;
   saveSnapshot: () => void;
   resetToDefault: () => void;
 }
@@ -55,6 +57,8 @@ export const useSnapshotStore = create<SnapshotStore>()(
         set((s) => ({ current: { ...s.current, transfersDone: { ...s.current.transfersDone, ...transfers } } })),
       updateHoldings: (holdings) =>
         set((s) => ({ current: { ...s.current, investHoldings: { ...s.current.investHoldings, ...holdings } } })),
+      updateHoldingReserves: (reserves) =>
+        set((s) => ({ current: { ...s.current, investHoldingReserves: { ...s.current.investHoldingReserves, ...reserves } } })),
       saveSnapshot: () =>
         set((s) => ({
           history: [s.current, ...s.history].slice(0, 50),

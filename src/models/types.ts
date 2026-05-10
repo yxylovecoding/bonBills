@@ -55,6 +55,7 @@ export interface AccountSnapshot {
     wishJar: number;
   };
   investHoldings: InvestHoldings;
+  investHoldingReserves?: Partial<InvestHoldings>; // 计入账户但不参与仓位再平衡的暂存金额
   transfersDone: {
     campusCard: number;
     repayment: number;
