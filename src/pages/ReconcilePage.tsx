@@ -43,6 +43,11 @@ const parseAmountPart = (raw: string | undefined) => {
 };
 
 const normalizeAmountInput = (v: string) => /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v;
+const fmtUsd = (value: number) => {
+  const abs = Math.abs(value);
+  const body = abs >= 100 ? Math.round(abs).toLocaleString('zh-CN') : abs.toFixed(2);
+  return `${value > 0 ? '+' : value < 0 ? '-' : ''}$${body}`;
+};
 const effectiveInvestTargets = (targets: InvestAllocTargets) =>
   INVEST_TARGET_KEYS.some((k) => (targets[k] ?? 0) > 0) ? targets : DEFAULT_CONFIG.investAllocTargets;
 const fmtPctInput = (value: number) => String(Math.round(value * 100) / 100);
@@ -234,6 +239,7 @@ export default function ReconcilePage() {
   const [groupedTargetInputs, setGroupedTargetInputs] = useState<GroupedTargetInputs>(
     () => groupedTargetInputFromConfig(effectiveInvestTargets(config.investAllocTargets)),
   );
+  const [usdRebalanceCells, setUsdRebalanceCells] = useState<Set<InvestKey>>(() => new Set());
   const [saved, setSaved] = useState(false);
 
   // 理财本次投入金额
@@ -344,6 +350,12 @@ export default function ReconcilePage() {
     () => [...records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth))
       .find((r) => r.investBreakdownProfit && Object.keys(r.investBreakdownProfit).length > 0)
       ?.investBreakdownProfit ?? {},
+    [records],
+  );
+  const latestUsdRate = useMemo(
+    () => [...records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth))
+      .map((r) => r.investProfitComponents?.us?.rate ?? r.investProfitComponents?.usBond?.rate)
+      .find((rate) => rate !== undefined && Number.isFinite(rate) && rate > 0) ?? null,
     [records],
   );
 
@@ -968,6 +980,16 @@ export default function ReconcilePage() {
               // 需加/需赎 = 建议 - 已加，赎回时为负数
               const localDone = parseFloat(localConfirmed[k]) || 0;
               const remaining = suggested - localDone;
+              const showUsd = usdRebalanceCells.has(k) && latestUsdRate !== null;
+              const remainingLabel = suggested === 0
+                ? '—'
+                : Math.abs(remaining) < 0.5
+                  ? '✓'
+                  : showUsd
+                    ? fmtUsd(remaining / latestUsdRate)
+                    : remaining > 0
+                      ? `+${Math.round(remaining)}`
+                      : `${Math.round(remaining)}`;
               return (
                 <tr key={k} style={{ backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff', borderBottom: '1px solid #f1f3f4' }}>
                   <td style={{ padding: '8px 0', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1031,14 +1053,20 @@ export default function ReconcilePage() {
                     )}
                   </td>
                   {/* 需加/需赎（实时 = 建议 - 已加；正=加仓，负=赎回） */}
-                  <td style={{ padding: '8px 0', textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: remaining > 0 ? C.orange : remaining < 0 ? C.blue : C.sub }}>
-                    {suggested === 0
-                      ? '—'
-                      : Math.abs(remaining) < 0.5
-                        ? '✓'
-                        : remaining > 0
-                          ? `+${Math.round(remaining)}`
-                          : `${Math.round(remaining)}`}
+                  <td
+                    onClick={() => {
+                      if (latestUsdRate === null || suggested === 0 || Math.abs(remaining) < 0.5) return;
+                      setUsdRebalanceCells((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(k)) next.delete(k);
+                        else next.add(k);
+                        return next;
+                      });
+                    }}
+                    title={latestUsdRate === null ? '暂无美元汇率' : '点击切换人民币/美元'}
+                    style={{ padding: '8px 0', textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: remaining > 0 ? C.orange : remaining < 0 ? C.blue : C.sub, cursor: latestUsdRate !== null && suggested !== 0 && Math.abs(remaining) >= 0.5 ? 'pointer' : 'default', userSelect: 'none' }}
+                  >
+                    {remainingLabel}
                   </td>
                   {/* 已加（编辑后按执行键生效） */}
                   <td style={{ padding: '4px 0', textAlign: 'right' }}>
