@@ -424,13 +424,18 @@ export default function ReconcilePage() {
       : status === 'next'
         ? `次月${payDateDay(item)}号发薪`
         : `${payDateDay(item)}号发薪`;
+    const taxLabel = item.taxAmount > 0
+      ? `；扣税¥${fmtInt(item.taxAmount)}，到手¥${fmtInt(item.resolvedAmount)}`
+      : item.taxRuleError
+        ? `；${item.taxRuleError}`
+        : '';
     if (item.isInternPayroll && item.payrollCycle) {
-      return `${baseLabel}（截止${dateLabel(item.payrollCycle.cutoffDate)}；${item.payrollCycle.internDays}天×¥${item.dailyRate ?? 0}/天）`;
+      return `${baseLabel}（截止${dateLabel(item.payrollCycle.cutoffDate)}；${item.payrollCycle.internDays}天×¥${item.dailyRate ?? 0}/天${taxLabel}）`;
     }
     if (item.dailyRate !== undefined && item.tagKind) {
-      return `${baseLabel}（${item.resolvedDayCount ?? 0}天×¥${item.dailyRate}/天）`;
+      return `${baseLabel}（${item.resolvedDayCount ?? 0}天×¥${item.dailyRate}/天${taxLabel}）`;
     }
-    return baseLabel;
+    return taxLabel ? `${baseLabel}（${taxLabel.slice(1)}）` : baseLabel;
   };
 
   // 周内（近7天）各状态实际天数（直接从 tagMap 计数，不用比例估算）

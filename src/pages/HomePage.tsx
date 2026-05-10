@@ -22,8 +22,9 @@ import { dateLabel, daysUntilDate, resolveIncomeForMonth } from '../utils/payrol
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '美元切换';
+const RELEASE_NOTE = '扣税规则';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
+const DEFAULT_TAX_RULE_TEXT = '劳务报酬';
 
 function fmt万(v: number) { return (v / 10000).toFixed(2) + '万'; }
 function Divider() { return <div style={{ height: 1, backgroundColor: '#f1f3f4', margin: '8px 0' }} />; }
@@ -125,7 +126,19 @@ export default function HomePage() {
       if (field === 'payDay')    { const v = parseInt(raw, 10); return { ...item, payDay: isNaN(v) ? 1 : v }; }
       if (field === 'name')      return { ...item, name: raw };
       if (field === 'dailyRate') return { ...item, dailyRate: parseFloat(raw) || undefined };
+      if (field === 'taxRuleText') return { ...item, taxRuleText: raw };
       return item;
+    });
+    syncIncome(items);
+  };
+  const toggleTaxRule = (id: string) => {
+    const items = localIncome.map((item) => {
+      if (item.id !== id) return item;
+      if (item.taxRuleText?.trim()) {
+        const { taxRuleText: _taxRuleText, ...rest } = item;
+        return rest as IncomeItem;
+      }
+      return { ...item, taxRuleText: DEFAULT_TAX_RULE_TEXT };
     });
     syncIncome(items);
   };
@@ -253,7 +266,7 @@ export default function HomePage() {
       </Card>
 
       {/* 收入管理 */}
-      <Card title="收入管理" subtitle="支持固定月收入和按天计薪两种模式" collapsible defaultCollapsed>
+      <Card title="收入管理" subtitle="支持固定、日薪和扣税规则" collapsible defaultCollapsed>
         {holidayWarning && (
           <div style={{ marginBottom: 10, fontSize: 12, color: C.orange, backgroundColor: '#fff4e8', border: '1px solid #fed7aa', borderRadius: 10, padding: '8px 10px' }}>
             {holidayWarning}
@@ -262,6 +275,7 @@ export default function HomePage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {resolvedIncomeItems.map((item) => {
             const isDailyMode = item.dailyRate !== undefined;
+            const hasTaxRule = Boolean(item.taxRuleText?.trim());
             const daysToNext = daysUntilDate(item.resolvedPayDate, today);
             const isPending = daysToNext >= 0 && daysToNext <= 3;
             const payrollCycle = item.payrollCycle;
@@ -272,6 +286,9 @@ export default function HomePage() {
                   <input value={item.name} onChange={(e) => updateIncomeField(item.id, 'name', e.target.value)} style={{ flex: 1, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, color: item.isActive ? '#202124' : '#9aa0a6', minWidth: 0 }} />
                   <button onClick={() => toggleDailyRate(item.id)} style={{ flexShrink: 0, fontSize: 11, padding: '2px 8px', borderRadius: 6, border: `1px solid ${isDailyMode ? C.orange : '#dadce0'}`, backgroundColor: isDailyMode ? '#fff4e8' : '#f1f3f4', color: isDailyMode ? C.orange : C.sub, cursor: 'pointer', fontWeight: 600 }}>
                     {isDailyMode ? '日薪' : '固定'}
+                  </button>
+                  <button onClick={() => toggleTaxRule(item.id)} style={{ flexShrink: 0, fontSize: 11, padding: '2px 8px', borderRadius: 6, border: `1px solid ${hasTaxRule ? C.red : '#dadce0'}`, backgroundColor: hasTaxRule ? '#fce8e6' : '#f1f3f4', color: hasTaxRule ? C.red : C.sub, cursor: 'pointer', fontWeight: 600 }}>
+                    扣税
                   </button>
                   <button onClick={() => removeIncomeItem(item.id)} style={{ flexShrink: 0, background: 'none', border: 'none', color: '#dadce0', fontSize: 16, cursor: 'pointer', padding: '0 2px', lineHeight: 1 }}>×</button>
                 </div>
@@ -310,7 +327,7 @@ export default function HomePage() {
                         style={{ width: 60, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, color: C.orange, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
                       />
                       <span style={{ fontSize: 11, color: C.sub }}>/天 × {item.resolvedDayCount ?? 0}天</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: C.green, fontVariantNumeric: 'tabular-nums' }}>= ¥{formatCurrency(item.resolvedAmount)}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: C.green, fontVariantNumeric: 'tabular-nums' }}>= ¥{formatCurrency(item.grossAmount)}</span>
                     </>
                   ) : (
                     <>
@@ -322,6 +339,24 @@ export default function HomePage() {
                     </>
                   )}
                 </div>
+                {hasTaxRule && (
+                  <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <input
+                      value={item.taxRuleText ?? ''}
+                      onChange={(e) => updateIncomeField(item.id, 'taxRuleText', e.target.value)}
+                      placeholder="例：劳务报酬；扣10%；起征800 税率20%；税=收入*0.8*20%"
+                      style={{ width: '100%', boxSizing: 'border-box', border: '1px solid #fad2cf', borderRadius: 8, outline: 'none', backgroundColor: '#fff', fontSize: 12, color: '#202124', padding: '6px 8px' }}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 11 }}>
+                      <span style={{ color: item.taxRuleError ? C.red : C.sub }}>
+                        {item.taxRuleError ?? item.taxRuleSummary ?? '已启用扣税'}
+                      </span>
+                      <span style={{ color: C.sub, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                        税前 ¥{formatCurrency(item.grossAmount)} - 税 ¥{formatCurrency(item.taxAmount)} = 到手 ¥{formatCurrency(item.resolvedAmount)}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}

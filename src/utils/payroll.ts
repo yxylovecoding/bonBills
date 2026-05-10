@@ -1,6 +1,7 @@
 import { resolvePayDay } from '../calculations/budget';
 import type { IncomeItem, TagKind } from '../models/types';
 import type { HolidayDataByYear } from './holidays';
+import { calculateIncomeTax } from './tax';
 
 export interface InternPayrollCycle {
   payDate: string;
@@ -13,6 +14,10 @@ export interface InternPayrollCycle {
 
 export interface ResolvedIncomeItem extends IncomeItem {
   resolvedAmount: number;
+  grossAmount: number;
+  taxAmount: number;
+  taxRuleSummary?: string;
+  taxRuleError?: string;
   resolvedPayDate: string;
   isInternPayroll: boolean;
   resolvedDayCount?: number;
@@ -112,10 +117,15 @@ export function resolveIncomeForMonth(
   const isInternPayroll = item.dailyRate !== undefined && item.tagKind === 'intern';
   if (isInternPayroll) {
     const payrollCycle = getInternPayrollCycleForMonth(item, year, month0, tagMap, holidayDataByYear);
+    const tax = calculateIncomeTax(payrollCycle.effectiveAmount, item.taxRuleText);
     return {
       ...item,
       amount: payrollCycle.effectiveAmount,
-      resolvedAmount: payrollCycle.effectiveAmount,
+      resolvedAmount: tax.netAmount,
+      grossAmount: tax.grossAmount,
+      taxAmount: tax.taxAmount,
+      taxRuleSummary: tax.ruleSummary,
+      taxRuleError: tax.ruleError,
       resolvedPayDate: payrollCycle.payDate,
       isInternPayroll: true,
       resolvedDayCount: payrollCycle.internDays,
@@ -129,11 +139,16 @@ export function resolveIncomeForMonth(
   const resolvedAmount = item.dailyRate !== undefined && item.tagKind
     ? item.dailyRate * (resolvedDayCount ?? 0)
     : item.amount;
+  const tax = calculateIncomeTax(resolvedAmount, item.taxRuleText);
   const payDay = resolvePayDay(item.payDay, year, month0);
   return {
     ...item,
     amount: resolvedAmount,
-    resolvedAmount,
+    resolvedAmount: tax.netAmount,
+    grossAmount: tax.grossAmount,
+    taxAmount: tax.taxAmount,
+    taxRuleSummary: tax.ruleSummary,
+    taxRuleError: tax.ruleError,
     resolvedPayDate: `${year}-${pad(month0 + 1)}-${pad(payDay)}`,
     isInternPayroll: false,
     resolvedDayCount,

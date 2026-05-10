@@ -24,6 +24,7 @@ export interface IncomeItem {
   isActive: boolean;
   dailyRate?: number;    // 日薪（设置后按 tagKind 天数动态计算总额）
   tagKind?: TagKind;     // 日薪对应的日历标签
+  taxRuleText?: string;  // 扣税规则文本（解析后从税前收入扣除）
 }
 
 export interface AppConfig {
