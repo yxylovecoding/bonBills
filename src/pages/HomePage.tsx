@@ -23,7 +23,7 @@ import { TAX_RULE_PRESETS } from '../utils/tax';
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '税档修正';
+const RELEASE_NOTE = '口径修正';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 
@@ -111,9 +111,10 @@ export default function HomePage() {
 
   // FIRE 模式切换
   const [fireMode, setFireMode] = useState<'life' | 'all'>('all');
+  const lifeExpenseAvg = stats.periodicLifeAvg + stats.volatileLifeAvg;
   const fireExpenseAvg = fireMode === 'life'
-    ? stats.periodicLifeAvg + stats.volatileLifeAvg
-    : stats.totalExpenseAvg;
+    ? lifeExpenseAvg
+    : lifeExpenseAvg + stats.consumptionAvg;
   const fireStats = useMemo(() => ({ ...stats, totalExpenseAvg: fireExpenseAvg }), [stats, fireExpenseAvg]);
   const fire = useMemo(() => calcFire(config, fireStats, totalInvest), [config, fireStats, totalInvest]);
 
