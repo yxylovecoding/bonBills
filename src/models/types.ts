@@ -27,6 +27,13 @@ export interface IncomeItem {
   taxRuleText?: string;  // 扣税规则文本（解析后从税前收入扣除）
 }
 
+export interface FutureFireExpense {
+  id: string;
+  name: string;
+  monthlyAmount: number;
+  isActive: boolean;
+}
+
 export interface AppConfig {
   birthDate: string;          // "2002-12-29"
   retireAge: number;          // 55
@@ -38,6 +45,7 @@ export interface AppConfig {
   creditPrepDays: number;     // 5
   reconcileDates: number[];   // [1, 11, 21]
   incomeItems: IncomeItem[];
+  futureFireExpenses: FutureFireExpense[];
   majorExpenseThreshold: number; // 大额支出筛选门槛，默认 500
 }
 
