@@ -37,6 +37,7 @@ export interface FutureFireExpense {
 export interface AppConfig {
   birthDate: string;          // "2002-12-29"
   retireAge: number;          // 55
+  fireTargetYears?: number;   // FIRE 攒钱目标年数，默认到退休年龄
   safeWithdrawRate: number;   // 0.04
   lifeExpectancy: number;     // 85
   investAllocTargets: InvestAllocTargets;

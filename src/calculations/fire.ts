@@ -16,6 +16,8 @@ export interface FireResult {
   target4pct: number;
   targetAge: number;
   progress: number;
+  targetYears: number;
+  retireYearsLeft: number;
   monthlyNeeded: number;
   monthlySurplus: number;
   requiredAnnualSavings: number;
@@ -42,9 +44,13 @@ export function calcFire(
   const fireTarget = Math.min(target4pct, targetAge);
 
   const progress = fireTarget > 0 ? investTotal / fireTarget : 0;
-  const yearsLeft = Math.max(config.retireAge - age, 1);
+  const retireYearsLeft = Math.max(config.retireAge - age, 1);
+  const configuredTargetYears = config.fireTargetYears && config.fireTargetYears > 0
+    ? config.fireTargetYears
+    : retireYearsLeft;
+  const targetYears = Math.min(configuredTargetYears, retireYearsLeft);
   const remainingTarget = Math.max(fireTarget - investTotal, 0);
-  const requiredAnnualSavings = remainingTarget / yearsLeft;
+  const requiredAnnualSavings = remainingTarget / targetYears;
   const monthlyNeeded = requiredAnnualSavings / 12;
   const monthlySurplus = stats.monthlyIncomeAvg - stats.totalExpenseAvg;
   const requiredAnnualNetIncome = annualExpense + requiredAnnualSavings;
@@ -68,6 +74,8 @@ export function calcFire(
     target4pct,
     targetAge,
     progress,
+    targetYears,
+    retireYearsLeft,
     monthlyNeeded,
     monthlySurplus,
     requiredAnnualSavings,

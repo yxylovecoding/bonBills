@@ -23,11 +23,12 @@ import { TAX_RULE_PRESETS } from '../utils/tax';
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '分段个税';
+const RELEASE_NOTE = 'FIRE年数';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 
 function fmt万(v: number) { return (v / 10000).toFixed(2) + '万'; }
+function fmt年(v: number) { return Number.isInteger(v) ? String(v) : v.toFixed(1); }
 function Divider() { return <div style={{ height: 1, backgroundColor: '#f1f3f4', margin: '8px 0' }} />; }
 
 // ── 趋势图 ────────────────────────────────────────────────────────
@@ -125,6 +126,15 @@ export default function HomePage() {
   const fireExpenseAvg = fireAnnualExpense / 12;
   const fireStats = useMemo(() => ({ ...stats, totalExpenseAvg: fireExpenseAvg }), [stats, fireExpenseAvg]);
   const fire = useMemo(() => calcFire(config, fireStats, totalInvest), [config, fireStats, totalInvest]);
+  const fireTargetYearsValue = Math.min(config.fireTargetYears ?? fire.retireYearsLeft, fire.retireYearsLeft);
+  const updateFireTargetYears = (raw: string) => {
+    const value = parseFloat(raw);
+    if (!Number.isFinite(value) || value <= 0) {
+      setConfig({ fireTargetYears: undefined });
+      return;
+    }
+    setConfig({ fireTargetYears: Math.min(value, fire.retireYearsLeft) });
+  };
 
   const updateFutureFireExpense = (id: string, field: keyof FutureFireExpense, raw: string | boolean) => {
     syncFutureFireExpenses(futureFireExpenses.map((item) => {
@@ -279,7 +289,7 @@ export default function HomePage() {
             })}
           </div>
           <div style={{ flex: 1, minWidth: 0, textAlign: 'right', fontSize: 13, color: C.sub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            年薪 <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: C.red }}>{fmt万(fire.requiredAnnualGrossIncome)}</span>
+            {fmt年(fire.targetYears)}年年薪 <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: C.red }}>{fmt万(fire.requiredAnnualGrossIncome)}</span>
           </div>
           <span style={{ fontSize: 11, color: C.sub, transform: fireExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', display: 'inline-block', flexShrink: 0 }}>▼</span>
         </div>
@@ -294,12 +304,26 @@ export default function HomePage() {
                 <div style={{ height: '100%', width: `${Math.min(fire.progress * 100, 100)}%`, backgroundColor: C.blue, borderRadius: 5, transition: 'width 0.3s' }} />
               </div>
             </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, backgroundColor: '#f8f9fa', borderRadius: 10, padding: '8px 10px', marginBottom: 10 }}>
+              <span style={{ fontSize: 12, color: C.sub, flexShrink: 0 }}>攒钱年数</span>
+              <AmountInput
+                value={String(fireTargetYearsValue)}
+                onFocus={(e) => e.target.select()}
+                onChange={updateFireTargetYears}
+                style={{ width: 54, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 700, color: C.blue, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
+              />
+              <span style={{ fontSize: 12, color: C.sub }}>年内退休</span>
+              <button onClick={() => setConfig({ fireTargetYears: undefined })} style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 11, padding: '3px 8px', borderRadius: 999, border: 'none', backgroundColor: '#e8f0fe', color: C.blue, cursor: 'pointer', fontWeight: 600 }}>
+                最晚{fmt年(fire.retireYearsLeft)}年
+              </button>
+            </div>
             <StatRow label="生活年支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(futureLifeAnnualExpense)}</span>} />
             <StatRow label="消费年支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.purple }}>{fmt万(futureConsumptionAnnualExpense)}</span>} />
             <StatRow label="未来固定支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(activeFutureFireMonthly * 12)}</span>} />
             <Divider />
             <StatRow label="目标资产" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(fire.fireTarget)}</span>} />
             <StatRow label="理财总额" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(totalInvest)}</span>} />
+            <StatRow label="目标年数" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt年(fire.targetYears)}年 · 最晚{fmt年(fire.retireYearsLeft)}年</span>} />
             <StatRow label="月需存入" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(fire.monthlyNeeded)}</span>} />
             <StatRow label="估算月结余" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: fire.monthlySurplus >= 0 ? C.green : C.red }}>{fmt万(fire.monthlySurplus)}</span>} />
             <Divider />
