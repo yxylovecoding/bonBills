@@ -13,6 +13,13 @@ export interface AnnualComprehensiveTaxResult {
   netAnnualIncome: number;
   effectiveTaxRate: number;
   marginalTaxRate: number;
+  taxSegments: AnnualComprehensiveTaxSegment[];
+}
+
+export interface AnnualComprehensiveTaxSegment {
+  taxableAmount: number;
+  rate: number;
+  taxAmount: number;
 }
 
 export const TAX_RULE_PRESETS = [
@@ -30,15 +37,14 @@ export const TAX_RULE_PRESETS = [
 
 const MONEY_ROUNDING = 100;
 const ANNUAL_BASIC_DEDUCTION = 60000;
-const ANNUAL_GROSS_INCOME_TAX_BRACKETS = [
-  { grossLimit: 60000, rate: 0, quickDeduction: 0 },
-  { grossLimit: 96000, rate: 0.03, quickDeduction: 1800 },
-  { grossLimit: 204000, rate: 0.10, quickDeduction: 8520 },
-  { grossLimit: 360000, rate: 0.20, quickDeduction: 28920 },
-  { grossLimit: 480000, rate: 0.25, quickDeduction: 46920 },
-  { grossLimit: 720000, rate: 0.30, quickDeduction: 70920 },
-  { grossLimit: 1020000, rate: 0.35, quickDeduction: 106920 },
-  { grossLimit: Infinity, rate: 0.45, quickDeduction: 208920 },
+const ANNUAL_COMPREHENSIVE_TAX_BRACKETS = [
+  { limit: 36000, rate: 0.03 },
+  { limit: 144000, rate: 0.10 },
+  { limit: 300000, rate: 0.20 },
+  { limit: 420000, rate: 0.25 },
+  { limit: 660000, rate: 0.30 },
+  { limit: 960000, rate: 0.35 },
+  { limit: Infinity, rate: 0.45 },
 ] as const;
 
 function roundMoney(value: number) {
@@ -57,8 +63,25 @@ function ceilMoney(value: number) {
 export function calculateAnnualComprehensiveTax(grossAnnualIncome: number): AnnualComprehensiveTaxResult {
   const safeGross = roundMoney(Math.max(Number.isFinite(grossAnnualIncome) ? grossAnnualIncome : 0, 0));
   const taxableIncome = roundMoney(Math.max(safeGross - ANNUAL_BASIC_DEDUCTION, 0));
-  const bracket = ANNUAL_GROSS_INCOME_TAX_BRACKETS.find((item) => safeGross <= item.grossLimit) ?? ANNUAL_GROSS_INCOME_TAX_BRACKETS[ANNUAL_GROSS_INCOME_TAX_BRACKETS.length - 1];
-  const taxAmount = clampTax(safeGross * bracket.rate - bracket.quickDeduction, safeGross);
+  const taxSegments: AnnualComprehensiveTaxSegment[] = [];
+  let previousLimit = 0;
+  let remainingTaxable = taxableIncome;
+  let marginalTaxRate = 0;
+
+  for (const bracket of ANNUAL_COMPREHENSIVE_TAX_BRACKETS) {
+    if (remainingTaxable <= 0) break;
+    const bracketSize = bracket.limit === Infinity ? remainingTaxable : bracket.limit - previousLimit;
+    const taxableAmount = roundMoney(Math.min(remainingTaxable, bracketSize));
+    if (taxableAmount > 0) {
+      const segmentTax = roundMoney(taxableAmount * bracket.rate);
+      taxSegments.push({ taxableAmount, rate: bracket.rate, taxAmount: segmentTax });
+      marginalTaxRate = bracket.rate;
+      remainingTaxable = roundMoney(remainingTaxable - taxableAmount);
+    }
+    previousLimit = bracket.limit;
+  }
+
+  const taxAmount = clampTax(taxSegments.reduce((sum, segment) => sum + segment.taxAmount, 0), safeGross);
   const netAnnualIncome = roundMoney(safeGross - taxAmount);
 
   return {
@@ -67,7 +90,8 @@ export function calculateAnnualComprehensiveTax(grossAnnualIncome: number): Annu
     taxAmount,
     netAnnualIncome,
     effectiveTaxRate: safeGross > 0 ? taxAmount / safeGross : 0,
-    marginalTaxRate: bracket.rate,
+    marginalTaxRate,
+    taxSegments,
   };
 }
 
