@@ -23,7 +23,7 @@ import { TAX_RULE_PRESETS } from '../utils/tax';
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = 'FIRE年数';
+const RELEASE_NOTE = '年数下拉';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 
@@ -126,14 +126,23 @@ export default function HomePage() {
   const fireExpenseAvg = fireAnnualExpense / 12;
   const fireStats = useMemo(() => ({ ...stats, totalExpenseAvg: fireExpenseAvg }), [stats, fireExpenseAvg]);
   const fire = useMemo(() => calcFire(config, fireStats, totalInvest), [config, fireStats, totalInvest]);
-  const fireTargetYearsValue = Math.min(config.fireTargetYears ?? fire.retireYearsLeft, fire.retireYearsLeft);
+  const customFireTargetYears = config.fireTargetYears && config.fireTargetYears > 0 && config.fireTargetYears < fire.retireYearsLeft
+    ? Math.min(config.fireTargetYears, fire.retireYearsLeft)
+    : undefined;
+  const fireTargetYearOptions = useMemo(() => {
+    const base = [1, 3, 5, 10, 15, 20];
+    for (let year = 25; year < fire.retireYearsLeft; year += 5) base.push(year);
+    if (customFireTargetYears && !base.includes(customFireTargetYears)) base.push(customFireTargetYears);
+    return base.filter((year) => year < fire.retireYearsLeft).sort((a, b) => a - b);
+  }, [customFireTargetYears, fire.retireYearsLeft]);
+  const fireTargetYearSelectValue = customFireTargetYears ? String(customFireTargetYears) : 'retire';
+  const fireTargetYearLabel = customFireTargetYears ? `${fmt年(customFireTargetYears)}年` : '退休';
   const updateFireTargetYears = (raw: string) => {
-    const value = parseFloat(raw);
-    if (!Number.isFinite(value) || value <= 0) {
+    if (raw === 'retire') {
       setConfig({ fireTargetYears: undefined });
       return;
     }
-    setConfig({ fireTargetYears: Math.min(value, fire.retireYearsLeft) });
+    setConfig({ fireTargetYears: Math.min(Number(raw), fire.retireYearsLeft) });
   };
 
   const updateFutureFireExpense = (id: string, field: keyof FutureFireExpense, raw: string | boolean) => {
@@ -288,8 +297,19 @@ export default function HomePage() {
               );
             })}
           </div>
+          <select
+            value={fireTargetYearSelectValue}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => updateFireTargetYears(e.target.value)}
+            style={{ flexShrink: 0, border: '1px solid #dadce0', borderRadius: 999, backgroundColor: '#fff', color: C.blue, fontSize: 12, fontWeight: 700, padding: '4px 6px', outline: 'none', cursor: 'pointer' }}
+          >
+            <option value="retire">退休</option>
+            {fireTargetYearOptions.map((year) => (
+              <option key={year} value={year}>{fmt年(year)}年</option>
+            ))}
+          </select>
           <div style={{ flex: 1, minWidth: 0, textAlign: 'right', fontSize: 13, color: C.sub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {fmt年(fire.targetYears)}年年薪 <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: C.red }}>{fmt万(fire.requiredAnnualGrossIncome)}</span>
+            {fireTargetYearLabel}年薪 <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: C.red }}>{fmt万(fire.requiredAnnualGrossIncome)}</span>
           </div>
           <span style={{ fontSize: 11, color: C.sub, transform: fireExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', display: 'inline-block', flexShrink: 0 }}>▼</span>
         </div>
@@ -303,19 +323,6 @@ export default function HomePage() {
               <div style={{ height: 10, backgroundColor: '#e8eaed', borderRadius: 5, overflow: 'hidden' }}>
                 <div style={{ height: '100%', width: `${Math.min(fire.progress * 100, 100)}%`, backgroundColor: C.blue, borderRadius: 5, transition: 'width 0.3s' }} />
               </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, backgroundColor: '#f8f9fa', borderRadius: 10, padding: '8px 10px', marginBottom: 10 }}>
-              <span style={{ fontSize: 12, color: C.sub, flexShrink: 0 }}>攒钱年数</span>
-              <AmountInput
-                value={String(fireTargetYearsValue)}
-                onFocus={(e) => e.target.select()}
-                onChange={updateFireTargetYears}
-                style={{ width: 54, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 700, color: C.blue, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
-              />
-              <span style={{ fontSize: 12, color: C.sub }}>年内退休</span>
-              <button onClick={() => setConfig({ fireTargetYears: undefined })} style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 11, padding: '3px 8px', borderRadius: 999, border: 'none', backgroundColor: '#e8f0fe', color: C.blue, cursor: 'pointer', fontWeight: 600 }}>
-                最晚{fmt年(fire.retireYearsLeft)}年
-              </button>
             </div>
             <StatRow label="生活年支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(futureLifeAnnualExpense)}</span>} />
             <StatRow label="消费年支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.purple }}>{fmt万(futureConsumptionAnnualExpense)}</span>} />
