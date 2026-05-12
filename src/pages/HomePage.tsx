@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -23,13 +24,22 @@ import { TAX_RULE_PRESETS } from '../utils/tax';
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '美元分账';
+const RELEASE_NOTE = 'FIRE美化';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 
 function fmt万(v: number) { return (v / 10000).toFixed(2) + '万'; }
 function fmt年(v: number) { return Number.isInteger(v) ? String(v) : v.toFixed(1); }
 function Divider() { return <div style={{ height: 1, backgroundColor: '#f1f3f4', margin: '8px 0' }} />; }
+
+function FireDetailGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div style={{ padding: '10px 0 8px', borderTop: '1px solid #f1f3f4' }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: '#202124', marginBottom: 4 }}>{title}</div>
+      {children}
+    </div>
+  );
+}
 
 // ── 趋势图 ────────────────────────────────────────────────────────
 function TrendCharts({ records }: { records: MonthlyRecord[] }) {
@@ -213,6 +223,8 @@ export default function HomePage() {
   const sceneDailyRows: { tagKind: TagKind; val: number }[] = (
     ['school', 'intern', 'home', 'travel'] as TagKind[]
   ).map((k) => ({ tagKind: k, val: stats.stateDailyAvg[k] })).filter((r) => r.val > 0);
+  const fireProgressPercent = Math.min(Math.max(fire.progress * 100, 0), 100);
+  const fireProgressLabel = `${(fire.progress * 100).toFixed(1)}%`;
 
   return (
     <div>
@@ -284,93 +296,122 @@ export default function HomePage() {
       <TrendCharts records={records} />
 
       {/* FIRE */}
-      <section style={{ backgroundColor: '#fff', borderRadius: 16, padding: '16px 20px', marginBottom: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
-        <div onClick={() => setFireExpanded((v) => !v)} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
-          <h2 style={{ fontSize: 15, fontWeight: 600, color: '#202124', margin: 0, flexShrink: 0 }}>FIRE</h2>
-          <div style={{ display: 'flex', backgroundColor: '#e8eaed', borderRadius: 20, padding: 3, gap: 2, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
-            {(['life', 'all'] as const).map((mode) => {
-              const active = fireMode === mode;
-              return (
-                <button key={mode} onClick={() => setFireMode(mode)} style={{ padding: '4px 12px', borderRadius: 16, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, backgroundColor: active ? '#fff' : 'transparent', color: active ? C.blue : C.sub, boxShadow: active ? '0 1px 3px rgba(0,0,0,0.15)' : 'none', transition: 'all 0.15s' }}>
-                  {mode === 'life' ? '活' : '生活'}
-                </button>
-              );
-            })}
-          </div>
-          <select
-            value={fireTargetYearSelectValue}
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => updateFireTargetYears(e.target.value)}
-            style={{ flexShrink: 0, border: '1px solid #dadce0', borderRadius: 999, backgroundColor: '#fff', color: C.blue, fontSize: 12, fontWeight: 700, padding: '4px 6px', outline: 'none', cursor: 'pointer' }}
+      <section style={{ backgroundColor: '#fff', borderRadius: 16, padding: '18px 20px', marginBottom: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+          <button
+            onClick={() => setFireExpanded((v) => !v)}
+            style={{ display: 'flex', alignItems: 'center', gap: 7, border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', color: '#202124', userSelect: 'none' }}
           >
-            <option value="retire">退休</option>
-            {fireTargetYearOptions.map((year) => (
-              <option key={year} value={year}>{fmt年(year)}年</option>
-            ))}
-          </select>
-          <div style={{ flex: 1, minWidth: 0, textAlign: 'right', fontSize: 13, color: C.sub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {fireTargetYearLabel}年薪 <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: C.red }}>{fmt万(fire.requiredAnnualGrossIncome)}</span>
+            <span style={{ fontSize: 15, fontWeight: 700 }}>FIRE</span>
+            <span style={{ fontSize: 11, color: C.sub, transform: fireExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', display: 'inline-block' }}>▼</span>
+          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', backgroundColor: '#f1f3f4', borderRadius: 999, padding: 2, gap: 2 }} onClick={(e) => e.stopPropagation()}>
+              {(['life', 'all'] as const).map((mode) => {
+                const active = fireMode === mode;
+                return (
+                  <button key={mode} onClick={() => setFireMode(mode)} style={{ minWidth: 42, padding: '4px 10px', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, backgroundColor: active ? '#fff' : 'transparent', color: active ? C.blue : C.sub, boxShadow: active ? '0 1px 2px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.15s' }}>
+                    {mode === 'life' ? '活' : '生活'}
+                  </button>
+                );
+              })}
+            </div>
+            <select
+              value={fireTargetYearSelectValue}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => updateFireTargetYears(e.target.value)}
+              style={{ border: '1px solid #e0e0e0', borderRadius: 999, backgroundColor: '#fff', color: '#202124', fontSize: 12, fontWeight: 700, padding: '5px 8px', outline: 'none', cursor: 'pointer' }}
+            >
+              <option value="retire">退休</option>
+              {fireTargetYearOptions.map((year) => (
+                <option key={year} value={year}>{fmt年(year)}年</option>
+              ))}
+            </select>
           </div>
-          <span style={{ fontSize: 11, color: C.sub, transform: fireExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', display: 'inline-block', flexShrink: 0 }}>▼</span>
         </div>
-        {fireExpanded && (
-          <>
-            <div style={{ marginTop: 14, marginBottom: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: C.sub, marginBottom: 6 }}>
-                <span>进度</span>
-                <span style={{ fontWeight: 600, color: C.blue }}>{(fire.progress * 100).toFixed(2)}%</span>
-              </div>
-              <div style={{ height: 10, backgroundColor: '#e8eaed', borderRadius: 5, overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${Math.min(fire.progress * 100, 100)}%`, backgroundColor: C.blue, borderRadius: 5, transition: 'width 0.3s' }} />
-              </div>
+        <div onClick={() => setFireExpanded((v) => !v)} style={{ cursor: 'pointer', userSelect: 'none' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap' }}>
+            <div style={{ minWidth: 180, flex: '1 1 180px' }}>
+              <div style={{ fontSize: 12, color: C.sub, marginBottom: 3 }}>最低税前年薪</div>
+              <div style={{ fontSize: 32, lineHeight: 1.05, fontWeight: 800, color: C.red, fontVariantNumeric: 'tabular-nums' }}>{fmt万(fire.requiredAnnualGrossIncome)}</div>
+              <div style={{ marginTop: 5, fontSize: 12, color: C.sub }}>{fireTargetYearLabel}达标 · 税后年需 {fmt万(fire.requiredAnnualNetIncome)}</div>
             </div>
-            <StatRow label="生活年支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(futureLifeAnnualExpense)}</span>} />
-            <StatRow label="消费年支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.purple }}>{fmt万(futureConsumptionAnnualExpense)}</span>} />
-            <StatRow label="未来固定支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(activeFutureFireMonthly * 12)}</span>} />
-            <Divider />
-            <StatRow label="目标资产" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(fire.fireTarget)}</span>} />
-            <StatRow label="理财总额" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(totalInvest)}</span>} />
-            <StatRow label="目标年数" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt年(fire.targetYears)}年 · 最晚{fmt年(fire.retireYearsLeft)}年</span>} />
-            <StatRow label="月需存入" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(fire.monthlyNeeded)}</span>} />
-            <StatRow label="估算月结余" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: fire.monthlySurplus >= 0 ? C.green : C.red }}>{fmt万(fire.monthlySurplus)}</span>} />
-            <Divider />
-            <StatRow label="最低税前年薪" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: C.red }}>{fmt万(fire.requiredAnnualGrossIncome)}</span>} />
-            <StatRow label="税后年需" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(fire.requiredAnnualNetIncome)}</span>} />
-            <StatRow label="预估个税" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(fire.requiredAnnualTax)} · 分段最高{(fire.requiredMarginalTaxRate * 100).toFixed(0)}%</span>} />
-            <Divider />
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#202124' }}>未来固定支出</span>
-              <button onClick={addFutureFireExpense} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 999, border: 'none', backgroundColor: '#e8f0fe', color: C.blue, cursor: 'pointer', fontWeight: 600 }}>
-                + 添加
-              </button>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {futureFireExpenses.length === 0 && (
-                <div style={{ fontSize: 12, color: C.sub, backgroundColor: '#f8f9fa', borderRadius: 8, padding: '8px 10px' }}>
-                  暂无未来固定支出
-                </div>
-              )}
-              {futureFireExpenses.map((item) => (
-                <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 6, backgroundColor: item.isActive ? '#f8f9fa' : '#fff', border: `1px solid ${item.isActive ? '#e0e0e0' : '#f1f3f4'}`, borderRadius: 10, padding: '7px 8px' }}>
-                  <button onClick={() => updateFutureFireExpense(item.id, 'isActive', !item.isActive)} style={{ flexShrink: 0, width: 16, height: 16, borderRadius: '50%', border: `2px solid ${item.isActive ? C.green : '#dadce0'}`, backgroundColor: item.isActive ? C.green : '#fff', cursor: 'pointer' }} />
-                  <input
-                    value={item.name}
-                    onChange={(e) => updateFutureFireExpense(item.id, 'name', e.target.value)}
-                    style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontWeight: 600, color: item.isActive ? '#202124' : '#9aa0a6' }}
-                  />
-                  <span style={{ fontSize: 11, color: C.sub }}>¥</span>
-                  <AmountInput
-                    value={String(item.monthlyAmount || '')}
-                    onFocus={(e) => e.target.select()}
-                    onChange={(v) => updateFutureFireExpense(item.id, 'monthlyAmount', /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v)}
-                    style={{ width: 72, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontWeight: 600, color: C.orange, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
-                  />
-                  <span style={{ fontSize: 11, color: C.sub }}>/月</span>
-                  <button onClick={() => removeFutureFireExpense(item.id)} style={{ flexShrink: 0, background: 'none', border: 'none', color: '#dadce0', fontSize: 16, cursor: 'pointer', padding: '0 2px', lineHeight: 1 }}>×</button>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, flex: '1 1 230px', minWidth: 0 }}>
+              {[
+                { label: '目标年数', value: `${fmt年(fire.targetYears)}年`, color: '#202124' },
+                { label: '完成进度', value: fireProgressLabel, color: C.blue },
+                { label: '月需存入', value: fmt万(fire.monthlyNeeded), color: C.orange },
+              ].map((item) => (
+                <div key={item.label} style={{ backgroundColor: '#f8f9fa', border: '1px solid #f1f3f4', borderRadius: 10, padding: '8px 10px', minWidth: 0 }}>
+                  <div style={{ fontSize: 11, color: C.sub, marginBottom: 3, whiteSpace: 'nowrap' }}>{item.label}</div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: item.color, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.value}</div>
                 </div>
               ))}
             </div>
-          </>
+          </div>
+          <div style={{ marginTop: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: C.sub, marginBottom: 6 }}>
+              <span>资产进度</span>
+              <span style={{ fontWeight: 700, color: C.blue, fontVariantNumeric: 'tabular-nums' }}>{fireProgressLabel}</span>
+            </div>
+            <div style={{ height: 8, backgroundColor: '#edf2f7', borderRadius: 999, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${fireProgressPercent}%`, backgroundColor: C.blue, borderRadius: 999, transition: 'width 0.3s' }} />
+            </div>
+          </div>
+        </div>
+        {fireExpanded && (
+          <div style={{ marginTop: 16 }}>
+            <FireDetailGroup title="支出口径">
+              <StatRow label="生活年支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(futureLifeAnnualExpense)}</span>} />
+              <StatRow label="消费年支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.purple }}>{fmt万(futureConsumptionAnnualExpense)}</span>} />
+              <StatRow label="未来固定支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(activeFutureFireMonthly * 12)}</span>} />
+            </FireDetailGroup>
+            <FireDetailGroup title="资产目标">
+              <StatRow label="目标资产" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(fire.fireTarget)}</span>} />
+              <StatRow label="理财总额" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(totalInvest)}</span>} />
+              <StatRow label="目标年数" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt年(fire.targetYears)}年 · 最晚{fmt年(fire.retireYearsLeft)}年</span>} />
+            </FireDetailGroup>
+            <FireDetailGroup title="收入需求">
+              <StatRow label="月需存入" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(fire.monthlyNeeded)}</span>} />
+              <StatRow label="估算月结余" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: fire.monthlySurplus >= 0 ? C.green : C.red }}>{fmt万(fire.monthlySurplus)}</span>} />
+              <StatRow label="税后年需" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(fire.requiredAnnualNetIncome)}</span>} />
+              <StatRow label="预估个税" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(fire.requiredAnnualTax)} · 分段最高{(fire.requiredMarginalTaxRate * 100).toFixed(0)}%</span>} />
+            </FireDetailGroup>
+            <div style={{ paddingTop: 10, borderTop: '1px solid #f1f3f4' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#202124' }}>未来固定支出</span>
+                <button onClick={addFutureFireExpense} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 999, border: 'none', backgroundColor: '#e8f0fe', color: C.blue, cursor: 'pointer', fontWeight: 600 }}>
+                  + 添加
+                </button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {futureFireExpenses.length === 0 && (
+                  <div style={{ fontSize: 12, color: C.sub, backgroundColor: '#f8f9fa', borderRadius: 8, padding: '8px 10px' }}>
+                    暂无未来固定支出
+                  </div>
+                )}
+                {futureFireExpenses.map((item) => (
+                  <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 6, backgroundColor: item.isActive ? '#f8f9fa' : '#fff', border: `1px solid ${item.isActive ? '#e0e0e0' : '#f1f3f4'}`, borderRadius: 10, padding: '7px 8px' }}>
+                    <button onClick={() => updateFutureFireExpense(item.id, 'isActive', !item.isActive)} style={{ flexShrink: 0, width: 16, height: 16, borderRadius: '50%', border: `2px solid ${item.isActive ? C.green : '#dadce0'}`, backgroundColor: item.isActive ? C.green : '#fff', cursor: 'pointer' }} />
+                    <input
+                      value={item.name}
+                      onChange={(e) => updateFutureFireExpense(item.id, 'name', e.target.value)}
+                      style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontWeight: 600, color: item.isActive ? '#202124' : '#9aa0a6' }}
+                    />
+                    <span style={{ fontSize: 11, color: C.sub }}>¥</span>
+                    <AmountInput
+                      value={String(item.monthlyAmount || '')}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(v) => updateFutureFireExpense(item.id, 'monthlyAmount', /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v)}
+                      style={{ width: 72, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontWeight: 600, color: C.orange, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
+                    />
+                    <span style={{ fontSize: 11, color: C.sub }}>/月</span>
+                    <button onClick={() => removeFutureFireExpense(item.id)} style={{ flexShrink: 0, background: 'none', border: 'none', color: '#dadce0', fontSize: 16, cursor: 'pointer', padding: '0 2px', lineHeight: 1 }}>×</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         )}
       </section>
 
