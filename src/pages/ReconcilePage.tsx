@@ -28,12 +28,12 @@ const USD_VIRTUAL_ACCOUNT_KEYS = ['usdLivingBank', 'usdConsumptionBank', 'usdWis
 type UsdVirtualAccountKey = typeof USD_VIRTUAL_ACCOUNT_KEYS[number];
 const USD_REPLACE_BUCKETS: {
   usdKey: UsdVirtualAccountKey;
-  cnyKey: keyof AccountSnapshot['accounts'];
+  cnyKey?: keyof AccountSnapshot['accounts'];
   label: string;
 }[] = [
   { usdKey: 'usdLivingBank', cnyKey: 'livingBank', label: '生活' },
   { usdKey: 'usdConsumptionBank', cnyKey: 'consumptionBank', label: '消费' },
-  { usdKey: 'usdWishJar', cnyKey: 'wishJar', label: '心愿' },
+  { usdKey: 'usdWishJar', label: '心愿' },
 ];
 const INVEST_GROUPS = [
   { key: 'stock', label: '股', keys: ['us', 'eu', 'asia', 'a'] as InvestKey[], color: C.blue },
@@ -194,7 +194,7 @@ const TRANSFER_META: Record<TransferKey, { label: string; accountKey?: string }>
   repayment:   { label: '💳 还款',      accountKey: 'savingsCard' },
   living:      { label: '🏦 生活',      accountKey: 'livingBank' },
   consumption: { label: '💼 消费',      accountKey: 'consumptionBank' },
-  wishJar:     { label: '🏺 心愿罐',    accountKey: 'wishJar' },
+  wishJar:     { label: '🏺 心愿罐' },
   invest:      { label: '📈 理财',      accountKey: 'investCnyBank' },
 };
 
@@ -428,13 +428,24 @@ export default function ReconcilePage() {
     const cnyBuy = investKeys.reduce((s, k) => s + (!isUsdKey(k) ? Math.max(rebalanceSuggested[k], 0) : 0), 0);
     const cnySell = investKeys.reduce((s, k) => s + (!isUsdKey(k) ? Math.max(-rebalanceSuggested[k], 0) : 0), 0);
     const usdInvestCny = latestUsdRate !== null ? (current.accounts.investUsdBank ?? 0) * latestUsdRate : 0;
-    const usdReplaceCny = latestUsdRate !== null
-      ? USD_REPLACE_BUCKETS.reduce((s, bucket) => s + (current.accounts[bucket.usdKey] ?? 0) * latestUsdRate, 0)
-      : 0;
-    const usdAfterInvest = Math.max(usdBuyCny - usdInvestCny, 0);
-    const usdReplaceUseCny = Math.min(usdAfterInvest, usdReplaceCny);
-    const cnyToUsdCny = Math.max(usdAfterInvest - usdReplaceUseCny, 0);
-    const cnyCashNeeded = Math.max(cnyBuy + usdReplaceUseCny + cnyToUsdCny - cnySell, 0);
+    let usdAfterInvest = Math.max(usdBuyCny - usdInvestCny, 0);
+    let usdReplaceCny = 0;
+    let usdReplaceUseCny = 0;
+    let usdCompensateCny = 0;
+    if (latestUsdRate !== null) {
+      for (const bucket of USD_REPLACE_BUCKETS) {
+        const availableCny = (current.accounts[bucket.usdKey] ?? 0) * latestUsdRate;
+        usdReplaceCny += availableCny;
+        const useCny = Math.min(usdAfterInvest, availableCny);
+        if (useCny > 0) {
+          usdReplaceUseCny += useCny;
+          if (bucket.cnyKey) usdCompensateCny += useCny;
+          usdAfterInvest -= useCny;
+        }
+      }
+    }
+    const cnyToUsdCny = Math.max(usdAfterInvest, 0);
+    const cnyCashNeeded = Math.max(cnyBuy + usdCompensateCny + cnyToUsdCny - cnySell, 0);
     const cnyCashAfter = (current.accounts.investCnyBank ?? 0) - cnyCashNeeded;
     return {
       usdBuyCny,
@@ -444,6 +455,7 @@ export default function ReconcilePage() {
       usdInvestCny,
       usdReplaceCny,
       usdReplaceUseCny,
+      usdCompensateCny,
       cnyToUsdCny,
       cnyCashNeeded,
       cnyCashAfter,
@@ -532,8 +544,10 @@ export default function ReconcilePage() {
         if (usdFromBucket <= 0) continue;
         const cnyEquivalent = roundMoney(usdFromBucket * rate);
         nextAccounts[bucket.usdKey] = roundMoney(nextAccounts[bucket.usdKey] - usdFromBucket);
-        nextAccounts[bucket.cnyKey] = roundMoney(nextAccounts[bucket.cnyKey] + cnyEquivalent);
-        nextAccounts.investCnyBank = roundMoney(nextAccounts.investCnyBank - cnyEquivalent);
+        if (bucket.cnyKey) {
+          nextAccounts[bucket.cnyKey] = roundMoney(nextAccounts[bucket.cnyKey] + cnyEquivalent);
+          nextAccounts.investCnyBank = roundMoney(nextAccounts.investCnyBank - cnyEquivalent);
+        }
         needUsd -= usdFromBucket;
       }
 
@@ -928,8 +942,67 @@ export default function ReconcilePage() {
 
           {([
             { cnyKey: 'consumptionBank', usdKey: 'usdConsumptionBank', label: '💼 消费', cnyIdx: 7, usdIdx: 8, color: '#7c3aed', bg: '#f3e8ff', border: '#c4b5fd' },
-            { cnyKey: 'wishJar', usdKey: 'usdWishJar', label: '🏺 心愿罐', cnyIdx: 9, usdIdx: 10, color: '#e8710a', bg: '#fff7ed', border: '#fed7aa' },
-            { cnyKey: 'investCnyBank', usdKey: 'investUsdBank', label: '📈 理财', cnyIdx: 11, usdIdx: 12, color: '#0d9488', bg: '#ecfdf5', border: '#99f6e4' },
+          ] as const).map(({ cnyKey, usdKey, label, cnyIdx, usdIdx, color, bg, border }) => (
+            <div key={cnyKey} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: bg, borderRadius: 12, padding: '10px 14px', border: `1.5px solid ${border}` }}>
+              <div>
+                <div style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>{label}</div>
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
+                  {latestUsdRate !== null ? `$ ≈ ¥${fmtInt((current.accounts[usdKey] ?? 0) * latestUsdRate)} · ${usdRateLabel}` : usdRateLabel}
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color }}>¥</span>
+                  <AmountInput
+                    ref={(el) => { accountInputRefs.current[cnyIdx] = el; }}
+                    value={localAccounts[cnyKey]}
+                    onChange={(v) => setLocalAccounts((p) => ({ ...p, [cnyKey]: normalizeAmountInput(v) }))}
+                    onFocus={(e) => e.target.select()}
+                    onBlur={() => syncAccounts()}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(cnyIdx); } }}
+                    style={{ width: 74, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${color}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color, textAlign: 'right' }}
+                  />
+                </div>
+                <span style={{ color: C.sub, fontSize: 13 }}>·</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: C.blue }}>$</span>
+                  <AmountInput
+                    ref={(el) => { accountInputRefs.current[usdIdx] = el; }}
+                    value={localAccounts[usdKey]}
+                    onChange={(v) => setLocalAccounts((p) => ({ ...p, [usdKey]: normalizeAmountInput(v) }))}
+                    onFocus={(e) => e.target.select()}
+                    onBlur={() => syncAccounts()}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(usdIdx); } }}
+                    style={{ width: 68, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: '#fff7ed', borderRadius: 12, padding: '10px 14px', border: '1.5px solid #fed7aa' }}>
+            <div>
+              <div style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>🏺 心愿罐</div>
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
+                {latestUsdRate !== null ? `$ ≈ ¥${fmtInt((current.accounts.usdWishJar ?? 0) * latestUsdRate)} · ${usdRateLabel}` : usdRateLabel}
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: C.blue }}>$</span>
+              <AmountInput
+                ref={(el) => { accountInputRefs.current[9] = el; }}
+                value={localAccounts.usdWishJar}
+                onChange={(v) => setLocalAccounts((p) => ({ ...p, usdWishJar: normalizeAmountInput(v) }))}
+                onFocus={(e) => e.target.select()}
+                onBlur={() => syncAccounts()}
+                onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(9); } }}
+                style={{ width: 82, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
+              />
+            </div>
+          </div>
+
+          {([
+            { cnyKey: 'investCnyBank', usdKey: 'investUsdBank', label: '📈 理财', cnyIdx: 10, usdIdx: 11, color: '#0d9488', bg: '#ecfdf5', border: '#99f6e4' },
           ] as const).map(({ cnyKey, usdKey, label, cnyIdx, usdIdx, color, bg, border }) => (
             <div key={cnyKey} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: bg, borderRadius: 12, padding: '10px 14px', border: `1.5px solid ${border}` }}>
               <div>
@@ -1210,6 +1283,7 @@ export default function ReconcilePage() {
             <div style={{ color: C.sub }}>
               美元加仓 ¥{fmtInt(rebalanceFunding.usdBuyCny)}（约 {fmtUsd(rebalanceFunding.usdBuyCny / latestUsdRate)}）：
               先用美元理财，不足用美元生活/消费/心愿置换 ¥{fmtInt(rebalanceFunding.usdReplaceUseCny)}
+              {rebalanceFunding.usdCompensateCny > 0 ? `（补回人民币生活/消费 ¥${fmtInt(rebalanceFunding.usdCompensateCny)}）` : ''}
               {rebalanceFunding.cnyToUsdCny > 0 ? `，再由人民币转美元补 ¥${fmtInt(rebalanceFunding.cnyToUsdCny)}` : ''}
             </div>
           )}
