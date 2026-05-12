@@ -1,4 +1,4 @@
-import { Fragment, useState, useMemo, useRef } from 'react';
+import { Fragment, useEffect, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Card from '../components/Card';
 import { formatCurrency } from '../components/CurrencyDisplay';
@@ -44,6 +44,11 @@ type InvestGroupKey = typeof INVEST_GROUPS[number]['key'];
 type GroupedTargetInputs = {
   groups: Record<InvestGroupKey, string>;
   assets: Record<InvestKey, string>;
+};
+type UsdRateResponse = {
+  rate: number;
+  date: string;
+  source: string;
 };
 
 const parseAmountPart = (raw: string | undefined) => {
@@ -266,6 +271,8 @@ export default function ReconcilePage() {
   const [groupedTargetInputs, setGroupedTargetInputs] = useState<GroupedTargetInputs>(
     () => groupedTargetInputFromConfig(effectiveInvestTargets(config.investAllocTargets)),
   );
+  const [remoteUsdRate, setRemoteUsdRate] = useState<UsdRateResponse | null>(null);
+  const [usdRateError, setUsdRateError] = useState(false);
   const [usdRebalanceCells, setUsdRebalanceCells] = useState<Set<InvestKey>>(() => new Set());
   const [saved, setSaved] = useState(false);
 
@@ -379,12 +386,34 @@ export default function ReconcilePage() {
       ?.investBreakdownProfit ?? {},
     [records],
   );
-  const latestUsdRate = useMemo(
+  const fallbackUsdRate = useMemo(
     () => [...records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth))
       .map((r) => r.investProfitComponents?.us?.rate ?? r.investProfitComponents?.usBond?.rate)
       .find((rate) => rate !== undefined && Number.isFinite(rate) && rate > 0) ?? null,
     [records],
   );
+  useEffect(() => {
+    const controller = new AbortController();
+    setUsdRateError(false);
+    fetch('/api/usd-rate', { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = (await response.json()) as UsdRateResponse;
+        if (!Number.isFinite(data.rate) || data.rate <= 0) throw new Error('invalid USD rate');
+        setRemoteUsdRate(data);
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        setUsdRateError(true);
+      });
+    return () => controller.abort();
+  }, []);
+  const latestUsdRate = remoteUsdRate?.rate ?? fallbackUsdRate;
+  const usdRateLabel = remoteUsdRate
+    ? `${remoteUsdRate.source}${remoteUsdRate.date ? ` · ${remoteUsdRate.date}` : ''}`
+    : fallbackUsdRate !== null
+      ? `${usdRateError ? '联网失败 · ' : ''}历史汇率`
+      : '暂无汇率';
 
   const rebalanceInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   // 已加仓（本次会话输入，执行后归零）
@@ -392,7 +421,6 @@ export default function ReconcilePage() {
     () => Object.fromEntries(investKeys.map((k) => [k, '0'])) as Record<InvestKey, string>
   );
   const totalInvest = investKeys.reduce((s, k) => s + effectiveInvestHoldings[k], 0);
-  const usdVirtualTotal = USD_VIRTUAL_ACCOUNT_KEYS.reduce((s, key) => s + (current.accounts[key] ?? 0), 0);
   const rebalanceFunding = useMemo(() => {
     const isUsdKey = (k: InvestKey) => USD_INVEST_KEYS.includes(k);
     const usdBuyCny = investKeys.reduce((s, k) => s + (isUsdKey(k) ? Math.max(rebalanceSuggested[k], 0) : 0), 0);
@@ -841,22 +869,45 @@ export default function ReconcilePage() {
             </div>
           </div>
 
-          {/* 生活账户 */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#e8f0fe', borderRadius: 12, padding: '10px 14px', border: '1.5px solid #a8c7fa' }}>
-            <span style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>🏦 生活</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: '#1a73e8' }}>¥</span>
-              <AmountInput
-                ref={(el) => { accountInputRefs.current[4] = el; }}
-                value={localAccounts.livingBank}
-                onChange={(v) => setLocalAccounts((p) => ({ ...p, livingBank: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }))}
-                onFocus={(e) => e.target.select()}
-                onBlur={() => syncAccounts()}
-                onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(4); } }}
-                style={{ width: 100, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#1a73e8', textAlign: 'right' }}
-              />
+          {([
+            { cnyKey: 'livingBank', usdKey: 'usdLivingBank', label: '🏦 生活', cnyIdx: 4, usdIdx: 5, color: '#1a73e8', bg: '#e8f0fe', border: '#a8c7fa' },
+          ] as const).map(({ cnyKey, usdKey, label, cnyIdx, usdIdx, color, bg, border }) => (
+            <div key={cnyKey} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: bg, borderRadius: 12, padding: '10px 14px', border: `1.5px solid ${border}` }}>
+              <div>
+                <div style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>{label}</div>
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
+                  {latestUsdRate !== null ? `$ ≈ ¥${fmtInt((current.accounts[usdKey] ?? 0) * latestUsdRate)} · ${usdRateLabel}` : usdRateLabel}
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color }}>¥</span>
+                  <AmountInput
+                    ref={(el) => { accountInputRefs.current[cnyIdx] = el; }}
+                    value={localAccounts[cnyKey]}
+                    onChange={(v) => setLocalAccounts((p) => ({ ...p, [cnyKey]: normalizeAmountInput(v) }))}
+                    onFocus={(e) => e.target.select()}
+                    onBlur={() => syncAccounts()}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(cnyIdx); } }}
+                    style={{ width: 74, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${color}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color, textAlign: 'right' }}
+                  />
+                </div>
+                <span style={{ color: C.sub, fontSize: 13 }}>·</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: C.blue }}>$</span>
+                  <AmountInput
+                    ref={(el) => { accountInputRefs.current[usdIdx] = el; }}
+                    value={localAccounts[usdKey]}
+                    onChange={(v) => setLocalAccounts((p) => ({ ...p, [usdKey]: normalizeAmountInput(v) }))}
+                    onFocus={(e) => e.target.select()}
+                    onBlur={() => syncAccounts()}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(usdIdx); } }}
+                    style={{ width: 68, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
+                  />
+                </div>
+              </div>
             </div>
-          </div>
+          ))}
 
           {/* 收入账户 */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#e6f4ea', borderRadius: 12, padding: '10px 14px', border: '1.5px solid #81c995' }}>
@@ -864,79 +915,58 @@ export default function ReconcilePage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <span style={{ fontSize: 14, fontWeight: 600, color: '#188038' }}>¥</span>
               <AmountInput
-                ref={(el) => { accountInputRefs.current[5] = el; }}
+                ref={(el) => { accountInputRefs.current[6] = el; }}
                 value={localAccounts.incomeBank}
                 onChange={(v) => setLocalAccounts((p) => ({ ...p, incomeBank: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }))}
                 onFocus={(e) => e.target.select()}
                 onBlur={() => syncAccounts()}
-                onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(5); } }}
+                onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(6); } }}
                 style={{ width: 100, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#188038', textAlign: 'right' }}
               />
             </div>
           </div>
 
           {([
-            { key: 'consumptionBank', label: '💼 消费', idx: 6, color: '#7c3aed', bg: '#f3e8ff', border: '#c4b5fd' },
-            { key: 'wishJar', label: '🏺 心愿罐', idx: 7, color: '#e8710a', bg: '#fff7ed', border: '#fed7aa' },
-            { key: 'investCnyBank', label: '📈 理财（人民币）', idx: 8, color: '#0d9488', bg: '#ecfdf5', border: '#99f6e4' },
-          ] as const).map(({ key, label, idx, color, bg, border }) => (
-            <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: bg, borderRadius: 12, padding: '10px 14px', border: `1.5px solid ${border}` }}>
-              <span style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>{label}</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <span style={{ fontSize: 14, fontWeight: 600, color }}>¥</span>
-                <AmountInput
-                  ref={(el) => { accountInputRefs.current[idx] = el; }}
-                  value={localAccounts[key]}
-                  onChange={(v) => setLocalAccounts((p) => ({ ...p, [key]: normalizeAmountInput(v) }))}
-                  onFocus={(e) => e.target.select()}
-                  onBlur={() => syncAccounts()}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(idx); } }}
-                  style={{ width: 100, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color, textAlign: 'right' }}
-                />
+            { cnyKey: 'consumptionBank', usdKey: 'usdConsumptionBank', label: '💼 消费', cnyIdx: 7, usdIdx: 8, color: '#7c3aed', bg: '#f3e8ff', border: '#c4b5fd' },
+            { cnyKey: 'wishJar', usdKey: 'usdWishJar', label: '🏺 心愿罐', cnyIdx: 9, usdIdx: 10, color: '#e8710a', bg: '#fff7ed', border: '#fed7aa' },
+            { cnyKey: 'investCnyBank', usdKey: 'investUsdBank', label: '📈 理财', cnyIdx: 11, usdIdx: 12, color: '#0d9488', bg: '#ecfdf5', border: '#99f6e4' },
+          ] as const).map(({ cnyKey, usdKey, label, cnyIdx, usdIdx, color, bg, border }) => (
+            <div key={cnyKey} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: bg, borderRadius: 12, padding: '10px 14px', border: `1.5px solid ${border}` }}>
+              <div>
+                <div style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>{label}</div>
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
+                  {latestUsdRate !== null ? `$ ≈ ¥${fmtInt((current.accounts[usdKey] ?? 0) * latestUsdRate)} · ${usdRateLabel}` : usdRateLabel}
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color }}>¥</span>
+                  <AmountInput
+                    ref={(el) => { accountInputRefs.current[cnyIdx] = el; }}
+                    value={localAccounts[cnyKey]}
+                    onChange={(v) => setLocalAccounts((p) => ({ ...p, [cnyKey]: normalizeAmountInput(v) }))}
+                    onFocus={(e) => e.target.select()}
+                    onBlur={() => syncAccounts()}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(cnyIdx); } }}
+                    style={{ width: 74, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${color}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color, textAlign: 'right' }}
+                  />
+                </div>
+                <span style={{ color: C.sub, fontSize: 13 }}>·</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: C.blue }}>$</span>
+                  <AmountInput
+                    ref={(el) => { accountInputRefs.current[usdIdx] = el; }}
+                    value={localAccounts[usdKey]}
+                    onChange={(v) => setLocalAccounts((p) => ({ ...p, [usdKey]: normalizeAmountInput(v) }))}
+                    onFocus={(e) => e.target.select()}
+                    onBlur={() => syncAccounts()}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(usdIdx); } }}
+                    style={{ width: 68, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
+                  />
+                </div>
               </div>
             </div>
           ))}
-
-          <div style={{ backgroundColor: '#f8f9fa', borderRadius: 12, padding: '10px 14px', border: '1.5px solid #dadce0' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#202124' }}>💵 美元虚拟账户</div>
-              <div style={{ fontSize: 11, color: C.sub, fontVariantNumeric: 'tabular-nums' }}>
-                合计 ${formatCurrency(usdVirtualTotal)}
-                {latestUsdRate !== null
-                  ? ` ≈ ¥${fmtInt(usdVirtualTotal * latestUsdRate)}`
-                  : ' · 暂无汇率'}
-              </div>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {([
-                { key: 'usdLivingBank', label: '生活', idx: 9 },
-                { key: 'usdConsumptionBank', label: '消费', idx: 10 },
-                { key: 'usdWishJar', label: '心愿', idx: 11 },
-                { key: 'investUsdBank', label: '理财', idx: 12 },
-              ] as const).map(({ key, label, idx }) => (
-                <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 13, color: C.sub }}>{label}</span>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                    {latestUsdRate !== null && (
-                      <span style={{ fontSize: 11, color: C.sub, fontVariantNumeric: 'tabular-nums' }}>
-                        ≈¥{fmtInt((current.accounts[key] ?? 0) * latestUsdRate)}
-                      </span>
-                    )}
-                    <span style={{ fontSize: 14, fontWeight: 600, color: C.blue }}>$</span>
-                    <AmountInput
-                      ref={(el) => { accountInputRefs.current[idx] = el; }}
-                      value={localAccounts[key]}
-                      onChange={(v) => setLocalAccounts((p) => ({ ...p, [key]: normalizeAmountInput(v) }))}
-                      onFocus={(e) => e.target.select()}
-                      onBlur={() => syncAccounts()}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(idx); } }}
-                      style={{ width: 88, border: 'none', outline: 'none', borderBottom: '1px solid #dadce0', backgroundColor: 'transparent', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
 
         </div>
       </Card>
