@@ -63,6 +63,11 @@ export interface AccountSnapshot {
     campusCard: number;
     consumptionBank: number;
     wishJar: number;
+    investCnyBank: number;       // 人民币理财账户
+    usdLivingBank: number;       // 美元生活虚拟账户（美元原币）
+    usdConsumptionBank: number;  // 美元消费虚拟账户（美元原币）
+    usdWishJar: number;          // 美元心愿虚拟账户（美元原币）
+    investUsdBank: number;       // 美元理财账户（美元原币）
   };
   investHoldings: InvestHoldings;
   investHoldingReserves?: Partial<InvestHoldings>; // 计入账户但不参与仓位再平衡的暂存金额

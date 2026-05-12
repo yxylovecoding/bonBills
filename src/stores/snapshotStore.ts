@@ -14,6 +14,11 @@ export const DEFAULT_SNAPSHOT: AccountSnapshot = {
     campusCard: 0,
     consumptionBank: 0,
     wishJar: 0,
+    investCnyBank: 0,
+    usdLivingBank: 0,
+    usdConsumptionBank: 0,
+    usdWishJar: 0,
+    investUsdBank: 0,
   },
   investHoldings: {
     us: 0,
