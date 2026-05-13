@@ -450,12 +450,29 @@ export default function ReconcilePage() {
     : fallbackUsdRate !== null
       ? `${usdRateError ? '联网失败 · ' : ''}历史汇率`
       : '暂无汇率';
-  const updateInvestUsdFromCny = (rawCny: string) => {
-    const normalized = normalizeAmountInput(rawCny);
-    setInvestUsdCnyInput(normalized);
-    if (latestUsdRate === null) return;
-    const nextUsd = roundMoney(parseAmountPart(normalized) / latestUsdRate);
-    setLocalAccounts((p) => ({ ...p, investUsdBank: String(nextUsd) }));
+  const commitInvestUsdCnyInput = (rawCny = investUsdCnyInput) => {
+    if (latestUsdRate === null) {
+      syncAccounts();
+      return;
+    }
+    const nextAccounts = {
+      ...localAccounts,
+      investUsdBank: String(roundMoney(parseAmountPart(rawCny) / latestUsdRate)),
+    };
+    setLocalAccounts(nextAccounts);
+    syncAccounts(nextAccounts);
+  };
+  const switchInvestUsdInputMode = (mode: 'cny' | 'usd') => {
+    if (mode === 'usd') {
+      commitInvestUsdCnyInput();
+      setInvestUsdInputMode('usd');
+      return;
+    }
+    if (latestUsdRate !== null) {
+      setInvestUsdCnyInput(String(roundMoney(parseAmountPart(localAccounts.investUsdBank) * latestUsdRate)));
+    }
+    syncAccounts();
+    setInvestUsdInputMode('cny');
   };
   useEffect(() => {
     if (investUsdInputMode !== 'cny' || latestUsdRate === null) return;
@@ -1314,7 +1331,7 @@ export default function ReconcilePage() {
                         <span style={{ fontSize: 11, fontWeight: 700, color: C.sub }}>境外</span>
                         <button
                           type="button"
-                          onClick={() => setInvestUsdInputMode('cny')}
+                          onClick={() => switchInvestUsdInputMode('cny')}
                           style={{ border: 'none', background: 'transparent', padding: 0, fontSize: 14, fontWeight: 700, color: C.blue, cursor: 'pointer' }}
                           aria-label="切换境外投入为人民币折算"
                         >
@@ -1335,7 +1352,7 @@ export default function ReconcilePage() {
                         <span style={{ fontSize: 11, fontWeight: 700, color: C.sub }}>境外</span>
                         <button
                           type="button"
-                          onClick={() => setInvestUsdInputMode('usd')}
+                          onClick={() => switchInvestUsdInputMode('usd')}
                           style={{ border: 'none', background: 'transparent', padding: 0, fontSize: 14, fontWeight: 700, color: C.blue, cursor: 'pointer' }}
                           aria-label="切换境外投入为美元编辑"
                         >
@@ -1346,16 +1363,16 @@ export default function ReconcilePage() {
                           <AmountInput
                             ref={(el) => { accountInputRefs.current[usdIdx] = el; }}
                             value={investUsdCnyInput}
-                            onChange={updateInvestUsdFromCny}
+                            onChange={(v) => setInvestUsdCnyInput(normalizeAmountInput(v))}
                             onFocus={(e) => e.target.select()}
-                            onBlur={() => { syncAccounts(); hideUsdAccount(usdKey); }}
-                            onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); holdingInputRefs.current[0]?.focus(); } }}
+                            onBlur={() => { commitInvestUsdCnyInput(); hideUsdAccount(usdKey); }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { commitInvestUsdCnyInput(); holdingInputRefs.current[0]?.focus(); } }}
                             style={{ width: 74, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
                           />
                         ) : (
                           <button
                             type="button"
-                            onClick={() => setInvestUsdInputMode('usd')}
+                            onClick={() => switchInvestUsdInputMode('usd')}
                             style={{ border: 'none', background: 'transparent', padding: 0, fontSize: 13, fontWeight: 700, color: C.orange, cursor: 'pointer' }}
                           >
                             暂无汇率
