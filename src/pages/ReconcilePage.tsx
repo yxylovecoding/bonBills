@@ -1194,9 +1194,6 @@ export default function ReconcilePage() {
             },
           ];
           return transferRows.map((row, i) => {
-            if (row.key === 'wishJar' && expandedTransfer !== 'consumption' && (parseFloat(localTransferred.wishJar || '0') || 0) === 0) {
-              return null;
-            }
             const transferred = parseFloat(localTransferred[row.key] || '0') || 0;
             const remain = Math.max(row.rec - transferred, 0);
             const header = row.key === 'campusCard'
@@ -1204,20 +1201,19 @@ export default function ReconcilePage() {
               : row.key === 'consumption'
                 ? { label: '可分配', amount: incomeAfterEssentialsForTransfer, color: C.green }
                 : null;
-            const nestedWish = row.key === 'wishJar';
             return (
               <Fragment key={row.key}>
-                {header && !nestedWish && (
+                {header && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: i === 0 ? 0 : 10, marginBottom: 4, fontSize: 12, color: C.sub, fontWeight: 600 }}>
                     <span>{header.label}</span>
                     <span style={{ color: header.color, fontVariantNumeric: 'tabular-nums' }}>¥{fmtInt(header.amount)}</span>
                     <div style={{ flex: 1, borderBottom: '1px dashed #dadce0' }} />
                   </div>
                 )}
-              <div style={{ backgroundColor: nestedWish ? '#fff7ed' : i % 2 === 0 ? '#fafafa' : '#fff', borderRadius: nestedWish ? 8 : 10, padding: nestedWish ? '8px 10px' : '10px 12px', marginBottom: 4, marginLeft: nestedWish ? 16 : 0, border: nestedWish ? '1px solid #fed7aa' : 'none' }}>
+              <div style={{ backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff', borderRadius: 10, padding: '10px 12px', marginBottom: 4 }}>
                 {/* 第一行：名称 | 需转 | 还需 | 已转 | 输入（grid 固定列宽） */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'minmax(40px, 1fr) minmax(0, 90px) minmax(0, 80px) 26px minmax(60px, 80px)', alignItems: 'center', columnGap: 4 }}>
-                  <span style={{ fontSize: nestedWish ? 13 : 14, fontWeight: 600, whiteSpace: 'nowrap' }}>{nestedWish ? '↳ ' : ''}{TRANSFER_META[row.key].label}</span>
+                  <span style={{ fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap' }}>{TRANSFER_META[row.key].label}</span>
                   <span
                     onClick={() => setExpandedTransfer((prev) => (prev === row.key ? null : row.key))}
                     style={{ fontSize: 12, color: C.blue, fontWeight: 600, fontVariantNumeric: 'tabular-nums', cursor: 'pointer', userSelect: 'none', textAlign: 'right', whiteSpace: 'nowrap' }}
