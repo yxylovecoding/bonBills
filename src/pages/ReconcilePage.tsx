@@ -879,6 +879,12 @@ export default function ReconcilePage() {
       <div id="sec-accounts">
       <Card title="账户余额" subtitle="填写各账户当前实际余额，回车跳下一项">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: C.sub, backgroundColor: '#f8f9fa', borderRadius: 8, padding: '6px 10px' }}>
+            <span>美元汇率</span>
+            <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+              {latestUsdRate !== null ? `$1 ≈ ¥${latestUsdRate.toFixed(4)} · ${usdRateLabel}` : usdRateLabel}
+            </span>
+          </div>
 
           {/* 信用卡：总待还 + 本月待还 */}
           <div style={{ backgroundColor: '#fce8e6', borderRadius: 12, padding: '10px 14px', border: '1.5px solid #f28b82' }}>
@@ -932,7 +938,7 @@ export default function ReconcilePage() {
               <div>
                 <div style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>{label}</div>
                 <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
-                  {latestUsdRate !== null ? `$ ≈ ¥${fmtInt((current.accounts[usdKey] ?? 0) * latestUsdRate)} · ${usdRateLabel}` : usdRateLabel}
+                  {latestUsdRate !== null ? `$≈¥${fmtInt((current.accounts[usdKey] ?? 0) * latestUsdRate)}` : '暂无汇率'}
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
@@ -1000,7 +1006,7 @@ export default function ReconcilePage() {
                     </button>
                   </div>
                   <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
-                    {latestUsdRate !== null ? `$ ≈ ¥${fmtInt((current.accounts[usdKey] ?? 0) * latestUsdRate)} · ${usdRateLabel}` : usdRateLabel}
+                    {latestUsdRate !== null ? `$≈¥${fmtInt((current.accounts[usdKey] ?? 0) * latestUsdRate)}` : '暂无汇率'}
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
@@ -1040,7 +1046,7 @@ export default function ReconcilePage() {
                   <div>
                     <div style={{ fontSize: 13, color: '#202124', fontWeight: 500 }}>🏺 心愿</div>
                     <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
-                      {latestUsdRate !== null ? `$ ≈ ¥${fmtInt((current.accounts.usdWishJar ?? 0) * latestUsdRate)} · ${usdRateLabel}` : usdRateLabel}
+                      {latestUsdRate !== null ? `$≈¥${fmtInt((current.accounts.usdWishJar ?? 0) * latestUsdRate)}` : '暂无汇率'}
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -1270,7 +1276,7 @@ export default function ReconcilePage() {
               <div>
                 <div style={{ fontSize: 14, color: '#202124', fontWeight: 700 }}>本次投入</div>
                 <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
-                  合计 ¥{fmtInt(rebalanceNewFunds)}{latestUsdRate !== null ? ` · $≈¥${fmtInt((current.accounts[usdKey] ?? 0) * latestUsdRate)} · ${usdRateLabel}` : ` · ${usdRateLabel}`}
+                  合计 ¥{fmtInt(rebalanceNewFunds)}{latestUsdRate !== null ? ` · $≈¥${fmtInt((current.accounts[usdKey] ?? 0) * latestUsdRate)}` : ' · 暂无汇率'}
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
