@@ -1261,20 +1261,16 @@ export default function ReconcilePage() {
       {/* Step 3: 理财配置 & 再平衡 */}
       <div id="sec-invest">
       <Card title="③ 理财配置 & 再平衡" subtitle="编辑持仓金额，可选择仅加仓或加减仓换仓">
-        {/* 本次投入总额 + 理财账户 */}
-        <div style={{ border: '1.5px solid #fbbf24', borderRadius: 10, padding: '10px 12px', backgroundColor: '#fffbeb', marginBottom: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
-            <span style={{ color: C.sub, fontSize: 14 }}>本次投入</span>
-            <span style={{ color: C.orange, fontSize: 16, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{fmtInt(rebalanceNewFunds)}</span>
-          </div>
+        {/* 本次投入 */}
+        <div {...makeUsdSwipeHandlers('investUsdBank')} style={{ touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, border: '1.5px solid #fbbf24', borderRadius: 10, padding: '10px 12px', backgroundColor: '#fffbeb', marginBottom: 14 }}>
           {([
-            { cnyKey: 'investCnyBank', usdKey: 'investUsdBank', label: '账户现金', cnyIdx: 10, usdIdx: 11, color: '#0d9488' },
-          ] as const).map(({ cnyKey, usdKey, label, cnyIdx, usdIdx, color }) => (
-            <div key={cnyKey} {...makeUsdSwipeHandlers(usdKey)} style={{ touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, borderTop: '1px dashed #fbbf24', paddingTop: 9 }}>
+            { cnyKey: 'investCnyBank', usdKey: 'investUsdBank', cnyIdx: 10, usdIdx: 11, color: C.orange },
+          ] as const).map(({ cnyKey, usdKey, cnyIdx, usdIdx, color }) => (
+            <Fragment key={cnyKey}>
               <div>
-                <div style={{ fontSize: 13, color: '#202124', fontWeight: 700 }}>📈 {label}</div>
+                <div style={{ fontSize: 14, color: '#202124', fontWeight: 700 }}>本次投入</div>
                 <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
-                  {latestUsdRate !== null ? `$ ≈ ¥${fmtInt((current.accounts[usdKey] ?? 0) * latestUsdRate)} · ${usdRateLabel}` : usdRateLabel}
+                  合计 ¥{fmtInt(rebalanceNewFunds)}{latestUsdRate !== null ? ` · $≈¥${fmtInt((current.accounts[usdKey] ?? 0) * latestUsdRate)} · ${usdRateLabel}` : ` · ${usdRateLabel}`}
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
@@ -1308,7 +1304,7 @@ export default function ReconcilePage() {
                   </>
                 )}
               </div>
-            </div>
+            </Fragment>
           ))}
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px', marginBottom: 14, fontSize: 13, color: allowRebalanceSell ? C.blue : C.sub, fontWeight: 600, cursor: 'pointer' }}>
