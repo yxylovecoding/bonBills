@@ -363,6 +363,7 @@ export default function ReconcilePage() {
 
   // 今天
   const today = new Date();
+  const showCreditMonthlyInput = today.getDate() >= 26 || today.getDate() <= 13;
   const currentYear = today.getFullYear();
   const currentMonth = today.getMonth();
   const nextMonthDate = new Date(currentYear, currentMonth + 1, 1);
@@ -945,7 +946,7 @@ export default function ReconcilePage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {([
                 { key: 'credit',        label: '总待还',   idx: 0 },
-                { key: 'creditMonthly', label: '本月待还', idx: 1 },
+                ...(showCreditMonthlyInput ? [{ key: 'creditMonthly', label: '本月待还', idx: 1 } as const] : []),
                 { key: 'savingsCard',   label: '储蓄卡',   idx: 2 },
               ] as const).map(({ key, label, idx }) => (
                 <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
