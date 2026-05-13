@@ -232,6 +232,7 @@ export default function ReconcilePage() {
   const swipeStartXRef = useRef<Partial<Record<UsdVirtualAccountKey, number>>>({});
   const [revealedUsdAccounts, setRevealedUsdAccounts] = useState<Set<UsdVirtualAccountKey>>(() => new Set());
   const [investUsdInputMode, setInvestUsdInputMode] = useState<'cny' | 'usd'>('cny');
+  const [investUsdCnyInput, setInvestUsdCnyInput] = useState('');
   const focusNextAccount = (i: number) => {
     setTimeout(() => {
       for (let next = i + 1; next < accountInputRefs.current.length; next += 1) {
@@ -449,6 +450,17 @@ export default function ReconcilePage() {
     : fallbackUsdRate !== null
       ? `${usdRateError ? '联网失败 · ' : ''}历史汇率`
       : '暂无汇率';
+  const updateInvestUsdFromCny = (rawCny: string) => {
+    const normalized = normalizeAmountInput(rawCny);
+    setInvestUsdCnyInput(normalized);
+    if (latestUsdRate === null) return;
+    const nextUsd = roundMoney(parseAmountPart(normalized) / latestUsdRate);
+    setLocalAccounts((p) => ({ ...p, investUsdBank: String(nextUsd) }));
+  };
+  useEffect(() => {
+    if (investUsdInputMode !== 'cny' || latestUsdRate === null) return;
+    setInvestUsdCnyInput(String(roundMoney(parseAmountPart(localAccounts.investUsdBank) * latestUsdRate)));
+  }, [investUsdInputMode, latestUsdRate, localAccounts.investUsdBank]);
   const rebalanceNewFunds = useMemo(
     () => roundMoney((current.accounts.investCnyBank ?? 0) + (latestUsdRate !== null ? (current.accounts.investUsdBank ?? 0) * latestUsdRate : 0)),
     [current.accounts.investCnyBank, current.accounts.investUsdBank, latestUsdRate],
@@ -1319,20 +1331,37 @@ export default function ReconcilePage() {
                         />
                       </div>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => setInvestUsdInputMode('usd')}
-                        style={{ display: 'flex', alignItems: 'center', gap: 4, border: 'none', background: 'transparent', padding: 0, fontSize: 13, fontWeight: 700, color: C.blue, cursor: 'pointer', fontVariantNumeric: 'tabular-nums' }}
-                        aria-label="切换境外投入为美元编辑"
-                      >
-                        <span style={{ fontSize: 11, color: C.sub }}>境外</span>
-                        <span>$</span>
-                        <span>
-                          {latestUsdRate !== null
-                            ? `¥${fmtInt((current.accounts[usdKey] ?? 0) * latestUsdRate)}`
-                            : '暂无汇率'}
-                        </span>
-                      </button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: C.sub }}>境外</span>
+                        <button
+                          type="button"
+                          onClick={() => setInvestUsdInputMode('usd')}
+                          style={{ border: 'none', background: 'transparent', padding: 0, fontSize: 14, fontWeight: 700, color: C.blue, cursor: 'pointer' }}
+                          aria-label="切换境外投入为美元编辑"
+                        >
+                          $
+                        </button>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: C.blue }}>¥</span>
+                        {latestUsdRate !== null ? (
+                          <AmountInput
+                            ref={(el) => { accountInputRefs.current[usdIdx] = el; }}
+                            value={investUsdCnyInput}
+                            onChange={updateInvestUsdFromCny}
+                            onFocus={(e) => e.target.select()}
+                            onBlur={() => { syncAccounts(); hideUsdAccount(usdKey); }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); holdingInputRefs.current[0]?.focus(); } }}
+                            style={{ width: 74, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setInvestUsdInputMode('usd')}
+                            style={{ border: 'none', background: 'transparent', padding: 0, fontSize: 13, fontWeight: 700, color: C.orange, cursor: 'pointer' }}
+                          >
+                            暂无汇率
+                          </button>
+                        )}
+                      </div>
                     )}
                   </>
                 )}
