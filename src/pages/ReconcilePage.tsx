@@ -317,8 +317,6 @@ export default function ReconcilePage() {
   const [usdRebalanceCells, setUsdRebalanceCells] = useState<Set<InvestKey>>(() => new Set());
   const [saved, setSaved] = useState(false);
 
-  // 理财本次投入金额
-  const [investInput, setInvestInput] = useState('');
   const [allowRebalanceSell, setAllowRebalanceSell] = useState(false);
 
   // 理财持仓本地编辑
@@ -415,11 +413,6 @@ export default function ReconcilePage() {
       : DEFAULT_CONFIG.investAllocTargets,
     [config.investAllocTargets, investKeys],
   );
-  const rebalanceSuggested = useMemo(
-    () => calcRebalance(effectiveInvestHoldings, investAllocTargets, parseFloat(investInput) || 0, allowRebalanceSell),
-    [effectiveInvestHoldings, investAllocTargets, investInput, allowRebalanceSell],
-  );
-
   // 最新一期有各品类累计收益数据的月度记录
   const latestBreakdownProfit = useMemo(
     () => [...records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth))
@@ -455,6 +448,14 @@ export default function ReconcilePage() {
     : fallbackUsdRate !== null
       ? `${usdRateError ? '联网失败 · ' : ''}历史汇率`
       : '暂无汇率';
+  const rebalanceNewFunds = useMemo(
+    () => roundMoney((current.accounts.investCnyBank ?? 0) + (latestUsdRate !== null ? (current.accounts.investUsdBank ?? 0) * latestUsdRate : 0)),
+    [current.accounts.investCnyBank, current.accounts.investUsdBank, latestUsdRate],
+  );
+  const rebalanceSuggested = useMemo(
+    () => calcRebalance(effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell),
+    [effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell],
+  );
 
   const rebalanceInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   // 已加仓（本次会话输入，执行后归零）
@@ -1262,18 +1263,12 @@ export default function ReconcilePage() {
       <Card title="③ 理财配置 & 再平衡" subtitle="编辑持仓金额，可选择仅加仓或加减仓换仓">
         {/* 本次投入总额 + 理财账户 */}
         <div style={{ border: '1.5px solid #fbbf24', borderRadius: 10, padding: '10px 12px', backgroundColor: '#fffbeb', marginBottom: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
-            <span style={{ color: C.sub, fontSize: 14, marginRight: 4 }}>本次投入 ¥</span>
-            <AmountInput
-              value={investInput}
-              onChange={(v) => setInvestInput(/^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); holdingInputRefs.current[0]?.focus(); } }}
-              placeholder="输入总额，自动分配到各行"
-              style={{ flex: 1, border: 'none', outline: 'none', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', backgroundColor: 'transparent', textAlign: 'right' }}
-            />
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+            <span style={{ color: C.sub, fontSize: 14 }}>本次投入</span>
+            <span style={{ color: C.orange, fontSize: 16, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{fmtInt(rebalanceNewFunds)}</span>
           </div>
           {([
-            { cnyKey: 'investCnyBank', usdKey: 'investUsdBank', label: '理财账户', cnyIdx: 10, usdIdx: 11, color: '#0d9488' },
+            { cnyKey: 'investCnyBank', usdKey: 'investUsdBank', label: '账户现金', cnyIdx: 10, usdIdx: 11, color: '#0d9488' },
           ] as const).map(({ cnyKey, usdKey, label, cnyIdx, usdIdx, color }) => (
             <div key={cnyKey} {...makeUsdSwipeHandlers(usdKey)} style={{ touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, borderTop: '1px dashed #fbbf24', paddingTop: 9 }}>
               <div>
