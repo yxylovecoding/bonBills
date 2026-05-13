@@ -307,6 +307,7 @@ export default function ReconcilePage() {
 
   const [expandedBudget, setExpandedBudget] = useState<BudgetKey | null>(null);
   const [expandedTransfer, setExpandedTransfer] = useState<TransferKey | null>(null);
+  const [consumptionWishOpen, setConsumptionWishOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [groupedTargetInputs, setGroupedTargetInputs] = useState<GroupedTargetInputs>(
     () => groupedTargetInputFromConfig(effectiveInvestTargets(config.investAllocTargets)),
@@ -983,112 +984,79 @@ export default function ReconcilePage() {
           {([
             { cnyKey: 'consumptionBank', usdKey: 'usdConsumptionBank', label: '💼 消费', cnyIdx: 7, usdIdx: 8, color: '#7c3aed', bg: '#f3e8ff', border: '#c4b5fd' },
           ] as const).map(({ cnyKey, usdKey, label, cnyIdx, usdIdx, color, bg, border }) => (
-            <div key={cnyKey} {...makeUsdSwipeHandlers(usdKey)} style={{ touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: bg, borderRadius: 12, padding: '10px 14px', border: `1.5px solid ${border}` }}>
-              <div>
-                <div style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>{label}</div>
-                <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
-                  {latestUsdRate !== null ? `$ ≈ ¥${fmtInt((current.accounts[usdKey] ?? 0) * latestUsdRate)} · ${usdRateLabel}` : usdRateLabel}
+            <Fragment key={cnyKey}>
+              <div {...makeUsdSwipeHandlers(usdKey)} style={{ touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: bg, borderRadius: 12, padding: '10px 14px', border: `1.5px solid ${border}` }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>{label}</span>
+                    <button
+                      type="button"
+                      onClick={() => setConsumptionWishOpen((v) => !v)}
+                      style={{ border: 'none', background: 'transparent', color: C.sub, cursor: 'pointer', padding: '1px 4px', fontSize: 11, lineHeight: 1, transform: consumptionWishOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}
+                      title="展开心愿"
+                    >
+                      ▼
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
+                    {latestUsdRate !== null ? `$ ≈ ¥${fmtInt((current.accounts[usdKey] ?? 0) * latestUsdRate)} · ${usdRateLabel}` : usdRateLabel}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <span style={{ fontSize: 14, fontWeight: 600, color }}>¥</span>
+                    <AmountInput
+                      ref={(el) => { accountInputRefs.current[cnyIdx] = el; }}
+                      value={localAccounts[cnyKey]}
+                      onChange={(v) => setLocalAccounts((p) => ({ ...p, [cnyKey]: normalizeAmountInput(v) }))}
+                      onFocus={(e) => e.target.select()}
+                      onBlur={() => syncAccounts()}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(cnyIdx); } }}
+                      style={{ width: 74, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${color}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color, textAlign: 'right' }}
+                    />
+                  </div>
+                  {showUsdAccount(usdKey) && (
+                    <>
+                      <span style={{ color: C.sub, fontSize: 13 }}>·</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: C.blue }}>$</span>
+                        <AmountInput
+                          ref={(el) => { accountInputRefs.current[usdIdx] = el; }}
+                          value={localAccounts[usdKey]}
+                          onChange={(v) => setLocalAccounts((p) => ({ ...p, [usdKey]: normalizeAmountInput(v) }))}
+                          onFocus={(e) => e.target.select()}
+                          onBlur={() => { syncAccounts(); hideUsdAccount(usdKey); }}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(usdIdx); } }}
+                          style={{ width: 68, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <span style={{ fontSize: 14, fontWeight: 600, color }}>¥</span>
-                  <AmountInput
-                    ref={(el) => { accountInputRefs.current[cnyIdx] = el; }}
-                    value={localAccounts[cnyKey]}
-                    onChange={(v) => setLocalAccounts((p) => ({ ...p, [cnyKey]: normalizeAmountInput(v) }))}
-                    onFocus={(e) => e.target.select()}
-                    onBlur={() => syncAccounts()}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(cnyIdx); } }}
-                    style={{ width: 74, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${color}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color, textAlign: 'right' }}
-                  />
-                </div>
-                {showUsdAccount(usdKey) && (
-                  <>
-                    <span style={{ color: C.sub, fontSize: 13 }}>·</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <span style={{ fontSize: 14, fontWeight: 600, color: C.blue }}>$</span>
-                      <AmountInput
-                        ref={(el) => { accountInputRefs.current[usdIdx] = el; }}
-                        value={localAccounts[usdKey]}
-                        onChange={(v) => setLocalAccounts((p) => ({ ...p, [usdKey]: normalizeAmountInput(v) }))}
-                        onFocus={(e) => e.target.select()}
-                        onBlur={() => { syncAccounts(); hideUsdAccount(usdKey); }}
-                        onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(usdIdx); } }}
-                        style={{ width: 68, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
-                      />
+              {(consumptionWishOpen || showUsdAccount('usdWishJar')) && (
+                <div {...makeUsdSwipeHandlers('usdWishJar')} style={{ marginTop: -4, marginLeft: 16, touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: '#fff7ed', borderRadius: 10, padding: '8px 12px', border: '1px solid #fed7aa' }}>
+                  <div>
+                    <div style={{ fontSize: 13, color: '#202124', fontWeight: 500 }}>🏺 心愿</div>
+                    <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
+                      {latestUsdRate !== null ? `$ ≈ ¥${fmtInt((current.accounts.usdWishJar ?? 0) * latestUsdRate)} · ${usdRateLabel}` : usdRateLabel}
                     </div>
-                  </>
-                )}
-              </div>
-            </div>
-          ))}
-
-          <div {...makeUsdSwipeHandlers('usdWishJar')} style={{ touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: '#fff7ed', borderRadius: 12, padding: '10px 14px', border: '1.5px solid #fed7aa' }}>
-            <div>
-              <div style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>🏺 心愿罐</div>
-              <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
-                {latestUsdRate !== null ? `$ ≈ ¥${fmtInt((current.accounts.usdWishJar ?? 0) * latestUsdRate)} · ${usdRateLabel}` : usdRateLabel}
-              </div>
-            </div>
-            {showUsdAccount('usdWishJar') && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <span style={{ fontSize: 14, fontWeight: 600, color: C.blue }}>$</span>
-                <AmountInput
-                  ref={(el) => { accountInputRefs.current[9] = el; }}
-                  value={localAccounts.usdWishJar}
-                  onChange={(v) => setLocalAccounts((p) => ({ ...p, usdWishJar: normalizeAmountInput(v) }))}
-                  onFocus={(e) => e.target.select()}
-                  onBlur={() => { syncAccounts(); hideUsdAccount('usdWishJar'); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(9); } }}
-                  style={{ width: 82, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
-                />
-              </div>
-            )}
-          </div>
-
-          {([
-            { cnyKey: 'investCnyBank', usdKey: 'investUsdBank', label: '📈 理财', cnyIdx: 10, usdIdx: 11, color: '#0d9488', bg: '#ecfdf5', border: '#99f6e4' },
-          ] as const).map(({ cnyKey, usdKey, label, cnyIdx, usdIdx, color, bg, border }) => (
-            <div key={cnyKey} {...makeUsdSwipeHandlers(usdKey)} style={{ touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: bg, borderRadius: 12, padding: '10px 14px', border: `1.5px solid ${border}` }}>
-              <div>
-                <div style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>{label}</div>
-                <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
-                  {latestUsdRate !== null ? `$ ≈ ¥${fmtInt((current.accounts[usdKey] ?? 0) * latestUsdRate)} · ${usdRateLabel}` : usdRateLabel}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: C.blue }}>$</span>
+                    <AmountInput
+                      ref={(el) => { accountInputRefs.current[9] = el; }}
+                      value={localAccounts.usdWishJar}
+                      onChange={(v) => setLocalAccounts((p) => ({ ...p, usdWishJar: normalizeAmountInput(v) }))}
+                      onFocus={(e) => e.target.select()}
+                      onBlur={() => { syncAccounts(); hideUsdAccount('usdWishJar'); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(9); } }}
+                      style={{ width: 82, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
+                    />
+                  </div>
                 </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <span style={{ fontSize: 14, fontWeight: 600, color }}>¥</span>
-                  <AmountInput
-                    ref={(el) => { accountInputRefs.current[cnyIdx] = el; }}
-                    value={localAccounts[cnyKey]}
-                    onChange={(v) => setLocalAccounts((p) => ({ ...p, [cnyKey]: normalizeAmountInput(v) }))}
-                    onFocus={(e) => e.target.select()}
-                    onBlur={() => syncAccounts()}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(cnyIdx); } }}
-                    style={{ width: 74, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${color}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color, textAlign: 'right' }}
-                  />
-                </div>
-                {showUsdAccount(usdKey) && (
-                  <>
-                    <span style={{ color: C.sub, fontSize: 13 }}>·</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <span style={{ fontSize: 14, fontWeight: 600, color: C.blue }}>$</span>
-                      <AmountInput
-                        ref={(el) => { accountInputRefs.current[usdIdx] = el; }}
-                        value={localAccounts[usdKey]}
-                        onChange={(v) => setLocalAccounts((p) => ({ ...p, [usdKey]: normalizeAmountInput(v) }))}
-                        onFocus={(e) => e.target.select()}
-                        onBlur={() => { syncAccounts(); hideUsdAccount(usdKey); }}
-                        onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(usdIdx); } }}
-                        style={{ width: 68, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
+              )}
+            </Fragment>
           ))}
 
         </div>
@@ -1226,6 +1194,9 @@ export default function ReconcilePage() {
             },
           ];
           return transferRows.map((row, i) => {
+            if (row.key === 'wishJar' && expandedTransfer !== 'consumption' && (parseFloat(localTransferred.wishJar || '0') || 0) === 0) {
+              return null;
+            }
             const transferred = parseFloat(localTransferred[row.key] || '0') || 0;
             const remain = Math.max(row.rec - transferred, 0);
             const header = row.key === 'campusCard'
@@ -1233,19 +1204,20 @@ export default function ReconcilePage() {
               : row.key === 'consumption'
                 ? { label: '可分配', amount: incomeAfterEssentialsForTransfer, color: C.green }
                 : null;
+            const nestedWish = row.key === 'wishJar';
             return (
               <Fragment key={row.key}>
-                {header && (
+                {header && !nestedWish && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: i === 0 ? 0 : 10, marginBottom: 4, fontSize: 12, color: C.sub, fontWeight: 600 }}>
                     <span>{header.label}</span>
                     <span style={{ color: header.color, fontVariantNumeric: 'tabular-nums' }}>¥{fmtInt(header.amount)}</span>
                     <div style={{ flex: 1, borderBottom: '1px dashed #dadce0' }} />
                   </div>
                 )}
-              <div style={{ backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff', borderRadius: 10, padding: '10px 12px', marginBottom: 4 }}>
+              <div style={{ backgroundColor: nestedWish ? '#fff7ed' : i % 2 === 0 ? '#fafafa' : '#fff', borderRadius: nestedWish ? 8 : 10, padding: nestedWish ? '8px 10px' : '10px 12px', marginBottom: 4, marginLeft: nestedWish ? 16 : 0, border: nestedWish ? '1px solid #fed7aa' : 'none' }}>
                 {/* 第一行：名称 | 需转 | 还需 | 已转 | 输入（grid 固定列宽） */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'minmax(40px, 1fr) minmax(0, 90px) minmax(0, 80px) 26px minmax(60px, 80px)', alignItems: 'center', columnGap: 4 }}>
-                  <span style={{ fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap' }}>{TRANSFER_META[row.key].label}</span>
+                  <span style={{ fontSize: nestedWish ? 13 : 14, fontWeight: 600, whiteSpace: 'nowrap' }}>{nestedWish ? '↳ ' : ''}{TRANSFER_META[row.key].label}</span>
                   <span
                     onClick={() => setExpandedTransfer((prev) => (prev === row.key ? null : row.key))}
                     style={{ fontSize: 12, color: C.blue, fontWeight: 600, fontVariantNumeric: 'tabular-nums', cursor: 'pointer', userSelect: 'none', textAlign: 'right', whiteSpace: 'nowrap' }}
@@ -1292,16 +1264,61 @@ export default function ReconcilePage() {
       {/* Step 3: 理财配置 & 再平衡 */}
       <div id="sec-invest">
       <Card title="③ 理财配置 & 再平衡" subtitle="编辑持仓金额，可选择仅加仓或加减仓换仓">
-        {/* 本次投入总额 */}
-        <div style={{ display: 'flex', alignItems: 'center', border: '1.5px solid #fbbf24', borderRadius: 10, padding: '10px 12px', backgroundColor: '#fffbeb', marginBottom: 14 }}>
-          <span style={{ color: C.sub, fontSize: 14, marginRight: 4 }}>本次投入 ¥</span>
-          <AmountInput
-            value={investInput}
-            onChange={(v) => setInvestInput(/^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); holdingInputRefs.current[0]?.focus(); } }}
-            placeholder="输入总额，自动分配到各行"
-            style={{ flex: 1, border: 'none', outline: 'none', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', backgroundColor: 'transparent', textAlign: 'right' }}
-          />
+        {/* 本次投入总额 + 理财账户 */}
+        <div style={{ border: '1.5px solid #fbbf24', borderRadius: 10, padding: '10px 12px', backgroundColor: '#fffbeb', marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
+            <span style={{ color: C.sub, fontSize: 14, marginRight: 4 }}>本次投入 ¥</span>
+            <AmountInput
+              value={investInput}
+              onChange={(v) => setInvestInput(/^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); holdingInputRefs.current[0]?.focus(); } }}
+              placeholder="输入总额，自动分配到各行"
+              style={{ flex: 1, border: 'none', outline: 'none', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', backgroundColor: 'transparent', textAlign: 'right' }}
+            />
+          </div>
+          {([
+            { cnyKey: 'investCnyBank', usdKey: 'investUsdBank', label: '理财账户', cnyIdx: 10, usdIdx: 11, color: '#0d9488' },
+          ] as const).map(({ cnyKey, usdKey, label, cnyIdx, usdIdx, color }) => (
+            <div key={cnyKey} {...makeUsdSwipeHandlers(usdKey)} style={{ touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, borderTop: '1px dashed #fbbf24', paddingTop: 9 }}>
+              <div>
+                <div style={{ fontSize: 13, color: '#202124', fontWeight: 700 }}>📈 {label}</div>
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
+                  {latestUsdRate !== null ? `$ ≈ ¥${fmtInt((current.accounts[usdKey] ?? 0) * latestUsdRate)} · ${usdRateLabel}` : usdRateLabel}
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color }}>¥</span>
+                  <AmountInput
+                    ref={(el) => { accountInputRefs.current[cnyIdx] = el; }}
+                    value={localAccounts[cnyKey]}
+                    onChange={(v) => setLocalAccounts((p) => ({ ...p, [cnyKey]: normalizeAmountInput(v) }))}
+                    onFocus={(e) => e.target.select()}
+                    onBlur={() => syncAccounts()}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(cnyIdx); } }}
+                    style={{ width: 74, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${color}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color, textAlign: 'right' }}
+                  />
+                </div>
+                {showUsdAccount(usdKey) && (
+                  <>
+                    <span style={{ color: C.sub, fontSize: 13 }}>·</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: C.blue }}>$</span>
+                      <AmountInput
+                        ref={(el) => { accountInputRefs.current[usdIdx] = el; }}
+                        value={localAccounts[usdKey]}
+                        onChange={(v) => setLocalAccounts((p) => ({ ...p, [usdKey]: normalizeAmountInput(v) }))}
+                        onFocus={(e) => e.target.select()}
+                        onBlur={() => { syncAccounts(); hideUsdAccount(usdKey); }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); holdingInputRefs.current[0]?.focus(); } }}
+                        style={{ width: 68, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px', marginBottom: 14, fontSize: 13, color: allowRebalanceSell ? C.blue : C.sub, fontWeight: 600, cursor: 'pointer' }}>
           <input
