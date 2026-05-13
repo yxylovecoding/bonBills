@@ -92,11 +92,13 @@ const groupedTargetInputsToConfig = (inputs: GroupedTargetInputs): InvestAllocTa
 function RebalanceSettingsModal({
   groupedTargetInputs,
   setGroupedTargetInputs,
+  onRevealConsumptionWish,
   onClose,
   onSave,
 }: {
   groupedTargetInputs: GroupedTargetInputs;
   setGroupedTargetInputs: (v: GroupedTargetInputs) => void;
+  onRevealConsumptionWish: () => void;
   onClose: () => void;
   onSave: () => void;
 }) {
@@ -116,6 +118,21 @@ function RebalanceSettingsModal({
           <div style={{ fontSize: 16, fontWeight: 700 }}>再平衡设置</div>
         </div>
         <div style={{ padding: '0 20px 4px' }}>
+          <div style={{ border: '1px solid #f1f3f4', borderRadius: 10, padding: '9px 10px', backgroundColor: '#fafafa', marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#202124' }}>账户显示</div>
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>消费、心愿美元为 0 时默认隐藏</div>
+              </div>
+              <button
+                type="button"
+                onClick={onRevealConsumptionWish}
+                style={{ border: 'none', borderRadius: 8, padding: '7px 10px', backgroundColor: '#e8f0fe', color: C.blue, fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
+              >
+                开启录入
+              </button>
+            </div>
+          </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#202124' }}>大类目标比例</div>
             <div style={{ fontSize: 11, fontWeight: 600, color: totalOk ? C.green : C.orange }}>
@@ -855,6 +872,12 @@ export default function ReconcilePage() {
         <RebalanceSettingsModal
           groupedTargetInputs={groupedTargetInputs}
           setGroupedTargetInputs={setGroupedTargetInputs}
+          onRevealConsumptionWish={() => {
+            revealUsdAccount('usdConsumptionBank');
+            revealUsdAccount('usdWishJar');
+            setConsumptionWishOpen(true);
+            setSettingsOpen(false);
+          }}
           onClose={() => setSettingsOpen(false)}
           onSave={() => {
             const investAllocTargets = groupedTargetInputsToConfig(groupedTargetInputs);
@@ -1019,9 +1042,10 @@ export default function ReconcilePage() {
           </div>
 
           {([
-            { cnyKey: 'consumptionBank', usdKey: 'usdConsumptionBank', label: '💼 消费', cnyIdx: 7, usdIdx: 8, color: '#7c3aed', bg: '#f3e8ff', border: '#c4b5fd' },
-          ] as const).map(({ cnyKey, usdKey, label, cnyIdx, usdIdx, color, bg, border }) => (
-            <Fragment key={cnyKey}>
+            { usdKey: 'usdConsumptionBank', label: '💼 消费', usdIdx: 8, bg: '#f3e8ff', border: '#c4b5fd' },
+          ] as const).map(({ usdKey, label, usdIdx, bg, border }) => (
+            (showUsdAccount(usdKey) || showUsdAccount('usdWishJar')) && (
+            <Fragment key={usdKey}>
               <div {...makeUsdSwipeHandlers(usdKey)} style={{ touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: bg, borderRadius: 12, padding: '10px 14px', border: `1.5px solid ${border}` }}>
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1040,34 +1064,19 @@ export default function ReconcilePage() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <span style={{ fontSize: 14, fontWeight: 600, color }}>¥</span>
-                    <AmountInput
-                      ref={(el) => { accountInputRefs.current[cnyIdx] = el; }}
-                      value={localAccounts[cnyKey]}
-                      onChange={(v) => setLocalAccounts((p) => ({ ...p, [cnyKey]: normalizeAmountInput(v) }))}
-                      onFocus={(e) => e.target.select()}
-                      onBlur={() => syncAccounts()}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(cnyIdx); } }}
-                      style={{ width: 74, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${color}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color, textAlign: 'right' }}
-                    />
-                  </div>
                   {showUsdAccount(usdKey) && (
-                    <>
-                      <span style={{ color: C.sub, fontSize: 13 }}>·</span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <span style={{ fontSize: 14, fontWeight: 600, color: C.blue }}>$</span>
-                        <AmountInput
-                          ref={(el) => { accountInputRefs.current[usdIdx] = el; }}
-                          value={localAccounts[usdKey]}
-                          onChange={(v) => setLocalAccounts((p) => ({ ...p, [usdKey]: normalizeAmountInput(v) }))}
-                          onFocus={(e) => e.target.select()}
-                          onBlur={() => { syncAccounts(); hideUsdAccount(usdKey); }}
-                          onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(usdIdx); } }}
-                          style={{ width: 68, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
-                        />
-                      </div>
-                    </>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: C.blue }}>$</span>
+                      <AmountInput
+                        ref={(el) => { accountInputRefs.current[usdIdx] = el; }}
+                        value={localAccounts[usdKey]}
+                        onChange={(v) => setLocalAccounts((p) => ({ ...p, [usdKey]: normalizeAmountInput(v) }))}
+                        onFocus={(e) => e.target.select()}
+                        onBlur={() => { syncAccounts(); hideUsdAccount(usdKey); }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(usdIdx); } }}
+                        style={{ width: 82, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
+                      />
+                    </div>
                   )}
                 </div>
               </div>
@@ -1094,6 +1103,7 @@ export default function ReconcilePage() {
                 </div>
               )}
             </Fragment>
+            )
           ))}
 
         </div>
