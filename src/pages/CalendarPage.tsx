@@ -514,11 +514,10 @@ type MonthFormState = ReturnType<typeof useMonthForm>;
 
 function MonthDataSection({ state }: { state: MonthFormState }) {
   const {
-    income, setIncome, totalExpense, setTotalExpense, periodicLife, setPeriodicLife,
-    volatileLife, setVolatileLife, consumption, setConsumption, school, setSchool,
+    income, totalExpense, periodicLife, volatileLife, consumption, school,
     accProfit, setAccProfit, investTotal,
     surplus, investIncome, investMonthly, investAnnual, n,
-    mainFieldRefs, breakdownRefs, fieldStyle, labelStyle,
+    mainFieldRefs, breakdownRefs, labelStyle,
   } = state;
   return (
     <>
@@ -538,19 +537,31 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
             </div>
           </div>
         )}
+        <div style={{ flex: 1, minWidth: 100, backgroundColor: '#fffbeb', borderRadius: 10, padding: '10px 14px' }}>
+          <div style={{ fontSize: 11, color: C.sub }}>累计盈利</div>
+          <AmountInput
+            ref={(el) => { mainFieldRefs.current[0] = el; }}
+            value={accProfit}
+            onChange={setAccProfit}
+            placeholder="0.00"
+            style={{ width: '100%', border: 'none', borderBottom: '1.5px solid #fbbf24', borderRadius: 0, padding: '2px 0', fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', outline: 'none', backgroundColor: 'transparent', boxSizing: 'border-box', color: '#202124' }}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setTimeout(() => breakdownRefs.current[0]?.focus(), 0); } }}
+          />
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
         {([
-          { label: '总收入',     val: income,       set: setIncome,        kind: 'auto' as const },
-          { label: '总支出',     val: totalExpense, set: setTotalExpense,  kind: 'auto' as const },
-          { label: '周期生活',   val: periodicLife, set: setPeriodicLife,  kind: 'auto' as const },
-          { label: '波动生活',   val: volatileLife, set: setVolatileLife,  kind: 'auto' as const },
-          { label: '消费（交行）', val: consumption,  set: setConsumption,   kind: 'auto' as const },
-          { label: '校园卡支出', val: school,       set: setSchool,        kind: 'auto' as const },
-          { label: '累计盈利',   val: accProfit,    set: setAccProfit,     kind: 'edit' as const },
-          { label: '理财总额',   val: String(investTotal || ''), set: undefined, kind: 'sum'  as const },
-        ]).map(({ label, val, set, kind }) => {
+          { label: '总收入',     val: income,       kind: 'auto' as const },
+          { label: '总支出',     val: totalExpense, kind: 'auto' as const },
+          { label: '周期生活',   val: periodicLife, kind: 'auto' as const, theme: 'green' as const },
+          { label: '波动生活',   val: volatileLife, kind: 'auto' as const, theme: 'green' as const },
+          { label: '消费（交行）', val: consumption,  kind: 'auto' as const, theme: 'purple' as const },
+          { label: '校园卡支出', val: school,       kind: 'auto' as const },
+          { label: '理财总额',   val: String(investTotal || ''), kind: 'sum'  as const },
+        ]).map(({ label, val, kind, theme }) => {
+          const bg = theme === 'green' ? '#e6f4ea' : theme === 'purple' ? '#f3e8ff' : '#f1f3f4';
+          const fg = theme === 'green' ? C.green : theme === 'purple' ? C.purple : '#3c4043';
           return (
             <div key={label}>
               <div style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -558,20 +569,9 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
                 {kind === 'auto' && <span style={{ fontSize: 10, color: C.sub }}>（账单自动）</span>}
                 {kind === 'sum' && <span style={{ fontSize: 10, color: C.sub }}>（持仓求和）</span>}
               </div>
-              {kind === 'edit' && set ? (
-                <AmountInput
-                  ref={(el) => { mainFieldRefs.current[0] = el; }}
-                  value={val}
-                  onChange={set}
-                  placeholder="0.00"
-                  style={fieldStyle}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setTimeout(() => breakdownRefs.current[0]?.focus(), 0); } }}
-                />
-              ) : (
-                <div style={{ padding: '8px 10px', fontSize: 13, fontVariantNumeric: 'tabular-nums', borderRadius: 8, backgroundColor: '#f1f3f4', color: '#3c4043', minHeight: 20 }}>
-                  {val ? formatCurrency(n(val)) : '—'}
-                </div>
-              )}
+              <div style={{ padding: '8px 10px', fontSize: 13, fontVariantNumeric: 'tabular-nums', borderRadius: 8, backgroundColor: bg, color: fg, minHeight: 20 }}>
+                {val ? formatCurrency(n(val)) : '—'}
+              </div>
             </div>
           );
         })}
