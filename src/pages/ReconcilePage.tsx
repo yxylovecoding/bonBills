@@ -1498,7 +1498,7 @@ export default function ReconcilePage() {
                           onFocus={(e) => e.target.select()}
                           onBlur={() => syncHolding(k)}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter') { syncHolding(k); longBondReserveInputRef.current?.focus(); }
+                            if (e.key === 'Enter') { syncHolding(k); holdingInputRefs.current[i + 1]?.focus(); }
                           }}
                           style={{ width: 72, minWidth: 0, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124', textAlign: 'right' }}
                         />
