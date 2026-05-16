@@ -500,9 +500,23 @@ export default function ReconcilePage() {
     () => roundMoney((current.accounts.investCnyBank ?? 0) + (latestUsdRate !== null ? (current.accounts.investUsdBank ?? 0) * latestUsdRate : 0)),
     [current.accounts.investCnyBank, current.accounts.investUsdBank, latestUsdRate],
   );
+  const rebalanceCashPools = useMemo(() => {
+    const rate = latestUsdRate ?? 0;
+    const usdAvailCny = rate > 0
+      ? ((current.accounts.investUsdBank ?? 0)
+        + (current.accounts.usdLivingBank ?? 0)
+        + (current.accounts.usdConsumptionBank ?? 0)
+        + (current.accounts.usdWishJar ?? 0)) * rate
+      : 0;
+    return {
+      cnyAvail: current.accounts.investCnyBank ?? 0,
+      usdAvail: usdAvailCny,
+      usdKeys: USD_INVEST_KEYS,
+    };
+  }, [current.accounts, latestUsdRate]);
   const rebalanceSuggested = useMemo(
-    () => calcRebalance(effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell),
-    [effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell],
+    () => calcRebalance(effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell, rebalanceCashPools),
+    [effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell, rebalanceCashPools],
   );
 
   const rebalanceInputRefs = useRef<(HTMLInputElement | null)[]>([]);
