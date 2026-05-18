@@ -1,8 +1,8 @@
-import { useBillDetailStore } from '../stores/billDetailStore';
+import { normalizeBillDetailState, useBillDetailStore } from '../stores/billDetailStore';
 import { useCalendarStore } from '../stores/calendarStore';
 import { DEFAULT_CONFIG, useConfigStore } from '../stores/configStore';
 import { useLifePeriodOverrideStore } from '../stores/lifePeriodOverrideStore';
-import { useMonthlyStore } from '../stores/monthlyStore';
+import { normalizeMonthlyRecords, useMonthlyStore } from '../stores/monthlyStore';
 import { usePrefsStore } from '../stores/prefsStore';
 import { DEFAULT_SNAPSHOT, useSnapshotStore } from '../stores/snapshotStore';
 import { useSyncStatus } from './syncStatus';
@@ -30,7 +30,7 @@ const stores: StoreEntry[] = [
   {
     key: 'bill-details',
     getState: () => useBillDetailStore.getState(),
-    setState: (p) => useBillDetailStore.setState(p),
+    setState: (p) => useBillDetailStore.setState(normalizeBillDetailState(p)),
     subscribe: (l) => useBillDetailStore.subscribe(l),
     serialize: () => {
       const s = useBillDetailStore.getState();
@@ -40,7 +40,7 @@ const stores: StoreEntry[] = [
   {
     key: 'monthly-records',
     getState: () => useMonthlyStore.getState(),
-    setState: (p) => useMonthlyStore.setState(p),
+    setState: (p) => useMonthlyStore.setState({ ...p, records: normalizeMonthlyRecords(p.records) }),
     subscribe: (l) => useMonthlyStore.subscribe(l),
     serialize: () => ({ records: useMonthlyStore.getState().records }),
   },

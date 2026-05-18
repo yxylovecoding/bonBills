@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { BillTagMonth, BillExpenseMonth } from '../utils/importBill';
+import { normalizeBillDate, normalizeBillYearMonth } from '../utils/importBill';
 
 interface BillDetailStore {
   tagStats: Record<string, BillTagMonth>;
@@ -14,6 +15,57 @@ const DEFAULTS = {
   tagStats: {} as Record<string, BillTagMonth>,
   expenseItems: {} as Record<string, BillExpenseMonth>,
 };
+
+function mergeTagMonth(a: BillTagMonth | undefined, b: BillTagMonth): BillTagMonth {
+  if (!a) return b;
+  return {
+    eatDrinkAmount: a.eatDrinkAmount + b.eatDrinkAmount,
+    eatDrinkCount: a.eatDrinkCount + b.eatDrinkCount,
+    redAmount: a.redAmount + b.redAmount,
+    blackAmount: a.blackAmount + b.blackAmount,
+    eatDrinkItems: [...a.eatDrinkItems, ...b.eatDrinkItems],
+    redItems: [...a.redItems, ...b.redItems],
+    blackItems: [...a.blackItems, ...b.blackItems],
+  };
+}
+
+function normalizeTagStats(input: unknown): Record<string, BillTagMonth> {
+  if (!input || typeof input !== 'object') return {};
+  const result: Record<string, BillTagMonth> = {};
+  for (const [rawYm, value] of Object.entries(input as Record<string, BillTagMonth>)) {
+    const ym = normalizeBillYearMonth(rawYm);
+    if (!ym || !value) continue;
+    result[ym] = mergeTagMonth(result[ym], value);
+  }
+  return result;
+}
+
+function normalizeExpenseItems(input: unknown): Record<string, BillExpenseMonth> {
+  if (!input || typeof input !== 'object') return {};
+  const result: Record<string, BillExpenseMonth> = {};
+  for (const [rawYm, value] of Object.entries(input as Record<string, BillExpenseMonth>)) {
+    const ym = normalizeBillYearMonth(rawYm);
+    if (!ym || !Array.isArray(value)) continue;
+    const normalizedItems = value
+      .map((item) => {
+        const date = normalizeBillDate(item.date);
+        if (!date) return null;
+        return { ...item, date };
+      })
+      .filter((item): item is BillExpenseMonth[number] => item !== null);
+    if (normalizedItems.length === 0) continue;
+    result[ym] = [...(result[ym] ?? []), ...normalizedItems];
+  }
+  return result;
+}
+
+export function normalizeBillDetailState(state: Partial<BillDetailStore>): Partial<BillDetailStore> {
+  return {
+    ...state,
+    tagStats: normalizeTagStats(state.tagStats),
+    expenseItems: normalizeExpenseItems(state.expenseItems),
+  };
+}
 
 // 一次性迁移：从旧 localStorage key 迁移到新 store
 function migrateOldKeys(): { tagStats?: Record<string, BillTagMonth>; expenseItems?: Record<string, BillExpenseMonth> } | null {
@@ -54,6 +106,11 @@ export const useBillDetailStore = create<BillDetailStore>()(
     },
     {
       name: 'bill-details',
+      version: 1,
+      migrate: (persistedState) => {
+        if (!persistedState || typeof persistedState !== 'object') return persistedState;
+        return normalizeBillDetailState(persistedState as Partial<BillDetailStore>);
+      },
       // 只持久化数据，不持久化函数
       partialize: (state) => ({
         tagStats: state.tagStats,
@@ -61,7 +118,7 @@ export const useBillDetailStore = create<BillDetailStore>()(
         hasOverride: state.hasOverride,
       }),
       merge: (persisted, current) => {
-        const p = persisted as Partial<BillDetailStore>;
+        const p = normalizeBillDetailState((persisted ?? {}) as Partial<BillDetailStore>);
         return {
           ...current,
           tagStats: p.tagStats ?? current.tagStats,

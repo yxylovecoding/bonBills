@@ -57,6 +57,38 @@ function parseAmount(s) {
   return isNaN(n) ? 0 : Math.abs(n);
 }
 
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+function isValidDateParts(year, month, day) {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return false;
+  if (year < 1900 || month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const d = new Date(year, month - 1, day);
+  return d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day;
+}
+
+function normalizeBillDate(rawDate) {
+  const value = String(rawDate || '').trim();
+  if (!value) return null;
+  const direct = value.match(/^(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})/);
+  if (direct) {
+    const year = Number(direct[1]);
+    const month = Number(direct[2]);
+    const day = Number(direct[3]);
+    if (!isValidDateParts(year, month, day)) return null;
+    return `${year}-${pad2(month)}-${pad2(day)}`;
+  }
+  const serial = Number(value);
+  if (Number.isFinite(serial) && serial > 20000 && serial < 80000) {
+    const parsed = XLSX.SSF.parse_date_code(serial);
+    if (parsed && isValidDateParts(parsed.y, parsed.m, parsed.d)) {
+      return `${parsed.y}-${pad2(parsed.m)}-${pad2(parsed.d)}`;
+    }
+  }
+  return null;
+}
+
 const lines = raw.split('\n');
 // Col indices (0-based):
 // 0:日期 1:收支类型 2:金额 3:类别 4:二级分类 5:账户 6:账本 7:退款 8:优惠 9:备注 10:标签 ... 17:其他
@@ -73,9 +105,9 @@ for (let i = 1; i < lines.length; i++) {
   const other = (cols[COL_OTHER] || '').trim();
   if (other.includes('不计入')) continue;
 
-  const dateStr = (cols[COL_DATE] || '').trim();
-  const yearMonth = dateStr.slice(0, 7); // "YYYY-MM"
-  if (!yearMonth || yearMonth.length !== 7) continue;
+  const date = normalizeBillDate(cols[COL_DATE] || '');
+  if (!date) continue;
+  const yearMonth = date.slice(0, 7); // "YYYY-MM"
 
   const type = (cols[COL_TYPE] || '').trim();
   const amount = parseAmount(cols[COL_AMT] || '0');
@@ -87,7 +119,6 @@ for (let i = 1; i < lines.length; i++) {
   const category = (cols[COL_CAT] || '').trim();
   const subcategory = (cols[COL_SUBCAT] || '').trim();
   const note = (cols[COL_NOTE] || '').trim();
-  const date = dateStr.slice(0, 10); // YYYY-MM-DD
 
   if (!months[yearMonth]) {
     months[yearMonth] = {
