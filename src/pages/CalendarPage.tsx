@@ -1707,36 +1707,11 @@ export default function CalendarPage() {
   const prevMonthRecord   = records.find((r) => r.yearMonth === prevYearMonth(thisMonth));
 
   // 当前日历所在月的数据（月视图用）
-  const existingForYearMonthRaw = records.find((r) => r.yearMonth === yearMonth);
-  const existingForYearMonth = useMemo(() => {
-    const derived = aggregateExpenseItems(billExpenseItems[yearMonth] ?? []);
-    const hasDerived = derived.totalExpense > 0 || derived.periodicLife > 0 || derived.volatileLife > 0 || derived.consumption > 0 || derived.school > 0;
-    if (!hasDerived) return existingForYearMonthRaw;
-    if (existingForYearMonthRaw) {
-      return {
-        ...existingForYearMonthRaw,
-        totalExpense: existingForYearMonthRaw.totalExpense || derived.totalExpense,
-        periodicLife: existingForYearMonthRaw.periodicLife || derived.periodicLife,
-        volatileLife: existingForYearMonthRaw.volatileLife || derived.volatileLife,
-        consumption: existingForYearMonthRaw.consumption || derived.consumption,
-        school: existingForYearMonthRaw.school || derived.school,
-      };
-    }
-    return {
-      yearMonth,
-      income: 0,
-      totalExpense: derived.totalExpense,
-      periodicLife: derived.periodicLife,
-      volatileLife: derived.volatileLife,
-      consumption: derived.consumption,
-      school: derived.school,
-      accumulatedProfit: 0,
-      investTotal: 0,
-      homeDays: 0,
-      travelDays: 0,
-      majorExpenses: [],
-    };
-  }, [billExpenseItems, existingForYearMonthRaw, yearMonth]);
+  const existingForYearMonth = records.find((r) => r.yearMonth === yearMonth);
+  const derivedExpenseForYearMonth = useMemo(
+    () => aggregateExpenseItems(billExpenseItems[yearMonth] ?? []),
+    [billExpenseItems, yearMonth],
+  );
   const prevForYearMonth     = records.find((r) => r.yearMonth === prevYearMonth(yearMonth));
   const years = useMemo(() => {
     const map: Record<string, MonthlyRecord[]> = {};
@@ -1960,8 +1935,11 @@ export default function CalendarPage() {
                 {(() => {
                   // 当月实际总支出
                   const totalLife = existingForYearMonth
-                    ? (existingForYearMonth.periodicLife + existingForYearMonth.volatileLife) : 0;
-                  const totalCons = existingForYearMonth ? existingForYearMonth.consumption : 0;
+                    ? ((existingForYearMonth.periodicLife + existingForYearMonth.volatileLife) || (derivedExpenseForYearMonth.periodicLife + derivedExpenseForYearMonth.volatileLife))
+                    : (derivedExpenseForYearMonth.periodicLife + derivedExpenseForYearMonth.volatileLife);
+                  const totalCons = existingForYearMonth
+                    ? (existingForYearMonth.consumption || derivedExpenseForYearMonth.consumption)
+                    : derivedExpenseForYearMonth.consumption;
 
                   const wLife = historyStats.stateDailyAvg;
                   const wCons = historyStats.stateConsumptionDailyAvg;
@@ -2047,7 +2025,7 @@ export default function CalendarPage() {
               </tbody>
             </table>
             {(() => {
-              const schoolSpend = existingForYearMonth?.school ?? 0;
+              const schoolSpend = existingForYearMonth?.school || derivedExpenseForYearMonth.school;
               const schoolDays = statsToDate.school;
               if (schoolDays > 0 && schoolSpend > 0) {
                 const campusDailyAvg = schoolSpend / schoolDays;
