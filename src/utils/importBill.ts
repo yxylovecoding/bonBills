@@ -183,6 +183,8 @@ export async function parseBillFile(file: File): Promise<BillParseResult> {
 
     const other = (cols[COL_OTHER] || '').trim();
     if (other.includes('不计入')) continue;
+    // 待报销：还没真正报销下来，整行先忽略；扫描全列避免依赖具体列位
+    if (cols.some((c) => c && c.includes('待报销'))) continue;
 
     const date = normalizeBillDate(cols[COL_DATE] || '');
     if (!date) continue;
