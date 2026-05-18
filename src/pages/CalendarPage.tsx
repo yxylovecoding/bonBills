@@ -4,7 +4,7 @@ import Card from '../components/Card';
 import StatRow from '../components/StatRow';
 import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
 import { tagMeta, investMeta } from '../data/mockData';
-import { parseBillFile, assignExpenseIds, type BillItem, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
+import { aggregateExpenseItems, parseBillFile, assignExpenseIds, type BillItem, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
 import { triggerUpload } from '../utils/syncEngine';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useLifePeriodOverrideStore, resolveLifePeriod, type LifePeriod, type OverrideValue, type OverrideDimension } from '../stores/lifePeriodOverrideStore';
@@ -343,6 +343,22 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
   const [consumption,  setConsumption]   = useState(String(existing?.consumption   ?? ''));
   const [school,       setSchool]        = useState(String(existing?.school        ?? ''));
   const [accProfit,    setAccProfit]     = useState(String(existing?.accumulatedProfit ?? ''));
+
+  useEffect(() => {
+    setIncome(String(existing?.income ?? ''));
+    setTotalExpense(String(existing?.totalExpense ?? ''));
+    setPeriodicLife(String(existing?.periodicLife ?? ''));
+    setVolatileLife(String(existing?.volatileLife ?? ''));
+    setConsumption(String(existing?.consumption ?? ''));
+    setSchool(String(existing?.school ?? ''));
+  }, [
+    existing?.income,
+    existing?.totalExpense,
+    existing?.periodicLife,
+    existing?.volatileLife,
+    existing?.consumption,
+    existing?.school,
+  ]);
 
   const homeDays   = tagCounts.home   > 0 ? tagCounts.home   : (existing?.homeDays   ?? 0);
   const travelDays = tagCounts.travel > 0 ? tagCounts.travel : (existing?.travelDays ?? 0);
@@ -1691,7 +1707,36 @@ export default function CalendarPage() {
   const prevMonthRecord   = records.find((r) => r.yearMonth === prevYearMonth(thisMonth));
 
   // 当前日历所在月的数据（月视图用）
-  const existingForYearMonth = records.find((r) => r.yearMonth === yearMonth);
+  const existingForYearMonthRaw = records.find((r) => r.yearMonth === yearMonth);
+  const existingForYearMonth = useMemo(() => {
+    const derived = aggregateExpenseItems(billExpenseItems[yearMonth] ?? []);
+    const hasDerived = derived.totalExpense > 0 || derived.periodicLife > 0 || derived.volatileLife > 0 || derived.consumption > 0 || derived.school > 0;
+    if (!hasDerived) return existingForYearMonthRaw;
+    if (existingForYearMonthRaw) {
+      return {
+        ...existingForYearMonthRaw,
+        totalExpense: existingForYearMonthRaw.totalExpense || derived.totalExpense,
+        periodicLife: existingForYearMonthRaw.periodicLife || derived.periodicLife,
+        volatileLife: existingForYearMonthRaw.volatileLife || derived.volatileLife,
+        consumption: existingForYearMonthRaw.consumption || derived.consumption,
+        school: existingForYearMonthRaw.school || derived.school,
+      };
+    }
+    return {
+      yearMonth,
+      income: 0,
+      totalExpense: derived.totalExpense,
+      periodicLife: derived.periodicLife,
+      volatileLife: derived.volatileLife,
+      consumption: derived.consumption,
+      school: derived.school,
+      accumulatedProfit: 0,
+      investTotal: 0,
+      homeDays: 0,
+      travelDays: 0,
+      majorExpenses: [],
+    };
+  }, [billExpenseItems, existingForYearMonthRaw, yearMonth]);
   const prevForYearMonth     = records.find((r) => r.yearMonth === prevYearMonth(yearMonth));
   const years = useMemo(() => {
     const map: Record<string, MonthlyRecord[]> = {};

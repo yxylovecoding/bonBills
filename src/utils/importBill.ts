@@ -25,6 +25,29 @@ export type BillExpenseItem = {
 };
 export type BillExpenseMonth = BillExpenseItem[];
 
+export function emptyBillMonthlyAgg(): BillMonthlyAgg {
+  return { income: 0, totalExpense: 0, periodicLife: 0, volatileLife: 0, consumption: 0, school: 0 };
+}
+
+export function aggregateExpenseItems(items: BillExpenseMonth): Omit<BillMonthlyAgg, 'income'> {
+  const agg = { totalExpense: 0, periodicLife: 0, volatileLife: 0, consumption: 0, school: 0 };
+  for (const item of items) {
+    const tags = item.tags.split(',').map((t) => t.trim()).filter(Boolean);
+    agg.totalExpense += item.amount;
+    if (tags.includes('周期生活')) agg.periodicLife += item.amount;
+    if (tags.includes('波动生活')) agg.volatileLife += item.amount;
+    if (tags.includes('消费')) agg.consumption += item.amount;
+    if (item.account === '校园卡' && tags.includes('周期生活')) agg.school += item.amount;
+  }
+  return {
+    totalExpense: Math.round(agg.totalExpense * 100) / 100,
+    periodicLife: Math.round(agg.periodicLife * 100) / 100,
+    volatileLife: Math.round(agg.volatileLife * 100) / 100,
+    consumption: Math.round(agg.consumption * 100) / 100,
+    school: Math.round(agg.school * 100) / 100,
+  };
+}
+
 // 派生稳定 id：相同字段的多条用日内序号 dupIdx 区分
 export function expenseItemId(it: BillExpenseItem, dupIdx: number): string {
   return `${it.date}|${it.amount}|${it.category}|${it.subcategory}|${it.note}|${dupIdx}`;
@@ -149,7 +172,7 @@ export async function parseBillFile(file: File): Promise<BillParseResult> {
   const expenseItems: Record<string, BillExpenseMonth> = {};
 
   const ensureAgg = (ym: string) => {
-    if (!aggs[ym]) aggs[ym] = { income: 0, totalExpense: 0, periodicLife: 0, volatileLife: 0, consumption: 0, school: 0 };
+    if (!aggs[ym]) aggs[ym] = emptyBillMonthlyAgg();
     return aggs[ym];
   };
 
