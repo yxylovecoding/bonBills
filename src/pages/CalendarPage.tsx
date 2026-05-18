@@ -344,13 +344,37 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
   const [school,       setSchool]        = useState(String(existing?.school        ?? ''));
   const [accProfit,    setAccProfit]     = useState(String(existing?.accumulatedProfit ?? ''));
 
+  // 自动保存的跳过标志：声明在同步 effect 之前，便于同步时复位
+  const isFirstSave = useRef(true);
+  // 记录本组件最近一次写出的核心字段；用来识别"自己 upsert 引发的 existing 反弹"，
+  // 区分外部刷新（导入账单 / 跨端同步）所引起的 existing 变化
+  const ourLastWrittenRef = useRef<{
+    income: number; totalExpense: number; periodicLife: number;
+    volatileLife: number; consumption: number; school: number;
+  } | null>(null);
+
   useEffect(() => {
+    const our = ourLastWrittenRef.current;
+    const isBounceback =
+      our !== null
+      && our.income        === (existing?.income        ?? 0)
+      && our.totalExpense  === (existing?.totalExpense  ?? 0)
+      && our.periodicLife  === (existing?.periodicLife  ?? 0)
+      && our.volatileLife  === (existing?.volatileLife  ?? 0)
+      && our.consumption   === (existing?.consumption   ?? 0)
+      && our.school        === (existing?.school        ?? 0);
+    // 自己保存后 store 反弹回来：state 已经是最新值，不要再 setState/复位 flag，
+    // 否则用户连续输入会被下一次 sync 触发的 isFirstSave 复位吃掉
+    if (isBounceback) return;
     setIncome(String(existing?.income ?? ''));
     setTotalExpense(String(existing?.totalExpense ?? ''));
     setPeriodicLife(String(existing?.periodicLife ?? ''));
     setVolatileLife(String(existing?.volatileLife ?? ''));
     setConsumption(String(existing?.consumption ?? ''));
     setSchool(String(existing?.school ?? ''));
+    // existing 由外部刷新（导入账单 upsert 等）时，跳过下一次由派生依赖触发的自动保存，
+    // 避免在 setState 还未应用的闭包里读到空字符串把 store 清零
+    isFirstSave.current = true;
   }, [
     existing?.income,
     existing?.totalExpense,
@@ -482,10 +506,22 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
     const hasBreakdown = INVEST_KEYS.some((k) => (bd[k] || 0) > 0);
     const bp = Object.fromEntries(INVEST_KEYS.map((k) => [k, parseFloat(breakdownProfit[k] ?? '') || 0])) as unknown as InvestHoldings;
     const hasBreakdownProfit = INVEST_KEYS.some((k) => (bp[k] || 0) !== 0);
+    const incomeNum       = n(income);
+    const totalExpenseNum = n(totalExpense);
+    const periodicLifeNum = n(periodicLife);
+    const volatileLifeNum = n(volatileLife);
+    const consumptionNum  = n(consumption);
+    const schoolNum       = n(school);
+    // 记录本次写出的核心字段，便于 sync effect 识别 store 反弹（避免误复位 isFirstSave）
+    ourLastWrittenRef.current = {
+      income: incomeNum, totalExpense: totalExpenseNum,
+      periodicLife: periodicLifeNum, volatileLife: volatileLifeNum,
+      consumption: consumptionNum, school: schoolNum,
+    };
     onSave({
-      yearMonth, income: n(income), totalExpense: n(totalExpense),
-      periodicLife: n(periodicLife), volatileLife: n(volatileLife),
-      consumption: n(consumption), school: n(school),
+      yearMonth, income: incomeNum, totalExpense: totalExpenseNum,
+      periodicLife: periodicLifeNum, volatileLife: volatileLifeNum,
+      consumption: consumptionNum, school: schoolNum,
       accumulatedProfit: n(accProfit), investTotal,
       investBreakdown: hasBreakdown ? bd : undefined,
       investBreakdownProfit: hasBreakdownProfit ? bp : undefined,
@@ -496,8 +532,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
     });
   };
 
-  // 自动保存：任何字段变化都立即写回 store（首次渲染跳过）
-  const isFirstSave = useRef(true);
+  // 自动保存：任何字段变化都立即写回 store（首次渲染、或 existing 被外部刷新后的同步轮跳过）
   useEffect(() => {
     if (isFirstSave.current) { isFirstSave.current = false; return; }
     handleSave();
