@@ -9,7 +9,8 @@ import { triggerUpload } from '../utils/syncEngine';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useExpenseScopeOverrideStore, resolveExpenseScope, subcategoryKey, type ExpenseScope, type OverrideValue, type OverrideDimension } from '../stores/expenseScopeOverrideStore';
 import { useTripStore } from '../stores/tripStore';
-import { detectTrips, extractCandidateTags, sumBillsByTag, flattenExpenseItems } from '../utils/trips';
+import { detectTrips, detectTripGroups, extractCandidateTags, sumBillsByTag, flattenExpenseItems } from '../utils/trips';
+import type { TripGroup } from '../utils/trips';
 import AmountInput from '../components/AmountInput';
 import { calcHistoryStats } from '../calculations/history';
 import { buildExpenseScopeStats, suggestScope, isInconsistent, type ExpenseScopeStatRow } from '../calculations/expenseScopeStats';
@@ -1792,7 +1793,7 @@ export default function CalendarPage() {
   const { records, upsert, updateDayCounts } = useMonthlyStore();
   const { tagStats: billTagStats, expenseItems: billExpenseItems, updateFromImport: billUpdateFromImport } = useBillDetailStore();
   const { overrides: expenseScopeOverrides, setOverride: setExpenseScopeOverride } = useExpenseScopeOverrideStore();
-  const { tripTags, setTripTag, clearTripTag } = useTripStore();
+  const { tripTags, tripSplits, setTripTag, clearTripTag, toggleTripSplit } = useTripStore();
   const {
     tagOrder, setTagOrder, weekdayTags, setWeekdayTags,
     showPayrollCutoffMarkers, setShowPayrollCutoffMarkers,
@@ -1871,22 +1872,26 @@ export default function CalendarPage() {
     return arr;
   }, [year, month, firstDayWeekIdx, daysInMonth]);
 
-  // ── 出游胶囊：连接同段 trip 内同周的相邻 cell ──
-  const tripsThisMonth = useMemo(() => detectTrips(tagMap, yearMonth), [tagMap, yearMonth]);
+  // ── 出游胶囊：连接同段 trip 内同周的相邻 cell（splits 处自动断开）──
+  const tripsThisMonth = useMemo(() => detectTrips(tagMap, yearMonth, tripSplits), [tagMap, yearMonth, tripSplits]);
+  const tripGroupsThisMonth = useMemo(() => detectTripGroups(tagMap, yearMonth, tripSplits), [tagMap, yearMonth, tripSplits]);
   const tripConnect = useMemo(() => {
-    const tripDateSet = new Set<string>();
-    for (const t of tripsThisMonth) for (const d of t.dates) tripDateSet.add(d);
+    // 用每段 trip 的 dates 单独构造连接集合，跨 trip（即 split 点两侧）不连
+    const datesByTripKey = tripsThisMonth.map((t) => new Set(t.dates));
+    const dateToTripIdx = new Map<string, number>();
+    tripsThisMonth.forEach((t, idx) => { for (const d of t.dates) dateToTripIdx.set(d, idx); });
     const map: Record<string, { left: boolean; right: boolean }> = {};
     for (let i = 0; i < cells.length; i++) {
       const cell = cells[i];
-      if (cell.day === null || !tripDateSet.has(cell.key)) continue;
+      if (cell.day === null) continue;
+      const tripIdx = dateToTripIdx.get(cell.key);
+      if (tripIdx === undefined) continue;
       const colIdx = i % 7;
       const leftCell = colIdx > 0 ? cells[i - 1] : null;
       const rightCell = colIdx < 6 ? cells[i + 1] : null;
-      map[cell.key] = {
-        left: !!leftCell && leftCell.day !== null && tripDateSet.has(leftCell.key),
-        right: !!rightCell && rightCell.day !== null && tripDateSet.has(rightCell.key),
-      };
+      const sameTrip = (other: { key: string; day: number | null } | null) =>
+        !!other && other.day !== null && datesByTripKey[tripIdx].has(other.key);
+      map[cell.key] = { left: sameTrip(leftCell), right: sameTrip(rightCell) };
     }
     return map;
   }, [cells, tripsThisMonth]);
@@ -2651,11 +2656,13 @@ export default function CalendarPage() {
           </Card>
 
           <TripsSection
-            trips={tripsThisMonth}
+            groups={tripGroupsThisMonth}
             allExpenseItems={billExpenseItems}
             tripTags={tripTags}
+            tripSplits={tripSplits}
             onSetTripTag={setTripTag}
             onClearTripTag={clearTripTag}
+            onToggleTripSplit={toggleTripSplit}
           />
 
           {selectMode === 'detail' && selectedDay && (() => {
@@ -2747,67 +2754,106 @@ function formatTripDateRange(startDate: string, endDate: string): string {
 }
 
 function TripsSection({
-  trips,
+  groups,
   allExpenseItems,
   tripTags,
+  tripSplits,
   onSetTripTag,
   onClearTripTag,
+  onToggleTripSplit,
 }: {
-  trips: { startDate: string; endDate: string; dates: string[] }[];
+  groups: TripGroup[];
   allExpenseItems: Record<string, import('../utils/importBill').BillExpenseMonth>;
   tripTags: Record<string, string>;
+  tripSplits: Record<string, true>;
   onSetTripTag: (startDate: string, tag: string) => void;
   onClearTripTag: (startDate: string) => void;
+  onToggleTripSplit: (date: string) => void;
 }) {
   const flatItems = useMemo(() => flattenExpenseItems(allExpenseItems), [allExpenseItems]);
-  if (trips.length === 0) return null;
+  if (groups.length === 0) return null;
   return (
-    <Card title="本月出游" subtitle="给每段连续『游』选一个账单标签">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {trips.map((t) => {
-          const tripDateSet = new Set(t.dates);
-          const candidates = extractCandidateTags(flatItems, tripDateSet);
-          const selectedTag = tripTags[t.startDate] ?? '';
-          const summary = selectedTag ? sumBillsByTag(flatItems, selectedTag) : null;
-          const optionTags = selectedTag && !candidates.some((c) => c.tag === selectedTag)
-            ? [selectedTag, ...candidates.map((c) => c.tag)]
-            : candidates.map((c) => c.tag);
-          return (
-            <div key={t.startDate} style={{ border: `1px solid ${tagMeta.travel.color}40`, borderRadius: 10, padding: '10px 12px', backgroundColor: `${tagMeta.travel.color}10` }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: tagMeta.travel.color }}>
-                  {tagMeta.travel.icon} {formatTripDateRange(t.startDate, t.endDate)} · {t.dates.length}天
-                </span>
-                {selectedTag && (
-                  <button
-                    onClick={() => onClearTripTag(t.startDate)}
-                    style={{ fontSize: 11, color: '#5f6368', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
-                  >
-                    清除
-                  </button>
-                )}
+    <Card title="本月出游" subtitle="若连续『游』其实是两次，点 ─ 切开">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {groups.map((g) => (
+          <div key={g.rawDates[0]} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {g.rawDates.length >= 2 && (
+              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2, fontSize: 11, color: '#5f6368' }}>
+                {g.rawDates.map((d, i) => (
+                  <span key={d} style={{ display: 'inline-flex', alignItems: 'center' }}>
+                    <span style={{ padding: '2px 4px' }}>{Number(d.slice(-2))}日</span>
+                    {i < g.rawDates.length - 1 && (() => {
+                      const boundary = g.rawDates[i + 1];
+                      const isSplit = !!tripSplits[boundary];
+                      return (
+                        <button
+                          onClick={() => onToggleTripSplit(boundary)}
+                          title={isSplit ? '取消切分（合并相邻段）' : '在此切开为两次出游'}
+                          style={{
+                            padding: '0 4px', fontSize: 13, lineHeight: 1,
+                            background: 'transparent', border: 'none', cursor: 'pointer',
+                            color: isSplit ? '#ea4335' : '#bdc1c6',
+                            fontWeight: isSplit ? 700 : 400,
+                          }}
+                        >
+                          {isSplit ? '✂' : '─'}
+                        </button>
+                      );
+                    })()}
+                  </span>
+                ))}
               </div>
-              <select
-                value={selectedTag}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (v === '') onClearTripTag(t.startDate);
-                  else onSetTripTag(t.startDate, v);
-                }}
-                style={{ width: '100%', padding: '6px 8px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', fontSize: 13, color: '#202124', cursor: 'pointer' }}
-              >
-                <option value="">未选择</option>
-                {optionTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
-              </select>
-              {summary && (
-                <div style={{ marginTop: 8, fontSize: 12, color: '#202124' }}>
-                  <span style={{ fontWeight: 600 }}>¥{formatCurrency(summary.totalAmount)}</span>
-                  <span style={{ color: '#5f6368', marginLeft: 6 }}>· {summary.count} 条命中</span>
+            )}
+            {g.trips.map((t) => {
+              const tripDateSet = new Set(t.dates);
+              const selectedTag = tripTags[t.startDate] ?? '';
+              const excludeTags = new Set<string>();
+              for (const [k, v] of Object.entries(tripTags)) {
+                if (k !== t.startDate && v) excludeTags.add(v);
+              }
+              const candidates = extractCandidateTags(flatItems, tripDateSet, excludeTags);
+              const summary = selectedTag ? sumBillsByTag(flatItems, selectedTag) : null;
+              const optionTags = selectedTag && !candidates.some((c) => c.tag === selectedTag)
+                ? [selectedTag, ...candidates.map((c) => c.tag)]
+                : candidates.map((c) => c.tag);
+              return (
+                <div key={t.startDate} style={{ border: `1px solid ${tagMeta.travel.color}40`, borderRadius: 10, padding: '10px 12px', backgroundColor: `${tagMeta.travel.color}10` }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: tagMeta.travel.color }}>
+                      {tagMeta.travel.icon} {formatTripDateRange(t.startDate, t.endDate)} · {t.dates.length}天
+                    </span>
+                    {selectedTag && (
+                      <button
+                        onClick={() => onClearTripTag(t.startDate)}
+                        style={{ fontSize: 11, color: '#5f6368', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
+                      >
+                        清除
+                      </button>
+                    )}
+                  </div>
+                  <select
+                    value={selectedTag}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === '') onClearTripTag(t.startDate);
+                      else onSetTripTag(t.startDate, v);
+                    }}
+                    style={{ width: '100%', padding: '6px 8px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', fontSize: 13, color: '#202124', cursor: 'pointer' }}
+                  >
+                    <option value="">未选择</option>
+                    {optionTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
+                  </select>
+                  {summary && (
+                    <div style={{ marginTop: 8, fontSize: 12, color: '#202124' }}>
+                      <span style={{ fontWeight: 600 }}>¥{formatCurrency(summary.totalAmount)}</span>
+                      <span style={{ color: '#5f6368', marginLeft: 6 }}>· {summary.count} 条命中</span>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          );
-        })}
+              );
+            })}
+          </div>
+        ))}
       </div>
     </Card>
   );
