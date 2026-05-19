@@ -219,13 +219,13 @@ function SettingsModal({
   const [periodTab, setPeriodTab] = useState<'subcategory' | 'note' | 'tag'>('subcategory');
   const [expandedRowKey, setExpandedRowKey] = useState<string | null>(null);
   const stats = useMemo(
-    () => buildLifePeriodStats(tagMap, confirmedExpenses, expenseItems),
-    [tagMap, confirmedExpenses, expenseItems],
+    () => buildLifePeriodStats(tagMap, confirmedExpenses, expenseItems, reviewableCategories),
+    [tagMap, confirmedExpenses, expenseItems, reviewableCategories],
   );
 
-  const overrideMap = periodTab === 'subcategory' ? overrides.subcategories
-    : periodTab === 'note' ? overrides.notes
-    : overrides.tags;
+  const overrideMap = periodTab === 'subcategory' ? (overrides.subcategories ?? {})
+    : periodTab === 'note' ? (overrides.notes ?? {})
+    : (overrides.tags ?? {});
   const tabRows = useMemo(() => {
     const rows = periodTab === 'subcategory' ? stats.subcategories
       : periodTab === 'note' ? stats.notes
@@ -274,9 +274,9 @@ function SettingsModal({
   });
 
   const overrideCount =
-    Object.keys(overrides.subcategories).length +
-    Object.keys(overrides.notes).length +
-    Object.keys(overrides.tags).length;
+    Object.keys(overrides.subcategories ?? {}).length +
+    Object.keys(overrides.notes ?? {}).length +
+    Object.keys(overrides.tags ?? {}).length;
 
   return (
     <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}

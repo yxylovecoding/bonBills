@@ -13,7 +13,7 @@ const EMPTY_STATES: Record<string, Record<string, unknown>> = {
   'calendar-tags': { tagMap: {}, initializedFromRecords: false, confirmedExpenses: {} },
   'account-snapshot': { current: DEFAULT_SNAPSHOT, history: [] },
   'app-config': { config: DEFAULT_CONFIG },
-  'life-period-overrides': { overrides: { categories: {}, subcategories: {}, tags: {} } },
+  'life-period-overrides': { overrides: { categories: {}, subcategories: {}, notes: {}, tags: {} } },
   // user-prefs 保留 UI 偏好，不清空
 };
 
@@ -74,7 +74,17 @@ const stores: StoreEntry[] = [
   {
     key: 'life-period-overrides',
     getState: () => useLifePeriodOverrideStore.getState(),
-    setState: (p) => useLifePeriodOverrideStore.setState(p),
+    setState: (p) => {
+      const incoming = (p && typeof p === 'object' ? (p as { overrides?: Partial<{ categories: Record<string, unknown>; subcategories: Record<string, unknown>; notes: Record<string, unknown>; tags: Record<string, unknown> }> }).overrides : null) ?? {};
+      useLifePeriodOverrideStore.setState({
+        overrides: {
+          categories: incoming.categories ?? {},
+          subcategories: incoming.subcategories ?? {},
+          notes: incoming.notes ?? {},
+          tags: incoming.tags ?? {},
+        },
+      } as Parameters<typeof useLifePeriodOverrideStore.setState>[0]);
+    },
     subscribe: (l) => useLifePeriodOverrideStore.subscribe(l),
     serialize: () => ({ overrides: useLifePeriodOverrideStore.getState().overrides }),
   },

@@ -33,7 +33,10 @@ export function buildLifePeriodStats(
   tagMap: Record<string, TagKind>,
   confirmedExpenses: Record<string, { ids: string[]; longIds?: string[]; reviewed: boolean } | string[]>,
   expenseItems: Record<string, BillExpenseMonth>,
+  // 仅显示至少有一个标签命中 scopeTags 的账单对应的行；不传或为空 → 不过滤
+  scopeTags?: string[],
 ): LifePeriodStats {
+  const scopeSet = scopeTags && scopeTags.length > 0 ? new Set(scopeTags) : null;
   const subs = new Map<string, LifePeriodStatRow>();
   const notes = new Map<string, LifePeriodStatRow>();
   const tags = new Map<string, LifePeriodStatRow>();
@@ -53,8 +56,10 @@ export function buildLifePeriodStats(
 
       for (const { item, id } of dayItems) {
         const tagList = item.tags.split(',').map((t) => t.trim()).filter(Boolean);
-        const isLife = tagList.includes('周期生活') || tagList.includes('波动生活');
-        if (!isLife) continue;
+        const inScope = scopeSet
+          ? tagList.some((t) => scopeSet.has(t))
+          : tagList.includes('周期生活') || tagList.includes('波动生活');
+        if (!inScope) continue;
 
         // 决定是否计入短/长统计；不影响行是否出现
         let countAs: 'short' | 'long' | null = null;
@@ -77,7 +82,7 @@ export function buildLifePeriodStats(
         }
 
         for (const t of tagList) {
-          if (t === '周期生活' || t === '波动生活') continue;
+          if (t === '周期生活' || t === '波动生活' || t === '消费') continue; // 这三个是大类，不作为细分维度
           const tagRow = ensureRow(tags, t);
           if (countAs === 'short') { tagRow.shortCount++; tagRow.shortAmount += item.amount; }
           else if (countAs === 'long') { tagRow.longCount++; tagRow.longAmount += item.amount; }

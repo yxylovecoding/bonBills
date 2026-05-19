@@ -80,23 +80,27 @@ export function resolveLifePeriod(
   item: { category: string; subcategory: string; tags: string; note?: string },
   overrides: LifePeriodOverrides,
 ): LifePeriod | null {
+  const subs = overrides.subcategories ?? {};
+  const cats = overrides.categories ?? {};
+  const notes = overrides.notes ?? {};
+  const tagsMap = overrides.tags ?? {};
   const subKeyPrimary = subcategoryKey(item.category, item.subcategory);
-  const sub = overrides.subcategories[subKeyPrimary];
+  const sub = subs[subKeyPrimary];
   if (sub === 'short' || sub === 'long') return sub;
   if (!item.category && item.subcategory) {
     const fallbackKey = subcategoryKey('(未分类)', item.subcategory);
-    const fb = overrides.subcategories[fallbackKey];
+    const fb = subs[fallbackKey];
     if (fb === 'short' || fb === 'long') return fb;
   }
   if (item.note) {
-    const noteOv = overrides.notes[item.note];
+    const noteOv = notes[item.note];
     if (noteOv === 'short' || noteOv === 'long') return noteOv;
   }
-  const cat = overrides.categories[item.category];
+  const cat = cats[item.category];
   if (cat === 'short' || cat === 'long') return cat;
   const tagList = item.tags.split(',').map((t) => t.trim()).filter(Boolean);
   for (const t of tagList) {
-    const tg = overrides.tags[t];
+    const tg = tagsMap[t];
     if (tg === 'short' || tg === 'long') return tg;
   }
   return null;
