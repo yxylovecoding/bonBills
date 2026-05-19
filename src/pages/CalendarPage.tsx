@@ -195,6 +195,8 @@ function SettingsModal({
   setShowPayrollCutoffMarkers,
   reviewableCategories,
   setReviewableCategories,
+  lifePeriodHelpText,
+  setLifePeriodHelpText,
   onSave,
   tagMap,
   confirmedExpenses,
@@ -209,6 +211,8 @@ function SettingsModal({
   setShowPayrollCutoffMarkers: (v: boolean) => void;
   reviewableCategories: ReviewableCategory[];
   setReviewableCategories: (cats: ReviewableCategory[]) => void;
+  lifePeriodHelpText: string;
+  setLifePeriodHelpText: (text: string) => void;
   onSave: () => void;
   tagMap: Record<string, TagKind>;
   confirmedExpenses: Record<string, { ids: string[]; reviewed: boolean } | string[]>;
@@ -218,6 +222,7 @@ function SettingsModal({
 }) {
   const [periodTab, setPeriodTab] = useState<'subcategory' | 'note' | 'tag'>('subcategory');
   const [expandedRowKey, setExpandedRowKey] = useState<string | null>(null);
+  const [lifePeriodHelpDraft, setLifePeriodHelpDraft] = useState(lifePeriodHelpText);
   const stats = useMemo(
     () => buildLifePeriodStats(tagMap, confirmedExpenses, expenseItems, reviewableCategories),
     [tagMap, confirmedExpenses, expenseItems, reviewableCategories],
@@ -277,6 +282,10 @@ function SettingsModal({
     Object.keys(overrides.subcategories ?? {}).length +
     Object.keys(overrides.notes ?? {}).length +
     Object.keys(overrides.tags ?? {}).length;
+  const handleSave = () => {
+    setLifePeriodHelpText(lifePeriodHelpDraft);
+    onSave();
+  };
 
   return (
     <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
@@ -338,13 +347,16 @@ function SettingsModal({
                 </span>
               )}
             </div>
-            <div style={{ fontSize: 11, color: '#5f6368', marginBottom: 10, lineHeight: 1.55 }}>
-              <div style={{ marginBottom: 4 }}>
-                <span style={{ color: '#1a73e8', fontWeight: 600 }}>短</span> = 按所在场景（学校/实习/在家/旅行）计入当天日均；
-                <span style={{ color: '#e8710a', fontWeight: 600, marginLeft: 4 }}>长</span> = 不和场景挂钩，全期摊匀进基础日均。
-              </div>
-              <div>命中的账单将自动归为短/长周期生活，不再需要逐条勾选。优先级：子分类 &gt; 笔记 &gt; 标签。「忽略」表示与长短无关、由下一维度决定。虚线 = 历史推荐值；⚠️ = 历史勾选不一致。点击行可展开该类下的账单明细。</div>
-            </div>
+            <textarea
+              value={lifePeriodHelpDraft}
+              onChange={(e) => setLifePeriodHelpDraft(e.target.value)}
+              rows={4}
+              style={{
+                width: '100%', border: '1.5px solid #dadce0', borderRadius: 8, padding: '8px 10px',
+                fontSize: 11, lineHeight: 1.55, color: '#5f6368', outline: 'none', boxSizing: 'border-box',
+                resize: 'vertical', fontFamily: 'inherit', marginBottom: 10, backgroundColor: '#fff',
+              }}
+            />
             <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
               <button onClick={() => setPeriodTab('subcategory')} style={tabBtnStyle(periodTab === 'subcategory')}>子分类 ({stats.subcategories.length})</button>
               <button onClick={() => setPeriodTab('note')} style={tabBtnStyle(periodTab === 'note')}>笔记 ({stats.notes.length})</button>
@@ -391,7 +403,7 @@ function SettingsModal({
             style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', color: '#5f6368', fontSize: 13, cursor: 'pointer' }}>
             取消
           </button>
-          <button onClick={onSave}
+          <button onClick={handleSave}
             style={{ padding: '8px 16px', borderRadius: 8, border: 'none', backgroundColor: '#1a73e8', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
             保存
           </button>
@@ -1708,6 +1720,7 @@ export default function CalendarPage() {
     tagOrder, setTagOrder, weekdayTags, setWeekdayTags,
     showPayrollCutoffMarkers, setShowPayrollCutoffMarkers,
     reviewableCategories, setReviewableCategories,
+    lifePeriodHelpText, setLifePeriodHelpText,
   } = usePrefsStore();
   const tagDrag = useDragSort(tagOrder, setTagOrder, 'horizontal');
   const { holidayDataByYear, holidayWarning } = useHolidayYears([year]);
@@ -2091,6 +2104,8 @@ export default function CalendarPage() {
           setShowPayrollCutoffMarkers={setShowPayrollCutoffMarkers}
           reviewableCategories={reviewableCategories}
           setReviewableCategories={setReviewableCategories}
+          lifePeriodHelpText={lifePeriodHelpText}
+          setLifePeriodHelpText={setLifePeriodHelpText}
           onSave={() => { setConfig({ majorExpenseThreshold: parseFloat(thresholdInput) || 500 }); setSettingsOpen(false); }}
           tagMap={tagMap}
           confirmedExpenses={confirmedExpenses}
