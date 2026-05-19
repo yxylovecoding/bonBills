@@ -87,6 +87,7 @@ function buildConfirmedAggregatesByMonth(
   confirmedExpenses: Record<string, unknown>,
   expenseItems: Record<string, BillExpenseMonth>,
   overrides: ExpenseScopeOverrides,
+  tripTagSet: Set<string>,
 ): MonthConfirmed[] {
   return records.map((r) => {
     const out: MonthConfirmed = {
@@ -127,6 +128,23 @@ function buildConfirmedAggregatesByMonth(
         const isPeriodicLife = tagList.includes('周期生活');
         const isLife = isPeriodicLife || tagList.includes('波动生活');
         const isCons = tagList.includes('消费');
+
+        // 出游归集：命中 trip tag 的账单直接转入 travel 桶，不论当天 state，
+        // 也不动 resolvedLifeDays / localConsDays（只搬钱不搬天）
+        if (tripTagSet.size > 0 && tagList.some((t) => tripTagSet.has(t))) {
+          if (isLife) {
+            out.localLife.travel += item.amount;
+            const cat = item.category || '(未分类)';
+            const sub = item.subcategory || '未细分';
+            out.localLifeByCategory.travel[cat] = (out.localLifeByCategory.travel[cat] ?? 0) + item.amount;
+            out.localLifeBySubcategory.travel[cat] = out.localLifeBySubcategory.travel[cat] ?? {};
+            out.localLifeBySubcategory.travel[cat][sub] = (out.localLifeBySubcategory.travel[cat][sub] ?? 0) + item.amount;
+          } else if (isCons) {
+            out.localCons.travel += item.amount;
+          }
+          // life 类视为已 resolved（不进 !lifeAllResolved 分支）
+          continue;
+        }
 
         if (isLife) {
           // 优先级：override > 显式 local/shared > 旧数据 reviewed 兜底 > 残差
@@ -190,6 +208,7 @@ export function calcHistoryStats(
   confirmedExpenses: Record<string, unknown> = {},
   expenseItems: Record<string, BillExpenseMonth> = {},
   overrides: ExpenseScopeOverrides = { categories: {}, subcategories: {}, notes: {}, tags: {} },
+  tripTags: Record<string, string> = {},
 ): CurrentStats {
   const n = records.length;
   if (n === 0) {
@@ -250,7 +269,8 @@ export function calcHistoryStats(
   }
 
   // ── 已确切预聚合 ──────────────────────────────────────────────
-  const confirmed = buildConfirmedAggregatesByMonth(records, tagMap, confirmedExpenses, expenseItems, overrides);
+  const tripTagSet = new Set(Object.values(tripTags).filter((v) => !!v));
+  const confirmed = buildConfirmedAggregatesByMonth(records, tagMap, confirmedExpenses, expenseItems, overrides, tripTagSet);
 
   // 历史汇总
   const totalConfLocalLife: ByTag = zeroByTag();

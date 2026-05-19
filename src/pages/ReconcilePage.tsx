@@ -11,6 +11,7 @@ import { useMonthlyStore } from '../stores/monthlyStore';
 import { useCalendarStore } from '../stores/calendarStore';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useExpenseScopeOverrideStore } from '../stores/expenseScopeOverrideStore';
+import { useTripStore } from '../stores/tripStore';
 import { calcBudget } from '../calculations/budget';
 import { calcHistoryStats } from '../calculations/history';
 import { calcRebalance } from '../calculations/rebalance';
@@ -227,6 +228,7 @@ export default function ReconcilePage() {
   const { tagMap, confirmedExpenses } = useCalendarStore();
   const { expenseItems } = useBillDetailStore();
   const { overrides: expenseScopeOverrides } = useExpenseScopeOverrideStore();
+  const { tripTags } = useTripStore();
 
 
   // 账户余额本地编辑
@@ -374,8 +376,8 @@ export default function ReconcilePage() {
   // 历史均值（只取近两年）
   const twoYearsAgo = `${today.getFullYear() - 1}-01`;
   const stats = useMemo(
-    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides),
-    [records, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides],
+    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides, tripTags),
+    [records, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides, tripTags],
   );
 
   // 将 tagMap 转为 DailyTag[]

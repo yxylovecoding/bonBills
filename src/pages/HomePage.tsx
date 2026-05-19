@@ -14,6 +14,7 @@ import { useMonthlyStore } from '../stores/monthlyStore';
 import { useCalendarStore } from '../stores/calendarStore';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useExpenseScopeOverrideStore } from '../stores/expenseScopeOverrideStore';
+import { useTripStore } from '../stores/tripStore';
 import { calcHistoryStats } from '../calculations/history';
 import { calcFire } from '../calculations/fire';
 import { tagMeta } from '../data/mockData';
@@ -24,7 +25,7 @@ import { TAX_RULE_PRESETS } from '../utils/tax';
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '分层展开';
+const RELEASE_NOTE = '出游归集';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 
@@ -98,6 +99,7 @@ export default function HomePage() {
   const { tagMap, confirmedExpenses } = useCalendarStore();
   const { expenseItems } = useBillDetailStore();
   const { overrides: expenseScopeOverrides } = useExpenseScopeOverrideStore();
+  const { tripTags } = useTripStore();
 
   const today = new Date();
   const currentYear = today.getFullYear();
@@ -110,8 +112,8 @@ export default function HomePage() {
     [records, twoYearsAgo],
   );
   const stats = useMemo(
-    () => calcHistoryStats(filteredRecords, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides),
-    [filteredRecords, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides],
+    () => calcHistoryStats(filteredRecords, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides, tripTags),
+    [filteredRecords, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides, tripTags],
   );
 
   // 近一年校园卡日均

@@ -8,6 +8,8 @@ import { aggregateExpenseItems, parseBillFile, assignExpenseIds, type BillItem, 
 import { triggerUpload } from '../utils/syncEngine';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useExpenseScopeOverrideStore, resolveExpenseScope, subcategoryKey, type ExpenseScope, type OverrideValue, type OverrideDimension } from '../stores/expenseScopeOverrideStore';
+import { useTripStore } from '../stores/tripStore';
+import { detectTrips, extractCandidateTags, sumBillsByTag, flattenExpenseItems } from '../utils/trips';
 import AmountInput from '../components/AmountInput';
 import { calcHistoryStats } from '../calculations/history';
 import { buildExpenseScopeStats, suggestScope, isInconsistent, type ExpenseScopeStatRow } from '../calculations/expenseScopeStats';
@@ -1790,6 +1792,7 @@ export default function CalendarPage() {
   const { records, upsert, updateDayCounts } = useMonthlyStore();
   const { tagStats: billTagStats, expenseItems: billExpenseItems, updateFromImport: billUpdateFromImport } = useBillDetailStore();
   const { overrides: expenseScopeOverrides, setOverride: setExpenseScopeOverride } = useExpenseScopeOverrideStore();
+  const { tripTags, setTripTag, clearTripTag } = useTripStore();
   const {
     tagOrder, setTagOrder, weekdayTags, setWeekdayTags,
     showPayrollCutoffMarkers, setShowPayrollCutoffMarkers,
@@ -1847,8 +1850,8 @@ export default function CalendarPage() {
   // ── 历史回归均值（近两年，用作当月按比例拆分的权重）──
   const twoYearsAgo = `${_now.getFullYear() - 1}-01`;
   const historyStats = useMemo(
-    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, billExpenseItems, expenseScopeOverrides),
-    [records, tagMap, confirmedExpenses, billExpenseItems, expenseScopeOverrides],
+    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, billExpenseItems, expenseScopeOverrides, tripTags),
+    [records, tagMap, confirmedExpenses, billExpenseItems, expenseScopeOverrides, tripTags],
   );
 
   // ── Calendar computed ──
@@ -1867,6 +1870,26 @@ export default function CalendarPage() {
     while (arr.length < 42) arr.push({ key: `tail-${arr.length}`, day: null });
     return arr;
   }, [year, month, firstDayWeekIdx, daysInMonth]);
+
+  // ── 出游胶囊：连接同段 trip 内同周的相邻 cell ──
+  const tripsThisMonth = useMemo(() => detectTrips(tagMap, yearMonth), [tagMap, yearMonth]);
+  const tripConnect = useMemo(() => {
+    const tripDateSet = new Set<string>();
+    for (const t of tripsThisMonth) for (const d of t.dates) tripDateSet.add(d);
+    const map: Record<string, { left: boolean; right: boolean }> = {};
+    for (let i = 0; i < cells.length; i++) {
+      const cell = cells[i];
+      if (cell.day === null || !tripDateSet.has(cell.key)) continue;
+      const colIdx = i % 7;
+      const leftCell = colIdx > 0 ? cells[i - 1] : null;
+      const rightCell = colIdx < 6 ? cells[i + 1] : null;
+      map[cell.key] = {
+        left: !!leftCell && leftCell.day !== null && tripDateSet.has(leftCell.key),
+        right: !!rightCell && rightCell.day !== null && tripDateSet.has(rightCell.key),
+      };
+    }
+    return map;
+  }, [cells, tripsThisMonth]);
 
   const TAG_CYCLE: (TagKind | undefined)[] = [undefined, 'intern', 'school', 'home', 'travel'];
   const cycleWeekday = (dow: number) => {
@@ -2598,12 +2621,25 @@ export default function CalendarPage() {
                 let borderStyle = 'none';
                 if (isToday || isRangeStart || isSelectedDay) borderStyle = `2px solid ${C.blue}`;
                 else if (inPreview) borderStyle = `1.5px dashed ${C.blue}`;
+                const connect = tripConnect[cell.key];
+                const travelColor = tagMeta.travel.color;
+                const radiusStyle: React.CSSProperties = connect
+                  ? {
+                      borderTopLeftRadius: connect.left ? 0 : 10,
+                      borderBottomLeftRadius: connect.left ? 0 : 10,
+                      borderTopRightRadius: connect.right ? 0 : 10,
+                      borderBottomRightRadius: connect.right ? 0 : 10,
+                    }
+                  : { borderRadius: 10 };
                 return (
                   <button key={cell.key}
                     onClick={() => handleCellClick(cell.key)}
                     onMouseEnter={() => { if (selectMode === 'range' && rangeStart) setRangeHover(cell.key); }}
-                    style={{ aspectRatio: '1', borderRadius: 10, fontSize: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: borderStyle, backgroundColor: displayMeta ? `${displayMeta.color}20` : weekend ? '#fff0f0' : '#f8f9fa', color: displayMeta ? displayMeta.color : weekend ? C.weekend : '#202124', cursor: 'pointer', fontWeight: 500, transition: 'all 0.1s', outline: 'none', position: 'relative' }}
+                    style={{ aspectRatio: '1', fontSize: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: borderStyle, backgroundColor: displayMeta ? `${displayMeta.color}20` : weekend ? '#fff0f0' : '#f8f9fa', color: displayMeta ? displayMeta.color : weekend ? C.weekend : '#202124', cursor: 'pointer', fontWeight: 500, transition: 'all 0.1s', outline: 'none', position: 'relative', ...radiusStyle }}
                   >
+                    {connect?.right && (
+                      <span style={{ position: 'absolute', right: -5, top: 0, bottom: 0, width: 5, backgroundColor: `${travelColor}20`, pointerEvents: 'none', zIndex: 1 }} />
+                    )}
                     {cell.day}
                     {displayMeta && <span style={{ fontSize: 8, marginTop: 1 }}>{displayMeta.icon}</span>}
                     {isPayrollCutoff && <span style={{ position: 'absolute', top: 3, right: 4, fontSize: 9, fontWeight: 700, color: C.blue }}>截</span>}
@@ -2613,6 +2649,14 @@ export default function CalendarPage() {
               })}
             </div>
           </Card>
+
+          <TripsSection
+            trips={tripsThisMonth}
+            allExpenseItems={billExpenseItems}
+            tripTags={tripTags}
+            onSetTripTag={setTripTag}
+            onClearTripTag={clearTripTag}
+          />
 
           {selectMode === 'detail' && selectedDay && (() => {
             const selectedConfirmedState = normalizeConfirmedSelection(confirmedExpenses[selectedDay]);
@@ -2692,3 +2736,79 @@ const navBtnStyle: React.CSSProperties = {
   border: '1px solid #e0e0e0', color: '#5f6368', fontSize: 18, cursor: 'pointer',
   display: 'flex', alignItems: 'center', justifyContent: 'center',
 };
+
+function formatTripDateRange(startDate: string, endDate: string): string {
+  const fmt = (d: string) => {
+    const [, m, day] = d.split('-');
+    return `${Number(m)}月${Number(day)}日`;
+  };
+  if (startDate === endDate) return fmt(startDate);
+  return `${fmt(startDate)} – ${fmt(endDate)}`;
+}
+
+function TripsSection({
+  trips,
+  allExpenseItems,
+  tripTags,
+  onSetTripTag,
+  onClearTripTag,
+}: {
+  trips: { startDate: string; endDate: string; dates: string[] }[];
+  allExpenseItems: Record<string, import('../utils/importBill').BillExpenseMonth>;
+  tripTags: Record<string, string>;
+  onSetTripTag: (startDate: string, tag: string) => void;
+  onClearTripTag: (startDate: string) => void;
+}) {
+  const flatItems = useMemo(() => flattenExpenseItems(allExpenseItems), [allExpenseItems]);
+  if (trips.length === 0) return null;
+  return (
+    <Card title="本月出游" subtitle="给每段连续『游』选一个账单标签">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {trips.map((t) => {
+          const tripDateSet = new Set(t.dates);
+          const candidates = extractCandidateTags(flatItems, tripDateSet);
+          const selectedTag = tripTags[t.startDate] ?? '';
+          const summary = selectedTag ? sumBillsByTag(flatItems, selectedTag) : null;
+          const optionTags = selectedTag && !candidates.some((c) => c.tag === selectedTag)
+            ? [selectedTag, ...candidates.map((c) => c.tag)]
+            : candidates.map((c) => c.tag);
+          return (
+            <div key={t.startDate} style={{ border: `1px solid ${tagMeta.travel.color}40`, borderRadius: 10, padding: '10px 12px', backgroundColor: `${tagMeta.travel.color}10` }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: tagMeta.travel.color }}>
+                  {tagMeta.travel.icon} {formatTripDateRange(t.startDate, t.endDate)} · {t.dates.length}天
+                </span>
+                {selectedTag && (
+                  <button
+                    onClick={() => onClearTripTag(t.startDate)}
+                    style={{ fontSize: 11, color: '#5f6368', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
+                  >
+                    清除
+                  </button>
+                )}
+              </div>
+              <select
+                value={selectedTag}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === '') onClearTripTag(t.startDate);
+                  else onSetTripTag(t.startDate, v);
+                }}
+                style={{ width: '100%', padding: '6px 8px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', fontSize: 13, color: '#202124', cursor: 'pointer' }}
+              >
+                <option value="">未选择</option>
+                {optionTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
+              </select>
+              {summary && (
+                <div style={{ marginTop: 8, fontSize: 12, color: '#202124' }}>
+                  <span style={{ fontWeight: 600 }}>¥{formatCurrency(summary.totalAmount)}</span>
+                  <span style={{ color: '#5f6368', marginLeft: 6 }}>· {summary.count} 条命中</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}

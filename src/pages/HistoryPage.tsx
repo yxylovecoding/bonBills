@@ -11,6 +11,7 @@ import { useMonthlyStore } from '../stores/monthlyStore';
 import { useCalendarStore } from '../stores/calendarStore';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useExpenseScopeOverrideStore } from '../stores/expenseScopeOverrideStore';
+import { useTripStore } from '../stores/tripStore';
 import { calcHistoryStats } from '../calculations/history';
 import { investMeta, tagMeta } from '../data/mockData';
 import type { MonthlyRecord, MajorExpense, InvestHoldings, TagKind } from '../models/types';
@@ -530,11 +531,12 @@ export default function HistoryPage() {
   const { countByTag, tagMap, confirmedExpenses } = useCalendarStore();
   const { expenseItems } = useBillDetailStore();
   const { overrides: expenseScopeOverrides } = useExpenseScopeOverrideStore();
+  const { tripTags } = useTripStore();
   const [formOpen, setFormOpen] = useState(false);
   const twoYearsAgo = `${new Date().getFullYear() - 1}-01`;
   const stats = useMemo(
-    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides),
-    [records, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides],
+    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides, tripTags),
+    [records, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides, tripTags],
   );
 
   const thisMonth = currentYearMonth();
