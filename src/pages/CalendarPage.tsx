@@ -25,6 +25,13 @@ const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed'
 const CN_MONTH = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
 const WEEK_HEADERS = ['一', '二', '三', '四', '五', '六', '日'];
 const HISTORY_GRID_COLUMNS = '64px 1fr 1fr 1fr 88px';
+const PERIOD_RULE_DIMENSIONS: OverrideDimension[] = ['category', 'subcategory', 'note', 'tag'];
+const PERIOD_RULE_LABEL: Record<OverrideDimension, string> = {
+  category: '分类',
+  subcategory: '子分类',
+  note: '笔记',
+  tag: '标签',
+};
 
 // ── Calendar helpers ──────────────────────────────────────────────
 function pad(n: number) { return String(n).padStart(2, '0'); }
@@ -218,6 +225,10 @@ function SettingsModal({
 }) {
   const [periodTab, setPeriodTab] = useState<'subcategory' | 'note' | 'tag'>('subcategory');
   const [expandedRowKey, setExpandedRowKey] = useState<string | null>(null);
+  const [manualDim, setManualDim] = useState<OverrideDimension>('subcategory');
+  const [manualName, setManualName] = useState('');
+  const [manualValue, setManualValue] = useState<OverrideValue>('short');
+  const [manualError, setManualError] = useState('');
   const stats = useMemo(
     () => buildLifePeriodStats(tagMap, confirmedExpenses, expenseItems, reviewableCategories),
     [tagMap, confirmedExpenses, expenseItems, reviewableCategories],
@@ -274,9 +285,38 @@ function SettingsModal({
   });
 
   const overrideCount =
+    Object.keys(overrides.categories ?? {}).length +
     Object.keys(overrides.subcategories ?? {}).length +
     Object.keys(overrides.notes ?? {}).length +
     Object.keys(overrides.tags ?? {}).length;
+  const configuredRules = useMemo(() => (
+    PERIOD_RULE_DIMENSIONS.flatMap((dim) => {
+      const map = dim === 'category' ? (overrides.categories ?? {})
+        : dim === 'subcategory' ? (overrides.subcategories ?? {})
+        : dim === 'note' ? (overrides.notes ?? {})
+        : (overrides.tags ?? {});
+      return Object.entries(map).map(([name, value]) => ({ dim, name, value }));
+    }).sort((a, b) => {
+      const dimOrder = PERIOD_RULE_DIMENSIONS.indexOf(a.dim) - PERIOD_RULE_DIMENSIONS.indexOf(b.dim);
+      return dimOrder || a.name.localeCompare(b.name, 'zh-Hans-CN');
+    })
+  ), [overrides]);
+
+  const displayRuleName = (dim: OverrideDimension, name: string) => (
+    dim === 'subcategory' && name.includes('|')
+      ? name.split('|').filter(Boolean).join(' · ')
+      : name
+  );
+  const handleAddManualRule = () => {
+    const name = manualName.trim();
+    if (!name) {
+      setManualError('先输入规则名');
+      return;
+    }
+    setOverride(manualDim, name, manualValue);
+    setManualName('');
+    setManualError('');
+  };
 
   return (
     <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
@@ -343,7 +383,64 @@ function SettingsModal({
                 <span style={{ color: '#1a73e8', fontWeight: 600 }}>短</span> = 按所在场景（学校/实习/在家/旅行）计入当天日均；
                 <span style={{ color: '#e8710a', fontWeight: 600, marginLeft: 4 }}>长</span> = 不和场景挂钩，全期摊匀进基础日均。
               </div>
-              <div>命中的账单将自动归为短/长周期生活，不再需要逐条勾选。优先级：子分类 &gt; 笔记 &gt; 标签。「忽略」表示与长短无关、由下一维度决定。虚线 = 历史推荐值；⚠️ = 历史勾选不一致。点击行可展开该类下的账单明细。</div>
+              <div>自己输入分类、子分类、笔记或标签，命中的账单会自动归为短/长周期生活。优先级：子分类 &gt; 笔记 &gt; 分类 &gt; 标签。「忽略」表示与长短无关、由下一维度决定。</div>
+            </div>
+            <div style={{ padding: 10, borderRadius: 10, backgroundColor: '#f8fafd', border: '1px solid #e8f0fe', marginBottom: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '82px 1fr', gap: 8, marginBottom: 8 }}>
+                <select
+                  value={manualDim}
+                  onChange={(e) => setManualDim(e.target.value as OverrideDimension)}
+                  style={{ border: '1px solid #dadce0', borderRadius: 8, padding: '7px 6px', fontSize: 12, backgroundColor: '#fff', color: '#202124', outline: 'none' }}
+                >
+                  {PERIOD_RULE_DIMENSIONS.map((dim) => (
+                    <option key={dim} value={dim}>{PERIOD_RULE_LABEL[dim]}</option>
+                  ))}
+                </select>
+                <input
+                  value={manualName}
+                  onChange={(e) => { setManualName(e.target.value); if (manualError) setManualError(''); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddManualRule();
+                    }
+                  }}
+                  placeholder={manualDim === 'subcategory' ? '分类|子分类，如 餐饮|咖啡' : `输入${PERIOD_RULE_LABEL[manualDim]}名`}
+                  style={{ minWidth: 0, border: '1px solid #dadce0', borderRadius: 8, padding: '7px 8px', fontSize: 12, outline: 'none', boxSizing: 'border-box' }}
+                />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <PeriodChip current={manualValue} suggestion={null} onChange={(next) => setManualValue(next ?? 'short')} allowIgnore />
+                <button
+                  type="button"
+                  onClick={handleAddManualRule}
+                  style={{ padding: '6px 12px', borderRadius: 8, border: 'none', backgroundColor: C.blue, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}
+                >
+                  添加规则
+                </button>
+              </div>
+              {manualError && <div style={{ color: C.red, fontSize: 11, marginTop: 6 }}>{manualError}</div>}
+            </div>
+            {configuredRules.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#202124', marginBottom: 6 }}>已输入规则</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {configuredRules.map(({ dim, name, value }) => (
+                    <div key={`${dim}|${name}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '6px 8px', borderRadius: 8, backgroundColor: '#fafbfc' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 500, color: '#202124', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {displayRuleName(dim, name)}
+                        </div>
+                        <div style={{ fontSize: 10, color: C.sub, marginTop: 1 }}>{PERIOD_RULE_LABEL[dim]}</div>
+                      </div>
+                      <PeriodChip current={value} suggestion={null} onChange={(next) => setOverride(dim, name, next)} allowIgnore />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: '#5f6368', marginBottom: 8, lineHeight: 1.45 }}>
+              历史候选可直接点选；虚线 = 历史推荐值；⚠️ = 历史勾选不一致。点击行可展开账单明细。
             </div>
             <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
               <button onClick={() => setPeriodTab('subcategory')} style={tabBtnStyle(periodTab === 'subcategory')}>子分类 ({stats.subcategories.length})</button>
