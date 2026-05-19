@@ -7,7 +7,7 @@ import { tagMeta, investMeta } from '../data/mockData';
 import { aggregateExpenseItems, parseBillFile, assignExpenseIds, type BillItem, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
 import { triggerUpload } from '../utils/syncEngine';
 import { useBillDetailStore } from '../stores/billDetailStore';
-import { useLifePeriodOverrideStore, resolveLifePeriod, type LifePeriod, type OverrideValue, type OverrideDimension } from '../stores/lifePeriodOverrideStore';
+import { useLifePeriodOverrideStore, resolveLifePeriod, subcategoryKey, type LifePeriod, type OverrideValue, type OverrideDimension } from '../stores/lifePeriodOverrideStore';
 import AmountInput from '../components/AmountInput';
 import { calcHistoryStats } from '../calculations/history';
 import { buildLifePeriodStats, suggestPeriod, isInconsistent, type LifePeriodStatRow } from '../calculations/lifePeriodStats';
@@ -124,6 +124,9 @@ function PeriodRow({
   onChange,
   displayName,
   allowIgnore,
+  expanded,
+  onToggleExpand,
+  expandedItems,
 }: {
   row: LifePeriodStatRow;
   current: OverrideValue | undefined;
@@ -132,25 +135,54 @@ function PeriodRow({
   onChange: (next: OverrideValue | null) => void;
   displayName: string;
   allowIgnore?: boolean;
+  expanded?: boolean;
+  onToggleExpand?: () => void;
+  expandedItems?: BillExpenseItem[];
 }) {
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-      padding: '6px 8px', borderRadius: 8, marginBottom: 4,
+      borderRadius: 8, marginBottom: 4,
       border: inconsistent && current === undefined ? '1px solid #f59e0b' : '1px solid transparent',
       backgroundColor: inconsistent && current === undefined ? '#fffbeb' : '#fafbfc',
     }}>
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ fontSize: 12, fontWeight: 500, color: '#202124', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {inconsistent && current === undefined && <span title="历史勾选不一致" style={{ color: '#f59e0b', marginRight: 4 }}>⚠️</span>}
-          {displayName}
-        </div>
-        <div style={{ fontSize: 10, color: '#5f6368', marginTop: 1, fontVariantNumeric: 'tabular-nums' }}>
-          {row.shortCount > 0 && <span style={{ color: '#1a73e8', marginRight: 8 }}>短×{row.shortCount}</span>}
-          {row.longCount > 0 && <span style={{ color: '#e8710a' }}>长×{row.longCount}</span>}
-        </div>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+        padding: '6px 8px',
+      }}>
+        <button
+          type="button"
+          onClick={onToggleExpand}
+          style={{ minWidth: 0, flex: 1, background: 'none', border: 'none', padding: 0, textAlign: 'left', cursor: onToggleExpand ? 'pointer' : 'default' }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 500, color: '#202124', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span style={{ color: '#9aa0a6', marginRight: 4, fontSize: 10 }}>{expanded ? '▼' : '▶'}</span>
+            {inconsistent && current === undefined && <span title="历史勾选不一致" style={{ color: '#f59e0b', marginRight: 4 }}>⚠️</span>}
+            {displayName}
+          </div>
+          <div style={{ fontSize: 10, color: '#5f6368', marginTop: 1, fontVariantNumeric: 'tabular-nums' }}>
+            {row.shortCount > 0 && <span style={{ color: '#1a73e8', marginRight: 8 }}>短×{row.shortCount}</span>}
+            {row.longCount > 0 && <span style={{ color: '#e8710a' }}>长×{row.longCount}</span>}
+          </div>
+        </button>
+        <PeriodChip current={current} suggestion={suggestion} onChange={onChange} allowIgnore={allowIgnore} />
       </div>
-      <PeriodChip current={current} suggestion={suggestion} onChange={onChange} allowIgnore={allowIgnore} />
+      {expanded && expandedItems && (
+        <div style={{ padding: '4px 8px 8px', borderTop: '1px dashed #e8eaed', maxHeight: 200, overflowY: 'auto' }}>
+          {expandedItems.length === 0 ? (
+            <div style={{ fontSize: 11, color: '#9aa0a6', padding: '6px 0', textAlign: 'center' }}>无匹配账单</div>
+          ) : (
+            [...expandedItems].sort((a, b) => b.date.localeCompare(a.date)).map((it, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11, padding: '3px 0', color: '#3c4043' }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
+                  <span style={{ color: '#9aa0a6', marginRight: 6 }}>{it.date.slice(5)}</span>
+                  {it.note || it.subcategory || it.category || '—'}
+                </span>
+                <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: '#5f6368' }}>¥{formatCurrency(it.amount)}</span>
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -181,18 +213,23 @@ function SettingsModal({
   tagMap: Record<string, TagKind>;
   confirmedExpenses: Record<string, { ids: string[]; reviewed: boolean } | string[]>;
   expenseItems: Record<string, BillExpenseMonth>;
-  overrides: { categories: Record<string, OverrideValue>; subcategories: Record<string, OverrideValue>; tags: Record<string, OverrideValue> };
+  overrides: { categories: Record<string, OverrideValue>; subcategories: Record<string, OverrideValue>; notes: Record<string, OverrideValue>; tags: Record<string, OverrideValue> };
   setOverride: (dim: OverrideDimension, name: string, value: OverrideValue | null) => void;
 }) {
-  const [periodTab, setPeriodTab] = useState<'subcategory' | 'tag'>('subcategory');
+  const [periodTab, setPeriodTab] = useState<'subcategory' | 'note' | 'tag'>('subcategory');
+  const [expandedRowKey, setExpandedRowKey] = useState<string | null>(null);
   const stats = useMemo(
     () => buildLifePeriodStats(tagMap, confirmedExpenses, expenseItems),
     [tagMap, confirmedExpenses, expenseItems],
   );
 
-  const overrideMap = periodTab === 'subcategory' ? overrides.subcategories : overrides.tags;
+  const overrideMap = periodTab === 'subcategory' ? overrides.subcategories
+    : periodTab === 'note' ? overrides.notes
+    : overrides.tags;
   const tabRows = useMemo(() => {
-    const rows = periodTab === 'subcategory' ? stats.subcategories : stats.tags;
+    const rows = periodTab === 'subcategory' ? stats.subcategories
+      : periodTab === 'note' ? stats.notes
+      : stats.tags;
     return [...rows].sort((a, b) => {
       const aSet = overrideMap[a.name] !== undefined;
       const bSet = overrideMap[b.name] !== undefined;
@@ -200,6 +237,34 @@ function SettingsModal({
       return (b.shortCount + b.longCount) - (a.shortCount + a.longCount);
     });
   }, [periodTab, stats, overrideMap]);
+
+  // 切 tab 时收起展开行
+  useEffect(() => { setExpandedRowKey(null); }, [periodTab]);
+
+  // 把所有月份的账单展平成数组，按行点击展开时按 tab 维度过滤
+  const allItems = useMemo(() => {
+    const out: BillExpenseItem[] = [];
+    for (const monthItems of Object.values(expenseItems)) {
+      if (monthItems) out.push(...monthItems);
+    }
+    return out;
+  }, [expenseItems]);
+
+  const itemsForRow = (rowName: string): BillExpenseItem[] => {
+    if (periodTab === 'subcategory') {
+      return allItems.filter((it) => {
+        const cat = it.category || '(未分类)';
+        return subcategoryKey(cat, it.subcategory || '') === rowName;
+      });
+    }
+    if (periodTab === 'note') {
+      return allItems.filter((it) => (it.note || '') === rowName);
+    }
+    return allItems.filter((it) => {
+      const tagList = (it.tags || '').split(',').map((t) => t.trim()).filter(Boolean);
+      return tagList.includes(rowName);
+    });
+  };
 
   const tabBtnStyle = (active: boolean): React.CSSProperties => ({
     flex: 1, padding: '6px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer',
@@ -210,6 +275,7 @@ function SettingsModal({
 
   const overrideCount =
     Object.keys(overrides.subcategories).length +
+    Object.keys(overrides.notes).length +
     Object.keys(overrides.tags).length;
 
   return (
@@ -277,15 +343,16 @@ function SettingsModal({
                 <span style={{ color: '#1a73e8', fontWeight: 600 }}>短</span> = 按所在场景（学校/实习/在家/旅行）计入当天日均；
                 <span style={{ color: '#e8710a', fontWeight: 600, marginLeft: 4 }}>长</span> = 不和场景挂钩，全期摊匀进基础日均。
               </div>
-              <div>命中的账单将自动归为短/长周期生活，不再需要逐条勾选。优先级：子分类 &gt; 标签。「忽略」表示与长短无关、由下一维度决定。虚线 = 历史推荐值；⚠️ = 历史勾选不一致。</div>
+              <div>命中的账单将自动归为短/长周期生活，不再需要逐条勾选。优先级：子分类 &gt; 笔记 &gt; 标签。「忽略」表示与长短无关、由下一维度决定。虚线 = 历史推荐值；⚠️ = 历史勾选不一致。点击行可展开该类下的账单明细。</div>
             </div>
             <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
               <button onClick={() => setPeriodTab('subcategory')} style={tabBtnStyle(periodTab === 'subcategory')}>子分类 ({stats.subcategories.length})</button>
+              <button onClick={() => setPeriodTab('note')} style={tabBtnStyle(periodTab === 'note')}>笔记 ({stats.notes.length})</button>
               <button onClick={() => setPeriodTab('tag')} style={tabBtnStyle(periodTab === 'tag')}>标签 ({stats.tags.length})</button>
             </div>
             {tabRows.length === 0 ? (
               <div style={{ fontSize: 11, color: '#9aa0a6', padding: '16px 8px', textAlign: 'center' }}>
-                暂无数据。在日历「明细」模式下勾选过的账单会出现在这里。
+                暂无数据。导入账单后，对应的子分类/笔记/标签会出现在这里。
               </div>
             ) : (
               <div>
@@ -297,6 +364,7 @@ function SettingsModal({
                   const displayName = periodTab === 'subcategory' && row.name.includes('|')
                     ? row.name.split('|').filter(Boolean).join(' · ')
                     : row.name;
+                  const expanded = expandedRowKey === row.name;
                   return (
                     <PeriodRow
                       key={row.name}
@@ -306,6 +374,9 @@ function SettingsModal({
                       inconsistent={inc}
                       displayName={displayName}
                       allowIgnore
+                      expanded={expanded}
+                      onToggleExpand={() => setExpandedRowKey(expanded ? null : row.name)}
+                      expandedItems={expanded ? itemsForRow(row.name) : undefined}
                       onChange={(next) => setOverride(periodTab, row.name, next)}
                     />
                   );

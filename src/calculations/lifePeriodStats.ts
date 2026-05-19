@@ -16,6 +16,7 @@ export type LifePeriodStatRow = {
 
 export type LifePeriodStats = {
   subcategories: LifePeriodStatRow[]; // name = "category|subcategory"
+  notes: LifePeriodStatRow[];          // name = 笔记原文
   tags: LifePeriodStatRow[];
 };
 
@@ -34,6 +35,7 @@ export function buildLifePeriodStats(
   expenseItems: Record<string, BillExpenseMonth>,
 ): LifePeriodStats {
   const subs = new Map<string, LifePeriodStatRow>();
+  const notes = new Map<string, LifePeriodStatRow>();
   const tags = new Map<string, LifePeriodStatRow>();
 
   // 先扫所有账单，确保每个出现过的子分类/标签都有一行（即使从未审过）
@@ -68,6 +70,12 @@ export function buildLifePeriodStats(
         if (countAs === 'short') { subRow.shortCount++; subRow.shortAmount += item.amount; }
         else if (countAs === 'long') { subRow.longCount++; subRow.longAmount += item.amount; }
 
+        if (item.note) {
+          const noteRow = ensureRow(notes, item.note);
+          if (countAs === 'short') { noteRow.shortCount++; noteRow.shortAmount += item.amount; }
+          else if (countAs === 'long') { noteRow.longCount++; noteRow.longAmount += item.amount; }
+        }
+
         for (const t of tagList) {
           if (t === '周期生活' || t === '波动生活') continue;
           const tagRow = ensureRow(tags, t);
@@ -85,6 +93,7 @@ export function buildLifePeriodStats(
 
   return {
     subcategories: Array.from(subs.values()).sort(sortByTotal),
+    notes: Array.from(notes.values()).sort(sortByTotal),
     tags: Array.from(tags.values()).sort(sortByTotal),
   };
 }

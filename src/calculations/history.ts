@@ -156,7 +156,7 @@ export function calcHistoryStats(
   tagMap: Record<string, TagKind> = {},
   confirmedExpenses: Record<string, { ids: string[]; reviewed: boolean } | string[]> = {},
   expenseItems: Record<string, BillExpenseMonth> = {},
-  overrides: LifePeriodOverrides = { categories: {}, subcategories: {}, tags: {} },
+  overrides: LifePeriodOverrides = { categories: {}, subcategories: {}, notes: {}, tags: {} },
 ): CurrentStats {
   const n = records.length;
   if (n === 0) {
