@@ -24,7 +24,7 @@ import { TAX_RULE_PRESETS } from '../utils/tax';
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '场景明细';
+const RELEASE_NOTE = '分层展开';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 
@@ -128,6 +128,8 @@ export default function HomePage() {
   const [fireMode, setFireMode] = useState<'life' | 'all'>('all');
   const [fireExpanded, setFireExpanded] = useState(false);
   const [sceneExpanded, setSceneExpanded] = useState<Set<TagKind>>(new Set());
+  const [sceneLocalExpanded, setSceneLocalExpanded] = useState<Set<TagKind>>(new Set());
+  const [sceneLocalOpenCategories, setSceneLocalOpenCategories] = useState<Set<string>>(new Set());
   const [sharedBaseExpanded, setSharedBaseExpanded] = useState(false);
   const [sharedBaseOpenCategories, setSharedBaseOpenCategories] = useState<Set<string>>(new Set());
   const futureFireExpenses = config.futureFireExpenses ?? [];
@@ -174,6 +176,22 @@ export default function HomePage() {
       const next = new Set(prev);
       if (next.has(tagKind)) next.delete(tagKind);
       else next.add(tagKind);
+      return next;
+    });
+  };
+  const toggleSceneLocal = (tagKind: TagKind) => {
+    setSceneLocalExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(tagKind)) next.delete(tagKind);
+      else next.add(tagKind);
+      return next;
+    });
+  };
+  const toggleSceneLocalCategory = (categoryKey: string) => {
+    setSceneLocalOpenCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(categoryKey)) next.delete(categoryKey);
+      else next.add(categoryKey);
       return next;
     });
   };
@@ -309,6 +327,8 @@ export default function HomePage() {
                   const localBreakdown = stats.localLifeBreakdown[r.tagKind] ?? [];
                   const localBreakdownDaily = localBreakdown.reduce((sum, row) => sum + row.dailyBase, 0);
                   const unclassifiedLocal = Math.max(localPart - localBreakdownDaily, 0);
+                  const localExpanded = sceneLocalExpanded.has(r.tagKind);
+                  const hasLocalDetails = localBreakdown.length > 0 || unclassifiedLocal > 0.005;
                   return (
                     <div key={r.tagKind} style={{ borderTop: idx > 0 ? `1px solid ${block.border}` : 'none' }}>
                       <button
@@ -324,25 +344,42 @@ export default function HomePage() {
                       </button>
                       {expanded && (
                         <div style={{ padding: '4px 10px 8px', borderTop: '1px dashed #dadce0' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: '#3c4043' }}>
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
+                          <button
+                            type="button"
+                            onClick={() => hasLocalDetails && toggleSceneLocal(r.tagKind)}
+                            style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, padding: '3px 0', color: '#3c4043', background: 'none', border: 'none', cursor: hasLocalDetails ? 'pointer' : 'default' }}
+                          >
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8, textAlign: 'left' }}>
+                              {hasLocalDetails && (
+                                <span style={{ marginRight: 4, fontSize: 9, color: '#9aa0a6' }}>{localExpanded ? '▼' : '▶'}</span>
+                              )}
                               本地生活 <span style={{ color: '#9aa0a6' }}>· {localPct.toFixed(1)}%</span>
                             </span>
                             <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>¥{localPart.toFixed(2)}/天</span>
-                          </div>
-                          {localBreakdown.length > 0 && (
+                          </button>
+                          {localExpanded && localBreakdown.length > 0 && (
                             <div style={{ padding: '0 0 3px 12px' }}>
                               {localBreakdown.map((row) => {
                                 const pct = localPart > 0 ? (row.dailyBase / localPart) * 100 : 0;
+                                const categoryKey = `${r.tagKind}|${row.category}`;
+                                const categoryOpen = sceneLocalOpenCategories.has(categoryKey);
+                                const hasSubBreakdown = row.subcategories.length > 0;
                                 return (
                                   <div key={row.category}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '2px 0', color: '#5f6368' }}>
-                                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => hasSubBreakdown && toggleSceneLocalCategory(categoryKey)}
+                                      style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10, padding: '2px 0', color: '#5f6368', background: 'none', border: 'none', cursor: hasSubBreakdown ? 'pointer' : 'default' }}
+                                    >
+                                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8, textAlign: 'left' }}>
+                                        {hasSubBreakdown && (
+                                          <span style={{ marginRight: 4, fontSize: 8, color: '#9aa0a6' }}>{categoryOpen ? '▼' : '▶'}</span>
+                                        )}
                                         {row.category} <span style={{ color: '#9aa0a6' }}>· {pct.toFixed(1)}%</span>
                                       </span>
                                       <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>¥{row.dailyBase.toFixed(2)}/天</span>
-                                    </div>
-                                    {row.subcategories.length > 0 && (
+                                    </button>
+                                    {categoryOpen && hasSubBreakdown && (
                                       <div style={{ padding: '0 0 2px 12px' }}>
                                         {row.subcategories.map((sub) => {
                                           const subPct = row.dailyBase > 0 ? (sub.dailyBase / row.dailyBase) * 100 : 0;
@@ -362,7 +399,7 @@ export default function HomePage() {
                               })}
                             </div>
                           )}
-                          {unclassifiedLocal > 0.005 && (
+                          {localExpanded && unclassifiedLocal > 0.005 && (
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '2px 0 3px 12px', color: '#5f6368' }}>
                               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
                                 未拆分估算
