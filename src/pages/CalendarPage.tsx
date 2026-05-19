@@ -973,12 +973,12 @@ function SubcategoryRow({ sub, items, total }: { sub: string; items: BillExpense
   );
 }
 
-function DayDetailPanel({ date, items, confirmedIds, isReviewed, onToggle, onMarkZero, onClear, resolveOverride }: {
+function DayDetailPanel({ date, items, confirmedIds, isReviewed, onSetPeriod, onMarkZero, onClear, resolveOverride }: {
   date: string;
   items: BillExpenseItem[];
   confirmedIds: string[];
   isReviewed: boolean;
-  onToggle: (id: string) => void;
+  onSetPeriod: (id: string, period: LifePeriod) => void;
   onMarkZero: () => void;
   onClear: () => void;
   resolveOverride: (item: BillExpenseItem) => LifePeriod | null;
@@ -1072,24 +1072,47 @@ function DayDetailPanel({ date, items, confirmedIds, isReviewed, onToggle, onMar
           const bg = auto
             ? (auto === 'short' ? '#e8f0fe' : '#fff4e8')
             : (checked ? '#e8f0fe' : (isReviewed ? '#f8f9fa' : '#fffaf0'));
+          const manualSelected: LifePeriod | null = needsManual ? (checked ? 'short' : (isReviewed ? 'long' : null)) : null;
           return (
-            <label
+            <div
               key={id}
               title={auto ? '已被「长/短周期分类规则」覆盖，去设置修改' : '这条账单没被规则覆盖，需要你手动分类'}
               style={{
                 display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8,
-                backgroundColor: bg, cursor: auto ? 'not-allowed' : 'pointer', fontSize: 13,
+                backgroundColor: bg, cursor: auto ? 'not-allowed' : 'default', fontSize: 13,
                 opacity: auto && auto === 'long' ? 0.7 : 1,
                 border: needsManual && !isReviewed ? '1px solid #fdba74' : '1px solid transparent',
               }}
             >
-              <input
-                type="checkbox"
-                checked={checked}
-                disabled={!!auto}
-                onChange={() => { if (!auto) onToggle(id); }}
-                style={{ width: 16, height: 16, accentColor: auto === 'long' ? C.orange : C.blue, cursor: auto ? 'not-allowed' : 'pointer' }}
-              />
+              {needsManual ? (
+                <div style={{ display: 'inline-flex', borderRadius: 6, border: `1px solid ${C.border}`, overflow: 'hidden', flexShrink: 0 }}>
+                  {(['short', 'long'] as const).map((p) => {
+                    const active = manualSelected === p;
+                    const activeBg = p === 'short' ? C.blue : C.orange;
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => onSetPeriod(id, p)}
+                        style={{
+                          padding: '3px 8px', fontSize: 11, fontWeight: 600, lineHeight: 1.3,
+                          border: 'none', borderLeft: p === 'long' ? `1px solid ${C.border}` : 'none',
+                          backgroundColor: active ? activeBg : '#fff',
+                          color: active ? '#fff' : C.sub, cursor: 'pointer',
+                        }}
+                      >
+                        {p === 'short' ? '短' : '长'}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <span style={{
+                  width: 22, height: 18, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  borderRadius: 4, fontSize: 10, fontWeight: 700, flexShrink: 0,
+                  backgroundColor: auto === 'short' ? C.blue : C.orange, color: '#fff',
+                }}>{auto === 'short' ? '短' : '长'}</span>
+              )}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 500, color: '#202124', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {item.note || item.subcategory || item.category || '—'}
@@ -1113,7 +1136,7 @@ function DayDetailPanel({ date, items, confirmedIds, isReviewed, onToggle, onMar
                 </div>
               </div>
               <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: checked ? (auto === 'long' ? C.orange : C.blue) : '#202124', flexShrink: 0 }}>¥{formatCurrency(item.amount)}</span>
-            </label>
+            </div>
           );
         })}
       </div>
@@ -1497,7 +1520,7 @@ export default function CalendarPage() {
   const toggleYearProfitMode = () => setYearProfitMode((m) => m === 'rate' ? 'amount' : 'rate');
 
   // ── Stores ──
-  const { tagMap, setTag, toggleTag, countByTag, bulkFillSchool, confirmedExpenses, toggleConfirmedExpense, markConfirmedExpenseZero, clearConfirmedExpenseSelection } = useCalendarStore();
+  const { tagMap, setTag, toggleTag, countByTag, bulkFillSchool, confirmedExpenses, setConfirmedExpensePeriod, markConfirmedExpenseZero, clearConfirmedExpenseSelection } = useCalendarStore();
   const { config, setConfig } = useConfigStore();
   const { records, upsert, updateDayCounts } = useMonthlyStore();
   const { tagStats: billTagStats, expenseItems: billExpenseItems, updateFromImport: billUpdateFromImport } = useBillDetailStore();
@@ -2286,7 +2309,7 @@ export default function CalendarPage() {
                 items={dayItems}
                 confirmedIds={selectedConfirmedState.ids}
                 isReviewed={selectedConfirmedState.reviewed}
-                onToggle={(id) => toggleConfirmedExpense(selectedDay, id)}
+                onSetPeriod={(id, period) => setConfirmedExpensePeriod(selectedDay, id, period)}
                 onMarkZero={() => markConfirmedExpenseZero(selectedDay)}
                 onClear={() => clearConfirmedExpenseSelection(selectedDay)}
                 resolveOverride={(it) => resolveLifePeriod(it, lifePeriodOverrides)}

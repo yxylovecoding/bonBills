@@ -41,6 +41,7 @@ interface CalendarStore {
   initMonthFromCounts: (yearMonth: string, counts: { school: number; intern: number; home: number; travel: number }) => void;
   markInitialized: () => void;
   toggleConfirmedExpense: (date: string, id: string) => void;
+  setConfirmedExpensePeriod: (date: string, id: string, period: 'short' | 'long') => void;
   markConfirmedExpenseZero: (date: string) => void;
   clearConfirmedExpenseSelection: (date: string) => void;
 }
@@ -127,6 +128,22 @@ export const useCalendarStore = create<CalendarStore>()(
           const cur = normalizeConfirmedSelection(s.confirmedExpenses[date]).ids;
           const exists = cur.includes(id);
           const nextIds = exists ? cur.filter((x) => x !== id) : [...cur, id];
+          const nextMap = { ...s.confirmedExpenses };
+          nextMap[date] = { ids: nextIds, reviewed: true };
+          return { confirmedExpenses: nextMap };
+        }),
+
+      setConfirmedExpensePeriod: (date, id, period) =>
+        set((s) => {
+          const cur = normalizeConfirmedSelection(s.confirmedExpenses[date]).ids;
+          const has = cur.includes(id);
+          const want = period === 'short';
+          if (has === want && s.confirmedExpenses[date]?.reviewed) {
+            return s;
+          }
+          const nextIds = want
+            ? (has ? cur : [...cur, id])
+            : (has ? cur.filter((x) => x !== id) : cur);
           const nextMap = { ...s.confirmedExpenses };
           nextMap[date] = { ids: nextIds, reviewed: true };
           return { confirmedExpenses: nextMap };
