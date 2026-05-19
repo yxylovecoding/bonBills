@@ -973,6 +973,95 @@ function SubcategoryRow({ sub, items, total }: { sub: string; items: BillExpense
   );
 }
 
+function PendingManualPanel({ entries, onSetPeriod, onClose }: {
+  entries: { date: string; id: string; item: BillExpenseItem }[];
+  onSetPeriod: (date: string, id: string, period: LifePeriod) => void;
+  onClose: () => void;
+}) {
+  const total = entries.reduce((s, e) => s + e.item.amount, 0);
+  const grouped = useMemo(() => {
+    const map = new Map<string, { date: string; id: string; item: BillExpenseItem }[]>();
+    for (const e of entries) {
+      const arr = map.get(e.date) ?? [];
+      arr.push(e);
+      map.set(e.date, arr);
+    }
+    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [entries]);
+  return (
+    <Card
+      title="待手动分类"
+      subtitle={entries.length === 0
+        ? '本月没有未规则覆盖的待分类账单'
+        : `共 ${entries.length} 条 · ¥${formatCurrency(total)}`}
+    >
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <button
+          onClick={onClose}
+          style={{ fontSize: 12, color: C.sub, border: 'none', background: 'none', cursor: 'pointer' }}
+        >✕ 收起</button>
+      </div>
+      {entries.length === 0 ? (
+        <div style={{ fontSize: 13, color: C.sub, textAlign: 'center', padding: '12px 0' }}>
+          全部账单都已被「长/短周期分类规则」覆盖，或已手动确认过。
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {grouped.map(([date, rows]) => {
+            const daySum = rows.reduce((s, r) => s + r.item.amount, 0);
+            return (
+              <div key={date}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12, color: C.sub, marginBottom: 4 }}>
+                  <span style={{ fontWeight: 600, color: '#202124' }}>{date}</span>
+                  <span style={{ fontVariantNumeric: 'tabular-nums' }}>{rows.length} 条 · ¥{formatCurrency(daySum)}</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {rows.map(({ date: d, id, item }) => (
+                    <div
+                      key={`${d}|${id}`}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8,
+                        backgroundColor: '#fffaf0', border: '1px solid #fdba74', fontSize: 13,
+                      }}
+                    >
+                      <div style={{ display: 'inline-flex', borderRadius: 6, border: `1px solid ${C.border}`, overflow: 'hidden', flexShrink: 0 }}>
+                        {(['short', 'long'] as const).map((p) => {
+                          const activeBg = p === 'short' ? C.blue : C.orange;
+                          return (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => onSetPeriod(d, id, p)}
+                              style={{
+                                padding: '3px 10px', fontSize: 11, fontWeight: 600, lineHeight: 1.3,
+                                border: 'none', borderLeft: p === 'long' ? `1px solid ${C.border}` : 'none',
+                                backgroundColor: '#fff', color: activeBg, cursor: 'pointer',
+                              }}
+                            >{p === 'short' ? '短' : '长'}</button>
+                          );
+                        })}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 500, color: '#202124', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {item.note || item.subcategory || item.category || '—'}
+                        </div>
+                        <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
+                          {item.category}{item.subcategory ? ` · ${item.subcategory}` : ''}{item.tags ? ` · ${item.tags}` : ''}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124', flexShrink: 0 }}>¥{formatCurrency(item.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function DayDetailPanel({ date, items, confirmedIds, isReviewed, onSetPeriod, onMarkZero, onClear, resolveOverride }: {
   date: string;
   items: BillExpenseItem[];
@@ -1513,6 +1602,7 @@ export default function CalendarPage() {
   const [rangeHover, setRangeHover]   = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [showWeekTemplate, setShowWeekTemplate] = useState(false);
+  const [showPendingPanel, setShowPendingPanel] = useState(false);
 
   // ── History state ──
   const [formOpen, setFormOpen] = useState(false);
@@ -1626,6 +1716,34 @@ export default function CalendarPage() {
     if (selectMode !== 'range' || !rangeStart) return new Set();
     return new Set(getRange(rangeStart, rangeHover ?? rangeStart));
   }, [selectMode, rangeStart, rangeHover]);
+
+  const pendingManualEntries = useMemo(() => {
+    const allowedSet = new Set(reviewableCategories);
+    if (allowedSet.size === 0) return [] as { date: string; id: string; item: BillExpenseItem }[];
+    const items = billExpenseItems[yearMonth] ?? [];
+    const byDate = new Map<string, BillExpenseItem[]>();
+    for (const it of items) {
+      const tagList = (it.tags || '').split(',').map((t) => t.trim()).filter(Boolean);
+      if (!tagList.some((t) => allowedSet.has(t as ReviewableCategory))) continue;
+      if (resolveLifePeriod(it, lifePeriodOverrides) !== null) continue;
+      const state = normalizeConfirmedSelection(confirmedExpenses[it.date]);
+      if (state.reviewed) continue;
+      const arr = byDate.get(it.date) ?? [];
+      arr.push(it);
+      byDate.set(it.date, arr);
+    }
+    const out: { date: string; id: string; item: BillExpenseItem }[] = [];
+    const dates = [...byDate.keys()].sort();
+    for (const date of dates) {
+      const dayItems = (billExpenseItems[yearMonth] ?? []).filter((it) => it.date === date);
+      const withIds = assignExpenseIds(dayItems);
+      const pendingSet = new Set(byDate.get(date) ?? []);
+      for (const { item, id } of withIds) {
+        if (pendingSet.has(item)) out.push({ date, id, item });
+      }
+    }
+    return out;
+  }, [billExpenseItems, yearMonth, lifePeriodOverrides, confirmedExpenses, reviewableCategories]);
 
   const stats = useMemo(() => {
     const counts: Record<TagKind, number> = { intern: 0, school: 0, home: 0, travel: 0 };
@@ -2233,12 +2351,26 @@ export default function CalendarPage() {
           </div>
 
           {/* 选择模式切换 */}
-          <div style={{ display: 'flex', gap: 0, marginBottom: 12, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', alignSelf: 'flex-start', width: 'fit-content' }}>
-            {(['single', 'range', 'detail'] as const).map((m) => (
-              <button key={m} onClick={() => switchMode(m)} style={{ padding: '6px 16px', fontSize: 13, border: 'none', cursor: 'pointer', backgroundColor: selectMode === m ? C.blue : '#fff', color: selectMode === m ? '#fff' : C.sub, fontWeight: selectMode === m ? 600 : 400 }}>
-                {m === 'single' ? '单击' : m === 'range' ? '起止' : '明细'}
-              </button>
-            ))}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 0, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
+              {(['single', 'range', 'detail'] as const).map((m) => (
+                <button key={m} onClick={() => switchMode(m)} style={{ padding: '6px 16px', fontSize: 13, border: 'none', cursor: 'pointer', backgroundColor: selectMode === m ? C.blue : '#fff', color: selectMode === m ? '#fff' : C.sub, fontWeight: selectMode === m ? 600 : 400 }}>
+                  {m === 'single' ? '单击' : m === 'range' ? '起止' : '明细'}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setShowPendingPanel((v) => !v)}
+              title="集中处理所有未被规则覆盖的待手动分类账单"
+              style={{
+                padding: '6px 14px', fontSize: 13, borderRadius: 10, cursor: 'pointer', fontWeight: 600,
+                border: `1px solid ${pendingManualEntries.length > 0 ? '#fdba74' : C.border}`,
+                backgroundColor: showPendingPanel ? '#fff7ed' : '#fff',
+                color: pendingManualEntries.length > 0 ? C.orange : C.sub,
+              }}
+            >
+              待分类 {pendingManualEntries.length}
+            </button>
           </div>
 
           {selectMode === 'range' && (
@@ -2252,6 +2384,14 @@ export default function CalendarPage() {
             <div style={{ fontSize: 13, color: C.sub, backgroundColor: '#f0f7ff', border: '1px solid #a8c7fa', borderRadius: 10, padding: '8px 14px', marginBottom: 12 }}>
               点击日期查看当日账单，勾选确切支出；也可以直接记为 0 支出，用于优化日均估算
             </div>
+          )}
+
+          {showPendingPanel && (
+            <PendingManualPanel
+              entries={pendingManualEntries}
+              onSetPeriod={(date, id, period) => setConfirmedExpensePeriod(date, id, period)}
+              onClose={() => setShowPendingPanel(false)}
+            />
           )}
 
           {/* 月历 */}
