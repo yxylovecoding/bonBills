@@ -222,6 +222,7 @@ function SettingsModal({
 }) {
   const [periodTab, setPeriodTab] = useState<'subcategory' | 'note' | 'tag'>('subcategory');
   const [expandedRowKey, setExpandedRowKey] = useState<string | null>(null);
+  const [expandedCategoryKey, setExpandedCategoryKey] = useState<string | null>(null);
   const [lifePeriodHelpDraft, setLifePeriodHelpDraft] = useState(lifePeriodHelpText);
   const stats = useMemo(
     () => buildLifePeriodStats(tagMap, confirmedExpenses, expenseItems, reviewableCategories),
@@ -242,9 +243,30 @@ function SettingsModal({
       return (b.shortCount + b.longCount) - (a.shortCount + a.longCount);
     });
   }, [periodTab, stats, overrideMap]);
+  const subcategoryGroups = useMemo(() => {
+    if (periodTab !== 'subcategory') return [];
+    const map = new Map<string, LifePeriodStatRow[]>();
+    for (const row of tabRows) {
+      const [category] = row.name.split('|');
+      const groupName = category || '(未分类)';
+      const rows = map.get(groupName) ?? [];
+      rows.push(row);
+      map.set(groupName, rows);
+    }
+    return [...map.entries()].map(([category, rows]) => ({
+      category,
+      rows,
+      shortCount: rows.reduce((sum, row) => sum + row.shortCount, 0),
+      longCount: rows.reduce((sum, row) => sum + row.longCount, 0),
+      configuredCount: rows.reduce((sum, row) => sum + (overrideMap[row.name] !== undefined ? 1 : 0), 0),
+    }));
+  }, [periodTab, tabRows, overrideMap]);
 
   // 切 tab 时收起展开行
-  useEffect(() => { setExpandedRowKey(null); }, [periodTab]);
+  useEffect(() => {
+    setExpandedRowKey(null);
+    setExpandedCategoryKey(null);
+  }, [periodTab]);
 
   // 把所有月份的账单展平成数组，按行点击展开时按 tab 维度过滤
   const allItems = useMemo(() => {
@@ -366,16 +388,68 @@ function SettingsModal({
               <div style={{ fontSize: 11, color: '#9aa0a6', padding: '16px 8px', textAlign: 'center' }}>
                 暂无数据。导入账单后，对应的子分类/笔记/标签会出现在这里。
               </div>
+            ) : periodTab === 'subcategory' ? (
+              <div>
+                {subcategoryGroups.map((group) => {
+                  const expanded = expandedCategoryKey === group.category;
+                  return (
+                    <div key={group.category} style={{ borderRadius: 8, marginBottom: 6, backgroundColor: '#fafbfc' }}>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedCategoryKey(expanded ? null : group.category)}
+                        style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: 'none', border: 'none', padding: '8px 10px', textAlign: 'left', cursor: 'pointer' }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: '#202124', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <span style={{ color: '#9aa0a6', marginRight: 6, fontSize: 10 }}>{expanded ? '▼' : '▶'}</span>
+                            {group.category}
+                          </div>
+                          <div style={{ fontSize: 10, color: '#5f6368', marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+                            {group.rows.length} 项
+                            {group.configuredCount > 0 && <span style={{ marginLeft: 8, color: '#1a73e8' }}>已设×{group.configuredCount}</span>}
+                            {group.shortCount > 0 && <span style={{ marginLeft: 8, color: '#1a73e8' }}>本地×{group.shortCount}</span>}
+                            {group.longCount > 0 && <span style={{ marginLeft: 8, color: '#e8710a' }}>共享×{group.longCount}</span>}
+                          </div>
+                        </div>
+                      </button>
+                      {expanded && (
+                        <div style={{ padding: '0 0 4px 12px' }}>
+                          {group.rows.map((row) => {
+                            const current = overrideMap[row.name];
+                            const sug = suggestPeriod(row);
+                            const inc = isInconsistent(row);
+                            const displayName = row.name.includes('|')
+                              ? row.name.split('|').slice(1).join('|') || group.category
+                              : row.name;
+                            const rowExpanded = expandedRowKey === row.name;
+                            return (
+                              <PeriodRow
+                                key={row.name}
+                                row={row}
+                                current={current}
+                                suggestion={sug}
+                                inconsistent={inc}
+                                displayName={displayName}
+                                allowIgnore
+                                expanded={rowExpanded}
+                                onToggleExpand={() => setExpandedRowKey(rowExpanded ? null : row.name)}
+                                expandedItems={rowExpanded ? itemsForRow(row.name) : undefined}
+                                onChange={(next) => setOverride(periodTab, row.name, next)}
+                              />
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             ) : (
               <div>
                 {tabRows.map((row) => {
                   const current = overrideMap[row.name];
                   const sug = suggestPeriod(row);
                   const inc = isInconsistent(row);
-                  // displayName：子分类把 "category|subcategory" 美化为 "category · subcategory"
-                  const displayName = periodTab === 'subcategory' && row.name.includes('|')
-                    ? row.name.split('|').filter(Boolean).join(' · ')
-                    : row.name;
                   const expanded = expandedRowKey === row.name;
                   return (
                     <PeriodRow
@@ -384,7 +458,7 @@ function SettingsModal({
                       current={current}
                       suggestion={sug}
                       inconsistent={inc}
-                      displayName={displayName}
+                      displayName={row.name}
                       allowIgnore
                       expanded={expanded}
                       onToggleExpand={() => setExpandedRowKey(expanded ? null : row.name)}
