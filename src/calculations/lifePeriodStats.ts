@@ -30,51 +30,53 @@ function ensureRow(map: Map<string, LifePeriodStatRow>, name: string): LifePerio
 
 export function buildLifePeriodStats(
   tagMap: Record<string, TagKind>,
-  confirmedExpenses: Record<string, { ids: string[]; reviewed: boolean } | string[]>,
+  confirmedExpenses: Record<string, { ids: string[]; longIds?: string[]; reviewed: boolean } | string[]>,
   expenseItems: Record<string, BillExpenseMonth>,
 ): LifePeriodStats {
   const subs = new Map<string, LifePeriodStatRow>();
   const tags = new Map<string, LifePeriodStatRow>();
 
-  for (const [date, raw] of Object.entries(confirmedExpenses)) {
-    const sel = normalizeConfirmedSelection(raw);
-    if (!sel.reviewed) continue;
-    if (!tagMap[date]) continue;
-    const ym = date.slice(0, 7);
-    const monthItems = expenseItems[ym];
+  // 先扫所有账单，确保每个出现过的子分类/标签都有一行（即使从未审过）
+  // 计数只在该天显式归属过时累加；其他情况只建空行
+  for (const [ym, monthItems] of Object.entries(expenseItems)) {
     if (!monthItems || monthItems.length === 0) continue;
+    for (const date of new Set(monthItems.map((it) => it.date))) {
+      const dayItems = assignExpenseIds(monthItems.filter((it) => it.date === date));
+      const sel = normalizeConfirmedSelection(confirmedExpenses[date]);
+      const tagged = !!tagMap[date];
+      const reviewed = sel.reviewed;
+      const hasExplicitLong = sel.longIds !== undefined;
+      const selectedIds = new Set(sel.ids);
+      const longSet = new Set(sel.longIds ?? []);
 
-    const dayItems = assignExpenseIds(monthItems.filter((it) => it.date === date));
-    const selectedIds = new Set(sel.ids);
-    const hasExplicitLong = sel.longIds !== undefined;
-    const longSet = new Set(sel.longIds ?? []);
+      for (const { item, id } of dayItems) {
+        const tagList = item.tags.split(',').map((t) => t.trim()).filter(Boolean);
+        const isLife = tagList.includes('周期生活') || tagList.includes('波动生活');
+        if (!isLife) continue;
 
-    for (const { item, id } of dayItems) {
-      const tagList = item.tags.split(',').map((t) => t.trim()).filter(Boolean);
-      const isLife = tagList.includes('周期生活') || tagList.includes('波动生活');
-      if (!isLife) continue;
-      let isShort: boolean;
-      if (selectedIds.has(id)) isShort = true;
-      else if (longSet.has(id)) isShort = false;
-      else if (hasExplicitLong) continue; // 新模型下未显式归属 → 不计入统计
-      else isShort = false; // 旧数据兜底：reviewed 且未勾 → 长
+        // 决定是否计入短/长统计；不影响行是否出现
+        let countAs: 'short' | 'long' | null = null;
+        if (tagged) {
+          if (selectedIds.has(id)) countAs = 'short';
+          else if (longSet.has(id)) countAs = 'long';
+          else if (reviewed && !hasExplicitLong) countAs = 'long'; // 旧数据兜底
+        }
 
-      const catName = item.category || '(未分类)';
-      const subName = subcategoryKey(catName, item.subcategory || '');
+        const catName = item.category || '(未分类)';
+        const subName = subcategoryKey(catName, item.subcategory || '');
+        const subRow = ensureRow(subs, subName);
+        if (countAs === 'short') { subRow.shortCount++; subRow.shortAmount += item.amount; }
+        else if (countAs === 'long') { subRow.longCount++; subRow.longAmount += item.amount; }
 
-      const subRow = ensureRow(subs, subName);
-      if (isShort) {
-        subRow.shortCount++; subRow.shortAmount += item.amount;
-      } else {
-        subRow.longCount++;  subRow.longAmount  += item.amount;
+        for (const t of tagList) {
+          if (t === '周期生活' || t === '波动生活') continue;
+          const tagRow = ensureRow(tags, t);
+          if (countAs === 'short') { tagRow.shortCount++; tagRow.shortAmount += item.amount; }
+          else if (countAs === 'long') { tagRow.longCount++; tagRow.longAmount += item.amount; }
+        }
       }
-
-      for (const t of tagList) {
-        if (t === '周期生活' || t === '波动生活') continue; // 这两个是大类，不作为细分维度
-        const tagRow = ensureRow(tags, t);
-        if (isShort) { tagRow.shortCount++; tagRow.shortAmount += item.amount; }
-        else { tagRow.longCount++; tagRow.longAmount += item.amount; }
-      }
+      // 顺便用一下 ym 防 lint
+      void ym;
     }
   }
 

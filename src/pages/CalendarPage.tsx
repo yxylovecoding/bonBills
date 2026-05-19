@@ -190,8 +190,16 @@ function SettingsModal({
     [tagMap, confirmedExpenses, expenseItems],
   );
 
-  const tabRows = periodTab === 'subcategory' ? stats.subcategories : stats.tags;
   const overrideMap = periodTab === 'subcategory' ? overrides.subcategories : overrides.tags;
+  const tabRows = useMemo(() => {
+    const rows = periodTab === 'subcategory' ? stats.subcategories : stats.tags;
+    return [...rows].sort((a, b) => {
+      const aSet = overrideMap[a.name] !== undefined;
+      const bSet = overrideMap[b.name] !== undefined;
+      if (aSet !== bSet) return aSet ? 1 : -1;
+      return (b.shortCount + b.longCount) - (a.shortCount + a.longCount);
+    });
+  }, [periodTab, stats, overrideMap]);
 
   const tabBtnStyle = (active: boolean): React.CSSProperties => ({
     flex: 1, padding: '6px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer',
@@ -293,7 +301,7 @@ function SettingsModal({
                       suggestion={sug}
                       inconsistent={inc}
                       displayName={displayName}
-                      allowIgnore={periodTab === 'tag'}
+                      allowIgnore
                       onChange={(next) => setOverride(periodTab, row.name, next)}
                     />
                   );
