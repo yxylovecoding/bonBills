@@ -639,7 +639,7 @@ export default function HistoryPage() {
               </table>
               {stats.longLifeDailyBase > 0 && (
                 <div style={{ marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, padding: '6px 10px', backgroundColor: '#f1f3f4', borderRadius: 8 }}>
-                  <span style={{ color: C.sub }}>📦 长周期均摊 <span style={{ fontSize: 10 }}>(已含)</span></span>
+                  <span style={{ color: C.sub }}>📦 共享均摊 <span style={{ fontSize: 10 }}>(已含)</span></span>
                   <span style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: C.sub }}>¥{formatCurrency(stats.longLifeDailyBase)}/天</span>
                 </div>
               )}

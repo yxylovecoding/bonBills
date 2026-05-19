@@ -86,8 +86,8 @@ function PeriodChip({
 }) {
   const opts: { v: OverrideValue | null; label: string; bg: string; fg: string }[] = [
     { v: null,     label: '默认', bg: '#f1f3f4', fg: '#5f6368' },
-    { v: 'short',  label: '短',   bg: '#e8f0fe', fg: '#1a73e8' },
-    { v: 'long',   label: '长',   bg: '#fff4e8', fg: '#e8710a' },
+    { v: 'short',  label: '本地', bg: '#e8f0fe', fg: '#1a73e8' },
+    { v: 'long',   label: '共享', bg: '#fff4e8', fg: '#e8710a' },
   ];
   if (allowIgnore) {
     opts.push({ v: 'ignore', label: '忽略', bg: '#f3e8ff', fg: '#7c3aed' });
@@ -160,8 +160,8 @@ function PeriodRow({
             {displayName}
           </div>
           <div style={{ fontSize: 10, color: '#5f6368', marginTop: 1, fontVariantNumeric: 'tabular-nums' }}>
-            {row.shortCount > 0 && <span style={{ color: '#1a73e8', marginRight: 8 }}>短×{row.shortCount}</span>}
-            {row.longCount > 0 && <span style={{ color: '#e8710a' }}>长×{row.longCount}</span>}
+            {row.shortCount > 0 && <span style={{ color: '#1a73e8', marginRight: 8 }}>本地×{row.shortCount}</span>}
+            {row.longCount > 0 && <span style={{ color: '#e8710a' }}>共享×{row.longCount}</span>}
           </div>
         </button>
         <PeriodChip current={current} suggestion={suggestion} onChange={onChange} allowIgnore={allowIgnore} />
@@ -337,10 +337,10 @@ function SettingsModal({
               })}
             </div>
           </div>
-          {/* 长短周期分类 */}
+          {/* 本地/共享分类 */}
           <div style={{ borderTop: '1px solid #f1f3f4', paddingTop: 14, marginBottom: 8 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#202124', marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>长/短周期分类规则</span>
+              <span>本地/共享分类规则</span>
               {overrideCount > 0 && (
                 <span style={{ fontSize: 10, fontWeight: 500, color: '#1a73e8', backgroundColor: '#e8f0fe', padding: '2px 6px', borderRadius: 6 }}>
                   已设 {overrideCount}
@@ -1098,7 +1098,7 @@ function PendingManualPanel({ entries, onSetPeriod, onClose }: {
       </div>
       {entries.length === 0 ? (
         <div style={{ fontSize: 13, color: C.sub, textAlign: 'center', padding: '12px 0' }}>
-          全部账单都已被「长/短周期分类规则」覆盖，或已手动确认过。
+          全部账单都已被「本地/共享分类规则」覆盖，或已手动确认过。
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1132,7 +1132,7 @@ function PendingManualPanel({ entries, onSetPeriod, onClose }: {
                                 border: 'none', borderLeft: p === 'long' ? `1px solid ${C.border}` : 'none',
                                 backgroundColor: '#fff', color: activeBg, cursor: 'pointer',
                               }}
-                            >{p === 'short' ? '短' : '长'}</button>
+                            >{p === 'short' ? '本地' : '共享'}</button>
                           );
                         })}
                       </div>
@@ -1266,7 +1266,7 @@ function DayDetailPanel({ date, items, selection, onSetPeriod, onMarkZero, onCle
           return (
             <div
               key={id}
-              title={auto ? '已被「长/短周期分类规则」覆盖，去设置修改' : (needsManual ? '这条账单没被规则覆盖，需要你手动分类' : '已手动分类，可点击切换')}
+              title={auto ? '已被「本地/共享分类规则」覆盖，去设置修改' : (needsManual ? '这条账单没被规则覆盖，需要你手动分类' : '已手动分类，可点击切换')}
               style={{
                 display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8,
                 backgroundColor: bg, cursor: auto ? 'not-allowed' : 'default', fontSize: 13,
@@ -1291,17 +1291,17 @@ function DayDetailPanel({ date, items, selection, onSetPeriod, onMarkZero, onCle
                           color: active ? '#fff' : C.sub, cursor: 'pointer',
                         }}
                       >
-                        {p === 'short' ? '短' : '长'}
+                        {p === 'short' ? '本地' : '共享'}
                       </button>
                     );
                   })}
                 </div>
               ) : (
                 <span style={{
-                  width: 22, height: 18, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  width: 34, height: 18, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                   borderRadius: 4, fontSize: 10, fontWeight: 700, flexShrink: 0,
                   backgroundColor: auto === 'short' ? C.blue : C.orange, color: '#fff',
-                }}>{auto === 'short' ? '短' : '长'}</span>
+                }}>{auto === 'short' ? '本地' : '共享'}</span>
               )}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 500, color: '#202124', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1313,7 +1313,7 @@ function DayDetailPanel({ date, items, selection, onSetPeriod, onMarkZero, onCle
                     <span style={{
                       marginLeft: 6, padding: '1px 5px', borderRadius: 4, fontSize: 10, fontWeight: 600,
                       backgroundColor: auto === 'short' ? '#1a73e8' : '#e8710a', color: '#fff',
-                    }}>📌 自动归{auto === 'short' ? '短' : '长'}</span>
+                    }}>📌 自动归{auto === 'short' ? '本地' : '共享'}</span>
                   )}
                   {!auto && (
                     <span style={{

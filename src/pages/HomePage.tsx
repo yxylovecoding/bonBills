@@ -24,7 +24,7 @@ import { TAX_RULE_PRESETS } from '../utils/tax';
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '说明可编';
+const RELEASE_NOTE = '本地共享';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 
@@ -294,7 +294,7 @@ export default function HomePage() {
                     {stats.longLifeBreakdown.length > 0 && (
                       <span style={{ marginRight: 4, fontSize: 10, color: '#9aa0a6' }}>{longBaseExpanded ? '▼' : '▶'}</span>
                     )}
-                    📦 长周期均摊 <span style={{ fontSize: 10 }}>(已含)</span>
+                    📦 共享均摊 <span style={{ fontSize: 10 }}>(已含)</span>
                   </span>
                   <span style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: C.sub }}>¥{formatCurrency(stats.longLifeDailyBase)}/天</span>
                 </button>
