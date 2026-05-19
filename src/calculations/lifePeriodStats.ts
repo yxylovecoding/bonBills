@@ -61,13 +61,14 @@ export function buildLifePeriodStats(
           : tagList.includes('周期生活') || tagList.includes('波动生活');
         if (!inScope) continue;
 
-        // 决定是否计入短/长统计；不影响行是否出现
+        // 仅统计"显式选择"过的：旧 checkbox 模式下未勾的并不等于"长"，
+        // 那只是"未确认是今天的开销"，不该污染历史推荐值
         let countAs: 'short' | 'long' | null = null;
         if (tagged) {
           if (selectedIds.has(id)) countAs = 'short';
           else if (longSet.has(id)) countAs = 'long';
-          else if (reviewed && !hasExplicitLong) countAs = 'long'; // 旧数据兜底
         }
+        void reviewed; void hasExplicitLong;
 
         const catName = item.category || '(未分类)';
         const subName = subcategoryKey(catName, item.subcategory || '');
