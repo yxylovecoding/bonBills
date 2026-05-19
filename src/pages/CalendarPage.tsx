@@ -7,10 +7,17 @@ import { tagMeta, investMeta } from '../data/mockData';
 import { aggregateExpenseItems, parseBillFile, assignExpenseIds, type BillItem, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
 import { triggerUpload } from '../utils/syncEngine';
 import { useBillDetailStore } from '../stores/billDetailStore';
-import { useLifePeriodOverrideStore, resolveLifePeriod, subcategoryKey, type LifePeriod, type OverrideValue, type OverrideDimension } from '../stores/lifePeriodOverrideStore';
+import {
+  LIFE_PERIOD_RULE_PLACEHOLDER,
+  parseLifePeriodRuleText,
+  useLifePeriodOverrideStore,
+  resolveLifePeriod,
+  type LifePeriod,
+  type LifePeriodOverrides,
+  type LifePeriodRuleParseResult,
+} from '../stores/lifePeriodOverrideStore';
 import AmountInput from '../components/AmountInput';
 import { calcHistoryStats } from '../calculations/history';
-import { buildLifePeriodStats, suggestPeriod, isInconsistent, type LifePeriodStatRow } from '../calculations/lifePeriodStats';
 import { normalizeConfirmedSelection, useCalendarStore, type ConfirmedExpenseSelection } from '../stores/calendarStore';
 import { useConfigStore } from '../stores/configStore';
 import { useSnapshotStore } from '../stores/snapshotStore';
@@ -25,13 +32,6 @@ const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed'
 const CN_MONTH = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
 const WEEK_HEADERS = ['一', '二', '三', '四', '五', '六', '日'];
 const HISTORY_GRID_COLUMNS = '64px 1fr 1fr 1fr 88px';
-const PERIOD_RULE_DIMENSIONS: OverrideDimension[] = ['category', 'subcategory', 'note', 'tag'];
-const PERIOD_RULE_LABEL: Record<OverrideDimension, string> = {
-  category: '分类',
-  subcategory: '子分类',
-  note: '笔记',
-  tag: '标签',
-};
 
 // ── Calendar helpers ──────────────────────────────────────────────
 function pad(n: number) { return String(n).padStart(2, '0'); }
@@ -79,121 +79,6 @@ function prevYearMonth(ym: string) {
   return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
 }
 
-// ── 长/短周期 override 设置弹窗 ────────────────────────────────────
-function PeriodChip({
-  current,
-  suggestion,
-  onChange,
-  allowIgnore,
-}: {
-  current: OverrideValue | undefined;
-  suggestion: LifePeriod | null;
-  onChange: (next: OverrideValue | null) => void;
-  allowIgnore?: boolean;
-}) {
-  const opts: { v: OverrideValue | null; label: string; bg: string; fg: string }[] = [
-    { v: null,     label: '默认', bg: '#f1f3f4', fg: '#5f6368' },
-    { v: 'short',  label: '短',   bg: '#e8f0fe', fg: '#1a73e8' },
-    { v: 'long',   label: '长',   bg: '#fff4e8', fg: '#e8710a' },
-  ];
-  if (allowIgnore) {
-    opts.push({ v: 'ignore', label: '忽略', bg: '#f3e8ff', fg: '#7c3aed' });
-  }
-  return (
-    <div style={{ display: 'flex', gap: 4 }}>
-      {opts.map((o) => {
-        const active = (o.v === null && current === undefined) || current === o.v;
-        const isSuggested = current === undefined && (o.v === 'short' || o.v === 'long') && suggestion === o.v;
-        return (
-          <button
-            key={String(o.v)}
-            onClick={() => onChange(o.v)}
-            style={{
-              padding: '3px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer',
-              border: active ? `1.5px solid ${o.fg}` : (isSuggested ? `1px dashed ${o.fg}` : '1px solid #dadce0'),
-              backgroundColor: active ? o.bg : '#fff',
-              color: active ? o.fg : (isSuggested ? o.fg : '#5f6368'),
-            }}
-          >
-            {o.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function PeriodRow({
-  row,
-  current,
-  suggestion,
-  inconsistent,
-  onChange,
-  displayName,
-  allowIgnore,
-  expanded,
-  onToggleExpand,
-  expandedItems,
-}: {
-  row: LifePeriodStatRow;
-  current: OverrideValue | undefined;
-  suggestion: LifePeriod | null;
-  inconsistent: boolean;
-  onChange: (next: OverrideValue | null) => void;
-  displayName: string;
-  allowIgnore?: boolean;
-  expanded?: boolean;
-  onToggleExpand?: () => void;
-  expandedItems?: BillExpenseItem[];
-}) {
-  return (
-    <div style={{
-      borderRadius: 8, marginBottom: 4,
-      border: inconsistent && current === undefined ? '1px solid #f59e0b' : '1px solid transparent',
-      backgroundColor: inconsistent && current === undefined ? '#fffbeb' : '#fafbfc',
-    }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-        padding: '6px 8px',
-      }}>
-        <button
-          type="button"
-          onClick={onToggleExpand}
-          style={{ minWidth: 0, flex: 1, background: 'none', border: 'none', padding: 0, textAlign: 'left', cursor: onToggleExpand ? 'pointer' : 'default' }}
-        >
-          <div style={{ fontSize: 12, fontWeight: 500, color: '#202124', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            <span style={{ color: '#9aa0a6', marginRight: 4, fontSize: 10 }}>{expanded ? '▼' : '▶'}</span>
-            {inconsistent && current === undefined && <span title="历史勾选不一致" style={{ color: '#f59e0b', marginRight: 4 }}>⚠️</span>}
-            {displayName}
-          </div>
-          <div style={{ fontSize: 10, color: '#5f6368', marginTop: 1, fontVariantNumeric: 'tabular-nums' }}>
-            {row.shortCount > 0 && <span style={{ color: '#1a73e8', marginRight: 8 }}>短×{row.shortCount}</span>}
-            {row.longCount > 0 && <span style={{ color: '#e8710a' }}>长×{row.longCount}</span>}
-          </div>
-        </button>
-        <PeriodChip current={current} suggestion={suggestion} onChange={onChange} allowIgnore={allowIgnore} />
-      </div>
-      {expanded && expandedItems && (
-        <div style={{ padding: '4px 8px 8px', borderTop: '1px dashed #e8eaed', maxHeight: 200, overflowY: 'auto' }}>
-          {expandedItems.length === 0 ? (
-            <div style={{ fontSize: 11, color: '#9aa0a6', padding: '6px 0', textAlign: 'center' }}>无匹配账单</div>
-          ) : (
-            [...expandedItems].sort((a, b) => b.date.localeCompare(a.date)).map((it, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11, padding: '3px 0', color: '#3c4043' }}>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
-                  <span style={{ color: '#9aa0a6', marginRight: 6 }}>{it.date.slice(5)}</span>
-                  {it.note || it.subcategory || it.category || '—'}
-                </span>
-                <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: '#5f6368' }}>¥{formatCurrency(it.amount)}</span>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function SettingsModal({
   onClose,
   thresholdInput,
@@ -203,11 +88,9 @@ function SettingsModal({
   reviewableCategories,
   setReviewableCategories,
   onSave,
-  tagMap,
-  confirmedExpenses,
-  expenseItems,
+  lifePeriodRuleText,
   overrides,
-  setOverride,
+  setRulesFromText,
 }: {
   onClose: () => void;
   thresholdInput: string;
@@ -217,105 +100,26 @@ function SettingsModal({
   reviewableCategories: ReviewableCategory[];
   setReviewableCategories: (cats: ReviewableCategory[]) => void;
   onSave: () => void;
-  tagMap: Record<string, TagKind>;
-  confirmedExpenses: Record<string, { ids: string[]; reviewed: boolean } | string[]>;
-  expenseItems: Record<string, BillExpenseMonth>;
-  overrides: { categories: Record<string, OverrideValue>; subcategories: Record<string, OverrideValue>; notes: Record<string, OverrideValue>; tags: Record<string, OverrideValue> };
-  setOverride: (dim: OverrideDimension, name: string, value: OverrideValue | null) => void;
+  lifePeriodRuleText: string;
+  overrides: LifePeriodOverrides;
+  setRulesFromText: (text: string) => LifePeriodRuleParseResult;
 }) {
-  const [periodTab, setPeriodTab] = useState<'subcategory' | 'note' | 'tag'>('subcategory');
-  const [expandedRowKey, setExpandedRowKey] = useState<string | null>(null);
-  const [manualDim, setManualDim] = useState<OverrideDimension>('subcategory');
-  const [manualName, setManualName] = useState('');
-  const [manualValue, setManualValue] = useState<OverrideValue>('short');
-  const [manualError, setManualError] = useState('');
-  const stats = useMemo(
-    () => buildLifePeriodStats(tagMap, confirmedExpenses, expenseItems, reviewableCategories),
-    [tagMap, confirmedExpenses, expenseItems, reviewableCategories],
-  );
-
-  const overrideMap = periodTab === 'subcategory' ? (overrides.subcategories ?? {})
-    : periodTab === 'note' ? (overrides.notes ?? {})
-    : (overrides.tags ?? {});
-  const tabRows = useMemo(() => {
-    const rows = periodTab === 'subcategory' ? stats.subcategories
-      : periodTab === 'note' ? stats.notes
-      : stats.tags;
-    return [...rows].sort((a, b) => {
-      const aSet = overrideMap[a.name] !== undefined;
-      const bSet = overrideMap[b.name] !== undefined;
-      if (aSet !== bSet) return aSet ? 1 : -1;
-      return (b.shortCount + b.longCount) - (a.shortCount + a.longCount);
-    });
-  }, [periodTab, stats, overrideMap]);
-
-  // 切 tab 时收起展开行
-  useEffect(() => { setExpandedRowKey(null); }, [periodTab]);
-
-  // 把所有月份的账单展平成数组，按行点击展开时按 tab 维度过滤
-  const allItems = useMemo(() => {
-    const out: BillExpenseItem[] = [];
-    for (const monthItems of Object.values(expenseItems)) {
-      if (monthItems) out.push(...monthItems);
-    }
-    return out;
-  }, [expenseItems]);
-
-  const itemsForRow = (rowName: string): BillExpenseItem[] => {
-    if (periodTab === 'subcategory') {
-      return allItems.filter((it) => {
-        const cat = it.category || '(未分类)';
-        return subcategoryKey(cat, it.subcategory || '') === rowName;
-      });
-    }
-    if (periodTab === 'note') {
-      return allItems.filter((it) => (it.note || '') === rowName);
-    }
-    return allItems.filter((it) => {
-      const tagList = (it.tags || '').split(',').map((t) => t.trim()).filter(Boolean);
-      return tagList.includes(rowName);
-    });
-  };
-
-  const tabBtnStyle = (active: boolean): React.CSSProperties => ({
-    flex: 1, padding: '6px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-    border: 'none',
-    backgroundColor: active ? '#e8f0fe' : '#f1f3f4',
-    color: active ? '#1a73e8' : '#5f6368',
-  });
-
+  const [ruleTextDraft, setRuleTextDraft] = useState(lifePeriodRuleText);
+  const [ruleErrors, setRuleErrors] = useState<string[]>([]);
+  useEffect(() => setRuleTextDraft(lifePeriodRuleText), [lifePeriodRuleText]);
+  const parsedRuleDraft = useMemo(() => parseLifePeriodRuleText(ruleTextDraft), [ruleTextDraft]);
   const overrideCount =
     Object.keys(overrides.categories ?? {}).length +
     Object.keys(overrides.subcategories ?? {}).length +
     Object.keys(overrides.notes ?? {}).length +
     Object.keys(overrides.tags ?? {}).length;
-  const configuredRules = useMemo(() => (
-    PERIOD_RULE_DIMENSIONS.flatMap((dim) => {
-      const map = dim === 'category' ? (overrides.categories ?? {})
-        : dim === 'subcategory' ? (overrides.subcategories ?? {})
-        : dim === 'note' ? (overrides.notes ?? {})
-        : (overrides.tags ?? {});
-      return Object.entries(map).map(([name, value]) => ({ dim, name, value }));
-    }).sort((a, b) => {
-      const dimOrder = PERIOD_RULE_DIMENSIONS.indexOf(a.dim) - PERIOD_RULE_DIMENSIONS.indexOf(b.dim);
-      return dimOrder || a.name.localeCompare(b.name, 'zh-Hans-CN');
-    })
-  ), [overrides]);
-
-  const displayRuleName = (dim: OverrideDimension, name: string) => (
-    dim === 'subcategory' && name.includes('|')
-      ? name.split('|').filter(Boolean).join(' · ')
-      : name
-  );
-  const handleAddManualRule = () => {
-    const name = manualName.trim();
-    if (!name) {
-      setManualError('先输入规则名');
+  const handleSave = () => {
+    const parsed = setRulesFromText(ruleTextDraft);
+    if (parsed.errors.length > 0) {
+      setRuleErrors(parsed.errors);
       return;
     }
-    setOverride(manualDim, name, manualValue);
-    setManualName('');
-    setManualError('');
+    onSave();
   };
 
   return (
@@ -378,106 +182,30 @@ function SettingsModal({
                 </span>
               )}
             </div>
-            <div style={{ fontSize: 11, color: '#5f6368', marginBottom: 10, lineHeight: 1.55 }}>
-              <div style={{ marginBottom: 4 }}>
-                <span style={{ color: '#1a73e8', fontWeight: 600 }}>短</span> = 按所在场景（学校/实习/在家/旅行）计入当天日均；
-                <span style={{ color: '#e8710a', fontWeight: 600, marginLeft: 4 }}>长</span> = 不和场景挂钩，全期摊匀进基础日均。
-              </div>
-              <div>自己输入分类、子分类、笔记或标签，命中的账单会自动归为短/长周期生活。优先级：子分类 &gt; 笔记 &gt; 分类 &gt; 标签。「忽略」表示与长短无关、由下一维度决定。</div>
+            <textarea
+              value={ruleTextDraft}
+              onChange={(e) => {
+                setRuleTextDraft(e.target.value);
+                if (ruleErrors.length > 0) setRuleErrors([]);
+              }}
+              placeholder={LIFE_PERIOD_RULE_PLACEHOLDER}
+              rows={10}
+              style={{
+                width: '100%', minHeight: 180, border: '1.5px solid #dadce0', borderRadius: 10,
+                padding: '9px 10px', fontSize: 12, lineHeight: 1.5, outline: 'none',
+                resize: 'vertical', boxSizing: 'border-box', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                backgroundColor: '#fff',
+              }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 6, fontSize: 11, color: parsedRuleDraft.errors.length > 0 ? C.red : C.sub }}>
+              <span>已识别 {parsedRuleDraft.count} 条</span>
+              {parsedRuleDraft.errors.length > 0 && <span>{parsedRuleDraft.errors[0]}</span>}
             </div>
-            <div style={{ padding: 10, borderRadius: 10, backgroundColor: '#f8fafd', border: '1px solid #e8f0fe', marginBottom: 10 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '82px 1fr', gap: 8, marginBottom: 8 }}>
-                <select
-                  value={manualDim}
-                  onChange={(e) => setManualDim(e.target.value as OverrideDimension)}
-                  style={{ border: '1px solid #dadce0', borderRadius: 8, padding: '7px 6px', fontSize: 12, backgroundColor: '#fff', color: '#202124', outline: 'none' }}
-                >
-                  {PERIOD_RULE_DIMENSIONS.map((dim) => (
-                    <option key={dim} value={dim}>{PERIOD_RULE_LABEL[dim]}</option>
-                  ))}
-                </select>
-                <input
-                  value={manualName}
-                  onChange={(e) => { setManualName(e.target.value); if (manualError) setManualError(''); }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleAddManualRule();
-                    }
-                  }}
-                  placeholder={manualDim === 'subcategory' ? '分类|子分类，如 餐饮|咖啡' : `输入${PERIOD_RULE_LABEL[manualDim]}名`}
-                  style={{ minWidth: 0, border: '1px solid #dadce0', borderRadius: 8, padding: '7px 8px', fontSize: 12, outline: 'none', boxSizing: 'border-box' }}
-                />
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                <PeriodChip current={manualValue} suggestion={null} onChange={(next) => setManualValue(next ?? 'short')} allowIgnore />
-                <button
-                  type="button"
-                  onClick={handleAddManualRule}
-                  style={{ padding: '6px 12px', borderRadius: 8, border: 'none', backgroundColor: C.blue, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}
-                >
-                  添加规则
-                </button>
-              </div>
-              {manualError && <div style={{ color: C.red, fontSize: 11, marginTop: 6 }}>{manualError}</div>}
-            </div>
-            {configuredRules.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#202124', marginBottom: 6 }}>已输入规则</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {configuredRules.map(({ dim, name, value }) => (
-                    <div key={`${dim}|${name}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '6px 8px', borderRadius: 8, backgroundColor: '#fafbfc' }}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 12, fontWeight: 500, color: '#202124', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {displayRuleName(dim, name)}
-                        </div>
-                        <div style={{ fontSize: 10, color: C.sub, marginTop: 1 }}>{PERIOD_RULE_LABEL[dim]}</div>
-                      </div>
-                      <PeriodChip current={value} suggestion={null} onChange={(next) => setOverride(dim, name, next)} allowIgnore />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            <div style={{ fontSize: 11, color: '#5f6368', marginBottom: 8, lineHeight: 1.45 }}>
-              历史候选可直接点选；虚线 = 历史推荐值；⚠️ = 历史勾选不一致。点击行可展开账单明细。
-            </div>
-            <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-              <button onClick={() => setPeriodTab('subcategory')} style={tabBtnStyle(periodTab === 'subcategory')}>子分类 ({stats.subcategories.length})</button>
-              <button onClick={() => setPeriodTab('note')} style={tabBtnStyle(periodTab === 'note')}>笔记 ({stats.notes.length})</button>
-              <button onClick={() => setPeriodTab('tag')} style={tabBtnStyle(periodTab === 'tag')}>标签 ({stats.tags.length})</button>
-            </div>
-            {tabRows.length === 0 ? (
-              <div style={{ fontSize: 11, color: '#9aa0a6', padding: '16px 8px', textAlign: 'center' }}>
-                暂无数据。导入账单后，对应的子分类/笔记/标签会出现在这里。
-              </div>
-            ) : (
-              <div>
-                {tabRows.map((row) => {
-                  const current = overrideMap[row.name];
-                  const sug = suggestPeriod(row);
-                  const inc = isInconsistent(row);
-                  // displayName：子分类把 "category|subcategory" 美化为 "category · subcategory"
-                  const displayName = periodTab === 'subcategory' && row.name.includes('|')
-                    ? row.name.split('|').filter(Boolean).join(' · ')
-                    : row.name;
-                  const expanded = expandedRowKey === row.name;
-                  return (
-                    <PeriodRow
-                      key={row.name}
-                      row={row}
-                      current={current}
-                      suggestion={sug}
-                      inconsistent={inc}
-                      displayName={displayName}
-                      allowIgnore
-                      expanded={expanded}
-                      onToggleExpand={() => setExpandedRowKey(expanded ? null : row.name)}
-                      expandedItems={expanded ? itemsForRow(row.name) : undefined}
-                      onChange={(next) => setOverride(periodTab, row.name, next)}
-                    />
-                  );
-                })}
+            {ruleErrors.length > 0 && (
+              <div style={{ marginTop: 6, padding: '7px 9px', borderRadius: 8, backgroundColor: '#fce8e6', color: C.red, fontSize: 11, lineHeight: 1.45 }}>
+                {ruleErrors.map((err) => (
+                  <div key={err}>{err}</div>
+                ))}
               </div>
             )}
           </div>
@@ -488,7 +216,7 @@ function SettingsModal({
             style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', color: '#5f6368', fontSize: 13, cursor: 'pointer' }}>
             取消
           </button>
-          <button onClick={onSave}
+          <button onClick={handleSave}
             style={{ padding: '8px 16px', borderRadius: 8, border: 'none', backgroundColor: '#1a73e8', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
             保存
           </button>
@@ -1800,7 +1528,11 @@ export default function CalendarPage() {
   const { config, setConfig } = useConfigStore();
   const { records, upsert, updateDayCounts } = useMonthlyStore();
   const { tagStats: billTagStats, expenseItems: billExpenseItems, updateFromImport: billUpdateFromImport } = useBillDetailStore();
-  const { overrides: lifePeriodOverrides, setOverride: setLifePeriodOverride } = useLifePeriodOverrideStore();
+  const {
+    overrides: lifePeriodOverrides,
+    ruleText: lifePeriodRuleText,
+    setRulesFromText: setLifePeriodRulesFromText,
+  } = useLifePeriodOverrideStore();
   const {
     tagOrder, setTagOrder, weekdayTags, setWeekdayTags,
     showPayrollCutoffMarkers, setShowPayrollCutoffMarkers,
@@ -2189,11 +1921,9 @@ export default function CalendarPage() {
           reviewableCategories={reviewableCategories}
           setReviewableCategories={setReviewableCategories}
           onSave={() => { setConfig({ majorExpenseThreshold: parseFloat(thresholdInput) || 500 }); setSettingsOpen(false); }}
-          tagMap={tagMap}
-          confirmedExpenses={confirmedExpenses}
-          expenseItems={billExpenseItems}
+          lifePeriodRuleText={lifePeriodRuleText}
           overrides={lifePeriodOverrides}
-          setOverride={setLifePeriodOverride}
+          setRulesFromText={setLifePeriodRulesFromText}
         />
       )}
 
