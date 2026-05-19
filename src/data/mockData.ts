@@ -188,6 +188,7 @@ export const currentStats: CurrentStats = {
   stateConsumptionDailyAvg: { school: 0, intern: 0, home: 0, travel: 0 },
   stateDailyConfidence: { school: 0, intern: 0, home: 0, travel: 0 },
   longLifeDailyBase: 0,
+  longLifeBreakdown: [],
   savingsRate: -0.138,
   totalLife: 2863.31,
 };

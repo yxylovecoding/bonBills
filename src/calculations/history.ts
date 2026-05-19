@@ -67,6 +67,7 @@ type MonthConfirmed = {
   resolvedLifeDays: ByTag;
   shortConsDays: ByTag;
   longLife: number;
+  longLifeByCategory: Record<string, number>;
 };
 
 function buildConfirmedAggregatesByMonth(
@@ -83,6 +84,7 @@ function buildConfirmedAggregatesByMonth(
       resolvedLifeDays: zeroByTag(),
       shortConsDays: zeroByTag(),
       longLife: 0,
+      longLifeByCategory: {},
     };
     const monthItems = expenseItems[r.yearMonth];
     if (!monthItems || monthItems.length === 0) return out;
@@ -114,17 +116,22 @@ function buildConfirmedAggregatesByMonth(
         if (isLife) {
           // 优先级：override > 显式 short/long > 旧数据 reviewed 兜底 > 残差
           const ov = resolveLifePeriod(item, overrides);
-          if (ov === 'long') {
+          const addLong = () => {
             out.longLife += item.amount;
+            const cat = item.category || '(未分类)';
+            out.longLifeByCategory[cat] = (out.longLifeByCategory[cat] ?? 0) + item.amount;
+          };
+          if (ov === 'long') {
+            addLong();
           } else if (ov === 'short') {
             out.shortLife[state] += item.amount;
           } else if (selectedIds.has(id)) {
             out.shortLife[state] += item.amount;
           } else if (longSet.has(id)) {
-            out.longLife += item.amount;
+            addLong();
           } else if (reviewed && !hasExplicitLong) {
             // 旧数据兼容：reviewed 但没存 longIds → 未勾即长
-            out.longLife += item.amount;
+            addLong();
           } else {
             // 新数据模型下：未显式归属即残差，留给月度 y 回归
             lifeAllResolved = false;
@@ -166,7 +173,7 @@ export function calcHistoryStats(
       stateDailyAvg: { school: 0, intern: 0, home: 0, travel: 0 },
       stateConsumptionDailyAvg: { school: 0, intern: 0, home: 0, travel: 0 },
       stateDailyConfidence: { school: 0, intern: 0, home: 0, travel: 0 },
-      longLifeDailyBase: 0,
+      longLifeDailyBase: 0, longLifeBreakdown: [],
       savingsRate: 0, totalLife: 0,
     };
   }
@@ -250,6 +257,8 @@ export function calcHistoryStats(
   }
   let baseWeightSum = 0;
   let baseValueSum = 0;
+  const byCatValueSum: Record<string, number> = {};
+  const byCatAmountTotal: Record<string, number> = {};
   for (let i = 0; i < n; i++) {
     const totalDaysM = TAG_KEYS.reduce((s, k) => s + allDays[i][k], 0);
     if (totalDaysM <= 0) continue;
@@ -258,8 +267,21 @@ export function calcHistoryStats(
     const weight = Math.pow(0.5, monthsAgo / HALF_LIFE_MONTHS);
     baseWeightSum += weight;
     baseValueSum += weight * monthlyBase;
+    for (const [cat, amt] of Object.entries(confirmed[i].longLifeByCategory)) {
+      byCatValueSum[cat] = (byCatValueSum[cat] ?? 0) + weight * (amt / totalDaysM);
+      byCatAmountTotal[cat] = (byCatAmountTotal[cat] ?? 0) + amt;
+    }
   }
   const longLifeDailyBase = baseWeightSum > 0 ? baseValueSum / baseWeightSum : 0;
+  const longLifeBreakdown = baseWeightSum > 0
+    ? Object.entries(byCatValueSum)
+        .map(([category, vSum]) => ({
+          category,
+          amountTotal: byCatAmountTotal[category] ?? 0,
+          dailyBase: vSum / baseWeightSum,
+        }))
+        .sort((a, b) => b.dailyBase - a.dailyBase)
+    : [];
 
   // ── 残差回归：生活（扣除已勾短周期 + 长周期），消费（仅扣已勾短周期）──
   const yLifeResidual = records.map((r, i) => {
@@ -384,7 +406,7 @@ export function calcHistoryStats(
     periodicLifeAvg, volatileLifeAvg, consumptionAvg,
     totalExpenseAvg, monthlyIncomeAvg, schoolDailyAvg,
     stateDailyAvg, stateConsumptionDailyAvg, stateDailyConfidence,
-    longLifeDailyBase,
+    longLifeDailyBase, longLifeBreakdown,
     savingsRate, totalLife: periodicLifeAvg + volatileLifeAvg,
   };
 }

@@ -128,8 +128,15 @@ export interface CurrentStats {
   stateConsumptionDailyAvg: { school: number; intern: number; home: number; travel: number }; // 消费支出日均
   stateDailyConfidence: { school: number; intern: number; home: number; travel: number };      // 各状态历史总天数
   longLifeDailyBase: number;  // 长周期生活均摊基础日均（不分场景，已计入 stateDailyAvg）
+  longLifeBreakdown: LongLifeBreakdownRow[]; // 按分类拆解，sum 约等于 longLifeDailyBase
   savingsRate: number;
   totalLife: number;
+}
+
+export interface LongLifeBreakdownRow {
+  category: string;
+  amountTotal: number;   // 历史累计金额（权重前）
+  dailyBase: number;     // 加权后日均贡献
 }
 
 // ── LatestSnapshot (首页用) ───────────────────────────────────────
