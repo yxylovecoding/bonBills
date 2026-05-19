@@ -24,7 +24,7 @@ import { TAX_RULE_PRESETS } from '../utils/tax';
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '本地共享';
+const RELEASE_NOTE = '场景日均拆解';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 
@@ -105,9 +105,13 @@ export default function HomePage() {
   const { holidayDataByYear, holidayWarning } = useHolidayYears([currentYear - 1, currentYear]);
 
   const twoYearsAgo = `${today.getFullYear() - 1}-01`;
+  const filteredRecords = useMemo(
+    () => records.filter((r) => r.yearMonth >= twoYearsAgo),
+    [records, twoYearsAgo],
+  );
   const stats = useMemo(
-    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides),
-    [records, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides],
+    () => calcHistoryStats(filteredRecords, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides),
+    [filteredRecords, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides],
   );
 
   // 近一年校园卡日均
@@ -123,6 +127,7 @@ export default function HomePage() {
   // FIRE 模式切换
   const [fireMode, setFireMode] = useState<'life' | 'all'>('all');
   const [fireExpanded, setFireExpanded] = useState(false);
+  const [sceneExpanded, setSceneExpanded] = useState<Set<TagKind>>(new Set());
   const [sharedBaseExpanded, setSharedBaseExpanded] = useState(false);
   const [sharedBaseOpenCategories, setSharedBaseOpenCategories] = useState<Set<string>>(new Set());
   const futureFireExpenses = config.futureFireExpenses ?? [];
@@ -161,6 +166,14 @@ export default function HomePage() {
       const next = new Set(prev);
       if (next.has(category)) next.delete(category);
       else next.add(category);
+      return next;
+    });
+  };
+  const toggleScene = (tagKind: TagKind) => {
+    setSceneExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(tagKind)) next.delete(tagKind);
+      else next.add(tagKind);
       return next;
     });
   };
@@ -233,6 +246,20 @@ export default function HomePage() {
   const sceneDailyRows: { tagKind: TagKind; val: number }[] = (
     ['school', 'intern', 'home', 'travel'] as TagKind[]
   ).map((k) => ({ tagKind: k, val: stats.stateDailyAvg[k] })).filter((r) => r.val > 0);
+  const sceneGroups = (
+    [
+      { title: '本地', tagKinds: ['school', 'intern'] as TagKind[] },
+      { title: '外地', tagKinds: ['home', 'travel'] as TagKind[] },
+    ]
+  ).map((group) => ({
+    ...group,
+    rows: group.tagKinds
+      .map((tagKind) => ({ tagKind, val: stats.stateDailyAvg[tagKind] }))
+      .filter((row) => row.val > 0),
+  })).filter((group) => group.rows.length > 0);
+  const sceneRangeLabel = filteredRecords.length >= 12
+    ? `(近 ${(filteredRecords.length / 12).toFixed(1)} 年)`
+    : `(近 ${filteredRecords.length} 个月)`;
   const fireProgressPercent = Math.min(Math.max(fire.progress * 100, 0), 100);
   const fireProgressLabel = `${(fire.progress * 100).toFixed(1)}%`;
 
@@ -269,20 +296,58 @@ export default function HomePage() {
         {sceneDailyRows.length > 0 && (
           <>
             <Divider />
-            <div style={{ fontSize: 12, color: C.sub, marginBottom: 4 }}>场景日均</div>
-            <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
-              <tbody>
-                {sceneDailyRows.map((r) => {
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 4 }}>场景日均 {sceneRangeLabel}</div>
+            {sceneGroups.map((group) => (
+              <div key={group.title}>
+                <div style={{ fontSize: 11, color: C.sub, padding: '4px 0 2px' }}>{group.title}</div>
+                {group.rows.map((r) => {
                   const m = tagMeta[r.tagKind];
+                  const expanded = sceneExpanded.has(r.tagKind);
+                  const localPart = Math.max(r.val - stats.sharedLifeDailyBase, 0);
+                  const localPct = r.val > 0 ? (localPart / r.val) * 100 : 0;
+                  const sharedPct = r.val > 0 ? (stats.sharedLifeDailyBase / r.val) * 100 : 0;
                   return (
-                    <tr key={r.tagKind}>
-                      <td style={{ padding: '5px 0', color: C.sub }}>{m.icon} {m.label}</td>
-                      <td style={{ padding: '5px 0', textAlign: 'right', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(r.val)}</td>
-                    </tr>
+                    <div key={r.tagKind}>
+                      <button
+                        type="button"
+                        onClick={() => toggleScene(r.tagKind)}
+                        style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, padding: '5px 0', color: 'inherit', background: 'none', border: 'none', cursor: 'pointer' }}
+                      >
+                        <span style={{ color: C.sub, textAlign: 'left' }}>
+                          <span style={{ marginRight: 4, fontSize: 10, color: '#9aa0a6' }}>{expanded ? '▼' : '▶'}</span>
+                          {m.icon} {m.label}
+                        </span>
+                        <span style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: '#202124' }}>¥{formatCurrency(r.val)}/天</span>
+                      </button>
+                      {expanded && (
+                        <div style={{ padding: '4px 10px 8px', borderTop: '1px dashed #dadce0' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: '#3c4043' }}>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
+                              本地生活 <span style={{ color: '#9aa0a6' }}>· {localPct.toFixed(1)}%</span>
+                            </span>
+                            <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>¥{localPart.toFixed(2)}/天</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: '#3c4043' }}>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
+                              共享均摊 <span style={{ color: '#9aa0a6' }}>· {sharedPct.toFixed(1)}%</span>
+                            </span>
+                            <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>¥{stats.sharedLifeDailyBase.toFixed(2)}/天</span>
+                          </div>
+                          {r.tagKind === 'school' && campusDailyAvgYear > 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: '#3c4043' }}>
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
+                                🍜 校园卡日均 <span style={{ color: '#9aa0a6' }}>(近一年 · 已含)</span>
+                              </span>
+                              <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>¥{campusDailyAvgYear.toFixed(2)}/天</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
-              </tbody>
-            </table>
+              </div>
+            ))}
             {stats.sharedLifeDailyBase > 0 && (
               <div style={{ marginTop: 6, backgroundColor: '#f1f3f4', borderRadius: 8 }}>
                 <button
@@ -341,15 +406,6 @@ export default function HomePage() {
                 )}
               </div>
             )}
-          </>
-        )}
-        {campusDailyAvgYear > 0 && (
-          <>
-            <Divider />
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
-              <span style={{ color: C.sub }}>🍜 校园卡日均 <span style={{ fontSize: 11 }}>(近一年)</span></span>
-              <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue }}>¥{formatCurrency(campusDailyAvgYear)}</span>
-            </div>
           </>
         )}
       </Card>
