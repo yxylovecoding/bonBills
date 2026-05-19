@@ -69,14 +69,24 @@ export const useLifePeriodOverrideStore = create<LifePeriodOverrideStore>()(
 );
 
 // 工具：判断一条账单根据 overrides 应被划为哪一周期；返回 null 表示无命中
-// 优先级：subcategory > tag。'ignore' 等同于"未配置"，不阻塞后续维度查找
+// 优先级：subcategory > category > tag。'ignore' 等同于"未配置"，不阻塞后续维度查找。
+// subcategory 查找会尝试两种 key 形态以适配空 category 的边缘情况：
+//   1) `${category}|${subcategory}` 原值
+//   2) `(未分类)|${subcategory}` —— buildLifePeriodStats 给空 category 兜底过
 export function resolveLifePeriod(
   item: { category: string; subcategory: string; tags: string },
   overrides: LifePeriodOverrides,
 ): LifePeriod | null {
-  const subKey = subcategoryKey(item.category, item.subcategory);
-  const sub = overrides.subcategories[subKey];
+  const subKeyPrimary = subcategoryKey(item.category, item.subcategory);
+  const sub = overrides.subcategories[subKeyPrimary];
   if (sub === 'short' || sub === 'long') return sub;
+  if (!item.category && item.subcategory) {
+    const fallbackKey = subcategoryKey('(未分类)', item.subcategory);
+    const fb = overrides.subcategories[fallbackKey];
+    if (fb === 'short' || fb === 'long') return fb;
+  }
+  const cat = overrides.categories[item.category];
+  if (cat === 'short' || cat === 'long') return cat;
   const tagList = item.tags.split(',').map((t) => t.trim()).filter(Boolean);
   for (const t of tagList) {
     const tg = overrides.tags[t];

@@ -272,8 +272,12 @@ function SettingsModal({
                 </span>
               )}
             </div>
-            <div style={{ fontSize: 11, color: '#5f6368', marginBottom: 10 }}>
-              命中的账单将自动归为短/长周期生活，不再需要逐条勾选。优先级：子分类 &gt; 标签。标签可设「忽略」表示与长短无关。虚线 = 历史推荐值；⚠️ = 历史勾选不一致。
+            <div style={{ fontSize: 11, color: '#5f6368', marginBottom: 10, lineHeight: 1.55 }}>
+              <div style={{ marginBottom: 4 }}>
+                <span style={{ color: '#1a73e8', fontWeight: 600 }}>短</span> = 按所在场景（学校/实习/在家/旅行）计入当天日均；
+                <span style={{ color: '#e8710a', fontWeight: 600, marginLeft: 4 }}>长</span> = 不和场景挂钩，全期摊匀进基础日均。
+              </div>
+              <div>命中的账单将自动归为短/长周期生活，不再需要逐条勾选。优先级：子分类 &gt; 标签。「忽略」表示与长短无关、由下一维度决定。虚线 = 历史推荐值；⚠️ = 历史勾选不一致。</div>
             </div>
             <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
               <button onClick={() => setPeriodTab('subcategory')} style={tabBtnStyle(periodTab === 'subcategory')}>子分类 ({stats.subcategories.length})</button>
