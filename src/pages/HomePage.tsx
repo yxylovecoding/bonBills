@@ -24,7 +24,7 @@ import { TAX_RULE_PRESETS } from '../utils/tax';
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '避免重计';
+const RELEASE_NOTE = '分层展开';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 
@@ -113,6 +113,14 @@ export default function HomePage() {
     () => calcHistoryStats(filteredRecords, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides),
     [filteredRecords, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides],
   );
+
+  // 近一年校园卡日均
+  const oneYearAgo = `${today.getFullYear() - 1}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  const campusDailyAvgYear = useMemo(() => {
+    const recent = records.filter((r) => r.yearMonth >= oneYearAgo && (r.schoolDays ?? 0) > 0 && r.school > 0);
+    if (recent.length === 0) return 0;
+    return recent.reduce((s, r) => s + r.school / (r.schoolDays ?? 1), 0) / recent.length;
+  }, [records, oneYearAgo]);
 
   const totalInvest = Object.values(current.investHoldings).reduce((s, v) => s + v, 0);
 
@@ -405,6 +413,14 @@ export default function HomePage() {
                             </span>
                             <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>¥{stats.sharedLifeDailyBase.toFixed(2)}/天</span>
                           </div>
+                          {r.tagKind === 'school' && campusDailyAvgYear > 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: '#3c4043' }}>
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
+                                🍜 校园卡日均 <span style={{ color: '#9aa0a6' }}>(近一年 · 已含)</span>
+                              </span>
+                              <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>¥{campusDailyAvgYear.toFixed(2)}/天</span>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
