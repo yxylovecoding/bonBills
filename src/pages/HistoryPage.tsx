@@ -10,7 +10,7 @@ import AmountInput from '../components/AmountInput';
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { useCalendarStore } from '../stores/calendarStore';
 import { useBillDetailStore } from '../stores/billDetailStore';
-import { useLifePeriodOverrideStore } from '../stores/lifePeriodOverrideStore';
+import { useExpenseScopeOverrideStore } from '../stores/expenseScopeOverrideStore';
 import { calcHistoryStats } from '../calculations/history';
 import { investMeta, tagMeta } from '../data/mockData';
 import type { MonthlyRecord, MajorExpense, InvestHoldings, TagKind } from '../models/types';
@@ -529,12 +529,12 @@ export default function HistoryPage() {
   const { records, upsert } = useMonthlyStore();
   const { countByTag, tagMap, confirmedExpenses } = useCalendarStore();
   const { expenseItems } = useBillDetailStore();
-  const { overrides: lifePeriodOverrides } = useLifePeriodOverrideStore();
+  const { overrides: expenseScopeOverrides } = useExpenseScopeOverrideStore();
   const [formOpen, setFormOpen] = useState(false);
   const twoYearsAgo = `${new Date().getFullYear() - 1}-01`;
   const stats = useMemo(
-    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, expenseItems, lifePeriodOverrides),
-    [records, tagMap, confirmedExpenses, expenseItems, lifePeriodOverrides],
+    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides),
+    [records, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides],
   );
 
   const thisMonth = currentYearMonth();
@@ -637,10 +637,10 @@ export default function HistoryPage() {
                   })}
                 </tbody>
               </table>
-              {stats.longLifeDailyBase > 0 && (
+              {stats.sharedLifeDailyBase > 0 && (
                 <div style={{ marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, padding: '6px 10px', backgroundColor: '#f1f3f4', borderRadius: 8 }}>
                   <span style={{ color: C.sub }}>📦 共享均摊 <span style={{ fontSize: 10 }}>(已含)</span></span>
-                  <span style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: C.sub }}>¥{formatCurrency(stats.longLifeDailyBase)}/天</span>
+                  <span style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: C.sub }}>¥{formatCurrency(stats.sharedLifeDailyBase)}/天</span>
                 </div>
               )}
             </>

@@ -8,6 +8,7 @@ const STORE_KEYS = [
   'account-snapshot',
   'app-config',
   'user-prefs',
+  'expense-scope-overrides',
   'life-period-overrides',
 ] as const;
 

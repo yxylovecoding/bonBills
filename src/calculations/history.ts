@@ -2,8 +2,8 @@ import type { MonthlyRecord, CurrentStats, TagKind } from '../models/types';
 import type { BillExpenseMonth } from '../utils/importBill';
 import { assignExpenseIds } from '../utils/importBill';
 import { normalizeConfirmedSelection } from '../stores/calendarStore';
-import type { LifePeriodOverrides } from '../stores/lifePeriodOverrideStore';
-import { resolveLifePeriod } from '../stores/lifePeriodOverrideStore';
+import type { ExpenseScopeOverrides } from '../stores/expenseScopeOverrideStore';
+import { resolveExpenseScope } from '../stores/expenseScopeOverrideStore';
 
 // ── Ridge 回归（正规方程 + 对角正则化，避免奇异）────────────────
 function ridgeSolve(X: number[][], y: number[], lambda = 0.1): number[] {
@@ -58,35 +58,36 @@ type ByTag = Record<TagKind, number>;
 const zeroByTag = (): ByTag => ({ school: 0, intern: 0, home: 0, travel: 0 });
 
 // 单月已确切预聚合
-//   shortLife/longLife：金额已被显式归属到短/长周期
-//   resolvedLifeDays：该天所有 isLife 账单都已被显式归属（不论归到 short 还是 long）的天数
-//   shortCons + shortConsDays：消费部分仅由 reviewed+勾选 决定，无 override
+//   localLife：金额已被显式归属到本地生活
+//   sharedLife：仅周期生活里被归属到共享的金额，用于共享均摊 base
+//   resolvedLifeDays：该天所有 isLife 账单都已被显式归属（不论归到 local 还是 shared）的天数
+//   localCons + localConsDays：消费部分仅由 reviewed+勾选 决定，无 override
 type MonthConfirmed = {
-  shortLife: ByTag;
-  shortCons: ByTag;
+  localLife: ByTag;
+  localCons: ByTag;
   resolvedLifeDays: ByTag;
-  shortConsDays: ByTag;
-  longLife: number;
-  longLifeByCategory: Record<string, number>;
-  longLifeBySubcategory: Record<string, Record<string, number>>;
+  localConsDays: ByTag;
+  sharedLife: number;
+  sharedLifeByCategory: Record<string, number>;
+  sharedLifeBySubcategory: Record<string, Record<string, number>>;
 };
 
 function buildConfirmedAggregatesByMonth(
   records: MonthlyRecord[],
   tagMap: Record<string, TagKind>,
-  confirmedExpenses: Record<string, { ids: string[]; reviewed: boolean } | string[]>,
+  confirmedExpenses: Record<string, unknown>,
   expenseItems: Record<string, BillExpenseMonth>,
-  overrides: LifePeriodOverrides,
+  overrides: ExpenseScopeOverrides,
 ): MonthConfirmed[] {
   return records.map((r) => {
     const out: MonthConfirmed = {
-      shortLife: zeroByTag(),
-      shortCons: zeroByTag(),
+      localLife: zeroByTag(),
+      localCons: zeroByTag(),
       resolvedLifeDays: zeroByTag(),
-      shortConsDays: zeroByTag(),
-      longLife: 0,
-      longLifeByCategory: {},
-      longLifeBySubcategory: {},
+      localConsDays: zeroByTag(),
+      sharedLife: 0,
+      sharedLifeByCategory: {},
+      sharedLifeBySubcategory: {},
     };
     const monthItems = expenseItems[r.yearMonth];
     if (!monthItems || monthItems.length === 0) return out;
@@ -99,53 +100,54 @@ function buildConfirmedAggregatesByMonth(
 
     for (const [date, dayItems] of itemsByDate) {
       const state = tagMap[date];
-      if (!state) continue; // 无 tag 的天暂不归任何 state（也不进入 short/long 桶；金额仍在 y 里）
+      if (!state) continue; // 无 tag 的天暂不归任何 state（也不进入 local/shared 桶；金额仍在 y 里）
 
       const sel = normalizeConfirmedSelection(confirmedExpenses[date]);
       const reviewed = sel.reviewed;
-      const selectedIds = new Set(sel.ids);
-      const hasExplicitLong = sel.longIds !== undefined;
-      const longSet = new Set(sel.longIds ?? []);
+      const localSet = new Set(sel.localIds);
+      const hasExplicitShared = sel.sharedIds !== undefined;
+      const sharedSet = new Set(sel.sharedIds ?? []);
 
       let lifeAllResolved = true; // 该天所有 isLife 是否都被显式归属
-      let dayHadShortCons = false;
+      let dayHadLocalCons = false;
 
       for (const { item, id } of dayItems) {
         const tagList = item.tags.split(',').map((t) => t.trim());
-        const isLife = tagList.includes('周期生活') || tagList.includes('波动生活');
+        const isPeriodicLife = tagList.includes('周期生活');
+        const isLife = isPeriodicLife || tagList.includes('波动生活');
         const isCons = tagList.includes('消费');
 
         if (isLife) {
-          // 优先级：override > 显式 short/long > 旧数据 reviewed 兜底 > 残差
-          const ov = resolveLifePeriod(item, overrides);
-          const addLong = () => {
-            out.longLife += item.amount;
+          // 优先级：override > 显式 local/shared > 旧数据 reviewed 兜底 > 残差
+          const ov = resolveExpenseScope(item, overrides);
+          const addShared = () => {
+            out.sharedLife += item.amount;
             const cat = item.category || '(未分类)';
             const sub = item.subcategory || '未细分';
-            out.longLifeByCategory[cat] = (out.longLifeByCategory[cat] ?? 0) + item.amount;
-            out.longLifeBySubcategory[cat] = out.longLifeBySubcategory[cat] ?? {};
-            out.longLifeBySubcategory[cat][sub] = (out.longLifeBySubcategory[cat][sub] ?? 0) + item.amount;
+            out.sharedLifeByCategory[cat] = (out.sharedLifeByCategory[cat] ?? 0) + item.amount;
+            out.sharedLifeBySubcategory[cat] = out.sharedLifeBySubcategory[cat] ?? {};
+            out.sharedLifeBySubcategory[cat][sub] = (out.sharedLifeBySubcategory[cat][sub] ?? 0) + item.amount;
           };
-          if (ov === 'long') {
-            addLong();
-          } else if (ov === 'short') {
-            out.shortLife[state] += item.amount;
-          } else if (selectedIds.has(id)) {
-            out.shortLife[state] += item.amount;
-          } else if (longSet.has(id)) {
-            addLong();
-          } else if (reviewed && !hasExplicitLong) {
-            // 旧数据兼容：reviewed 但没存 longIds → 未勾即长
-            addLong();
+          if (ov === 'shared' && isPeriodicLife) {
+            addShared();
+          } else if (ov === 'local') {
+            out.localLife[state] += item.amount;
+          } else if (localSet.has(id)) {
+            out.localLife[state] += item.amount;
+          } else if (sharedSet.has(id) && isPeriodicLife) {
+            addShared();
+          } else if (reviewed && !hasExplicitShared && isPeriodicLife) {
+            // 旧数据兼容：reviewed 但没存 sharedIds → 未勾即共享
+            addShared();
           } else {
             // 新数据模型下：未显式归属即残差，留给月度 y 回归
             lifeAllResolved = false;
           }
         } else if (isCons) {
-          // 消费仅在显式勾短时归短期；其它情况留 y
-          if (selectedIds.has(id)) {
-            out.shortCons[state] += item.amount;
-            dayHadShortCons = true;
+          // 消费仅在显式归本地时进入本地；其它情况留 y
+          if (localSet.has(id)) {
+            out.localCons[state] += item.amount;
+            dayHadLocalCons = true;
           }
         }
       }
@@ -153,7 +155,7 @@ function buildConfirmedAggregatesByMonth(
       // 该天 isLife 全部被显式归属 → resolvedLifeDays + 1（用于 X_life 残差扣除）
       // 没有 isLife 账单的天也算 "resolved"（life 部分本来就没有需要分配的金额）
       if (lifeAllResolved) out.resolvedLifeDays[state] += 1;
-      if (dayHadShortCons) out.shortConsDays[state] += 1;
+      if (dayHadLocalCons) out.localConsDays[state] += 1;
     }
 
     return out;
@@ -162,13 +164,13 @@ function buildConfirmedAggregatesByMonth(
 
 // ── 主计算函数 ────────────────────────────────────────────────────
 // tagMap 可选传入；有数据的月份优先用 tagMap 的实际天数，否则 fallback 到 MonthlyRecord 字段
-// confirmedExpenses + expenseItems 可选传入；用于"扣除式反哺"+ 长周期均摊
+// confirmedExpenses + expenseItems 可选传入；用于"扣除式反哺"+ 共享均摊
 export function calcHistoryStats(
   records: MonthlyRecord[],
   tagMap: Record<string, TagKind> = {},
-  confirmedExpenses: Record<string, { ids: string[]; reviewed: boolean } | string[]> = {},
+  confirmedExpenses: Record<string, unknown> = {},
   expenseItems: Record<string, BillExpenseMonth> = {},
-  overrides: LifePeriodOverrides = { categories: {}, subcategories: {}, notes: {}, tags: {} },
+  overrides: ExpenseScopeOverrides = { categories: {}, subcategories: {}, notes: {}, tags: {} },
 ): CurrentStats {
   const n = records.length;
   if (n === 0) {
@@ -178,7 +180,7 @@ export function calcHistoryStats(
       stateDailyAvg: { school: 0, intern: 0, home: 0, travel: 0 },
       stateConsumptionDailyAvg: { school: 0, intern: 0, home: 0, travel: 0 },
       stateDailyConfidence: { school: 0, intern: 0, home: 0, travel: 0 },
-      longLifeDailyBase: 0, longLifeBreakdown: [],
+      sharedLifeDailyBase: 0, sharedLifeBreakdown: [],
       savingsRate: 0, totalLife: 0,
     };
   }
@@ -231,25 +233,25 @@ export function calcHistoryStats(
   const confirmed = buildConfirmedAggregatesByMonth(records, tagMap, confirmedExpenses, expenseItems, overrides);
 
   // 历史汇总
-  const totalConfShortLife: ByTag = zeroByTag();
-  const totalConfShortCons: ByTag = zeroByTag();
+  const totalConfLocalLife: ByTag = zeroByTag();
+  const totalConfLocalCons: ByTag = zeroByTag();
   const totalResolvedLifeDays: ByTag = zeroByTag();
   const totalConfConsDays:  ByTag = zeroByTag();
-  let totalLongLife = 0;
+  let totalSharedLife = 0;
   for (const c of confirmed) {
     for (const k of TAG_KEYS) {
-      totalConfShortLife[k] += c.shortLife[k];
-      totalConfShortCons[k] += c.shortCons[k];
+      totalConfLocalLife[k] += c.localLife[k];
+      totalConfLocalCons[k] += c.localCons[k];
       totalResolvedLifeDays[k] += c.resolvedLifeDays[k];
-      totalConfConsDays[k]  += c.shortConsDays[k];
+      totalConfConsDays[k]  += c.localConsDays[k];
     }
-    totalLongLife += c.longLife;
+    totalSharedLife += c.sharedLife;
   }
 
-  // 长周期均摊 base：按月独立算「月长周期日均」后做时间衰减加权平均
+  // 共享均摊 base：按月独立算「月共享日均」后做时间衰减加权平均
   // 半衰期 6 个月：最新月权重 1，6 月前权重 0.5，12 月前权重 0.25
   // 这样话费等价格型支出在涨价后 base 能快速反映，季度订阅也不会被漏掉
-  void totalLongLife; // 已不再直接使用（保留是为了调试/观察），改用月度展开
+  void totalSharedLife; // 已不再直接使用（保留是为了调试/观察），改用月度展开
   const HALF_LIFE_MONTHS = 6;
   function ymToIndex(ym: string): number {
     const [y, m] = ym.split('-').map(Number);
@@ -269,16 +271,16 @@ export function calcHistoryStats(
   for (let i = 0; i < n; i++) {
     const totalDaysM = TAG_KEYS.reduce((s, k) => s + allDays[i][k], 0);
     if (totalDaysM <= 0) continue;
-    const monthlyBase = confirmed[i].longLife / totalDaysM;
+    const monthlyBase = confirmed[i].sharedLife / totalDaysM;
     const monthsAgo = maxYmIdx - ymToIndex(records[i].yearMonth);
     const weight = Math.pow(0.5, monthsAgo / HALF_LIFE_MONTHS);
     baseWeightSum += weight;
     baseValueSum += weight * monthlyBase;
-    for (const [cat, amt] of Object.entries(confirmed[i].longLifeByCategory)) {
+    for (const [cat, amt] of Object.entries(confirmed[i].sharedLifeByCategory)) {
       byCatValueSum[cat] = (byCatValueSum[cat] ?? 0) + weight * (amt / totalDaysM);
       byCatAmountTotal[cat] = (byCatAmountTotal[cat] ?? 0) + amt;
     }
-    for (const [cat, subMap] of Object.entries(confirmed[i].longLifeBySubcategory)) {
+    for (const [cat, subMap] of Object.entries(confirmed[i].sharedLifeBySubcategory)) {
       bySubValueSum[cat] = bySubValueSum[cat] ?? {};
       bySubAmountTotal[cat] = bySubAmountTotal[cat] ?? {};
       for (const [sub, amt] of Object.entries(subMap)) {
@@ -287,8 +289,8 @@ export function calcHistoryStats(
       }
     }
   }
-  const longLifeDailyBase = baseWeightSum > 0 ? baseValueSum / baseWeightSum : 0;
-  const longLifeBreakdown = baseWeightSum > 0
+  const sharedLifeDailyBase = baseWeightSum > 0 ? baseValueSum / baseWeightSum : 0;
+  const sharedLifeBreakdown = baseWeightSum > 0
     ? Object.entries(byCatValueSum)
         .map(([category, vSum]) => ({
           category,
@@ -305,16 +307,16 @@ export function calcHistoryStats(
         .sort((a, b) => b.dailyBase - a.dailyBase)
     : [];
 
-  // ── 残差回归：生活（扣除已勾短周期 + 长周期），消费（仅扣已勾短周期）──
+  // ── 残差回归：生活（扣除本地 + 共享），消费（仅扣本地）──
   const yLifeResidual = records.map((r, i) => {
     const c = confirmed[i];
-    const sumShort = TAG_KEYS.reduce((s, k) => s + c.shortLife[k], 0);
-    return (r.periodicLife + r.volatileLife) - sumShort - c.longLife;
+    const sumLocal = TAG_KEYS.reduce((s, k) => s + c.localLife[k], 0);
+    return (r.periodicLife + r.volatileLife) - sumLocal - c.sharedLife;
   });
   const yConsResidual = records.map((r, i) => {
     const c = confirmed[i];
-    const sumShort = TAG_KEYS.reduce((s, k) => s + c.shortCons[k], 0);
-    return r.consumption - sumShort;
+    const sumLocal = TAG_KEYS.reduce((s, k) => s + c.localCons[k], 0);
+    return r.consumption - sumLocal;
   });
 
   const XLifeResidual: number[][] = records.map((_, i) => {
@@ -331,10 +333,10 @@ export function calcHistoryStats(
     const d = allDays[i];
     const c = confirmed[i];
     return [
-      Math.max(0, d.school - c.shortConsDays.school),
-      Math.max(0, d.intern - c.shortConsDays.intern),
-      Math.max(0, d.home   - c.shortConsDays.home),
-      Math.max(0, d.travel - c.shortConsDays.travel),
+      Math.max(0, d.school - c.localConsDays.school),
+      Math.max(0, d.intern - c.localConsDays.intern),
+      Math.max(0, d.home   - c.localConsDays.home),
+      Math.max(0, d.travel - c.localConsDays.travel),
     ];
   });
 
@@ -394,7 +396,7 @@ export function calcHistoryStats(
   const betaLife = solveWithResidualFallback(XLifeResidual, yLifeResidual, monthsWithLifeResidual);
   const betaCons = solveWithResidualFallback(XConsResidual, yConsResidual, monthsWithConsResidual);
 
-  // ── 合并：场景日均 = 短周期部分 + 长周期 base（仅生活）──
+  // ── 合并：场景日均 = 本地部分 + 共享 base（仅生活）──
   const stateDailyAvg: ByTag = zeroByTag();
   const stateConsumptionDailyAvg: ByTag = zeroByTag();
   for (const s of TAG_KEYS) {
@@ -407,20 +409,20 @@ export function calcHistoryStats(
 
     // 生活
     const remainLife = totalDays - totalResolvedLifeDays[s];
-    let shortLifeAvg: number;
+    let localLifeAvg: number;
     if (remainLife <= 0) {
-      shortLifeAvg = totalConfShortLife[s] / totalDays;
+      localLifeAvg = totalConfLocalLife[s] / totalDays;
     } else {
-      shortLifeAvg = (totalConfShortLife[s] + betaLife[s] * remainLife) / totalDays;
+      localLifeAvg = (totalConfLocalLife[s] + betaLife[s] * remainLife) / totalDays;
     }
-    stateDailyAvg[s] = shortLifeAvg + longLifeDailyBase;
+    stateDailyAvg[s] = localLifeAvg + sharedLifeDailyBase;
 
     // 消费
     const remainCons = totalDays - totalConfConsDays[s];
     if (remainCons <= 0) {
-      stateConsumptionDailyAvg[s] = totalConfShortCons[s] / totalDays;
+      stateConsumptionDailyAvg[s] = totalConfLocalCons[s] / totalDays;
     } else {
-      stateConsumptionDailyAvg[s] = (totalConfShortCons[s] + betaCons[s] * remainCons) / totalDays;
+      stateConsumptionDailyAvg[s] = (totalConfLocalCons[s] + betaCons[s] * remainCons) / totalDays;
     }
   }
 
@@ -428,7 +430,7 @@ export function calcHistoryStats(
     periodicLifeAvg, volatileLifeAvg, consumptionAvg,
     totalExpenseAvg, monthlyIncomeAvg, schoolDailyAvg,
     stateDailyAvg, stateConsumptionDailyAvg, stateDailyConfidence,
-    longLifeDailyBase, longLifeBreakdown,
+    sharedLifeDailyBase, sharedLifeBreakdown,
     savingsRate, totalLife: periodicLifeAvg + volatileLifeAvg,
   };
 }

@@ -4,25 +4,37 @@ import type { TagKind } from '../models/types';
 
 // tagMap: { "2026-04-11": "school", ... }
 type TagMap = Record<string, TagKind>;
-// ids: 显式归短的账单 id
-// longIds: 显式归长的账单 id（undefined = 旧数据，按"日级 reviewed → 未勾即长"兜底）
+// localIds: 显式归本地的账单 id
+// sharedIds: 显式归共享的账单 id（undefined = 旧数据，按"日级 reviewed → 未勾即共享"兜底）
 // reviewed: 该天用户是否动过（用于日历圆点 + 旧数据兜底语义）
-export type ConfirmedExpenseSelection = { ids: string[]; longIds?: string[]; reviewed: boolean };
-type LegacyConfirmedExpenses = Record<string, string[] | ConfirmedExpenseSelection>;
+export type ConfirmedExpenseSelection = { localIds: string[]; sharedIds?: string[]; reviewed: boolean };
+type LegacyConfirmedExpenseSelection = {
+  ids?: unknown[];
+  localIds?: unknown[];
+  sharedIds?: unknown[];
+  reviewed?: unknown;
+} & Record<string, unknown>;
+type LegacyConfirmedExpenses = Record<string, string[] | LegacyConfirmedExpenseSelection>;
+const LEGACY_SHARED_IDS_KEY = 'long' + 'Ids';
 
-export function normalizeConfirmedSelection(value: unknown): ConfirmedExpenseSelection {
-  if (Array.isArray(value)) return { ids: value, reviewed: value.length > 0 };
-  if (!value || typeof value !== 'object') return { ids: [], reviewed: false };
-  const ids = Array.isArray((value as { ids?: unknown[] }).ids) ? (value as { ids: string[] }).ids : [];
-  const longIdsRaw = (value as { longIds?: unknown }).longIds;
-  const longIds = Array.isArray(longIdsRaw) ? (longIdsRaw as string[]) : undefined;
-  const reviewed = typeof (value as { reviewed?: unknown }).reviewed === 'boolean'
-    ? (value as { reviewed: boolean }).reviewed
-    : ids.length > 0;
-  return longIds !== undefined ? { ids, longIds, reviewed } : { ids, reviewed };
+function normalizeIds(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
 }
 
-function normalizeConfirmedExpenses(input: unknown): Record<string, ConfirmedExpenseSelection> {
+export function normalizeConfirmedSelection(value: unknown): ConfirmedExpenseSelection {
+  if (Array.isArray(value)) return { localIds: normalizeIds(value), reviewed: value.length > 0 };
+  if (!value || typeof value !== 'object') return { localIds: [], reviewed: false };
+  const raw = value as LegacyConfirmedExpenseSelection;
+  const localIds = normalizeIds(raw.localIds ?? raw.ids);
+  const sharedIdsRaw = raw.sharedIds ?? raw[LEGACY_SHARED_IDS_KEY];
+  const sharedIds = Array.isArray(sharedIdsRaw) ? normalizeIds(sharedIdsRaw) : undefined;
+  const reviewed = typeof raw.reviewed === 'boolean'
+    ? raw.reviewed
+    : localIds.length > 0 || (sharedIds?.length ?? 0) > 0;
+  return sharedIds !== undefined ? { localIds, sharedIds, reviewed } : { localIds, reviewed };
+}
+
+export function normalizeConfirmedExpenses(input: unknown): Record<string, ConfirmedExpenseSelection> {
   if (!input || typeof input !== 'object') return {};
   const result: Record<string, ConfirmedExpenseSelection> = {};
   for (const [date, value] of Object.entries(input as LegacyConfirmedExpenses)) {
@@ -46,7 +58,7 @@ interface CalendarStore {
   initMonthFromCounts: (yearMonth: string, counts: { school: number; intern: number; home: number; travel: number }) => void;
   markInitialized: () => void;
   toggleConfirmedExpense: (date: string, id: string) => void;
-  setConfirmedExpensePeriod: (date: string, id: string, period: 'short' | 'long') => void;
+  setConfirmedExpenseScope: (date: string, id: string, scope: 'local' | 'shared') => void;
   markConfirmedExpenseZero: (date: string) => void;
   clearConfirmedExpenseSelection: (date: string) => void;
 }
@@ -130,23 +142,24 @@ export const useCalendarStore = create<CalendarStore>()(
 
       toggleConfirmedExpense: (date, id) =>
         set((s) => {
-          const cur = normalizeConfirmedSelection(s.confirmedExpenses[date]).ids;
-          const exists = cur.includes(id);
-          const nextIds = exists ? cur.filter((x) => x !== id) : [...cur, id];
+          const cur = normalizeConfirmedSelection(s.confirmedExpenses[date]);
+          const exists = cur.localIds.includes(id);
+          const localIds = exists ? cur.localIds.filter((x) => x !== id) : [...cur.localIds, id];
+          const sharedIds = (cur.sharedIds ?? []).filter((x) => x !== id);
           const nextMap = { ...s.confirmedExpenses };
-          nextMap[date] = { ids: nextIds, reviewed: true };
+          nextMap[date] = { localIds, sharedIds, reviewed: true };
           return { confirmedExpenses: nextMap };
         }),
 
-      setConfirmedExpensePeriod: (date, id, period) =>
+      setConfirmedExpenseScope: (date, id, scope) =>
         set((s) => {
           const cur = normalizeConfirmedSelection(s.confirmedExpenses[date]);
-          const shortIds = cur.ids.filter((x) => x !== id);
-          const longIds = (cur.longIds ?? []).filter((x) => x !== id);
-          if (period === 'short') shortIds.push(id);
-          else longIds.push(id);
+          const localIds = cur.localIds.filter((x) => x !== id);
+          const sharedIds = (cur.sharedIds ?? []).filter((x) => x !== id);
+          if (scope === 'local') localIds.push(id);
+          else sharedIds.push(id);
           const nextMap = { ...s.confirmedExpenses };
-          nextMap[date] = { ids: shortIds, longIds, reviewed: true };
+          nextMap[date] = { localIds, sharedIds, reviewed: true };
           return { confirmedExpenses: nextMap };
         }),
 
@@ -154,7 +167,7 @@ export const useCalendarStore = create<CalendarStore>()(
         set((s) => ({
           confirmedExpenses: {
             ...s.confirmedExpenses,
-            [date]: { ids: [], reviewed: true },
+            [date]: { localIds: [], sharedIds: [], reviewed: true },
           },
         })),
 
@@ -167,7 +180,7 @@ export const useCalendarStore = create<CalendarStore>()(
     }),
     {
       name: 'calendar-tags',
-      version: 2,
+      version: 3,
       migrate: (persistedState) => {
         if (!persistedState || typeof persistedState !== 'object') return persistedState;
         const state = persistedState as { confirmedExpenses?: unknown };

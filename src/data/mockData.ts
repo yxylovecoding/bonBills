@@ -187,15 +187,15 @@ export const currentStats: CurrentStats = {
   stateDailyAvg: { school: 139.88, intern: 105, home: 105, travel: 105 },
   stateConsumptionDailyAvg: { school: 0, intern: 0, home: 0, travel: 0 },
   stateDailyConfidence: { school: 0, intern: 0, home: 0, travel: 0 },
-  longLifeDailyBase: 0,
-  longLifeBreakdown: [],
+  sharedLifeDailyBase: 0,
+  sharedLifeBreakdown: [],
   savingsRate: -0.138,
   totalLife: 2863.31,
 };
 
 // Tag 元信息
 export const tagMeta = {
-  intern: { icon: '💼', label: '班', color: '#8b5cf6' },
+  intern: { icon: '💼', label: '实习', color: '#8b5cf6' },
   school: { icon: '📚', label: '学', color: '#3b82f6' },
   home:   { icon: '🏠', label: '家', color: '#10b981' },
   travel: { icon: '✈️', label: '游', color: '#fb923c' },

@@ -7,10 +7,10 @@ import { tagMeta, investMeta } from '../data/mockData';
 import { aggregateExpenseItems, parseBillFile, assignExpenseIds, type BillItem, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
 import { triggerUpload } from '../utils/syncEngine';
 import { useBillDetailStore } from '../stores/billDetailStore';
-import { useLifePeriodOverrideStore, resolveLifePeriod, subcategoryKey, type LifePeriod, type OverrideValue, type OverrideDimension } from '../stores/lifePeriodOverrideStore';
+import { useExpenseScopeOverrideStore, resolveExpenseScope, subcategoryKey, type ExpenseScope, type OverrideValue, type OverrideDimension } from '../stores/expenseScopeOverrideStore';
 import AmountInput from '../components/AmountInput';
 import { calcHistoryStats } from '../calculations/history';
-import { buildLifePeriodStats, suggestPeriod, isInconsistent, type LifePeriodStatRow } from '../calculations/lifePeriodStats';
+import { buildExpenseScopeStats, suggestScope, isInconsistent, type ExpenseScopeStatRow } from '../calculations/expenseScopeStats';
 import { normalizeConfirmedSelection, useCalendarStore, type ConfirmedExpenseSelection } from '../stores/calendarStore';
 import { useConfigStore } from '../stores/configStore';
 import { useSnapshotStore } from '../stores/snapshotStore';
@@ -72,22 +72,22 @@ function prevYearMonth(ym: string) {
   return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
 }
 
-// ── 长/短周期 override 设置弹窗 ────────────────────────────────────
-function PeriodChip({
+// ── 本地/共享分类规则弹窗 ────────────────────────────────────────
+function ScopeChip({
   current,
   suggestion,
   onChange,
   allowIgnore,
 }: {
   current: OverrideValue | undefined;
-  suggestion: LifePeriod | null;
+  suggestion: ExpenseScope | null;
   onChange: (next: OverrideValue | null) => void;
   allowIgnore?: boolean;
 }) {
   const opts: { v: OverrideValue | null; label: string; bg: string; fg: string }[] = [
     { v: null,     label: '默认', bg: '#f1f3f4', fg: '#5f6368' },
-    { v: 'short',  label: '本地', bg: '#e8f0fe', fg: '#1a73e8' },
-    { v: 'long',   label: '共享', bg: '#fff4e8', fg: '#e8710a' },
+    { v: 'local',  label: '本地', bg: '#e8f0fe', fg: '#1a73e8' },
+    { v: 'shared',   label: '共享', bg: '#fff4e8', fg: '#e8710a' },
   ];
   if (allowIgnore) {
     opts.push({ v: 'ignore', label: '忽略', bg: '#f3e8ff', fg: '#7c3aed' });
@@ -96,7 +96,7 @@ function PeriodChip({
     <div style={{ display: 'flex', gap: 4 }}>
       {opts.map((o) => {
         const active = (o.v === null && current === undefined) || current === o.v;
-        const isSuggested = current === undefined && (o.v === 'short' || o.v === 'long') && suggestion === o.v;
+        const isSuggested = current === undefined && (o.v === 'local' || o.v === 'shared') && suggestion === o.v;
         return (
           <button
             key={String(o.v)}
@@ -116,7 +116,7 @@ function PeriodChip({
   );
 }
 
-function PeriodRow({
+function ScopeRow({
   row,
   current,
   suggestion,
@@ -128,9 +128,9 @@ function PeriodRow({
   onToggleExpand,
   expandedItems,
 }: {
-  row: LifePeriodStatRow;
+  row: ExpenseScopeStatRow;
   current: OverrideValue | undefined;
-  suggestion: LifePeriod | null;
+  suggestion: ExpenseScope | null;
   inconsistent: boolean;
   onChange: (next: OverrideValue | null) => void;
   displayName: string;
@@ -160,11 +160,11 @@ function PeriodRow({
             {displayName}
           </div>
           <div style={{ fontSize: 10, color: '#5f6368', marginTop: 1, fontVariantNumeric: 'tabular-nums' }}>
-            {row.shortCount > 0 && <span style={{ color: '#1a73e8', marginRight: 8 }}>本地×{row.shortCount}</span>}
-            {row.longCount > 0 && <span style={{ color: '#e8710a' }}>共享×{row.longCount}</span>}
+            {row.localCount > 0 && <span style={{ color: '#1a73e8', marginRight: 8 }}>本地×{row.localCount}</span>}
+            {row.sharedCount > 0 && <span style={{ color: '#e8710a' }}>共享×{row.sharedCount}</span>}
           </div>
         </button>
-        <PeriodChip current={current} suggestion={suggestion} onChange={onChange} allowIgnore={allowIgnore} />
+        <ScopeChip current={current} suggestion={suggestion} onChange={onChange} allowIgnore={allowIgnore} />
       </div>
       {expanded && expandedItems && (
         <div style={{ padding: '4px 8px 8px', borderTop: '1px dashed #e8eaed', maxHeight: 200, overflowY: 'auto' }}>
@@ -195,8 +195,8 @@ function SettingsModal({
   setShowPayrollCutoffMarkers,
   reviewableCategories,
   setReviewableCategories,
-  lifePeriodHelpText,
-  setLifePeriodHelpText,
+  expenseScopeHelpText,
+  setExpenseScopeHelpText,
   onSave,
   tagMap,
   confirmedExpenses,
@@ -211,41 +211,41 @@ function SettingsModal({
   setShowPayrollCutoffMarkers: (v: boolean) => void;
   reviewableCategories: ReviewableCategory[];
   setReviewableCategories: (cats: ReviewableCategory[]) => void;
-  lifePeriodHelpText: string;
-  setLifePeriodHelpText: (text: string) => void;
+  expenseScopeHelpText: string;
+  setExpenseScopeHelpText: (text: string) => void;
   onSave: () => void;
   tagMap: Record<string, TagKind>;
-  confirmedExpenses: Record<string, { ids: string[]; reviewed: boolean } | string[]>;
+  confirmedExpenses: Record<string, unknown>;
   expenseItems: Record<string, BillExpenseMonth>;
   overrides: { categories: Record<string, OverrideValue>; subcategories: Record<string, OverrideValue>; notes: Record<string, OverrideValue>; tags: Record<string, OverrideValue> };
   setOverride: (dim: OverrideDimension, name: string, value: OverrideValue | null) => void;
 }) {
-  const [periodTab, setPeriodTab] = useState<'subcategory' | 'note' | 'tag'>('subcategory');
+  const [scopeTab, setScopeTab] = useState<'subcategory' | 'note' | 'tag'>('subcategory');
   const [expandedRowKey, setExpandedRowKey] = useState<string | null>(null);
   const [expandedCategoryKey, setExpandedCategoryKey] = useState<string | null>(null);
-  const [lifePeriodHelpDraft, setLifePeriodHelpDraft] = useState(lifePeriodHelpText);
+  const [expenseScopeHelpDraft, setExpenseScopeHelpDraft] = useState(expenseScopeHelpText);
   const stats = useMemo(
-    () => buildLifePeriodStats(tagMap, confirmedExpenses, expenseItems, reviewableCategories),
+    () => buildExpenseScopeStats(tagMap, confirmedExpenses, expenseItems, reviewableCategories),
     [tagMap, confirmedExpenses, expenseItems, reviewableCategories],
   );
 
-  const overrideMap = periodTab === 'subcategory' ? (overrides.subcategories ?? {})
-    : periodTab === 'note' ? (overrides.notes ?? {})
+  const overrideMap = scopeTab === 'subcategory' ? (overrides.subcategories ?? {})
+    : scopeTab === 'note' ? (overrides.notes ?? {})
     : (overrides.tags ?? {});
   const tabRows = useMemo(() => {
-    const rows = periodTab === 'subcategory' ? stats.subcategories
-      : periodTab === 'note' ? stats.notes
+    const rows = scopeTab === 'subcategory' ? stats.subcategories
+      : scopeTab === 'note' ? stats.notes
       : stats.tags;
     return [...rows].sort((a, b) => {
       const aSet = overrideMap[a.name] !== undefined;
       const bSet = overrideMap[b.name] !== undefined;
       if (aSet !== bSet) return aSet ? 1 : -1;
-      return (b.shortCount + b.longCount) - (a.shortCount + a.longCount);
+      return (b.localCount + b.sharedCount) - (a.localCount + a.sharedCount);
     });
-  }, [periodTab, stats, overrideMap]);
+  }, [scopeTab, stats, overrideMap]);
   const subcategoryGroups = useMemo(() => {
-    if (periodTab !== 'subcategory') return [];
-    const map = new Map<string, LifePeriodStatRow[]>();
+    if (scopeTab !== 'subcategory') return [];
+    const map = new Map<string, ExpenseScopeStatRow[]>();
     for (const row of tabRows) {
       const [category] = row.name.split('|');
       const groupName = category || '(未分类)';
@@ -256,17 +256,17 @@ function SettingsModal({
     return [...map.entries()].map(([category, rows]) => ({
       category,
       rows,
-      shortCount: rows.reduce((sum, row) => sum + row.shortCount, 0),
-      longCount: rows.reduce((sum, row) => sum + row.longCount, 0),
+      localCount: rows.reduce((sum, row) => sum + row.localCount, 0),
+      sharedCount: rows.reduce((sum, row) => sum + row.sharedCount, 0),
       configuredCount: rows.reduce((sum, row) => sum + (overrideMap[row.name] !== undefined ? 1 : 0), 0),
     }));
-  }, [periodTab, tabRows, overrideMap]);
+  }, [scopeTab, tabRows, overrideMap]);
 
   // 切 tab 时收起展开行
   useEffect(() => {
     setExpandedRowKey(null);
     setExpandedCategoryKey(null);
-  }, [periodTab]);
+  }, [scopeTab]);
 
   // 把所有月份的账单展平成数组，按行点击展开时按 tab 维度过滤
   const allItems = useMemo(() => {
@@ -278,13 +278,13 @@ function SettingsModal({
   }, [expenseItems]);
 
   const itemsForRow = (rowName: string): BillExpenseItem[] => {
-    if (periodTab === 'subcategory') {
+    if (scopeTab === 'subcategory') {
       return allItems.filter((it) => {
         const cat = it.category || '(未分类)';
         return subcategoryKey(cat, it.subcategory || '') === rowName;
       });
     }
-    if (periodTab === 'note') {
+    if (scopeTab === 'note') {
       return allItems.filter((it) => (it.note || '') === rowName);
     }
     return allItems.filter((it) => {
@@ -305,7 +305,7 @@ function SettingsModal({
     Object.keys(overrides.notes ?? {}).length +
     Object.keys(overrides.tags ?? {}).length;
   const handleSave = () => {
-    setLifePeriodHelpText(lifePeriodHelpDraft);
+    setExpenseScopeHelpText(expenseScopeHelpDraft);
     onSave();
   };
 
@@ -370,8 +370,8 @@ function SettingsModal({
               )}
             </div>
             <textarea
-              value={lifePeriodHelpDraft}
-              onChange={(e) => setLifePeriodHelpDraft(e.target.value)}
+              value={expenseScopeHelpDraft}
+              onChange={(e) => setExpenseScopeHelpDraft(e.target.value)}
               rows={4}
               style={{
                 width: '100%', border: '1.5px solid #dadce0', borderRadius: 8, padding: '8px 10px',
@@ -380,15 +380,15 @@ function SettingsModal({
               }}
             />
             <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-              <button onClick={() => setPeriodTab('subcategory')} style={tabBtnStyle(periodTab === 'subcategory')}>子分类 ({stats.subcategories.length})</button>
-              <button onClick={() => setPeriodTab('note')} style={tabBtnStyle(periodTab === 'note')}>笔记 ({stats.notes.length})</button>
-              <button onClick={() => setPeriodTab('tag')} style={tabBtnStyle(periodTab === 'tag')}>标签 ({stats.tags.length})</button>
+              <button onClick={() => setScopeTab('subcategory')} style={tabBtnStyle(scopeTab === 'subcategory')}>子分类 ({stats.subcategories.length})</button>
+              <button onClick={() => setScopeTab('note')} style={tabBtnStyle(scopeTab === 'note')}>笔记 ({stats.notes.length})</button>
+              <button onClick={() => setScopeTab('tag')} style={tabBtnStyle(scopeTab === 'tag')}>标签 ({stats.tags.length})</button>
             </div>
             {tabRows.length === 0 ? (
               <div style={{ fontSize: 11, color: '#9aa0a6', padding: '16px 8px', textAlign: 'center' }}>
                 暂无数据。导入账单后，对应的子分类/笔记/标签会出现在这里。
               </div>
-            ) : periodTab === 'subcategory' ? (
+            ) : scopeTab === 'subcategory' ? (
               <div>
                 {subcategoryGroups.map((group) => {
                   const expanded = expandedCategoryKey === group.category;
@@ -407,8 +407,8 @@ function SettingsModal({
                           <div style={{ fontSize: 10, color: '#5f6368', marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
                             {group.rows.length} 项
                             {group.configuredCount > 0 && <span style={{ marginLeft: 8, color: '#1a73e8' }}>已设×{group.configuredCount}</span>}
-                            {group.shortCount > 0 && <span style={{ marginLeft: 8, color: '#1a73e8' }}>本地×{group.shortCount}</span>}
-                            {group.longCount > 0 && <span style={{ marginLeft: 8, color: '#e8710a' }}>共享×{group.longCount}</span>}
+                            {group.localCount > 0 && <span style={{ marginLeft: 8, color: '#1a73e8' }}>本地×{group.localCount}</span>}
+                            {group.sharedCount > 0 && <span style={{ marginLeft: 8, color: '#e8710a' }}>共享×{group.sharedCount}</span>}
                           </div>
                         </div>
                       </button>
@@ -416,14 +416,14 @@ function SettingsModal({
                         <div style={{ padding: '0 0 4px 12px' }}>
                           {group.rows.map((row) => {
                             const current = overrideMap[row.name];
-                            const sug = suggestPeriod(row);
+                            const sug = suggestScope(row);
                             const inc = isInconsistent(row);
                             const displayName = row.name.includes('|')
                               ? row.name.split('|').slice(1).join('|') || group.category
                               : row.name;
                             const rowExpanded = expandedRowKey === row.name;
                             return (
-                              <PeriodRow
+                              <ScopeRow
                                 key={row.name}
                                 row={row}
                                 current={current}
@@ -434,7 +434,7 @@ function SettingsModal({
                                 expanded={rowExpanded}
                                 onToggleExpand={() => setExpandedRowKey(rowExpanded ? null : row.name)}
                                 expandedItems={rowExpanded ? itemsForRow(row.name) : undefined}
-                                onChange={(next) => setOverride(periodTab, row.name, next)}
+                                onChange={(next) => setOverride(scopeTab, row.name, next)}
                               />
                             );
                           })}
@@ -448,11 +448,11 @@ function SettingsModal({
               <div>
                 {tabRows.map((row) => {
                   const current = overrideMap[row.name];
-                  const sug = suggestPeriod(row);
+                  const sug = suggestScope(row);
                   const inc = isInconsistent(row);
                   const expanded = expandedRowKey === row.name;
                   return (
-                    <PeriodRow
+                    <ScopeRow
                       key={row.name}
                       row={row}
                       current={current}
@@ -463,7 +463,7 @@ function SettingsModal({
                       expanded={expanded}
                       onToggleExpand={() => setExpandedRowKey(expanded ? null : row.name)}
                       expandedItems={expanded ? itemsForRow(row.name) : undefined}
-                      onChange={(next) => setOverride(periodTab, row.name, next)}
+                      onChange={(next) => setOverride(scopeTab, row.name, next)}
                     />
                   );
                 })}
@@ -1142,9 +1142,9 @@ function SubcategoryRow({ sub, items, total }: { sub: string; items: BillExpense
   );
 }
 
-function PendingManualPanel({ entries, onSetPeriod, onClose }: {
+function PendingManualPanel({ entries, onSetScope, onClose }: {
   entries: { date: string; id: string; item: BillExpenseItem }[];
-  onSetPeriod: (date: string, id: string, period: LifePeriod) => void;
+  onSetScope: (date: string, id: string, scope: ExpenseScope) => void;
   onClose: () => void;
 }) {
   const total = entries.reduce((s, e) => s + e.item.amount, 0);
@@ -1194,19 +1194,19 @@ function PendingManualPanel({ entries, onSetPeriod, onClose }: {
                       }}
                     >
                       <div style={{ display: 'inline-flex', borderRadius: 6, border: `1px solid ${C.border}`, overflow: 'hidden', flexShrink: 0 }}>
-                        {(['short', 'long'] as const).map((p) => {
-                          const activeBg = p === 'short' ? C.blue : C.orange;
+                        {(['local', 'shared'] as const).map((p) => {
+                          const activeBg = p === 'local' ? C.blue : C.orange;
                           return (
                             <button
                               key={p}
                               type="button"
-                              onClick={() => onSetPeriod(d, id, p)}
+                              onClick={() => onSetScope(d, id, p)}
                               style={{
                                 padding: '3px 10px', fontSize: 11, fontWeight: 600, lineHeight: 1.3,
-                                border: 'none', borderLeft: p === 'long' ? `1px solid ${C.border}` : 'none',
+                                border: 'none', borderLeft: p === 'shared' ? `1px solid ${C.border}` : 'none',
                                 backgroundColor: '#fff', color: activeBg, cursor: 'pointer',
                               }}
-                            >{p === 'short' ? '本地' : '共享'}</button>
+                            >{p === 'local' ? '本地' : '共享'}</button>
                           );
                         })}
                       </div>
@@ -1231,31 +1231,31 @@ function PendingManualPanel({ entries, onSetPeriod, onClose }: {
   );
 }
 
-function DayDetailPanel({ date, items, selection, onSetPeriod, onMarkZero, onClear, resolveOverride }: {
+function DayDetailPanel({ date, items, selection, onSetScope, onMarkZero, onClear, resolveOverride }: {
   date: string;
   items: BillExpenseItem[];
   selection: ConfirmedExpenseSelection;
-  onSetPeriod: (id: string, period: LifePeriod) => void;
+  onSetScope: (id: string, scope: ExpenseScope) => void;
   onMarkZero: () => void;
   onClear: () => void;
-  resolveOverride: (item: BillExpenseItem) => LifePeriod | null;
+  resolveOverride: (item: BillExpenseItem) => ExpenseScope | null;
 }) {
   const isReviewed = selection.reviewed;
-  const hasExplicitLong = selection.longIds !== undefined;
+  const hasExplicitShared = selection.sharedIds !== undefined;
   const withIds = useMemo(() => assignExpenseIds(items), [items]);
-  const shortSet = useMemo(() => new Set(selection.ids), [selection.ids]);
-  const longSet = useMemo(() => new Set(selection.longIds ?? []), [selection.longIds]);
+  const localSet = useMemo(() => new Set(selection.localIds), [selection.localIds]);
+  const sharedSet = useMemo(() => new Set(selection.sharedIds ?? []), [selection.sharedIds]);
   const rows = withIds.map(({ item, id }) => {
     const auto = resolveOverride(item);
-    let manualPeriod: LifePeriod | null = null;
+    let manualScope: ExpenseScope | null = null;
     if (!auto) {
-      if (shortSet.has(id)) manualPeriod = 'short';
-      else if (longSet.has(id)) manualPeriod = 'long';
-      else if (isReviewed && !hasExplicitLong) manualPeriod = 'long'; // 旧数据兜底
+      if (localSet.has(id)) manualScope = 'local';
+      else if (sharedSet.has(id)) manualScope = 'shared';
+      else if (isReviewed && !hasExplicitShared) manualScope = 'shared'; // 旧数据兜底
     }
-    const period: LifePeriod | null = auto ?? manualPeriod;
-    const checked = period === 'short';
-    return { item, id, auto, manualPeriod, period, checked, needsManual: auto === null && manualPeriod === null };
+    const scope: ExpenseScope | null = auto ?? manualScope;
+    const checked = scope === 'local';
+    return { item, id, auto, manualScope, scope, checked, needsManual: auto === null && manualScope === null };
   });
   const manualRows = rows.filter((row) => row.auto === null);
   const pendingRows = rows.filter((row) => row.needsManual);
@@ -1263,9 +1263,9 @@ function DayDetailPanel({ date, items, selection, onSetPeriod, onMarkZero, onCle
   const displayRows = [...manualRows, ...autoRows];
   const manualTotal = pendingRows.reduce((s, row) => s + row.item.amount, 0);
   const confirmedSum = rows.reduce((s, row) => s + (row.checked ? row.item.amount : 0), 0);
-  const effectiveCount = rows.reduce((c, row) => c + (row.checked ? 1 : 0), 0);
+  const classifiedCount = rows.reduce((c, row) => c + (row.scope ? 1 : 0), 0);
   const totalSum = items.reduce((s, i) => s + i.amount, 0);
-  const isZeroSpend = isReviewed && effectiveCount === 0;
+  const isZeroSpend = isReviewed && classifiedCount === 0;
   if (withIds.length === 0) {
     return (
       <Card title={`${date} 当日账单`} subtitle={isZeroSpend ? '已确认当天 0 支出' : '当天无账单数据'}>
@@ -1298,7 +1298,7 @@ function DayDetailPanel({ date, items, selection, onSetPeriod, onMarkZero, onCle
       title={`${date} 当日账单`}
       subtitle={isZeroSpend
         ? `已确认 0/${withIds.length} 条 · 当天 0 支出`
-        : `已勾 ${effectiveCount}/${withIds.length} 条 · ¥${formatCurrency(confirmedSum)}/¥${formatCurrency(totalSum)}`}
+        : `已分类 ${classifiedCount}/${withIds.length} 条 · 本地¥${formatCurrency(confirmedSum)}/总¥${formatCurrency(totalSum)}`}
     >
       <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
         <button
@@ -1334,8 +1334,8 @@ function DayDetailPanel({ date, items, selection, onSetPeriod, onMarkZero, onCle
         </div>
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {displayRows.map(({ item, id, auto, manualPeriod, period, needsManual }) => {
-          const bg = period === 'short' ? '#e8f0fe' : period === 'long' ? '#fff4e8' : (isReviewed ? '#f8f9fa' : '#fffaf0');
+        {displayRows.map(({ item, id, auto, manualScope, scope, needsManual }) => {
+          const bg = scope === 'local' ? '#e8f0fe' : scope === 'shared' ? '#fff4e8' : (isReviewed ? '#f8f9fa' : '#fffaf0');
           const isManualRow = auto === null;
           return (
             <div
@@ -1344,28 +1344,28 @@ function DayDetailPanel({ date, items, selection, onSetPeriod, onMarkZero, onCle
               style={{
                 display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8,
                 backgroundColor: bg, cursor: auto ? 'not-allowed' : 'default', fontSize: 13,
-                opacity: auto === 'long' ? 0.7 : 1,
+                opacity: auto === 'shared' ? 0.7 : 1,
                 border: needsManual ? '1px solid #fdba74' : '1px solid transparent',
               }}
             >
               {isManualRow ? (
                 <div style={{ display: 'inline-flex', borderRadius: 6, border: `1px solid ${C.border}`, overflow: 'hidden', flexShrink: 0 }}>
-                  {(['short', 'long'] as const).map((p) => {
-                    const active = manualPeriod === p;
-                    const activeBg = p === 'short' ? C.blue : C.orange;
+                  {(['local', 'shared'] as const).map((p) => {
+                    const active = manualScope === p;
+                    const activeBg = p === 'local' ? C.blue : C.orange;
                     return (
                       <button
                         key={p}
                         type="button"
-                        onClick={() => onSetPeriod(id, p)}
+                        onClick={() => onSetScope(id, p)}
                         style={{
                           padding: '3px 8px', fontSize: 11, fontWeight: 600, lineHeight: 1.3,
-                          border: 'none', borderLeft: p === 'long' ? `1px solid ${C.border}` : 'none',
+                          border: 'none', borderLeft: p === 'shared' ? `1px solid ${C.border}` : 'none',
                           backgroundColor: active ? activeBg : '#fff',
                           color: active ? '#fff' : C.sub, cursor: 'pointer',
                         }}
                       >
-                        {p === 'short' ? '本地' : '共享'}
+                        {p === 'local' ? '本地' : '共享'}
                       </button>
                     );
                   })}
@@ -1374,8 +1374,8 @@ function DayDetailPanel({ date, items, selection, onSetPeriod, onMarkZero, onCle
                 <span style={{
                   width: 34, height: 18, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                   borderRadius: 4, fontSize: 10, fontWeight: 700, flexShrink: 0,
-                  backgroundColor: auto === 'short' ? C.blue : C.orange, color: '#fff',
-                }}>{auto === 'short' ? '本地' : '共享'}</span>
+                  backgroundColor: auto === 'local' ? C.blue : C.orange, color: '#fff',
+                }}>{auto === 'local' ? '本地' : '共享'}</span>
               )}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 500, color: '#202124', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1386,20 +1386,20 @@ function DayDetailPanel({ date, items, selection, onSetPeriod, onMarkZero, onCle
                   {auto && (
                     <span style={{
                       marginLeft: 6, padding: '1px 5px', borderRadius: 4, fontSize: 10, fontWeight: 600,
-                      backgroundColor: auto === 'short' ? '#1a73e8' : '#e8710a', color: '#fff',
-                    }}>📌 自动归{auto === 'short' ? '本地' : '共享'}</span>
+                      backgroundColor: auto === 'local' ? '#1a73e8' : '#e8710a', color: '#fff',
+                    }}>📌 自动归{auto === 'local' ? '本地' : '共享'}</span>
                   )}
                   {!auto && (
                     <span style={{
                       marginLeft: 6, padding: '1px 5px', borderRadius: 4, fontSize: 10, fontWeight: 600,
-                      backgroundColor: manualPeriod ? '#f1f3f4' : '#fff7ed',
-                      color: manualPeriod ? C.sub : C.orange,
-                      border: manualPeriod ? '1px solid #dadce0' : '1px solid #fdba74',
-                    }}>{manualPeriod ? '手动项' : '待手动分类'}</span>
+                      backgroundColor: manualScope ? '#f1f3f4' : '#fff7ed',
+                      color: manualScope ? C.sub : C.orange,
+                      border: manualScope ? '1px solid #dadce0' : '1px solid #fdba74',
+                    }}>{manualScope ? '手动项' : '待手动分类'}</span>
                   )}
                 </div>
               </div>
-              <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: period === 'short' ? C.blue : period === 'long' ? C.orange : '#202124', flexShrink: 0 }}>¥{formatCurrency(item.amount)}</span>
+              <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: scope === 'local' ? C.blue : scope === 'shared' ? C.orange : '#202124', flexShrink: 0 }}>¥{formatCurrency(item.amount)}</span>
             </div>
           );
         })}
@@ -1785,16 +1785,16 @@ export default function CalendarPage() {
   const toggleYearProfitMode = () => setYearProfitMode((m) => m === 'rate' ? 'amount' : 'rate');
 
   // ── Stores ──
-  const { tagMap, setTag, toggleTag, countByTag, bulkFillSchool, confirmedExpenses, setConfirmedExpensePeriod, markConfirmedExpenseZero, clearConfirmedExpenseSelection } = useCalendarStore();
+  const { tagMap, setTag, toggleTag, countByTag, bulkFillSchool, confirmedExpenses, setConfirmedExpenseScope, markConfirmedExpenseZero, clearConfirmedExpenseSelection } = useCalendarStore();
   const { config, setConfig } = useConfigStore();
   const { records, upsert, updateDayCounts } = useMonthlyStore();
   const { tagStats: billTagStats, expenseItems: billExpenseItems, updateFromImport: billUpdateFromImport } = useBillDetailStore();
-  const { overrides: lifePeriodOverrides, setOverride: setLifePeriodOverride } = useLifePeriodOverrideStore();
+  const { overrides: expenseScopeOverrides, setOverride: setExpenseScopeOverride } = useExpenseScopeOverrideStore();
   const {
     tagOrder, setTagOrder, weekdayTags, setWeekdayTags,
     showPayrollCutoffMarkers, setShowPayrollCutoffMarkers,
     reviewableCategories, setReviewableCategories,
-    lifePeriodHelpText, setLifePeriodHelpText,
+    expenseScopeHelpText, setExpenseScopeHelpText,
   } = usePrefsStore();
   const tagDrag = useDragSort(tagOrder, setTagOrder, 'horizontal');
   const { holidayDataByYear, holidayWarning } = useHolidayYears([year]);
@@ -1847,8 +1847,8 @@ export default function CalendarPage() {
   // ── 历史回归均值（近两年，用作当月按比例拆分的权重）──
   const twoYearsAgo = `${_now.getFullYear() - 1}-01`;
   const historyStats = useMemo(
-    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, billExpenseItems, lifePeriodOverrides),
-    [records, tagMap, confirmedExpenses, billExpenseItems, lifePeriodOverrides],
+    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, billExpenseItems, expenseScopeOverrides),
+    [records, tagMap, confirmedExpenses, billExpenseItems, expenseScopeOverrides],
   );
 
   // ── Calendar computed ──
@@ -1907,22 +1907,22 @@ export default function CalendarPage() {
     const dates = [...itemsByDate.keys()].sort();
     for (const date of dates) {
       const sel = normalizeConfirmedSelection(confirmedExpenses[date]);
-      const shortSet = new Set(sel.ids);
-      const longSet = new Set(sel.longIds ?? []);
-      const hasExplicitLong = sel.longIds !== undefined;
-      // 旧数据：reviewed 且没存 longIds → 整天兜底为长，不算待分类
-      if (sel.reviewed && !hasExplicitLong) continue;
+      const localSet = new Set(sel.localIds);
+      const sharedSet = new Set(sel.sharedIds ?? []);
+      const hasExplicitShared = sel.sharedIds !== undefined;
+      // 旧数据：reviewed 且没存 sharedIds → 整天兜底为共享，不算待分类
+      if (sel.reviewed && !hasExplicitShared) continue;
       const withIds = assignExpenseIds(itemsByDate.get(date) ?? []);
       for (const { item, id } of withIds) {
         const tagList = (item.tags || '').split(',').map((t) => t.trim()).filter(Boolean);
         if (!tagList.some((t) => allowedSet.has(t as ReviewableCategory))) continue;
-        if (resolveLifePeriod(item, lifePeriodOverrides) !== null) continue;
-        if (shortSet.has(id) || longSet.has(id)) continue;
+        if (resolveExpenseScope(item, expenseScopeOverrides) !== null) continue;
+        if (localSet.has(id) || sharedSet.has(id)) continue;
         out.push({ date, id, item });
       }
     }
     return out;
-  }, [billExpenseItems, yearMonth, lifePeriodOverrides, confirmedExpenses, reviewableCategories]);
+  }, [billExpenseItems, yearMonth, expenseScopeOverrides, confirmedExpenses, reviewableCategories]);
 
   const stats = useMemo(() => {
     const counts: Record<TagKind, number> = { intern: 0, school: 0, home: 0, travel: 0 };
@@ -2178,14 +2178,14 @@ export default function CalendarPage() {
           setShowPayrollCutoffMarkers={setShowPayrollCutoffMarkers}
           reviewableCategories={reviewableCategories}
           setReviewableCategories={setReviewableCategories}
-          lifePeriodHelpText={lifePeriodHelpText}
-          setLifePeriodHelpText={setLifePeriodHelpText}
+          expenseScopeHelpText={expenseScopeHelpText}
+          setExpenseScopeHelpText={setExpenseScopeHelpText}
           onSave={() => { setConfig({ majorExpenseThreshold: parseFloat(thresholdInput) || 500 }); setSettingsOpen(false); }}
           tagMap={tagMap}
           confirmedExpenses={confirmedExpenses}
           expenseItems={billExpenseItems}
-          overrides={lifePeriodOverrides}
-          setOverride={setLifePeriodOverride}
+          overrides={expenseScopeOverrides}
+          setOverride={setExpenseScopeOverride}
         />
       )}
 
@@ -2320,8 +2320,7 @@ export default function CalendarPage() {
                     const tag = tagMap[day];
                     if (!tag) continue; // 未标记的天不参与状态聚合
                     const normalized = normalizeConfirmedSelection(selection);
-                    const ids = normalized.ids;
-                    for (const id of ids) {
+                    for (const id of normalized.localIds) {
                       const item = itemsById.get(`${day}|${id}`);
                       if (!item) continue;
                       const tags = item.tags.split(',').map(t => t.trim());
@@ -2570,7 +2569,7 @@ export default function CalendarPage() {
           {showPendingPanel && (
             <PendingManualPanel
               entries={pendingManualEntries}
-              onSetPeriod={(date, id, period) => setConfirmedExpensePeriod(date, id, period)}
+              onSetScope={(date, id, scope) => setConfirmedExpenseScope(date, id, scope)}
               onClose={() => setShowPendingPanel(false)}
             />
           )}
@@ -2594,7 +2593,7 @@ export default function CalendarPage() {
                 const displayMeta = displayTag ? tagMeta[displayTag] : null;
                 const confirmedState = normalizeConfirmedSelection(confirmedExpenses[cell.key]);
                 const hasReviewed = confirmedState.reviewed;
-                const hasConfirmed = confirmedState.ids.length > 0;
+                const hasConfirmed = confirmedState.localIds.length > 0 || (confirmedState.sharedIds?.length ?? 0) > 0;
                 const isZeroConfirmed = hasReviewed && !hasConfirmed;
                 let borderStyle = 'none';
                 if (isToday || isRangeStart || isSelectedDay) borderStyle = `2px solid ${C.blue}`;
@@ -2629,10 +2628,10 @@ export default function CalendarPage() {
                 date={selectedDay}
                 items={dayItems}
                 selection={selectedConfirmedState}
-                onSetPeriod={(id, period) => setConfirmedExpensePeriod(selectedDay, id, period)}
+                onSetScope={(id, scope) => setConfirmedExpenseScope(selectedDay, id, scope)}
                 onMarkZero={() => markConfirmedExpenseZero(selectedDay)}
                 onClear={() => clearConfirmedExpenseSelection(selectedDay)}
-                resolveOverride={(it) => resolveLifePeriod(it, lifePeriodOverrides)}
+                resolveOverride={(it) => resolveExpenseScope(it, expenseScopeOverrides)}
               />
             );
           })()}

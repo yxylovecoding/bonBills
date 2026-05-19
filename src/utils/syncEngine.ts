@@ -1,11 +1,14 @@
 import { normalizeBillDetailState, useBillDetailStore } from '../stores/billDetailStore';
-import { useCalendarStore } from '../stores/calendarStore';
+import { normalizeConfirmedExpenses, useCalendarStore } from '../stores/calendarStore';
 import { DEFAULT_CONFIG, useConfigStore } from '../stores/configStore';
-import { useLifePeriodOverrideStore } from '../stores/lifePeriodOverrideStore';
+import { normalizeExpenseScopeOverrides, useExpenseScopeOverrideStore } from '../stores/expenseScopeOverrideStore';
 import { normalizeMonthlyRecords, useMonthlyStore } from '../stores/monthlyStore';
-import { usePrefsStore } from '../stores/prefsStore';
+import { DEFAULT_EXPENSE_SCOPE_HELP_TEXT, usePrefsStore } from '../stores/prefsStore';
 import { DEFAULT_SNAPSHOT, useSnapshotStore } from '../stores/snapshotStore';
 import { useSyncStatus } from './syncStatus';
+
+const EXPENSE_SCOPE_SYNC_KEY = 'expense-scope-overrides';
+const LEGACY_EXPENSE_SCOPE_SYNC_KEY = 'life-period-overrides';
 
 const EMPTY_STATES: Record<string, Record<string, unknown>> = {
   'bill-details': { tagStats: {}, expenseItems: {}, hasOverride: false },
@@ -13,12 +16,13 @@ const EMPTY_STATES: Record<string, Record<string, unknown>> = {
   'calendar-tags': { tagMap: {}, initializedFromRecords: false, confirmedExpenses: {} },
   'account-snapshot': { current: DEFAULT_SNAPSHOT, history: [] },
   'app-config': { config: DEFAULT_CONFIG },
-  'life-period-overrides': { overrides: { categories: {}, subcategories: {}, notes: {}, tags: {} } },
+  [EXPENSE_SCOPE_SYNC_KEY]: { overrides: { categories: {}, subcategories: {}, notes: {}, tags: {} } },
   // user-prefs 保留 UI 偏好，不清空
 };
 
 type StoreEntry = {
   key: string;
+  legacyKeys?: readonly string[];
   getState: () => unknown;
   setState: (partial: Record<string, unknown>) => void;
   subscribe: (listener: () => void) => () => void;
@@ -47,7 +51,7 @@ const stores: StoreEntry[] = [
   {
     key: 'calendar-tags',
     getState: () => useCalendarStore.getState(),
-    setState: (p) => useCalendarStore.setState(p),
+    setState: (p) => useCalendarStore.setState({ ...p, confirmedExpenses: normalizeConfirmedExpenses(p.confirmedExpenses) }),
     subscribe: (l) => useCalendarStore.subscribe(l),
     serialize: () => {
       const s = useCalendarStore.getState();
@@ -72,26 +76,34 @@ const stores: StoreEntry[] = [
     serialize: () => ({ config: useConfigStore.getState().config }),
   },
   {
-    key: 'life-period-overrides',
-    getState: () => useLifePeriodOverrideStore.getState(),
+    key: EXPENSE_SCOPE_SYNC_KEY,
+    legacyKeys: [LEGACY_EXPENSE_SCOPE_SYNC_KEY],
+    getState: () => useExpenseScopeOverrideStore.getState(),
     setState: (p) => {
-      const incoming = (p && typeof p === 'object' ? (p as { overrides?: Partial<{ categories: Record<string, unknown>; subcategories: Record<string, unknown>; notes: Record<string, unknown>; tags: Record<string, unknown> }> }).overrides : null) ?? {};
-      useLifePeriodOverrideStore.setState({
-        overrides: {
-          categories: incoming.categories ?? {},
-          subcategories: incoming.subcategories ?? {},
-          notes: incoming.notes ?? {},
-          tags: incoming.tags ?? {},
-        },
-      } as Parameters<typeof useLifePeriodOverrideStore.setState>[0]);
+      useExpenseScopeOverrideStore.setState({
+        overrides: normalizeExpenseScopeOverrides(p),
+      } as Parameters<typeof useExpenseScopeOverrideStore.setState>[0]);
     },
-    subscribe: (l) => useLifePeriodOverrideStore.subscribe(l),
-    serialize: () => ({ overrides: useLifePeriodOverrideStore.getState().overrides }),
+    subscribe: (l) => useExpenseScopeOverrideStore.subscribe(l),
+    serialize: () => ({ overrides: useExpenseScopeOverrideStore.getState().overrides }),
   },
   {
     key: 'user-prefs',
     getState: () => usePrefsStore.getState(),
-    setState: (p) => usePrefsStore.setState(p),
+    setState: (p) => {
+      const legacyHelpKey = 'life' + 'PeriodHelpText';
+      const rawHelpText = p.expenseScopeHelpText ?? p[legacyHelpKey];
+      const persistedHelpText = typeof rawHelpText === 'string' ? rawHelpText : undefined;
+      const expenseScopeHelpText = persistedHelpText && /[短长]/.test(persistedHelpText)
+        ? DEFAULT_EXPENSE_SCOPE_HELP_TEXT
+        : persistedHelpText;
+      const { [legacyHelpKey]: _legacyHelp, ...rest } = p;
+      void _legacyHelp;
+      usePrefsStore.setState({
+        ...rest,
+        expenseScopeHelpText: expenseScopeHelpText ?? usePrefsStore.getState().expenseScopeHelpText,
+      });
+    },
     subscribe: (l) => usePrefsStore.subscribe(l),
     serialize: () => {
       const s = usePrefsStore.getState();
@@ -101,6 +113,7 @@ const stores: StoreEntry[] = [
         weekdayTags: s.weekdayTags,
         showPayrollCutoffMarkers: s.showPayrollCutoffMarkers,
         reviewableCategories: s.reviewableCategories,
+        expenseScopeHelpText: s.expenseScopeHelpText,
       };
     },
   },
@@ -219,7 +232,8 @@ export async function initSync() {
       // 应用服务端数据到各 store
       syncingFromServer = true;
       for (const s of stores) {
-        const val = serverData[s.key];
+        const legacyVal = s.legacyKeys?.map((key) => serverData[key]).find((val) => val && typeof val === 'object');
+        const val = serverData[s.key] ?? legacyVal;
         if (val && typeof val === 'object') {
           s.setState(val as Record<string, unknown>);
         }

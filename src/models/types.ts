@@ -124,23 +124,23 @@ export interface CurrentStats {
   totalExpenseAvg: number;
   monthlyIncomeAvg: number;
   schoolDailyAvg: number;
-  stateDailyAvg: { school: number; intern: number; home: number; travel: number };             // 生活支出日均（含长周期均摊 base）
+  stateDailyAvg: { school: number; intern: number; home: number; travel: number };             // 生活支出日均（含共享均摊 base）
   stateConsumptionDailyAvg: { school: number; intern: number; home: number; travel: number }; // 消费支出日均
   stateDailyConfidence: { school: number; intern: number; home: number; travel: number };      // 各状态历史总天数
-  longLifeDailyBase: number;  // 长周期生活均摊基础日均（不分场景，已计入 stateDailyAvg）
-  longLifeBreakdown: LongLifeBreakdownRow[]; // 按分类拆解，sum 约等于 longLifeDailyBase
+  sharedLifeDailyBase: number;  // 共享生活均摊基础日均（不分场景，已计入 stateDailyAvg）
+  sharedLifeBreakdown: SharedLifeBreakdownRow[]; // 按分类拆解，sum 约等于 sharedLifeDailyBase
   savingsRate: number;
   totalLife: number;
 }
 
-export interface LongLifeBreakdownRow {
+export interface SharedLifeBreakdownRow {
   category: string;
   amountTotal: number;   // 历史累计金额（权重前）
   dailyBase: number;     // 加权后日均贡献
-  subcategories: LongLifeSubcategoryBreakdownRow[];
+  subcategories: SharedLifeSubcategoryBreakdownRow[];
 }
 
-export interface LongLifeSubcategoryBreakdownRow {
+export interface SharedLifeSubcategoryBreakdownRow {
   subcategory: string;
   amountTotal: number;   // 历史累计金额（权重前）
   dailyBase: number;     // 加权后日均贡献
