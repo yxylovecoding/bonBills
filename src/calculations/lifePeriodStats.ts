@@ -46,12 +46,18 @@ export function buildLifePeriodStats(
 
     const dayItems = assignExpenseIds(monthItems.filter((it) => it.date === date));
     const selectedIds = new Set(sel.ids);
+    const hasExplicitLong = sel.longIds !== undefined;
+    const longSet = new Set(sel.longIds ?? []);
 
     for (const { item, id } of dayItems) {
       const tagList = item.tags.split(',').map((t) => t.trim()).filter(Boolean);
       const isLife = tagList.includes('周期生活') || tagList.includes('波动生活');
       if (!isLife) continue;
-      const isShort = selectedIds.has(id);
+      let isShort: boolean;
+      if (selectedIds.has(id)) isShort = true;
+      else if (longSet.has(id)) isShort = false;
+      else if (hasExplicitLong) continue; // 新模型下未显式归属 → 不计入统计
+      else isShort = false; // 旧数据兜底：reviewed 且未勾 → 长
 
       const catName = item.category || '(未分类)';
       const subName = subcategoryKey(catName, item.subcategory || '');

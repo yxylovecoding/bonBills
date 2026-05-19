@@ -11,7 +11,7 @@ import { useLifePeriodOverrideStore, resolveLifePeriod, type LifePeriod, type Ov
 import AmountInput from '../components/AmountInput';
 import { calcHistoryStats } from '../calculations/history';
 import { buildLifePeriodStats, suggestPeriod, isInconsistent, type LifePeriodStatRow } from '../calculations/lifePeriodStats';
-import { normalizeConfirmedSelection, useCalendarStore } from '../stores/calendarStore';
+import { normalizeConfirmedSelection, useCalendarStore, type ConfirmedExpenseSelection } from '../stores/calendarStore';
 import { useConfigStore } from '../stores/configStore';
 import { useSnapshotStore } from '../stores/snapshotStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
@@ -1062,27 +1062,37 @@ function PendingManualPanel({ entries, onSetPeriod, onClose }: {
   );
 }
 
-function DayDetailPanel({ date, items, confirmedIds, isReviewed, onSetPeriod, onMarkZero, onClear, resolveOverride }: {
+function DayDetailPanel({ date, items, selection, onSetPeriod, onMarkZero, onClear, resolveOverride }: {
   date: string;
   items: BillExpenseItem[];
-  confirmedIds: string[];
-  isReviewed: boolean;
+  selection: ConfirmedExpenseSelection;
   onSetPeriod: (id: string, period: LifePeriod) => void;
   onMarkZero: () => void;
   onClear: () => void;
   resolveOverride: (item: BillExpenseItem) => LifePeriod | null;
 }) {
+  const isReviewed = selection.reviewed;
+  const hasExplicitLong = selection.longIds !== undefined;
   const withIds = useMemo(() => assignExpenseIds(items), [items]);
-  const confirmedSet = useMemo(() => new Set(confirmedIds), [confirmedIds]);
+  const shortSet = useMemo(() => new Set(selection.ids), [selection.ids]);
+  const longSet = useMemo(() => new Set(selection.longIds ?? []), [selection.longIds]);
   const rows = withIds.map(({ item, id }) => {
     const auto = resolveOverride(item);
-    const checked = auto === 'short' ? true : auto === 'long' ? false : confirmedSet.has(id);
-    return { item, id, checked, auto, needsManual: auto === null };
+    let manualPeriod: LifePeriod | null = null;
+    if (!auto) {
+      if (shortSet.has(id)) manualPeriod = 'short';
+      else if (longSet.has(id)) manualPeriod = 'long';
+      else if (isReviewed && !hasExplicitLong) manualPeriod = 'long'; // 旧数据兜底
+    }
+    const period: LifePeriod | null = auto ?? manualPeriod;
+    const checked = period === 'short';
+    return { item, id, auto, manualPeriod, period, checked, needsManual: auto === null && manualPeriod === null };
   });
-  const manualRows = rows.filter((row) => row.needsManual);
-  const autoRows = rows.filter((row) => !row.needsManual);
+  const manualRows = rows.filter((row) => row.auto === null);
+  const pendingRows = rows.filter((row) => row.needsManual);
+  const autoRows = rows.filter((row) => row.auto !== null);
   const displayRows = [...manualRows, ...autoRows];
-  const manualTotal = manualRows.reduce((s, row) => s + row.item.amount, 0);
+  const manualTotal = pendingRows.reduce((s, row) => s + row.item.amount, 0);
   const confirmedSum = rows.reduce((s, row) => s + (row.checked ? row.item.amount : 0), 0);
   const effectiveCount = rows.reduce((c, row) => c + (row.checked ? 1 : 0), 0);
   const totalSum = items.reduce((s, i) => s + i.amount, 0);
@@ -1137,46 +1147,42 @@ function DayDetailPanel({ date, items, confirmedIds, isReviewed, onSetPeriod, on
           </button>
         )}
       </div>
-      {manualRows.length > 0 && (
+      {pendingRows.length > 0 && (
         <div style={{
           marginBottom: 10,
           padding: '8px 10px',
           borderRadius: 8,
-          border: `1px solid ${isReviewed ? '#d2e3fc' : '#fed7aa'}`,
-          backgroundColor: isReviewed ? '#f8fbff' : '#fff7ed',
-          color: isReviewed ? C.blue : C.orange,
+          border: '1px solid #fed7aa',
+          backgroundColor: '#fff7ed',
+          color: C.orange,
           fontSize: 12,
           lineHeight: 1.5,
         }}>
-          {isReviewed
-            ? `这天有 ${manualRows.length} 条账单没被规则覆盖，已按你的手动分类结果处理。`
-            : `这天有 ${manualRows.length} 条账单没被规则覆盖，请手动分类。`}
+          {`这天还有 ${pendingRows.length} 条账单没被规则覆盖，请手动分类。`}
           <span style={{ marginLeft: 6, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
             ¥{formatCurrency(manualTotal)}
           </span>
         </div>
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {displayRows.map(({ item, id, checked, auto, needsManual }) => {
-          const bg = auto
-            ? (auto === 'short' ? '#e8f0fe' : '#fff4e8')
-            : (checked ? '#e8f0fe' : (isReviewed ? '#f8f9fa' : '#fffaf0'));
-          const manualSelected: LifePeriod | null = needsManual ? (checked ? 'short' : (isReviewed ? 'long' : null)) : null;
+        {displayRows.map(({ item, id, auto, manualPeriod, period, needsManual }) => {
+          const bg = period === 'short' ? '#e8f0fe' : period === 'long' ? '#fff4e8' : (isReviewed ? '#f8f9fa' : '#fffaf0');
+          const isManualRow = auto === null;
           return (
             <div
               key={id}
-              title={auto ? '已被「长/短周期分类规则」覆盖，去设置修改' : '这条账单没被规则覆盖，需要你手动分类'}
+              title={auto ? '已被「长/短周期分类规则」覆盖，去设置修改' : (needsManual ? '这条账单没被规则覆盖，需要你手动分类' : '已手动分类，可点击切换')}
               style={{
                 display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8,
                 backgroundColor: bg, cursor: auto ? 'not-allowed' : 'default', fontSize: 13,
-                opacity: auto && auto === 'long' ? 0.7 : 1,
-                border: needsManual && !isReviewed ? '1px solid #fdba74' : '1px solid transparent',
+                opacity: auto === 'long' ? 0.7 : 1,
+                border: needsManual ? '1px solid #fdba74' : '1px solid transparent',
               }}
             >
-              {needsManual ? (
+              {isManualRow ? (
                 <div style={{ display: 'inline-flex', borderRadius: 6, border: `1px solid ${C.border}`, overflow: 'hidden', flexShrink: 0 }}>
                   {(['short', 'long'] as const).map((p) => {
-                    const active = manualSelected === p;
+                    const active = manualPeriod === p;
                     const activeBg = p === 'short' ? C.blue : C.orange;
                     return (
                       <button
@@ -1217,14 +1223,14 @@ function DayDetailPanel({ date, items, confirmedIds, isReviewed, onSetPeriod, on
                   {!auto && (
                     <span style={{
                       marginLeft: 6, padding: '1px 5px', borderRadius: 4, fontSize: 10, fontWeight: 600,
-                      backgroundColor: isReviewed ? '#f1f3f4' : '#fff7ed',
-                      color: isReviewed ? C.sub : C.orange,
-                      border: isReviewed ? '1px solid #dadce0' : '1px solid #fdba74',
-                    }}>{isReviewed ? '手动项' : '待手动分类'}</span>
+                      backgroundColor: manualPeriod ? '#f1f3f4' : '#fff7ed',
+                      color: manualPeriod ? C.sub : C.orange,
+                      border: manualPeriod ? '1px solid #dadce0' : '1px solid #fdba74',
+                    }}>{manualPeriod ? '手动项' : '待手动分类'}</span>
                   )}
                 </div>
               </div>
-              <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: checked ? (auto === 'long' ? C.orange : C.blue) : '#202124', flexShrink: 0 }}>¥{formatCurrency(item.amount)}</span>
+              <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: period === 'short' ? C.blue : period === 'long' ? C.orange : '#202124', flexShrink: 0 }}>¥{formatCurrency(item.amount)}</span>
             </div>
           );
         })}
@@ -1721,25 +1727,28 @@ export default function CalendarPage() {
     const allowedSet = new Set(reviewableCategories);
     if (allowedSet.size === 0) return [] as { date: string; id: string; item: BillExpenseItem }[];
     const items = billExpenseItems[yearMonth] ?? [];
-    const byDate = new Map<string, BillExpenseItem[]>();
+    const itemsByDate = new Map<string, BillExpenseItem[]>();
     for (const it of items) {
-      const tagList = (it.tags || '').split(',').map((t) => t.trim()).filter(Boolean);
-      if (!tagList.some((t) => allowedSet.has(t as ReviewableCategory))) continue;
-      if (resolveLifePeriod(it, lifePeriodOverrides) !== null) continue;
-      const state = normalizeConfirmedSelection(confirmedExpenses[it.date]);
-      if (state.reviewed) continue;
-      const arr = byDate.get(it.date) ?? [];
+      const arr = itemsByDate.get(it.date) ?? [];
       arr.push(it);
-      byDate.set(it.date, arr);
+      itemsByDate.set(it.date, arr);
     }
     const out: { date: string; id: string; item: BillExpenseItem }[] = [];
-    const dates = [...byDate.keys()].sort();
+    const dates = [...itemsByDate.keys()].sort();
     for (const date of dates) {
-      const dayItems = (billExpenseItems[yearMonth] ?? []).filter((it) => it.date === date);
-      const withIds = assignExpenseIds(dayItems);
-      const pendingSet = new Set(byDate.get(date) ?? []);
+      const sel = normalizeConfirmedSelection(confirmedExpenses[date]);
+      const shortSet = new Set(sel.ids);
+      const longSet = new Set(sel.longIds ?? []);
+      const hasExplicitLong = sel.longIds !== undefined;
+      // 旧数据：reviewed 且没存 longIds → 整天兜底为长，不算待分类
+      if (sel.reviewed && !hasExplicitLong) continue;
+      const withIds = assignExpenseIds(itemsByDate.get(date) ?? []);
       for (const { item, id } of withIds) {
-        if (pendingSet.has(item)) out.push({ date, id, item });
+        const tagList = (item.tags || '').split(',').map((t) => t.trim()).filter(Boolean);
+        if (!tagList.some((t) => allowedSet.has(t as ReviewableCategory))) continue;
+        if (resolveLifePeriod(item, lifePeriodOverrides) !== null) continue;
+        if (shortSet.has(id) || longSet.has(id)) continue;
+        out.push({ date, id, item });
       }
     }
     return out;
@@ -2447,8 +2456,7 @@ export default function CalendarPage() {
               <DayDetailPanel
                 date={selectedDay}
                 items={dayItems}
-                confirmedIds={selectedConfirmedState.ids}
-                isReviewed={selectedConfirmedState.reviewed}
+                selection={selectedConfirmedState}
                 onSetPeriod={(id, period) => setConfirmedExpensePeriod(selectedDay, id, period)}
                 onMarkZero={() => markConfirmedExpenseZero(selectedDay)}
                 onClear={() => clearConfirmedExpenseSelection(selectedDay)}

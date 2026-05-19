@@ -100,6 +100,8 @@ function buildConfirmedAggregatesByMonth(
       const sel = normalizeConfirmedSelection(confirmedExpenses[date]);
       const reviewed = sel.reviewed;
       const selectedIds = new Set(sel.ids);
+      const hasExplicitLong = sel.longIds !== undefined;
+      const longSet = new Set(sel.longIds ?? []);
 
       let lifeAllResolved = true; // 该天所有 isLife 是否都被显式归属
       let dayHadShortCons = false;
@@ -110,22 +112,26 @@ function buildConfirmedAggregatesByMonth(
         const isCons = tagList.includes('消费');
 
         if (isLife) {
-          // 优先级：override > reviewed-勾选 > 留在残差 y 里
+          // 优先级：override > 显式 short/long > 旧数据 reviewed 兜底 > 残差
           const ov = resolveLifePeriod(item, overrides);
           if (ov === 'long') {
             out.longLife += item.amount;
           } else if (ov === 'short') {
             out.shortLife[state] += item.amount;
-          } else if (reviewed) {
-            if (selectedIds.has(id)) out.shortLife[state] += item.amount;
-            else out.longLife += item.amount;
+          } else if (selectedIds.has(id)) {
+            out.shortLife[state] += item.amount;
+          } else if (longSet.has(id)) {
+            out.longLife += item.amount;
+          } else if (reviewed && !hasExplicitLong) {
+            // 旧数据兼容：reviewed 但没存 longIds → 未勾即长
+            out.longLife += item.amount;
           } else {
-            // 未 reviewed 且无 override → 这条 isLife 留在月度 y 里给回归
+            // 新数据模型下：未显式归属即残差，留给月度 y 回归
             lifeAllResolved = false;
           }
         } else if (isCons) {
-          // 消费仅在 reviewed 且勾选 时归短期；未勾选/未 reviewed 留 y
-          if (reviewed && selectedIds.has(id)) {
+          // 消费仅在显式勾短时归短期；其它情况留 y
+          if (selectedIds.has(id)) {
             out.shortCons[state] += item.amount;
             dayHadShortCons = true;
           }

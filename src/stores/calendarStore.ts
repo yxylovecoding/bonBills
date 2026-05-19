@@ -4,17 +4,22 @@ import type { TagKind } from '../models/types';
 
 // tagMap: { "2026-04-11": "school", ... }
 type TagMap = Record<string, TagKind>;
-type ConfirmedExpenseSelection = { ids: string[]; reviewed: boolean };
+// ids: 显式归短的账单 id
+// longIds: 显式归长的账单 id（undefined = 旧数据，按"日级 reviewed → 未勾即长"兜底）
+// reviewed: 该天用户是否动过（用于日历圆点 + 旧数据兜底语义）
+export type ConfirmedExpenseSelection = { ids: string[]; longIds?: string[]; reviewed: boolean };
 type LegacyConfirmedExpenses = Record<string, string[] | ConfirmedExpenseSelection>;
 
 export function normalizeConfirmedSelection(value: unknown): ConfirmedExpenseSelection {
   if (Array.isArray(value)) return { ids: value, reviewed: value.length > 0 };
   if (!value || typeof value !== 'object') return { ids: [], reviewed: false };
   const ids = Array.isArray((value as { ids?: unknown[] }).ids) ? (value as { ids: string[] }).ids : [];
+  const longIdsRaw = (value as { longIds?: unknown }).longIds;
+  const longIds = Array.isArray(longIdsRaw) ? (longIdsRaw as string[]) : undefined;
   const reviewed = typeof (value as { reviewed?: unknown }).reviewed === 'boolean'
     ? (value as { reviewed: boolean }).reviewed
     : ids.length > 0;
-  return { ids, reviewed };
+  return longIds !== undefined ? { ids, longIds, reviewed } : { ids, reviewed };
 }
 
 function normalizeConfirmedExpenses(input: unknown): Record<string, ConfirmedExpenseSelection> {
@@ -135,17 +140,13 @@ export const useCalendarStore = create<CalendarStore>()(
 
       setConfirmedExpensePeriod: (date, id, period) =>
         set((s) => {
-          const cur = normalizeConfirmedSelection(s.confirmedExpenses[date]).ids;
-          const has = cur.includes(id);
-          const want = period === 'short';
-          if (has === want && s.confirmedExpenses[date]?.reviewed) {
-            return s;
-          }
-          const nextIds = want
-            ? (has ? cur : [...cur, id])
-            : (has ? cur.filter((x) => x !== id) : cur);
+          const cur = normalizeConfirmedSelection(s.confirmedExpenses[date]);
+          const shortIds = cur.ids.filter((x) => x !== id);
+          const longIds = (cur.longIds ?? []).filter((x) => x !== id);
+          if (period === 'short') shortIds.push(id);
+          else longIds.push(id);
           const nextMap = { ...s.confirmedExpenses };
-          nextMap[date] = { ids: nextIds, reviewed: true };
+          nextMap[date] = { ids: shortIds, longIds, reviewed: true };
           return { confirmedExpenses: nextMap };
         }),
 
