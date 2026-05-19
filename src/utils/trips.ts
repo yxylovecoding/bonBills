@@ -5,8 +5,8 @@ export const SYSTEM_BILL_TAGS = new Set([
   '周期生活', '波动生活', '消费', '吃好喝好', '红', '黑',
 ]);
 
-// 出游 tag 形如「26.5.15 爬山」：yy.m.d + 空白 + 描述
-export const TRIP_TAG_PATTERN = /^\d{2}\.\d{1,2}\.\d{1,2}\s+\S/;
+// 出游 tag 形如「26.5.15 爬山」或「26.5.15爬山」：yy.m.d + 可选空白 + 描述
+export const TRIP_TAG_PATTERN = /^\d{2}\.\d{1,2}\.\d{1,2}\s*\S/;
 
 export function isTripTagFormat(tag: string): boolean {
   return TRIP_TAG_PATTERN.test(tag);
