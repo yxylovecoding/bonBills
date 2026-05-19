@@ -5,6 +5,13 @@ export const SYSTEM_BILL_TAGS = new Set([
   '周期生活', '波动生活', '消费', '吃好喝好', '红', '黑',
 ]);
 
+// 出游 tag 形如「26.5.15 爬山」：yy.m.d + 空白 + 描述
+export const TRIP_TAG_PATTERN = /^\d{2}\.\d{1,2}\.\d{1,2}\s+\S/;
+
+export function isTripTagFormat(tag: string): boolean {
+  return TRIP_TAG_PATTERN.test(tag);
+}
+
 export interface TripSegment {
   startDate: string; // "YYYY-MM-DD"
   endDate: string;   // "YYYY-MM-DD"
@@ -55,6 +62,7 @@ export function extractCandidateTags(
     const tags = (it.tags || '').split(',').map((t) => t.trim()).filter(Boolean);
     for (const t of tags) {
       if (SYSTEM_BILL_TAGS.has(t)) continue;
+      if (!isTripTagFormat(t)) continue;
       const cur = map.get(t) ?? { hitInRange: 0, totalHit: 0 };
       cur.totalHit += 1;
       if (tripDates.has(it.date)) cur.hitInRange += 1;
