@@ -127,10 +127,24 @@ export interface CurrentStats {
   stateDailyAvg: { school: number; intern: number; home: number; travel: number };             // 生活支出日均（含共享均摊 base）
   stateConsumptionDailyAvg: { school: number; intern: number; home: number; travel: number }; // 消费支出日均
   stateDailyConfidence: { school: number; intern: number; home: number; travel: number };      // 各状态历史总天数
+  localLifeBreakdown: Record<TagKind, LocalLifeBreakdownRow[]>; // 本地生活按场景分类拆解（仅确切归属部分）
   sharedLifeDailyBase: number;  // 共享生活均摊基础日均（不分场景，已计入 stateDailyAvg）
   sharedLifeBreakdown: SharedLifeBreakdownRow[]; // 按分类拆解，sum 约等于 sharedLifeDailyBase
   savingsRate: number;
   totalLife: number;
+}
+
+export interface LocalLifeBreakdownRow {
+  category: string;
+  amountTotal: number;   // 历史累计金额
+  dailyBase: number;     // 按该场景历史总天数折算的日均贡献
+  subcategories: LocalLifeSubcategoryBreakdownRow[];
+}
+
+export interface LocalLifeSubcategoryBreakdownRow {
+  subcategory: string;
+  amountTotal: number;   // 历史累计金额
+  dailyBase: number;     // 按该场景历史总天数折算的日均贡献
 }
 
 export interface SharedLifeBreakdownRow {

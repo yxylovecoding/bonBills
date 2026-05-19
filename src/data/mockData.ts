@@ -187,6 +187,7 @@ export const currentStats: CurrentStats = {
   stateDailyAvg: { school: 139.88, intern: 105, home: 105, travel: 105 },
   stateConsumptionDailyAvg: { school: 0, intern: 0, home: 0, travel: 0 },
   stateDailyConfidence: { school: 0, intern: 0, home: 0, travel: 0 },
+  localLifeBreakdown: { school: [], intern: [], home: [], travel: [] },
   sharedLifeDailyBase: 0,
   sharedLifeBreakdown: [],
   savingsRate: -0.138,

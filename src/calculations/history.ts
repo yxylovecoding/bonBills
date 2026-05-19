@@ -56,6 +56,13 @@ function buildTagCountsByMonth(tagMap: Record<string, TagKind>): Record<string, 
 const TAG_KEYS: TagKind[] = ['school', 'intern', 'home', 'travel'];
 type ByTag = Record<TagKind, number>;
 const zeroByTag = (): ByTag => ({ school: 0, intern: 0, home: 0, travel: 0 });
+const zeroCategoryByTag = (): Record<TagKind, Record<string, number>> => ({ school: {}, intern: {}, home: {}, travel: {} });
+const zeroSubcategoryByTag = (): Record<TagKind, Record<string, Record<string, number>>> => ({
+  school: {},
+  intern: {},
+  home: {},
+  travel: {},
+});
 
 // 单月已确切预聚合
 //   localLife：金额已被显式归属到本地生活
@@ -68,6 +75,8 @@ type MonthConfirmed = {
   resolvedLifeDays: ByTag;
   localConsDays: ByTag;
   sharedLife: number;
+  localLifeByCategory: Record<TagKind, Record<string, number>>;
+  localLifeBySubcategory: Record<TagKind, Record<string, Record<string, number>>>;
   sharedLifeByCategory: Record<string, number>;
   sharedLifeBySubcategory: Record<string, Record<string, number>>;
 };
@@ -86,6 +95,8 @@ function buildConfirmedAggregatesByMonth(
       resolvedLifeDays: zeroByTag(),
       localConsDays: zeroByTag(),
       sharedLife: 0,
+      localLifeByCategory: zeroCategoryByTag(),
+      localLifeBySubcategory: zeroSubcategoryByTag(),
       sharedLifeByCategory: {},
       sharedLifeBySubcategory: {},
     };
@@ -120,6 +131,14 @@ function buildConfirmedAggregatesByMonth(
         if (isLife) {
           // 优先级：override > 显式 local/shared > 旧数据 reviewed 兜底 > 残差
           const ov = resolveExpenseScope(item, overrides);
+          const addLocal = () => {
+            out.localLife[state] += item.amount;
+            const cat = item.category || '(未分类)';
+            const sub = item.subcategory || '未细分';
+            out.localLifeByCategory[state][cat] = (out.localLifeByCategory[state][cat] ?? 0) + item.amount;
+            out.localLifeBySubcategory[state][cat] = out.localLifeBySubcategory[state][cat] ?? {};
+            out.localLifeBySubcategory[state][cat][sub] = (out.localLifeBySubcategory[state][cat][sub] ?? 0) + item.amount;
+          };
           const addShared = () => {
             out.sharedLife += item.amount;
             const cat = item.category || '(未分类)';
@@ -131,9 +150,9 @@ function buildConfirmedAggregatesByMonth(
           if (ov === 'shared' && isPeriodicLife) {
             addShared();
           } else if (ov === 'local') {
-            out.localLife[state] += item.amount;
+            addLocal();
           } else if (localSet.has(id)) {
-            out.localLife[state] += item.amount;
+            addLocal();
           } else if (sharedSet.has(id) && isPeriodicLife) {
             addShared();
           } else if (reviewed && !hasExplicitShared && isPeriodicLife) {
@@ -180,6 +199,7 @@ export function calcHistoryStats(
       stateDailyAvg: { school: 0, intern: 0, home: 0, travel: 0 },
       stateConsumptionDailyAvg: { school: 0, intern: 0, home: 0, travel: 0 },
       stateDailyConfidence: { school: 0, intern: 0, home: 0, travel: 0 },
+      localLifeBreakdown: { school: [], intern: [], home: [], travel: [] },
       sharedLifeDailyBase: 0, sharedLifeBreakdown: [],
       savingsRate: 0, totalLife: 0,
     };
@@ -237,6 +257,8 @@ export function calcHistoryStats(
   const totalConfLocalCons: ByTag = zeroByTag();
   const totalResolvedLifeDays: ByTag = zeroByTag();
   const totalConfConsDays:  ByTag = zeroByTag();
+  const localLifeByCategory = zeroCategoryByTag();
+  const localLifeBySubcategory = zeroSubcategoryByTag();
   let totalSharedLife = 0;
   for (const c of confirmed) {
     for (const k of TAG_KEYS) {
@@ -244,9 +266,39 @@ export function calcHistoryStats(
       totalConfLocalCons[k] += c.localCons[k];
       totalResolvedLifeDays[k] += c.resolvedLifeDays[k];
       totalConfConsDays[k]  += c.localConsDays[k];
+      for (const [cat, amount] of Object.entries(c.localLifeByCategory[k])) {
+        localLifeByCategory[k][cat] = (localLifeByCategory[k][cat] ?? 0) + amount;
+      }
+      for (const [cat, subMap] of Object.entries(c.localLifeBySubcategory[k])) {
+        localLifeBySubcategory[k][cat] = localLifeBySubcategory[k][cat] ?? {};
+        for (const [sub, amount] of Object.entries(subMap)) {
+          localLifeBySubcategory[k][cat][sub] = (localLifeBySubcategory[k][cat][sub] ?? 0) + amount;
+        }
+      }
     }
     totalSharedLife += c.sharedLife;
   }
+
+  const localLifeBreakdown = Object.fromEntries(TAG_KEYS.map((k) => {
+    const totalDays = stateDailyConfidence[k];
+    const rows = totalDays > 0
+      ? Object.entries(localLifeByCategory[k])
+          .map(([category, amountTotal]) => ({
+            category,
+            amountTotal,
+            dailyBase: amountTotal / totalDays,
+            subcategories: Object.entries(localLifeBySubcategory[k][category] ?? {})
+              .map(([subcategory, subAmountTotal]) => ({
+                subcategory,
+                amountTotal: subAmountTotal,
+                dailyBase: subAmountTotal / totalDays,
+              }))
+              .sort((a, b) => b.dailyBase - a.dailyBase),
+          }))
+          .sort((a, b) => b.dailyBase - a.dailyBase)
+      : [];
+    return [k, rows];
+  })) as CurrentStats['localLifeBreakdown'];
 
   // 共享均摊 base：按月独立算「月共享日均」后做时间衰减加权平均
   // 半衰期 6 个月：最新月权重 1，6 月前权重 0.5，12 月前权重 0.25
@@ -430,6 +482,7 @@ export function calcHistoryStats(
     periodicLifeAvg, volatileLifeAvg, consumptionAvg,
     totalExpenseAvg, monthlyIncomeAvg, schoolDailyAvg,
     stateDailyAvg, stateConsumptionDailyAvg, stateDailyConfidence,
+    localLifeBreakdown,
     sharedLifeDailyBase, sharedLifeBreakdown,
     savingsRate, totalLife: periodicLifeAvg + volatileLifeAvg,
   };

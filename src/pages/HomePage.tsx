@@ -24,7 +24,7 @@ import { TAX_RULE_PRESETS } from '../utils/tax';
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '场景日均拆解';
+const RELEASE_NOTE = '场景明细';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 
@@ -246,17 +246,18 @@ export default function HomePage() {
   const sceneDailyRows: { tagKind: TagKind; val: number }[] = (
     ['school', 'intern', 'home', 'travel'] as TagKind[]
   ).map((k) => ({ tagKind: k, val: stats.stateDailyAvg[k] })).filter((r) => r.val > 0);
-  const sceneGroups = (
+  const sceneBlocks = (
     [
-      { title: '本地', tagKinds: ['school', 'intern'] as TagKind[] },
-      { title: '外地', tagKinds: ['home', 'travel'] as TagKind[] },
+      { key: 'campus-work', tagKinds: ['school', 'intern'] as TagKind[], bg: '#eff6ff', border: '#bfdbfe' },
+      { key: 'home', tagKinds: ['home'] as TagKind[], bg: '#fffbeb', border: '#fde68a' },
+      { key: 'travel', tagKinds: ['travel'] as TagKind[], bg: '#fdf2f8', border: '#fbcfe8' },
     ]
-  ).map((group) => ({
-    ...group,
-    rows: group.tagKinds
+  ).map((block) => ({
+    ...block,
+    rows: block.tagKinds
       .map((tagKind) => ({ tagKind, val: stats.stateDailyAvg[tagKind] }))
       .filter((row) => row.val > 0),
-  })).filter((group) => group.rows.length > 0);
+  })).filter((block) => block.rows.length > 0);
   const sceneRangeLabel = filteredRecords.length >= 12
     ? `(近 ${(filteredRecords.length / 12).toFixed(1)} 年)`
     : `(近 ${filteredRecords.length} 个月)`;
@@ -297,21 +298,23 @@ export default function HomePage() {
           <>
             <Divider />
             <div style={{ fontSize: 12, color: C.sub, marginBottom: 4 }}>场景日均 {sceneRangeLabel}</div>
-            {sceneGroups.map((group) => (
-              <div key={group.title}>
-                <div style={{ fontSize: 11, color: C.sub, padding: '4px 0 2px' }}>{group.title}</div>
-                {group.rows.map((r) => {
+            {sceneBlocks.map((block) => (
+              <div key={block.key} style={{ backgroundColor: block.bg, border: `1px solid ${block.border}`, borderRadius: 8, marginTop: 6, overflow: 'hidden' }}>
+                {block.rows.map((r, idx) => {
                   const m = tagMeta[r.tagKind];
                   const expanded = sceneExpanded.has(r.tagKind);
                   const localPart = Math.max(r.val - stats.sharedLifeDailyBase, 0);
                   const localPct = r.val > 0 ? (localPart / r.val) * 100 : 0;
                   const sharedPct = r.val > 0 ? (stats.sharedLifeDailyBase / r.val) * 100 : 0;
+                  const localBreakdown = stats.localLifeBreakdown[r.tagKind] ?? [];
+                  const localBreakdownDaily = localBreakdown.reduce((sum, row) => sum + row.dailyBase, 0);
+                  const unclassifiedLocal = Math.max(localPart - localBreakdownDaily, 0);
                   return (
-                    <div key={r.tagKind}>
+                    <div key={r.tagKind} style={{ borderTop: idx > 0 ? `1px solid ${block.border}` : 'none' }}>
                       <button
                         type="button"
                         onClick={() => toggleScene(r.tagKind)}
-                        style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, padding: '5px 0', color: 'inherit', background: 'none', border: 'none', cursor: 'pointer' }}
+                        style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, padding: '7px 10px', color: 'inherit', background: 'none', border: 'none', cursor: 'pointer' }}
                       >
                         <span style={{ color: C.sub, textAlign: 'left' }}>
                           <span style={{ marginRight: 4, fontSize: 10, color: '#9aa0a6' }}>{expanded ? '▼' : '▶'}</span>
@@ -327,6 +330,46 @@ export default function HomePage() {
                             </span>
                             <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>¥{localPart.toFixed(2)}/天</span>
                           </div>
+                          {localBreakdown.length > 0 && (
+                            <div style={{ padding: '0 0 3px 12px' }}>
+                              {localBreakdown.map((row) => {
+                                const pct = localPart > 0 ? (row.dailyBase / localPart) * 100 : 0;
+                                return (
+                                  <div key={row.category}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '2px 0', color: '#5f6368' }}>
+                                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
+                                        {row.category} <span style={{ color: '#9aa0a6' }}>· {pct.toFixed(1)}%</span>
+                                      </span>
+                                      <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>¥{row.dailyBase.toFixed(2)}/天</span>
+                                    </div>
+                                    {row.subcategories.length > 0 && (
+                                      <div style={{ padding: '0 0 2px 12px' }}>
+                                        {row.subcategories.map((sub) => {
+                                          const subPct = row.dailyBase > 0 ? (sub.dailyBase / row.dailyBase) * 100 : 0;
+                                          return (
+                                            <div key={sub.subcategory} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '2px 0', color: '#6b7280' }}>
+                                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
+                                                {sub.subcategory} <span style={{ color: '#9aa0a6' }}>· {subPct.toFixed(1)}%</span>
+                                              </span>
+                                              <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>¥{sub.dailyBase.toFixed(2)}/天</span>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                          {unclassifiedLocal > 0.005 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '2px 0 3px 12px', color: '#5f6368' }}>
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
+                                未拆分估算
+                              </span>
+                              <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>¥{unclassifiedLocal.toFixed(2)}/天</span>
+                            </div>
+                          )}
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: '#3c4043' }}>
                             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
                               共享均摊 <span style={{ color: '#9aa0a6' }}>· {sharedPct.toFixed(1)}%</span>
