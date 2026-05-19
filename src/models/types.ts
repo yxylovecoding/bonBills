@@ -137,6 +137,13 @@ export interface LongLifeBreakdownRow {
   category: string;
   amountTotal: number;   // 历史累计金额（权重前）
   dailyBase: number;     // 加权后日均贡献
+  subcategories: LongLifeSubcategoryBreakdownRow[];
+}
+
+export interface LongLifeSubcategoryBreakdownRow {
+  subcategory: string;
+  amountTotal: number;   // 历史累计金额（权重前）
+  dailyBase: number;     // 加权后日均贡献
 }
 
 // ── LatestSnapshot (首页用) ───────────────────────────────────────

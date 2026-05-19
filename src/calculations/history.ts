@@ -68,6 +68,7 @@ type MonthConfirmed = {
   shortConsDays: ByTag;
   longLife: number;
   longLifeByCategory: Record<string, number>;
+  longLifeBySubcategory: Record<string, Record<string, number>>;
 };
 
 function buildConfirmedAggregatesByMonth(
@@ -85,6 +86,7 @@ function buildConfirmedAggregatesByMonth(
       shortConsDays: zeroByTag(),
       longLife: 0,
       longLifeByCategory: {},
+      longLifeBySubcategory: {},
     };
     const monthItems = expenseItems[r.yearMonth];
     if (!monthItems || monthItems.length === 0) return out;
@@ -119,7 +121,10 @@ function buildConfirmedAggregatesByMonth(
           const addLong = () => {
             out.longLife += item.amount;
             const cat = item.category || '(未分类)';
+            const sub = item.subcategory || '未细分';
             out.longLifeByCategory[cat] = (out.longLifeByCategory[cat] ?? 0) + item.amount;
+            out.longLifeBySubcategory[cat] = out.longLifeBySubcategory[cat] ?? {};
+            out.longLifeBySubcategory[cat][sub] = (out.longLifeBySubcategory[cat][sub] ?? 0) + item.amount;
           };
           if (ov === 'long') {
             addLong();
@@ -259,6 +264,8 @@ export function calcHistoryStats(
   let baseValueSum = 0;
   const byCatValueSum: Record<string, number> = {};
   const byCatAmountTotal: Record<string, number> = {};
+  const bySubValueSum: Record<string, Record<string, number>> = {};
+  const bySubAmountTotal: Record<string, Record<string, number>> = {};
   for (let i = 0; i < n; i++) {
     const totalDaysM = TAG_KEYS.reduce((s, k) => s + allDays[i][k], 0);
     if (totalDaysM <= 0) continue;
@@ -271,6 +278,14 @@ export function calcHistoryStats(
       byCatValueSum[cat] = (byCatValueSum[cat] ?? 0) + weight * (amt / totalDaysM);
       byCatAmountTotal[cat] = (byCatAmountTotal[cat] ?? 0) + amt;
     }
+    for (const [cat, subMap] of Object.entries(confirmed[i].longLifeBySubcategory)) {
+      bySubValueSum[cat] = bySubValueSum[cat] ?? {};
+      bySubAmountTotal[cat] = bySubAmountTotal[cat] ?? {};
+      for (const [sub, amt] of Object.entries(subMap)) {
+        bySubValueSum[cat][sub] = (bySubValueSum[cat][sub] ?? 0) + weight * (amt / totalDaysM);
+        bySubAmountTotal[cat][sub] = (bySubAmountTotal[cat][sub] ?? 0) + amt;
+      }
+    }
   }
   const longLifeDailyBase = baseWeightSum > 0 ? baseValueSum / baseWeightSum : 0;
   const longLifeBreakdown = baseWeightSum > 0
@@ -279,6 +294,13 @@ export function calcHistoryStats(
           category,
           amountTotal: byCatAmountTotal[category] ?? 0,
           dailyBase: vSum / baseWeightSum,
+          subcategories: Object.entries(bySubValueSum[category] ?? {})
+            .map(([subcategory, subVSum]) => ({
+              subcategory,
+              amountTotal: bySubAmountTotal[category]?.[subcategory] ?? 0,
+              dailyBase: subVSum / baseWeightSum,
+            }))
+            .sort((a, b) => b.dailyBase - a.dailyBase),
         }))
         .sort((a, b) => b.dailyBase - a.dailyBase)
     : [];

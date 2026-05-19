@@ -24,7 +24,7 @@ import { TAX_RULE_PRESETS } from '../utils/tax';
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '长周期均摊可展开';
+const RELEASE_NOTE = '子类展开';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 
@@ -124,6 +124,7 @@ export default function HomePage() {
   const [fireMode, setFireMode] = useState<'life' | 'all'>('all');
   const [fireExpanded, setFireExpanded] = useState(false);
   const [longBaseExpanded, setLongBaseExpanded] = useState(false);
+  const [longBaseOpenCategories, setLongBaseOpenCategories] = useState<Set<string>>(new Set());
   const futureFireExpenses = config.futureFireExpenses ?? [];
   const syncFutureFireExpenses = (items: FutureFireExpense[]) => setConfig({ futureFireExpenses: items });
   const activeFutureFireMonthly = futureFireExpenses
@@ -154,6 +155,14 @@ export default function HomePage() {
       return;
     }
     setConfig({ fireTargetYears: Math.min(Number(raw), fire.retireYearsLeft) });
+  };
+  const toggleLongBaseCategory = (category: string) => {
+    setLongBaseOpenCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
   };
 
   const updateFutureFireExpense = (id: string, field: keyof FutureFireExpense, raw: string | boolean) => {
@@ -293,12 +302,38 @@ export default function HomePage() {
                   <div style={{ padding: '4px 10px 8px', borderTop: '1px dashed #dadce0' }}>
                     {stats.longLifeBreakdown.map((row) => {
                       const pct = stats.longLifeDailyBase > 0 ? (row.dailyBase / stats.longLifeDailyBase) * 100 : 0;
+                      const categoryOpen = longBaseOpenCategories.has(row.category);
+                      const hasSubBreakdown = row.subcategories.length > 0;
                       return (
-                        <div key={row.category} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: '#3c4043' }}>
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
-                            {row.category} <span style={{ color: '#9aa0a6' }}>· {pct.toFixed(1)}%</span>
-                          </span>
-                          <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>¥{row.dailyBase.toFixed(2)}/天</span>
+                        <div key={row.category}>
+                          <button
+                            type="button"
+                            onClick={() => hasSubBreakdown && toggleLongBaseCategory(row.category)}
+                            style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, padding: '3px 0', color: '#3c4043', background: 'none', border: 'none', cursor: hasSubBreakdown ? 'pointer' : 'default' }}
+                          >
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8, textAlign: 'left' }}>
+                              {hasSubBreakdown && (
+                                <span style={{ marginRight: 4, fontSize: 9, color: '#9aa0a6' }}>{categoryOpen ? '▼' : '▶'}</span>
+                              )}
+                              {row.category} <span style={{ color: '#9aa0a6' }}>· {pct.toFixed(1)}%</span>
+                            </span>
+                            <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>¥{row.dailyBase.toFixed(2)}/天</span>
+                          </button>
+                          {categoryOpen && hasSubBreakdown && (
+                            <div style={{ padding: '0 0 3px 14px' }}>
+                              {row.subcategories.map((sub) => {
+                                const subPct = row.dailyBase > 0 ? (sub.dailyBase / row.dailyBase) * 100 : 0;
+                                return (
+                                  <div key={sub.subcategory} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '2px 0', color: '#5f6368' }}>
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
+                                      {sub.subcategory} <span style={{ color: '#9aa0a6' }}>· {subPct.toFixed(1)}%</span>
+                                    </span>
+                                    <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>¥{sub.dailyBase.toFixed(2)}/天</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
