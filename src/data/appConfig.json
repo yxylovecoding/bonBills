@@ -2,6 +2,7 @@
   "birthDate": "2002-12-29",
   "retireAge": 55,
   "safeWithdrawRate": 0.04,
+  "investAnnualGrowthRate": 0.04,
   "lifeExpectancy": 85,
   "investAllocTargets": {
     "us": 0.2333,

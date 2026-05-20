@@ -25,9 +25,10 @@ import { TAX_RULE_PRESETS } from '../utils/tax';
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = 'tag日可省';
+const RELEASE_NOTE = 'FIRE复利';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
+const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
 
 function fmt万(v: number) { return (v / 10000).toFixed(2) + '万'; }
 function fmt年(v: number) { return Number.isInteger(v) ? String(v) : v.toFixed(1); }
@@ -164,6 +165,11 @@ export default function HomePage() {
       return;
     }
     setConfig({ fireTargetYears: Math.min(Number(raw), fire.retireYearsLeft) });
+  };
+  const updateFireGrowthRate = (raw: string) => {
+    const parsed = Number(raw);
+    const next = Number.isFinite(parsed) ? Math.max(parsed / 100, MIN_INVEST_ANNUAL_GROWTH_RATE) : 0;
+    setConfig({ investAnnualGrowthRate: next });
   };
   const toggleSharedBaseCategory = (category: string) => {
     setSharedBaseOpenCategories((prev) => {
@@ -569,6 +575,21 @@ export default function HomePage() {
             <FireDetailGroup title="资产目标">
               <StatRow label="目标资产" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(fire.fireTarget)}</span>} />
               <StatRow label="理财总额" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(totalInvest)}</span>} />
+              <StatRow label="年理财增长" value={(
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    value={(fire.investAnnualGrowthRate * 100).toFixed(1).replace(/\.0$/, '')}
+                    onChange={(e) => updateFireGrowthRate(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    onFocus={(e) => e.target.select()}
+                    style={{ width: 52, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, color: C.blue, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
+                  />
+                  <span style={{ fontSize: 12, color: C.sub }}>%</span>
+                </span>
+              )} />
+              <StatRow label="到期现有资产" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: fire.projectedInvestmentGrowth >= 0 ? C.green : C.red }}>{fmt万(fire.projectedCurrentInvest)}</span>} />
               <StatRow label="目标年数" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt年(fire.targetYears)}年 · 最晚{fmt年(fire.retireYearsLeft)}年</span>} />
             </FireDetailGroup>
             <FireDetailGroup title="收入需求">

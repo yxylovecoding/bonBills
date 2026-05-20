@@ -1,6 +1,9 @@
 import type { AppConfig, CurrentStats } from '../models/types';
 import { estimateGrossAnnualIncomeForNet } from '../utils/tax';
 
+const DEFAULT_INVEST_ANNUAL_GROWTH_RATE = 0.04;
+const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
+
 export function getAge(birthDate: string): number {
   const birth = new Date(birthDate);
   const now = new Date();
@@ -18,6 +21,9 @@ export interface FireResult {
   progress: number;
   targetYears: number;
   retireYearsLeft: number;
+  investAnnualGrowthRate: number;
+  projectedCurrentInvest: number;
+  projectedInvestmentGrowth: number;
   monthlyNeeded: number;
   monthlySurplus: number;
   requiredAnnualSavings: number;
@@ -29,6 +35,16 @@ export interface FireResult {
   lifeProgress: number;
   lifeClockStr: string;
   lifeClockPeriod: string;
+}
+
+function normalizeInvestAnnualGrowthRate(rate: number | undefined): number {
+  if (typeof rate !== 'number' || !Number.isFinite(rate)) return DEFAULT_INVEST_ANNUAL_GROWTH_RATE;
+  return Math.max(rate, MIN_INVEST_ANNUAL_GROWTH_RATE);
+}
+
+function calcFutureSavingsFactor(annualGrowthRate: number, years: number): number {
+  if (Math.abs(annualGrowthRate) < 1e-9) return years;
+  return (Math.pow(1 + annualGrowthRate, years) - 1) / annualGrowthRate;
 }
 
 export function calcFire(
@@ -49,8 +65,12 @@ export function calcFire(
     ? config.fireTargetYears
     : retireYearsLeft;
   const targetYears = Math.min(configuredTargetYears, retireYearsLeft);
-  const remainingTarget = Math.max(fireTarget - investTotal, 0);
-  const requiredAnnualSavings = remainingTarget / targetYears;
+  const investAnnualGrowthRate = normalizeInvestAnnualGrowthRate(config.investAnnualGrowthRate);
+  const projectedCurrentInvest = investTotal * Math.pow(1 + investAnnualGrowthRate, targetYears);
+  const projectedInvestmentGrowth = projectedCurrentInvest - investTotal;
+  const remainingTarget = Math.max(fireTarget - projectedCurrentInvest, 0);
+  const savingsFutureValueFactor = calcFutureSavingsFactor(investAnnualGrowthRate, targetYears);
+  const requiredAnnualSavings = savingsFutureValueFactor > 0 ? remainingTarget / savingsFutureValueFactor : remainingTarget / targetYears;
   const monthlyNeeded = requiredAnnualSavings / 12;
   const monthlySurplus = stats.monthlyIncomeAvg - stats.totalExpenseAvg;
   const requiredAnnualNetIncome = annualExpense + requiredAnnualSavings;
@@ -76,6 +96,9 @@ export function calcFire(
     progress,
     targetYears,
     retireYearsLeft,
+    investAnnualGrowthRate,
+    projectedCurrentInvest,
+    projectedInvestmentGrowth,
     monthlyNeeded,
     monthlySurplus,
     requiredAnnualSavings,
