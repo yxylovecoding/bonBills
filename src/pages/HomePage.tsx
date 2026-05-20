@@ -18,14 +18,14 @@ import { useTripStore } from '../stores/tripStore';
 import { calcHistoryStats } from '../calculations/history';
 import { calcFire } from '../calculations/fire';
 import { tagMeta } from '../data/mockData';
-import type { FutureFireExpense, IncomeItem, TagKind, MonthlyRecord } from '../models/types';
+import type { FutureFireExpense, IncomeItem, TagKind, LocalLifeBreakdownRow, MonthlyRecord, SharedLifeBreakdownRow } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { dateLabel, daysUntilDate, resolveIncomeForMonth } from '../utils/payroll';
 import { TAX_RULE_PRESETS } from '../utils/tax';
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = 'FIRE复利';
+const RELEASE_NOTE = '场景合摊';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
@@ -33,6 +33,53 @@ const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
 function fmt万(v: number) { return (v / 10000).toFixed(2) + '万'; }
 function fmt年(v: number) { return Number.isInteger(v) ? String(v) : v.toFixed(1); }
 function Divider() { return <div style={{ height: 1, backgroundColor: '#f1f3f4', margin: '8px 0' }} />; }
+
+interface CombinedLifeBreakdownRow {
+  category: string;
+  amountTotal: number;
+  dailyBase: number;
+  subcategories: {
+    subcategory: string;
+    amountTotal: number;
+    dailyBase: number;
+  }[];
+}
+
+function mergeSceneLifeBreakdown(
+  localRows: LocalLifeBreakdownRow[],
+  sharedRows: SharedLifeBreakdownRow[],
+): CombinedLifeBreakdownRow[] {
+  const byCategory = new Map<string, CombinedLifeBreakdownRow>();
+  const addRow = (row: LocalLifeBreakdownRow | SharedLifeBreakdownRow) => {
+    const category = byCategory.get(row.category) ?? {
+      category: row.category,
+      amountTotal: 0,
+      dailyBase: 0,
+      subcategories: [],
+    };
+    category.amountTotal += row.amountTotal;
+    category.dailyBase += row.dailyBase;
+    for (const sub of row.subcategories) {
+      const existing = category.subcategories.find((item) => item.subcategory === sub.subcategory);
+      if (existing) {
+        existing.amountTotal += sub.amountTotal;
+        existing.dailyBase += sub.dailyBase;
+      } else {
+        category.subcategories.push({ ...sub });
+      }
+    }
+    byCategory.set(row.category, category);
+  };
+
+  localRows.forEach(addRow);
+  sharedRows.forEach(addRow);
+  return [...byCategory.values()]
+    .map((row) => ({
+      ...row,
+      subcategories: row.subcategories.sort((a, b) => b.dailyBase - a.dailyBase),
+    }))
+    .sort((a, b) => b.dailyBase - a.dailyBase);
+}
 
 function FireDetailGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -131,10 +178,7 @@ export default function HomePage() {
   const [fireMode, setFireMode] = useState<'life' | 'all'>('all');
   const [fireExpanded, setFireExpanded] = useState(false);
   const [sceneExpanded, setSceneExpanded] = useState<Set<TagKind>>(new Set());
-  const [sceneLocalExpanded, setSceneLocalExpanded] = useState<Set<TagKind>>(new Set());
   const [sceneLocalOpenCategories, setSceneLocalOpenCategories] = useState<Set<string>>(new Set());
-  const [sharedBaseExpanded, setSharedBaseExpanded] = useState(false);
-  const [sharedBaseOpenCategories, setSharedBaseOpenCategories] = useState<Set<string>>(new Set());
   const futureFireExpenses = config.futureFireExpenses ?? [];
   const syncFutureFireExpenses = (items: FutureFireExpense[]) => setConfig({ futureFireExpenses: items });
   const activeFutureFireMonthly = futureFireExpenses
@@ -171,24 +215,8 @@ export default function HomePage() {
     const next = Number.isFinite(parsed) ? Math.max(parsed / 100, MIN_INVEST_ANNUAL_GROWTH_RATE) : 0;
     setConfig({ investAnnualGrowthRate: next });
   };
-  const toggleSharedBaseCategory = (category: string) => {
-    setSharedBaseOpenCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(category)) next.delete(category);
-      else next.add(category);
-      return next;
-    });
-  };
   const toggleScene = (tagKind: TagKind) => {
     setSceneExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(tagKind)) next.delete(tagKind);
-      else next.add(tagKind);
-      return next;
-    });
-  };
-  const toggleSceneLocal = (tagKind: TagKind) => {
-    setSceneLocalExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(tagKind)) next.delete(tagKind);
       else next.add(tagKind);
@@ -329,14 +357,10 @@ export default function HomePage() {
                 {block.rows.map((r, idx) => {
                   const m = tagMeta[r.tagKind];
                   const expanded = sceneExpanded.has(r.tagKind);
-                  const localPart = Math.max(r.val - stats.sharedLifeDailyBase, 0);
-                  const localPct = r.val > 0 ? (localPart / r.val) * 100 : 0;
                   const sharedPct = r.val > 0 ? (stats.sharedLifeDailyBase / r.val) * 100 : 0;
-                  const localBreakdown = stats.localLifeBreakdown[r.tagKind] ?? [];
-                  const localBreakdownDaily = localBreakdown.reduce((sum, row) => sum + row.dailyBase, 0);
-                  const unclassifiedLocal = Math.max(localPart - localBreakdownDaily, 0);
-                  const localExpanded = sceneLocalExpanded.has(r.tagKind);
-                  const hasLocalDetails = localBreakdown.length > 0 || unclassifiedLocal > 0.005;
+                  const combinedBreakdown = mergeSceneLifeBreakdown(stats.localLifeBreakdown[r.tagKind] ?? [], stats.sharedLifeBreakdown);
+                  const combinedBreakdownDaily = combinedBreakdown.reduce((sum, row) => sum + row.dailyBase, 0);
+                  const unclassifiedDaily = Math.max(r.val - combinedBreakdownDaily, 0);
                   return (
                     <div key={r.tagKind} style={{ borderTop: idx > 0 ? `1px solid ${block.border}` : 'none' }}>
                       <button
@@ -344,83 +368,63 @@ export default function HomePage() {
                         onClick={() => toggleScene(r.tagKind)}
                         style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, padding: '7px 10px', color: 'inherit', background: 'none', border: 'none', cursor: 'pointer' }}
                       >
-                        <span style={{ color: C.sub, textAlign: 'left' }}>
+                        <span style={{ color: C.sub, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
                           <span style={{ marginRight: 4, fontSize: 10, color: '#9aa0a6' }}>{expanded ? '▼' : '▶'}</span>
                           {m.icon} {m.label}
+                          {stats.sharedLifeDailyBase > 0 && (
+                            <span style={{ fontSize: 11, color: '#9aa0a6' }}>（共享均摊 {sharedPct.toFixed(1)}%）</span>
+                          )}
                         </span>
-                        <span style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: '#202124' }}>¥{formatCurrency(r.val)}/天</span>
+                        <span style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: '#202124', flexShrink: 0 }}>¥{formatCurrency(r.val)}/天</span>
                       </button>
                       {expanded && (
                         <div style={{ padding: '4px 10px 8px', borderTop: '1px dashed #dadce0' }}>
-                          <button
-                            type="button"
-                            onClick={() => hasLocalDetails && toggleSceneLocal(r.tagKind)}
-                            style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, padding: '3px 0', color: '#3c4043', background: 'none', border: 'none', cursor: hasLocalDetails ? 'pointer' : 'default' }}
-                          >
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8, textAlign: 'left' }}>
-                              {hasLocalDetails && (
-                                <span style={{ marginRight: 4, fontSize: 9, color: '#9aa0a6' }}>{localExpanded ? '▼' : '▶'}</span>
-                              )}
-                              本地生活 <span style={{ color: '#9aa0a6' }}>· {localPct.toFixed(1)}%</span>
-                            </span>
-                            <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>¥{localPart.toFixed(2)}/天</span>
-                          </button>
-                          {localExpanded && localBreakdown.length > 0 && (
-                            <div style={{ padding: '0 0 3px 12px' }}>
-                              {localBreakdown.map((row) => {
-                                const pct = localPart > 0 ? (row.dailyBase / localPart) * 100 : 0;
-                                const categoryKey = `${r.tagKind}|${row.category}`;
-                                const categoryOpen = sceneLocalOpenCategories.has(categoryKey);
-                                const hasSubBreakdown = row.subcategories.length > 0;
-                                return (
-                                  <div key={row.category}>
-                                    <button
-                                      type="button"
-                                      onClick={() => hasSubBreakdown && toggleSceneLocalCategory(categoryKey)}
-                                      style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10, padding: '2px 0', color: '#5f6368', background: 'none', border: 'none', cursor: hasSubBreakdown ? 'pointer' : 'default' }}
-                                    >
-                                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8, textAlign: 'left' }}>
-                                        {hasSubBreakdown && (
-                                          <span style={{ marginRight: 4, fontSize: 8, color: '#9aa0a6' }}>{categoryOpen ? '▼' : '▶'}</span>
-                                        )}
-                                        {row.category} <span style={{ color: '#9aa0a6' }}>· {pct.toFixed(1)}%</span>
-                                      </span>
-                                      <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>¥{row.dailyBase.toFixed(2)}/天</span>
-                                    </button>
-                                    {categoryOpen && hasSubBreakdown && (
-                                      <div style={{ padding: '0 0 2px 12px' }}>
-                                        {row.subcategories.map((sub) => {
-                                          const subPct = row.dailyBase > 0 ? (sub.dailyBase / row.dailyBase) * 100 : 0;
-                                          return (
-                                            <div key={sub.subcategory} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '2px 0', color: '#6b7280' }}>
-                                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
-                                                {sub.subcategory} <span style={{ color: '#9aa0a6' }}>· {subPct.toFixed(1)}%</span>
-                                              </span>
-                                              <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>¥{sub.dailyBase.toFixed(2)}/天</span>
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
+                          {combinedBreakdown.map((row) => {
+                            const pct = r.val > 0 ? (row.dailyBase / r.val) * 100 : 0;
+                            const categoryKey = `${r.tagKind}|${row.category}`;
+                            const categoryOpen = sceneLocalOpenCategories.has(categoryKey);
+                            const hasSubBreakdown = row.subcategories.length > 0;
+                            return (
+                              <div key={row.category}>
+                                <button
+                                  type="button"
+                                  onClick={() => hasSubBreakdown && toggleSceneLocalCategory(categoryKey)}
+                                  style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, padding: '3px 0', color: '#3c4043', background: 'none', border: 'none', cursor: hasSubBreakdown ? 'pointer' : 'default' }}
+                                >
+                                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8, textAlign: 'left' }}>
+                                    {hasSubBreakdown && (
+                                      <span style={{ marginRight: 4, fontSize: 9, color: '#9aa0a6' }}>{categoryOpen ? '▼' : '▶'}</span>
                                     )}
+                                    {row.category} <span style={{ color: '#9aa0a6' }}>· {pct.toFixed(1)}%</span>
+                                  </span>
+                                  <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>¥{row.dailyBase.toFixed(2)}/天</span>
+                                </button>
+                                {categoryOpen && hasSubBreakdown && (
+                                  <div style={{ padding: '0 0 3px 14px' }}>
+                                    {row.subcategories.map((sub) => {
+                                      const subPct = row.dailyBase > 0 ? (sub.dailyBase / row.dailyBase) * 100 : 0;
+                                      return (
+                                        <div key={sub.subcategory} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '2px 0', color: '#5f6368' }}>
+                                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
+                                            {sub.subcategory} <span style={{ color: '#9aa0a6' }}>· {subPct.toFixed(1)}%</span>
+                                          </span>
+                                          <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>¥{sub.dailyBase.toFixed(2)}/天</span>
+                                        </div>
+                                      );
+                                    })}
                                   </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                          {localExpanded && unclassifiedLocal > 0.005 && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '2px 0 3px 12px', color: '#5f6368' }}>
+                                )}
+                              </div>
+                            );
+                          })}
+                          {unclassifiedDaily > 0.005 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: '#3c4043' }}>
                               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
-                                未拆分估算
+                                未拆分估算 <span style={{ color: '#9aa0a6' }}>· {((unclassifiedDaily / r.val) * 100).toFixed(1)}%</span>
                               </span>
-                              <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>¥{unclassifiedLocal.toFixed(2)}/天</span>
+                              <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>¥{unclassifiedDaily.toFixed(2)}/天</span>
                             </div>
                           )}
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: '#3c4043' }}>
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
-                              共享均摊 <span style={{ color: '#9aa0a6' }}>· {sharedPct.toFixed(1)}%</span>
-                            </span>
-                            <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>¥{stats.sharedLifeDailyBase.toFixed(2)}/天</span>
-                          </div>
                           {r.tagKind === 'school' && campusDailyAvgYear > 0 && (
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: '#3c4043' }}>
                               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
@@ -436,64 +440,6 @@ export default function HomePage() {
                 })}
               </div>
             ))}
-            {stats.sharedLifeDailyBase > 0 && (
-              <div style={{ marginTop: 6, backgroundColor: '#f1f3f4', borderRadius: 8 }}>
-                <button
-                  type="button"
-                  onClick={() => setSharedBaseExpanded((v) => !v)}
-                  style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, padding: '6px 10px', background: 'none', border: 'none', cursor: stats.sharedLifeBreakdown.length > 0 ? 'pointer' : 'default', color: 'inherit' }}
-                >
-                  <span style={{ color: C.sub }}>
-                    {stats.sharedLifeBreakdown.length > 0 && (
-                      <span style={{ marginRight: 4, fontSize: 10, color: '#9aa0a6' }}>{sharedBaseExpanded ? '▼' : '▶'}</span>
-                    )}
-                    📦 共享均摊 <span style={{ fontSize: 10 }}>(已含)</span>
-                  </span>
-                  <span style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: C.sub }}>¥{formatCurrency(stats.sharedLifeDailyBase)}/天</span>
-                </button>
-                {sharedBaseExpanded && stats.sharedLifeBreakdown.length > 0 && (
-                  <div style={{ padding: '4px 10px 8px', borderTop: '1px dashed #dadce0' }}>
-                    {stats.sharedLifeBreakdown.map((row) => {
-                      const pct = stats.sharedLifeDailyBase > 0 ? (row.dailyBase / stats.sharedLifeDailyBase) * 100 : 0;
-                      const categoryOpen = sharedBaseOpenCategories.has(row.category);
-                      const hasSubBreakdown = row.subcategories.length > 0;
-                      return (
-                        <div key={row.category}>
-                          <button
-                            type="button"
-                            onClick={() => hasSubBreakdown && toggleSharedBaseCategory(row.category)}
-                            style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, padding: '3px 0', color: '#3c4043', background: 'none', border: 'none', cursor: hasSubBreakdown ? 'pointer' : 'default' }}
-                          >
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8, textAlign: 'left' }}>
-                              {hasSubBreakdown && (
-                                <span style={{ marginRight: 4, fontSize: 9, color: '#9aa0a6' }}>{categoryOpen ? '▼' : '▶'}</span>
-                              )}
-                              {row.category} <span style={{ color: '#9aa0a6' }}>· {pct.toFixed(1)}%</span>
-                            </span>
-                            <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>¥{row.dailyBase.toFixed(2)}/天</span>
-                          </button>
-                          {categoryOpen && hasSubBreakdown && (
-                            <div style={{ padding: '0 0 3px 14px' }}>
-                              {row.subcategories.map((sub) => {
-                                const subPct = row.dailyBase > 0 ? (sub.dailyBase / row.dailyBase) * 100 : 0;
-                                return (
-                                  <div key={sub.subcategory} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '2px 0', color: '#5f6368' }}>
-                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
-                                      {sub.subcategory} <span style={{ color: '#9aa0a6' }}>· {subPct.toFixed(1)}%</span>
-                                    </span>
-                                    <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>¥{sub.dailyBase.toFixed(2)}/天</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
           </>
         )}
       </Card>
