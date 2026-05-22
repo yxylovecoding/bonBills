@@ -1,3 +1,5 @@
+import type { ExpenseScope } from '../stores/expenseScopeOverrideStore';
+
 export type TagKind = 'intern' | 'school' | 'home' | 'travel';
 
 // ── 理财持仓 ──────────────────────────────────────────────────────
@@ -202,3 +204,32 @@ export interface BudgetResult {
 
 // ── RebalanceResult ───────────────────────────────────────────────
 export type RebalanceResult = Record<InvestKey, number>;
+
+// ── Possessions ───────────────────────────────────────────────────
+export type PossessionKind = 'consumable' | 'durable';
+export type PossessionStatus = 'active' | 'retired';
+
+export interface PossessionTxn {
+  id: string;
+  date: string;
+  amount: number;
+  quantity?: number;
+  kind: 'purchase' | 'resale';
+  billItemId?: string;
+  scope?: ExpenseScope;
+  scene?: TagKind;
+  note?: string;
+}
+
+export interface PossessionItem {
+  id: string;
+  name: string;
+  kind: PossessionKind;
+  category?: string;
+  icon?: string;
+  status: PossessionStatus;
+  txns: PossessionTxn[];
+  unit?: string;
+  retiredAt?: string;
+  createdAt: string;
+}
