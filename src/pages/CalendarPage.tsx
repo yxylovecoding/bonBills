@@ -75,34 +75,32 @@ function prevYearMonth(ym: string) {
   return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
 }
 
-function hasAggregateValue(a: BillMonthlyAgg) {
-  return Math.abs(a.income) > 0.01
-    || Math.abs(a.totalExpense) > 0.01
-    || Math.abs(a.periodicLife) > 0.01
-    || Math.abs(a.volatileLife) > 0.01
-    || Math.abs(a.consumption) > 0.01
-    || Math.abs(a.school) > 0.01;
-}
+const BILL_CORE_FIELDS: readonly (keyof BillMonthlyAgg)[] = [
+  'income', 'totalExpense', 'periodicLife', 'volatileLife', 'consumption', 'school',
+];
 
-function isEmptyMonthlyCore(record?: MonthlyRecord) {
-  if (!record) return true;
-  return Math.abs(record.income ?? 0) <= 0.01
-    && Math.abs(record.totalExpense ?? 0) <= 0.01
-    && Math.abs(record.periodicLife ?? 0) <= 0.01
-    && Math.abs(record.volatileLife ?? 0) <= 0.01
-    && Math.abs(record.consumption ?? 0) <= 0.01
-    && Math.abs(record.school ?? 0) <= 0.01;
+// 按字段判断：MonthlyRecord 上某个核心字段 ≈ 0、但账单聚合那一项有值 → 需要回填。
+// 避免“总收入/总支出 已被写入，但四项细分丢失”这种半空状态被恢复逻辑忽略。
+function fieldsNeedingRestore(record: MonthlyRecord | undefined, a: BillMonthlyAgg): (keyof BillMonthlyAgg)[] {
+  return BILL_CORE_FIELDS.filter((k) => {
+    const recordVal = record ? Math.abs(record[k] ?? 0) : 0;
+    const aggVal = Math.abs(a[k] ?? 0);
+    return recordVal <= 0.01 && aggVal > 0.01;
+  });
 }
 
 function recordFromBillAggregate(yearMonth: string, a: BillMonthlyAgg, prev?: MonthlyRecord): MonthlyRecord {
+  // 仅覆盖账单侧确实有值的字段；已有手填值（或其他来源）的字段保留 prev。
+  const pick = (k: keyof BillMonthlyAgg, fallback: number) =>
+    Math.abs(a[k] ?? 0) > 0.01 ? a[k] : fallback;
   return {
     yearMonth,
-    income: a.income,
-    totalExpense: a.totalExpense,
-    periodicLife: a.periodicLife,
-    volatileLife: a.volatileLife,
-    consumption: a.consumption,
-    school: a.school,
+    income: pick('income', prev?.income ?? 0),
+    totalExpense: pick('totalExpense', prev?.totalExpense ?? 0),
+    periodicLife: pick('periodicLife', prev?.periodicLife ?? 0),
+    volatileLife: pick('volatileLife', prev?.volatileLife ?? 0),
+    consumption: pick('consumption', prev?.consumption ?? 0),
+    school: pick('school', prev?.school ?? 0),
     accumulatedProfit: prev?.accumulatedProfit ?? 0,
     investTotal: prev?.investTotal ?? 0,
     investBreakdown: prev?.investBreakdown,
@@ -1907,12 +1905,11 @@ export default function CalendarPage() {
   }, [tagMap]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 账单明细与月度记录分开持久化。若历史上只同步到了明细，或月度卡片曾把核心字段写成 0，
-  // 用账单侧汇总把空核心记录补回来。
+  // 用账单侧汇总把缺失的字段逐项补回来——总收入/总支出仍在但四项细分丢失的半空状态也覆盖。
   useEffect(() => {
     for (const [ym, aggregate] of Object.entries(billAggregates)) {
-      if (!hasAggregateValue(aggregate)) continue;
       const prev = records.find((r) => r.yearMonth === ym);
-      if (!isEmptyMonthlyCore(prev)) continue;
+      if (fieldsNeedingRestore(prev, aggregate).length === 0) continue;
       upsert(recordFromBillAggregate(ym, aggregate, prev));
     }
   }, [billAggregates, records, upsert]);
