@@ -1,16 +1,116 @@
 {
-  "2026-04": {
-    "eatDrinkAmount": 453.72,
-    "eatDrinkCount": 2,
-    "redAmount": 9.8,
-    "blackAmount": 490.52,
+  "2026-05": {
+    "eatDrinkAmount": 670.23,
+    "eatDrinkCount": 5,
+    "redAmount": 14,
+    "blackAmount": 30,
     "eatDrinkItems": [
+      {
+        "date": "2026-05-21",
+        "category": "饮食",
+        "subcategory": "",
+        "amount": 130,
+        "tags": "周期生活,吃好喝好,寿司郎",
+        "note": "寿司郎北京中关村大融城店"
+      },
+      {
+        "date": "2026-05-20",
+        "category": "饮食",
+        "subcategory": "水果",
+        "amount": 124,
+        "tags": "榴莲,佳沃,周期生活,吃好喝好,消耗品",
+        "note": ""
+      },
+      {
+        "date": "2026-05-16",
+        "category": "饮食",
+        "subcategory": "水果",
+        "amount": 95.17,
+        "tags": "榴莲,盒马,周期生活,吃好喝好,消耗品",
+        "note": ""
+      },
+      {
+        "date": "2026-05-12",
+        "category": "饮食",
+        "subcategory": "水果",
+        "amount": 173.76,
+        "tags": "周期生活,吃好喝好,消耗品,榴莲,蓝莓,蜜瓜",
+        "note": ""
+      },
+      {
+        "date": "2026-05-09",
+        "category": "饮食",
+        "subcategory": "水果",
+        "amount": 147.3,
+        "tags": "周期生活,吃好喝好,消耗品,榴莲",
+        "note": "4.6斤"
+      }
+    ],
+    "redItems": [
+      {
+        "date": "2026-05-20",
+        "category": "课学",
+        "subcategory": "运动健身",
+        "amount": 7,
+        "tags": "游泳,运动,消费,红",
+        "note": "清华大学"
+      },
+      {
+        "date": "2026-05-08",
+        "category": "课学",
+        "subcategory": "运动健身",
+        "amount": 7,
+        "tags": "游泳,运动,消费,红",
+        "note": "清华大学"
+      }
+    ],
+    "blackItems": [
+      {
+        "date": "2026-05-08",
+        "category": "医疗",
+        "subcategory": "",
+        "amount": 30,
+        "tags": "波动生活,黑,按摩",
+        "note": "深圳市瑞安医疗服务有限公司"
+      }
+    ]
+  },
+  "2026-04": {
+    "eatDrinkAmount": 804.98,
+    "eatDrinkCount": 5,
+    "redAmount": 940.73,
+    "blackAmount": 574.38,
+    "eatDrinkItems": [
+      {
+        "date": "2026-04-21",
+        "category": "饮食",
+        "subcategory": "",
+        "amount": 95.58,
+        "tags": "周期生活,吃好喝好,牛蛙,白",
+        "note": ""
+      },
+      {
+        "date": "2026-04-18",
+        "category": "饮食",
+        "subcategory": "",
+        "amount": 97.68,
+        "tags": "周期生活,吃好喝好,海底捞,红,26.4北影",
+        "note": "海底捞火锅（枫蓝国际购物中心店）"
+      },
+      {
+        "date": "2026-04-14",
+        "category": "饮食",
+        "subcategory": "",
+        "amount": 158,
+        "tags": "周期生活,吃好喝好,火烧云",
+        "note": "浩海火烧云傣家菜（APM店）"
+      },
       {
         "date": "2026-04-12",
         "category": "饮食",
         "subcategory": "水果",
         "amount": 375.72,
-        "tags": "周期生活, 吃好喝好, 消耗品, 胖达福, 榴莲, 黑",
+        "tags": "周期生活,吃好喝好,消耗品,胖达福,榴莲,黑,done",
         "note": "4.65斤 尖10 80一斤 不是很甜，干湿适中，量好少，超低性价比"
       },
       {
@@ -18,27 +118,139 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 78,
-        "tags": "周期生活, 吃好喝好",
+        "tags": "周期生活,吃好喝好",
         "note": "肉肉大米（中关村大融城店）"
       }
     ],
     "redItems": [
       {
+        "date": "2026-04-21",
+        "category": "饮食",
+        "subcategory": "",
+        "amount": 34.8,
+        "tags": "周期生活,熊小小,红",
+        "note": ""
+      },
+      {
+        "date": "2026-04-20",
+        "category": "娱乐",
+        "subcategory": "电影",
+        "amount": 70,
+        "tags": "电影,消费,如果有腿，我会踢你,26.4北影,红",
+        "note": "转账给Gökotta"
+      },
+      {
+        "date": "2026-04-19",
+        "category": "饮食",
+        "subcategory": "饮料零食",
+        "amount": 221.8,
+        "tags": "山姆,消费,红",
+        "note": ""
+      },
+      {
+        "date": "2026-04-18",
+        "category": "课学",
+        "subcategory": "运动健身",
+        "amount": 7,
+        "tags": "游泳,运动,消费,红",
+        "note": "清华大学"
+      },
+      {
+        "date": "2026-04-18",
+        "category": "饮食",
+        "subcategory": "",
+        "amount": 97.68,
+        "tags": "周期生活,吃好喝好,海底捞,红,26.4北影",
+        "note": "海底捞火锅（枫蓝国际购物中心店）"
+      },
+      {
+        "date": "2026-04-16",
+        "category": "饮食",
+        "subcategory": "",
+        "amount": 27.8,
+        "tags": "周期生活,熊小小,外卖,红",
+        "note": ""
+      },
+      {
+        "date": "2026-04-15",
+        "category": "购物",
+        "subcategory": "家具",
+        "amount": 198.16,
+        "tags": "躺椅,消费,红",
+        "note": ""
+      },
+      {
+        "date": "2026-04-11",
+        "category": "购物",
+        "subcategory": "电子产品",
+        "amount": 34.8,
+        "tags": "消费,joycon充电握把,红",
+        "note": "【白色oled】支持带壳使用"
+      },
+      {
         "date": "2026-04-10",
         "category": "饮食",
         "subcategory": "饮料零食",
         "amount": 9.8,
-        "tags": "消费, 巧乐兹, 红",
+        "tags": "消费,巧乐兹,红",
         "note": "好想来品牌零食"
+      },
+      {
+        "date": "2026-04-10",
+        "category": "娱乐",
+        "subcategory": "电影",
+        "amount": 70,
+        "tags": "小岛惊魂,消费,电影,26.4北影,红",
+        "note": ""
+      },
+      {
+        "date": "2026-04-10",
+        "category": "娱乐",
+        "subcategory": "电影",
+        "amount": 70,
+        "tags": "局外人,消费,电影,26.4北影,红",
+        "note": ""
+      },
+      {
+        "date": "2026-04-10",
+        "category": "娱乐",
+        "subcategory": "电影",
+        "amount": 70.13,
+        "tags": "傲慢与偏见,消费,电影,26.4北影,红",
+        "note": ""
+      },
+      {
+        "date": "2026-04-04",
+        "category": "饮食",
+        "subcategory": "饮料零食",
+        "amount": 28.76,
+        "tags": "消费,野人先生,红",
+        "note": ""
       }
     ],
     "blackItems": [
+      {
+        "date": "2026-04-20",
+        "category": "娱乐",
+        "subcategory": "电影",
+        "amount": 80,
+        "tags": "消费,电影,假如爱有天意,26.4北影,黑",
+        "note": ""
+      },
+      {
+        "date": "2026-04-18",
+        "category": "生活",
+        "subcategory": "电费",
+        "amount": 3.86,
+        "tags": "电动车充电,周期生活,黑",
+        "note": ""
+      },
       {
         "date": "2026-04-12",
         "category": "饮食",
         "subcategory": "水果",
         "amount": 375.72,
-        "tags": "周期生活, 吃好喝好, 消耗品, 胖达福, 榴莲, 黑",
+        "tags": "周期生活,吃好喝好,消耗品,胖达福,榴莲,黑,done",
         "note": "4.65斤 尖10 80一斤 不是很甜，干湿适中，量好少，超低性价比"
       },
       {
@@ -46,7 +258,7 @@
         "category": "娱乐",
         "subcategory": "景点",
         "amount": 30,
-        "tags": "消费, 黑",
+        "tags": "消费,黑",
         "note": "北京市颐和园管理处"
       },
       {
@@ -54,7 +266,7 @@
         "category": "购物",
         "subcategory": "体育用品",
         "amount": 14.8,
-        "tags": "哑铃, 消费, 运动, 黑",
+        "tags": "哑铃,消费,运动,黑",
         "note": "1.5kg×2"
       },
       {
@@ -62,7 +274,7 @@
         "category": "娱乐",
         "subcategory": "电影",
         "amount": 70,
-        "tags": "我许可, 电影, 消费, 黑",
+        "tags": "我许可,电影,消费,黑",
         "note": ""
       }
     ]
@@ -70,15 +282,15 @@
   "2026-03": {
     "eatDrinkAmount": 715.5,
     "eatDrinkCount": 6,
-    "redAmount": 108.07,
-    "blackAmount": 70,
+    "redAmount": 588.07,
+    "blackAmount": 86.4,
     "eatDrinkItems": [
       {
         "date": "2026-03-29",
         "category": "饮食",
         "subcategory": "",
         "amount": 114.5,
-        "tags": "26.3.29长城赏花, 周期生活, 吃好喝好",
+        "tags": "26.3.29长城赏花,周期生活,吃好喝好",
         "note": ""
       },
       {
@@ -86,7 +298,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 115,
-        "tags": "周期生活, 吃好喝好, 寿司郎",
+        "tags": "周期生活,吃好喝好,寿司郎",
         "note": "寿司郎北京中关村大融城店"
       },
       {
@@ -94,7 +306,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 96,
-        "tags": "周期生活, 吃好喝好, 26.3沈阳",
+        "tags": "周期生活,吃好喝好,26.3沈阳",
         "note": "美团平台商户"
       },
       {
@@ -102,7 +314,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 177,
-        "tags": "周期生活, 吃好喝好, 长顺参鸡汤, 白, 26.3沈阳",
+        "tags": "周期生活,吃好喝好,长顺参鸡汤,白,26.3沈阳",
         "note": ""
       },
       {
@@ -110,7 +322,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 128,
-        "tags": "吃好喝好, 周期生活, 26.3故宫大雪",
+        "tags": "吃好喝好,周期生活,26.3故宫大雪",
         "note": "寿司郎北京西单大悦城店"
       },
       {
@@ -118,7 +330,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 85,
-        "tags": "吃好喝好, 火锅, 周期生活, 26.3圆明园灯会",
+        "tags": "吃好喝好,火锅,周期生活,26.3圆明园灯会",
         "note": ""
       }
     ],
@@ -128,7 +340,15 @@
         "category": "购物",
         "subcategory": "",
         "amount": 2.31,
-        "tags": "勺子, 小方勺, 红, 消费",
+        "tags": "勺子,小方勺,红,消费",
+        "note": ""
+      },
+      {
+        "date": "2026-03-13",
+        "category": "娱乐",
+        "subcategory": "演出",
+        "amount": 480,
+        "tags": "张杰,演唱会,消费,26.4张杰演唱会,红",
         "note": ""
       },
       {
@@ -136,7 +356,7 @@
         "category": "娱乐",
         "subcategory": "",
         "amount": 105.76,
-        "tags": "搓澡, 消费, 红, 26.3沈阳",
+        "tags": "搓澡,消费,红,26.3沈阳",
         "note": ""
       }
     ],
@@ -146,7 +366,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 20,
-        "tags": "双马, 咖喱, 周期生活, 黑",
+        "tags": "双马,咖喱,周期生活,黑",
         "note": ""
       },
       {
@@ -154,15 +374,23 @@
         "category": "娱乐",
         "subcategory": "景点",
         "amount": 50,
-        "tags": "沈阳故宫, 消费, 黑, 26.3沈阳",
+        "tags": "沈阳故宫,消费,黑,26.3沈阳",
         "note": "同程旅行"
+      },
+      {
+        "date": "2026-03-10",
+        "category": "购物",
+        "subcategory": "",
+        "amount": 16.4,
+        "tags": "早餐杯,波动生活,黑",
+        "note": ""
       }
     ]
   },
   "2026-02": {
     "eatDrinkAmount": 863.8,
     "eatDrinkCount": 9,
-    "redAmount": 0,
+    "redAmount": 39.47,
     "blackAmount": 0,
     "eatDrinkItems": [
       {
@@ -170,7 +398,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 349,
-        "tags": "吃好喝好, 大良毋米粥, 周期生活, 26.2湘粤港, 家",
+        "tags": "吃好喝好,大良毋米粥,周期生活,26.2湘粤港,家",
         "note": "美团平台商户"
       },
       {
@@ -178,7 +406,7 @@
         "category": "饮食",
         "subcategory": "饮料零食",
         "amount": 58,
-        "tags": "消费, 吃好喝好, 阿嬷手作, 26.2湘粤港, 家",
+        "tags": "消费,吃好喝好,阿嬷手作,26.2湘粤港,家",
         "note": "深圳手作餐饮管理有限公司"
       },
       {
@@ -186,7 +414,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 54.19,
-        "tags": "周期生活, 吃好喝好, 26.2湘粤港",
+        "tags": "周期生活,吃好喝好,26.2湘粤港",
         "note": ""
       },
       {
@@ -194,7 +422,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 54.4,
-        "tags": "外卖, 周期生活, 吃好喝好, 家, 肠粉, 26.2湘粤港",
+        "tags": "外卖,周期生活,吃好喝好,家,肠粉,26.2湘粤港",
         "note": "订单金额"
       },
       {
@@ -202,7 +430,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 57.81,
-        "tags": "外卖, 周期生活, 吃好喝好, 酸菜鱼, 家",
+        "tags": "外卖,周期生活,吃好喝好,酸菜鱼,家",
         "note": "订单金额"
       },
       {
@@ -210,7 +438,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 99,
-        "tags": "周期生活, 吃好喝好, 家",
+        "tags": "周期生活,吃好喝好,家",
         "note": ""
       },
       {
@@ -218,7 +446,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 50.9,
-        "tags": "周期生活, 小杨生煎, 家, 吃好喝好",
+        "tags": "周期生活,小杨生煎,家,吃好喝好",
         "note": "淘宝平台商户"
       },
       {
@@ -226,7 +454,7 @@
         "category": "饮食",
         "subcategory": "饮料零食",
         "amount": 53.6,
-        "tags": "消费, 吃好喝好, 家",
+        "tags": "消费,吃好喝好,家",
         "note": "咬金吃饱了烘焙店"
       },
       {
@@ -234,17 +462,26 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 86.9,
-        "tags": "周期生活, 吃好喝好, 滨寿司, 白",
+        "tags": "周期生活,吃好喝好,滨寿司,白",
         "note": ""
       }
     ],
-    "redItems": [],
+    "redItems": [
+      {
+        "date": "2026-02-23",
+        "category": "娱乐",
+        "subcategory": "电影",
+        "amount": 39.47,
+        "tags": "女孩,消费,电影,26.3女孩,红",
+        "note": ""
+      }
+    ],
     "blackItems": []
   },
   "2026-01": {
     "eatDrinkAmount": 483.7,
     "eatDrinkCount": 2,
-    "redAmount": 113.93,
+    "redAmount": 145.93,
     "blackAmount": 0,
     "eatDrinkItems": [
       {
@@ -252,7 +489,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 160.5,
-        "tags": "姜虎东, 周期生活, 吃好喝好, 26.1闪灵",
+        "tags": "姜虎东,周期生活,吃好喝好,26.1闪灵",
         "note": ""
       },
       {
@@ -260,7 +497,7 @@
         "category": "饮食",
         "subcategory": "饮料零食",
         "amount": 323.2,
-        "tags": "吃好喝好, 家, 消费",
+        "tags": "吃好喝好,家,消费",
         "note": "山姆代下单包邮服务"
       }
     ],
@@ -270,7 +507,7 @@
         "category": "购物",
         "subcategory": "",
         "amount": 0.74,
-        "tags": "挤牙膏神器, 消费, 红, 家",
+        "tags": "挤牙膏神器,消费,红,家",
         "note": ""
       },
       {
@@ -278,7 +515,7 @@
         "category": "交通",
         "subcategory": "🚗",
         "amount": 12.8,
-        "tags": "波动生活, 红",
+        "tags": "波动生活,红",
         "note": ""
       },
       {
@@ -286,7 +523,7 @@
         "category": "购物",
         "subcategory": "",
         "amount": 8.45,
-        "tags": "钟, 波动生活, 家, 红",
+        "tags": "钟,波动生活,家,红",
         "note": ""
       },
       {
@@ -294,7 +531,7 @@
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 11.9,
-        "tags": "消费, 发圈, 红",
+        "tags": "消费,发圈,红",
         "note": "常州武进区吾悦广场店"
       },
       {
@@ -302,7 +539,15 @@
         "category": "购物",
         "subcategory": "日用品",
         "amount": 11.2,
-        "tags": "周期生活, 牙膏, 家, 红",
+        "tags": "周期生活,牙膏,家,红",
+        "note": "淘宝平台商户"
+      },
+      {
+        "date": "2026-01-23",
+        "category": "娱乐",
+        "subcategory": "电影",
+        "amount": 32,
+        "tags": "消费,闪灵,电影,26.1闪灵,红",
         "note": "淘宝平台商户"
       },
       {
@@ -310,7 +555,7 @@
         "category": "其他",
         "subcategory": "运费",
         "amount": 4.66,
-        "tags": "波动生活, 睡觉pingu, 红",
+        "tags": "波动生活,睡觉pingu,红",
         "note": "寄羊羊"
       },
       {
@@ -318,7 +563,7 @@
         "category": "购物",
         "subcategory": "",
         "amount": 2.5,
-        "tags": "坐浴盆, 波动生活, 家, 红",
+        "tags": "坐浴盆,波动生活,家,红",
         "note": ""
       },
       {
@@ -326,7 +571,7 @@
         "category": "购物",
         "subcategory": "",
         "amount": 1.41,
-        "tags": "勺子, 小方勺, 红, 消费, 家",
+        "tags": "勺子,小方勺,红,消费,家",
         "note": ""
       },
       {
@@ -334,7 +579,7 @@
         "category": "购物",
         "subcategory": "日用品",
         "amount": 7.71,
-        "tags": "洗面奶, 周期生活, 舒缓保湿特护洁面乳, 薇诺娜, 红, 家",
+        "tags": "洗面奶,周期生活,舒缓保湿特护洁面乳,薇诺娜,红,家",
         "note": "20g"
       },
       {
@@ -342,7 +587,7 @@
         "category": "购物",
         "subcategory": "",
         "amount": 9.3,
-        "tags": "行李箱牌, 消费, 红",
+        "tags": "行李箱牌,消费,红",
         "note": ""
       },
       {
@@ -350,7 +595,7 @@
         "category": "购物",
         "subcategory": "",
         "amount": 19.9,
-        "tags": "指甲刀, 波动生活, 红, 家",
+        "tags": "指甲刀,波动生活,红,家",
         "note": ""
       },
       {
@@ -358,7 +603,7 @@
         "category": "交通",
         "subcategory": "🚗",
         "amount": 23.36,
-        "tags": "回家, 周期生活, 红",
+        "tags": "回家,周期生活,红",
         "note": ""
       }
     ],
@@ -375,7 +620,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 84.75,
-        "tags": "周期生活, 吃好喝好, 油焖鸡, 菠萝饭, 白",
+        "tags": "周期生活,吃好喝好,油焖鸡,菠萝饭,白",
         "note": "清华大学"
       },
       {
@@ -383,7 +628,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 50.42,
-        "tags": "周期生活, 吃好喝好",
+        "tags": "周期生活,吃好喝好",
         "note": "校园卡 账户余额补齐"
       },
       {
@@ -391,7 +636,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 185,
-        "tags": "清橙町, 周期生活, 吃好喝好, 红",
+        "tags": "清橙町,周期生活,吃好喝好,红",
         "note": ""
       },
       {
@@ -399,7 +644,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 117.99,
-        "tags": "寿司郎, 周期生活, 吃好喝好",
+        "tags": "寿司郎,周期生活,吃好喝好",
         "note": ""
       },
       {
@@ -407,7 +652,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 123.78,
-        "tags": "周期生活, 吃好喝好, 清橙町, 苹果鹅肝饭",
+        "tags": "周期生活,吃好喝好,清橙町,苹果鹅肝饭",
         "note": ""
       },
       {
@@ -415,7 +660,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 137,
-        "tags": "周期生活, 吃好喝好, 毛毛虫",
+        "tags": "周期生活,吃好喝好,毛毛虫",
         "note": ""
       },
       {
@@ -423,7 +668,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 88,
-        "tags": "周期生活, 吃好喝好, 龙船码头",
+        "tags": "周期生活,吃好喝好,龙船码头",
         "note": ""
       },
       {
@@ -431,7 +676,7 @@
         "category": "饮食",
         "subcategory": "饮料零食",
         "amount": 144.7,
-        "tags": "山姆, 消费, 吃好喝好, 蛋黄酥, 牛肉, 红",
+        "tags": "山姆,消费,吃好喝好,蛋黄酥,牛肉,红",
         "note": ""
       }
     ],
@@ -441,7 +686,7 @@
         "category": "娱乐",
         "subcategory": "景点",
         "amount": 60,
-        "tags": "火山, 消费, 26.1内蒙古, 红",
+        "tags": "火山,消费,26.1内蒙古,红",
         "note": ""
       },
       {
@@ -449,7 +694,7 @@
         "category": "购物",
         "subcategory": "",
         "amount": 20.8,
-        "tags": "字体, 消费, 红",
+        "tags": "字体,消费,红",
         "note": ""
       },
       {
@@ -457,7 +702,7 @@
         "category": "购物",
         "subcategory": "",
         "amount": 0.17,
-        "tags": "消费, 冰箱贴, 红",
+        "tags": "消费,冰箱贴,红",
         "note": ""
       },
       {
@@ -465,7 +710,7 @@
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 60.44,
-        "tags": "保暖口罩, 波动生活, 26.1内蒙古, 红",
+        "tags": "保暖口罩,波动生活,26.1内蒙古,红",
         "note": ""
       },
       {
@@ -473,7 +718,7 @@
         "category": "购物",
         "subcategory": "",
         "amount": 32.95,
-        "tags": "手套, 波动生活, 26.1内蒙古, 红",
+        "tags": "手套,波动生活,26.1内蒙古,红",
         "note": ""
       },
       {
@@ -481,7 +726,7 @@
         "category": "饮食",
         "subcategory": "饮料零食",
         "amount": 37.8,
-        "tags": "盒马, 消费, 红",
+        "tags": "盒马,消费,红",
         "note": "榴莲千层"
       },
       {
@@ -489,7 +734,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 185,
-        "tags": "清橙町, 周期生活, 吃好喝好, 红",
+        "tags": "清橙町,周期生活,吃好喝好,红",
         "note": ""
       },
       {
@@ -497,7 +742,7 @@
         "category": "购物",
         "subcategory": "",
         "amount": 7.2,
-        "tags": "行李牌, 消费, 红",
+        "tags": "行李牌,消费,红",
         "note": ""
       },
       {
@@ -505,7 +750,7 @@
         "category": "其他",
         "subcategory": "租赁",
         "amount": 80,
-        "tags": "滑雪, 消费, 运动, 红",
+        "tags": "滑雪,消费,运动,红",
         "note": "柜子20 头盔20 雪服30 手套10"
       },
       {
@@ -513,7 +758,7 @@
         "category": "购物",
         "subcategory": "",
         "amount": 0.3,
-        "tags": "三角套环, 消费, 红",
+        "tags": "三角套环,消费,红",
         "note": ""
       },
       {
@@ -521,7 +766,7 @@
         "category": "其他",
         "subcategory": "租赁",
         "amount": 20,
-        "tags": "小乌龟护具, 消费, 滑雪, 运动, 红",
+        "tags": "小乌龟护具,消费,滑雪,运动,红",
         "note": ""
       },
       {
@@ -529,7 +774,7 @@
         "category": "购物",
         "subcategory": "日用品",
         "amount": 0.51,
-        "tags": "牙线, 周期生活, 红",
+        "tags": "牙线,周期生活,红",
         "note": ""
       },
       {
@@ -537,7 +782,7 @@
         "category": "购物",
         "subcategory": "家具",
         "amount": 38,
-        "tags": "平板支架, 消费, 红",
+        "tags": "平板支架,消费,红",
         "note": ""
       },
       {
@@ -545,7 +790,7 @@
         "category": "饮食",
         "subcategory": "水果",
         "amount": 28.62,
-        "tags": "周期生活, 红",
+        "tags": "周期生活,红",
         "note": ""
       },
       {
@@ -553,7 +798,7 @@
         "category": "饮食",
         "subcategory": "饮料零食",
         "amount": 19.8,
-        "tags": "鲜芋仙, 消费, 红",
+        "tags": "鲜芋仙,消费,红",
         "note": ""
       },
       {
@@ -561,7 +806,7 @@
         "category": "饮食",
         "subcategory": "饮料零食",
         "amount": 33,
-        "tags": "黄油与面包, 消费, 红",
+        "tags": "黄油与面包,消费,红",
         "note": ""
       },
       {
@@ -569,7 +814,7 @@
         "category": "饮食",
         "subcategory": "水果",
         "amount": 26,
-        "tags": "蓝莓, 香蕉, 周期生活, 侯家, 红",
+        "tags": "蓝莓,香蕉,周期生活,侯家,红",
         "note": "香蕉6根，云南蓝莓超大果"
       },
       {
@@ -577,7 +822,7 @@
         "category": "饮食",
         "subcategory": "水果",
         "amount": 20.6,
-        "tags": "周期生活, 耙耙柑, 红",
+        "tags": "周期生活,耙耙柑,红",
         "note": ""
       },
       {
@@ -585,7 +830,7 @@
         "category": "饮食",
         "subcategory": "饮料零食",
         "amount": 23.78,
-        "tags": "mstand, 消费, 红",
+        "tags": "mstand,消费,红",
         "note": ""
       },
       {
@@ -593,7 +838,7 @@
         "category": "购物",
         "subcategory": "",
         "amount": 2.31,
-        "tags": "勺子, 消费, 小方勺, 红",
+        "tags": "勺子,消费,小方勺,红",
         "note": ""
       },
       {
@@ -601,7 +846,7 @@
         "category": "饮食",
         "subcategory": "饮料零食",
         "amount": 144.7,
-        "tags": "山姆, 消费, 吃好喝好, 蛋黄酥, 牛肉, 红",
+        "tags": "山姆,消费,吃好喝好,蛋黄酥,牛肉,红",
         "note": ""
       },
       {
@@ -609,7 +854,7 @@
         "category": "饮食",
         "subcategory": "水果",
         "amount": 18.81,
-        "tags": "周期生活, 香蕉, 苹果, 红",
+        "tags": "周期生活,香蕉,苹果,红",
         "note": ""
       }
     ],
@@ -619,7 +864,7 @@
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 89,
-        "tags": "冲锋裤, 消费, 26.1内蒙古, 黑",
+        "tags": "冲锋裤,消费,26.1内蒙古,黑",
         "note": ""
       },
       {
@@ -627,7 +872,7 @@
         "category": "饮食",
         "subcategory": "饮料零食",
         "amount": 15,
-        "tags": "蓝莓酸奶, 消费, 黑",
+        "tags": "蓝莓酸奶,消费,黑",
         "note": ""
       },
       {
@@ -635,7 +880,7 @@
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 3.93,
-        "tags": "波动生活, 保暖口罩, 黑",
+        "tags": "波动生活,保暖口罩,黑",
         "note": ""
       }
     ]
@@ -643,7 +888,7 @@
   "2025-11": {
     "eatDrinkAmount": 1283.04,
     "eatDrinkCount": 15,
-    "redAmount": 1835.85,
+    "redAmount": 1929.82,
     "blackAmount": 13.59,
     "eatDrinkItems": [
       {
@@ -651,7 +896,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 80,
-        "tags": "和幸, 周期生活, 25.11日本贰, 吃好喝好",
+        "tags": "和幸,周期生活,25.11日本贰,吃好喝好",
         "note": ""
       },
       {
@@ -659,7 +904,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 99.64,
-        "tags": "鳗鱼饭, 周期生活, 25.11日本贰, 吃好喝好",
+        "tags": "鳗鱼饭,周期生活,25.11日本贰,吃好喝好",
         "note": ""
       },
       {
@@ -667,7 +912,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 141.04,
-        "tags": "周期生活, 寿喜烧, 25.11日本贰, 吃好喝好",
+        "tags": "周期生活,寿喜烧,25.11日本贰,吃好喝好",
         "note": ""
       },
       {
@@ -675,7 +920,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 58.88,
-        "tags": "文字烧, 周期生活, 25.11日本贰, 吃好喝好",
+        "tags": "文字烧,周期生活,25.11日本贰,吃好喝好",
         "note": ""
       },
       {
@@ -683,7 +928,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 108.7,
-        "tags": "香蕉松饼, 周期生活, 25.11日本贰, 吃好喝好",
+        "tags": "香蕉松饼,周期生活,25.11日本贰,吃好喝好",
         "note": ""
       },
       {
@@ -691,7 +936,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 76.12,
-        "tags": "荞麦面, 周期生活, 25.11日本贰, 吃好喝好",
+        "tags": "荞麦面,周期生活,25.11日本贰,吃好喝好",
         "note": ""
       },
       {
@@ -699,7 +944,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 54.37,
-        "tags": "周期生活, 25.11日本贰, 吃好喝好",
+        "tags": "周期生活,25.11日本贰,吃好喝好",
         "note": ""
       },
       {
@@ -707,7 +952,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 106.98,
-        "tags": "安妮意大利餐厅, 周期生活, 25.11 琳达琳达琳达, 吃好喝好",
+        "tags": "安妮意大利餐厅,周期生活,25.11 琳达琳达琳达,吃好喝好",
         "note": ""
       },
       {
@@ -715,7 +960,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 56.97,
-        "tags": "五右卫门, 周期生活, 吃好喝好",
+        "tags": "五右卫门,周期生活,吃好喝好",
         "note": ""
       },
       {
@@ -723,7 +968,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 68.09,
-        "tags": "周期生活, 吃好喝好",
+        "tags": "周期生活,吃好喝好",
         "note": "校园卡 账户余额补齐"
       },
       {
@@ -731,7 +976,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 79,
-        "tags": "正谈炸鸡, 周期生活, 吃好喝好",
+        "tags": "正谈炸鸡,周期生活,吃好喝好",
         "note": ""
       },
       {
@@ -739,7 +984,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 112.25,
-        "tags": "幻师, 周期生活, 吃好喝好",
+        "tags": "幻师,周期生活,吃好喝好",
         "note": ""
       },
       {
@@ -747,7 +992,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 52.8,
-        "tags": "btn, 奶粉, 周期生活, 吃好喝好",
+        "tags": "btn,奶粉,周期生活,吃好喝好",
         "note": "【0.05/g】"
       },
       {
@@ -755,7 +1000,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 101.7,
-        "tags": "奶粉, 周期生活, 吃好喝好, a2",
+        "tags": "奶粉,周期生活,吃好喝好,a2",
         "note": "【0.11/】一般 没觉得很好喝"
       },
       {
@@ -763,7 +1008,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 86.5,
-        "tags": "周期生活, 烤肉, 吃好喝好, 25.11弗兰肯斯坦",
+        "tags": "周期生活,烤肉,吃好喝好,25.11弗兰肯斯坦",
         "note": ""
       }
     ],
@@ -773,7 +1018,7 @@
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 43.22,
-        "tags": "muji, 消费, 风衣, 25.11日本贰, 红",
+        "tags": "muji,消费,风衣,25.11日本贰,红",
         "note": ""
       },
       {
@@ -781,7 +1026,15 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 30,
-        "tags": "纪念品, 挂件, 消费, 25.11日本贰, 红",
+        "tags": "纪念品,挂件,消费,25.11日本贰,红",
+        "note": ""
+      },
+      {
+        "date": "2025-11-27",
+        "category": "娱乐",
+        "subcategory": "电影",
+        "amount": 67.97,
+        "tags": "电锯人,周期safar,25.11日本贰,消费,电影,红",
         "note": ""
       },
       {
@@ -789,7 +1042,15 @@
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 1740,
-        "tags": "羽绒服, aritzia, 波动生活, 红",
+        "tags": "羽绒服,aritzia,波动生活,红",
+        "note": ""
+      },
+      {
+        "date": "2025-11-14",
+        "category": "饮食",
+        "subcategory": "",
+        "amount": 26,
+        "tags": "豆花米线,周期生活,天堂电影院,红",
         "note": ""
       },
       {
@@ -797,7 +1058,7 @@
         "category": "购物",
         "subcategory": "美妆",
         "amount": 3.63,
-        "tags": "刀锋刷, 消费, 美业, 红",
+        "tags": "刀锋刷,消费,美业,红",
         "note": ""
       },
       {
@@ -805,7 +1066,7 @@
         "category": "生活",
         "subcategory": "会员",
         "amount": 19,
-        "tags": "onenote助手, 周期生活, 红",
+        "tags": "onenote助手,周期生活,红",
         "note": ""
       }
     ],
@@ -815,7 +1076,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 13.59,
-        "tags": "扭蛋, 纪念品, 消费, 25.11日本贰, 黑",
+        "tags": "扭蛋,纪念品,消费,25.11日本贰,黑",
         "note": ""
       }
     ]
@@ -823,7 +1084,7 @@
   "2025-10": {
     "eatDrinkAmount": 365.57,
     "eatDrinkCount": 3,
-    "redAmount": 995.02,
+    "redAmount": 1185.02,
     "blackAmount": 60,
     "eatDrinkItems": [
       {
@@ -831,7 +1092,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 51.77,
-        "tags": "周期生活, 吃好喝好",
+        "tags": "周期生活,吃好喝好",
         "note": "校园卡 账户余额补齐"
       },
       {
@@ -839,7 +1100,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 186,
-        "tags": "周期生活, 幻师, 红, 吃好喝好",
+        "tags": "周期生活,幻师,红,吃好喝好",
         "note": ""
       },
       {
@@ -847,17 +1108,33 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 127.8,
-        "tags": "悠航, 周期生活, 吃好喝好",
+        "tags": "悠航,周期生活,吃好喝好",
         "note": ""
       }
     ],
     "redItems": [
       {
+        "date": "2025-10-30",
+        "category": "娱乐",
+        "subcategory": "电影",
+        "amount": 70,
+        "tags": "25.11 琳达琳达琳达,周期safar,消费,电影,红",
+        "note": ""
+      },
+      {
+        "date": "2025-10-30",
+        "category": "娱乐",
+        "subcategory": "电影",
+        "amount": 120,
+        "tags": "天堂电影院,周期safar,消费,电影,红",
+        "note": ""
+      },
+      {
         "date": "2025-10-20",
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 95.4,
-        "tags": "帽子, 波动生活, 红, 无印良品",
+        "tags": "帽子,波动生活,红,无印良品",
         "note": ""
       },
       {
@@ -865,7 +1142,7 @@
         "category": "购物",
         "subcategory": "护肤",
         "amount": 322,
-        "tags": "修丽可, 五酸精华, 周期生活, 红, 护肤",
+        "tags": "修丽可,五酸精华,周期生活,红,护肤",
         "note": "【10.7/ml】"
       },
       {
@@ -873,7 +1150,7 @@
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 102.25,
-        "tags": "2thdesire, 针织帽, 消费, 红",
+        "tags": "2thdesire,针织帽,消费,红",
         "note": ""
       },
       {
@@ -881,7 +1158,7 @@
         "category": "购物",
         "subcategory": "美妆",
         "amount": 113.88,
-        "tags": "植村秀, 眉笔, 消费, 红, 美业",
+        "tags": "植村秀,眉笔,消费,红,美业",
         "note": "按克重很便宜 手上的眉笔要用完了"
       },
       {
@@ -889,7 +1166,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 186,
-        "tags": "周期生活, 幻师, 红, 吃好喝好",
+        "tags": "周期生活,幻师,红,吃好喝好",
         "note": ""
       },
       {
@@ -897,7 +1174,7 @@
         "category": "购物",
         "subcategory": "护肤",
         "amount": 10.79,
-        "tags": "唇膜, 兰芝, 周期生活, 护肤, 红",
+        "tags": "唇膜,兰芝,周期生活,护肤,红",
         "note": "3g"
       },
       {
@@ -905,7 +1182,7 @@
         "category": "购物",
         "subcategory": "美妆",
         "amount": 23.9,
-        "tags": "修容笔, 消费, 美业, 红",
+        "tags": "修容笔,消费,美业,红",
         "note": ""
       },
       {
@@ -913,7 +1190,7 @@
         "category": "购物",
         "subcategory": "美妆",
         "amount": 0.8,
-        "tags": "镊子, 消费, 美业, 红",
+        "tags": "镊子,消费,美业,红",
         "note": ""
       },
       {
@@ -921,7 +1198,7 @@
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 140,
-        "tags": "消费, 近视墨镜, 红",
+        "tags": "消费,近视墨镜,红",
         "note": ""
       }
     ],
@@ -931,7 +1208,7 @@
         "category": "人际",
         "subcategory": "礼物",
         "amount": 60,
-        "tags": "妈妈, 墨镜, 周期生活, 黑",
+        "tags": "妈妈,墨镜,周期生活,黑",
         "note": ""
       }
     ]
@@ -939,7 +1216,7 @@
   "2025-09": {
     "eatDrinkAmount": 469.6,
     "eatDrinkCount": 3,
-    "redAmount": 667.38,
+    "redAmount": 727.38,
     "blackAmount": 0,
     "eatDrinkItems": [
       {
@@ -947,7 +1224,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 276,
-        "tags": "樱木, 25.9大连, 周期生活, 吃好喝好",
+        "tags": "樱木,25.9大连,周期生活,吃好喝好",
         "note": ""
       },
       {
@@ -955,7 +1232,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 84,
-        "tags": "好豆咖啡, 巴斯克, 25.9大连, 周期生活, 吃好喝好",
+        "tags": "好豆咖啡,巴斯克,25.9大连,周期生活,吃好喝好",
         "note": ""
       },
       {
@@ -963,17 +1240,25 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 109.6,
-        "tags": "喜鼎, 25.9大连, 周期生活, 吃好喝好",
+        "tags": "喜鼎,25.9大连,周期生活,吃好喝好",
         "note": ""
       }
     ],
     "redItems": [
       {
+        "date": "2025-09-29",
+        "category": "娱乐",
+        "subcategory": "电影",
+        "amount": 60,
+        "tags": "电影,我曾侍候过英国国王,周期safar,消费,红",
+        "note": ""
+      },
+      {
         "date": "2025-09-28",
         "category": "购物",
         "subcategory": "护肤",
         "amount": 5.98,
-        "tags": "唇膜, 兰芝, 周期生活, 护肤, 红",
+        "tags": "唇膜,兰芝,周期生活,护肤,红",
         "note": "0.8g"
       },
       {
@@ -981,7 +1266,7 @@
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 459,
-        "tags": "伯希和, 原石, 冲锋衣, 波动生活, 红",
+        "tags": "伯希和,原石,冲锋衣,波动生活,红",
         "note": ""
       },
       {
@@ -989,7 +1274,7 @@
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 190.1,
-        "tags": "消费, 尔给, 红",
+        "tags": "消费,尔给,红",
         "note": "棕色set"
       },
       {
@@ -997,7 +1282,7 @@
         "category": "购物",
         "subcategory": "护肤",
         "amount": 11.71,
-        "tags": "哇哈哈纯净水, 周期生活, 护肤, 红",
+        "tags": "哇哈哈纯净水,周期生活,护肤,红",
         "note": "2.79/L"
       },
       {
@@ -1005,7 +1290,7 @@
         "category": "购物",
         "subcategory": "",
         "amount": 0.59,
-        "tags": "浴帽, 波动生活, 硕士开学, 红",
+        "tags": "浴帽,波动生活,硕士开学,红",
         "note": ""
       }
     ],
@@ -1022,7 +1307,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 110,
-        "tags": "404牛排, 周期生活, 杨笠, 吃好喝好",
+        "tags": "404牛排,周期生活,杨笠,吃好喝好",
         "note": ""
       }
     ],
@@ -1032,7 +1317,7 @@
         "category": "购物",
         "subcategory": "",
         "amount": 299.9,
-        "tags": "床垫, 波动生活, 硕士开学, 红",
+        "tags": "床垫,波动生活,硕士开学,红",
         "note": ""
       },
       {
@@ -1040,7 +1325,7 @@
         "category": "购物",
         "subcategory": "电子产品",
         "amount": 735,
-        "tags": "galaxywatch7, 消费, 红",
+        "tags": "galaxywatch7,消费,红,40mm",
         "note": ""
       },
       {
@@ -1048,7 +1333,7 @@
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 12.13,
-        "tags": "假发, 消费, 红",
+        "tags": "假发,消费,红",
         "note": ""
       },
       {
@@ -1056,7 +1341,7 @@
         "category": "生活",
         "subcategory": "会员",
         "amount": 18.4,
-        "tags": "onenote, 周期生活, 红",
+        "tags": "onenote,周期生活,红",
         "note": ""
       }
     ],
@@ -1073,7 +1358,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 90,
-        "tags": "25.7山东, 周期生活, 吃好喝好",
+        "tags": "25.7山东,周期生活,吃好喝好",
         "note": "市中区闫记汇泉楼饭庄"
       },
       {
@@ -1081,7 +1366,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 62,
-        "tags": "muji, 25.7.16千与千寻, 周期生活, 吃好喝好",
+        "tags": "muji,25.7.16千与千寻,周期生活,吃好喝好",
         "note": "转账给钱嘻嘻"
       },
       {
@@ -1089,7 +1374,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 143,
-        "tags": "25.7jlpt, 周期生活, 吃好喝好",
+        "tags": "25.7jlpt,周期生活,吃好喝好",
         "note": ""
       }
     ],
@@ -1099,7 +1384,7 @@
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 3.33,
-        "tags": "耳夹, 蓝色雪纺, 消费, 红",
+        "tags": "耳夹,蓝色雪纺,消费,红",
         "note": ""
       },
       {
@@ -1107,7 +1392,7 @@
         "category": "购物",
         "subcategory": "美妆",
         "amount": 48.76,
-        "tags": "美瞳, flanmy, 爵士黑松饼, *2, 消费, 半年抛, 美业, 红",
+        "tags": "美瞳,flanmy,爵士黑松饼,*2,消费,半年抛,美业,红",
         "note": "【24.4/】"
       },
       {
@@ -1115,7 +1400,7 @@
         "category": "购物",
         "subcategory": "美妆",
         "amount": 146.9,
-        "tags": "美瞳, lemonade, *4, 冰美式, 消费, 半年抛, 美业, 红",
+        "tags": "美瞳,lemonade,*4,冰美式,消费,半年抛,美业,红",
         "note": "【36.7/】"
       },
       {
@@ -1123,7 +1408,7 @@
         "category": "购物",
         "subcategory": "电子产品",
         "amount": 900,
-        "tags": "kindle, kindleoasis3, 波动safar, 消费, 红",
+        "tags": "kindle,kindleoasis3,波动safar,消费,红",
         "note": ""
       },
       {
@@ -1131,7 +1416,7 @@
         "category": "购物",
         "subcategory": "电子产品",
         "amount": 1352,
-        "tags": "kindlescribe1, 消费, 红",
+        "tags": "kindlescribe1,消费,红",
         "note": "SIG Service株式会社"
       },
       {
@@ -1139,7 +1424,7 @@
         "category": "购物",
         "subcategory": "护肤",
         "amount": 0.39,
-        "tags": "矿泉水, 周期生活, 护肤, 红",
+        "tags": "矿泉水,周期生活,护肤,红",
         "note": ""
       }
     ],
@@ -1149,7 +1434,7 @@
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 450,
-        "tags": "prada, 墨镜, spr15p-a-1ab-0a7, 消费, 黑",
+        "tags": "prada,墨镜,spr15p-a-1ab-0a7,消费,黑",
         "note": ""
       },
       {
@@ -1157,7 +1442,7 @@
         "category": "其他",
         "subcategory": "运费",
         "amount": 55,
-        "tags": "kindlescribe保护壳, 消费, 黑",
+        "tags": "kindlescribe保护壳,消费,黑",
         "note": ""
       },
       {
@@ -1165,7 +1450,7 @@
         "category": "购物",
         "subcategory": "",
         "amount": 134,
-        "tags": "kindlescribe保护壳, 消费, 黑",
+        "tags": "kindlescribe保护壳,消费,黑",
         "note": "挖煤姬"
       }
     ]
@@ -1181,7 +1466,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 53,
-        "tags": "山与城, 周期生活, 吃好喝好",
+        "tags": "山与城,周期生活,吃好喝好",
         "note": ""
       },
       {
@@ -1189,7 +1474,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 59,
-        "tags": "博欧姆炸鸡, 周期生活, 吃好喝好",
+        "tags": "博欧姆炸鸡,周期生活,吃好喝好",
         "note": ""
       },
       {
@@ -1197,7 +1482,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 75,
-        "tags": "周期生活, 吃好喝好",
+        "tags": "周期生活,吃好喝好",
         "note": "美团平台商户"
       },
       {
@@ -1205,7 +1490,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 51,
-        "tags": "梅果, 周期生活, 吃好喝好",
+        "tags": "梅果,周期生活,吃好喝好",
         "note": ""
       }
     ],
@@ -1215,7 +1500,7 @@
         "category": "购物",
         "subcategory": "美妆",
         "amount": 27.75,
-        "tags": "489, 洛杉矶女孩, 腮红, 消费, 7g, 美业, 红",
+        "tags": "489,洛杉矶女孩,腮红,消费,7g,美业,红",
         "note": ""
       },
       {
@@ -1223,7 +1508,7 @@
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 854.78,
-        "tags": "徒步包, 消费, 小鹰, 星光, 30l, 双肩包, osprey, 包, 红",
+        "tags": "徒步包,消费,小鹰,星光,30l,双肩包,osprey,包,红",
         "note": "800g"
       }
     ],
@@ -1240,7 +1525,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 81.92,
-        "tags": "牦牛肉披萨, 25.5云南, 周期生活, 吃好喝好",
+        "tags": "牦牛肉披萨,25.5云南,周期生活,吃好喝好",
         "note": ""
       },
       {
@@ -1248,7 +1533,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 74,
-        "tags": "25.5云南, 一麓有山, 周期生活, 吃好喝好",
+        "tags": "25.5云南,一麓有山,周期生活,吃好喝好",
         "note": ""
       },
       {
@@ -1256,7 +1541,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 111,
-        "tags": "25.5云南, 周期生活, 吃好喝好",
+        "tags": "25.5云南,周期生活,吃好喝好",
         "note": "三孃食坊"
       },
       {
@@ -1264,7 +1549,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 63,
-        "tags": "25.5云南, 周期生活, 吃好喝好",
+        "tags": "25.5云南,周期生活,吃好喝好",
         "note": "剑川喜宝赏饭餐饮服务有限责任公司"
       },
       {
@@ -1272,7 +1557,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 65,
-        "tags": "25.5云南, 周期生活, 吃好喝好",
+        "tags": "25.5云南,周期生活,吃好喝好",
         "note": "岛七人家饭店"
       },
       {
@@ -1280,7 +1565,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 83,
-        "tags": "姥倌食堂, 25.5云南, 周期生活, 吃好喝好",
+        "tags": "姥倌食堂,25.5云南,周期生活,吃好喝好",
         "note": ""
       },
       {
@@ -1288,7 +1573,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 62,
-        "tags": "匠小灶, 25.5 cp31, 周期生活, 吃好喝好",
+        "tags": "匠小灶,25.5 cp31,周期生活,吃好喝好",
         "note": ""
       },
       {
@@ -1296,7 +1581,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 77.5,
-        "tags": "西湖醋鱼, 生菜, 25.5 cp31, 周期生活, 吃好喝好",
+        "tags": "西湖醋鱼,生菜,25.5 cp31,周期生活,吃好喝好",
         "note": ""
       },
       {
@@ -1304,7 +1589,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 51,
-        "tags": "冒菜, 周期生活, 吃好喝好",
+        "tags": "冒菜,周期生活,吃好喝好",
         "note": ""
       }
     ],
@@ -1314,7 +1599,7 @@
         "category": "购物",
         "subcategory": "美妆",
         "amount": 34.8,
-        "tags": "眼线胶笔, canmake, 消费, 美业, 红",
+        "tags": "眼线胶笔,canmake,消费,美业,红",
         "note": ""
       },
       {
@@ -1322,7 +1607,7 @@
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 112.6,
-        "tags": "it, t恤, 消费, 红",
+        "tags": "it,t恤,消费,红",
         "note": "还款给消费"
       },
       {
@@ -1330,7 +1615,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 54,
-        "tags": "毕业pingu, pingu, 消费, 红",
+        "tags": "毕业pingu,pingu,消费,红",
         "note": "还款给消费"
       }
     ],
@@ -1340,7 +1625,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 18,
-        "tags": "25.5云南, 消费, 黑",
+        "tags": "25.5云南,消费,黑",
         "note": ""
       },
       {
@@ -1348,7 +1633,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 42,
-        "tags": "消费, 25.5云南, 25.5.26玉龙雪山, 黑",
+        "tags": "消费,25.5云南,25.5.26玉龙雪山,黑",
         "note": "丽江骏宇文化创意产业有限公司"
       },
       {
@@ -1356,7 +1641,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 15,
-        "tags": "25.5云南, 消费, 冰箱贴, 黑",
+        "tags": "25.5云南,消费,冰箱贴,黑",
         "note": ""
       },
       {
@@ -1364,7 +1649,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 43.8,
-        "tags": "跃动青春, 消费, 25.5 cp31, 黑",
+        "tags": "跃动青春,消费,25.5 cp31,黑",
         "note": "Kyssn奇诺（**宁）"
       },
       {
@@ -1372,7 +1657,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 7,
-        "tags": "火影忍者, 消费, 25.5 cp31, 黑",
+        "tags": "火影忍者,消费,25.5 cp31,黑",
         "note": "NIG（**宁）"
       },
       {
@@ -1380,7 +1665,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 60,
-        "tags": "守护甜心, 消费, 25.5 cp31, 黑",
+        "tags": "守护甜心,消费,25.5 cp31,黑",
         "note": "执念，（**峰）"
       },
       {
@@ -1388,7 +1673,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 6,
-        "tags": "火影忍者, 消费, 25.5 cp31, 黑",
+        "tags": "火影忍者,消费,25.5 cp31,黑",
         "note": "Mino （**静）"
       },
       {
@@ -1396,7 +1681,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 15,
-        "tags": "全职高手, 消费, 25.5 cp31, 黑",
+        "tags": "全职高手,消费,25.5 cp31,黑",
         "note": "月亮醒了"
       },
       {
@@ -1404,7 +1689,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 25,
-        "tags": "魔卡少女樱, 消费, 25.5 cp31, 黑",
+        "tags": "魔卡少女樱,消费,25.5 cp31,黑",
         "note": ""
       },
       {
@@ -1412,7 +1697,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 20,
-        "tags": "消费, 25.5 cp31, 黑",
+        "tags": "消费,25.5 cp31,黑",
         "note": "橙汁梨"
       },
       {
@@ -1420,7 +1705,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 39.9,
-        "tags": "pingu, 消费, 黑",
+        "tags": "pingu,消费,黑",
         "note": "还款给消费"
       }
     ]
@@ -1436,7 +1721,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 137,
-        "tags": "黔夺夺, 周期生活, 吃好喝好",
+        "tags": "黔夺夺,周期生活,吃好喝好",
         "note": ""
       },
       {
@@ -1444,7 +1729,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 112,
-        "tags": "周期生活, 吃好喝好",
+        "tags": "周期生活,吃好喝好",
         "note": "FoodGasm"
       },
       {
@@ -1452,7 +1737,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 55,
-        "tags": "冒菜, 周期生活, 吃好喝好",
+        "tags": "冒菜,周期生活,吃好喝好",
         "note": ""
       }
     ],
@@ -1462,7 +1747,7 @@
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 14.5,
-        "tags": "蝴蝶项链, 25.4.19陶喆苏州演唱会, 消费, 红",
+        "tags": "蝴蝶项链,25.4.19陶喆苏州演唱会,消费,红",
         "note": ""
       },
       {
@@ -1470,7 +1755,7 @@
         "category": "购物",
         "subcategory": "美妆",
         "amount": 3.73,
-        "tags": "蝴蝶贴纸, 25.4.19陶喆苏州演唱会, 消费, 美业, 红",
+        "tags": "蝴蝶贴纸,25.4.19陶喆苏州演唱会,消费,美业,红",
         "note": ""
       }
     ],
@@ -1480,7 +1765,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 20,
-        "tags": "25.4.19陶喆苏州演唱会, 票根, 消费, 黑",
+        "tags": "25.4.19陶喆苏州演唱会,票根,消费,黑",
         "note": ""
       },
       {
@@ -1488,7 +1773,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 346.99,
-        "tags": "25.4.19陶喆苏州演唱会, 消费, 黑",
+        "tags": "25.4.19陶喆苏州演唱会,消费,黑",
         "note": "索尔派（苏州）文化创意有限公司"
       }
     ]
@@ -1504,7 +1789,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 84.85,
-        "tags": "达美乐, 周期生活, 吃好喝好",
+        "tags": "达美乐,周期生活,吃好喝好",
         "note": "更多"
       },
       {
@@ -1512,7 +1797,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 79,
-        "tags": "湖南老家, 周期生活, 吃好喝好",
+        "tags": "湖南老家,周期生活,吃好喝好",
         "note": ""
       },
       {
@@ -1520,7 +1805,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 65,
-        "tags": "木小馆, 周期生活, 吃好喝好",
+        "tags": "木小馆,周期生活,吃好喝好",
         "note": ""
       }
     ],
@@ -1529,24 +1814,24 @@
         "date": "2025-03-25",
         "category": "购物",
         "subcategory": "穿戴",
-        "amount": 109,
-        "tags": "nike, 消费, 红",
-        "note": "运动内衣"
+        "amount": 246,
+        "tags": "nike,消费,红",
+        "note": "防晒衣"
       },
       {
         "date": "2025-03-25",
         "category": "购物",
         "subcategory": "穿戴",
-        "amount": 246,
-        "tags": "nike, 消费, 红",
-        "note": "防晒衣"
+        "amount": 109,
+        "tags": "nike,消费,红",
+        "note": "运动内衣"
       },
       {
         "date": "2025-03-20",
         "category": "购物",
         "subcategory": "美妆",
         "amount": 0.68,
-        "tags": "点痣笔, 消费, 美业, 红",
+        "tags": "点痣笔,消费,美业,红",
         "note": "还款给消费"
       },
       {
@@ -1554,7 +1839,7 @@
         "category": "购物",
         "subcategory": "电子产品",
         "amount": 374.68,
-        "tags": "固态硬盘, 西数, SN580, 1T, 波动生活, 红",
+        "tags": "固态硬盘,西数,SN580,1T,波动生活,红",
         "note": ""
       }
     ],
@@ -1563,8 +1848,16 @@
         "date": "2025-03-25",
         "category": "购物",
         "subcategory": "穿戴",
+        "amount": 144,
+        "tags": "nike,消费,黑",
+        "note": "中裤"
+      },
+      {
+        "date": "2025-03-25",
+        "category": "购物",
+        "subcategory": "穿戴",
         "amount": 149,
-        "tags": "nike, 消费, 露背内搭, 黑",
+        "tags": "nike,消费,露背内搭,黑",
         "note": ""
       },
       {
@@ -1572,23 +1865,15 @@
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 164,
-        "tags": "nike, 消费, 卫衣, 黑",
+        "tags": "nike,消费,卫衣,黑",
         "note": ""
-      },
-      {
-        "date": "2025-03-25",
-        "category": "购物",
-        "subcategory": "穿戴",
-        "amount": 144,
-        "tags": "nike, 消费, 黑",
-        "note": "中裤"
       },
       {
         "date": "2025-03-23",
         "category": "购物",
         "subcategory": "周边",
         "amount": 298.41,
-        "tags": "飘, 徽章, 消费, 黑",
+        "tags": "飘,徽章,消费,黑",
         "note": ""
       },
       {
@@ -1596,7 +1881,7 @@
         "category": "购物",
         "subcategory": "护肤",
         "amount": 130,
-        "tags": "修丽可, 发光瓶, 周期生活, 护肤, 黑",
+        "tags": "修丽可,发光瓶,周期生活,护肤,黑",
         "note": "15ml"
       }
     ]
@@ -1604,7 +1889,7 @@
   "2025-02": {
     "eatDrinkAmount": 71.5,
     "eatDrinkCount": 1,
-    "redAmount": 109.14,
+    "redAmount": 155.84,
     "blackAmount": 26,
     "eatDrinkItems": [
       {
@@ -1612,17 +1897,25 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 71.5,
-        "tags": "梅果, 周期生活, 吃好喝好",
+        "tags": "梅果,周期生活,吃好喝好",
         "note": ""
       }
     ],
     "redItems": [
       {
         "date": "2025-02-27",
+        "category": "娱乐",
+        "subcategory": "电影",
+        "amount": 21.8,
+        "tags": "还有明天,电影,波动safar,消费,红",
+        "note": "safar"
+      },
+      {
+        "date": "2025-02-27",
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 67.53,
-        "tags": "垫肩内衣, 消费, 红",
+        "tags": "垫肩内衣,消费,红",
         "note": "还款给消费"
       },
       {
@@ -1630,15 +1923,23 @@
         "category": "购物",
         "subcategory": "美妆",
         "amount": 41,
-        "tags": "美瞳, 半年抛, flanmy, 爵士黑松饼, 消费, 美业, 红",
+        "tags": "美瞳,半年抛,flanmy,爵士黑松饼,消费,美业,红",
         "note": "【20/】*2"
+      },
+      {
+        "date": "2025-02-21",
+        "category": "娱乐",
+        "subcategory": "电影",
+        "amount": 24.9,
+        "tags": "初步举证,波动safar,消费,电影,红",
+        "note": "还款给safar"
       },
       {
         "date": "2025-02-12",
         "category": "购物",
         "subcategory": "美妆",
         "amount": 0.61,
-        "tags": "鼻影刷, 消费, 美业, 红",
+        "tags": "鼻影刷,消费,美业,红",
         "note": ""
       }
     ],
@@ -1648,7 +1949,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 26,
-        "tags": "伍尔夫, 加缪, 徽章, 消费, 黑",
+        "tags": "伍尔夫,加缪,徽章,消费,黑",
         "note": ""
       }
     ]
@@ -1664,7 +1965,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 96.34,
-        "tags": "大阪烧, 25.1日本壹, 周期生活, 吃好喝好",
+        "tags": "大阪烧,25.1日本壹,周期生活,吃好喝好",
         "note": ""
       },
       {
@@ -1672,7 +1973,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 69,
-        "tags": "周期生活, 吃好喝好",
+        "tags": "周期生活,吃好喝好",
         "note": "转账给钱嘻嘻"
       },
       {
@@ -1680,7 +1981,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 264.58,
-        "tags": "momoparadise, 25.1日本壹, 周期生活, 吃好喝好",
+        "tags": "momoparadise,25.1日本壹,周期生活,吃好喝好",
         "note": "株式会社ワンダーテーブル"
       },
       {
@@ -1688,7 +1989,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 163.28,
-        "tags": "pingucafe, 25.1日本壹, 周期生活, 吃好喝好",
+        "tags": "pingucafe,25.1日本壹,周期生活,吃好喝好",
         "note": "東武タウンソラマチ株式会社"
       },
       {
@@ -1696,7 +1997,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 169,
-        "tags": "炸猪排, 25.1日本壹, 周期生活, 吃好喝好",
+        "tags": "炸猪排,25.1日本壹,周期生活,吃好喝好",
         "note": ""
       },
       {
@@ -1704,7 +2005,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 203.58,
-        "tags": "烤肉, 25.1日本壹, 周期生活, 吃好喝好",
+        "tags": "烤肉,25.1日本壹,周期生活,吃好喝好",
         "note": ""
       },
       {
@@ -1712,7 +2013,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 65,
-        "tags": "蛋包饭, 25.1日本壹, 周期生活, 吃好喝好",
+        "tags": "蛋包饭,25.1日本壹,周期生活,吃好喝好",
         "note": ""
       },
       {
@@ -1720,7 +2021,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 64.72,
-        "tags": "小樽水族馆, 蛋包饭, 25.1日本壹, 周期生活, 吃好喝好",
+        "tags": "小樽水族馆,蛋包饭,25.1日本壹,周期生活,吃好喝好",
         "note": ""
       },
       {
@@ -1728,7 +2029,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 185.21,
-        "tags": "鳗鱼饭, 25.1日本壹, 周期生活, 吃好喝好",
+        "tags": "鳗鱼饭,25.1日本壹,周期生活,吃好喝好",
         "note": ""
       },
       {
@@ -1736,7 +2037,7 @@
         "category": "饮食",
         "subcategory": "",
         "amount": 103.29,
-        "tags": "女仆咖啡店, 25.1日本壹, 周期生活, 吃好喝好",
+        "tags": "女仆咖啡店,25.1日本壹,周期生活,吃好喝好",
         "note": ""
       }
     ],
@@ -1746,7 +2047,7 @@
         "category": "购物",
         "subcategory": "美妆",
         "amount": 13.9,
-        "tags": "redearth, 液体提亮, 消费, 美业, 红",
+        "tags": "redearth,液体提亮,消费,美业,红",
         "note": ""
       },
       {
@@ -1754,7 +2055,7 @@
         "category": "购物",
         "subcategory": "美妆",
         "amount": 11.5,
-        "tags": "lagirl, 腮红, 橘粉色, 消费, 洛杉矶女孩, 489, 0.8g, 美业, 红",
+        "tags": "lagirl,腮红,橘粉色,消费,洛杉矶女孩,489,0.8g,美业,红",
         "note": ""
       },
       {
@@ -1762,7 +2063,7 @@
         "category": "购物",
         "subcategory": "美妆",
         "amount": 13.3,
-        "tags": "kiko10, 哑光高光, 消费, 美业, 红",
+        "tags": "kiko10,哑光高光,消费,美业,红",
         "note": ""
       },
       {
@@ -1770,7 +2071,7 @@
         "category": "购物",
         "subcategory": "美妆",
         "amount": 25.6,
-        "tags": "染眉膏, 消费, 美业, 红",
+        "tags": "染眉膏,消费,美业,红",
         "note": ""
       },
       {
@@ -1778,7 +2079,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 154.35,
-        "tags": "御津八幡宫, 25.1日本壹, 消费, 红, 黑",
+        "tags": "御津八幡宫,25.1日本壹,消费,红,黑",
         "note": ""
       },
       {
@@ -1786,7 +2087,7 @@
         "category": "购物",
         "subcategory": "护肤",
         "amount": 15.25,
-        "tags": "指缘油, 25.1日本壹, 周期生活, 护肤, 红",
+        "tags": "指缘油,25.1日本壹,周期生活,护肤,红",
         "note": ""
       },
       {
@@ -1794,7 +2095,7 @@
         "category": "购物",
         "subcategory": "美妆",
         "amount": 28.39,
-        "tags": "橘朵, 睫毛膏, 消费, 美业, 红",
+        "tags": "橘朵,睫毛膏,消费,美业,红",
         "note": ""
       },
       {
@@ -1802,7 +2103,7 @@
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 615.68,
-        "tags": "鬼冢虎, 25.1日本壹, 消费, 红",
+        "tags": "鬼冢虎,25.1日本壹,消费,红",
         "note": ""
       },
       {
@@ -1810,7 +2111,7 @@
         "category": "购物",
         "subcategory": "电子产品",
         "amount": 260,
-        "tags": "胶片机, 美能达, capios140, 波动safar, 消费, 红",
+        "tags": "胶片机,美能达,capios140,波动safar,消费,红",
         "note": ""
       },
       {
@@ -1818,7 +2119,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 18.81,
-        "tags": "扭蛋, beatles, 25.1日本壹, 消费, 红",
+        "tags": "扭蛋,beatles,25.1日本壹,消费,红",
         "note": ""
       },
       {
@@ -1826,7 +2127,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 9.43,
-        "tags": "扭蛋, 坐禅小狗, 25.1日本壹, 消费, 红",
+        "tags": "扭蛋,坐禅小狗,25.1日本壹,消费,红",
         "note": ""
       },
       {
@@ -1834,7 +2135,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 14.15,
-        "tags": "扭蛋, 企鹅, 25.1日本壹, 消费, 红",
+        "tags": "扭蛋,企鹅,25.1日本壹,消费,红",
         "note": ""
       },
       {
@@ -1842,7 +2143,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 237.76,
-        "tags": "小黄人, 25.1日本壹, 消费, 红",
+        "tags": "小黄人,25.1日本壹,消费,红",
         "note": ""
       },
       {
@@ -1850,7 +2151,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 368.54,
-        "tags": "鲁鲁修, 芙莉莲, 魔卡少女樱, 排球少年, 25.1日本壹, 消费, 红",
+        "tags": "鲁鲁修,芙莉莲,魔卡少女樱,排球少年,25.1日本壹,消费,红",
         "note": ""
       },
       {
@@ -1858,7 +2159,7 @@
         "category": "购物",
         "subcategory": "美妆",
         "amount": 95.8,
-        "tags": "mac, 口红, 25.1日本壹, 消费, 美业, 红",
+        "tags": "mac,口红,25.1日本壹,消费,美业,红",
         "note": ""
       }
     ],
@@ -1868,7 +2169,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 154.35,
-        "tags": "御津八幡宫, 25.1日本壹, 消费, 红, 黑",
+        "tags": "御津八幡宫,25.1日本壹,消费,红,黑",
         "note": ""
       },
       {
@@ -1876,7 +2177,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 99.15,
-        "tags": "pingu, 25.1日本壹, 消费, 黑",
+        "tags": "pingu,25.1日本壹,消费,黑",
         "note": ""
       },
       {
@@ -1884,7 +2185,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 23.52,
-        "tags": "扭蛋, 达摩, 25.1日本壹, 消费, 黑",
+        "tags": "扭蛋,达摩,25.1日本壹,消费,黑",
         "note": ""
       },
       {
@@ -1892,7 +2193,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 30.95,
-        "tags": "芙莉莲, animate, 25.1日本壹, 消费, 黑",
+        "tags": "芙莉莲,animate,25.1日本壹,消费,黑",
         "note": ""
       },
       {
@@ -1900,7 +2201,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 198.85,
-        "tags": "loft, 25.1日本壹, 消费, 黑",
+        "tags": "loft,25.1日本壹,消费,黑",
         "note": ""
       },
       {
@@ -1908,7 +2209,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 169,
-        "tags": "迪士尼, 25.1日本壹, 消费, 黑",
+        "tags": "迪士尼,25.1日本壹,消费,黑",
         "note": "向钱嘻嘻(**璇)转账"
       },
       {
@@ -1916,7 +2217,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 33.2,
-        "tags": "冰箱贴, 25.1日本壹, 消费, 黑",
+        "tags": "冰箱贴,25.1日本壹,消费,黑",
         "note": "渋谷西村エンゼルハー"
       },
       {
@@ -1924,7 +2225,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 14.15,
-        "tags": "扭蛋, 排球少年, 25.1日本壹, 消费, 黑",
+        "tags": "扭蛋,排球少年,25.1日本壹,消费,黑",
         "note": ""
       },
       {
@@ -1932,7 +2233,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 41.53,
-        "tags": "小樽水族馆, 25.1日本壹, 消费, 黑",
+        "tags": "小樽水族馆,25.1日本壹,消费,黑",
         "note": ""
       },
       {
@@ -1940,7 +2241,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 83.92,
-        "tags": "小黄人, 暖手宝, 25.1日本壹, 消费, 黑",
+        "tags": "小黄人,暖手宝,25.1日本壹,消费,黑",
         "note": ""
       },
       {
@@ -1948,7 +2249,7 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 102.56,
-        "tags": "马里奥, 首饰盒, 25.1日本壹, 消费, 黑",
+        "tags": "马里奥,首饰盒,25.1日本壹,消费,黑",
         "note": ""
       },
       {
@@ -1956,15 +2257,15 @@
         "category": "购物",
         "subcategory": "周边",
         "amount": 256.41,
-        "tags": "哈利波特, 魔杖, 25.1日本壹, 消费, 黑",
+        "tags": "哈利波特,魔杖,25.1日本壹,消费,黑",
         "note": ""
       },
       {
         "date": "2025-01-03",
         "category": "医疗",
-        "subcategory": "买药",
+        "subcategory": "药品",
         "amount": 214.8,
-        "tags": "速福达, 25.1日本壹, 波动safar, 消费, 黑",
+        "tags": "速福达,25.1日本壹,波动safar,消费,黑",
         "note": ""
       }
     ]
@@ -1991,7 +2292,7 @@
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 20.68,
-        "tags": "墨镜, 迪卡侬, 消费, 黑",
+        "tags": "墨镜,迪卡侬,消费,黑",
         "note": ""
       }
     ]
@@ -2071,7 +2372,7 @@
         "category": "课学",
         "subcategory": "运动健身",
         "amount": 44,
-        "tags": "泳帽, pingu, 波动safar, 消费, 红",
+        "tags": "泳帽,pingu,波动safar,消费,红",
         "note": ""
       },
       {
@@ -2079,7 +2380,7 @@
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 135.53,
-        "tags": "mlb, 帽子, 消费, 红",
+        "tags": "mlb,帽子,消费,红",
         "note": ""
       }
     ],
@@ -2097,10 +2398,19 @@
   "2024-01": {
     "eatDrinkAmount": 0,
     "eatDrinkCount": 0,
-    "redAmount": 0,
+    "redAmount": 150,
     "blackAmount": 0,
     "eatDrinkItems": [],
-    "redItems": [],
+    "redItems": [
+      {
+        "date": "2024-01-30",
+        "category": "娱乐",
+        "subcategory": "电影",
+        "amount": 150,
+        "tags": "怪物,24.1港澳行,波动safar,消费,电影,红",
+        "note": ""
+      }
+    ],
     "blackItems": []
   },
   "2023-12": {
@@ -2140,11 +2450,20 @@
     "blackItems": []
   },
   "2023-08": {
-    "eatDrinkAmount": 0,
-    "eatDrinkCount": 0,
+    "eatDrinkAmount": 97,
+    "eatDrinkCount": 1,
     "redAmount": 0,
     "blackAmount": 0,
-    "eatDrinkItems": [],
+    "eatDrinkItems": [
+      {
+        "date": "2023-08-11",
+        "category": "饮食",
+        "subcategory": "",
+        "amount": 97,
+        "tags": "23.8广深,粤陈记,吃好喝好,周期生活",
+        "note": ""
+      }
+    ],
     "redItems": [],
     "blackItems": []
   },
@@ -2187,7 +2506,7 @@
         "category": "购物",
         "subcategory": "电子产品",
         "amount": 10.98,
-        "tags": "红",
+        "tags": "红,消费",
         "note": "麦麦键帽"
       }
     ],
@@ -2251,7 +2570,7 @@
         "category": "购物",
         "subcategory": "穿戴",
         "amount": 120.4,
-        "tags": "MJB, 牛仔裤, 消费, 黑",
+        "tags": "MJB,牛仔裤,消费,黑",
         "note": ""
       }
     ]

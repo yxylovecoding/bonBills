@@ -69,7 +69,20 @@ export type BillParseResult = {
   expenseItems: Record<string, BillExpenseMonth>;
 };
 
-const COL_DATE = 0, COL_TYPE = 1, COL_AMT = 2, COL_CAT = 3, COL_SUBCAT = 4, COL_ACCOUNT = 5, COL_NOTE = 9, COL_TAGS = 10, COL_REIMB = 12, COL_OTHER = 17;
+// 一木记账导出格式（22 列）：日期,收支类型,金额,类别,子类,账户,账本,报销账户,报销金额,
+// 退款金额,备注,标签,多币种,地址,创建用户,优惠,其他,附件1,附件2,附件3
+const COL_DATE = 0;
+const COL_TYPE = 1;
+const COL_AMT = 2;
+const COL_CAT = 3;
+const COL_SUBCAT = 4;
+const COL_ACCOUNT = 5;
+const COL_REIMB_ACCT = 7;
+const COL_REIMB_AMT = 8;
+const COL_REFUND_AMT = 9;
+const COL_NOTE = 10;
+const COL_TAGS = 11;
+const COL_OTHER = 16;
 
 function parseLine(line: string): string[] {
   const cols: string[] = [];
@@ -183,7 +196,10 @@ export async function parseBillFile(file: File): Promise<BillParseResult> {
 
     const other = (cols[COL_OTHER] || '').trim();
     if (other.includes('不计入')) continue;
-    // 待报销：还没真正报销下来，整行先忽略；扫描全列避免依赖具体列位
+    // 待报销：报销账户列填了账户名（含中文），整行先忽略
+    const reimbAcct = (cols[COL_REIMB_ACCT] || '').trim();
+    if (reimbAcct && /[一-鿿]/.test(reimbAcct)) continue;
+    // 兜底：任意列字面量包含「待报销」也跳过
     if (cols.some((c) => c && c.includes('待报销'))) continue;
 
     const date = normalizeBillDate(cols[COL_DATE] || '');
@@ -192,8 +208,9 @@ export async function parseBillFile(file: File): Promise<BillParseResult> {
 
     const type = (cols[COL_TYPE] || '').trim();
     const grossAmount = parseAmount(cols[COL_AMT] || '0');
-    const reimb = parseAmount(cols[COL_REIMB] || '0');
-    const amount = Math.max(0, grossAmount - reimb);
+    const reimb = parseAmount(cols[COL_REIMB_AMT] || '0');
+    const refund = parseAmount(cols[COL_REFUND_AMT] || '0');
+    const amount = Math.max(0, grossAmount - reimb - refund);
     if (amount === 0) continue;
     if (type !== '支出' && type !== '收入') continue;
 

@@ -90,9 +90,9 @@ function normalizeBillDate(rawDate) {
 }
 
 const lines = raw.split('\n');
-// Col indices (0-based):
-// 0:日期 1:收支类型 2:金额 3:类别 4:二级分类 5:账户 6:账本 7:退款 8:优惠 9:备注 10:标签 ... 17:其他
-const COL_DATE = 0, COL_TYPE = 1, COL_AMT = 2, COL_CAT = 3, COL_SUBCAT = 4, COL_ACCOUNT = 5, COL_NOTE = 9, COL_TAGS = 10, COL_OTHER = 17;
+// 一木记账导出格式（22 列）：日期,收支类型,金额,类别,子类,账户,账本,报销账户,报销金额,
+// 退款金额,备注,标签,多币种,地址,创建用户,优惠,其他,附件1,附件2,附件3
+const COL_DATE = 0, COL_TYPE = 1, COL_AMT = 2, COL_CAT = 3, COL_SUBCAT = 4, COL_ACCOUNT = 5, COL_NOTE = 10, COL_TAGS = 11, COL_OTHER = 16;
 
 const months = {};
 
