@@ -5,6 +5,7 @@ import StatRow from '../components/StatRow';
 import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
 import { tagMeta, investMeta } from '../data/mockData';
 import { aggregateExpenseItems, parseBillFile, assignExpenseIds, type BillItem, type BillMonthlyAgg, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
+import { mergePossessionsFromBills } from '../utils/autoImportPossessions';
 import { triggerUpload } from '../utils/syncEngine';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useExpenseScopeOverrideStore, resolveExpenseScope, subcategoryKey, type ExpenseScope, type OverrideValue, type OverrideDimension } from '../stores/expenseScopeOverrideStore';
@@ -18,6 +19,7 @@ import { normalizeConfirmedSelection, useCalendarStore, type ConfirmedExpenseSel
 import { useConfigStore } from '../stores/configStore';
 import { useSnapshotStore } from '../stores/snapshotStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
+import { usePossessionStore } from '../stores/possessionStore';
 import { usePrefsStore, REVIEWABLE_CATEGORIES, type ReviewableCategory } from '../stores/prefsStore';
 import { useDragSort } from '../hooks/useDragSort';
 import type { TagKind, MonthlyRecord, MajorExpense, InvestHoldings } from '../models/types';
@@ -69,6 +71,11 @@ const _NOW = new Date();
 
 function currentYearMonth() {
   return `${_NOW.getFullYear()}-${String(_NOW.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function makePossessionImportId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return `pos_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 function prevYearMonth(ym: string) {
   const [y, m] = ym.split('-').map(Number);
@@ -2072,6 +2079,19 @@ export default function CalendarPage() {
     try {
       const { tagStats, aggregates, expenseItems } = await parseBillFile(file);
       billUpdateFromImport(tagStats, expenseItems, aggregates);
+      const possessionStore = usePossessionStore.getState();
+      const possessionImport = mergePossessionsFromBills({
+        expenseItems,
+        tagMap,
+        overrides: expenseScopeOverrides,
+        items: possessionStore.items,
+        ignoredBillItemIds: possessionStore.ignoredBillItemIds,
+        makeId: makePossessionImportId,
+        today,
+      });
+      if (possessionImport.importedCount > 0) {
+        possessionStore.applyAutoImportedItems(possessionImport.items);
+      }
       const existing = useMonthlyStore.getState().records;
       let updated = 0;
       for (const ym of Object.keys(aggregates)) {
@@ -2080,7 +2100,7 @@ export default function CalendarPage() {
         upsert(recordFromBillAggregate(ym, a, prev));
         updated += 1;
       }
-      setBillImportMsg(`已导入 ${updated} 个月记录 · ${file.name}`);
+      setBillImportMsg(`已导入 ${updated} 个月记录${possessionImport.importedCount > 0 ? ` · ${possessionImport.importedCount} 个物品动作` : ''} · ${file.name}`);
       triggerUpload();
     } catch (err) {
       setBillImportMsg(`导入失败：${err instanceof Error ? err.message : String(err)}`);

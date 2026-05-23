@@ -1,4 +1,5 @@
 import { Outlet } from 'react-router-dom';
+import AutoPossessionImporter from './AutoPossessionImporter';
 import Nav from './Nav';
 import SyncIndicator from './SyncIndicator';
 
@@ -8,6 +9,7 @@ export default function Layout() {
       style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', color: '#202124' }}
     >
       <SyncIndicator />
+      <AutoPossessionImporter />
       <div
         style={{
           maxWidth: 480,
