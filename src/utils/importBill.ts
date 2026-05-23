@@ -196,11 +196,6 @@ export async function parseBillFile(file: File): Promise<BillParseResult> {
 
     const other = (cols[COL_OTHER] || '').trim();
     if (other.includes('不计入')) continue;
-    // 待报销：报销账户列填了账户名（含中文），整行先忽略
-    const reimbAcct = (cols[COL_REIMB_ACCT] || '').trim();
-    if (reimbAcct && /[一-鿿]/.test(reimbAcct)) continue;
-    // 兜底：任意列字面量包含「待报销」也跳过
-    if (cols.some((c) => c && c.includes('待报销'))) continue;
 
     const date = normalizeBillDate(cols[COL_DATE] || '');
     if (!date) continue;
@@ -208,7 +203,10 @@ export async function parseBillFile(file: File): Promise<BillParseResult> {
 
     const type = (cols[COL_TYPE] || '').trim();
     const grossAmount = parseAmount(cols[COL_AMT] || '0');
+    const reimbAcct = (cols[COL_REIMB_ACCT] || '').trim();
     const reimb = parseAmount(cols[COL_REIMB_AMT] || '0');
+    // 待报销：填了报销账户但报销金额还是 0 ⇒ 钱还没到，整行先不算
+    if (reimbAcct && reimb === 0) continue;
     const refund = parseAmount(cols[COL_REFUND_AMT] || '0');
     const amount = Math.max(0, grossAmount - reimb - refund);
     if (amount === 0) continue;
