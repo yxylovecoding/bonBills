@@ -3,7 +3,7 @@ import { resolveExpenseScope, type ExpenseScopeOverrides } from '../stores/expen
 import { assignExpenseIds, type BillExpenseItem, type BillExpenseMonth } from './importBill';
 
 const POSSESSION_CATEGORIES = new Set(['购物', '医疗']);
-const EXCLUDED_KEYWORDS = ['体检', '周边'];
+const EXCLUDED_KEYWORDS = ['体检', '周边', '医院'];
 const CONSUMABLE_TAG = '消耗品';
 const DONE_TAG = 'done';
 const NOISE_TAGS = new Set(['周期生活', '波动生活', '消费', '吃好喝好', '红', '黑', '白', '消耗品', '家', 'doing', 'done']);
