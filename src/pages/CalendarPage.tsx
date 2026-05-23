@@ -4,7 +4,7 @@ import Card from '../components/Card';
 import StatRow from '../components/StatRow';
 import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
 import { tagMeta, investMeta } from '../data/mockData';
-import { aggregateExpenseItems, parseBillFile, assignExpenseIds, type BillItem, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
+import { aggregateExpenseItems, parseBillFile, assignExpenseIds, type BillItem, type BillMonthlyAgg, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
 import { triggerUpload } from '../utils/syncEngine';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useExpenseScopeOverrideStore, resolveExpenseScope, subcategoryKey, type ExpenseScope, type OverrideValue, type OverrideDimension } from '../stores/expenseScopeOverrideStore';
@@ -73,6 +73,48 @@ function currentYearMonth() {
 function prevYearMonth(ym: string) {
   const [y, m] = ym.split('-').map(Number);
   return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+}
+
+function hasAggregateValue(a: BillMonthlyAgg) {
+  return Math.abs(a.income) > 0.01
+    || Math.abs(a.totalExpense) > 0.01
+    || Math.abs(a.periodicLife) > 0.01
+    || Math.abs(a.volatileLife) > 0.01
+    || Math.abs(a.consumption) > 0.01
+    || Math.abs(a.school) > 0.01;
+}
+
+function isEmptyMonthlyCore(record?: MonthlyRecord) {
+  if (!record) return true;
+  return Math.abs(record.income ?? 0) <= 0.01
+    && Math.abs(record.totalExpense ?? 0) <= 0.01
+    && Math.abs(record.periodicLife ?? 0) <= 0.01
+    && Math.abs(record.volatileLife ?? 0) <= 0.01
+    && Math.abs(record.consumption ?? 0) <= 0.01
+    && Math.abs(record.school ?? 0) <= 0.01;
+}
+
+function recordFromBillAggregate(yearMonth: string, a: BillMonthlyAgg, prev?: MonthlyRecord): MonthlyRecord {
+  return {
+    yearMonth,
+    income: a.income,
+    totalExpense: a.totalExpense,
+    periodicLife: a.periodicLife,
+    volatileLife: a.volatileLife,
+    consumption: a.consumption,
+    school: a.school,
+    accumulatedProfit: prev?.accumulatedProfit ?? 0,
+    investTotal: prev?.investTotal ?? 0,
+    investBreakdown: prev?.investBreakdown,
+    investBreakdownProfit: prev?.investBreakdownProfit,
+    investProfitComponents: prev?.investProfitComponents,
+    homeDays: prev?.homeDays ?? 0,
+    travelDays: prev?.travelDays ?? 0,
+    schoolDays: prev?.schoolDays,
+    internDays: prev?.internDays,
+    majorExpenses: prev?.majorExpenses ?? [],
+    majorExpensesNote: prev?.majorExpensesNote,
+  };
 }
 
 // ── 本地/共享分类规则弹窗 ────────────────────────────────────────
@@ -518,6 +560,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
 
   // 自动保存的跳过标志：声明在同步 effect 之前，便于同步时复位
   const isFirstSave = useRef(true);
+  const lastAutoSaveSignatureRef = useRef<string | null>(null);
   // 记录本组件最近一次写出的核心字段；用来识别"自己 upsert 引发的 existing 反弹"，
   // 区分外部刷新（导入账单 / 跨端同步）所引起的 existing 变化
   const ourLastWrittenRef = useRef<{
@@ -704,11 +747,26 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
     });
   };
 
-  // 自动保存：任何字段变化都立即写回 store（首次渲染、或 existing 被外部刷新后的同步轮跳过）
+  const autoSaveSignature = useMemo(() => JSON.stringify({
+    income, totalExpense, periodicLife, volatileLife, consumption, school, accProfit,
+    majorExpenses, majorExpensesNote, breakdown, breakdownProfit, usdComponents, sharedUsdRate,
+  }), [
+    income, totalExpense, periodicLife, volatileLife, consumption, school, accProfit,
+    majorExpenses, majorExpensesNote, breakdown, breakdownProfit, usdComponents, sharedUsdRate,
+  ]);
+
+  // 自动保存：任何字段变化都立即写回 store。
+  // React StrictMode 在开发环境会重复执行 mount effect；用签名去重，避免空白新月份被写成 0。
   useEffect(() => {
-    if (isFirstSave.current) { isFirstSave.current = false; return; }
+    if (isFirstSave.current) {
+      isFirstSave.current = false;
+      lastAutoSaveSignatureRef.current = autoSaveSignature;
+      return;
+    }
+    if (lastAutoSaveSignatureRef.current === autoSaveSignature) return;
+    lastAutoSaveSignatureRef.current = autoSaveSignature;
     handleSave();
-  }, [income, totalExpense, periodicLife, volatileLife, consumption, school, accProfit, majorExpenses, majorExpensesNote, breakdown, breakdownProfit, usdComponents, sharedUsdRate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [autoSaveSignature]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fieldStyle: React.CSSProperties = {
     width: '100%', border: '1.5px solid #fbbf24', borderRadius: 8,
@@ -1791,7 +1849,7 @@ export default function CalendarPage() {
   const { tagMap, setTag, toggleTag, countByTag, bulkFillSchool, confirmedExpenses, setConfirmedExpenseScope, markConfirmedExpenseZero, clearConfirmedExpenseSelection } = useCalendarStore();
   const { config, setConfig } = useConfigStore();
   const { records, upsert, updateDayCounts } = useMonthlyStore();
-  const { tagStats: billTagStats, expenseItems: billExpenseItems, updateFromImport: billUpdateFromImport } = useBillDetailStore();
+  const { tagStats: billTagStats, aggregates: billAggregates, expenseItems: billExpenseItems, updateFromImport: billUpdateFromImport } = useBillDetailStore();
   const { overrides: expenseScopeOverrides, setOverride: setExpenseScopeOverride } = useExpenseScopeOverrideStore();
   const { tripTags, tripSplits, setTripTag, clearTripTag, toggleTripSplit } = useTripStore();
   const {
@@ -1847,6 +1905,17 @@ export default function CalendarPage() {
       }
     }
   }, [tagMap]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 账单明细与月度记录分开持久化。若历史上只同步到了明细，或月度卡片曾把核心字段写成 0，
+  // 用账单侧汇总把空核心记录补回来。
+  useEffect(() => {
+    for (const [ym, aggregate] of Object.entries(billAggregates)) {
+      if (!hasAggregateValue(aggregate)) continue;
+      const prev = records.find((r) => r.yearMonth === ym);
+      if (!isEmptyMonthlyCore(prev)) continue;
+      upsert(recordFromBillAggregate(ym, aggregate, prev));
+    }
+  }, [billAggregates, records, upsert]);
 
   // ── 历史回归均值（近两年，用作当月按比例拆分的权重）──
   const twoYearsAgo = `${_now.getFullYear() - 1}-01`;
@@ -2005,30 +2074,13 @@ export default function CalendarPage() {
   const importBillFromFile = async (file: File) => {
     try {
       const { tagStats, aggregates, expenseItems } = await parseBillFile(file);
-      billUpdateFromImport(tagStats, expenseItems);
+      billUpdateFromImport(tagStats, expenseItems, aggregates);
       const existing = useMonthlyStore.getState().records;
       let updated = 0;
       for (const ym of Object.keys(aggregates)) {
         const a = aggregates[ym];
         const prev = existing.find((r) => r.yearMonth === ym);
-        upsert({
-          yearMonth: ym,
-          income: a.income,
-          totalExpense: a.totalExpense,
-          periodicLife: a.periodicLife,
-          volatileLife: a.volatileLife,
-          consumption: a.consumption,
-          school: a.school,
-          accumulatedProfit: prev?.accumulatedProfit ?? 0,
-          investTotal: prev?.investTotal ?? 0,
-          investBreakdown: prev?.investBreakdown,
-          investBreakdownProfit: prev?.investBreakdownProfit,
-          investProfitComponents: prev?.investProfitComponents,
-          homeDays: prev?.homeDays ?? 0,
-          travelDays: prev?.travelDays ?? 0,
-          majorExpenses: prev?.majorExpenses ?? [],
-          majorExpensesNote: prev?.majorExpensesNote,
-        });
+        upsert(recordFromBillAggregate(ym, a, prev));
         updated += 1;
       }
       setBillImportMsg(`已导入 ${updated} 个月记录 · ${file.name}`);

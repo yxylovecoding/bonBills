@@ -1,18 +1,24 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { BillTagMonth, BillExpenseMonth } from '../utils/importBill';
-import { normalizeBillDate, normalizeBillYearMonth } from '../utils/importBill';
+import type { BillMonthlyAgg, BillTagMonth, BillExpenseMonth } from '../utils/importBill';
+import { aggregateExpenseItems, emptyBillMonthlyAgg, normalizeBillDate, normalizeBillYearMonth } from '../utils/importBill';
 
 interface BillDetailStore {
   tagStats: Record<string, BillTagMonth>;
+  aggregates: Record<string, BillMonthlyAgg>;
   expenseItems: Record<string, BillExpenseMonth>;
   hasOverride: boolean;
-  updateFromImport: (tagStats: Record<string, BillTagMonth>, expenseItems: Record<string, BillExpenseMonth>) => void;
+  updateFromImport: (
+    tagStats: Record<string, BillTagMonth>,
+    expenseItems: Record<string, BillExpenseMonth>,
+    aggregates?: Record<string, BillMonthlyAgg>,
+  ) => void;
   resetToDefaults: () => void;
 }
 
 const DEFAULTS = {
   tagStats: {} as Record<string, BillTagMonth>,
+  aggregates: {} as Record<string, BillMonthlyAgg>,
   expenseItems: {} as Record<string, BillExpenseMonth>,
 };
 
@@ -59,11 +65,49 @@ function normalizeExpenseItems(input: unknown): Record<string, BillExpenseMonth>
   return result;
 }
 
+function mergeAggregate(a: BillMonthlyAgg | undefined, b: BillMonthlyAgg): BillMonthlyAgg {
+  const base = a ?? emptyBillMonthlyAgg();
+  return {
+    income: base.income + (b.income ?? 0),
+    totalExpense: base.totalExpense + (b.totalExpense ?? 0),
+    periodicLife: base.periodicLife + (b.periodicLife ?? 0),
+    volatileLife: base.volatileLife + (b.volatileLife ?? 0),
+    consumption: base.consumption + (b.consumption ?? 0),
+    school: base.school + (b.school ?? 0),
+  };
+}
+
+function normalizeAggregates(input: unknown): Record<string, BillMonthlyAgg> {
+  if (!input || typeof input !== 'object') return {};
+  const result: Record<string, BillMonthlyAgg> = {};
+  for (const [rawYm, value] of Object.entries(input as Record<string, Partial<BillMonthlyAgg>>)) {
+    const ym = normalizeBillYearMonth(rawYm);
+    if (!ym || !value || typeof value !== 'object') continue;
+    result[ym] = mergeAggregate(result[ym], {
+      income: Number(value.income) || 0,
+      totalExpense: Number(value.totalExpense) || 0,
+      periodicLife: Number(value.periodicLife) || 0,
+      volatileLife: Number(value.volatileLife) || 0,
+      consumption: Number(value.consumption) || 0,
+      school: Number(value.school) || 0,
+    });
+  }
+  return result;
+}
+
 export function normalizeBillDetailState(state: Partial<BillDetailStore>): Partial<BillDetailStore> {
+  const expenseItems = normalizeExpenseItems(state.expenseItems);
+  const aggregates = normalizeAggregates(state.aggregates);
+  // 兼容旧数据：以前 bill-details 只持久化明细，月汇总丢失时从明细补支出侧汇总。
+  for (const [ym, items] of Object.entries(expenseItems)) {
+    if (aggregates[ym]) continue;
+    aggregates[ym] = { income: 0, ...aggregateExpenseItems(items) };
+  }
   return {
     ...state,
     tagStats: normalizeTagStats(state.tagStats),
-    expenseItems: normalizeExpenseItems(state.expenseItems),
+    aggregates,
+    expenseItems,
   };
 }
 
@@ -96,12 +140,13 @@ export const useBillDetailStore = create<BillDetailStore>()(
 
       return {
         tagStats: initialTagStats,
+        aggregates: DEFAULTS.aggregates,
         expenseItems: initialExpenseItems,
         hasOverride,
-        updateFromImport: (tagStats, expenseItems) =>
-          set({ tagStats, expenseItems, hasOverride: true }),
+        updateFromImport: (tagStats, expenseItems, aggregates = {}) =>
+          set(normalizeBillDetailState({ tagStats, expenseItems, aggregates, hasOverride: true })),
         resetToDefaults: () =>
-          set({ tagStats: DEFAULTS.tagStats, expenseItems: DEFAULTS.expenseItems, hasOverride: false }),
+          set({ tagStats: DEFAULTS.tagStats, aggregates: DEFAULTS.aggregates, expenseItems: DEFAULTS.expenseItems, hasOverride: false }),
       };
     },
     {
@@ -114,6 +159,7 @@ export const useBillDetailStore = create<BillDetailStore>()(
       // 只持久化数据，不持久化函数
       partialize: (state) => ({
         tagStats: state.tagStats,
+        aggregates: state.aggregates,
         expenseItems: state.expenseItems,
         hasOverride: state.hasOverride,
       }),
@@ -122,6 +168,7 @@ export const useBillDetailStore = create<BillDetailStore>()(
         return {
           ...current,
           tagStats: p.tagStats ?? current.tagStats,
+          aggregates: p.aggregates ?? current.aggregates,
           expenseItems: p.expenseItems ?? current.expenseItems,
           hasOverride: p.hasOverride ?? current.hasOverride,
         };

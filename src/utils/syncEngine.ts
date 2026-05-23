@@ -11,7 +11,7 @@ const EXPENSE_SCOPE_SYNC_KEY = 'expense-scope-overrides';
 const LEGACY_EXPENSE_SCOPE_SYNC_KEY = 'life-period-overrides';
 
 const EMPTY_STATES: Record<string, Record<string, unknown>> = {
-  'bill-details': { tagStats: {}, expenseItems: {}, hasOverride: false },
+  'bill-details': { tagStats: {}, aggregates: {}, expenseItems: {}, hasOverride: false },
   'monthly-records': { records: [] },
   'calendar-tags': { tagMap: {}, initializedFromRecords: false, confirmedExpenses: {} },
   'account-snapshot': { current: DEFAULT_SNAPSHOT, history: [] },
@@ -38,7 +38,7 @@ const stores: StoreEntry[] = [
     subscribe: (l) => useBillDetailStore.subscribe(l),
     serialize: () => {
       const s = useBillDetailStore.getState();
-      return { tagStats: s.tagStats, expenseItems: s.expenseItems, hasOverride: s.hasOverride };
+      return { tagStats: s.tagStats, aggregates: s.aggregates, expenseItems: s.expenseItems, hasOverride: s.hasOverride };
     },
   },
   {
