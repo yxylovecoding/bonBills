@@ -18,7 +18,7 @@ import { usePossessionStore } from '../stores/possessionStore';
 import { assignExpenseIds, type BillExpenseItem } from '../utils/importBill';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', sub: '#5f6368', orange: '#e8710a', purple: '#7c3aed' };
-const TAG_KINDS: TagKind[] = ['intern', 'school', 'home', 'travel'];
+const TAG_KINDS: TagKind[] = ['school', 'home', 'travel'];
 const SCOPE_LABEL: Record<ExpenseScope, string> = { local: '本地', shared: '共享' };
 
 type TabKind = PossessionKind;
