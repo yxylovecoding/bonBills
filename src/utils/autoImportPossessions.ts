@@ -23,6 +23,7 @@ export interface AutoPossessionImportParams {
 export interface AutoPossessionImportResult {
   items: PossessionItem[];
   importedCount: number;
+  changed: boolean;
 }
 
 function tagsOf(item: BillExpenseItem) {
@@ -56,6 +57,28 @@ function sortTxns(txns: PossessionTxn[]) {
   return [...txns].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
 }
 
+function createPossessionFromBill(
+  item: BillExpenseItem,
+  kind: PossessionKind,
+  name: string,
+  isDoneConsumable: boolean,
+  makeId: () => string,
+  today: string,
+): PossessionItem {
+  return {
+    id: makeId(),
+    name,
+    kind,
+    category: item.subcategory || item.category || undefined,
+    icon: kind === 'consumable' ? '🧴' : '📦',
+    status: isDoneConsumable ? 'retired' : 'active',
+    txns: [],
+    unit: kind === 'consumable' ? '个' : undefined,
+    retiredAt: isDoneConsumable ? item.date : undefined,
+    createdAt: today,
+  };
+}
+
 export function mergePossessionsFromBills({
   expenseItems,
   tagMap,
@@ -66,23 +89,66 @@ export function mergePossessionsFromBills({
   makeId,
   today,
 }: AutoPossessionImportParams): AutoPossessionImportResult {
-  const nextItems = items.map((item) => ({ ...item, txns: [...item.txns] }));
   const ignored = new Set(ignoredBillItemIds);
   const excludedNames = new Set(excludedNameTags);
   const referenced = new Set<string>();
+  const billById = new Map<string, BillExpenseItem>();
+  const billEntries = Object.entries(expenseItems)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .flatMap(([, monthItems]) => assignExpenseIds(monthItems));
+
+  for (const { item, id } of billEntries) billById.set(id, item);
+
+  const nextItems = items.map((item) => ({ ...item, txns: [] as PossessionTxn[] }));
+  const originalTxnCounts = new Map(items.map((item) => [item.id, item.txns.length]));
+  const byId = new Map(nextItems.map((item) => [item.id, item]));
   const byName = new Map<string, PossessionItem>();
 
   for (const item of nextItems) {
     byName.set(itemKey(item.kind, item.name), item);
-    for (const txn of item.txns) {
+  }
+
+  let changed = false;
+  const ensureTarget = (billItem: BillExpenseItem, kind: PossessionKind, name: string, isDoneConsumable: boolean) => {
+    const key = itemKey(kind, name);
+    let possession = byName.get(key);
+    if (!possession) {
+      possession = createPossessionFromBill(billItem, kind, name, isDoneConsumable, makeId, today);
+      nextItems.push(possession);
+      byName.set(key, possession);
+      changed = true;
+    }
+    if (isDoneConsumable && (possession.status !== 'retired' || possession.retiredAt !== billItem.date)) {
+      possession.status = 'retired';
+      possession.retiredAt = billItem.date;
+      changed = true;
+    }
+    return possession;
+  };
+
+  for (const sourceItem of items) {
+    const current = byId.get(sourceItem.id);
+    if (!current) continue;
+    for (const txn of sourceItem.txns) {
+      let target = current;
+      if (txn.billItemId && !ignored.has(txn.billItemId)) {
+        const billItem = billById.get(txn.billItemId);
+        const tags = billItem ? tagsOf(billItem) : [];
+        if (billItem && isPossessionBill(billItem, tags)) {
+          const kind = possessionKind(tags);
+          const isDoneConsumable = kind === 'consumable' && tags.includes(DONE_TAG);
+          const name = itemName(billItem, tags, excludedNames);
+          target = ensureTarget(billItem, kind, name, isDoneConsumable);
+          if (target.id !== current.id) changed = true;
+        }
+      }
+      target.txns.push(txn);
       if (txn.billItemId) referenced.add(txn.billItemId);
     }
   }
 
   let importedCount = 0;
-  const monthEntries = Object.entries(expenseItems).sort(([a], [b]) => a.localeCompare(b));
-  for (const [, monthItems] of monthEntries) {
-    for (const { item, id: billItemId } of assignExpenseIds(monthItems)) {
+  for (const { item, id: billItemId } of billEntries) {
       if (ignored.has(billItemId) || referenced.has(billItemId)) continue;
       const tags = tagsOf(item);
       if (!isPossessionBill(item, tags)) continue;
@@ -93,18 +159,7 @@ export function mergePossessionsFromBills({
       const key = itemKey(kind, name);
       let possession = byName.get(key);
       if (!possession) {
-        possession = {
-          id: makeId(),
-          name,
-          kind,
-          category: item.subcategory || item.category || undefined,
-          icon: kind === 'consumable' ? '🧴' : '📦',
-          status: isDoneConsumable ? 'retired' : 'active',
-          txns: [],
-          unit: kind === 'consumable' ? '个' : undefined,
-          retiredAt: isDoneConsumable ? item.date : undefined,
-          createdAt: today,
-        };
+        possession = createPossessionFromBill(item, kind, name, isDoneConsumable, makeId, today);
         nextItems.push(possession);
         byName.set(key, possession);
       } else if (isDoneConsumable) {
@@ -128,8 +183,11 @@ export function mergePossessionsFromBills({
       possession.txns = sortTxns(possession.txns);
       referenced.add(billItemId);
       importedCount += 1;
-    }
   }
 
-  return { items: nextItems, importedCount };
+  const filteredItems = nextItems
+    .map((item) => ({ ...item, txns: sortTxns(item.txns) }))
+    .filter((item) => item.txns.length > 0 || (originalTxnCounts.get(item.id) ?? 0) === 0);
+
+  return { items: filteredItems, importedCount, changed: changed || importedCount > 0 || filteredItems.length !== nextItems.length };
 }

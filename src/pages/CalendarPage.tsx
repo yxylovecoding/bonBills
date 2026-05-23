@@ -2092,7 +2092,7 @@ export default function CalendarPage() {
         makeId: makePossessionImportId,
         today,
       });
-      if (possessionImport.importedCount > 0) {
+      if (possessionImport.changed) {
         possessionStore.applyAutoImportedItems(possessionImport.items);
       }
       const existing = useMonthlyStore.getState().records;

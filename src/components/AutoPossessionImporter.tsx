@@ -32,7 +32,7 @@ export default function AutoPossessionImporter() {
       makeId,
       today: todayKey(),
     });
-    if (result.importedCount > 0) applyAutoImportedItems(result.items);
+    if (result.changed) applyAutoImportedItems(result.items);
   }, [expenseItems, tagMap, overrides, items, ignoredBillItemIds, excludedNameTags, applyAutoImportedItems]);
 
   return null;
