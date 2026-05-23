@@ -71,6 +71,14 @@ function txnKindLabel(kind: 'purchase' | 'resale', itemKind: PossessionKind) {
   return kind === 'purchase' ? '购入' : '卖出';
 }
 
+function retiredLabel(kind: PossessionKind) {
+  return kind === 'consumable' ? '已用完' : '已卖出';
+}
+
+function retiredFilterLabel(tab: TabKind) {
+  return tab === 'consumable' ? '已用完' : '已结束';
+}
+
 function tagsOf(item: BillExpenseItem) {
   return item.tags.split(',').map((tag) => tag.trim()).filter(Boolean);
 }
@@ -389,7 +397,7 @@ export default function PossessionsPage() {
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)} style={{ ...inputStyle, width: 'auto', padding: '7px 9px', fontSize: 12 }}>
           <option value="all">全部状态</option>
           <option value="active">在用</option>
-          <option value="retired">已弃用</option>
+          <option value="retired">{retiredFilterLabel(tab)}</option>
         </select>
         <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '7px 9px', fontSize: 12, maxWidth: 138 }}>
           <option value="all">全部分类</option>
@@ -434,7 +442,7 @@ export default function PossessionsPage() {
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                     <span style={{ fontSize: 14, fontWeight: 800, color: '#202124', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
                     {item.category && <span style={{ fontSize: 10, color: C.sub, backgroundColor: '#f1f3f4', borderRadius: 999, padding: '2px 6px', flexShrink: 0 }}>{item.category}</span>}
-                    {item.status === 'retired' && <span style={{ fontSize: 10, color: C.orange, backgroundColor: '#fff4e8', borderRadius: 999, padding: '2px 6px', flexShrink: 0 }}>已弃用</span>}
+                    {item.status === 'retired' && <span style={{ fontSize: 10, color: C.orange, backgroundColor: '#fff4e8', borderRadius: 999, padding: '2px 6px', flexShrink: 0 }}>{retiredLabel(item.kind)}</span>}
                   </span>
                   <span style={{ display: 'block', marginTop: 4, fontSize: 12, color: C.sub, lineHeight: 1.5 }}>
                     {consumableStats && (
@@ -476,7 +484,7 @@ export default function PossessionsPage() {
                       style={{ ...inputStyle, padding: '7px 8px', fontSize: 12 }}
                     >
                       <option value="active">在用</option>
-                      <option value="retired">已弃用</option>
+                      <option value="retired">{retiredLabel(item.kind)}</option>
                     </select>
                   </div>
                   {item.status === 'retired' && (

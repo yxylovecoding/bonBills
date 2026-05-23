@@ -4,6 +4,7 @@ import { assignExpenseIds, type BillExpenseItem, type BillExpenseMonth } from '.
 
 const POSSESSION_CATEGORIES = new Set(['购物', '医疗']);
 const CONSUMABLE_TAG = '消耗品';
+const DONE_TAG = 'done';
 const NOISE_TAGS = new Set(['周期生活', '波动生活', '消费', '吃好喝好', '红', '黑', '白', '消耗品', '家', 'doing', 'done']);
 const QUANTITY_TAG_PATTERN = /^\d+(\.\d+)?\s*(kg|mg|ml|l|g|斤|两|升|毫升)$/i;
 
@@ -81,6 +82,7 @@ export function mergePossessionsFromBills({
       if (!isPossessionBill(item, tags)) continue;
 
       const kind = possessionKind(tags);
+      const isDoneConsumable = kind === 'consumable' && tags.includes(DONE_TAG);
       const name = itemName(item, tags);
       const key = itemKey(kind, name);
       let possession = byName.get(key);
@@ -91,13 +93,17 @@ export function mergePossessionsFromBills({
           kind,
           category: item.subcategory || item.category || undefined,
           icon: kind === 'consumable' ? '🧴' : '📦',
-          status: 'active',
+          status: isDoneConsumable ? 'retired' : 'active',
           txns: [],
           unit: kind === 'consumable' ? '个' : undefined,
+          retiredAt: isDoneConsumable ? item.date : undefined,
           createdAt: today,
         };
         nextItems.push(possession);
         byName.set(key, possession);
+      } else if (isDoneConsumable) {
+        possession.status = 'retired';
+        possession.retiredAt = item.date;
       }
 
       const inferredScope = kind === 'consumable' ? resolveExpenseScope(item, overrides) : null;
