@@ -77,7 +77,6 @@ const COL_AMT = 2;
 const COL_CAT = 3;
 const COL_SUBCAT = 4;
 const COL_ACCOUNT = 5;
-const COL_REIMB_ACCT = 7;
 const COL_REIMB_AMT = 8;
 const COL_REFUND_AMT = 9;
 const COL_NOTE = 10;
@@ -203,10 +202,11 @@ export async function parseBillFile(file: File): Promise<BillParseResult> {
 
     const type = (cols[COL_TYPE] || '').trim();
     const grossAmount = parseAmount(cols[COL_AMT] || '0');
-    const reimbAcct = (cols[COL_REIMB_ACCT] || '').trim();
-    const reimb = parseAmount(cols[COL_REIMB_AMT] || '0');
-    // 待报销：填了报销账户但报销金额还是 0 ⇒ 钱还没到，整行先不算
-    if (reimbAcct && reimb === 0) continue;
+    // 报销金额列语义：空 = 没挂报销；"0.00" = 待报销（已经记账但钱没到，整行不算）；
+    // 正数 = 已报销金额，从 gross 扣减
+    const reimbRaw = (cols[COL_REIMB_AMT] || '').trim();
+    const reimb = parseAmount(reimbRaw);
+    if (reimbRaw && reimb === 0) continue;
     const refund = parseAmount(cols[COL_REFUND_AMT] || '0');
     const amount = Math.max(0, grossAmount - reimb - refund);
     if (amount === 0) continue;
