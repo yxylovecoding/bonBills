@@ -192,11 +192,7 @@ export async function parseBillFile(file: File): Promise<BillParseResult> {
 
     const type = (cols[COL_TYPE] || '').trim();
     const grossAmount = parseAmount(cols[COL_AMT] || '0');
-    const reimbRaw = (cols[COL_REIMB] || '').trim();
-    // 报销列出现中文字符 ⇒ 通常是「待报销」时填的报销账户名（如「公司报销」），整行先跳过；
-    // 纯数字 / 占位符 / 空都按原逻辑：数值参与 grossAmount - reimb 扣减
-    if (/[一-鿿]/.test(reimbRaw)) continue;
-    const reimb = parseAmount(reimbRaw);
+    const reimb = parseAmount(cols[COL_REIMB] || '0');
     const amount = Math.max(0, grossAmount - reimb);
     if (amount === 0) continue;
     if (type !== '支出' && type !== '收入') continue;
