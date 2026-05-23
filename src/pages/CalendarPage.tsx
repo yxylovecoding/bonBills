@@ -2086,6 +2086,7 @@ export default function CalendarPage() {
         overrides: expenseScopeOverrides,
         items: possessionStore.items,
         ignoredBillItemIds: possessionStore.ignoredBillItemIds,
+        excludedNameTags: possessionStore.excludedNameTags,
         makeId: makePossessionImportId,
         today,
       });

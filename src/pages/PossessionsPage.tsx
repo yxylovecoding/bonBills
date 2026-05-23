@@ -179,7 +179,7 @@ function ScopeBreakdown({ stats }: { stats: ConsumableStats }) {
 export default function PossessionsPage() {
   const navigate = useNavigate();
   const today = todayKey();
-  const { items, addItem, updateItem, removeItem, addTxn, removeTxn, setStatus } = usePossessionStore();
+  const { items, excludedNameTags, addItem, updateItem, removeItem, addTxn, removeTxn, setStatus, toggleExcludedNameTag } = usePossessionStore();
   const { expenseItems } = useBillDetailStore();
   const { tagMap } = useCalendarStore();
   const { overrides } = useExpenseScopeOverrideStore();
@@ -195,12 +195,30 @@ export default function PossessionsPage() {
   const [billPickerOpen, setBillPickerOpen] = useState(false);
   const [billPeriodicOnly, setBillPeriodicOnly] = useState(true);
   const [billQuery, setBillQuery] = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [nameTagQuery, setNameTagQuery] = useState('');
 
   const billChoices = useMemo<BillChoice[]>(() => (
     Object.entries(expenseItems)
       .flatMap(([yearMonth, monthItems]) => assignExpenseIds(monthItems).map(({ item, id }) => ({ id, item, yearMonth })))
       .sort((a, b) => b.item.date.localeCompare(a.item.date))
   ), [expenseItems]);
+
+  const nameTagCandidates = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const choice of billChoices) {
+      for (const tag of tagsOf(choice.item)) {
+        counts.set(tag, (counts.get(tag) ?? 0) + 1);
+      }
+    }
+    const q = nameTagQuery.trim().toLowerCase();
+    return [...counts.entries()]
+      .filter(([tag]) => !q || tag.toLowerCase().includes(q))
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh-CN'))
+      .slice(0, 80);
+  }, [billChoices, nameTagQuery]);
+
+  const excludedNameTagSet = useMemo(() => new Set(excludedNameTags), [excludedNameTags]);
 
   const referencedBillMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -344,9 +362,14 @@ export default function PossessionsPage() {
           </button>
           <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>物品台账</h1>
         </div>
-        <button type="button" onClick={() => openItemModal()} style={{ border: 'none', borderRadius: 12, backgroundColor: C.blue, color: '#fff', fontSize: 13, fontWeight: 800, padding: '9px 12px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(26,115,232,0.22)' }}>
-          + 物品
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button type="button" onClick={() => setSettingsOpen(true)} title="设置" style={{ border: '1px solid #dadce0', borderRadius: 12, backgroundColor: '#fff', color: C.sub, fontSize: 15, fontWeight: 800, padding: '8px 10px', cursor: 'pointer' }}>
+            ⚙️
+          </button>
+          <button type="button" onClick={() => openItemModal()} style={{ border: 'none', borderRadius: 12, backgroundColor: C.blue, color: '#fff', fontSize: 13, fontWeight: 800, padding: '9px 12px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(26,115,232,0.22)' }}>
+            + 物品
+          </button>
+        </div>
       </div>
 
       <Card title="持有概览" subtitle="本地持久化">
@@ -580,6 +603,47 @@ export default function PossessionsPage() {
               <input value={itemForm.unit} onChange={(e) => setItemForm({ ...itemForm, unit: e.target.value })} style={inputStyle} />
             </Field>
           )}
+        </Modal>
+      )}
+
+      {settingsOpen && (
+        <Modal
+          title="物品设置"
+          onClose={() => setSettingsOpen(false)}
+          footer={(
+            <button type="button" onClick={() => setSettingsOpen(false)} style={{ border: 'none', backgroundColor: C.blue, color: '#fff', borderRadius: 10, padding: '8px 16px', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}>完成</button>
+          )}
+        >
+          <Field label="不能作为物品名称的标签">
+            <input value={nameTagQuery} onChange={(e) => setNameTagQuery(e.target.value)} placeholder="搜索标签" style={inputStyle} autoFocus />
+          </Field>
+          {excludedNameTags.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8, marginBottom: 10 }}>
+              {excludedNameTags.map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => toggleExcludedNameTag(tag)}
+                  style={{ border: '1px solid #d2e3fc', backgroundColor: '#e8f0fe', color: C.blue, borderRadius: 999, padding: '4px 8px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}
+                >
+                  {tag} ×
+                </button>
+              ))}
+            </div>
+          )}
+          <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+            {nameTagCandidates.length === 0 && <div style={{ fontSize: 12, color: C.sub, textAlign: 'center', padding: '14px 0' }}>暂无标签</div>}
+            {nameTagCandidates.map(([tag, count]) => {
+              const checked = excludedNameTagSet.has(tag);
+              return (
+                <label key={tag} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${checked ? '#d2e3fc' : '#f1f3f4'}`, backgroundColor: checked ? '#e8f0fe' : '#fff', borderRadius: 10, padding: '8px 10px', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={checked} onChange={() => toggleExcludedNameTag(tag)} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tag}</span>
+                  <span style={{ fontSize: 11, color: C.sub }}>{count}</span>
+                </label>
+              );
+            })}
+          </div>
         </Modal>
       )}
 

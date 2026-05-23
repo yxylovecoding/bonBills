@@ -5,6 +5,7 @@ import type { PossessionItem, PossessionStatus, PossessionTxn } from '../models/
 interface PossessionStore {
   items: PossessionItem[];
   ignoredBillItemIds: string[];
+  excludedNameTags: string[];
   addItem: (draft: Omit<PossessionItem, 'id' | 'txns' | 'createdAt' | 'status'>) => string;
   updateItem: (id: string, patch: Partial<PossessionItem>) => void;
   removeItem: (id: string) => void;
@@ -12,6 +13,7 @@ interface PossessionStore {
   updateTxn: (itemId: string, txnId: string, patch: Partial<PossessionTxn>) => void;
   removeTxn: (itemId: string, txnId: string) => void;
   setStatus: (id: string, status: PossessionStatus, retiredAt?: string) => void;
+  toggleExcludedNameTag: (tag: string) => void;
   applyAutoImportedItems: (items: PossessionItem[]) => void;
 }
 
@@ -34,6 +36,7 @@ export const usePossessionStore = create<PossessionStore>()(
     (set) => ({
       items: [],
       ignoredBillItemIds: [],
+      excludedNameTags: [],
       addItem: (draft) => {
         const id = makeId();
         const item: PossessionItem = {
@@ -110,18 +113,28 @@ export const usePossessionStore = create<PossessionStore>()(
               : item
           )),
         })),
+      toggleExcludedNameTag: (tag) =>
+        set((s) => {
+          const trimmed = tag.trim();
+          if (!trimmed) return {};
+          const next = new Set(s.excludedNameTags);
+          if (next.has(trimmed)) next.delete(trimmed);
+          else next.add(trimmed);
+          return { excludedNameTags: [...next].sort() };
+        }),
       applyAutoImportedItems: (items) => set({ items: items.map((item) => ({ ...item, txns: sortTxns(item.txns) })) }),
     }),
     {
       name: 'possessions',
       version: 1,
-      partialize: (state) => ({ items: state.items, ignoredBillItemIds: state.ignoredBillItemIds }),
+      partialize: (state) => ({ items: state.items, ignoredBillItemIds: state.ignoredBillItemIds, excludedNameTags: state.excludedNameTags }),
       merge: (persisted, current) => {
         const p = persisted as Partial<PossessionStore> | undefined;
         return {
           ...current,
           items: Array.isArray(p?.items) ? p.items : current.items,
           ignoredBillItemIds: Array.isArray(p?.ignoredBillItemIds) ? p.ignoredBillItemIds : [],
+          excludedNameTags: Array.isArray(p?.excludedNameTags) ? p.excludedNameTags : [],
         };
       },
     },

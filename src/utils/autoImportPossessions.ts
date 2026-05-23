@@ -15,6 +15,7 @@ export interface AutoPossessionImportParams {
   overrides: ExpenseScopeOverrides;
   items: PossessionItem[];
   ignoredBillItemIds: string[];
+  excludedNameTags: string[];
   makeId: () => string;
   today: string;
 }
@@ -42,8 +43,8 @@ function possessionKind(tags: string[]): PossessionKind {
   return tags.includes(CONSUMABLE_TAG) ? 'consumable' : 'durable';
 }
 
-function itemName(item: BillExpenseItem, tags: string[]) {
-  const tag = tags.find((candidate) => candidate && !NOISE_TAGS.has(candidate) && !isQuantityTag(candidate));
+function itemName(item: BillExpenseItem, tags: string[], excludedNameTags: Set<string>) {
+  const tag = tags.find((candidate) => candidate && !NOISE_TAGS.has(candidate) && !excludedNameTags.has(candidate) && !isQuantityTag(candidate));
   return tag || item.subcategory || item.note || item.category || '未命名物品';
 }
 
@@ -61,11 +62,13 @@ export function mergePossessionsFromBills({
   overrides,
   items,
   ignoredBillItemIds,
+  excludedNameTags,
   makeId,
   today,
 }: AutoPossessionImportParams): AutoPossessionImportResult {
   const nextItems = items.map((item) => ({ ...item, txns: [...item.txns] }));
   const ignored = new Set(ignoredBillItemIds);
+  const excludedNames = new Set(excludedNameTags);
   const referenced = new Set<string>();
   const byName = new Map<string, PossessionItem>();
 
@@ -86,7 +89,7 @@ export function mergePossessionsFromBills({
 
       const kind = possessionKind(tags);
       const isDoneConsumable = kind === 'consumable' && tags.includes(DONE_TAG);
-      const name = itemName(item, tags);
+      const name = itemName(item, tags, excludedNames);
       const key = itemKey(kind, name);
       let possession = byName.get(key);
       if (!possession) {
