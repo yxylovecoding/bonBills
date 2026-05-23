@@ -17,6 +17,7 @@ import {
 import { usePossessionStore } from '../stores/possessionStore';
 import { parsePossessionQuantity } from '../utils/autoImportPossessions';
 import { assignExpenseIds, type BillExpenseItem } from '../utils/importBill';
+import { isTripTagFormat } from '../utils/trips';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', sub: '#5f6368', orange: '#e8710a', purple: '#7c3aed' };
 const TAG_KINDS: TagKind[] = ['school', 'home', 'travel'];
@@ -228,6 +229,7 @@ export default function PossessionsPage() {
     const counts = new Map<string, number>();
     for (const choice of billChoices) {
       for (const tag of tagsOf(choice.item)) {
+        if (isTripTagFormat(tag)) continue; // 出游 tag（yy.m.d 描述）不算物品名候选
         counts.set(tag, (counts.get(tag) ?? 0) + 1);
       }
     }
@@ -692,31 +694,31 @@ export default function PossessionsPage() {
             <button type="button" onClick={() => setSettingsOpen(false)} style={{ border: 'none', backgroundColor: C.blue, color: '#fff', borderRadius: 10, padding: '8px 16px', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}>完成</button>
           )}
         >
-          <Field label="不能作为物品名称的标签">
+          <Field label={`不能作为物品名称的标签${excludedNameTags.length > 0 ? ` · ${excludedNameTags.length}` : ''}`}>
             <input value={nameTagQuery} onChange={(e) => setNameTagQuery(e.target.value)} placeholder="搜索标签" style={inputStyle} autoFocus />
           </Field>
           {excludedNameTags.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8, marginBottom: 10 }}>
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6, marginBottom: 8, maxHeight: 88, overflowY: 'auto', paddingRight: 2 }}>
               {excludedNameTags.map((tag) => (
                 <button
                   key={tag}
                   type="button"
                   onClick={() => toggleExcludedNameTag(tag)}
-                  style={{ border: '1px solid #d2e3fc', backgroundColor: '#e8f0fe', color: C.blue, borderRadius: 999, padding: '4px 8px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}
+                  style={{ border: '1px solid #d2e3fc', backgroundColor: '#e8f0fe', color: C.blue, borderRadius: 999, padding: '2px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer', lineHeight: 1.4 }}
                 >
                   {tag} ×
                 </button>
               ))}
             </div>
           )}
-          <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+          <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
             {nameTagCandidates.length === 0 && <div style={{ fontSize: 12, color: C.sub, textAlign: 'center', padding: '14px 0' }}>暂无标签</div>}
             {nameTagCandidates.map(([tag, count]) => {
               const checked = excludedNameTagSet.has(tag);
               return (
-                <label key={tag} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${checked ? '#d2e3fc' : '#f1f3f4'}`, backgroundColor: checked ? '#e8f0fe' : '#fff', borderRadius: 10, padding: '8px 10px', cursor: 'pointer' }}>
+                <label key={tag} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${checked ? '#d2e3fc' : '#f1f3f4'}`, backgroundColor: checked ? '#e8f0fe' : '#fff', borderRadius: 8, padding: '5px 8px', cursor: 'pointer' }}>
                   <input type="checkbox" checked={checked} onChange={() => toggleExcludedNameTag(tag)} />
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tag}</span>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tag}</span>
                   <span style={{ fontSize: 11, color: C.sub }}>{count}</span>
                 </label>
               );

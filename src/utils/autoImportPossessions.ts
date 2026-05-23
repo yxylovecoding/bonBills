@@ -1,6 +1,7 @@
 import type { PossessionItem, PossessionKind, PossessionTxn, TagKind } from '../models/types';
 import { resolveExpenseScope, type ExpenseScopeOverrides } from '../stores/expenseScopeOverrideStore';
 import { assignExpenseIds, type BillExpenseItem, type BillExpenseMonth } from './importBill';
+import { isTripTagFormat } from './trips';
 
 const POSSESSION_CATEGORIES = new Set(['购物', '医疗']);
 const EXCLUDED_KEYWORDS = ['体检', '周边', '医院'];
@@ -66,7 +67,13 @@ function possessionKind(tags: string[]): PossessionKind {
 }
 
 function itemName(item: BillExpenseItem, tags: string[], excludedNameTags: Set<string>) {
-  const tag = tags.find((candidate) => candidate && !NOISE_TAGS.has(candidate) && !excludedNameTags.has(candidate) && !isQuantityTag(candidate));
+  const tag = tags.find((candidate) => (
+    candidate
+    && !NOISE_TAGS.has(candidate)
+    && !excludedNameTags.has(candidate)
+    && !isQuantityTag(candidate)
+    && !isTripTagFormat(candidate)
+  ));
   return tag || item.subcategory || item.note || item.category || '未命名物品';
 }
 
