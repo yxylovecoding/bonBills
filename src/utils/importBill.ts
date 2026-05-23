@@ -202,13 +202,10 @@ export async function parseBillFile(file: File): Promise<BillParseResult> {
 
     const type = (cols[COL_TYPE] || '').trim();
     const grossAmount = parseAmount(cols[COL_AMT] || '0');
-    // 报销金额列语义：空 = 没挂报销；"0.00" = 待报销（已经记账但钱没到，整行不算）；
-    // 正数 = 已报销金额，从 gross 扣减
-    const reimbRaw = (cols[COL_REIMB_AMT] || '').trim();
-    const reimb = parseAmount(reimbRaw);
-    if (reimbRaw && reimb === 0) continue;
+    // 报销金额列非空 ⇒ 整行跳过（无论待报销 0.00 还是已报销正数，都不算自己实际支出）
+    if ((cols[COL_REIMB_AMT] || '').trim()) continue;
     const refund = parseAmount(cols[COL_REFUND_AMT] || '0');
-    const amount = Math.max(0, grossAmount - reimb - refund);
+    const amount = Math.max(0, grossAmount - refund);
     if (amount === 0) continue;
     if (type !== '支出' && type !== '收入') continue;
 
