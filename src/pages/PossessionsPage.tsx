@@ -694,29 +694,38 @@ export default function PossessionsPage() {
             <button type="button" onClick={() => setSettingsOpen(false)} style={{ border: 'none', backgroundColor: C.blue, color: '#fff', borderRadius: 10, padding: '8px 16px', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}>完成</button>
           )}
         >
-          <Field label={`不能作为物品名称的标签${excludedNameTags.length > 0 ? ` · ${excludedNameTags.length}` : ''}`}>
+          <Field label="不能作为物品名称的标签">
             <input value={nameTagQuery} onChange={(e) => setNameTagQuery(e.target.value)} placeholder="搜索标签" style={inputStyle} autoFocus />
           </Field>
-          {excludedNameTags.length > 0 && (
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6, marginBottom: 8, maxHeight: 88, overflowY: 'auto', paddingRight: 2 }}>
-              {excludedNameTags.map((tag) => (
-                <button
-                  key={tag}
-                  type="button"
-                  onClick={() => toggleExcludedNameTag(tag)}
-                  style={{ border: '1px solid #d2e3fc', backgroundColor: '#e8f0fe', color: C.blue, borderRadius: 999, padding: '2px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer', lineHeight: 1.4 }}
-                >
-                  {tag} ×
-                </button>
-              ))}
-            </div>
-          )}
-          <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
-            {nameTagCandidates.length === 0 && <div style={{ fontSize: 12, color: C.sub, textAlign: 'center', padding: '14px 0' }}>暂无标签</div>}
-            {nameTagCandidates.map(([tag, count]) => {
+
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.sub, marginTop: 12, marginBottom: 4 }}>
+            已选 · {excludedNameTags.length}
+          </div>
+          <div style={{ maxHeight: 80, overflowY: 'auto', display: 'flex', gap: 4, flexWrap: 'wrap', paddingRight: 2, border: '1px solid #f1f3f4', borderRadius: 8, padding: 6, backgroundColor: '#fafbfc' }}>
+            {excludedNameTags.length === 0 ? (
+              <div style={{ fontSize: 11, color: C.sub, padding: '2px 4px' }}>未选标签</div>
+            ) : excludedNameTags.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => toggleExcludedNameTag(tag)}
+                style={{ border: '1px solid #d2e3fc', backgroundColor: '#e8f0fe', color: C.blue, borderRadius: 999, padding: '2px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer', lineHeight: 1.4 }}
+              >
+                {tag} ×
+              </button>
+            ))}
+          </div>
+
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.sub, marginTop: 12, marginBottom: 4 }}>
+            候选 · {nameTagCandidates.length}
+          </div>
+          <div style={{ maxHeight: 180, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, border: '1px solid #f1f3f4', borderRadius: 8, padding: 6, backgroundColor: '#fafbfc' }}>
+            {nameTagCandidates.length === 0 ? (
+              <div style={{ fontSize: 12, color: C.sub, textAlign: 'center', padding: '14px 0' }}>暂无标签</div>
+            ) : nameTagCandidates.map(([tag, count]) => {
               const checked = excludedNameTagSet.has(tag);
               return (
-                <label key={tag} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${checked ? '#d2e3fc' : '#f1f3f4'}`, backgroundColor: checked ? '#e8f0fe' : '#fff', borderRadius: 8, padding: '5px 8px', cursor: 'pointer' }}>
+                <label key={tag} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${checked ? '#d2e3fc' : '#e8eaed'}`, backgroundColor: checked ? '#e8f0fe' : '#fff', borderRadius: 8, padding: '5px 8px', cursor: 'pointer' }}>
                   <input type="checkbox" checked={checked} onChange={() => toggleExcludedNameTag(tag)} />
                   <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tag}</span>
                   <span style={{ fontSize: 11, color: C.sub }}>{count}</span>
