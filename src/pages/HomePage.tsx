@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -25,7 +26,7 @@ import { TAX_RULE_PRESETS } from '../utils/tax';
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '校园卡走信用卡';
+const RELEASE_NOTE = '并入持物清单';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
@@ -141,6 +142,7 @@ function TrendCharts({ records }: { records: MonthlyRecord[] }) {
 
 // ── 主页 ──────────────────────────────────────────────────────────
 export default function HomePage() {
+  const navigate = useNavigate();
   const { current } = useSnapshotStore();
   const { config, setConfig } = useConfigStore();
   const { records } = useMonthlyStore();
@@ -327,6 +329,15 @@ export default function HomePage() {
           <p style={{ fontSize: 13, color: C.sub, margin: 0 }}>
             {today.getFullYear()}年{today.getMonth() + 1}月 · 第 {today.getDate()} 天
           </p>
+          <div style={{ marginTop: 8 }}>
+            <button
+              type="button"
+              onClick={() => navigate('/possessions')}
+              style={{ border: 'none', borderRadius: 999, backgroundColor: '#202124', color: '#fff', fontSize: 12, fontWeight: 700, padding: '6px 10px', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.14)' }}
+            >
+              📦 物品
+            </button>
+          </div>
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0 }}>
           <div style={{ fontSize: 30, fontWeight: 700, fontFamily: 'monospace', color: '#202124', letterSpacing: 1 }}>

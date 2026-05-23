@@ -3,6 +3,7 @@ import Layout from './components/Layout';
 import HomePage from './pages/HomePage';
 import CalendarPage from './pages/CalendarPage';
 import ReconcilePage from './pages/ReconcilePage';
+import PossessionsPage from './pages/PossessionsPage';
 
 export default function App() {
   return (
@@ -12,6 +13,7 @@ export default function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/reconcile" element={<ReconcilePage />} />
+          <Route path="/possessions" element={<PossessionsPage />} />
           <Route path="/history" element={<Navigate to="/calendar?tab=year" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
