@@ -15,6 +15,7 @@ import {
   type ExpenseScope,
 } from '../stores/expenseScopeOverrideStore';
 import { usePossessionStore } from '../stores/possessionStore';
+import { parsePossessionQuantity } from '../utils/autoImportPossessions';
 import { assignExpenseIds, type BillExpenseItem } from '../utils/importBill';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', sub: '#5f6368', orange: '#e8710a', purple: '#7c3aed' };
@@ -81,6 +82,25 @@ function retiredFilterLabel(tab: TabKind) {
 
 function tagsOf(item: BillExpenseItem) {
   return item.tags.split(',').map((tag) => tag.trim()).filter(Boolean);
+}
+
+function itemIsDone(item: PossessionItem) {
+  if (item.kind === 'durable') return item.status === 'retired';
+  const purchases = item.txns.filter((txn) => txn.kind === 'purchase');
+  return purchases.length > 0 && purchases.every((txn) => txn.done);
+}
+
+function itemIsActive(item: PossessionItem) {
+  if (item.kind === 'durable') return item.status === 'active';
+  return !itemIsDone(item);
+}
+
+function txnUnitPrice(amount: number, quantity?: number) {
+  return quantity && quantity > 0 ? amount / quantity : 0;
+}
+
+function formatQty(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
 function Modal({
@@ -179,7 +199,7 @@ function ScopeBreakdown({ stats }: { stats: ConsumableStats }) {
 export default function PossessionsPage() {
   const navigate = useNavigate();
   const today = todayKey();
-  const { items, excludedNameTags, addItem, updateItem, removeItem, addTxn, removeTxn, setStatus, toggleExcludedNameTag } = usePossessionStore();
+  const { items, excludedNameTags, addItem, updateItem, removeItem, addTxn, removeTxn, setTxnDone, setStatus, toggleExcludedNameTag } = usePossessionStore();
   const { expenseItems } = useBillDetailStore();
   const { tagMap } = useCalendarStore();
   const { overrides } = useExpenseScopeOverrideStore();
@@ -234,15 +254,17 @@ export default function PossessionsPage() {
     [...new Set(items.map((item) => item.category?.trim()).filter((v): v is string => Boolean(v)))].sort()
   ), [items]);
 
-  const activeItems = items.filter((item) => item.status === 'active');
-  const activeConsumables = items.filter((item) => item.kind === 'consumable' && item.status === 'active');
+  const activeItems = items.filter(itemIsActive);
+  const activeConsumables = items.filter((item) => item.kind === 'consumable' && itemIsActive(item));
   const durableItems = items.filter((item) => item.kind === 'durable');
   const consumableMonthlyCost = activeConsumables.reduce((sum, item) => sum + calcConsumableStats(item, today).monthlyCost, 0);
+  const activeConsumableStock = activeConsumables.reduce((sum, item) => sum + calcConsumableStats(item, today).activeQty, 0);
   const durableNetCost = durableItems.reduce((sum, item) => sum + calcDurableStats(item, today).netCost, 0);
 
   const filteredItems = items.filter((item) => {
     if (item.kind !== tab) return false;
-    if (statusFilter !== 'all' && item.status !== statusFilter) return false;
+    if (statusFilter === 'active' && !itemIsActive(item)) return false;
+    if (statusFilter === 'retired' && !itemIsDone(item)) return false;
     if (categoryFilter !== 'all' && item.category !== categoryFilter) return false;
     if (item.kind === 'consumable') {
       if (scopeFilter !== 'all' && !item.txns.some((txn) => txn.scope === scopeFilter)) return false;
@@ -333,14 +355,18 @@ export default function PossessionsPage() {
   const selectBill = (choice: BillChoice) => {
     if (!txnForm || !txnItem) return;
     const inferredScope = txnItem.kind === 'consumable' ? resolveExpenseScope(choice.item, overrides) : null;
+    const parsedQuantity = txnItem.kind === 'consumable' ? parsePossessionQuantity(choice.item) : null;
     setTxnForm({
       ...txnForm,
       date: choice.item.date,
       amount: String(choice.item.amount),
+      quantity: parsedQuantity ? String(parsedQuantity.quantity) : txnForm.quantity,
       billItemId: choice.id,
       scope: inferredScope ?? txnForm.scope,
       scene: tagMap[choice.item.date] ?? txnForm.scene,
+      note: choice.item.note || txnForm.note,
     });
+    if (parsedQuantity?.unit && (!txnItem.unit || txnItem.unit === '个')) updateItem(txnItem.id, { unit: parsedQuantity.unit });
     setBillPickerOpen(false);
   };
 
@@ -377,11 +403,11 @@ export default function PossessionsPage() {
           {[
             { label: '在用', value: activeItems.length, color: C.blue },
             { label: '消耗品', value: activeConsumables.length, color: C.green },
-            { label: '长期物品', value: durableItems.length, color: C.purple },
+            { label: '在库数量', value: activeConsumableStock, color: C.orange },
           ].map((row) => (
             <div key={row.label} style={{ border: '1px solid #f1f3f4', borderRadius: 10, padding: '9px 8px', backgroundColor: '#f8f9fa', minWidth: 0 }}>
               <div style={{ fontSize: 11, color: C.sub, marginBottom: 3 }}>{row.label}</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: row.color, fontVariantNumeric: 'tabular-nums' }}>{row.value}</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: row.color, fontVariantNumeric: 'tabular-nums' }}>{typeof row.value === 'number' ? formatQty(row.value) : row.value}</div>
             </div>
           ))}
         </div>
@@ -451,6 +477,10 @@ export default function PossessionsPage() {
           const expanded = expandedIds.has(item.id);
           const consumableStats = item.kind === 'consumable' ? calcConsumableStats(item, today) : null;
           const durableStats = item.kind === 'durable' ? calcDurableStats(item, today) : null;
+          const done = itemIsDone(item);
+          const activeBatchCount = item.kind === 'consumable'
+            ? item.txns.filter((txn) => txn.kind === 'purchase' && !txn.done).length
+            : 0;
           return (
             <section key={item.id} style={{ backgroundColor: '#fff', borderRadius: 14, boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
               <button
@@ -465,12 +495,12 @@ export default function PossessionsPage() {
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                     <span style={{ fontSize: 14, fontWeight: 800, color: '#202124', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
                     {item.category && <span style={{ fontSize: 10, color: C.sub, backgroundColor: '#f1f3f4', borderRadius: 999, padding: '2px 6px', flexShrink: 0 }}>{item.category}</span>}
-                    {item.status === 'retired' && <span style={{ fontSize: 10, color: C.orange, backgroundColor: '#fff4e8', borderRadius: 999, padding: '2px 6px', flexShrink: 0 }}>{retiredLabel(item.kind)}</span>}
+                    {done && <span style={{ fontSize: 10, color: C.orange, backgroundColor: '#fff4e8', borderRadius: 999, padding: '2px 6px', flexShrink: 0 }}>{retiredLabel(item.kind)}</span>}
                   </span>
                   <span style={{ display: 'block', marginTop: 4, fontSize: 12, color: C.sub, lineHeight: 1.5 }}>
                     {consumableStats && (
                       <>
-                        {consumableStats.avgUsagePerMonth.toFixed(1)} {item.unit || '个'}/月 · 单价 <CurrencyDisplay value={consumableStats.avgPricePerUnit} size="sm" /> · 月均 <CurrencyDisplay value={consumableStats.monthlyCost} size="sm" />
+                        在用 {activeBatchCount} 批 · 剩 {formatQty(consumableStats.estimatedRemainingQty)} {item.unit || '个'} · 日均 {formatQty(consumableStats.avgUsagePerDay)} {item.unit || '个'} · 最低 <CurrencyDisplay value={consumableStats.minPricePerUnit} size="sm" />
                       </>
                     )}
                     {durableStats && (
@@ -486,7 +516,7 @@ export default function PossessionsPage() {
 
               {expanded && (
                 <div style={{ padding: '0 14px 14px', borderTop: '1px solid #f1f3f4' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: item.kind === 'consumable' ? '1fr 82px 86px' : '1fr 110px', gap: 8, paddingTop: 12 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: item.kind === 'consumable' ? '1fr 82px' : '1fr 110px', gap: 8, paddingTop: 12 }}>
                     <input
                       value={item.category ?? ''}
                       onChange={(e) => updateItem(item.id, { category: e.target.value || undefined })}
@@ -501,16 +531,18 @@ export default function PossessionsPage() {
                         style={{ ...inputStyle, padding: '7px 8px', fontSize: 12 }}
                       />
                     )}
-                    <select
-                      value={item.status}
-                      onChange={(e) => setStatus(item.id, e.target.value as 'active' | 'retired', e.target.value === 'retired' ? (item.retiredAt ?? today) : undefined)}
-                      style={{ ...inputStyle, padding: '7px 8px', fontSize: 12 }}
-                    >
-                      <option value="active">在用</option>
-                      <option value="retired">{retiredLabel(item.kind)}</option>
-                    </select>
+                    {item.kind === 'durable' && (
+                      <select
+                        value={item.status}
+                        onChange={(e) => setStatus(item.id, e.target.value as 'active' | 'retired', e.target.value === 'retired' ? (item.retiredAt ?? today) : undefined)}
+                        style={{ ...inputStyle, padding: '7px 8px', fontSize: 12 }}
+                      >
+                        <option value="active">持有中</option>
+                        <option value="retired">{retiredLabel(item.kind)}</option>
+                      </select>
+                    )}
                   </div>
-                  {item.status === 'retired' && (
+                  {item.kind === 'durable' && item.status === 'retired' && (
                     <input
                       type="date"
                       value={item.retiredAt ?? today}
@@ -518,7 +550,38 @@ export default function PossessionsPage() {
                       style={{ ...inputStyle, marginTop: 8, padding: '7px 8px', fontSize: 12 }}
                     />
                   )}
-                  {consumableStats && <ScopeBreakdown stats={consumableStats} />}
+                  {consumableStats && (
+                    <>
+                      <div style={{ marginTop: 10, padding: '10px 0', borderTop: '1px dashed #e0e0e0', borderBottom: '1px dashed #e0e0e0' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+                          {[
+                            { label: '最近单价', value: consumableStats.latestPricePerUnit, color: C.blue },
+                            { label: '平均单价', value: consumableStats.avgPricePerUnit, color: C.green },
+                            { label: '最低单价', value: consumableStats.minPricePerUnit, color: C.orange },
+                          ].map((row) => (
+                            <div key={row.label} style={{ backgroundColor: '#f8f9fa', borderRadius: 10, padding: '8px 7px', minWidth: 0 }}>
+                              <div style={{ fontSize: 10, color: C.sub, marginBottom: 3 }}>{row.label}</div>
+                              <CurrencyDisplay value={row.value} size="sm" color={row.color} />
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ marginTop: 10 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11, color: C.sub, marginBottom: 5 }}>
+                            <span>在用进度 {Math.round(consumableStats.progress * 100)}%</span>
+                            <span>{formatQty(consumableStats.estimatedRemainingQty)} / {formatQty(consumableStats.activeQty)} {item.unit || '个'}</span>
+                          </div>
+                          <div style={{ height: 8, borderRadius: 999, overflow: 'hidden', backgroundColor: '#f1f3f4' }}>
+                            <div style={{ width: `${Math.round(consumableStats.progress * 100)}%`, height: '100%', backgroundColor: C.green }} />
+                          </div>
+                          <div style={{ marginTop: 6, fontSize: 11, color: C.sub, lineHeight: 1.6 }}>
+                            日均 {formatQty(consumableStats.avgUsagePerDay)} {item.unit || '个'} · 月均 {formatQty(consumableStats.avgUsagePerMonth)} {item.unit || '个'}
+                            {consumableStats.runoutDate ? ` · 预计 ${consumableStats.runoutDate} 用完` : ' · 暂无用完预估'}
+                          </div>
+                        </div>
+                      </div>
+                      <ScopeBreakdown stats={consumableStats} />
+                    </>
+                  )}
                   {durableStats && (
                     <div style={{ marginTop: 10, padding: '10px 0', borderTop: '1px dashed #e0e0e0', borderBottom: '1px dashed #e0e0e0', fontSize: 12, color: C.sub }}>
                       {durableStats.label} · 从 {durableStats.startDate ?? '未购入'} 到 {durableStats.endDate}
@@ -526,31 +589,46 @@ export default function PossessionsPage() {
                   )}
 
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, marginBottom: 8 }}>
-                    <div style={{ fontSize: 12, fontWeight: 800, color: '#202124' }}>资金动作</div>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: '#202124' }}>账单批次</div>
                     <button type="button" onClick={() => openTxnModal(item)} style={{ border: 'none', borderRadius: 999, backgroundColor: '#e8f0fe', color: C.blue, padding: '5px 10px', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
                       + 新增动作
                     </button>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {item.txns.length === 0 && <div style={{ fontSize: 12, color: C.sub, backgroundColor: '#f8f9fa', borderRadius: 10, padding: '9px 10px' }}>暂无动作</div>}
-                    {item.txns.map((txn) => (
-                      <div key={txn.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, backgroundColor: '#f8f9fa', border: '1px solid #f1f3f4', borderRadius: 10, padding: '8px 9px' }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                            <span style={{ fontSize: 12, fontWeight: 800 }}>{txn.date}</span>
-                            <span style={{ fontSize: 10, color: txn.kind === 'resale' ? C.green : C.blue, backgroundColor: txn.kind === 'resale' ? '#e6f4ea' : '#e8f0fe', borderRadius: 999, padding: '2px 6px' }}>{txnKindLabel(txn.kind, item.kind)}</span>
-                            {txn.quantity !== undefined && <span style={{ fontSize: 11, color: C.sub }}>{txn.quantity} {item.unit || '个'}</span>}
-                            {txn.scope && <span style={{ fontSize: 11, color: C.sub }}>{SCOPE_LABEL[txn.scope]}{txn.scope === 'local' && txn.scene ? ` · ${tagMeta[txn.scene].label}` : ''}</span>}
+                    {item.txns.map((txn) => {
+                      const price = txnUnitPrice(txn.amount, txn.quantity);
+                      const isConsumablePurchase = item.kind === 'consumable' && txn.kind === 'purchase';
+                      return (
+                        <div key={txn.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, backgroundColor: txn.done ? '#fffaf4' : '#f8f9fa', border: `1px solid ${txn.done ? '#fce8d6' : '#f1f3f4'}`, borderRadius: 10, padding: '8px 9px' }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 12, fontWeight: 800 }}>{txn.date}</span>
+                              <span style={{ fontSize: 10, color: txn.kind === 'resale' ? C.green : C.blue, backgroundColor: txn.kind === 'resale' ? '#e6f4ea' : '#e8f0fe', borderRadius: 999, padding: '2px 6px' }}>{txnKindLabel(txn.kind, item.kind)}</span>
+                              {isConsumablePurchase && (
+                                <button
+                                  type="button"
+                                  onClick={() => setTxnDone(item.id, txn.id, !txn.done, txn.doneAt ?? today)}
+                                  style={{ border: 'none', backgroundColor: txn.done ? '#fff4e8' : '#e6f4ea', color: txn.done ? C.orange : C.green, borderRadius: 999, padding: '2px 6px', fontSize: 10, fontWeight: 800, cursor: 'pointer' }}
+                                >
+                                  {txn.done ? '已用完' : '在用'}
+                                </button>
+                              )}
+                              {txn.quantity !== undefined && <span style={{ fontSize: 11, color: C.sub }}>{formatQty(txn.quantity)} {item.unit || '个'}</span>}
+                              {price > 0 && <span style={{ fontSize: 11, color: C.sub }}>单价 ¥{formatCurrency(price)}</span>}
+                              {txn.scope && <span style={{ fontSize: 11, color: C.sub }}>{SCOPE_LABEL[txn.scope]}{txn.scope === 'local' && txn.scene ? ` · ${tagMeta[txn.scene].label}` : ''}</span>}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', marginTop: 4, fontSize: 11, color: C.sub }}>
+                              <CurrencyDisplay value={txn.amount} size="sm" color={txn.kind === 'resale' ? C.green : undefined} />
+                              {txn.billItemId && <span style={{ color: C.blue }}>已关联账单</span>}
+                              {txn.doneAt && <span>用完日 {txn.doneAt}</span>}
+                              {txn.note && <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{txn.note}</span>}
+                            </div>
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', marginTop: 4, fontSize: 11, color: C.sub }}>
-                            <CurrencyDisplay value={txn.amount} size="sm" color={txn.kind === 'resale' ? C.green : undefined} />
-                            {txn.billItemId && <span style={{ color: C.blue }}>已关联账单</span>}
-                            {txn.note && <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{txn.note}</span>}
-                          </div>
+                          <button type="button" onClick={() => removeTxn(item.id, txn.id)} style={{ border: 'none', background: 'transparent', color: '#bdc1c6', fontSize: 17, lineHeight: 1, padding: 0, cursor: 'pointer' }}>×</button>
                         </div>
-                        <button type="button" onClick={() => removeTxn(item.id, txn.id)} style={{ border: 'none', background: 'transparent', color: '#bdc1c6', fontSize: 17, lineHeight: 1, padding: 0, cursor: 'pointer' }}>×</button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                   <button type="button" onClick={() => removeItem(item.id)} style={{ width: '100%', marginTop: 10, border: '1px solid #fad2cf', borderRadius: 10, color: C.red, backgroundColor: '#fff', padding: '7px 0', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
                     删除物品

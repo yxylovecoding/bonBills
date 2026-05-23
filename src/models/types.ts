@@ -215,6 +215,8 @@ export interface PossessionTxn {
   amount: number;
   quantity?: number;
   kind: 'purchase' | 'resale';
+  done?: boolean;
+  doneAt?: string;
   billItemId?: string;
   scope?: ExpenseScope;
   scene?: TagKind;

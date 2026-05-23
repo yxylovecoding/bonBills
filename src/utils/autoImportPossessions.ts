@@ -7,7 +7,13 @@ const EXCLUDED_KEYWORDS = ['体检', '周边', '医院'];
 const CONSUMABLE_TAG = '消耗品';
 const DONE_TAG = 'done';
 const NOISE_TAGS = new Set(['周期生活', '波动生活', '消费', '吃好喝好', '红', '黑', '白', '消耗品', '家', 'doing', 'done']);
-const QUANTITY_TAG_PATTERN = /^\d+(\.\d+)?\s*(kg|mg|ml|l|g|斤|两|升|毫升)$/i;
+const QUANTITY_PATTERN = /(\d+(?:\.\d+)?)\s*(kg|mg|ml|l|g|斤|两|升|毫升|瓶|盒|支|个|包|袋|片|颗|粒|罐|条|卷|套|只|双|斤装|毫升装)/i;
+const QUANTITY_TAG_PATTERN = new RegExp(`^${QUANTITY_PATTERN.source}$`, 'i');
+
+export interface ParsedPossessionQuantity {
+  quantity: number;
+  unit: string;
+}
 
 export interface AutoPossessionImportParams {
   expenseItems: Record<string, BillExpenseMonth>;
@@ -34,6 +40,21 @@ function isQuantityTag(tag: string) {
   return QUANTITY_TAG_PATTERN.test(tag);
 }
 
+export function parsePossessionQuantity(item: Pick<BillExpenseItem, 'note' | 'tags'>): ParsedPossessionQuantity | null {
+  const candidates = [
+    ...item.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
+    item.note,
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    const match = candidate.match(QUANTITY_PATTERN);
+    if (!match) continue;
+    const quantity = Number(match[1]);
+    if (!Number.isFinite(quantity) || quantity <= 0) continue;
+    return { quantity, unit: match[2] };
+  }
+  return null;
+}
+
 function isPossessionBill(item: BillExpenseItem, tags: string[]) {
   const searchable = [item.category, item.subcategory, item.note, ...tags].join(' ');
   if (EXCLUDED_KEYWORDS.some((keyword) => searchable.includes(keyword))) return false;
@@ -57,15 +78,11 @@ function sortTxns(txns: PossessionTxn[]) {
   return [...txns].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
 }
 
-function laterDate(a: string | undefined, b: string) {
-  return !a || b > a ? b : a;
-}
-
 function createPossessionFromBill(
   item: BillExpenseItem,
   kind: PossessionKind,
   name: string,
-  isDoneConsumable: boolean,
+  parsedQuantity: ParsedPossessionQuantity | null,
   makeId: () => string,
   today: string,
 ): PossessionItem {
@@ -75,11 +92,36 @@ function createPossessionFromBill(
     kind,
     category: item.subcategory || item.category || undefined,
     icon: kind === 'consumable' ? '🧴' : '📦',
-    status: isDoneConsumable ? 'retired' : 'active',
+    status: 'active',
     txns: [],
-    unit: kind === 'consumable' ? '个' : undefined,
-    retiredAt: isDoneConsumable ? item.date : undefined,
+    unit: kind === 'consumable' ? (parsedQuantity?.unit ?? '个') : undefined,
+    retiredAt: undefined,
     createdAt: today,
+  };
+}
+
+function normalizeImportedTxn(
+  txn: PossessionTxn,
+  billItem: BillExpenseItem,
+  kind: PossessionKind,
+  tags: string[],
+  tagMap: Record<string, TagKind>,
+  overrides: ExpenseScopeOverrides,
+) {
+  if (kind !== 'consumable') return txn;
+  const parsed = parsePossessionQuantity(billItem);
+  const isDone = tags.includes(DONE_TAG);
+  const done = isDone || txn.done || undefined;
+  const inferredScope = resolveExpenseScope(billItem, overrides);
+  const scope = inferredScope ?? txn.scope ?? 'local';
+  const nextQuantity = parsed && (txn.quantity === undefined || txn.quantity === 1) ? parsed.quantity : txn.quantity;
+  return {
+    ...txn,
+    quantity: nextQuantity ?? 1,
+    done,
+    doneAt: done ? (txn.doneAt ?? billItem.date) : undefined,
+    scope,
+    scene: scope === 'local' ? (txn.scene ?? tagMap[billItem.date] ?? 'school') : undefined,
   };
 }
 
@@ -113,23 +155,41 @@ export function mergePossessionsFromBills({
   }
 
   let changed = false;
-  const ensureTarget = (billItem: BillExpenseItem, kind: PossessionKind, name: string, isDoneConsumable: boolean) => {
+  const ensureTarget = (billItem: BillExpenseItem, kind: PossessionKind, name: string, parsedQuantity: ParsedPossessionQuantity | null) => {
     const key = itemKey(kind, name);
     let possession = byName.get(key);
     if (!possession) {
-      possession = createPossessionFromBill(billItem, kind, name, isDoneConsumable, makeId, today);
+      possession = createPossessionFromBill(billItem, kind, name, parsedQuantity, makeId, today);
       nextItems.push(possession);
       byName.set(key, possession);
       changed = true;
     }
-    if (isDoneConsumable) {
-      const retiredAt = laterDate(possession.retiredAt, billItem.date);
-      if (possession.status === 'retired' && possession.retiredAt === retiredAt) return possession;
-      possession.status = 'retired';
-      possession.retiredAt = retiredAt;
-      changed = true;
+    if (kind === 'consumable') {
+      if ((!possession.unit || possession.unit === '个') && parsedQuantity?.unit && possession.unit !== parsedQuantity.unit) {
+        possession.unit = parsedQuantity.unit;
+        changed = true;
+      }
+      if (possession.status === 'retired') {
+        possession.status = 'active';
+        possession.retiredAt = undefined;
+        changed = true;
+      }
     }
     return possession;
+  };
+
+  const pushTxn = (target: PossessionItem, txn: PossessionTxn, billItem?: BillExpenseItem, tags: string[] = []) => {
+    const nextTxn = billItem ? normalizeImportedTxn(txn, billItem, target.kind, tags, tagMap, overrides) : txn;
+    target.txns.push(nextTxn);
+    if (
+      nextTxn.done !== txn.done
+      || nextTxn.doneAt !== txn.doneAt
+      || nextTxn.quantity !== txn.quantity
+      || nextTxn.scope !== txn.scope
+      || nextTxn.scene !== txn.scene
+    ) {
+      changed = true;
+    }
   };
 
   for (const sourceItem of items) {
@@ -142,54 +202,63 @@ export function mergePossessionsFromBills({
         const tags = billItem ? tagsOf(billItem) : [];
         if (billItem && isPossessionBill(billItem, tags)) {
           const kind = possessionKind(tags);
-          const isDoneConsumable = kind === 'consumable' && tags.includes(DONE_TAG);
           const name = itemName(billItem, tags, excludedNames);
-          target = ensureTarget(billItem, kind, name, isDoneConsumable);
+          target = ensureTarget(billItem, kind, name, parsePossessionQuantity(billItem));
           if (target.id !== current.id) changed = true;
         }
       }
-      target.txns.push(txn);
+      const billItem = txn.billItemId ? billById.get(txn.billItemId) : undefined;
+      pushTxn(target, txn, billItem, billItem ? tagsOf(billItem) : []);
       if (txn.billItemId) referenced.add(txn.billItemId);
     }
   }
 
   let importedCount = 0;
   for (const { item, id: billItemId } of billEntries) {
-      if (ignored.has(billItemId) || referenced.has(billItemId)) continue;
-      const tags = tagsOf(item);
-      if (!isPossessionBill(item, tags)) continue;
+    if (ignored.has(billItemId) || referenced.has(billItemId)) continue;
+    const tags = tagsOf(item);
+    if (!isPossessionBill(item, tags)) continue;
 
-      const kind = possessionKind(tags);
-      const isDoneConsumable = kind === 'consumable' && tags.includes(DONE_TAG);
-      const name = itemName(item, tags, excludedNames);
-      const key = itemKey(kind, name);
-      let possession = byName.get(key);
-      if (!possession) {
-        possession = createPossessionFromBill(item, kind, name, isDoneConsumable, makeId, today);
-        nextItems.push(possession);
-        byName.set(key, possession);
-      } else if (isDoneConsumable) {
-        const retiredAt = laterDate(possession.retiredAt, item.date);
-        possession.status = 'retired';
-        possession.retiredAt = retiredAt;
+    const kind = possessionKind(tags);
+    const parsedQuantity = parsePossessionQuantity(item);
+    const isDoneConsumable = kind === 'consumable' && tags.includes(DONE_TAG);
+    const name = itemName(item, tags, excludedNames);
+    const key = itemKey(kind, name);
+    let possession = byName.get(key);
+    if (!possession) {
+      possession = createPossessionFromBill(item, kind, name, parsedQuantity, makeId, today);
+      nextItems.push(possession);
+      byName.set(key, possession);
+    } else if (kind === 'consumable') {
+      if ((!possession.unit || possession.unit === '个') && parsedQuantity?.unit && possession.unit !== parsedQuantity.unit) {
+        possession.unit = parsedQuantity.unit;
+        changed = true;
       }
+      if (possession.status === 'retired') {
+        possession.status = 'active';
+        possession.retiredAt = undefined;
+        changed = true;
+      }
+    }
 
-      const inferredScope = kind === 'consumable' ? resolveExpenseScope(item, overrides) : null;
-      const scope = inferredScope ?? 'local';
-      possession.txns.push({
-        id: makeId(),
-        date: item.date,
-        amount: item.amount,
-        quantity: kind === 'consumable' ? 1 : undefined,
-        kind: 'purchase',
-        billItemId,
-        scope: kind === 'consumable' ? scope : undefined,
-        scene: kind === 'consumable' && scope === 'local' ? tagMap[item.date] ?? 'school' : undefined,
-        note: item.note || undefined,
-      });
-      possession.txns = sortTxns(possession.txns);
-      referenced.add(billItemId);
-      importedCount += 1;
+    const inferredScope = kind === 'consumable' ? resolveExpenseScope(item, overrides) : null;
+    const scope = inferredScope ?? 'local';
+    possession.txns.push({
+      id: makeId(),
+      date: item.date,
+      amount: item.amount,
+      quantity: kind === 'consumable' ? (parsedQuantity?.quantity ?? 1) : undefined,
+      kind: 'purchase',
+      done: isDoneConsumable || undefined,
+      doneAt: isDoneConsumable ? item.date : undefined,
+      billItemId,
+      scope: kind === 'consumable' ? scope : undefined,
+      scene: kind === 'consumable' && scope === 'local' ? tagMap[item.date] ?? 'school' : undefined,
+      note: item.note || undefined,
+    });
+    possession.txns = sortTxns(possession.txns);
+    referenced.add(billItemId);
+    importedCount += 1;
   }
 
   const filteredItems = nextItems

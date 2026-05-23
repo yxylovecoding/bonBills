@@ -12,6 +12,7 @@ interface PossessionStore {
   addTxn: (itemId: string, txn: Omit<PossessionTxn, 'id'>) => void;
   updateTxn: (itemId: string, txnId: string, patch: Partial<PossessionTxn>) => void;
   removeTxn: (itemId: string, txnId: string) => void;
+  setTxnDone: (itemId: string, txnId: string, done: boolean, doneAt?: string) => void;
   setStatus: (id: string, status: PossessionStatus, retiredAt?: string) => void;
   toggleExcludedNameTag: (tag: string) => void;
   applyAutoImportedItems: (items: PossessionItem[]) => void;
@@ -105,6 +106,21 @@ export const usePossessionStore = create<PossessionStore>()(
             ignoredBillItemIds: [...ignored],
           };
         }),
+      setTxnDone: (itemId, txnId, done, doneAt) =>
+        set((s) => ({
+          items: s.items.map((item) => (
+            item.id === itemId
+              ? {
+                ...item,
+                txns: sortTxns(item.txns.map((txn) => (
+                  txn.id === txnId
+                    ? { ...txn, done, doneAt: done ? (doneAt ?? txn.doneAt ?? todayKey()) : undefined }
+                    : txn
+                ))),
+              }
+              : item
+          )),
+        })),
       setStatus: (id, status, retiredAt) =>
         set((s) => ({
           items: s.items.map((item) => (
