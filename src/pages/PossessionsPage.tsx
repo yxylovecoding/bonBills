@@ -17,7 +17,13 @@ import {
 import { usePossessionStore } from '../stores/possessionStore';
 import { parsePossessionQuantity } from '../utils/autoImportPossessions';
 import { assignExpenseIds, type BillExpenseItem } from '../utils/importBill';
-import { isTripTagFormat } from '../utils/trips';
+import {
+  classifyTag,
+  MANUAL_TAG_CATEGORIES,
+  TAG_CATEGORY_LABEL,
+  type TagCategory,
+} from '../utils/tagCategory';
+import { daysBetween } from '../calculations/possessions';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', sub: '#5f6368', orange: '#e8710a', purple: '#7c3aed' };
 const TAG_KINDS: TagKind[] = ['school', 'home', 'travel'];
@@ -200,7 +206,7 @@ function ScopeBreakdown({ stats }: { stats: ConsumableStats }) {
 export default function PossessionsPage() {
   const navigate = useNavigate();
   const today = todayKey();
-  const { items, excludedNameTags, addItem, updateItem, removeItem, addTxn, removeTxn, setTxnDone, setStatus, toggleExcludedNameTag } = usePossessionStore();
+  const { items, tagCategory, addItem, updateItem, removeItem, addTxn, removeTxn, setTxnDone, setStatus, setTagCategory } = usePossessionStore();
   const { expenseItems } = useBillDetailStore();
   const { tagMap } = useCalendarStore();
   const { overrides } = useExpenseScopeOverrideStore();
@@ -218,6 +224,7 @@ export default function PossessionsPage() {
   const [billQuery, setBillQuery] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [nameTagQuery, setNameTagQuery] = useState('');
+  const [tagCategoryFilter, setTagCategoryFilter] = useState<TagCategory>('unclassified');
 
   const billChoices = useMemo<BillChoice[]>(() => (
     Object.entries(expenseItems)
@@ -225,22 +232,58 @@ export default function PossessionsPage() {
       .sort((a, b) => b.item.date.localeCompare(a.item.date))
   ), [expenseItems]);
 
-  const nameTagCandidates = useMemo(() => {
+  // 全量标签 + 出现次数；按类别分桶
+  const tagsByCategory = useMemo(() => {
     const counts = new Map<string, number>();
     for (const choice of billChoices) {
       for (const tag of tagsOf(choice.item)) {
-        if (isTripTagFormat(tag)) continue; // 出游 tag（yy.m.d 描述）不算物品名候选
         counts.set(tag, (counts.get(tag) ?? 0) + 1);
       }
     }
-    const q = nameTagQuery.trim().toLowerCase();
-    return [...counts.entries()]
-      .filter(([tag]) => !q || tag.toLowerCase().includes(q))
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh-CN'))
-      .slice(0, 80);
-  }, [billChoices, nameTagQuery]);
+    const buckets: Record<TagCategory, [string, number][]> = {
+      unclassified: [], name: [], brand: [], person: [],
+      ignore: [], system: [], trip: [], quantity: [],
+    };
+    for (const entry of counts) {
+      buckets[classifyTag(entry[0], tagCategory)].push(entry);
+    }
+    for (const list of Object.values(buckets)) {
+      list.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh-CN'));
+    }
+    return buckets;
+  }, [billChoices, tagCategory]);
 
-  const excludedNameTagSet = useMemo(() => new Set(excludedNameTags), [excludedNameTags]);
+  const tagCategoryCounts = useMemo(() => {
+    const out: Record<TagCategory, number> = {
+      unclassified: 0, name: 0, brand: 0, person: 0,
+      ignore: 0, system: 0, trip: 0, quantity: 0,
+    };
+    for (const [k, list] of Object.entries(tagsByCategory)) out[k as TagCategory] = list.length;
+    return out;
+  }, [tagsByCategory]);
+
+  const visibleTagRows = useMemo(() => {
+    const list = tagsByCategory[tagCategoryFilter];
+    const q = nameTagQuery.trim().toLowerCase();
+    return q ? list.filter(([t]) => t.toLowerCase().includes(q)) : list;
+  }, [tagsByCategory, tagCategoryFilter, nameTagQuery]);
+
+  // 物品 → 品牌 chip：取 item 关联的 bill 项中的 brand 类标签，第一个命中
+  const brandByItemId = useMemo(() => {
+    const billById = new Map<string, BillExpenseItem>();
+    for (const choice of billChoices) billById.set(choice.id, choice.item);
+    const out: Record<string, string> = {};
+    for (const item of items) {
+      for (const txn of item.txns) {
+        if (!txn.billItemId) continue;
+        const bill = billById.get(txn.billItemId);
+        if (!bill) continue;
+        const brand = tagsOf(bill).find((t) => classifyTag(t, tagCategory) === 'brand');
+        if (brand) { out[item.id] = brand; break; }
+      }
+    }
+    return out;
+  }, [items, billChoices, tagCategory]);
 
   const referencedBillMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -263,17 +306,45 @@ export default function PossessionsPage() {
   const activeConsumableStock = activeConsumables.reduce((sum, item) => sum + calcConsumableStats(item, today).activeQty, 0);
   const durableNetCost = durableItems.reduce((sum, item) => sum + calcDurableStats(item, today).netCost, 0);
 
-  const filteredItems = items.filter((item) => {
-    if (item.kind !== tab) return false;
-    if (statusFilter === 'active' && !itemIsActive(item)) return false;
-    if (statusFilter === 'retired' && !itemIsDone(item)) return false;
-    if (categoryFilter !== 'all' && item.category !== categoryFilter) return false;
-    if (item.kind === 'consumable') {
-      if (scopeFilter !== 'all' && !item.txns.some((txn) => txn.scope === scopeFilter)) return false;
-      if (sceneFilter !== 'all' && !item.txns.some((txn) => txn.scope === 'local' && txn.scene === sceneFilter)) return false;
+  const filteredItems = useMemo(() => {
+    const base = items.filter((item) => {
+      if (item.kind !== tab) return false;
+      if (statusFilter === 'active' && !itemIsActive(item)) return false;
+      if (statusFilter === 'retired' && !itemIsDone(item)) return false;
+      if (categoryFilter !== 'all' && item.category !== categoryFilter) return false;
+      if (item.kind === 'consumable') {
+        if (scopeFilter !== 'all' && !item.txns.some((txn) => txn.scope === scopeFilter)) return false;
+        if (sceneFilter !== 'all' && !item.txns.some((txn) => txn.scope === 'local' && txn.scene === sceneFilter)) return false;
+      }
+      return true;
+    });
+    // 默认排序：消耗品按紧急度（在用先，progress 高先，runoutDate 早先）；长期品按日均降序
+    if (tab === 'consumable') {
+      return [...base].sort((a, b) => {
+        const aActive = itemIsActive(a) ? 0 : 1;
+        const bActive = itemIsActive(b) ? 0 : 1;
+        if (aActive !== bActive) return aActive - bActive;
+        const sa = calcConsumableStats(a, today);
+        const sb = calcConsumableStats(b, today);
+        if (Math.abs(sb.progress - sa.progress) > 0.001) return sb.progress - sa.progress;
+        const ra = sa.runoutDate ?? '9999-99-99';
+        const rb = sb.runoutDate ?? '9999-99-99';
+        return ra.localeCompare(rb);
+      });
     }
-    return true;
-  });
+    return [...base].sort((a, b) => calcDurableStats(b, today).costPerDay - calcDurableStats(a, today).costPerDay);
+  }, [items, tab, statusFilter, categoryFilter, scopeFilter, sceneFilter, today]);
+
+  // 长期品日均 top 25% 阈值，用于卡片颜色凸出
+  const durableCostPerDayTopThreshold = useMemo(() => {
+    if (tab !== 'durable') return Infinity;
+    const vals = filteredItems
+      .map((item) => calcDurableStats(item, today).costPerDay)
+      .filter((v) => v > 0)
+      .sort((a, b) => b - a);
+    if (vals.length === 0) return Infinity;
+    return vals[Math.max(0, Math.floor(vals.length * 0.25) - 1)] ?? Infinity;
+  }, [filteredItems, tab, today]);
 
   const txnItem = txnForm ? items.find((item) => item.id === txnForm.itemId) : undefined;
   const selectedBill = txnForm?.billItemId
@@ -483,6 +554,16 @@ export default function PossessionsPage() {
           const activeBatchCount = item.kind === 'consumable'
             ? item.txns.filter((txn) => txn.kind === 'purchase' && !txn.done).length
             : 0;
+          const restockHint = (() => {
+            if (!consumableStats || !itemIsActive(item)) return null;
+            const runoutDays = consumableStats.runoutDate ? daysBetween(today, consumableStats.runoutDate) : Infinity;
+            if (consumableStats.progress >= 0.7 || runoutDays <= 14) {
+              return { latest: consumableStats.latestPricePerUnit, min: consumableStats.minPricePerUnit, daysLeft: runoutDays };
+            }
+            return null;
+          })();
+          const durableHighlight = durableStats && durableStats.costPerDay >= durableCostPerDayTopThreshold && durableStats.costPerDay > 0;
+          const brand = brandByItemId[item.id];
           return (
             <section key={item.id} style={{ backgroundColor: '#fff', borderRadius: 14, boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
               <button
@@ -494,10 +575,26 @@ export default function PossessionsPage() {
                   {item.icon || (item.kind === 'consumable' ? '🧴' : '📦')}
                 </span>
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 14, fontWeight: 800, color: '#202124', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
+                    {brand && <span style={{ fontSize: 10, color: C.purple, backgroundColor: '#f3e8ff', borderRadius: 999, padding: '2px 6px', flexShrink: 0, fontWeight: 700 }}>{brand}</span>}
                     {item.category && <span style={{ fontSize: 10, color: C.sub, backgroundColor: '#f1f3f4', borderRadius: 999, padding: '2px 6px', flexShrink: 0 }}>{item.category}</span>}
                     {done && <span style={{ fontSize: 10, color: C.orange, backgroundColor: '#fff4e8', borderRadius: 999, padding: '2px 6px', flexShrink: 0 }}>{retiredLabel(item.kind)}</span>}
+                    {restockHint && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); openTxnModal(item); }}
+                        style={{ fontSize: 10, color: C.orange, backgroundColor: '#fff4e8', border: '1px solid #fed7aa', borderRadius: 999, padding: '2px 7px', flexShrink: 0, fontWeight: 700, cursor: 'pointer', lineHeight: 1.4 }}
+                        title="点击新增动作（补货）"
+                      >
+                        🚨 可补货{Number.isFinite(restockHint.daysLeft) ? ` · ~${Math.max(0, Math.round(restockHint.daysLeft))}d` : ''}{restockHint.latest > 0 ? ` · 最近¥${formatQty(restockHint.latest)}` : ''}{restockHint.min > 0 && restockHint.min < restockHint.latest ? ` · 低¥${formatQty(restockHint.min)}` : ''}
+                      </button>
+                    )}
+                    {durableHighlight && (
+                      <span style={{ fontSize: 11, color: C.red, fontWeight: 800, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                        ¥{durableStats!.costPerDay.toFixed(2)}/天
+                      </span>
+                    )}
                   </span>
                   <span style={{ display: 'block', marginTop: 4, fontSize: 12, color: C.sub, lineHeight: 1.5 }}>
                     {consumableStats && (
@@ -694,44 +791,72 @@ export default function PossessionsPage() {
             <button type="button" onClick={() => setSettingsOpen(false)} style={{ border: 'none', backgroundColor: C.blue, color: '#fff', borderRadius: 10, padding: '8px 16px', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}>完成</button>
           )}
         >
-          <Field label="不能作为物品名称的标签">
+          <Field label="标签分类">
             <input value={nameTagQuery} onChange={(e) => setNameTagQuery(e.target.value)} placeholder="搜索标签" style={inputStyle} autoFocus />
           </Field>
 
-          <div style={{ fontSize: 12, fontWeight: 700, color: C.sub, marginTop: 12, marginBottom: 4 }}>
-            已选 · {excludedNameTags.length}
-          </div>
-          <div style={{ maxHeight: 80, overflowY: 'auto', display: 'flex', gap: 4, flexWrap: 'wrap', paddingRight: 2, border: '1px solid #f1f3f4', borderRadius: 8, padding: 6, backgroundColor: '#fafbfc' }}>
-            {excludedNameTags.length === 0 ? (
-              <div style={{ fontSize: 11, color: C.sub, padding: '2px 4px' }}>未选标签</div>
-            ) : excludedNameTags.map((tag) => (
-              <button
-                key={tag}
-                type="button"
-                onClick={() => toggleExcludedNameTag(tag)}
-                style={{ border: '1px solid #d2e3fc', backgroundColor: '#e8f0fe', color: C.blue, borderRadius: 999, padding: '2px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer', lineHeight: 1.4 }}
-              >
-                {tag} ×
-              </button>
-            ))}
-          </div>
-
-          <div style={{ fontSize: 12, fontWeight: 700, color: C.sub, marginTop: 12, marginBottom: 4 }}>
-            候选 · {nameTagCandidates.length}
-          </div>
-          <div style={{ maxHeight: 180, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, border: '1px solid #f1f3f4', borderRadius: 8, padding: 6, backgroundColor: '#fafbfc' }}>
-            {nameTagCandidates.length === 0 ? (
-              <div style={{ fontSize: 12, color: C.sub, textAlign: 'center', padding: '14px 0' }}>暂无标签</div>
-            ) : nameTagCandidates.map(([tag, count]) => {
-              const checked = excludedNameTagSet.has(tag);
+          {/* 8 个分类 tab：手动 4 类 + 自动 3 类 + 未分类 */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 10 }}>
+            {(['unclassified', 'name', 'brand', 'person', 'ignore', 'system', 'trip', 'quantity'] as TagCategory[]).map((cat) => {
+              const active = tagCategoryFilter === cat;
+              const auto = cat === 'system' || cat === 'trip' || cat === 'quantity';
               return (
-                <label key={tag} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${checked ? '#d2e3fc' : '#e8eaed'}`, backgroundColor: checked ? '#e8f0fe' : '#fff', borderRadius: 8, padding: '5px 8px', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={checked} onChange={() => toggleExcludedNameTag(tag)} />
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tag}</span>
-                  <span style={{ fontSize: 11, color: C.sub }}>{count}</span>
-                </label>
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setTagCategoryFilter(cat)}
+                  style={{
+                    border: `1px solid ${active ? C.blue : '#e8eaed'}`,
+                    backgroundColor: active ? '#e8f0fe' : '#fff',
+                    color: active ? C.blue : (auto ? C.sub : '#202124'),
+                    borderRadius: 999, padding: '4px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                  }}
+                >
+                  {TAG_CATEGORY_LABEL[cat]} · {tagCategoryCounts[cat]}
+                </button>
               );
             })}
+          </div>
+
+          <div style={{ maxHeight: 240, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8, border: '1px solid #f1f3f4', borderRadius: 8, padding: 6, backgroundColor: '#fafbfc' }}>
+            {(() => {
+              const isAuto = tagCategoryFilter === 'system' || tagCategoryFilter === 'trip' || tagCategoryFilter === 'quantity';
+              if (visibleTagRows.length === 0) {
+                return <div style={{ fontSize: 12, color: C.sub, textAlign: 'center', padding: '14px 0' }}>暂无标签</div>;
+              }
+              return visibleTagRows.map(([tag, count]) => (
+                <div key={tag} style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid #e8eaed', backgroundColor: '#fff', borderRadius: 8, padding: '5px 8px' }}>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tag}</span>
+                  <span style={{ fontSize: 11, color: C.sub, flexShrink: 0 }}>{count}</span>
+                  {isAuto ? (
+                    <span style={{ fontSize: 10, color: C.sub, flexShrink: 0 }}>自动识别</span>
+                  ) : (
+                    <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+                      {MANUAL_TAG_CATEGORIES.map((target) => {
+                        const current = tagCategory[tag];
+                        const isCur = current === target;
+                        return (
+                          <button
+                            key={target}
+                            type="button"
+                            onClick={() => setTagCategory(tag, isCur ? null : target)}
+                            title={isCur ? `从「${TAG_CATEGORY_LABEL[target]}」移回未分类` : `标为「${TAG_CATEGORY_LABEL[target]}」`}
+                            style={{
+                              border: `1px solid ${isCur ? C.blue : '#e8eaed'}`,
+                              backgroundColor: isCur ? '#e8f0fe' : '#fff',
+                              color: isCur ? C.blue : C.sub,
+                              borderRadius: 6, padding: '2px 6px', fontSize: 10, fontWeight: 700, cursor: 'pointer', lineHeight: 1.3,
+                            }}
+                          >
+                            {TAG_CATEGORY_LABEL[target]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ));
+            })()}
           </div>
         </Modal>
       )}

@@ -20,6 +20,7 @@ import { useConfigStore } from '../stores/configStore';
 import { useSnapshotStore } from '../stores/snapshotStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { usePossessionStore } from '../stores/possessionStore';
+import { classifyTag, type ManualTagCategory } from '../utils/tagCategory';
 import { usePrefsStore, REVIEWABLE_CATEGORIES, type ReviewableCategory } from '../stores/prefsStore';
 import { useDragSort } from '../hooks/useDragSort';
 import type { TagKind, MonthlyRecord, MajorExpense, InvestHoldings } from '../models/types';
@@ -538,11 +539,10 @@ function SettingsModal({
 }
 
 // ── MonthForm ─────────────────────────────────────────────────────
-const MAJOR_EXCLUDED_TAGS = ['红', '黑', '白', '周期生活', '波动生活', '消费', '吃好喝好', '消耗品', 'doing', 'done'];
-// 纯「数字 + 单位」的标签（如 500ml、1.5kg、8L）不视为大额支出聚合维度
-const QUANTITY_TAG_PATTERN = /^\d+(\.\d+)?\s*(kg|mg|ml|l|g|斤|两|升|毫升)$/i;
-function isMajorExcludedTag(tag: string, excludedNameTags: Set<string>): boolean {
-  return MAJOR_EXCLUDED_TAGS.includes(tag) || excludedNameTags.has(tag) || QUANTITY_TAG_PATTERN.test(tag);
+// 仅 name / brand / unclassified 三类标签算大额支出维度；system / trip / quantity / ignore / person 都跳过
+function isMajorExcludedTag(tag: string, tagCategory: Record<string, ManualTagCategory>): boolean {
+  const c = classifyTag(tag, tagCategory);
+  return c !== 'name' && c !== 'brand' && c !== 'unclassified';
 }
 
 type MonthFormProps = {
@@ -632,8 +632,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
   const [profitModalKey, setProfitModalKey] = useState<'us' | 'usBond' | null>(null);
   const { current: snapshotCurrent } = useSnapshotStore();
   const { config } = useConfigStore();
-  const { excludedNameTags } = usePossessionStore();
-  const excludedNameTagSet = useMemo(() => new Set(excludedNameTags), [excludedNameTags]);
+  const { tagCategory } = usePossessionStore();
   const mainFieldRefs = useRef<(HTMLInputElement | null)[]>([]);
   const breakdownRefs = useRef<(HTMLInputElement | null)[]>([]);
   const breakdownProfitRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -676,7 +675,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
     const threshold = config.majorExpenseThreshold ?? 500;
     const tagTotals = new Map<string, number>();
     for (const [tag, idxs] of tagIndices) {
-      if (isMajorExcludedTag(tag, excludedNameTagSet)) continue;
+      if (isMajorExcludedTag(tag, tagCategory)) continue;
       const total = [...idxs].reduce((s, i) => s + expenseItems[i].amount, 0);
       if (total >= threshold) tagTotals.set(tag, total);
     }
@@ -707,7 +706,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, tagCounts, expenseItems
       return { type, name: tag, amount: Math.round(tagTotals.get(tag)! * 100) / 100 };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expenseItems, config.majorExpenseThreshold, excludedNameTagSet]);
+  }, [expenseItems, config.majorExpenseThreshold, tagCategory]);
 
   const buildProfitComponents = (): MonthlyRecord['investProfitComponents'] => {
     const out: NonNullable<MonthlyRecord['investProfitComponents']> = {};
@@ -2088,7 +2087,7 @@ export default function CalendarPage() {
         overrides: expenseScopeOverrides,
         items: possessionStore.items,
         ignoredBillItemIds: possessionStore.ignoredBillItemIds,
-        excludedNameTags: possessionStore.excludedNameTags,
+        tagCategory: possessionStore.tagCategory,
         makeId: makePossessionImportId,
         today,
       });

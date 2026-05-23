@@ -1,15 +1,13 @@
 import type { PossessionItem, PossessionKind, PossessionTxn, TagKind } from '../models/types';
 import { resolveExpenseScope, type ExpenseScopeOverrides } from '../stores/expenseScopeOverrideStore';
 import { assignExpenseIds, type BillExpenseItem, type BillExpenseMonth } from './importBill';
-import { isTripTagFormat } from './trips';
+import { classifyTag, type ManualTagCategory } from './tagCategory';
 
 const POSSESSION_CATEGORIES = new Set(['购物', '医疗']);
 const EXCLUDED_KEYWORDS = ['体检', '周边', '医院'];
 const CONSUMABLE_TAG = '消耗品';
 const DONE_TAG = 'done';
-const NOISE_TAGS = new Set(['周期生活', '波动生活', '消费', '吃好喝好', '红', '黑', '白', '消耗品', '家', 'doing', 'done']);
 const QUANTITY_PATTERN = /(\d+(?:\.\d+)?)\s*(kg|mg|ml|l|g|斤|两|升|毫升|瓶|盒|支|个|包|袋|片|颗|粒|罐|条|卷|套|只|双|斤装|毫升装)/i;
-const QUANTITY_TAG_PATTERN = new RegExp(`^${QUANTITY_PATTERN.source}$`, 'i');
 
 export interface ParsedPossessionQuantity {
   quantity: number;
@@ -22,7 +20,7 @@ export interface AutoPossessionImportParams {
   overrides: ExpenseScopeOverrides;
   items: PossessionItem[];
   ignoredBillItemIds: string[];
-  excludedNameTags: string[];
+  tagCategory: Record<string, ManualTagCategory>;
   makeId: () => string;
   today: string;
 }
@@ -35,10 +33,6 @@ export interface AutoPossessionImportResult {
 
 function tagsOf(item: BillExpenseItem) {
   return item.tags.split(',').map((tag) => tag.trim()).filter(Boolean);
-}
-
-function isQuantityTag(tag: string) {
-  return QUANTITY_TAG_PATTERN.test(tag);
 }
 
 export function parsePossessionQuantity(item: Pick<BillExpenseItem, 'note' | 'tags'>): ParsedPossessionQuantity | null {
@@ -66,14 +60,11 @@ function possessionKind(tags: string[]): PossessionKind {
   return tags.includes(CONSUMABLE_TAG) ? 'consumable' : 'durable';
 }
 
-function itemName(item: BillExpenseItem, tags: string[], excludedNameTags: Set<string>) {
-  const tag = tags.find((candidate) => (
-    candidate
-    && !NOISE_TAGS.has(candidate)
-    && !excludedNameTags.has(candidate)
-    && !isQuantityTag(candidate)
-    && !isTripTagFormat(candidate)
-  ));
+function itemName(item: BillExpenseItem, tags: string[], tagCategory: Record<string, ManualTagCategory>) {
+  // 优先 name > brand > unclassified；自动 3 类（system/trip/quantity）+ person/ignore 都不当物品名
+  const pickByCategory = (target: 'name' | 'brand' | 'unclassified') =>
+    tags.find((candidate) => candidate && classifyTag(candidate, tagCategory) === target);
+  const tag = pickByCategory('name') ?? pickByCategory('brand') ?? pickByCategory('unclassified');
   return tag || item.subcategory || item.note || item.category || '未命名物品';
 }
 
@@ -138,12 +129,11 @@ export function mergePossessionsFromBills({
   overrides,
   items,
   ignoredBillItemIds,
-  excludedNameTags,
+  tagCategory,
   makeId,
   today,
 }: AutoPossessionImportParams): AutoPossessionImportResult {
   const ignored = new Set(ignoredBillItemIds);
-  const excludedNames = new Set(excludedNameTags);
   const referenced = new Set<string>();
   const billById = new Map<string, BillExpenseItem>();
   const billEntries = Object.entries(expenseItems)
@@ -209,7 +199,7 @@ export function mergePossessionsFromBills({
         const tags = billItem ? tagsOf(billItem) : [];
         if (billItem && isPossessionBill(billItem, tags)) {
           const kind = possessionKind(tags);
-          const name = itemName(billItem, tags, excludedNames);
+          const name = itemName(billItem, tags, tagCategory);
           target = ensureTarget(billItem, kind, name, parsePossessionQuantity(billItem));
           if (target.id !== current.id) changed = true;
         }
@@ -229,7 +219,7 @@ export function mergePossessionsFromBills({
     const kind = possessionKind(tags);
     const parsedQuantity = parsePossessionQuantity(item);
     const isDoneConsumable = kind === 'consumable' && tags.includes(DONE_TAG);
-    const name = itemName(item, tags, excludedNames);
+    const name = itemName(item, tags, tagCategory);
     const key = itemKey(kind, name);
     let possession = byName.get(key);
     if (!possession) {

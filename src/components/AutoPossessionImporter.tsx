@@ -19,7 +19,7 @@ export default function AutoPossessionImporter() {
   const { expenseItems } = useBillDetailStore();
   const { tagMap } = useCalendarStore();
   const { overrides } = useExpenseScopeOverrideStore();
-  const { items, ignoredBillItemIds, excludedNameTags, applyAutoImportedItems } = usePossessionStore();
+  const { items, ignoredBillItemIds, tagCategory, applyAutoImportedItems } = usePossessionStore();
 
   useEffect(() => {
     const result = mergePossessionsFromBills({
@@ -28,12 +28,12 @@ export default function AutoPossessionImporter() {
       overrides,
       items,
       ignoredBillItemIds,
-      excludedNameTags,
+      tagCategory,
       makeId,
       today: todayKey(),
     });
     if (result.changed) applyAutoImportedItems(result.items);
-  }, [expenseItems, tagMap, overrides, items, ignoredBillItemIds, excludedNameTags, applyAutoImportedItems]);
+  }, [expenseItems, tagMap, overrides, items, ignoredBillItemIds, tagCategory, applyAutoImportedItems]);
 
   return null;
 }

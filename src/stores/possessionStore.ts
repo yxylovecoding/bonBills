@@ -1,11 +1,12 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { PossessionItem, PossessionStatus, PossessionTxn } from '../models/types';
+import type { ManualTagCategory } from '../utils/tagCategory';
 
 interface PossessionStore {
   items: PossessionItem[];
   ignoredBillItemIds: string[];
-  excludedNameTags: string[];
+  tagCategory: Record<string, ManualTagCategory>;
   addItem: (draft: Omit<PossessionItem, 'id' | 'txns' | 'createdAt' | 'status'>) => string;
   updateItem: (id: string, patch: Partial<PossessionItem>) => void;
   removeItem: (id: string) => void;
@@ -14,7 +15,7 @@ interface PossessionStore {
   removeTxn: (itemId: string, txnId: string) => void;
   setTxnDone: (itemId: string, txnId: string, done: boolean, doneAt?: string) => void;
   setStatus: (id: string, status: PossessionStatus, retiredAt?: string) => void;
-  toggleExcludedNameTag: (tag: string) => void;
+  setTagCategory: (tag: string, category: ManualTagCategory | null) => void;
   applyAutoImportedItems: (items: PossessionItem[]) => void;
 }
 
@@ -37,7 +38,7 @@ export const usePossessionStore = create<PossessionStore>()(
     (set) => ({
       items: [],
       ignoredBillItemIds: [],
-      excludedNameTags: [],
+      tagCategory: {},
       addItem: (draft) => {
         const id = makeId();
         const item: PossessionItem = {
@@ -129,28 +130,51 @@ export const usePossessionStore = create<PossessionStore>()(
               : item
           )),
         })),
-      toggleExcludedNameTag: (tag) =>
+      setTagCategory: (tag, category) =>
         set((s) => {
           const trimmed = tag.trim();
           if (!trimmed) return {};
-          const next = new Set(s.excludedNameTags);
-          if (next.has(trimmed)) next.delete(trimmed);
-          else next.add(trimmed);
-          return { excludedNameTags: [...next].sort() };
+          const next = { ...s.tagCategory };
+          if (category === null) delete next[trimmed];
+          else next[trimmed] = category;
+          return { tagCategory: next };
         }),
       applyAutoImportedItems: (items) => set({ items: items.map((item) => ({ ...item, txns: sortTxns(item.txns) })) }),
     }),
     {
       name: 'possessions',
-      version: 1,
-      partialize: (state) => ({ items: state.items, ignoredBillItemIds: state.ignoredBillItemIds, excludedNameTags: state.excludedNameTags }),
+      version: 2,
+      partialize: (state) => ({ items: state.items, ignoredBillItemIds: state.ignoredBillItemIds, tagCategory: state.tagCategory }),
+      migrate: (persistedState, fromVersion) => {
+        if (!persistedState || typeof persistedState !== 'object') return persistedState;
+        const p = persistedState as Record<string, unknown>;
+        // v1 → v2: excludedNameTags[] 全部转成 tagCategory[tag] = 'ignore'
+        if (fromVersion < 2 && Array.isArray(p.excludedNameTags)) {
+          const migrated: Record<string, ManualTagCategory> = { ...(p.tagCategory as Record<string, ManualTagCategory> | undefined ?? {}) };
+          for (const tag of p.excludedNameTags as string[]) {
+            const trimmed = String(tag).trim();
+            if (trimmed && !migrated[trimmed]) migrated[trimmed] = 'ignore';
+          }
+          p.tagCategory = migrated;
+          delete p.excludedNameTags;
+        }
+        return p;
+      },
       merge: (persisted, current) => {
-        const p = persisted as Partial<PossessionStore> | undefined;
+        const p = persisted as Partial<PossessionStore> & { excludedNameTags?: unknown } | undefined;
+        const tagCategory: Record<string, ManualTagCategory> = { ...(p?.tagCategory ?? {}) };
+        // 兜底：万一 migrate 没走到（旧持久化没有 version 字段），运行时也补一次
+        if (Array.isArray(p?.excludedNameTags)) {
+          for (const tag of p?.excludedNameTags as string[]) {
+            const trimmed = String(tag).trim();
+            if (trimmed && !tagCategory[trimmed]) tagCategory[trimmed] = 'ignore';
+          }
+        }
         return {
           ...current,
           items: Array.isArray(p?.items) ? p.items : current.items,
           ignoredBillItemIds: Array.isArray(p?.ignoredBillItemIds) ? p.ignoredBillItemIds : [],
-          excludedNameTags: Array.isArray(p?.excludedNameTags) ? p.excludedNameTags : [],
+          tagCategory,
         };
       },
     },
