@@ -57,6 +57,10 @@ function sortTxns(txns: PossessionTxn[]) {
   return [...txns].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
 }
 
+function laterDate(a: string | undefined, b: string) {
+  return !a || b > a ? b : a;
+}
+
 function createPossessionFromBill(
   item: BillExpenseItem,
   kind: PossessionKind,
@@ -118,9 +122,11 @@ export function mergePossessionsFromBills({
       byName.set(key, possession);
       changed = true;
     }
-    if (isDoneConsumable && (possession.status !== 'retired' || possession.retiredAt !== billItem.date)) {
+    if (isDoneConsumable) {
+      const retiredAt = laterDate(possession.retiredAt, billItem.date);
+      if (possession.status === 'retired' && possession.retiredAt === retiredAt) return possession;
       possession.status = 'retired';
-      possession.retiredAt = billItem.date;
+      possession.retiredAt = retiredAt;
       changed = true;
     }
     return possession;
@@ -163,8 +169,9 @@ export function mergePossessionsFromBills({
         nextItems.push(possession);
         byName.set(key, possession);
       } else if (isDoneConsumable) {
+        const retiredAt = laterDate(possession.retiredAt, item.date);
         possession.status = 'retired';
-        possession.retiredAt = item.date;
+        possession.retiredAt = retiredAt;
       }
 
       const inferredScope = kind === 'consumable' ? resolveExpenseScope(item, overrides) : null;
