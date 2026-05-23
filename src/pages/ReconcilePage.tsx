@@ -570,6 +570,7 @@ export default function ReconcilePage() {
 
 
   // 一键执行转账：把已转金额加到对应账户，收入账户相应减少，然后已转归零
+  // 校园卡 例外：钱来自信用卡刷一笔，所以不扣 incomeBank，而是挂到信用卡总待还
   const handleExecuteAll = () => {
     const accountDelta: Partial<typeof current.accounts> = {};
     let totalOut = 0;
@@ -577,6 +578,13 @@ export default function ReconcilePage() {
     for (const key of TRANSFER_KEYS) {
       const amount = parseFloat(localTransferred[key] || '0') || 0;
       if (amount === 0) continue;
+      if (key === 'campusCard') {
+        const baseCampus = accountDelta.campusCard ?? (current.accounts.campusCard ?? 0);
+        accountDelta.campusCard = baseCampus + amount;
+        const baseCredit = accountDelta.credit ?? (current.accounts.credit ?? 0);
+        accountDelta.credit = baseCredit + amount;
+        continue;
+      }
       totalOut += amount;
       const acctKey = TRANSFER_META[key].accountKey as keyof typeof current.accounts | undefined;
       if (!acctKey) continue;
@@ -828,7 +836,8 @@ export default function ReconcilePage() {
   const repaymentShortfallForTransfer = Math.max(repaymentNeedForTransfer - (current.accounts.savingsCard ?? 0), 0);
   const livingNeedForTransfer = Math.max(monthlyExpenseForTransfer - repaymentNeedForTransfer - budget.needs.campusCard, 0);
   const livingShortfallForTransfer = Math.max(livingNeedForTransfer - (current.accounts.livingBank ?? 0), 0);
-  const essentialTotalForTransfer = campusShortfallForTransfer + repaymentShortfallForTransfer + livingShortfallForTransfer;
+  // 校园卡走信用卡，不占工资 → 不计入「收入要补齐」的必要账户
+  const essentialTotalForTransfer = repaymentShortfallForTransfer + livingShortfallForTransfer;
   const incomeAvailableForTransfer = current.accounts.incomeBank ?? 0;
   const needsRedemptionForTransfer = Math.max(essentialTotalForTransfer - incomeAvailableForTransfer, 0);
   const incomeAfterEssentialsForTransfer = Math.max(incomeAvailableForTransfer - essentialTotalForTransfer, 0);
