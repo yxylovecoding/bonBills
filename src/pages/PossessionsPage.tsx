@@ -331,12 +331,13 @@ export default function PossessionsPage() {
     return out;
   }, [items, categoryConfig, tagsByItemId]);
 
-  // 出现在当前 purposeKind 物品上的标签 + 计数（用于「用途分类」标签映射列表）
+  // 出现在当前 purposeKind 物品上、且属于「名称」类的标签 + 计数
   const purposeTagRows = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of items) {
       if (item.kind !== purposeKind) continue;
       for (const tag of tagsByItemId[item.id] ?? []) {
+        if (classifyTag(tag, tagCategory) !== 'name') continue;
         counts.set(tag, (counts.get(tag) ?? 0) + 1);
       }
     }
@@ -344,7 +345,7 @@ export default function PossessionsPage() {
     list.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh-CN'));
     const q = purposeTagQuery.trim().toLowerCase();
     return q ? list.filter(([t]) => t.toLowerCase().includes(q)) : list;
-  }, [items, purposeKind, tagsByItemId, purposeTagQuery]);
+  }, [items, purposeKind, tagsByItemId, purposeTagQuery, tagCategory]);
 
   const referencedBillMap = useMemo(() => {
     const map = new Map<string, string>();
