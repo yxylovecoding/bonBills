@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Card from '../components/Card';
@@ -6,6 +6,7 @@ import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
 import AmountInput from '../components/AmountInput';
 import { calcConsumableStats, calcDurableStats, type ConsumableStats } from '../calculations/possessions';
 import { tagMeta } from '../data/mockData';
+import { getItemCategory, UNCATEGORIZED } from '../data/possessionCategories';
 import type { PossessionItem, PossessionKind, TagKind } from '../models/types';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useCalendarStore } from '../stores/calendarStore';
@@ -206,7 +207,12 @@ function ScopeBreakdown({ stats }: { stats: ConsumableStats }) {
 export default function PossessionsPage() {
   const navigate = useNavigate();
   const today = todayKey();
-  const { items, tagCategory, addItem, updateItem, removeItem, addTxn, removeTxn, setTxnDone, setStatus, setTagCategory } = usePossessionStore();
+  const {
+    items, tagCategory, categoryConfig,
+    addItem, updateItem, removeItem,
+    addTxn, removeTxn, setTxnDone, setStatus,
+    setTagCategory, addCategory, removeCategory, setTagToCategory,
+  } = usePossessionStore();
   const { expenseItems } = useBillDetailStore();
   const { tagMap } = useCalendarStore();
   const { overrides } = useExpenseScopeOverrideStore();
@@ -223,8 +229,12 @@ export default function PossessionsPage() {
   const [billPeriodicOnly, setBillPeriodicOnly] = useState(true);
   const [billQuery, setBillQuery] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'semantic' | 'purpose'>('semantic');
   const [nameTagQuery, setNameTagQuery] = useState('');
   const [tagCategoryFilter, setTagCategoryFilter] = useState<TagCategory>('unclassified');
+  const [purposeKind, setPurposeKind] = useState<PossessionKind>('consumable');
+  const [purposeNewCat, setPurposeNewCat] = useState('');
+  const [purposeTagQuery, setPurposeTagQuery] = useState('');
 
   const billChoices = useMemo<BillChoice[]>(() => (
     Object.entries(expenseItems)
@@ -285,6 +295,57 @@ export default function PossessionsPage() {
     return out;
   }, [items, billChoices, tagCategory]);
 
+  // 物品 → 全部 txn 标签（去重，保持出现顺序）
+  const tagsByItemId = useMemo(() => {
+    const billById = new Map<string, BillExpenseItem>();
+    for (const choice of billChoices) billById.set(choice.id, choice.item);
+    const out: Record<string, string[]> = {};
+    for (const item of items) {
+      const seen = new Set<string>();
+      const list: string[] = [];
+      for (const txn of item.txns) {
+        if (!txn.billItemId) continue;
+        const bill = billById.get(txn.billItemId);
+        if (!bill) continue;
+        for (const tag of tagsOf(bill)) {
+          if (seen.has(tag)) continue;
+          seen.add(tag);
+          list.push(tag);
+        }
+      }
+      out[item.id] = list;
+    }
+    return out;
+  }, [items, billChoices]);
+
+  // 物品 → 有效用途分类（手动 > 标签映射 > 未分类）
+  const effectiveCategoryByItemId = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const item of items) {
+      out[item.id] = getItemCategory(
+        item,
+        categoryConfig[item.kind].tagToCategory,
+        tagsByItemId[item.id] ?? [],
+      );
+    }
+    return out;
+  }, [items, categoryConfig, tagsByItemId]);
+
+  // 出现在当前 purposeKind 物品上的标签 + 计数（用于「用途分类」标签映射列表）
+  const purposeTagRows = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of items) {
+      if (item.kind !== purposeKind) continue;
+      for (const tag of tagsByItemId[item.id] ?? []) {
+        counts.set(tag, (counts.get(tag) ?? 0) + 1);
+      }
+    }
+    const list = Array.from(counts.entries());
+    list.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh-CN'));
+    const q = purposeTagQuery.trim().toLowerCase();
+    return q ? list.filter(([t]) => t.toLowerCase().includes(q)) : list;
+  }, [items, purposeKind, tagsByItemId, purposeTagQuery]);
+
   const referencedBillMap = useMemo(() => {
     const map = new Map<string, string>();
     for (const item of items) {
@@ -295,9 +356,26 @@ export default function PossessionsPage() {
     return map;
   }, [items]);
 
-  const categories = useMemo(() => (
-    [...new Set(items.map((item) => item.category?.trim()).filter((v): v is string => Boolean(v)))].sort()
-  ), [items]);
+  // 当前 tab 的分类下拉选项：预设排前，物品上的额外值再 union，最后 + 未分类
+  const categories = useMemo(() => {
+    const preset = categoryConfig[tab].categories;
+    const presetSet = new Set(preset);
+    const extras: string[] = [];
+    for (const item of items) {
+      if (item.kind !== tab) continue;
+      const eff = effectiveCategoryByItemId[item.id];
+      if (eff && eff !== UNCATEGORIZED && !presetSet.has(eff) && !extras.includes(eff)) {
+        extras.push(eff);
+      }
+    }
+    return [...preset, ...extras.sort((a, b) => a.localeCompare(b, 'zh-CN')), UNCATEGORIZED];
+  }, [categoryConfig, items, tab, effectiveCategoryByItemId]);
+
+  // 切换 tab 时重置分类筛选
+  useEffect(() => { setCategoryFilter('all'); }, [tab]);
+
+  // 打开设置弹窗时，「用途分类」默认对齐当前主 tab
+  useEffect(() => { if (settingsOpen) setPurposeKind(tab); }, [settingsOpen, tab]);
 
   const activeItems = items.filter(itemIsActive);
   const activeConsumables = items.filter((item) => item.kind === 'consumable' && itemIsActive(item));
@@ -311,7 +389,7 @@ export default function PossessionsPage() {
       if (item.kind !== tab) return false;
       if (statusFilter === 'active' && !itemIsActive(item)) return false;
       if (statusFilter === 'retired' && !itemIsDone(item)) return false;
-      if (categoryFilter !== 'all' && item.category !== categoryFilter) return false;
+      if (categoryFilter !== 'all' && (effectiveCategoryByItemId[item.id] ?? UNCATEGORIZED) !== categoryFilter) return false;
       if (item.kind === 'consumable') {
         if (scopeFilter !== 'all' && !item.txns.some((txn) => txn.scope === scopeFilter)) return false;
         if (sceneFilter !== 'all' && !item.txns.some((txn) => txn.scope === 'local' && txn.scene === sceneFilter)) return false;
@@ -333,7 +411,7 @@ export default function PossessionsPage() {
       });
     }
     return [...base].sort((a, b) => calcDurableStats(b, today).costPerDay - calcDurableStats(a, today).costPerDay);
-  }, [items, tab, statusFilter, categoryFilter, scopeFilter, sceneFilter, today]);
+  }, [items, tab, statusFilter, categoryFilter, scopeFilter, sceneFilter, today, effectiveCategoryByItemId]);
 
   // 长期品日均 top 25% 阈值，用于卡片颜色凸出
   const durableCostPerDayTopThreshold = useMemo(() => {
@@ -578,7 +656,19 @@ export default function PossessionsPage() {
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 14, fontWeight: 800, color: '#202124', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
                     {brand && <span style={{ fontSize: 10, color: C.purple, backgroundColor: '#f3e8ff', borderRadius: 999, padding: '2px 6px', flexShrink: 0, fontWeight: 700 }}>{brand}</span>}
-                    {item.category && <span style={{ fontSize: 10, color: C.sub, backgroundColor: '#f1f3f4', borderRadius: 999, padding: '2px 6px', flexShrink: 0 }}>{item.category}</span>}
+                    {(() => {
+                      const eff = effectiveCategoryByItemId[item.id];
+                      if (!eff || eff === UNCATEGORIZED) return null;
+                      const manual = item.category?.trim() === eff;
+                      return (
+                        <span
+                          title={manual ? '手动分类' : '按标签自动归类'}
+                          style={{ fontSize: 10, color: manual ? C.sub : '#94a3b8', backgroundColor: manual ? '#f1f3f4' : '#f8fafc', border: manual ? 'none' : '1px dashed #e2e8f0', borderRadius: 999, padding: '2px 6px', flexShrink: 0 }}
+                        >
+                          {eff}
+                        </span>
+                      );
+                    })()}
                     {done && <span style={{ fontSize: 10, color: C.orange, backgroundColor: '#fff4e8', borderRadius: 999, padding: '2px 6px', flexShrink: 0 }}>{retiredLabel(item.kind)}</span>}
                     {restockHint && (
                       <button
@@ -616,12 +706,32 @@ export default function PossessionsPage() {
               {expanded && (
                 <div style={{ padding: '0 14px 14px', borderTop: '1px solid #f1f3f4' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: item.kind === 'consumable' ? '1fr 82px' : '1fr 110px', gap: 8, paddingTop: 12 }}>
-                    <input
-                      value={item.category ?? ''}
-                      onChange={(e) => updateItem(item.id, { category: e.target.value || undefined })}
-                      placeholder="分类"
-                      style={{ ...inputStyle, padding: '7px 8px', fontSize: 12 }}
-                    />
+                    {(() => {
+                      const presetList = categoryConfig[item.kind].categories;
+                      const cur = item.category?.trim() ?? '';
+                      const inPreset = cur === '' || presetList.includes(cur);
+                      if (!inPreset) {
+                        // 自定义值：用 text input 保留
+                        return (
+                          <input
+                            value={item.category ?? ''}
+                            onChange={(e) => updateItem(item.id, { category: e.target.value || undefined })}
+                            placeholder="分类"
+                            style={{ ...inputStyle, padding: '7px 8px', fontSize: 12 }}
+                          />
+                        );
+                      }
+                      return (
+                        <select
+                          value={cur}
+                          onChange={(e) => updateItem(item.id, { category: e.target.value || undefined })}
+                          style={{ ...inputStyle, padding: '7px 8px', fontSize: 12 }}
+                        >
+                          <option value="">自动 / 未指定</option>
+                          {presetList.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      );
+                    })()}
                     {item.kind === 'consumable' && (
                       <input
                         value={item.unit ?? ''}
@@ -791,73 +901,179 @@ export default function PossessionsPage() {
             <button type="button" onClick={() => setSettingsOpen(false)} style={{ border: 'none', backgroundColor: C.blue, color: '#fff', borderRadius: 10, padding: '8px 16px', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}>完成</button>
           )}
         >
-          <Field label="标签分类">
-            <input value={nameTagQuery} onChange={(e) => setNameTagQuery(e.target.value)} placeholder="搜索标签" style={inputStyle} autoFocus />
-          </Field>
-
-          {/* 8 个分类 tab：手动 4 类 + 自动 3 类 + 未分类 */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 10 }}>
-            {(['unclassified', 'name', 'brand', 'person', 'ignore', 'system', 'trip', 'quantity'] as TagCategory[]).map((cat) => {
-              const active = tagCategoryFilter === cat;
-              const auto = cat === 'system' || cat === 'trip' || cat === 'quantity';
+          <div style={{ display: 'flex', backgroundColor: '#e8eaed', borderRadius: 10, padding: 3, gap: 3, marginTop: 4, marginBottom: 10 }}>
+            {([
+              { key: 'semantic' as const, label: '标签语义' },
+              { key: 'purpose' as const, label: '用途分类' },
+            ]).map((opt) => {
+              const active = settingsTab === opt.key;
               return (
                 <button
-                  key={cat}
+                  key={opt.key}
                   type="button"
-                  onClick={() => setTagCategoryFilter(cat)}
-                  style={{
-                    border: `1px solid ${active ? C.blue : '#e8eaed'}`,
-                    backgroundColor: active ? '#e8f0fe' : '#fff',
-                    color: active ? C.blue : (auto ? C.sub : '#202124'),
-                    borderRadius: 999, padding: '4px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                  }}
+                  onClick={() => setSettingsTab(opt.key)}
+                  style={{ flex: 1, border: 'none', borderRadius: 8, padding: '6px 0', backgroundColor: active ? '#fff' : 'transparent', color: active ? C.blue : C.sub, fontSize: 12, fontWeight: 800, cursor: 'pointer', boxShadow: active ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}
                 >
-                  {TAG_CATEGORY_LABEL[cat]} · {tagCategoryCounts[cat]}
+                  {opt.label}
                 </button>
               );
             })}
           </div>
 
-          <div style={{ maxHeight: 240, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8, border: '1px solid #f1f3f4', borderRadius: 8, padding: 6, backgroundColor: '#fafbfc' }}>
-            {(() => {
-              const isAuto = tagCategoryFilter === 'system' || tagCategoryFilter === 'trip' || tagCategoryFilter === 'quantity';
-              if (visibleTagRows.length === 0) {
-                return <div style={{ fontSize: 12, color: C.sub, textAlign: 'center', padding: '14px 0' }}>暂无标签</div>;
-              }
-              return visibleTagRows.map(([tag, count]) => (
-                <div key={tag} style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid #e8eaed', backgroundColor: '#fff', borderRadius: 8, padding: '5px 8px' }}>
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tag}</span>
-                  <span style={{ fontSize: 11, color: C.sub, flexShrink: 0 }}>{count}</span>
-                  {isAuto ? (
-                    <span style={{ fontSize: 10, color: C.sub, flexShrink: 0 }}>自动识别</span>
-                  ) : (
-                    <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-                      {MANUAL_TAG_CATEGORIES.map((target) => {
-                        const current = tagCategory[tag];
-                        const isCur = current === target;
-                        return (
-                          <button
-                            key={target}
-                            type="button"
-                            onClick={() => setTagCategory(tag, isCur ? null : target)}
-                            title={isCur ? `从「${TAG_CATEGORY_LABEL[target]}」移回未分类` : `标为「${TAG_CATEGORY_LABEL[target]}」`}
-                            style={{
-                              border: `1px solid ${isCur ? C.blue : '#e8eaed'}`,
-                              backgroundColor: isCur ? '#e8f0fe' : '#fff',
-                              color: isCur ? C.blue : C.sub,
-                              borderRadius: 6, padding: '2px 6px', fontSize: 10, fontWeight: 700, cursor: 'pointer', lineHeight: 1.3,
-                            }}
-                          >
-                            {TAG_CATEGORY_LABEL[target]}
-                          </button>
-                        );
-                      })}
+          {settingsTab === 'semantic' && (
+            <>
+              <Field label="标签分类">
+                <input value={nameTagQuery} onChange={(e) => setNameTagQuery(e.target.value)} placeholder="搜索标签" style={inputStyle} />
+              </Field>
+
+              {/* 8 个分类 tab：手动 4 类 + 自动 3 类 + 未分类 */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 10 }}>
+                {(['unclassified', 'name', 'brand', 'person', 'ignore', 'system', 'trip', 'quantity'] as TagCategory[]).map((cat) => {
+                  const active = tagCategoryFilter === cat;
+                  const auto = cat === 'system' || cat === 'trip' || cat === 'quantity';
+                  return (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setTagCategoryFilter(cat)}
+                      style={{
+                        border: `1px solid ${active ? C.blue : '#e8eaed'}`,
+                        backgroundColor: active ? '#e8f0fe' : '#fff',
+                        color: active ? C.blue : (auto ? C.sub : '#202124'),
+                        borderRadius: 999, padding: '4px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                      }}
+                    >
+                      {TAG_CATEGORY_LABEL[cat]} · {tagCategoryCounts[cat]}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div style={{ maxHeight: 240, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8, border: '1px solid #f1f3f4', borderRadius: 8, padding: 6, backgroundColor: '#fafbfc' }}>
+                {(() => {
+                  const isAuto = tagCategoryFilter === 'system' || tagCategoryFilter === 'trip' || tagCategoryFilter === 'quantity';
+                  if (visibleTagRows.length === 0) {
+                    return <div style={{ fontSize: 12, color: C.sub, textAlign: 'center', padding: '14px 0' }}>暂无标签</div>;
+                  }
+                  return visibleTagRows.map(([tag, count]) => (
+                    <div key={tag} style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid #e8eaed', backgroundColor: '#fff', borderRadius: 8, padding: '5px 8px' }}>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tag}</span>
+                      <span style={{ fontSize: 11, color: C.sub, flexShrink: 0 }}>{count}</span>
+                      {isAuto ? (
+                        <span style={{ fontSize: 10, color: C.sub, flexShrink: 0 }}>自动识别</span>
+                      ) : (
+                        <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+                          {MANUAL_TAG_CATEGORIES.map((target) => {
+                            const current = tagCategory[tag];
+                            const isCur = current === target;
+                            return (
+                              <button
+                                key={target}
+                                type="button"
+                                onClick={() => setTagCategory(tag, isCur ? null : target)}
+                                title={isCur ? `从「${TAG_CATEGORY_LABEL[target]}」移回未分类` : `标为「${TAG_CATEGORY_LABEL[target]}」`}
+                                style={{
+                                  border: `1px solid ${isCur ? C.blue : '#e8eaed'}`,
+                                  backgroundColor: isCur ? '#e8f0fe' : '#fff',
+                                  color: isCur ? C.blue : C.sub,
+                                  borderRadius: 6, padding: '2px 6px', fontSize: 10, fontWeight: 700, cursor: 'pointer', lineHeight: 1.3,
+                                }}
+                              >
+                                {TAG_CATEGORY_LABEL[target]}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                  )}
+                  ));
+                })()}
+              </div>
+            </>
+          )}
+
+          {settingsTab === 'purpose' && (() => {
+            const bucket = categoryConfig[purposeKind];
+            return (
+              <>
+                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                  <MiniButton active={purposeKind === 'consumable'} onClick={() => setPurposeKind('consumable')}>消耗品</MiniButton>
+                  <MiniButton active={purposeKind === 'durable'} onClick={() => setPurposeKind('durable')}>长期物品</MiniButton>
                 </div>
-              ));
-            })()}
-          </div>
+
+                <div style={{ marginTop: 12, fontSize: 12, fontWeight: 700, color: C.sub }}>分类列表</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                  {bucket.categories.map((cat) => (
+                    <span key={cat} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: '1px solid #e8eaed', backgroundColor: '#fff', borderRadius: 999, padding: '3px 4px 3px 10px', fontSize: 12, fontWeight: 700 }}>
+                      {cat}
+                      <button
+                        type="button"
+                        onClick={() => removeCategory(purposeKind, cat)}
+                        disabled={bucket.categories.length <= 1}
+                        title={bucket.categories.length <= 1 ? '至少保留一个分类' : `删除「${cat}」`}
+                        style={{ border: 'none', background: 'transparent', color: bucket.categories.length <= 1 ? '#dadce0' : '#9aa0a6', fontSize: 14, lineHeight: 1, padding: '0 4px', cursor: bucket.categories.length <= 1 ? 'not-allowed' : 'pointer' }}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  <input
+                    value={purposeNewCat}
+                    onChange={(e) => setPurposeNewCat(e.target.value)}
+                    placeholder="新增分类名"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const v = purposeNewCat.trim();
+                        if (v) { addCategory(purposeKind, v); setPurposeNewCat(''); }
+                      }
+                    }}
+                    style={{ ...inputStyle, padding: '7px 9px', fontSize: 12 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const v = purposeNewCat.trim();
+                      if (v) { addCategory(purposeKind, v); setPurposeNewCat(''); }
+                    }}
+                    style={{ border: 'none', borderRadius: 10, backgroundColor: C.blue, color: '#fff', padding: '0 14px', fontSize: 12, fontWeight: 800, cursor: 'pointer', flexShrink: 0 }}
+                  >
+                    + 添加
+                  </button>
+                </div>
+
+                <div style={{ marginTop: 14, fontSize: 12, fontWeight: 700, color: C.sub }}>标签 → 分类</div>
+                <input
+                  value={purposeTagQuery}
+                  onChange={(e) => setPurposeTagQuery(e.target.value)}
+                  placeholder="搜索标签"
+                  style={{ ...inputStyle, marginTop: 6, padding: '7px 9px', fontSize: 12 }}
+                />
+                <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8, border: '1px solid #f1f3f4', borderRadius: 8, padding: 6, backgroundColor: '#fafbfc' }}>
+                  {purposeTagRows.length === 0 ? (
+                    <div style={{ fontSize: 12, color: C.sub, textAlign: 'center', padding: '14px 0' }}>暂无相关标签</div>
+                  ) : purposeTagRows.map(([tag, count]) => {
+                    const cur = bucket.tagToCategory[tag] ?? '';
+                    return (
+                      <div key={tag} style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid #e8eaed', backgroundColor: '#fff', borderRadius: 8, padding: '5px 8px' }}>
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tag}</span>
+                        <span style={{ fontSize: 11, color: C.sub, flexShrink: 0 }}>{count}</span>
+                        <select
+                          value={cur}
+                          onChange={(e) => setTagToCategory(purposeKind, tag, e.target.value || null)}
+                          style={{ border: `1px solid ${cur ? C.blue : '#e8eaed'}`, backgroundColor: cur ? '#e8f0fe' : '#fff', color: cur ? C.blue : C.sub, borderRadius: 6, padding: '3px 6px', fontSize: 11, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}
+                        >
+                          <option value="">未指定</option>
+                          {bucket.categories.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            );
+          })()}
         </Modal>
       )}
 

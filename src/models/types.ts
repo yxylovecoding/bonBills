@@ -235,3 +235,13 @@ export interface PossessionItem {
   retiredAt?: string;
   createdAt: string;
 }
+
+export interface PossessionCategoryBucket {
+  categories: string[];
+  tagToCategory: Record<string, string>;
+}
+
+export interface PossessionCategoryConfig {
+  consumable: PossessionCategoryBucket;
+  durable: PossessionCategoryBucket;
+}

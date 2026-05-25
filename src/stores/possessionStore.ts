@@ -1,12 +1,21 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { PossessionItem, PossessionStatus, PossessionTxn } from '../models/types';
+import type {
+  PossessionCategoryBucket,
+  PossessionCategoryConfig,
+  PossessionItem,
+  PossessionKind,
+  PossessionStatus,
+  PossessionTxn,
+} from '../models/types';
 import type { ManualTagCategory } from '../utils/tagCategory';
+import { DEFAULT_CATEGORY_CONFIG } from '../data/possessionCategories';
 
 interface PossessionStore {
   items: PossessionItem[];
   ignoredBillItemIds: string[];
   tagCategory: Record<string, ManualTagCategory>;
+  categoryConfig: PossessionCategoryConfig;
   addItem: (draft: Omit<PossessionItem, 'id' | 'txns' | 'createdAt' | 'status'>) => string;
   updateItem: (id: string, patch: Partial<PossessionItem>) => void;
   removeItem: (id: string) => void;
@@ -16,6 +25,9 @@ interface PossessionStore {
   setTxnDone: (itemId: string, txnId: string, done: boolean, doneAt?: string) => void;
   setStatus: (id: string, status: PossessionStatus, retiredAt?: string) => void;
   setTagCategory: (tag: string, category: ManualTagCategory | null) => void;
+  addCategory: (kind: PossessionKind, name: string) => void;
+  removeCategory: (kind: PossessionKind, name: string) => void;
+  setTagToCategory: (kind: PossessionKind, tag: string, category: string | null) => void;
   applyAutoImportedItems: (items: PossessionItem[]) => void;
 }
 
@@ -33,12 +45,50 @@ function sortTxns(txns: PossessionTxn[]) {
   return [...txns].sort((a, b) => a.date.localeCompare(b.date));
 }
 
+function cloneDefaultCategoryConfig(): PossessionCategoryConfig {
+  return {
+    consumable: {
+      categories: [...DEFAULT_CATEGORY_CONFIG.consumable.categories],
+      tagToCategory: { ...DEFAULT_CATEGORY_CONFIG.consumable.tagToCategory },
+    },
+    durable: {
+      categories: [...DEFAULT_CATEGORY_CONFIG.durable.categories],
+      tagToCategory: { ...DEFAULT_CATEGORY_CONFIG.durable.tagToCategory },
+    },
+  };
+}
+
+function normalizeBucket(raw: unknown, fallback: PossessionCategoryBucket): PossessionCategoryBucket {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const categories = Array.isArray(r.categories)
+    ? (r.categories as unknown[]).map((c) => String(c).trim()).filter(Boolean)
+    : [...fallback.categories];
+  const map: Record<string, string> = {};
+  if (r.tagToCategory && typeof r.tagToCategory === 'object') {
+    for (const [k, v] of Object.entries(r.tagToCategory as Record<string, unknown>)) {
+      const tag = String(k).trim();
+      const cat = String(v ?? '').trim();
+      if (tag && cat) map[tag] = cat;
+    }
+  }
+  return { categories: categories.length > 0 ? categories : [...fallback.categories], tagToCategory: map };
+}
+
+function normalizeCategoryConfig(raw: unknown): PossessionCategoryConfig {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  return {
+    consumable: normalizeBucket(r.consumable, DEFAULT_CATEGORY_CONFIG.consumable),
+    durable: normalizeBucket(r.durable, DEFAULT_CATEGORY_CONFIG.durable),
+  };
+}
+
 export const usePossessionStore = create<PossessionStore>()(
   persist(
     (set) => ({
       items: [],
       ignoredBillItemIds: [],
       tagCategory: {},
+      categoryConfig: cloneDefaultCategoryConfig(),
       addItem: (draft) => {
         const id = makeId();
         const item: PossessionItem = {
@@ -139,12 +189,72 @@ export const usePossessionStore = create<PossessionStore>()(
           else next[trimmed] = category;
           return { tagCategory: next };
         }),
+      addCategory: (kind, name) =>
+        set((s) => {
+          const trimmed = name.trim();
+          if (!trimmed) return {};
+          const bucket = s.categoryConfig[kind];
+          if (bucket.categories.includes(trimmed)) return {};
+          return {
+            categoryConfig: {
+              ...s.categoryConfig,
+              [kind]: { ...bucket, categories: [...bucket.categories, trimmed] },
+            },
+          };
+        }),
+      removeCategory: (kind, name) =>
+        set((s) => {
+          const trimmed = name.trim();
+          if (!trimmed) return {};
+          const bucket = s.categoryConfig[kind];
+          if (!bucket.categories.includes(trimmed)) return {};
+          if (bucket.categories.length <= 1) return {};
+          const nextMap: Record<string, string> = {};
+          for (const [tag, cat] of Object.entries(bucket.tagToCategory)) {
+            if (cat !== trimmed) nextMap[tag] = cat;
+          }
+          return {
+            categoryConfig: {
+              ...s.categoryConfig,
+              [kind]: {
+                categories: bucket.categories.filter((c) => c !== trimmed),
+                tagToCategory: nextMap,
+              },
+            },
+          };
+        }),
+      setTagToCategory: (kind, tag, category) =>
+        set((s) => {
+          const trimmedTag = tag.trim();
+          if (!trimmedTag) return {};
+          const bucket = s.categoryConfig[kind];
+          const nextMap = { ...bucket.tagToCategory };
+          if (category === null) {
+            delete nextMap[trimmedTag];
+          } else {
+            const trimmedCat = category.trim();
+            if (!trimmedCat) return {};
+            if (!bucket.categories.includes(trimmedCat)) return {};
+            nextMap[trimmedTag] = trimmedCat;
+          }
+          return {
+            categoryConfig: {
+              ...s.categoryConfig,
+              [kind]: { ...bucket, tagToCategory: nextMap },
+            },
+          };
+        }),
       applyAutoImportedItems: (items) => set({ items: items.map((item) => ({ ...item, txns: sortTxns(item.txns) })) }),
     }),
     {
       name: 'possessions',
-      version: 2,
-      partialize: (state) => ({ items: state.items, ignoredBillItemIds: state.ignoredBillItemIds, tagCategory: state.tagCategory }),
+      version: 3,
+      partialize: (state) => ({
+        items: state.items,
+        ignoredBillItemIds: state.ignoredBillItemIds,
+        tagCategory: state.tagCategory,
+        categoryConfig: state.categoryConfig,
+      }),
       migrate: (persistedState, fromVersion) => {
         if (!persistedState || typeof persistedState !== 'object') return persistedState;
         const p = persistedState as Record<string, unknown>;
@@ -157,6 +267,10 @@ export const usePossessionStore = create<PossessionStore>()(
           }
           p.tagCategory = migrated;
           delete p.excludedNameTags;
+        }
+        // v2 → v3: 补 categoryConfig
+        if (fromVersion < 3) {
+          p.categoryConfig = normalizeCategoryConfig(p.categoryConfig);
         }
         return p;
       },
@@ -175,6 +289,7 @@ export const usePossessionStore = create<PossessionStore>()(
           items: Array.isArray(p?.items) ? p.items : current.items,
           ignoredBillItemIds: Array.isArray(p?.ignoredBillItemIds) ? p.ignoredBillItemIds : [],
           tagCategory,
+          categoryConfig: normalizeCategoryConfig(p?.categoryConfig),
         };
       },
     },
