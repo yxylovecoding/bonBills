@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -26,14 +26,31 @@ import { TAX_RULE_PRESETS } from '../utils/tax';
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '用途仅名称标签';
+const RELEASE_NOTE = '资产比率';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
+const CNY_ASSET_ACCOUNT_KEYS = ['savingsCard', 'incomeBank', 'livingBank', 'campusCard', 'consumptionBank', 'wishJar', 'investCnyBank'] as const;
+const USD_ASSET_ACCOUNT_KEYS = ['usdLivingBank', 'usdConsumptionBank', 'usdWishJar', 'investUsdBank'] as const;
+
+type UsdRateResponse = {
+  rate: number;
+  date?: string;
+  source?: string;
+};
 
 function fmt万(v: number) { return (v / 10000).toFixed(2) + '万'; }
 function fmt年(v: number) { return Number.isInteger(v) ? String(v) : v.toFixed(1); }
+function fmtRatio(v: number | null) { return v === null ? '—' : `${v.toFixed(2)}倍`; }
 function Divider() { return <div style={{ height: 1, backgroundColor: '#f1f3f4', margin: '8px 0' }} />; }
+
+function prevYearMonth(ym: string): string {
+  const [year, month] = ym.split('-').map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return '';
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const prevYear = month === 1 ? year - 1 : year;
+  return `${prevYear}-${String(prevMonth).padStart(2, '0')}`;
+}
 
 interface CombinedLifeBreakdownRow {
   category: string;
@@ -175,6 +192,62 @@ export default function HomePage() {
   }, [records, oneYearAgo]);
 
   const totalInvest = Object.values(current.investHoldings).reduce((s, v) => s + v, 0);
+  const fallbackUsdRate = useMemo(
+    () => [...records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth))
+      .map((r) => r.investProfitComponents?.us?.rate ?? r.investProfitComponents?.usBond?.rate)
+      .find((rate) => rate !== undefined && Number.isFinite(rate) && rate > 0) ?? null,
+    [records],
+  );
+  const [remoteUsdRate, setRemoteUsdRate] = useState<UsdRateResponse | null>(null);
+  const [usdRateError, setUsdRateError] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    setUsdRateError(false);
+    fetch('/api/usd-rate', { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = (await response.json()) as UsdRateResponse;
+        if (!Number.isFinite(data.rate) || data.rate <= 0) throw new Error('invalid USD rate');
+        setRemoteUsdRate(data);
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        setUsdRateError(true);
+      });
+    return () => controller.abort();
+  }, []);
+  const latestUsdRate = remoteUsdRate?.rate ?? fallbackUsdRate;
+  const usdRateSourceLabel = remoteUsdRate
+    ? `${remoteUsdRate.source ?? '实时汇率'}${remoteUsdRate.date ? ` · ${remoteUsdRate.date}` : ''}`
+    : fallbackUsdRate !== null
+      ? `${usdRateError ? '联网失败 · ' : ''}历史汇率`
+      : '暂无汇率';
+  const fireIncomeAssetStats = useMemo(() => {
+    const sortedRecords = [...records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth));
+    const recentRecords = sortedRecords.slice(0, 12);
+    const byMonth = new Map(sortedRecords.map((record) => [record.yearMonth, record]));
+    const annualIncome = recentRecords.reduce((sum, record) => sum + record.income, 0);
+    const passiveIncome = recentRecords.reduce((sum, record) => {
+      const prev = byMonth.get(prevYearMonth(record.yearMonth));
+      return prev ? sum + record.accumulatedProfit - (prev.accumulatedProfit ?? 0) : sum;
+    }, 0);
+    const cnyAssets = CNY_ASSET_ACCOUNT_KEYS.reduce((sum, key) => sum + (current.accounts[key] ?? 0), 0);
+    const usdAssetsOriginal = USD_ASSET_ACCOUNT_KEYS.reduce((sum, key) => sum + (current.accounts[key] ?? 0), 0);
+    const usdAssetsCny = latestUsdRate !== null ? usdAssetsOriginal * latestUsdRate : 0;
+    const creditLiability = current.accounts.credit ?? 0;
+    const personalNetAssets = cnyAssets + usdAssetsCny + totalInvest - creditLiability;
+
+    return {
+      annualIncome,
+      passiveIncome,
+      personalNetAssets,
+      assetIncomeRatio: annualIncome > 0 ? personalNetAssets / annualIncome : null,
+      passiveIncomeRatio: annualIncome > 0 ? passiveIncome / annualIncome : null,
+      recentMonthCount: recentRecords.length,
+      usdAssetsOriginal,
+      usdAssetsIncluded: latestUsdRate !== null,
+    };
+  }, [current.accounts, latestUsdRate, records, totalInvest]);
 
   // FIRE 模式切换
   const [fireMode, setFireMode] = useState<'life' | 'all'>('all');
@@ -524,6 +597,23 @@ export default function HomePage() {
         </div>
         {fireExpanded && (
           <div style={{ marginTop: 16 }}>
+            <FireDetailGroup title="收入资产">
+              <StatRow label="个人资产/年收入" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: C.blue }}>{fmtRatio(fireIncomeAssetStats.assetIncomeRatio)}</span>} />
+              <StatRow label="被动收入/年收入" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: fireIncomeAssetStats.passiveIncome >= 0 ? C.green : C.red }}>{fmtRatio(fireIncomeAssetStats.passiveIncomeRatio)}</span>} />
+              <StatRow label={`近一年年收入${fireIncomeAssetStats.recentMonthCount < 12 ? ` · ${fireIncomeAssetStats.recentMonthCount}月` : ''}`} value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(fireIncomeAssetStats.annualIncome)}</span>} />
+              <StatRow label="近一年被动收入" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: fireIncomeAssetStats.passiveIncome >= 0 ? C.green : C.red }}>{fmt万(fireIncomeAssetStats.passiveIncome)}</span>} />
+              <StatRow
+                label={(
+                  <span>
+                    个人净资产
+                    {fireIncomeAssetStats.usdAssetsOriginal !== 0 && (
+                      <span style={{ fontSize: 11, color: C.sub }}> · {fireIncomeAssetStats.usdAssetsIncluded ? usdRateSourceLabel : '未含美元'}</span>
+                    )}
+                  </span>
+                )}
+                value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(fireIncomeAssetStats.personalNetAssets)}</span>}
+              />
+            </FireDetailGroup>
             <FireDetailGroup title="支出口径">
               <StatRow label="生活年支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(futureLifeAnnualExpense)}</span>} />
               <StatRow label="消费年支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.purple }}>{fmt万(futureConsumptionAnnualExpense)}</span>} />
