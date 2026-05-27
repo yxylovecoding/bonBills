@@ -795,7 +795,7 @@ export default function ReconcilePage() {
         }),
       ],
       expense: [
-        ...(effectiveCreditMonthly > 0 ? [creditMonthlyItem] : []),
+        ...(creditInWeekly && effectiveCreditMonthly > 0 ? [creditMonthlyItem] : []),
         ...(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => {
           const days  = budget.stateDaysLeft[k];
           const dLife = stats.stateDailyAvg[k];
@@ -834,7 +834,12 @@ export default function ReconcilePage() {
   const campusShortfallForTransfer = Math.max(budget.needs.campusCard - (current.accounts.campusCard ?? 0), 0);
   const repaymentNeedForTransfer = current.accounts.creditMonthly ?? 0;
   const repaymentShortfallForTransfer = Math.max(repaymentNeedForTransfer - (current.accounts.savingsCard ?? 0), 0);
-  const livingNeedForTransfer = Math.max(monthlyExpenseForTransfer - repaymentNeedForTransfer - budget.needs.campusCard, 0);
+  const livingNeedForTransfer = Math.max(
+    monthlyExpenseForTransfer
+      - (creditInWeekly ? repaymentNeedForTransfer : 0)
+      - budget.needs.campusCard,
+    0,
+  );
   const livingShortfallForTransfer = Math.max(livingNeedForTransfer - (current.accounts.livingBank ?? 0), 0);
   // 校园卡走信用卡，不占工资 → 不计入「收入要补齐」的必要账户
   const essentialTotalForTransfer = repaymentShortfallForTransfer + livingShortfallForTransfer;
