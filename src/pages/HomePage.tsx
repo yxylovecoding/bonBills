@@ -26,7 +26,7 @@ import { TAX_RULE_PRESETS } from '../utils/tax';
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '还款转账仅13号前提示';
+const RELEASE_NOTE = '资产进度显示离目标还差多少万';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
@@ -392,6 +392,7 @@ export default function HomePage() {
     : `(近 ${filteredRecords.length} 个月)`;
   const fireProgressPercent = Math.min(Math.max(fire.progress * 100, 0), 100);
   const fireProgressLabel = `${(fire.progress * 100).toFixed(1)}%`;
+  const fireProgressGap = Math.max(fire.fireTarget - totalInvest, 0);
 
   return (
     <div>
@@ -587,7 +588,7 @@ export default function HomePage() {
           </div>
           <div style={{ marginTop: 14 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: C.sub, marginBottom: 6 }}>
-              <span>资产进度</span>
+              <span>资产进度{fireProgressGap > 0 && <span style={{ marginLeft: 6, color: C.orange, fontVariantNumeric: 'tabular-nums' }}>还需 {fmt万(fireProgressGap)}</span>}</span>
               <span style={{ fontWeight: 700, color: C.blue, fontVariantNumeric: 'tabular-nums' }}>{fireProgressLabel}</span>
             </div>
             <div style={{ height: 8, backgroundColor: '#edf2f7', borderRadius: 999, overflow: 'hidden' }}>
