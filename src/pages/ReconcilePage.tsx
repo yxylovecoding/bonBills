@@ -833,7 +833,9 @@ export default function ReconcilePage() {
   const monthlyExpenseForTransfer = sumDetailExp('monthly');
   const campusShortfallForTransfer = Math.max(budget.needs.campusCard - (current.accounts.campusCard ?? 0), 0);
   const repaymentNeedForTransfer = current.accounts.creditMonthly ?? 0;
-  const repaymentShortfallForTransfer = Math.max(repaymentNeedForTransfer - (current.accounts.savingsCard ?? 0), 0);
+  const repaymentShortfallForTransfer = creditInWeekly
+    ? Math.max(repaymentNeedForTransfer - (current.accounts.savingsCard ?? 0), 0)
+    : 0;
   const livingNeedForTransfer = Math.max(
     monthlyExpenseForTransfer
       - (creditInWeekly ? repaymentNeedForTransfer : 0)
@@ -1245,15 +1247,17 @@ export default function ReconcilePage() {
               rec: campusShortfallForTransfer,
               calc: `月需¥${fmtInt(budget.needs.campusCard)}（${budget.stateDaysLeft.school}天×¥${Math.round(stats.schoolDailyAvg)}/天）− 余¥${fmtInt(current.accounts.campusCard ?? 0)}`,
             },
-            {
-              key: 'repayment',
+            ...(creditInWeekly ? [{
+              key: 'repayment' as TransferKey,
               rec: repaymentShortfallForTransfer,
               calc: `本月待还¥${fmtInt(repaymentNeedForTransfer)} − 储蓄卡¥${fmtInt(current.accounts.savingsCard ?? 0)}`,
-            },
+            }] : []),
             {
               key: 'living',
               rec: livingShortfallForTransfer,
-              calc: `月需¥${fmtInt(livingNeedForTransfer)}（月内支出¥${fmtInt(monthlyExpenseForTransfer)} − 还款¥${fmtInt(repaymentNeedForTransfer)} − 校园卡¥${fmtInt(budget.needs.campusCard)}）− 余¥${fmtInt(current.accounts.livingBank ?? 0)}`,
+              calc: creditInWeekly
+                ? `月需¥${fmtInt(livingNeedForTransfer)}（月内支出¥${fmtInt(monthlyExpenseForTransfer)} − 还款¥${fmtInt(repaymentNeedForTransfer)} − 校园卡¥${fmtInt(budget.needs.campusCard)}）− 余¥${fmtInt(current.accounts.livingBank ?? 0)}`
+                : `月需¥${fmtInt(livingNeedForTransfer)}（月内支出¥${fmtInt(monthlyExpenseForTransfer)} − 校园卡¥${fmtInt(budget.needs.campusCard)}）− 余¥${fmtInt(current.accounts.livingBank ?? 0)}`,
             },
             {
               key: 'consumption',
