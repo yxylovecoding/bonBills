@@ -36,6 +36,10 @@ const USD_REPLACE_BUCKETS: {
   { usdKey: 'usdConsumptionBank', cnyKey: 'consumptionBank', label: '消费' },
   { usdKey: 'usdWishJar', cnyKey: 'wishJar', label: '心愿' },
 ];
+type RebalanceFundingBucket = typeof USD_REPLACE_BUCKETS[number] & {
+  amountCny: number;
+};
+type RebalanceFundingTransferKey = RebalanceFundingBucket['usdKey'];
 const INVEST_GROUPS = [
   { key: 'stock', label: '股', keys: ['us', 'eu', 'asia', 'a'] as InvestKey[], color: C.blue },
   { key: 'bond', label: '债', keys: ['longBond', 'usBond'] as InvestKey[], color: C.green },
@@ -604,6 +608,8 @@ export default function ReconcilePage() {
       usdParkCny: 0,
       cnyFromRmbBuffer: 0,
       cnyGiveUpCny: allowRebalanceSell ? 0 : rebalanceCnyGiveUpCny,
+      usdReplaceRows: [] as RebalanceFundingBucket[],
+      cnyBufferRows: [] as RebalanceFundingBucket[],
       needConsumption: false,
       needWish: false,
       cnyCashNeeded: Math.max(cnyBuy - cnySell, 0),
@@ -618,6 +624,7 @@ export default function ReconcilePage() {
     let usdReplaceCny = 0;
     let usdReplaceUseCny = 0;
     let usdCompensateCny = 0;
+    const usdReplaceRows: RebalanceFundingBucket[] = [];
     let needConsumption = false;
     let needWish = false;
     if (latestUsdRate !== null) {
@@ -628,6 +635,7 @@ export default function ReconcilePage() {
         if (useCny > 0) {
           usdReplaceUseCny += useCny;
           usdCompensateCny += useCny;
+          usdReplaceRows.push({ ...bucket, amountCny: roundMoney(useCny) });
           if (bucket.usdKey === 'usdConsumptionBank') needConsumption = true;
           if (bucket.usdKey === 'usdWishJar') needWish = true;
           usdAfterInvest -= useCny;
@@ -640,15 +648,18 @@ export default function ReconcilePage() {
     let usdSurplusToPark = usdSurplusCny;
     let usdParkCny = 0;
     let cnyFromRmbBuffer = 0;
+    const cnyBufferRows: RebalanceFundingBucket[] = [];
     if (latestUsdRate !== null && cnyAfterInvest > 0 && usdSurplusToPark > 0) {
       for (const bucket of USD_REPLACE_BUCKETS) {
         const availableCny = Math.max(current.accounts[bucket.cnyKey] ?? 0, 0);
         const useCny = Math.min(cnyAfterInvest, availableCny, usdSurplusToPark);
         if (useCny <= 0) continue;
-        cnyFromRmbBuffer += useCny;
-        usdParkCny += useCny;
-        cnyAfterInvest -= useCny;
-        usdSurplusToPark -= useCny;
+        const roundedUseCny = roundMoney(useCny);
+        cnyFromRmbBuffer += roundedUseCny;
+        usdParkCny += roundedUseCny;
+        cnyBufferRows.push({ ...bucket, amountCny: roundedUseCny });
+        cnyAfterInvest = roundMoney(cnyAfterInvest - roundedUseCny);
+        usdSurplusToPark = roundMoney(usdSurplusToPark - roundedUseCny);
         if (bucket.usdKey === 'usdConsumptionBank') needConsumption = true;
         if (bucket.usdKey === 'usdWishJar') needWish = true;
       }
@@ -670,6 +681,8 @@ export default function ReconcilePage() {
       usdParkCny: roundMoney(usdParkCny),
       cnyFromRmbBuffer: roundMoney(cnyFromRmbBuffer),
       cnyGiveUpCny,
+      usdReplaceRows,
+      cnyBufferRows,
       needConsumption,
       needWish,
       cnyCashNeeded: roundMoney(cnyCashNeeded),
@@ -1021,6 +1034,63 @@ export default function ReconcilePage() {
   const [doneSteps, setDoneSteps] = useState<Set<number>>(new Set());
   const toggleDone = (i: number) =>
     setDoneSteps((prev) => { const next = new Set(prev); next.has(i) ? next.delete(i) : next.add(i); return next; });
+
+  const [expandedRebalanceFunding, setExpandedRebalanceFunding] = useState<RebalanceFundingTransferKey | null>(null);
+  const [localRebalanceFundingTransferred, setLocalRebalanceFundingTransferred] = useState<Record<RebalanceFundingTransferKey, string>>(
+    () => Object.fromEntries(USD_REPLACE_BUCKETS.map((bucket) => [bucket.usdKey, '0'])) as Record<RebalanceFundingTransferKey, string>,
+  );
+  const rebalanceFundingInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const rebalanceFundingRows = rebalanceFunding.cnyBufferRows.filter((row) => Math.abs(row.amountCny) >= 0.5);
+  const rebalanceFundingBucketLabels = rebalanceFundingRows.map((row) => row.label).join('/');
+  const hasRebalanceFundingTransferChanges = rebalanceFundingRows.some((row) => parseAmountPart(localRebalanceFundingTransferred[row.usdKey]) > 0);
+  const resetRebalanceFundingTransfers = () =>
+    setLocalRebalanceFundingTransferred(
+      Object.fromEntries(USD_REPLACE_BUCKETS.map((bucket) => [bucket.usdKey, '0'])) as Record<RebalanceFundingTransferKey, string>,
+    );
+  const handleExecuteRebalanceFundingTransfers = () => {
+    if (rebalanceFundingRows.length === 0) return;
+    if (latestUsdRate === null) {
+      window.alert('暂无美元汇率，先录入汇率后再执行理财调拨。');
+      return;
+    }
+
+    const nextAccounts: AccountSnapshot['accounts'] = { ...current.accounts };
+    let changed = false;
+    for (const row of rebalanceFundingRows) {
+      const requestedCny = parseAmountPart(localRebalanceFundingTransferred[row.usdKey]);
+      if (requestedCny <= 0) continue;
+      const targetCny = Math.min(
+        requestedCny,
+        row.amountCny,
+        Math.max(nextAccounts[row.cnyKey] ?? 0, 0),
+        Math.max(nextAccounts.investUsdBank ?? 0, 0) * latestUsdRate,
+      );
+      const usdToPark = roundMoney(Math.min(Math.max(nextAccounts.investUsdBank ?? 0, 0), targetCny / latestUsdRate));
+      const amountCny = roundMoney(Math.min(targetCny, usdToPark * latestUsdRate));
+      if (amountCny <= 0) continue;
+
+      nextAccounts[row.cnyKey] = roundMoney((nextAccounts[row.cnyKey] ?? 0) - amountCny);
+      nextAccounts.investCnyBank = roundMoney((nextAccounts.investCnyBank ?? 0) + amountCny);
+      nextAccounts.investUsdBank = roundMoney((nextAccounts.investUsdBank ?? 0) - usdToPark);
+      nextAccounts[row.usdKey] = roundMoney((nextAccounts[row.usdKey] ?? 0) + usdToPark);
+      changed = true;
+    }
+    if (!changed) return;
+
+    updateAccounts(nextAccounts);
+    setLocalAccounts((prev) => ({
+      ...prev,
+      livingBank: String(nextAccounts.livingBank),
+      consumptionBank: String(nextAccounts.consumptionBank),
+      wishJar: String(nextAccounts.wishJar),
+      investCnyBank: String(nextAccounts.investCnyBank),
+      usdLivingBank: String(nextAccounts.usdLivingBank),
+      usdConsumptionBank: String(nextAccounts.usdConsumptionBank),
+      usdWishJar: String(nextAccounts.usdWishJar),
+      investUsdBank: String(nextAccounts.investUsdBank),
+    }));
+    resetRebalanceFundingTransfers();
+  };
 
   const ALL_STEPS = [
     { label: '日历标记',   note: '标记本月各天状态',   monthEndOnly: false, action: () => navigate('/calendar') },
@@ -1644,16 +1714,16 @@ export default function ReconcilePage() {
               {rebalanceFunding.cnyToUsdCny > 0 ? `，再由人民币转美元补 ¥${fmtInt(rebalanceFunding.cnyToUsdCny)}` : ''}
             </div>
           )}
-          {!allowRebalanceSell && latestUsdRate !== null && (rebalanceFunding.cnyFromRmbBuffer > 0 || rebalanceFunding.cnyGiveUpCny > 0) && (
+          {!allowRebalanceSell && latestUsdRate !== null && (rebalanceFunding.cnyFromRmbBuffer >= 0.5 || rebalanceFunding.cnyGiveUpCny >= 0.5) && (
             <div style={{ color: C.sub, marginTop: 4 }}>
               人民币加仓 ¥{fmtInt(rebalanceFunding.cnyBuy)}：
-              {rebalanceFunding.cnyFromRmbBuffer > 0 && (
+              {rebalanceFunding.cnyFromRmbBuffer >= 0.5 && (
                 <>
-                  美元有余 ¥{fmtInt(rebalanceFunding.usdParkCny)} 停泊回美元生活/消费/心愿，
-                  由人民币生活/消费/心愿转入理财补人民币加仓 ¥{fmtInt(rebalanceFunding.cnyFromRmbBuffer)}
+                  美元有余 ¥{fmtInt(rebalanceFunding.usdParkCny)} 停泊回美元{rebalanceFundingBucketLabels}，
+                  由人民币{rebalanceFundingBucketLabels}转入理财补人民币加仓 ¥{fmtInt(rebalanceFunding.cnyFromRmbBuffer)}
                 </>
               )}
-              {rebalanceFunding.cnyGiveUpCny > 0 ? `${rebalanceFunding.cnyFromRmbBuffer > 0 ? '；' : ''}人民币不足，放弃加仓 ¥${fmtInt(rebalanceFunding.cnyGiveUpCny)}` : ''}
+              {rebalanceFunding.cnyGiveUpCny >= 0.5 ? `${rebalanceFunding.cnyFromRmbBuffer >= 0.5 ? '；' : ''}人民币不足，放弃加仓 ¥${fmtInt(rebalanceFunding.cnyGiveUpCny)}` : ''}
             </div>
           )}
           {!allowRebalanceSell && latestUsdRate !== null && (rebalanceFunding.needConsumption || rebalanceFunding.needWish) && (
@@ -1686,6 +1756,62 @@ export default function ReconcilePage() {
             </div>
           )}
         </div>
+        {!allowRebalanceSell && latestUsdRate !== null && rebalanceFundingRows.length > 0 && (
+          <div style={{ border: '1px solid #e8eaed', borderRadius: 10, padding: '9px 10px', backgroundColor: '#fff', marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, fontSize: 12, color: C.sub, fontWeight: 700 }}>
+              <span>理财调拨</span>
+              <span style={{ color: C.orange, fontVariantNumeric: 'tabular-nums' }}>¥{fmtInt(rebalanceFunding.cnyFromRmbBuffer)}</span>
+              <div style={{ flex: 1, borderBottom: '1px dashed #dadce0' }} />
+            </div>
+            {rebalanceFundingRows.map((row, i) => {
+              const transferred = parseAmountPart(localRebalanceFundingTransferred[row.usdKey]);
+              const remain = Math.max(row.amountCny - transferred, 0);
+              return (
+                <div key={row.usdKey} style={{ backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff', borderRadius: 10, padding: '10px 12px', marginBottom: 4 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(56px, 1fr) minmax(0, 90px) minmax(0, 80px) 26px minmax(60px, 80px)', alignItems: 'center', columnGap: 4 }}>
+                    <span style={{ fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap' }}>{row.label}→理财</span>
+                    <span
+                      onClick={() => setExpandedRebalanceFunding((prev) => (prev === row.usdKey ? null : row.usdKey))}
+                      style={{ fontSize: 12, color: C.blue, fontWeight: 600, fontVariantNumeric: 'tabular-nums', cursor: 'pointer', userSelect: 'none', textAlign: 'right', whiteSpace: 'nowrap' }}
+                    >
+                      需¥{fmtInt(row.amountCny)} {expandedRebalanceFunding === row.usdKey ? '▾' : '▸'}
+                    </span>
+                    <span style={{ fontSize: 12, color: C.orange, fontWeight: 600, fontVariantNumeric: 'tabular-nums', textAlign: 'right', whiteSpace: 'nowrap' }}>还需¥{fmtInt(remain)}</span>
+                    <span style={{ fontSize: 12, color: C.sub, textAlign: 'right' }}>已调</span>
+                    <AmountInput
+                      ref={(el) => { rebalanceFundingInputRefs.current[i] = el; }}
+                      value={localRebalanceFundingTransferred[row.usdKey]}
+                      onChange={(v) => setLocalRebalanceFundingTransferred((p) => ({ ...p, [row.usdKey]: normalizeAmountInput(v) }))}
+                      onFocus={(e) => e.target.select()}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); rebalanceFundingInputRefs.current[i + 1]?.focus(); } }}
+                      style={{ width: '100%', border: `1.5px solid ${transferred > 0 ? '#81c995' : '#dadce0'}`, borderRadius: 8, padding: '5px 8px', fontSize: 13, fontWeight: 600, textAlign: 'right', outline: 'none', backgroundColor: transferred > 0 ? '#e6f4ea' : '#fff', color: transferred > 0 ? C.green : '#202124', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  {expandedRebalanceFunding === row.usdKey && (
+                    <div style={{ fontSize: 11, color: C.sub, marginTop: 4 }}>
+                      人民币{row.label}转入理财 ¥{fmtInt(row.amountCny)}；美元理财停泊到美元{row.label} 约 {fmtUsd(row.amountCny / latestUsdRate)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <button
+              onClick={handleExecuteRebalanceFundingTransfers}
+              disabled={!hasRebalanceFundingTransferChanges}
+              style={{
+                width: '100%', marginTop: 8,
+                backgroundColor: hasRebalanceFundingTransferChanges ? C.green : '#e8eaed',
+                color: hasRebalanceFundingTransferChanges ? '#fff' : C.sub,
+                fontWeight: 700, fontSize: 14, padding: '10px 0',
+                borderRadius: 10, border: 'none',
+                cursor: hasRebalanceFundingTransferChanges ? 'pointer' : 'default',
+                transition: 'background-color 0.2s',
+              }}
+            >
+              ✓ 一键执行理财调拨
+            </button>
+          </div>
+        )}
         {/* 色条 */}
         <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginBottom: 14 }}>
           {investKeys.map((k) => (
