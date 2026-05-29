@@ -513,15 +513,10 @@ export default function ReconcilePage() {
   );
   const rebalanceCashPools = useMemo(() => {
     const rate = latestUsdRate ?? 0;
-    const usdAvailCny = rate > 0
-      ? ((current.accounts.investUsdBank ?? 0)
-        + (current.accounts.usdLivingBank ?? 0)
-        + (current.accounts.usdConsumptionBank ?? 0)
-        + (current.accounts.usdWishJar ?? 0)) * rate
-      : 0;
+    const usdInvestAvailCny = rate > 0 ? (current.accounts.investUsdBank ?? 0) * rate : 0;
     return {
       cnyAvail: current.accounts.investCnyBank ?? 0,
-      usdAvail: usdAvailCny,
+      usdAvail: usdInvestAvailCny,
       usdKeys: USD_INVEST_KEYS,
     };
   }, [current.accounts, latestUsdRate]);
