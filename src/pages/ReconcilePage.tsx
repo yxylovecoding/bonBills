@@ -1067,7 +1067,6 @@ export default function ReconcilePage() {
     setLocalFundingLeg((p) => { const n = { ...p }; for (const l of legs) n[l.key] = '0'; return n; });
 
   const rebalanceFundingRows = rebalanceFunding.cnyBufferRows.filter((row) => Math.abs(row.amountCny) >= 0.5);
-  const rebalanceFundingBucketLabels = rebalanceFundingRows.map((row) => row.label).join('/');
   const usdReplaceRows = rebalanceFunding.usdReplaceRows.filter((row) => Math.abs(row.amountCny) >= 0.5);
   const usdForexCny = !allowRebalanceSell ? rebalanceFunding.cnyToUsdCny : 0;
 
@@ -1785,79 +1784,11 @@ export default function ReconcilePage() {
           />
           <span>允许减仓换仓</span>
         </label>
-        <div style={{ border: '1px solid #e8eaed', borderRadius: 10, padding: '9px 10px', backgroundColor: '#fafafa', marginBottom: 14, fontSize: 12, color: C.sub }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-            <span>人民币理财可用</span>
-            <span style={{ color: rebalanceFunding.cnyCashAfter >= 0 ? C.green : C.orange, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-              ¥{fmtInt(current.accounts.investCnyBank ?? 0)} → {rebalanceFunding.cnyCashAfter >= 0 ? '余' : '缺'}¥{fmtInt(Math.abs(rebalanceFunding.cnyCashAfter))}
-            </span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-            <span>美元理财可用</span>
-            <span style={{ color: C.blue, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-              ${(current.accounts.investUsdBank ?? 0).toFixed(2)}
-              {latestUsdRate !== null ? ` ≈ ¥${fmtInt(rebalanceFunding.usdInvestCny)}` : ' · 暂无汇率'}
-            </span>
-          </div>
-          {rebalanceFunding.usdBuyCny > 0 && latestUsdRate === null && (
-            <div style={{ color: C.orange, fontWeight: 600 }}>美股/美债需加仓，暂无美元汇率，暂不能自动扣美元账户。</div>
-          )}
-          {rebalanceFunding.usdBuyCny > 0 && latestUsdRate !== null && !allowRebalanceSell && (
-            <div style={{ color: C.sub }}>
-              美元加仓 ¥{fmtInt(rebalanceFunding.usdBuyCny)}（约 {fmtUsd(rebalanceFunding.usdBuyCny / latestUsdRate)}）：
-              先用美元理财，不足用美元生活/消费/心愿置换 ¥{fmtInt(rebalanceFunding.usdReplaceUseCny)}
-              {rebalanceFunding.usdCompensateCny > 0 ? `（补回人民币生活/消费/心愿 ¥${fmtInt(rebalanceFunding.usdCompensateCny)}）` : ''}
-              {rebalanceFunding.cnyToUsdCny > 0 ? `，再由人民币转美元补 ¥${fmtInt(rebalanceFunding.cnyToUsdCny)}` : ''}
-            </div>
-          )}
-          {!allowRebalanceSell && latestUsdRate !== null && (rebalanceFunding.cnyFromRmbBuffer >= 0.5 || rebalanceFunding.cnyGiveUpCny >= 0.5) && (
-            <div style={{ color: C.sub, marginTop: 4 }}>
-              人民币加仓 ¥{fmtInt(rebalanceFunding.cnyBuy)}：
-              {rebalanceFunding.cnyFromRmbBuffer >= 0.5 && (
-                <>
-                  美元有余 ¥{fmtInt(rebalanceFunding.usdParkCny)} 停泊回美元{rebalanceFundingBucketLabels}，
-                  由人民币{rebalanceFundingBucketLabels}转入理财补人民币加仓 ¥{fmtInt(rebalanceFunding.cnyFromRmbBuffer)}
-                </>
-              )}
-              {rebalanceFunding.cnyGiveUpCny >= 0.5 ? `${rebalanceFunding.cnyFromRmbBuffer >= 0.5 ? '；' : ''}人民币不足，放弃加仓 ¥${fmtInt(rebalanceFunding.cnyGiveUpCny)}` : ''}
-            </div>
-          )}
-          {!allowRebalanceSell && latestUsdRate !== null && (rebalanceFunding.needConsumption || rebalanceFunding.needWish) && (
-            <div style={{ marginTop: 6, padding: '7px 8px', borderRadius: 8, backgroundColor: '#fff7ed', border: '1px solid #fed7aa', color: C.orange }}>
-              <div style={{ fontWeight: 700, marginBottom: 4 }}>请核对消费/心愿两边余额</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '42px minmax(0, 1fr) minmax(0, 1fr)', gap: 6, color: C.sub, fontVariantNumeric: 'tabular-nums' }}>
-                <span />
-                <span>人民币</span>
-                <span>美元折算</span>
-                {rebalanceFunding.needConsumption && (
-                  <>
-                    <span style={{ color: '#202124', fontWeight: 700 }}>消费</span>
-                    <span>¥{fmtInt(current.accounts.consumptionBank ?? 0)}</span>
-                    <span>¥{fmtInt((current.accounts.usdConsumptionBank ?? 0) * latestUsdRate)}</span>
-                  </>
-                )}
-                {rebalanceFunding.needWish && (
-                  <>
-                    <span style={{ color: '#202124', fontWeight: 700 }}>心愿</span>
-                    <span>¥{fmtInt(current.accounts.wishJar ?? 0)}</span>
-                    <span>¥{fmtInt((current.accounts.usdWishJar ?? 0) * latestUsdRate)}</span>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-          {rebalanceFunding.usdSellCny > 0 && latestUsdRate !== null && (
-            <div style={{ color: C.blue, marginTop: 4 }}>
-              美元资产减仓 ¥{fmtInt(rebalanceFunding.usdSellCny)}（约 {fmtUsd(rebalanceFunding.usdSellCny / latestUsdRate)}）只回到美元理财账户。
-            </div>
-          )}
-        </div>
         {!allowRebalanceSell && latestUsdRate !== null && cnyFundingLegs.length > 0 && (
           <div style={{ border: '1px solid #e8eaed', borderRadius: 10, padding: '9px 10px', backgroundColor: '#fff', marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, fontSize: 12, color: C.sub, fontWeight: 700 }}>
               <span>理财调拨（人民币加仓）</span>
               <span style={{ color: C.orange, fontVariantNumeric: 'tabular-nums' }}>¥{fmtInt(rebalanceFunding.cnyFromRmbBuffer)}</span>
-              <span style={{ fontSize: 10, fontWeight: 700, color: FUNDING_BADGES.cny.color, backgroundColor: FUNDING_BADGES.cny.bg, borderRadius: 4, padding: '1px 5px' }}>每腿分开调</span>
               <div style={{ flex: 1, borderBottom: '1px dashed #dadce0' }} />
             </div>
             {cnyFundingLegs.map((leg, i) => renderFundingLeg(leg, i, cnyFundingInputRefs))}
@@ -1883,7 +1814,6 @@ export default function ReconcilePage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, fontSize: 12, color: C.sub, fontWeight: 700 }}>
               <span>美元调拨（美元加仓）</span>
               <span style={{ color: C.orange, fontVariantNumeric: 'tabular-nums' }}>¥{fmtInt(rebalanceFunding.usdReplaceUseCny + rebalanceFunding.cnyToUsdCny)}</span>
-              <span style={{ fontSize: 10, fontWeight: 700, color: FUNDING_BADGES.usd.color, backgroundColor: FUNDING_BADGES.usd.bg, borderRadius: 4, padding: '1px 5px' }}>每腿分开调</span>
               <div style={{ flex: 1, borderBottom: '1px dashed #dadce0' }} />
             </div>
             {usdFundingLegs.map((leg, i) => renderFundingLeg(leg, i, usdFundingInputRefs))}
