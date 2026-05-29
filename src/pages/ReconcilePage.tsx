@@ -217,8 +217,15 @@ const TRANSFER_META: Record<TransferKey, { label: string; accountKey?: string }>
 };
 
 type BudgetKey = 'weekly' | 'monthly' | 'beyond';
+type ReconcileMode = 'monthStart' | 'monthMiddle';
 
 interface BudgetDetailItem { icon: string; label: string; amount: number; note?: string }
+
+const RECONCILE_MODES: { key: ReconcileMode; label: string; hint: string }[] = [
+  { key: 'monthStart', label: '月初', hint: '1号' },
+  { key: 'monthMiddle', label: '月中', hint: '11/21' },
+];
+const defaultReconcileMode = (date: Date): ReconcileMode => (date.getDate() === 1 ? 'monthStart' : 'monthMiddle');
 
 export default function ReconcilePage() {
   const navigate = useNavigate();
@@ -337,6 +344,8 @@ export default function ReconcilePage() {
   const [usdRateError, setUsdRateError] = useState(false);
   const [usdRebalanceCells, setUsdRebalanceCells] = useState<Set<InvestKey>>(() => new Set());
   const [saved, setSaved] = useState(false);
+  const [reconcileMode, setReconcileMode] = useState<ReconcileMode>(() => defaultReconcileMode(new Date()));
+  const isMonthStartMode = reconcileMode === 'monthStart';
 
   const [allowRebalanceSell, setAllowRebalanceSell] = useState(false);
 
@@ -365,7 +374,7 @@ export default function ReconcilePage() {
 
   // 今天
   const today = new Date();
-  const showCreditMonthlyInput = today.getDate() >= 26 || today.getDate() <= 13;
+  const showCreditMonthlyInput = isMonthStartMode;
   const currentYear = today.getFullYear();
   const currentMonth = today.getMonth();
   const nextMonthDate = new Date(currentYear, currentMonth + 1, 1);
@@ -754,14 +763,14 @@ export default function ReconcilePage() {
 
   // 预算明细（收入按发薪日判断是否已发，日薪项显示计算方式）
 
-  // 信用卡本月待还条目：1 <= date <= 13（还款日 13 之前/当日）归入周内；其他日期归入月外
+  // 信用卡本期待还条目：月初模式归入本月，月中模式归入月外。
   const creditMonthlyItem: BudgetDetailItem = {
     icon: '💳',
-    label: '信用卡本月待还',
+    label: '信用卡本期待还',
     amount: effectiveCreditMonthly,
     note: `${config.creditPayDate}号还款${(current.accounts.savingsCard ?? 0) > 0 ? ` · ¥${fmtInt(current.accounts.creditMonthly ?? 0)}-储蓄¥${fmtInt(current.accounts.savingsCard ?? 0)}` : ''}`,
   };
-  const creditInWeekly = todayDate >= 1 && todayDate <= 13;
+  const creditInThisMonth = isMonthStartMode;
 
   const budgetDetails: Record<BudgetKey, { income: BudgetDetailItem[]; expense: BudgetDetailItem[] }> = {
     weekly: {
@@ -772,7 +781,6 @@ export default function ReconcilePage() {
         })),
       ],
       expense: [
-        ...(creditInWeekly ? [creditMonthlyItem] : []),
         ...(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => {
           const days  = tagCountWeek[k];
           const dLife = stats.stateDailyAvg[k];
@@ -795,7 +803,7 @@ export default function ReconcilePage() {
         }),
       ],
       expense: [
-        ...(creditInWeekly && effectiveCreditMonthly > 0 ? [creditMonthlyItem] : []),
+        ...(creditInThisMonth && effectiveCreditMonthly > 0 ? [creditMonthlyItem] : []),
         ...(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => {
           const days  = budget.stateDaysLeft[k];
           const dLife = stats.stateDailyAvg[k];
@@ -812,8 +820,8 @@ export default function ReconcilePage() {
         note: makeIncomeNote(item, 'next'),
       })),
       expense: [
-        ...(!creditInWeekly ? [creditMonthlyItem] : []),
-        { icon: '💳', label: '信用卡下期', amount: effectiveCreditNext, note: (current.accounts.savingsCard ?? 0) > (current.accounts.creditMonthly ?? 0) ? '总待还-储蓄卡溢出-本期' : '总待还-本月待还' },
+        ...(!creditInThisMonth ? [creditMonthlyItem] : []),
+        { icon: '💳', label: '信用卡下期', amount: effectiveCreditNext, note: (current.accounts.savingsCard ?? 0) > (current.accounts.creditMonthly ?? 0) ? '总待还-储蓄卡溢出-本期' : '总待还-本期待还' },
         ...(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => {
           const days  = budget.stateDaysNextMonth[k];
           const dLife = stats.stateDailyAvg[k];
@@ -833,12 +841,12 @@ export default function ReconcilePage() {
   const monthlyExpenseForTransfer = sumDetailExp('monthly');
   const campusShortfallForTransfer = Math.max(budget.needs.campusCard - (current.accounts.campusCard ?? 0), 0);
   const repaymentNeedForTransfer = current.accounts.creditMonthly ?? 0;
-  const repaymentShortfallForTransfer = creditInWeekly
+  const repaymentShortfallForTransfer = creditInThisMonth
     ? Math.max(repaymentNeedForTransfer - (current.accounts.savingsCard ?? 0), 0)
     : 0;
   const livingNeedForTransfer = Math.max(
     monthlyExpenseForTransfer
-      - (creditInWeekly ? repaymentNeedForTransfer : 0)
+      - (creditInThisMonth ? repaymentNeedForTransfer : 0)
       - budget.needs.campusCard,
     0,
   );
@@ -867,9 +875,6 @@ export default function ReconcilePage() {
     { key: 'beyond',  name: '月外 (跨月)',   inc: sumDetailInc('beyond'),  exp: sumDetailExp('beyond') },
   ];
 
-  const reconcileMode = today.getDate() === 1 ? '月初归档' : today.getDate() <= 15 ? '常规（11号）' : '常规（21号）';
-  const isMonthEnd = reconcileMode === '月初归档'; // 月初 = 上月月末结算
-
   const [doneSteps, setDoneSteps] = useState<Set<number>>(new Set());
   const toggleDone = (i: number) =>
     setDoneSteps((prev) => { const next = new Set(prev); next.has(i) ? next.delete(i) : next.add(i); return next; });
@@ -882,7 +887,7 @@ export default function ReconcilePage() {
     { label: '理财再平衡', note: '按比例投入新资金',   monthEndOnly: true,  action: () => document.getElementById('sec-invest')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
     { label: '历史记录',   note: '录入本月收支数据',   monthEndOnly: true,  action: () => navigate('/calendar?tab=year') },
   ];
-  const STEPS = ALL_STEPS.filter((s) => !s.monthEndOnly || isMonthEnd);
+  const STEPS = ALL_STEPS.filter((s) => !s.monthEndOnly || isMonthStartMode);
 
   return (
     <div>
@@ -898,9 +903,36 @@ export default function ReconcilePage() {
           ⚙️
         </button>
       </div>
-      <p style={{ fontSize: 13, color: C.sub, margin: '0 0 16px' }}>
-        今天 {today.getFullYear()}-{String(today.getMonth()+1).padStart(2,'0')}-{String(today.getDate()).padStart(2,'0')}，对账模式：<span style={{ color: C.blue, fontWeight: 600 }}>{reconcileMode}</span>
-      </p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13, color: C.sub, margin: '0 0 16px' }}>
+        <span>今天 {today.getFullYear()}-{String(today.getMonth()+1).padStart(2,'0')}-{String(today.getDate()).padStart(2,'0')}，对账模式</span>
+        <div role="group" aria-label="对账模式" style={{ display: 'inline-flex', border: '1px solid #d2e3fc', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff' }}>
+          {RECONCILE_MODES.map((mode) => {
+            const active = reconcileMode === mode.key;
+            return (
+              <button
+                key={mode.key}
+                type="button"
+                onClick={() => setReconcileMode(mode.key)}
+                title={`${mode.label}模式：${mode.hint}`}
+                aria-pressed={active}
+                style={{
+                  border: 'none',
+                  borderRight: mode.key === 'monthStart' ? '1px solid #d2e3fc' : 'none',
+                  backgroundColor: active ? C.blue : '#fff',
+                  color: active ? '#fff' : C.blue,
+                  padding: '4px 10px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                {mode.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
       {settingsOpen && (
         <RebalanceSettingsModal
           groupedTargetInputs={groupedTargetInputs}
@@ -972,13 +1004,13 @@ export default function ReconcilePage() {
             </span>
           </div>
 
-          {/* 信用卡：总待还 + 本月待还 */}
+          {/* 信用卡：总待还 + 本期待还 */}
           <div style={{ backgroundColor: '#fce8e6', borderRadius: 12, padding: '10px 14px', border: '1.5px solid #f28b82' }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#202124', marginBottom: 8 }}>💳 信用卡</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {([
                 { key: 'credit',        label: '总待还',   idx: 0 },
-                ...(showCreditMonthlyInput ? [{ key: 'creditMonthly', label: '本月待还', idx: 1 } as const] : []),
+                ...(showCreditMonthlyInput ? [{ key: 'creditMonthly', label: '本期待还', idx: 1 } as const] : []),
                 { key: 'savingsCard',   label: '储蓄卡',   idx: 2 },
               ] as const).map(({ key, label, idx }) => (
                 <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1247,15 +1279,15 @@ export default function ReconcilePage() {
               rec: campusShortfallForTransfer,
               calc: `月需¥${fmtInt(budget.needs.campusCard)}（${budget.stateDaysLeft.school}天×¥${Math.round(stats.schoolDailyAvg)}/天）− 余¥${fmtInt(current.accounts.campusCard ?? 0)}`,
             },
-            ...(creditInWeekly ? [{
+            ...(creditInThisMonth ? [{
               key: 'repayment' as TransferKey,
               rec: repaymentShortfallForTransfer,
-              calc: `本月待还¥${fmtInt(repaymentNeedForTransfer)} − 储蓄卡¥${fmtInt(current.accounts.savingsCard ?? 0)}`,
+              calc: `本期待还¥${fmtInt(repaymentNeedForTransfer)} − 储蓄卡¥${fmtInt(current.accounts.savingsCard ?? 0)}`,
             }] : []),
             {
               key: 'living',
               rec: livingShortfallForTransfer,
-              calc: creditInWeekly
+              calc: creditInThisMonth
                 ? `月需¥${fmtInt(livingNeedForTransfer)}（月内支出¥${fmtInt(monthlyExpenseForTransfer)} − 还款¥${fmtInt(repaymentNeedForTransfer)} − 校园卡¥${fmtInt(budget.needs.campusCard)}）− 余¥${fmtInt(current.accounts.livingBank ?? 0)}`
                 : `月需¥${fmtInt(livingNeedForTransfer)}（月内支出¥${fmtInt(monthlyExpenseForTransfer)} − 校园卡¥${fmtInt(budget.needs.campusCard)}）− 余¥${fmtInt(current.accounts.livingBank ?? 0)}`,
             },
