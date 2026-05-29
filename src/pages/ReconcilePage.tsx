@@ -29,12 +29,12 @@ const USD_VIRTUAL_ACCOUNT_KEYS = ['usdLivingBank', 'usdConsumptionBank', 'usdWis
 type UsdVirtualAccountKey = typeof USD_VIRTUAL_ACCOUNT_KEYS[number];
 const USD_REPLACE_BUCKETS: {
   usdKey: UsdVirtualAccountKey;
-  cnyKey?: keyof AccountSnapshot['accounts'];
+  cnyKey: keyof AccountSnapshot['accounts'];
   label: string;
 }[] = [
   { usdKey: 'usdLivingBank', cnyKey: 'livingBank', label: '生活' },
   { usdKey: 'usdConsumptionBank', cnyKey: 'consumptionBank', label: '消费' },
-  { usdKey: 'usdWishJar', label: '心愿' },
+  { usdKey: 'usdWishJar', cnyKey: 'wishJar', label: '心愿' },
 ];
 const INVEST_GROUPS = [
   { key: 'stock', label: '股', keys: ['us', 'eu', 'asia', 'a'] as InvestKey[], color: C.blue },
@@ -94,12 +94,14 @@ function RebalanceSettingsModal({
   groupedTargetInputs,
   setGroupedTargetInputs,
   onRevealConsumptionWish,
+  onHideConsumptionWish,
   onClose,
   onSave,
 }: {
   groupedTargetInputs: GroupedTargetInputs;
   setGroupedTargetInputs: (v: GroupedTargetInputs) => void;
   onRevealConsumptionWish: () => void;
+  onHideConsumptionWish: () => void;
   onClose: () => void;
   onSave: () => void;
 }) {
@@ -125,13 +127,22 @@ function RebalanceSettingsModal({
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#202124' }}>账户显示</div>
                 <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>消费、心愿美元为 0 时默认隐藏</div>
               </div>
-              <button
-                type="button"
-                onClick={onRevealConsumptionWish}
-                style={{ border: 'none', borderRadius: 8, padding: '7px 10px', backgroundColor: '#e8f0fe', color: C.blue, fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
-              >
-                开启录入
-              </button>
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                <button
+                  type="button"
+                  onClick={onRevealConsumptionWish}
+                  style={{ border: 'none', borderRadius: 8, padding: '7px 10px', backgroundColor: '#e8f0fe', color: C.blue, fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                >
+                  开启录入
+                </button>
+                <button
+                  type="button"
+                  onClick={onHideConsumptionWish}
+                  style={{ border: 'none', borderRadius: 8, padding: '7px 10px', backgroundColor: '#f1f3f4', color: C.sub, fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                >
+                  关闭
+                </button>
+              </div>
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -336,6 +347,15 @@ export default function ReconcilePage() {
   const [expandedBudget, setExpandedBudget] = useState<BudgetKey | null>(null);
   const [expandedTransfer, setExpandedTransfer] = useState<TransferKey | null>(null);
   const [consumptionWishOpen, setConsumptionWishOpen] = useState(false);
+  const hideConsumptionWishAccounts = () => {
+    setRevealedUsdAccounts((prev) => {
+      const next = new Set(prev);
+      next.delete('usdConsumptionBank');
+      next.delete('usdWishJar');
+      return next;
+    });
+    setConsumptionWishOpen(false);
+  };
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [groupedTargetInputs, setGroupedTargetInputs] = useState<GroupedTargetInputs>(
     () => groupedTargetInputFromConfig(effectiveInvestTargets(config.investAllocTargets)),
@@ -511,19 +531,50 @@ export default function ReconcilePage() {
     () => roundMoney((current.accounts.investCnyBank ?? 0) + (latestUsdRate !== null ? (current.accounts.investUsdBank ?? 0) * latestUsdRate : 0)),
     [current.accounts.investCnyBank, current.accounts.investUsdBank, latestUsdRate],
   );
-  const rebalanceCashPools = useMemo(() => {
-    const rate = latestUsdRate ?? 0;
-    const usdInvestAvailCny = rate > 0 ? (current.accounts.investUsdBank ?? 0) * rate : 0;
-    return {
-      cnyAvail: current.accounts.investCnyBank ?? 0,
-      usdAvail: usdInvestAvailCny,
-      usdKeys: USD_INVEST_KEYS,
-    };
-  }, [current.accounts, latestUsdRate]);
-  const rebalanceSuggested = useMemo(
-    () => calcRebalance(effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell, rebalanceCashPools),
-    [effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell, rebalanceCashPools],
+  const rawRebalanceSuggested = useMemo(
+    () => calcRebalance(effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell),
+    [effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell],
   );
+  const rebalanceSuggested = useMemo(() => {
+    const rounded = Object.fromEntries(
+      investKeys.map((k) => [k, roundMoney(rawRebalanceSuggested[k] ?? 0)]),
+    ) as Record<InvestKey, number>;
+    if (allowRebalanceSell || rebalanceNewFunds <= 0) return rounded;
+
+    const isUsdKey = (k: InvestKey) => USD_INVEST_KEYS.includes(k);
+    const cnyNeed = investKeys.reduce((s, k) => s + (!isUsdKey(k) ? Math.max(rawRebalanceSuggested[k] ?? 0, 0) : 0), 0);
+    const cnyCapacity = roundMoney(
+      Math.max(current.accounts.investCnyBank ?? 0, 0)
+      + Math.max(current.accounts.livingBank ?? 0, 0)
+      + Math.max(current.accounts.consumptionBank ?? 0, 0)
+      + Math.max(current.accounts.wishJar ?? 0, 0),
+    );
+    if (cnyNeed <= cnyCapacity || cnyNeed <= 0) return rounded;
+
+    const factor = cnyCapacity / cnyNeed;
+    const cnyKeys = investKeys.filter((k) => !isUsdKey(k) && (rawRebalanceSuggested[k] ?? 0) > 0);
+    let scaledTotal = 0;
+    let largestKey: InvestKey | null = null;
+    for (const k of cnyKeys) {
+      const scaled = roundMoney((rawRebalanceSuggested[k] ?? 0) * factor);
+      rounded[k] = scaled;
+      scaledTotal = roundMoney(scaledTotal + scaled);
+      if (largestKey === null || (rawRebalanceSuggested[k] ?? 0) > (rawRebalanceSuggested[largestKey] ?? 0)) {
+        largestKey = k;
+      }
+    }
+    const drift = roundMoney(cnyCapacity - scaledTotal);
+    if (largestKey && Math.abs(drift) >= 0.01) {
+      rounded[largestKey] = roundMoney(Math.max(rounded[largestKey] + drift, 0));
+    }
+    return rounded;
+  }, [allowRebalanceSell, current.accounts, investKeys, rawRebalanceSuggested, rebalanceNewFunds]);
+  const rebalanceCnyGiveUpCny = useMemo(() => {
+    if (allowRebalanceSell || rebalanceNewFunds <= 0) return 0;
+    const rawCnyNeed = investKeys.reduce((s, k) => s + (!USD_INVEST_KEYS.includes(k) ? Math.max(rawRebalanceSuggested[k] ?? 0, 0) : 0), 0);
+    const cappedCnyNeed = investKeys.reduce((s, k) => s + (!USD_INVEST_KEYS.includes(k) ? Math.max(rebalanceSuggested[k] ?? 0, 0) : 0), 0);
+    return roundMoney(Math.max(rawCnyNeed - cappedCnyNeed, 0));
+  }, [allowRebalanceSell, investKeys, rawRebalanceSuggested, rebalanceNewFunds, rebalanceSuggested]);
 
   const rebalanceInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   // 已加仓（本次会话输入，执行后归零）
@@ -538,39 +589,105 @@ export default function ReconcilePage() {
     const cnyBuy = investKeys.reduce((s, k) => s + (!isUsdKey(k) ? Math.max(rebalanceSuggested[k], 0) : 0), 0);
     const cnySell = investKeys.reduce((s, k) => s + (!isUsdKey(k) ? Math.max(-rebalanceSuggested[k], 0) : 0), 0);
     const usdInvestCny = latestUsdRate !== null ? (current.accounts.investUsdBank ?? 0) * latestUsdRate : 0;
+    const investCny = current.accounts.investCnyBank ?? 0;
+    const baseFunding = {
+      usdBuyCny,
+      usdSellCny,
+      cnyBuy,
+      cnySell,
+      usdInvestCny,
+      usdReplaceCny: 0,
+      usdReplaceUseCny: 0,
+      usdCompensateCny: 0,
+      cnyToUsdCny: 0,
+      usdSurplusCny: 0,
+      usdParkCny: 0,
+      cnyFromRmbBuffer: 0,
+      cnyGiveUpCny: allowRebalanceSell ? 0 : rebalanceCnyGiveUpCny,
+      needConsumption: false,
+      needWish: false,
+      cnyCashNeeded: Math.max(cnyBuy - cnySell, 0),
+      cnyCashAfter: investCny - Math.max(cnyBuy - cnySell, 0),
+    };
+
+    if (allowRebalanceSell) {
+      return baseFunding;
+    }
+
     let usdAfterInvest = Math.max(usdBuyCny - usdInvestCny, 0);
     let usdReplaceCny = 0;
     let usdReplaceUseCny = 0;
     let usdCompensateCny = 0;
+    let needConsumption = false;
+    let needWish = false;
     if (latestUsdRate !== null) {
       for (const bucket of USD_REPLACE_BUCKETS) {
-        const availableCny = (current.accounts[bucket.usdKey] ?? 0) * latestUsdRate;
+        const availableCny = Math.max(current.accounts[bucket.usdKey] ?? 0, 0) * latestUsdRate;
         usdReplaceCny += availableCny;
         const useCny = Math.min(usdAfterInvest, availableCny);
         if (useCny > 0) {
           usdReplaceUseCny += useCny;
-          if (bucket.cnyKey) usdCompensateCny += useCny;
+          usdCompensateCny += useCny;
+          if (bucket.usdKey === 'usdConsumptionBank') needConsumption = true;
+          if (bucket.usdKey === 'usdWishJar') needWish = true;
           usdAfterInvest -= useCny;
         }
       }
     }
     const cnyToUsdCny = Math.max(usdAfterInvest, 0);
-    const cnyCashNeeded = Math.max(cnyBuy + usdCompensateCny + cnyToUsdCny - cnySell, 0);
-    const cnyCashAfter = (current.accounts.investCnyBank ?? 0) - cnyCashNeeded;
+    const usdSurplusCny = latestUsdRate !== null ? Math.max(usdInvestCny - usdBuyCny, 0) : 0;
+    let cnyAfterInvest = Math.max(cnyBuy - Math.max(investCny, 0), 0);
+    let usdSurplusToPark = usdSurplusCny;
+    let usdParkCny = 0;
+    let cnyFromRmbBuffer = 0;
+    if (latestUsdRate !== null && cnyAfterInvest > 0 && usdSurplusToPark > 0) {
+      for (const bucket of USD_REPLACE_BUCKETS) {
+        const availableCny = Math.max(current.accounts[bucket.cnyKey] ?? 0, 0);
+        const useCny = Math.min(cnyAfterInvest, availableCny, usdSurplusToPark);
+        if (useCny <= 0) continue;
+        cnyFromRmbBuffer += useCny;
+        usdParkCny += useCny;
+        cnyAfterInvest -= useCny;
+        usdSurplusToPark -= useCny;
+        if (bucket.usdKey === 'usdConsumptionBank') needConsumption = true;
+        if (bucket.usdKey === 'usdWishJar') needWish = true;
+      }
+    }
+    const cnyGiveUpCny = roundMoney(Math.max(cnyAfterInvest, 0) + rebalanceCnyGiveUpCny);
+    const cnyCashNeeded = Math.max(cnyBuy + usdCompensateCny + cnyToUsdCny - cnySell - cnyFromRmbBuffer, 0);
+    const cnyCashAfter = investCny - cnyCashNeeded;
     return {
       usdBuyCny,
       usdSellCny,
       cnyBuy,
       cnySell,
       usdInvestCny,
-      usdReplaceCny,
-      usdReplaceUseCny,
-      usdCompensateCny,
-      cnyToUsdCny,
-      cnyCashNeeded,
-      cnyCashAfter,
+      usdReplaceCny: roundMoney(usdReplaceCny),
+      usdReplaceUseCny: roundMoney(usdReplaceUseCny),
+      usdCompensateCny: roundMoney(usdCompensateCny),
+      cnyToUsdCny: roundMoney(cnyToUsdCny),
+      usdSurplusCny: roundMoney(usdSurplusCny),
+      usdParkCny: roundMoney(usdParkCny),
+      cnyFromRmbBuffer: roundMoney(cnyFromRmbBuffer),
+      cnyGiveUpCny,
+      needConsumption,
+      needWish,
+      cnyCashNeeded: roundMoney(cnyCashNeeded),
+      cnyCashAfter: roundMoney(cnyCashAfter),
     };
-  }, [current.accounts, investKeys, latestUsdRate, rebalanceSuggested]);
+  }, [allowRebalanceSell, current.accounts, investKeys, latestUsdRate, rebalanceCnyGiveUpCny, rebalanceSuggested]);
+
+  useEffect(() => {
+    if (!rebalanceFunding.needConsumption && !rebalanceFunding.needWish) return;
+    setRevealedUsdAccounts((prev) => {
+      const next = new Set(prev);
+      if (rebalanceFunding.needConsumption) next.add('usdConsumptionBank');
+      if (rebalanceFunding.needWish) next.add('usdWishJar');
+      if (next.size === prev.size && [...next].every((key) => prev.has(key))) return prev;
+      return next;
+    });
+    setConsumptionWishOpen(true);
+  }, [rebalanceFunding.needConsumption, rebalanceFunding.needWish]);
 
 
   // 一键执行转账：把已转金额加到对应账户，收入账户相应减少，然后已转归零
@@ -662,10 +779,8 @@ export default function ReconcilePage() {
         if (usdFromBucket <= 0) continue;
         const cnyEquivalent = roundMoney(usdFromBucket * rate);
         nextAccounts[bucket.usdKey] = roundMoney(nextAccounts[bucket.usdKey] - usdFromBucket);
-        if (bucket.cnyKey) {
-          nextAccounts[bucket.cnyKey] = roundMoney(nextAccounts[bucket.cnyKey] + cnyEquivalent);
-          nextAccounts.investCnyBank = roundMoney(nextAccounts.investCnyBank - cnyEquivalent);
-        }
+        nextAccounts[bucket.cnyKey] = roundMoney(nextAccounts[bucket.cnyKey] + cnyEquivalent);
+        nextAccounts.investCnyBank = roundMoney(nextAccounts.investCnyBank - cnyEquivalent);
         needUsd -= usdFromBucket;
       }
 
@@ -674,9 +789,41 @@ export default function ReconcilePage() {
       }
     };
 
+    const buyCnyAsset = (amountCny: number) => {
+      let remaining = amountCny;
+      let covered = 0;
+
+      const fromInvest = roundMoney(Math.min(Math.max(nextAccounts.investCnyBank, 0), remaining));
+      if (fromInvest > 0) {
+        nextAccounts.investCnyBank = roundMoney(nextAccounts.investCnyBank - fromInvest);
+        remaining = roundMoney(remaining - fromInvest);
+        covered = roundMoney(covered + fromInvest);
+      }
+
+      if (remaining > 0.0001 && latestUsdRate !== null) {
+        const rate = latestUsdRate;
+        for (const bucket of USD_REPLACE_BUCKETS) {
+          if (remaining <= 0.0001) break;
+          const availableCny = Math.max(nextAccounts[bucket.cnyKey], 0);
+          const parkableCny = Math.max(nextAccounts.investUsdBank, 0) * rate;
+          const fromBuffer = roundMoney(Math.min(availableCny, parkableCny, remaining));
+          if (fromBuffer <= 0) continue;
+
+          const usdToPark = roundMoney(Math.min(Math.max(nextAccounts.investUsdBank, 0), fromBuffer / rate));
+          nextAccounts[bucket.cnyKey] = roundMoney(nextAccounts[bucket.cnyKey] - fromBuffer);
+          nextAccounts.investUsdBank = roundMoney(nextAccounts.investUsdBank - usdToPark);
+          nextAccounts[bucket.usdKey] = roundMoney(nextAccounts[bucket.usdKey] + usdToPark);
+          remaining = roundMoney(remaining - fromBuffer);
+          covered = roundMoney(covered + fromBuffer);
+        }
+      }
+
+      return covered;
+    };
+
     for (const [k, executed] of entries) {
       if (executed === 0) continue;
-      newHoldings[k] = roundMoney(newHoldings[k] + executed);
+      let holdingDelta = executed;
 
       if (USD_INVEST_KEYS.includes(k)) {
         const rate = latestUsdRate!;
@@ -686,10 +833,11 @@ export default function ReconcilePage() {
           nextAccounts.investUsdBank = roundMoney(nextAccounts.investUsdBank + (-executed / rate));
         }
       } else if (executed > 0) {
-        nextAccounts.investCnyBank = roundMoney(nextAccounts.investCnyBank - executed);
+        holdingDelta = buyCnyAsset(executed);
       } else {
         nextAccounts.investCnyBank = roundMoney(nextAccounts.investCnyBank + (-executed));
       }
+      newHoldings[k] = roundMoney(newHoldings[k] + holdingDelta);
     }
 
     updateHoldings(newHoldings);
@@ -936,6 +1084,10 @@ export default function ReconcilePage() {
             revealUsdAccount('usdConsumptionBank');
             revealUsdAccount('usdWishJar');
             setConsumptionWishOpen(true);
+            setSettingsOpen(false);
+          }}
+          onHideConsumptionWish={() => {
+            hideConsumptionWishAccounts();
             setSettingsOpen(false);
           }}
           onClose={() => setSettingsOpen(false)}
@@ -1484,12 +1636,48 @@ export default function ReconcilePage() {
           {rebalanceFunding.usdBuyCny > 0 && latestUsdRate === null && (
             <div style={{ color: C.orange, fontWeight: 600 }}>美股/美债需加仓，暂无美元汇率，暂不能自动扣美元账户。</div>
           )}
-          {rebalanceFunding.usdBuyCny > 0 && latestUsdRate !== null && (
+          {rebalanceFunding.usdBuyCny > 0 && latestUsdRate !== null && !allowRebalanceSell && (
             <div style={{ color: C.sub }}>
               美元加仓 ¥{fmtInt(rebalanceFunding.usdBuyCny)}（约 {fmtUsd(rebalanceFunding.usdBuyCny / latestUsdRate)}）：
               先用美元理财，不足用美元生活/消费/心愿置换 ¥{fmtInt(rebalanceFunding.usdReplaceUseCny)}
-              {rebalanceFunding.usdCompensateCny > 0 ? `（补回人民币生活/消费 ¥${fmtInt(rebalanceFunding.usdCompensateCny)}）` : ''}
+              {rebalanceFunding.usdCompensateCny > 0 ? `（补回人民币生活/消费/心愿 ¥${fmtInt(rebalanceFunding.usdCompensateCny)}）` : ''}
               {rebalanceFunding.cnyToUsdCny > 0 ? `，再由人民币转美元补 ¥${fmtInt(rebalanceFunding.cnyToUsdCny)}` : ''}
+            </div>
+          )}
+          {!allowRebalanceSell && latestUsdRate !== null && (rebalanceFunding.cnyFromRmbBuffer > 0 || rebalanceFunding.cnyGiveUpCny > 0) && (
+            <div style={{ color: C.sub, marginTop: 4 }}>
+              人民币加仓 ¥{fmtInt(rebalanceFunding.cnyBuy)}：
+              {rebalanceFunding.cnyFromRmbBuffer > 0 && (
+                <>
+                  美元有余 ¥{fmtInt(rebalanceFunding.usdParkCny)} 停泊回美元生活/消费/心愿，
+                  由人民币生活/消费/心愿转入理财补人民币加仓 ¥{fmtInt(rebalanceFunding.cnyFromRmbBuffer)}
+                </>
+              )}
+              {rebalanceFunding.cnyGiveUpCny > 0 ? `${rebalanceFunding.cnyFromRmbBuffer > 0 ? '；' : ''}人民币不足，放弃加仓 ¥${fmtInt(rebalanceFunding.cnyGiveUpCny)}` : ''}
+            </div>
+          )}
+          {!allowRebalanceSell && latestUsdRate !== null && (rebalanceFunding.needConsumption || rebalanceFunding.needWish) && (
+            <div style={{ marginTop: 6, padding: '7px 8px', borderRadius: 8, backgroundColor: '#fff7ed', border: '1px solid #fed7aa', color: C.orange }}>
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>请核对消费/心愿两边余额</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '42px minmax(0, 1fr) minmax(0, 1fr)', gap: 6, color: C.sub, fontVariantNumeric: 'tabular-nums' }}>
+                <span />
+                <span>人民币</span>
+                <span>美元折算</span>
+                {rebalanceFunding.needConsumption && (
+                  <>
+                    <span style={{ color: '#202124', fontWeight: 700 }}>消费</span>
+                    <span>¥{fmtInt(current.accounts.consumptionBank ?? 0)}</span>
+                    <span>¥{fmtInt((current.accounts.usdConsumptionBank ?? 0) * latestUsdRate)}</span>
+                  </>
+                )}
+                {rebalanceFunding.needWish && (
+                  <>
+                    <span style={{ color: '#202124', fontWeight: 700 }}>心愿</span>
+                    <span>¥{fmtInt(current.accounts.wishJar ?? 0)}</span>
+                    <span>¥{fmtInt((current.accounts.usdWishJar ?? 0) * latestUsdRate)}</span>
+                  </>
+                )}
+              </div>
             </div>
           )}
           {rebalanceFunding.usdSellCny > 0 && latestUsdRate !== null && (
