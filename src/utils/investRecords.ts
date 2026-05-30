@@ -1,4 +1,4 @@
-import type { InvestKey, InvestProfitStatus, MonthlyRecord } from '../models/types';
+import type { InvestKey, InvestProfitBackfill, MonthlyRecord } from '../models/types';
 
 export interface InvestTotalForRate {
   value: number;
@@ -32,13 +32,22 @@ export function getInvestTotalForRate(
   };
 }
 
-export function isProfitStatusPartial(
-  status: Partial<Record<InvestKey, InvestProfitStatus>> | undefined,
+export function getInvestProfitBackfillTotal(
+  backfills: InvestProfitBackfill[],
   key: InvestKey,
 ) {
-  return status?.[key] === 'partial';
+  return backfills
+    .filter((item) => item.investKey === key)
+    .reduce((sum, item) => sum + item.amount, 0);
 }
 
-export function isInvestProfitPartial(record: MonthlyRecord | undefined, key: InvestKey) {
-  return isProfitStatusPartial(record?.investBreakdownProfitStatus, key);
+export function getAdjustedInvestProfit(
+  record: MonthlyRecord | undefined,
+  key: InvestKey,
+  backfills: InvestProfitBackfill[],
+) {
+  const raw = record?.investBreakdownProfit?.[key];
+  const backfillTotal = getInvestProfitBackfillTotal(backfills, key);
+  if ((raw === undefined || raw === null) && backfillTotal === 0) return null;
+  return (raw ?? 0) + backfillTotal;
 }

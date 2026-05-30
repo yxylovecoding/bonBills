@@ -14,7 +14,6 @@ export interface InvestHoldings {
 }
 
 export type InvestKey = keyof InvestHoldings;
-export type InvestProfitStatus = 'partial';
 
 export interface InvestAllocTargets extends InvestHoldings {}
 
@@ -92,6 +91,14 @@ export interface MajorExpense {
   amount: number;
 }
 
+export interface InvestProfitBackfill {
+  id: string;
+  investKey: InvestKey;
+  amount: number;
+  note?: string;
+  createdAt: string;
+}
+
 export interface MonthlyRecord {
   yearMonth: string;           // "2026-03"
   income: number;
@@ -100,7 +107,6 @@ export interface MonthlyRecord {
   investTotal: number;          // 本月理财总额
   investBreakdown?: Partial<InvestHoldings>;       // 各品类持仓（月末）
   investBreakdownProfit?: Partial<InvestHoldings>; // 各品类累计收益（月末）
-  investBreakdownProfitStatus?: Partial<Record<InvestKey, InvestProfitStatus>>; // 各品类累计收益状态；partial = 待补，不参与收益率推导
   investProfitComponents?: Partial<Record<'us' | 'usBond', { cny: number; rate: number; usd: number }>>;
   volatileLife: number;
   periodicLife: number;
