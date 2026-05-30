@@ -20,6 +20,7 @@ import type { AccountSnapshot, DailyTag, InvestAllocTargets, InvestKey, TagKind 
 import { useHolidayYears } from '../utils/holidays';
 import { tryEvalFormula } from '../utils/formula';
 import { dateLabel, resolveIncomeForMonth, type ResolvedIncomeItem } from '../utils/payroll';
+import { isInvestProfitPartial } from '../utils/investRecords';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', sub: '#5f6368', orange: '#e8710a' };
 const RESERVABLE_HOLDING_KEY: InvestKey = 'longBond';
@@ -481,11 +482,25 @@ export default function ReconcilePage() {
       : DEFAULT_CONFIG.investAllocTargets,
     [config.investAllocTargets, investKeys],
   );
-  // 最新一期有各品类累计收益数据的月度记录
+  // 各品类最新一期累计收益；待补项只展示已知值，不参与累计收益率推导
   const latestBreakdownProfit = useMemo(
-    () => [...records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth))
-      .find((r) => r.investBreakdownProfit && Object.keys(r.investBreakdownProfit).length > 0)
-      ?.investBreakdownProfit ?? {},
+    () => {
+      const sorted = [...records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth));
+      const out: Partial<Record<InvestKey, { profit: number; partial: boolean; yearMonth: string }>> = {};
+      for (const k of INVEST_TARGET_KEYS) {
+        const record = sorted.find((r) => {
+          const profit = r.investBreakdownProfit?.[k];
+          return profit !== undefined && profit !== null;
+        });
+        if (!record) continue;
+        out[k] = {
+          profit: record.investBreakdownProfit![k]!,
+          partial: isInvestProfitPartial(record, k),
+          yearMonth: record.yearMonth,
+        };
+      }
+      return out;
+    },
     [records],
   );
   const fallbackUsdRate = useMemo(
@@ -1862,8 +1877,10 @@ export default function ReconcilePage() {
           <tbody>
             {investKeys.map((k, i) => {
               const cur = current.investHoldings[k];
-              const profit = latestBreakdownProfit[k as keyof typeof latestBreakdownProfit] ?? null;
-              const costBasis = profit !== null ? cur - profit : null;
+              const profitInfo = latestBreakdownProfit[k] ?? null;
+              const profit = profitInfo?.profit ?? null;
+              const profitPartial = profitInfo?.partial ?? false;
+              const costBasis = profit !== null && !profitPartial ? cur - profit : null;
               const profitRate = costBasis !== null && costBasis > 0 ? profit! / costBasis : null;
               const suggested = Math.round(rebalanceSuggested[k]);
               // 需加/需赎 = 建议 - 已加，赎回时为负数
@@ -1928,10 +1945,17 @@ export default function ReconcilePage() {
                     )}
                   </td>
                   {/* 累计收益率 */}
-                  <td style={{ padding: '8px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                  <td
+                    title={profitPartial ? `${profitInfo?.yearMonth ?? ''} 累计收益待补，暂不计算收益率` : undefined}
+                    style={{ padding: '8px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
+                  >
                     {profitRate !== null ? (
                       <div style={{ fontSize: 12, fontWeight: 600, color: profitRate >= 0 ? C.red : C.green }}>
                         {profitRate >= 0 ? '+' : ''}{(profitRate * 100).toFixed(1)}%
+                      </div>
+                    ) : profitPartial ? (
+                      <div style={{ fontSize: 12, fontWeight: 600, color: C.orange }}>
+                        待补
                       </div>
                     ) : profit !== null ? (
                       <div style={{ fontSize: 12, fontWeight: 600, color: profit >= 0 ? C.red : C.green }}>

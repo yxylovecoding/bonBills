@@ -28,6 +28,7 @@ function mergeMonthlyRecord(a: MonthlyRecord | undefined, b: MonthlyRecord): Mon
     investTotal: b.investTotal || a.investTotal,
     investBreakdown: b.investBreakdown ?? a.investBreakdown,
     investBreakdownProfit: b.investBreakdownProfit ?? a.investBreakdownProfit,
+    investBreakdownProfitStatus: b.investBreakdownProfitStatus ?? a.investBreakdownProfitStatus,
     investProfitComponents: b.investProfitComponents ?? a.investProfitComponents,
     majorExpenses: b.majorExpenses?.length ? b.majorExpenses : a.majorExpenses,
     majorExpensesNote: b.majorExpensesNote ?? a.majorExpensesNote,
