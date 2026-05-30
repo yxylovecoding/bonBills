@@ -2,7 +2,7 @@ import { normalizeBillDetailState, useBillDetailStore } from '../stores/billDeta
 import { normalizeConfirmedExpenses, useCalendarStore } from '../stores/calendarStore';
 import { DEFAULT_CONFIG, useConfigStore } from '../stores/configStore';
 import { normalizeExpenseScopeOverrides, useExpenseScopeOverrideStore } from '../stores/expenseScopeOverrideStore';
-import { normalizeInvestProfitBackfills, normalizeMonthlyRecords, useMonthlyStore } from '../stores/monthlyStore';
+import { normalizeInvestPastProfits, normalizeMonthlyRecords, useMonthlyStore } from '../stores/monthlyStore';
 import { DEFAULT_EXPENSE_SCOPE_HELP_TEXT, usePrefsStore } from '../stores/prefsStore';
 import { DEFAULT_SNAPSHOT, useSnapshotStore } from '../stores/snapshotStore';
 import { useSyncStatus } from './syncStatus';
@@ -12,7 +12,7 @@ const LEGACY_EXPENSE_SCOPE_SYNC_KEY = 'life-period-overrides';
 
 const EMPTY_STATES: Record<string, Record<string, unknown>> = {
   'bill-details': { tagStats: {}, aggregates: {}, expenseItems: {}, hasOverride: false },
-  'monthly-records': { records: [], investProfitBackfills: [] },
+  'monthly-records': { records: [], investPastProfits: [] },
   'calendar-tags': { tagMap: {}, initializedFromRecords: false, confirmedExpenses: {} },
   'account-snapshot': { current: DEFAULT_SNAPSHOT, history: [] },
   'app-config': { config: DEFAULT_CONFIG },
@@ -47,14 +47,14 @@ const stores: StoreEntry[] = [
     setState: (p) => useMonthlyStore.setState({
       ...p,
       records: normalizeMonthlyRecords(p.records),
-      investProfitBackfills: normalizeInvestProfitBackfills(
-        p.investProfitBackfills ?? useMonthlyStore.getState().investProfitBackfills,
+      investPastProfits: normalizeInvestPastProfits(
+        p.investPastProfits ?? p.investProfitBackfills ?? useMonthlyStore.getState().investPastProfits,
       ),
     }),
     subscribe: (l) => useMonthlyStore.subscribe(l),
     serialize: () => {
       const s = useMonthlyStore.getState();
-      return { records: s.records, investProfitBackfills: s.investProfitBackfills };
+      return { records: s.records, investPastProfits: s.investPastProfits };
     },
   },
   {

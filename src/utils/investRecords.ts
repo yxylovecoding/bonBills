@@ -1,4 +1,4 @@
-import type { InvestKey, InvestProfitBackfill, MonthlyRecord } from '../models/types';
+import type { InvestKey, InvestPastProfit, MonthlyRecord } from '../models/types';
 
 export interface InvestTotalForRate {
   value: number;
@@ -32,22 +32,22 @@ export function getInvestTotalForRate(
   };
 }
 
-export function getInvestProfitBackfillTotal(
-  backfills: InvestProfitBackfill[],
+export function getPastProfitTotal(
+  pastProfits: InvestPastProfit[],
   key: InvestKey,
 ) {
-  return backfills
+  return pastProfits
     .filter((item) => item.investKey === key)
     .reduce((sum, item) => sum + item.amount, 0);
 }
 
-export function getAdjustedInvestProfit(
+export function getTotalInvestProfit(
   record: MonthlyRecord | undefined,
   key: InvestKey,
-  backfills: InvestProfitBackfill[],
+  pastProfits: InvestPastProfit[],
 ) {
   const raw = record?.investBreakdownProfit?.[key];
-  const backfillTotal = getInvestProfitBackfillTotal(backfills, key);
-  if ((raw === undefined || raw === null) && backfillTotal === 0) return null;
-  return (raw ?? 0) + backfillTotal;
+  const pastTotal = getPastProfitTotal(pastProfits, key);
+  if ((raw === undefined || raw === null) && pastTotal === 0) return null;
+  return (raw ?? 0) + pastTotal;
 }

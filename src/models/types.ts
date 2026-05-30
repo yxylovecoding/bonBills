@@ -91,7 +91,7 @@ export interface MajorExpense {
   amount: number;
 }
 
-export interface InvestProfitBackfill {
+export interface InvestPastProfit {
   id: string;
   investKey: InvestKey;
   amount: number;

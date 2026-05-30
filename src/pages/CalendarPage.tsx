@@ -23,10 +23,10 @@ import { usePossessionStore } from '../stores/possessionStore';
 import { classifyTag, type ManualTagCategory } from '../utils/tagCategory';
 import { usePrefsStore, REVIEWABLE_CATEGORIES, type ReviewableCategory } from '../stores/prefsStore';
 import { useDragSort } from '../hooks/useDragSort';
-import type { TagKind, MonthlyRecord, MajorExpense, InvestHoldings, InvestKey, InvestProfitBackfill } from '../models/types';
+import type { TagKind, MonthlyRecord, MajorExpense, InvestHoldings, InvestKey, InvestPastProfit } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { getPayrollScheduleForMonth } from '../utils/payroll';
-import { getAdjustedInvestProfit, getInvestProfitBackfillTotal, getInvestTotalForRate } from '../utils/investRecords';
+import { getPastProfitTotal, getTotalInvestProfit, getInvestTotalForRate } from '../utils/investRecords';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', border: '#e0e0e0', weekend: '#ea4335', orange: '#e8710a' };
 const CN_MONTH = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
@@ -625,7 +625,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     () => Object.fromEntries(INVEST_KEYS.map((k) => [k, String(existing?.investBreakdownProfit?.[k] ?? '')])) as Record<keyof InvestHoldings, string>
   );
   const [showBreakdown, setShowBreakdown] = useState(true);
-  const [backfillModalOpen, setBackfillModalOpen] = useState(false);
+  const [pastModalOpen, setPastModalOpen] = useState(false);
   const [usdComponents, setUsdComponents] = useState<Partial<Record<'us' | 'usBond', { cny: string; rate: string; usd: string }>>>(() => {
     const init: Partial<Record<'us' | 'usBond', { cny: string; rate: string; usd: string }>> = {};
     for (const k of ['us', 'usBond'] as const) {
@@ -640,9 +640,9 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   });
   const [profitModalKey, setProfitModalKey] = useState<'us' | 'usBond' | null>(null);
   const {
-    investProfitBackfills,
-    addInvestProfitBackfill,
-    removeInvestProfitBackfill,
+    investPastProfits,
+    addInvestPastProfit,
+    removeInvestPastProfit,
   } = useMonthlyStore();
   const { current: snapshotCurrent } = useSnapshotStore();
   const { config } = useConfigStore();
@@ -677,10 +677,10 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   const getBreakdownMonthlyProfit = (k: keyof InvestHoldings) => {
     if (!prevRecord) return null;
     const profit = nOrNull(breakdownProfit[k]);
-    const backfillTotal = getInvestProfitBackfillTotal(investProfitBackfills, k);
-    const adjustedProfit = profit !== null || backfillTotal !== 0 ? (profit ?? 0) + backfillTotal : null;
-    const prevProfit = getAdjustedInvestProfit(prevRecord, k, investProfitBackfills);
-    return adjustedProfit !== null && prevProfit !== null ? adjustedProfit - prevProfit : null;
+    const pastTotal = getPastProfitTotal(investPastProfits, k);
+    const totalProfit = profit !== null || pastTotal !== 0 ? (profit ?? 0) + pastTotal : null;
+    const prevProfit = getTotalInvestProfit(prevRecord, k, investPastProfits);
+    return totalProfit !== null && prevProfit !== null ? totalProfit - prevProfit : null;
   };
 
   const majorExpenses = useMemo<MajorExpense[]>(() => {
@@ -809,9 +809,9 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     volatileLife, setVolatileLife, consumption, setConsumption, school, setSchool,
     accProfit, setAccProfit, investTotal,
     majorExpenses, majorExpensesNote, setMajorExpensesNote, breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
-    investProfitBackfills, addInvestProfitBackfill, removeInvestProfitBackfill,
+    investPastProfits, addInvestPastProfit, removeInvestPastProfit,
     usdComponents, setUsdComponents, sharedUsdRate, setSharedUsdRate, profitModalKey, setProfitModalKey,
-    showBreakdown, setShowBreakdown, backfillModalOpen, setBackfillModalOpen,
+    showBreakdown, setShowBreakdown, pastModalOpen, setPastModalOpen,
     surplus, investIncome, investMonthly, investAnnual, investTotalForRate, investTotalStoredOnly, n,
     getBreakdownMonthlyProfit,
     mainFieldRefs, breakdownRefs, breakdownProfitRefs,
@@ -969,7 +969,7 @@ function UsdProfitModal({
         onClick={(e) => e.stopPropagation()}
         style={{ width: '100%', maxWidth: 360, backgroundColor: '#fff', borderRadius: 12, padding: 16, boxShadow: '0 4px 24px rgba(0,0,0,0.18)' }}
       >
-        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>{investMeta[investKey].label} 累计收益拆分</div>
+        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>{investMeta[investKey].label} now收益拆分</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {[
             { label: '人民币收益 (¥)', val: cny, set: setCny },
@@ -1020,7 +1020,7 @@ function UsdProfitModal({
           ))}
         </div>
         <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, backgroundColor: '#f1f3f4', display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-          <span style={{ color: C.sub }}>累计收益 = 人民币 + 汇率 × 美元</span>
+          <span style={{ color: C.sub }}>now收益 = 人民币 + 汇率 × 美元</span>
           <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: totalRounded >= 0 ? C.red : C.green }}>{totalRounded >= 0 ? '+' : ''}{formatCurrency(totalRounded)}</span>
         </div>
         <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -1032,7 +1032,7 @@ function UsdProfitModal({
   );
 }
 
-function InvestProfitBackfillModal({
+function InvestPastProfitModal({
   onCancel,
   onConfirm,
 }: {
@@ -1053,7 +1053,7 @@ function InvestProfitBackfillModal({
         onClick={(e) => e.stopPropagation()}
         style={{ width: '100%', maxWidth: 380, backgroundColor: '#fff', borderRadius: 12, padding: 16, boxShadow: '0 4px 24px rgba(0,0,0,0.18)' }}
       >
-        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>补历史收益</div>
+        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>past收益</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div>
             <div style={{ fontSize: 12, color: C.sub, marginBottom: 3 }}>品类</div>
@@ -1066,7 +1066,7 @@ function InvestProfitBackfillModal({
             </select>
           </div>
           <div>
-            <div style={{ fontSize: 12, color: C.sub, marginBottom: 3 }}>补录金额</div>
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 3 }}>past金额</div>
             <AmountInput
               value={amount}
               onChange={setAmount}
@@ -1084,13 +1084,13 @@ function InvestProfitBackfillModal({
             <input
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="例如：清仓基金返场"
+              placeholder="例如：清仓基金收益"
               style={{ width: '100%', border: '1.5px solid #dadce0', borderRadius: 8, padding: '8px 10px', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
             />
           </div>
         </div>
         <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, backgroundColor: '#f8f9fa', color: C.sub, fontSize: 12, lineHeight: 1.5 }}>
-          这笔金额会叠加到该品类所有历史月的累计收益展示和收益率计算，不改变顶部累计盈利。
+          past 是已清仓收益，会叠加到该品类所有历史月的累计收益展示和收益率计算，不改变顶部累计盈利。
         </div>
         <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button onClick={onCancel} style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', cursor: 'pointer', fontSize: 13 }}>取消</button>
@@ -1111,12 +1111,12 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
   const {
     showBreakdown, setShowBreakdown, copyHoldingsFromReconcile,
     breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
-    investProfitBackfills, addInvestProfitBackfill, removeInvestProfitBackfill,
+    investPastProfits, addInvestPastProfit, removeInvestPastProfit,
     getBreakdownMonthlyProfit,
     breakdownRefs, breakdownProfitRefs,
     usdComponents, profitModalKey, setProfitModalKey,
     sharedUsdRate, setSharedUsdRate,
-    backfillModalOpen, setBackfillModalOpen,
+    pastModalOpen, setPastModalOpen,
   } = state;
   return (
     <div>
@@ -1124,11 +1124,11 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
         {showBreakdown && (
           <>
             <button
-              onClick={() => setBackfillModalOpen(true)}
+              onClick={() => setPastModalOpen(true)}
               style={{ fontSize: 11, color: C.orange, border: `1px solid ${C.orange}`, borderRadius: 6, padding: '3px 8px', backgroundColor: '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }}
-              title="给品类累计收益追加一笔全历史补录"
+              title="给品类累计收益添加一笔已清仓 past"
             >
-              补历史收益
+              past收益
             </button>
             <button
               onClick={copyHoldingsFromReconcile}
@@ -1153,19 +1153,19 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
             <tr style={{ borderBottom: '1px solid #e8eaed' }}>
               <th style={{ textAlign: 'left', padding: '4px 0', color: C.sub, fontWeight: 500, width: '25%' }}>品类</th>
               <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '25%' }}>持仓金额</th>
-              <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '25%' }}>累计收益</th>
+              <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '25%' }}>now收益</th>
               <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '25%' }}>本月收益</th>
             </tr>
           </thead>
           <tbody>
             {INVEST_KEYS.map((k, i) => {
               const monthlyProfit = getBreakdownMonthlyProfit(k);
-              const backfillTotal = getInvestProfitBackfillTotal(investProfitBackfills, k);
+              const pastTotal = getPastProfitTotal(investPastProfits, k);
               const rawProfit = parseFloat(breakdownProfit[k] ?? '');
-              const adjustedProfit = Number.isFinite(rawProfit)
-                ? rawProfit + backfillTotal
-                : backfillTotal !== 0
-                  ? backfillTotal
+              const totalProfit = Number.isFinite(rawProfit)
+                ? rawProfit + pastTotal
+                : pastTotal !== 0
+                  ? pastTotal
                   : null;
               return (
                 <tr key={k} style={{ borderBottom: '1px solid #f1f3f4' }}>
@@ -1194,7 +1194,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                           type="button"
                           onClick={() => setProfitModalKey(k)}
                           style={{ width: '100%', border: 'none', borderBottom: `1px dashed ${C.blue}`, background: 'transparent', cursor: 'pointer', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0', color: C.blue }}
-                          title={backfillTotal !== 0 ? `原始值；展示累计含补录 ${backfillTotal >= 0 ? '+' : ''}${Math.round(backfillTotal)}` : '点击拆分为人民币 + 汇率 × 美元'}
+                          title={pastTotal !== 0 ? `now 值；累计 = past + now = ${totalProfit !== null ? Math.round(totalProfit) : 0}` : '点击拆分 now 为人民币 + 汇率 × 美元'}
                         >
                           {breakdownProfit[k] && breakdownProfit[k] !== '0' && breakdownProfit[k] !== '' ? breakdownProfit[k] : '—'}
                         </button>
@@ -1212,10 +1212,10 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                           style={{ width: '100%', border: 'none', borderBottom: `1px solid ${C.blue}`, outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0', color: C.blue }}
                         />
                       )}
-                      {backfillTotal !== 0 && (
+                      {pastTotal !== 0 && (
                         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4, fontSize: 10, color: C.orange, fontVariantNumeric: 'tabular-nums' }}>
-                          <span style={{ backgroundColor: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 4, padding: '0 4px', fontWeight: 700 }}>含补</span>
-                          <span>{adjustedProfit !== null ? `${adjustedProfit >= 0 ? '+' : ''}${Math.round(adjustedProfit)}` : ''}</span>
+                          <span style={{ backgroundColor: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 4, padding: '0 4px', fontWeight: 700 }}>past</span>
+                          <span>{totalProfit !== null ? `累计${totalProfit >= 0 ? '+' : ''}${Math.round(totalProfit)}` : ''}</span>
                         </div>
                       )}
                     </div>
@@ -1229,17 +1229,17 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
           </tbody>
         </table>
       )}
-      {showBreakdown && investProfitBackfills.length > 0 && (
+      {showBreakdown && investPastProfits.length > 0 && (
         <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {investProfitBackfills.map((item) => (
+          {investPastProfits.map((item) => (
             <div key={item.id} style={{ display: 'grid', gridTemplateColumns: '54px 72px 1fr auto', gap: 6, alignItems: 'center', fontSize: 11, color: C.sub, backgroundColor: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '6px 8px' }}>
               <span style={{ fontWeight: 700, color: C.orange }}>{investMeta[item.investKey].label}</span>
               <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: item.amount >= 0 ? C.red : C.green }}>{item.amount >= 0 ? '+' : ''}{Math.round(item.amount)}</span>
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.note || item.createdAt.slice(0, 10)}</span>
               <button
                 type="button"
-                onClick={() => removeInvestProfitBackfill(item.id)}
-                title="删除这笔历史收益补录"
+                onClick={() => removeInvestPastProfit(item.id)}
+                title="删除这笔 past 收益"
                 style={{ border: 'none', background: 'transparent', color: C.red, cursor: 'pointer', fontSize: 13, padding: '0 2px' }}
               >
                 ×
@@ -1248,12 +1248,12 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
           ))}
         </div>
       )}
-      {backfillModalOpen && (
-        <InvestProfitBackfillModal
-          onCancel={() => setBackfillModalOpen(false)}
+      {pastModalOpen && (
+        <InvestPastProfitModal
+          onCancel={() => setPastModalOpen(false)}
           onConfirm={(input) => {
-            addInvestProfitBackfill(input);
-            setBackfillModalOpen(false);
+            addInvestPastProfit(input);
+            setPastModalOpen(false);
           }}
         />
       )}
@@ -1736,14 +1736,14 @@ function MonthRow({
   record,
   prev,
   allRecords,
-  investProfitBackfills,
+  investPastProfits,
   onJumpToMonth,
   expenseItems,
 }: {
   record: MonthlyRecord;
   prev?: MonthlyRecord;
   allRecords: MonthlyRecord[];
-  investProfitBackfills: InvestProfitBackfill[];
+  investPastProfits: InvestPastProfit[];
   onJumpToMonth?: (ym: string) => void;
   expenseItems?: BillExpenseMonth;
 }) {
@@ -1822,12 +1822,16 @@ function MonthRow({
                     </tr>
                   </thead>
                   <tbody>
-                    {INVEST_KEYS.filter((k) => (record.investBreakdown![k] ?? 0) > 0).map((k) => {
+                    {INVEST_KEYS.filter((k) => {
+                      const cur = record.investBreakdown![k] ?? 0;
+                      const rawProfit = record.investBreakdownProfit?.[k];
+                      return cur > 0 || getPastProfitTotal(investPastProfits, k) !== 0 || (rawProfit !== undefined && rawProfit !== null && rawProfit !== 0);
+                    }).map((k) => {
                       const cur    = record.investBreakdown![k] ?? 0;
                       const rawProfit = record.investBreakdownProfit?.[k] ?? null;
-                      const backfillTotal = getInvestProfitBackfillTotal(investProfitBackfills, k);
-                      const profit = getAdjustedInvestProfit(record, k, investProfitBackfills);
-                      const prevProfit = getAdjustedInvestProfit(prev, k, investProfitBackfills);
+                      const pastTotal = getPastProfitTotal(investPastProfits, k);
+                      const profit = getTotalInvestProfit(record, k, investPastProfits);
+                      const prevProfit = getTotalInvestProfit(prev, k, investPastProfits);
                       const monthlyProfit = (profit !== null && prevProfit !== null) ? profit - prevProfit : null;
                       const rate = (monthlyProfit !== null && cur > 0) ? monthlyProfit / cur : null;
                       return (
@@ -1841,7 +1845,7 @@ function MonthRow({
                             {profit !== null ? (
                               <>
                                 <div>{profit >= 0 ? '+' : ''}{Math.round(profit)}</div>
-                                {backfillTotal !== 0 && <div title={`原始 ${rawProfit ?? 0}，补录 ${backfillTotal >= 0 ? '+' : ''}${Math.round(backfillTotal)}`} style={{ fontSize: 10, lineHeight: 1.1, color: C.orange }}>含补</div>}
+                                {pastTotal !== 0 && <div title={`now ${rawProfit ?? 0}，past ${pastTotal >= 0 ? '+' : ''}${Math.round(pastTotal)}`} style={{ fontSize: 10, lineHeight: 1.1, color: C.orange }}>past</div>}
                               </>
                             ) : '—'}
                           </td>
@@ -1958,7 +1962,7 @@ function YearSection({
   year,
   recs,
   allRecords,
-  investProfitBackfills,
+  investPastProfits,
   yearProfitMode,
   onToggleYearProfitMode,
   onJumpToMonth,
@@ -1967,7 +1971,7 @@ function YearSection({
   year: string;
   recs: MonthlyRecord[];
   allRecords: MonthlyRecord[];
-  investProfitBackfills: InvestProfitBackfill[];
+  investPastProfits: InvestPastProfit[];
   yearProfitMode: YearProfitMode;
   onToggleYearProfitMode: () => void;
   onJumpToMonth?: (ym: string) => void;
@@ -2038,7 +2042,7 @@ function YearSection({
           {hasMonths ? (
             recs.map(r => {
               const prevRecord = allRecords.find((x) => x.yearMonth === prevYearMonth(r.yearMonth));
-              return <MonthRow key={r.yearMonth} record={r} prev={prevRecord} allRecords={allRecords} investProfitBackfills={investProfitBackfills} onJumpToMonth={onJumpToMonth} expenseItems={expenseItemsByMonth?.[r.yearMonth]} />;
+              return <MonthRow key={r.yearMonth} record={r} prev={prevRecord} allRecords={allRecords} investPastProfits={investPastProfits} onJumpToMonth={onJumpToMonth} expenseItems={expenseItemsByMonth?.[r.yearMonth]} />;
             })
           ) : (
             <div style={{ padding: '10px 14px', backgroundColor: '#fafafa', borderRadius: 10 }}>
@@ -2085,7 +2089,7 @@ export default function CalendarPage() {
   // ── Stores ──
   const { tagMap, setTag, toggleTag, countByTag, bulkFillSchool, confirmedExpenses, setConfirmedExpenseScope, markConfirmedExpenseZero, clearConfirmedExpenseSelection } = useCalendarStore();
   const { config, setConfig } = useConfigStore();
-  const { records, investProfitBackfills, upsert, updateDayCounts } = useMonthlyStore();
+  const { records, investPastProfits, upsert, updateDayCounts } = useMonthlyStore();
   const { tagStats: billTagStats, aggregates: billAggregates, expenseItems: billExpenseItems, updateFromImport: billUpdateFromImport } = useBillDetailStore();
   const { overrides: expenseScopeOverrides, setOverride: setExpenseScopeOverride } = useExpenseScopeOverrideStore();
   const { tripTags, tripSplits, setTripTag, clearTripTag, toggleTripSplit } = useTripStore();
@@ -3029,7 +3033,7 @@ export default function CalendarPage() {
                 year={yr}
                 recs={recs}
                 allRecords={records}
-                investProfitBackfills={investProfitBackfills}
+                investPastProfits={investPastProfits}
                 yearProfitMode={yearProfitMode}
                 onToggleYearProfitMode={toggleYearProfitMode}
                 onJumpToMonth={handleJumpToMonth}

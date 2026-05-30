@@ -20,7 +20,7 @@ import type { AccountSnapshot, DailyTag, InvestAllocTargets, InvestKey, TagKind 
 import { useHolidayYears } from '../utils/holidays';
 import { tryEvalFormula } from '../utils/formula';
 import { dateLabel, resolveIncomeForMonth, type ResolvedIncomeItem } from '../utils/payroll';
-import { getAdjustedInvestProfit, getInvestProfitBackfillTotal } from '../utils/investRecords';
+import { getPastProfitTotal, getTotalInvestProfit } from '../utils/investRecords';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', sub: '#5f6368', orange: '#e8710a' };
 const RESERVABLE_HOLDING_KEY: InvestKey = 'longBond';
@@ -260,7 +260,7 @@ export default function ReconcilePage() {
   const navigate = useNavigate();
   const { current, updateAccounts, updateTransfers, updateHoldings, updateHoldingReserves, saveSnapshot } = useSnapshotStore();
   const { config, setConfig } = useConfigStore();
-  const { records, investProfitBackfills } = useMonthlyStore();
+  const { records, investPastProfits } = useMonthlyStore();
   const { tagMap, confirmedExpenses } = useCalendarStore();
   const { expenseItems } = useBillDetailStore();
   const { overrides: expenseScopeOverrides } = useExpenseScopeOverrideStore();
@@ -482,27 +482,27 @@ export default function ReconcilePage() {
       : DEFAULT_CONFIG.investAllocTargets,
     [config.investAllocTargets, investKeys],
   );
-  // 各品类最新一期累计收益；按品类叠加全历史补录
+  // 各品类最新一期累计收益；按品类叠加全历史 past
   const latestBreakdownProfit = useMemo(
     () => {
       const sorted = [...records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth));
-      const out: Partial<Record<InvestKey, { profit: number; backfillTotal: number; yearMonth?: string }>> = {};
+      const out: Partial<Record<InvestKey, { profit: number; pastTotal: number; yearMonth?: string }>> = {};
       for (const k of INVEST_TARGET_KEYS) {
-        const backfillTotal = getInvestProfitBackfillTotal(investProfitBackfills, k);
+        const pastTotal = getPastProfitTotal(investPastProfits, k);
         const record = sorted.find((r) => {
           const profit = r.investBreakdownProfit?.[k];
           return profit !== undefined && profit !== null;
         });
-        if (!record && backfillTotal === 0) continue;
+        if (!record && pastTotal === 0) continue;
         out[k] = {
-          profit: getAdjustedInvestProfit(record, k, investProfitBackfills) ?? backfillTotal,
-          backfillTotal,
+          profit: getTotalInvestProfit(record, k, investPastProfits) ?? pastTotal,
+          pastTotal,
           yearMonth: record?.yearMonth,
         };
       }
       return out;
     },
-    [records, investProfitBackfills],
+    [records, investPastProfits],
   );
   const fallbackUsdRate = useMemo(
     () => [...records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth))
@@ -1880,7 +1880,7 @@ export default function ReconcilePage() {
               const cur = current.investHoldings[k];
               const profitInfo = latestBreakdownProfit[k] ?? null;
               const profit = profitInfo?.profit ?? null;
-              const backfillTotal = profitInfo?.backfillTotal ?? 0;
+              const pastTotal = profitInfo?.pastTotal ?? 0;
               const costBasis = profit !== null ? cur - profit : null;
               const profitRate = costBasis !== null && costBasis > 0 ? profit! / costBasis : null;
               const suggested = Math.round(rebalanceSuggested[k]);
@@ -1947,7 +1947,7 @@ export default function ReconcilePage() {
                   </td>
                   {/* 累计收益率 */}
                   <td
-                    title={backfillTotal !== 0 ? `${profitInfo?.yearMonth ?? '历史'} 累计收益含补录 ${backfillTotal >= 0 ? '+' : ''}${Math.round(backfillTotal)}` : undefined}
+                    title={pastTotal !== 0 ? `${profitInfo?.yearMonth ?? '历史'} 累计收益含 past ${pastTotal >= 0 ? '+' : ''}${Math.round(pastTotal)}` : undefined}
                     style={{ padding: '8px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
                   >
                     {profitRate !== null ? (
@@ -1955,14 +1955,14 @@ export default function ReconcilePage() {
                         <div style={{ fontSize: 12, fontWeight: 600, color: profitRate >= 0 ? C.red : C.green }}>
                           {profitRate >= 0 ? '+' : ''}{(profitRate * 100).toFixed(1)}%
                         </div>
-                        {backfillTotal !== 0 && <div style={{ fontSize: 10, color: C.orange, lineHeight: 1.1 }}>含补</div>}
+                        {pastTotal !== 0 && <div style={{ fontSize: 10, color: C.orange, lineHeight: 1.1 }}>past</div>}
                       </div>
                     ) : profit !== null ? (
                       <div>
                         <div style={{ fontSize: 12, fontWeight: 600, color: profit >= 0 ? C.red : C.green }}>
                           {profit >= 0 ? '+' : ''}¥{Math.round(profit)}
                         </div>
-                        {backfillTotal !== 0 && <div style={{ fontSize: 10, color: C.orange, lineHeight: 1.1 }}>含补</div>}
+                        {pastTotal !== 0 && <div style={{ fontSize: 10, color: C.orange, lineHeight: 1.1 }}>past</div>}
                       </div>
                     ) : (
                       <span style={{ fontSize: 11, color: C.sub }}>—</span>

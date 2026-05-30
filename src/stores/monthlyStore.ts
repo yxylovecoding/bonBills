@@ -1,10 +1,10 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { InvestKey, InvestProfitBackfill, MonthlyRecord } from '../models/types';
+import type { InvestKey, InvestPastProfit, MonthlyRecord } from '../models/types';
 import { normalizeBillYearMonth } from '../utils/importBill';
 
 const INITIAL_RECORDS: MonthlyRecord[] = [];
-const INITIAL_BACKFILLS: InvestProfitBackfill[] = [];
+const INITIAL_PAST_PROFITS: InvestPastProfit[] = [];
 const INVEST_KEYS = ['us', 'eu', 'asia', 'a', 'longBond', 'usBond', 'gold'] as const;
 const INVEST_KEY_SET = new Set<string>(INVEST_KEYS);
 
@@ -17,17 +17,17 @@ interface DayCounts {
 
 interface MonthlyStore {
   records: MonthlyRecord[];
-  investProfitBackfills: InvestProfitBackfill[];
+  investPastProfits: InvestPastProfit[];
   upsert: (record: MonthlyRecord) => void;
   updateDayCounts: (yearMonth: string, counts: DayCounts) => void;
   getByYearMonth: (ym: string) => MonthlyRecord | undefined;
-  addInvestProfitBackfill: (input: { investKey: InvestKey; amount: number; note?: string }) => void;
-  removeInvestProfitBackfill: (id: string) => void;
+  addInvestPastProfit: (input: { investKey: InvestKey; amount: number; note?: string }) => void;
+  removeInvestPastProfit: (id: string) => void;
 }
 
-function makeInvestProfitBackfillId() {
+function makeInvestPastProfitId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
-  return `profit_bf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return `profit_past_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function mergeMonthlyRecord(a: MonthlyRecord | undefined, b: MonthlyRecord): MonthlyRecord {
@@ -58,24 +58,24 @@ export function normalizeMonthlyRecords(input: unknown): MonthlyRecord[] {
   return [...byMonth.values()].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth));
 }
 
-export function normalizeInvestProfitBackfills(input: unknown): InvestProfitBackfill[] {
+export function normalizeInvestPastProfits(input: unknown): InvestPastProfit[] {
   if (!Array.isArray(input)) return [];
   return input
-    .map((item): InvestProfitBackfill | null => {
+    .map((item): InvestPastProfit | null => {
       if (!item || typeof item !== 'object') return null;
-      const raw = item as Partial<InvestProfitBackfill>;
+      const raw = item as Partial<InvestPastProfit>;
       const investKey = raw.investKey;
       const amount = Number(raw.amount);
       if (!investKey || !INVEST_KEY_SET.has(investKey) || !Number.isFinite(amount) || amount === 0) return null;
       return {
-        id: String(raw.id || makeInvestProfitBackfillId()),
+        id: String(raw.id || makeInvestPastProfitId()),
         investKey: investKey as InvestKey,
         amount,
         note: typeof raw.note === 'string' && raw.note.trim() ? raw.note.trim() : undefined,
         createdAt: typeof raw.createdAt === 'string' && raw.createdAt ? raw.createdAt : new Date().toISOString(),
       };
     })
-    .filter((item): item is InvestProfitBackfill => item !== null)
+    .filter((item): item is InvestPastProfit => item !== null)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
@@ -83,7 +83,7 @@ export const useMonthlyStore = create<MonthlyStore>()(
   persist(
     (set, get) => ({
       records: INITIAL_RECORDS,
-      investProfitBackfills: INITIAL_BACKFILLS,
+      investPastProfits: INITIAL_PAST_PROFITS,
       upsert: (record) =>
         set((s) => {
           const idx = s.records.findIndex((r) => r.yearMonth === record.yearMonth);
@@ -103,22 +103,22 @@ export const useMonthlyStore = create<MonthlyStore>()(
           return { records: next };
         }),
       getByYearMonth: (ym) => get().records.find((r) => r.yearMonth === ym),
-      addInvestProfitBackfill: ({ investKey, amount, note }) =>
+      addInvestPastProfit: ({ investKey, amount, note }) =>
         set((s) => ({
-          investProfitBackfills: [
+          investPastProfits: [
             {
-              id: makeInvestProfitBackfillId(),
+              id: makeInvestPastProfitId(),
               investKey,
               amount,
               note: note?.trim() || undefined,
               createdAt: new Date().toISOString(),
             },
-            ...s.investProfitBackfills,
+            ...s.investPastProfits,
           ],
         })),
-      removeInvestProfitBackfill: (id) =>
+      removeInvestPastProfit: (id) =>
         set((s) => ({
-          investProfitBackfills: s.investProfitBackfills.filter((item) => item.id !== id),
+          investPastProfits: s.investPastProfits.filter((item) => item.id !== id),
         })),
     }),
     {
@@ -126,19 +126,20 @@ export const useMonthlyStore = create<MonthlyStore>()(
       version: 1,
       migrate: (persistedState) => {
         if (!persistedState || typeof persistedState !== 'object') return persistedState;
+        const persisted = persistedState as Partial<MonthlyStore> & { investProfitBackfills?: unknown };
         return {
-          ...(persistedState as Partial<MonthlyStore>),
-          records: normalizeMonthlyRecords((persistedState as Partial<MonthlyStore>).records),
-          investProfitBackfills: normalizeInvestProfitBackfills((persistedState as Partial<MonthlyStore>).investProfitBackfills),
+          ...persisted,
+          records: normalizeMonthlyRecords(persisted.records),
+          investPastProfits: normalizeInvestPastProfits(persisted.investPastProfits ?? persisted.investProfitBackfills),
         };
       },
       merge: (persistedState, currentState) => {
-        const persisted = (persistedState ?? {}) as Partial<MonthlyStore>;
+        const persisted = (persistedState ?? {}) as Partial<MonthlyStore> & { investProfitBackfills?: unknown };
         return {
           ...currentState,
           ...persisted,
           records: normalizeMonthlyRecords(persisted.records ?? currentState.records),
-          investProfitBackfills: normalizeInvestProfitBackfills(persisted.investProfitBackfills ?? currentState.investProfitBackfills),
+          investPastProfits: normalizeInvestPastProfits(persisted.investPastProfits ?? persisted.investProfitBackfills ?? currentState.investPastProfits),
         };
       },
     },
