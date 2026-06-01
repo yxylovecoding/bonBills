@@ -1031,7 +1031,7 @@ export default function ReconcilePage() {
     : 0;
   const livingNeedForTransfer = Math.max(
     monthlyExpenseForTransfer
-      - (creditInThisMonth ? repaymentNeedForTransfer : 0)
+      - repaymentShortfallForTransfer
       - budget.needs.campusCard,
     0,
   );
@@ -1616,7 +1616,7 @@ export default function ReconcilePage() {
               key: 'living',
               rec: livingShortfallForTransfer,
               calc: creditInThisMonth
-                ? `月需¥${fmtInt(livingNeedForTransfer)}（月内支出¥${fmtInt(monthlyExpenseForTransfer)} − 还款¥${fmtInt(repaymentNeedForTransfer)} − 校园卡¥${fmtInt(budget.needs.campusCard)}）− 余¥${fmtInt(current.accounts.livingBank ?? 0)}`
+                ? `月需¥${fmtInt(livingNeedForTransfer)}（月内支出¥${fmtInt(monthlyExpenseForTransfer)} − 还款¥${fmtInt(repaymentShortfallForTransfer)} − 校园卡¥${fmtInt(budget.needs.campusCard)}）− 余¥${fmtInt(current.accounts.livingBank ?? 0)}`
                 : `月需¥${fmtInt(livingNeedForTransfer)}（月内支出¥${fmtInt(monthlyExpenseForTransfer)} − 校园卡¥${fmtInt(budget.needs.campusCard)}）− 余¥${fmtInt(current.accounts.livingBank ?? 0)}`,
             },
             {
