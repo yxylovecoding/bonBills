@@ -1756,6 +1756,20 @@ function MonthRow({
   const investTotalForRate = getInvestTotalForRate(record.yearMonth, record.investTotal, allRecords);
   const investMonthly = investIncome !== null && investTotalForRate !== null ? investIncome / investTotalForRate.value : null;
 
+  // 异常支出：缺少 / 同时多个核心标签的明细。提前算出，供折叠头部与展开详情共用
+  const ABNORMAL_CORE_TAGS = ['消费', '波动生活', '周期生活'];
+  const noTagExpenses: BillExpenseItem[] = [];
+  const multiTagExpenses: BillExpenseItem[] = [];
+  if (expenseItems) {
+    for (const it of expenseItems) {
+      const tags = it.tags.split(',').map((t) => t.trim()).filter(Boolean);
+      const matched = ABNORMAL_CORE_TAGS.filter((c) => tags.includes(c));
+      if (matched.length === 0) noTagExpenses.push(it);
+      else if (matched.length > 1) multiTagExpenses.push(it);
+    }
+  }
+  const hasAbnormalExpense = noTagExpenses.length > 0 || multiTagExpenses.length > 0;
+
   return (
     <div style={{ marginBottom: 4 }}>
       <button
@@ -1770,6 +1784,7 @@ function MonthRow({
         <span style={{ fontSize: 13, fontWeight: 600, color: open ? C.blue : '#202124' }}>
           {record.yearMonth.slice(2)}
           {expenseMismatch && <span title={`三项之和 ${formatCurrency(expenseSum)} ≠ 总支出 ${formatCurrency(record.totalExpense)}`} style={{ marginLeft: 4, color: '#c5221f' }}>⚠️</span>}
+          {hasAbnormalExpense && <span title={`异常支出：缺少核心标签 ${noTagExpenses.length} 笔，多个核心标签 ${multiTagExpenses.length} 笔`} style={{ marginLeft: 4, color: '#c5221f' }}>⚠️</span>}
         </span>
         <span style={{ fontSize: 13, color: C.red,   fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>+{formatCurrency(record.income)}</span>
         <span style={{ fontSize: 13, color: C.green,  fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>-{formatCurrency(record.totalExpense)}</span>
@@ -1863,35 +1878,23 @@ function MonthRow({
               )}
             </div>
           )}
-          {expenseItems && expenseItems.length > 0 && (() => {
-            const CORE = ['消费', '波动生活', '周期生活'];
-            const noTag: BillExpenseItem[] = [];
-            const multiTag: BillExpenseItem[] = [];
-            for (const it of expenseItems) {
-              const tags = it.tags.split(',').map(t => t.trim()).filter(Boolean);
-              const matched = CORE.filter(c => tags.includes(c));
-              if (matched.length === 0) noTag.push(it);
-              else if (matched.length > 1) multiTag.push(it);
-            }
-            if (noTag.length === 0 && multiTag.length === 0) return null;
-            return (
-              <div style={{ borderTop: '1px solid #dbe8fb', paddingTop: 10, marginBottom: 8 }}>
-                <div style={{ fontSize: 12, color: '#c5221f', marginBottom: 6, fontWeight: 600 }}>⚠️ 异常支出</div>
-                {noTag.length > 0 && (
-                  <div style={{ marginBottom: 6 }}>
-                    <div style={{ fontSize: 11, color: C.sub, marginBottom: 2 }}>缺少消费/波动生活/周期生活标签（{noTag.length}）</div>
-                    {noTag.map((it, i) => <ExpenseItemLine key={i} it={it} />)}
-                  </div>
-                )}
-                {multiTag.length > 0 && (
-                  <div>
-                    <div style={{ fontSize: 11, color: C.sub, marginBottom: 2 }}>同时有多个核心标签（{multiTag.length}）</div>
-                    {multiTag.map((it, i) => <ExpenseItemLine key={i} it={it} />)}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
+          {hasAbnormalExpense && (
+            <div style={{ borderTop: '1px solid #dbe8fb', paddingTop: 10, marginBottom: 8 }}>
+              <div style={{ fontSize: 12, color: '#c5221f', marginBottom: 6, fontWeight: 600 }}>⚠️ 异常支出</div>
+              {noTagExpenses.length > 0 && (
+                <div style={{ marginBottom: 6 }}>
+                  <div style={{ fontSize: 11, color: C.sub, marginBottom: 2 }}>缺少消费/波动生活/周期生活标签（{noTagExpenses.length}）</div>
+                  {noTagExpenses.map((it, i) => <ExpenseItemLine key={i} it={it} />)}
+                </div>
+              )}
+              {multiTagExpenses.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 11, color: C.sub, marginBottom: 2 }}>同时有多个核心标签（{multiTagExpenses.length}）</div>
+                  {multiTagExpenses.map((it, i) => <ExpenseItemLine key={i} it={it} />)}
+                </div>
+              )}
+            </div>
+          )}
           {expenseItems && expenseItems.length > 0 && (() => {
             const total = expenseItems.reduce((s, i) => s + i.amount, 0);
             const catMap = new Map<string, BillExpenseItem[]>();
