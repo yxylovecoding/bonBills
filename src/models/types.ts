@@ -108,6 +108,7 @@ export interface MonthlyRecord {
   investBreakdown?: Partial<InvestHoldings>;       // 各品类持仓（月末）
   investBreakdownProfit?: Partial<InvestHoldings>; // 各品类累计收益（月末）
   investProfitComponents?: Partial<Record<'us' | 'usBond', { cny: number; rate: number; usd: number }>>;
+  isBaseline?: boolean;         // 基准月：虽有累计盈利但未真正开始记录，各品类「本月收益」不与之相减
   volatileLife: number;
   periodicLife: number;
   consumption: number;

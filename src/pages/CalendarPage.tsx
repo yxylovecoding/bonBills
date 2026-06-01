@@ -570,6 +570,8 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   const [consumption,  setConsumption]   = useState(String(existing?.consumption   ?? ''));
   const [school,       setSchool]        = useState(String(existing?.school        ?? ''));
   const [accProfit,    setAccProfit]     = useState(String(existing?.accumulatedProfit ?? ''));
+  // 基准月：有累计盈利但未真正开始记录，本月/次月各品类「本月收益」不参与推算
+  const [isBaseline,   setIsBaseline]    = useState(existing?.isBaseline ?? false);
 
   // 自动保存的跳过标志：声明在同步 effect 之前，便于同步时复位
   const isFirstSave = useRef(true);
@@ -676,6 +678,8 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   const investAnnual = investMonthly !== null ? investMonthly * 12 : null;
   const getBreakdownMonthlyProfit = (k: keyof InvestHoldings) => {
     if (!prevRecord) return null;
+    // 本月或上月是基准月（未真正开始记录）时，本月收益无法推算
+    if (isBaseline || prevRecord.isBaseline) return null;
     const profit = nOrNull(breakdownProfit[k]);
     const pastTotal = getPastProfitTotal(investPastProfits, k);
     const totalProfit = profit !== null || pastTotal !== 0 ? (profit ?? 0) + pastTotal : null;
@@ -770,6 +774,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       investBreakdown: hasBreakdown ? bd : undefined,
       investBreakdownProfit: hasBreakdownProfit ? bp : undefined,
       investProfitComponents: buildProfitComponents(),
+      isBaseline: isBaseline || undefined,
       homeDays, travelDays, schoolDays, internDays,
       majorExpenses: majorExpenses.filter((e) => e.name.trim()),
       majorExpensesNote: majorExpensesNote.trim() || undefined,
@@ -777,10 +782,10 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   };
 
   const autoSaveSignature = useMemo(() => JSON.stringify({
-    income, totalExpense, periodicLife, volatileLife, consumption, school, accProfit,
+    income, totalExpense, periodicLife, volatileLife, consumption, school, accProfit, isBaseline,
     majorExpenses, majorExpensesNote, breakdown, breakdownProfit, usdComponents, sharedUsdRate,
   }), [
-    income, totalExpense, periodicLife, volatileLife, consumption, school, accProfit,
+    income, totalExpense, periodicLife, volatileLife, consumption, school, accProfit, isBaseline,
     majorExpenses, majorExpensesNote, breakdown, breakdownProfit, usdComponents, sharedUsdRate,
   ]);
 
@@ -807,7 +812,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   return {
     income, setIncome, totalExpense, setTotalExpense, periodicLife, setPeriodicLife,
     volatileLife, setVolatileLife, consumption, setConsumption, school, setSchool,
-    accProfit, setAccProfit, investTotal,
+    accProfit, setAccProfit, investTotal, isBaseline, setIsBaseline,
     majorExpenses, majorExpensesNote, setMajorExpensesNote, breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
     investPastProfits, addInvestPastProfit, removeInvestPastProfit,
     usdComponents, setUsdComponents, sharedUsdRate, setSharedUsdRate, profitModalKey, setProfitModalKey,
@@ -1117,6 +1122,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
     usdComponents, profitModalKey, setProfitModalKey,
     sharedUsdRate, setSharedUsdRate,
     pastModalOpen, setPastModalOpen,
+    isBaseline, setIsBaseline,
   } = state;
   return (
     <div>
@@ -1228,6 +1234,12 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
             })}
           </tbody>
         </table>
+      )}
+      {showBreakdown && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.sub, marginTop: 8, cursor: 'pointer' }}>
+          <input type="checkbox" checked={isBaseline} onChange={(e) => setIsBaseline(e.target.checked)} style={{ cursor: 'pointer' }} />
+          基准月（有累计盈利但未真正开始记录，本月/次月「本月收益」不参与推算）
+        </label>
       )}
       {showBreakdown && investPastProfits.length > 0 && (
         <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -1847,7 +1859,9 @@ function MonthRow({
                       const pastTotal = getPastProfitTotal(investPastProfits, k);
                       const profit = getTotalInvestProfit(record, k, investPastProfits);
                       const prevProfit = getTotalInvestProfit(prev, k, investPastProfits);
-                      const monthlyProfit = (profit !== null && prevProfit !== null) ? profit - prevProfit : null;
+                      // 本月或上月是基准月（未真正开始记录）时，本月收益无法推算
+                      const monthlyProfit = (record.isBaseline || prev?.isBaseline || profit === null || prevProfit === null)
+                        ? null : profit - prevProfit;
                       const rate = (monthlyProfit !== null && cur > 0) ? monthlyProfit / cur : null;
                       return (
                         <tr key={k} style={{ borderBottom: '1px solid #f5f5f5' }}>
