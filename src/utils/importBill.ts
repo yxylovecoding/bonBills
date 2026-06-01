@@ -78,7 +78,6 @@ const COL_CAT = 3;
 const COL_SUBCAT = 4;
 const COL_ACCOUNT = 5;
 const COL_REIMB_AMT = 8;
-const COL_REFUND_AMT = 9;
 const COL_NOTE = 10;
 const COL_TAGS = 11;
 const COL_OTHER = 16;
@@ -201,11 +200,10 @@ export async function parseBillFile(file: File): Promise<BillParseResult> {
     const yearMonth = date.slice(0, 7);
 
     const type = (cols[COL_TYPE] || '').trim();
-    const grossAmount = parseAmount(cols[COL_AMT] || '0');
+    // C 列「金额」已是退款后的净额，J 列退款金额无需再扣
+    const amount = parseAmount(cols[COL_AMT] || '0');
     // 报销金额列非空 ⇒ 整行跳过（无论待报销 0.00 还是已报销正数，都不算自己实际支出）
     if ((cols[COL_REIMB_AMT] || '').trim()) continue;
-    const refund = parseAmount(cols[COL_REFUND_AMT] || '0');
-    const amount = Math.max(0, grossAmount - refund);
     if (amount === 0) continue;
     if (type !== '支出' && type !== '收入') continue;
 
