@@ -4,9 +4,8 @@ import Card from '../components/Card';
 import StatRow from '../components/StatRow';
 import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
 import { tagMeta, investMeta } from '../data/mockData';
-import { aggregateExpenseItems, parseBillFile, assignExpenseIds, type BillItem, type BillMonthlyAgg, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
-import { mergePossessionsFromBills } from '../utils/autoImportPossessions';
-import { triggerUpload } from '../utils/syncEngine';
+import { aggregateExpenseItems, assignExpenseIds, type BillItem, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
+import { fieldsNeedingRestore, importBillFileIntoStores, recordFromBillAggregate } from '../utils/billImportActions';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useExpenseScopeOverrideStore, resolveExpenseScope, subcategoryKey, type ExpenseScope, type OverrideValue, type OverrideDimension } from '../stores/expenseScopeOverrideStore';
 import { useTripStore } from '../stores/tripStore';
@@ -81,53 +80,9 @@ function currentYearMonth() {
   return `${_NOW.getFullYear()}-${String(_NOW.getMonth() + 1).padStart(2, '0')}`;
 }
 
-function makePossessionImportId() {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
-  return `pos_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
 function prevYearMonth(ym: string) {
   const [y, m] = ym.split('-').map(Number);
   return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
-}
-
-const BILL_CORE_FIELDS: readonly (keyof BillMonthlyAgg)[] = [
-  'income', 'totalExpense', 'periodicLife', 'volatileLife', 'consumption', 'school',
-];
-
-// 按字段判断：MonthlyRecord 上某个核心字段 ≈ 0、但账单聚合那一项有值 → 需要回填。
-// 避免“总收入/总支出 已被写入，但四项细分丢失”这种半空状态被恢复逻辑忽略。
-function fieldsNeedingRestore(record: MonthlyRecord | undefined, a: BillMonthlyAgg): (keyof BillMonthlyAgg)[] {
-  return BILL_CORE_FIELDS.filter((k) => {
-    const recordVal = record ? Math.abs(record[k] ?? 0) : 0;
-    const aggVal = Math.abs(a[k] ?? 0);
-    return recordVal <= 0.01 && aggVal > 0.01;
-  });
-}
-
-function recordFromBillAggregate(yearMonth: string, a: BillMonthlyAgg, prev?: MonthlyRecord): MonthlyRecord {
-  // 仅覆盖账单侧确实有值的字段；已有手填值（或其他来源）的字段保留 prev。
-  const pick = (k: keyof BillMonthlyAgg, fallback: number) =>
-    Math.abs(a[k] ?? 0) > 0.01 ? a[k] : fallback;
-  return {
-    yearMonth,
-    income: pick('income', prev?.income ?? 0),
-    totalExpense: pick('totalExpense', prev?.totalExpense ?? 0),
-    periodicLife: pick('periodicLife', prev?.periodicLife ?? 0),
-    volatileLife: pick('volatileLife', prev?.volatileLife ?? 0),
-    consumption: pick('consumption', prev?.consumption ?? 0),
-    school: pick('school', prev?.school ?? 0),
-    accumulatedProfit: prev?.accumulatedProfit ?? 0,
-    investTotal: prev?.investTotal ?? 0,
-    investBreakdown: prev?.investBreakdown,
-    investBreakdownProfit: prev?.investBreakdownProfit,
-    investProfitComponents: prev?.investProfitComponents,
-    homeDays: prev?.homeDays ?? 0,
-    travelDays: prev?.travelDays ?? 0,
-    schoolDays: prev?.schoolDays,
-    internDays: prev?.internDays,
-    majorExpenses: prev?.majorExpenses ?? [],
-    majorExpensesNote: prev?.majorExpensesNote,
-  };
 }
 
 // ── 本地/共享分类规则弹窗 ────────────────────────────────────────
@@ -2107,7 +2062,7 @@ export default function CalendarPage() {
   const { tagMap, setTag, toggleTag, countByTag, bulkFillSchool, confirmedExpenses, setConfirmedExpenseScope, markConfirmedExpenseZero, clearConfirmedExpenseSelection } = useCalendarStore();
   const { config, setConfig } = useConfigStore();
   const { records, investPastProfits, upsert, updateDayCounts } = useMonthlyStore();
-  const { tagStats: billTagStats, aggregates: billAggregates, expenseItems: billExpenseItems, updateFromImport: billUpdateFromImport } = useBillDetailStore();
+  const { tagStats: billTagStats, aggregates: billAggregates, expenseItems: billExpenseItems } = useBillDetailStore();
   const { overrides: expenseScopeOverrides, setOverride: setExpenseScopeOverride } = useExpenseScopeOverrideStore();
   const { tripTags, tripSplits, setTripTag, clearTripTag, toggleTripSplit } = useTripStore();
   const {
@@ -2327,35 +2282,10 @@ export default function CalendarPage() {
   const [expandedTag, setExpandedTag] = useState<null | 'eat' | 'red' | 'black'>(null);
   const [billImportMsg, setBillImportMsg] = useState<string>('');
   const billFileRef = useRef<HTMLInputElement>(null);
-  const [billDragOver, setBillDragOver] = useState(false);
   const importBillFromFile = async (file: File) => {
     try {
-      const { tagStats, aggregates, expenseItems } = await parseBillFile(file);
-      billUpdateFromImport(tagStats, expenseItems, aggregates);
-      const possessionStore = usePossessionStore.getState();
-      const possessionImport = mergePossessionsFromBills({
-        expenseItems,
-        tagMap,
-        overrides: expenseScopeOverrides,
-        items: possessionStore.items,
-        ignoredBillItemIds: possessionStore.ignoredBillItemIds,
-        tagCategory: possessionStore.tagCategory,
-        makeId: makePossessionImportId,
-        today,
-      });
-      if (possessionImport.changed) {
-        possessionStore.applyAutoImportedItems(possessionImport.items);
-      }
-      const existing = useMonthlyStore.getState().records;
-      let updated = 0;
-      for (const ym of Object.keys(aggregates)) {
-        const a = aggregates[ym];
-        const prev = existing.find((r) => r.yearMonth === ym);
-        upsert(recordFromBillAggregate(ym, a, prev));
-        updated += 1;
-      }
-      setBillImportMsg(`已导入 ${updated} 个月记录${possessionImport.importedCount > 0 ? ` · ${possessionImport.importedCount} 个物品动作` : ''} · ${file.name}`);
-      triggerUpload();
+      const result = await importBillFileIntoStores(file);
+      setBillImportMsg(`已导入 ${result.updatedMonths} 个月记录${result.importedPossessions > 0 ? ` · ${result.importedPossessions} 个物品动作` : ''} · ${result.fileName}`);
     } catch (err) {
       setBillImportMsg(`导入失败：${err instanceof Error ? err.message : String(err)}`);
     }
@@ -2365,36 +2295,6 @@ export default function CalendarPage() {
     if (file) await importBillFromFile(file);
     if (billFileRef.current) billFileRef.current.value = '';
   };
-  const dragCounter = useRef(0);
-  useEffect(() => {
-    const onEnter = (e: DragEvent) => {
-      if (!e.dataTransfer?.types.includes('Files')) return;
-      dragCounter.current++;
-      if (dragCounter.current === 1) setBillDragOver(true);
-    };
-    const onLeave = () => {
-      dragCounter.current--;
-      if (dragCounter.current === 0) setBillDragOver(false);
-    };
-    const onOver = (e: DragEvent) => { e.preventDefault(); };
-    const onDrop = async (e: DragEvent) => {
-      e.preventDefault();
-      dragCounter.current = 0;
-      setBillDragOver(false);
-      const file = e.dataTransfer?.files?.[0];
-      if (file) await importBillFromFile(file);
-    };
-    document.addEventListener('dragenter', onEnter);
-    document.addEventListener('dragleave', onLeave);
-    document.addEventListener('dragover', onOver);
-    document.addEventListener('drop', onDrop);
-    return () => {
-      document.removeEventListener('dragenter', onEnter);
-      document.removeEventListener('dragleave', onLeave);
-      document.removeEventListener('dragover', onOver);
-      document.removeEventListener('drop', onDrop);
-    };
-  }, []);
   const pickerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!pickerOpen) return;
@@ -2468,13 +2368,6 @@ export default function CalendarPage() {
   return (
     <div>
       <input ref={billFileRef} type="file" accept=".xls,.xlsx,.csv" style={{ display: 'none' }} onChange={handleBillFile} />
-      {billDragOver && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 999, backgroundColor: 'rgba(26,115,232,0.12)', border: '3px dashed #1a73e8', borderRadius: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-          <div style={{ backgroundColor: '#fff', borderRadius: 12, padding: '20px 32px', fontSize: 16, fontWeight: 600, color: '#1a73e8', boxShadow: '0 4px 20px rgba(0,0,0,0.12)' }}>
-            📥 松手导入账单
-          </div>
-        </div>
-      )}
       {/* 页头 + 胶囊切换 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '0 0 16px' }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>

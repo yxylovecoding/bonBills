@@ -1,0 +1,83 @@
+import { useEffect, useRef, useState } from 'react';
+import { importBillFileIntoStores } from '../utils/billImportActions';
+
+const C = { blue: '#1a73e8', red: '#ea4335', sub: '#5f6368' };
+
+function isFileDrag(e: DragEvent) {
+  return !!e.dataTransfer?.types.includes('Files');
+}
+
+export default function BillDropImporter() {
+  const dragCounter = useRef(0);
+  const clearTimer = useRef<number | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [message, setMessage] = useState('');
+  const [failed, setFailed] = useState(false);
+
+  const showMessage = (text: string, isFailed = false) => {
+    setMessage(text);
+    setFailed(isFailed);
+    if (clearTimer.current) window.clearTimeout(clearTimer.current);
+    clearTimer.current = window.setTimeout(() => setMessage(''), 4200);
+  };
+
+  useEffect(() => {
+    const onEnter = (e: DragEvent) => {
+      if (!isFileDrag(e)) return;
+      dragCounter.current += 1;
+      if (dragCounter.current === 1) setDragOver(true);
+    };
+    const onLeave = () => {
+      dragCounter.current = Math.max(0, dragCounter.current - 1);
+      if (dragCounter.current === 0) setDragOver(false);
+    };
+    const onOver = (e: DragEvent) => {
+      if (!isFileDrag(e)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    };
+    const onDrop = async (e: DragEvent) => {
+      if (!isFileDrag(e)) return;
+      e.preventDefault();
+      dragCounter.current = 0;
+      setDragOver(false);
+      const file = e.dataTransfer?.files?.[0];
+      if (!file) return;
+      try {
+        const result = await importBillFileIntoStores(file);
+        showMessage(`已导入 ${result.updatedMonths} 个月记录${result.importedPossessions > 0 ? ` · ${result.importedPossessions} 个物品动作` : ''} · ${result.fileName}`);
+      } catch (err) {
+        showMessage(`导入失败：${err instanceof Error ? err.message : String(err)}`, true);
+      }
+    };
+
+    document.addEventListener('dragenter', onEnter);
+    document.addEventListener('dragleave', onLeave);
+    document.addEventListener('dragover', onOver);
+    document.addEventListener('drop', onDrop);
+    return () => {
+      document.removeEventListener('dragenter', onEnter);
+      document.removeEventListener('dragleave', onLeave);
+      document.removeEventListener('dragover', onOver);
+      document.removeEventListener('drop', onDrop);
+      if (clearTimer.current) window.clearTimeout(clearTimer.current);
+    };
+  }, []);
+
+  return (
+    <>
+      {dragOver && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 999, backgroundColor: 'rgba(26,115,232,0.12)', border: '3px dashed #1a73e8', borderRadius: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+          <div style={{ backgroundColor: '#fff', borderRadius: 12, padding: '20px 32px', fontSize: 16, fontWeight: 600, color: C.blue, boxShadow: '0 4px 20px rgba(0,0,0,0.12)' }}>
+            松手导入账单
+          </div>
+        </div>
+      )}
+      {message && (
+        <div style={{ position: 'fixed', left: '50%', bottom: 84, transform: 'translateX(-50%)', zIndex: 1000, maxWidth: 'calc(100vw - 32px)', width: 360, borderRadius: 10, padding: '10px 12px', backgroundColor: '#fff', color: failed ? C.red : C.sub, boxShadow: '0 6px 24px rgba(0,0,0,0.16)', fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>
+          {message}
+        </div>
+      )}
+    </>
+  );
+}

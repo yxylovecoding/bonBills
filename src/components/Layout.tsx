@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom';
 import AutoPossessionImporter from './AutoPossessionImporter';
+import BillDropImporter from './BillDropImporter';
 import Nav from './Nav';
 import SyncIndicator from './SyncIndicator';
 
@@ -10,6 +11,7 @@ export default function Layout() {
     >
       <SyncIndicator />
       <AutoPossessionImporter />
+      <BillDropImporter />
       <div
         style={{
           maxWidth: 480,

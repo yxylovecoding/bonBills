@@ -251,10 +251,10 @@ type ReconcileMode = 'monthStart' | 'monthMiddle';
 interface BudgetDetailItem { icon: string; label: string; amount: number; note?: string }
 
 const RECONCILE_MODES: { key: ReconcileMode; label: string; hint: string }[] = [
-  { key: 'monthStart', label: '月初', hint: '1号' },
+  { key: 'monthStart', label: '月初', hint: '1-13号' },
   { key: 'monthMiddle', label: '月中', hint: '11/21' },
 ];
-const defaultReconcileMode = (date: Date): ReconcileMode => (date.getDate() === 1 ? 'monthStart' : 'monthMiddle');
+const defaultReconcileMode = (date: Date): ReconcileMode => (date.getDate() >= 1 && date.getDate() <= 13 ? 'monthStart' : 'monthMiddle');
 
 export default function ReconcilePage() {
   const navigate = useNavigate();
