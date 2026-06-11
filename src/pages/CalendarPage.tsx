@@ -630,9 +630,31 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       });
     }
   };
-  const transferNowToPast = (input: { investKey: InvestKey; amount: number; note?: string; effectiveFrom?: string }) => {
-    addInvestPastProfit({ ...input, effectiveFrom: input.effectiveFrom ?? yearMonth });
-    adjustNowProfit(input.investKey, -input.amount);
+  // 美元品类：保留 now 的「人民币 + 汇率 × 美元」拆分，按美元/人民币分别扣减
+  const deductNowUsd = (key: 'us' | 'usBond', part: { cny: number; rate: number; usd: number }) => {
+    const existing = usdComponents[key];
+    if (!existing) {
+      // now 未拆分美元时，回退为按人民币总额扣减
+      adjustNowProfit(key, -(part.cny + part.rate * part.usd));
+      return;
+    }
+    const baseCny = parseFloat(existing.cny ?? '') || 0;
+    const baseUsd = parseFloat(existing.usd ?? '') || 0;
+    const rate = part.rate || (parseFloat(existing.rate ?? '') || 0);
+    const nextCny = Math.round((baseCny - part.cny) * 100) / 100;
+    const nextUsd = Math.round((baseUsd - part.usd) * 100) / 100;
+    const total = Math.round((nextCny + rate * nextUsd) * 100) / 100;
+    setUsdComponents((p) => ({ ...p, [key]: { cny: String(nextCny), rate: String(rate), usd: String(nextUsd) } }));
+    setBreakdownProfit((p) => ({ ...p, [key]: String(total) }));
+  };
+  const transferNowToPast = (input: { investKey: InvestKey; amount: number; note?: string; effectiveFrom?: string; usdPart?: { cny: number; rate: number; usd: number } }) => {
+    const { investKey, amount, note, usdPart } = input;
+    addInvestPastProfit({ investKey, amount, note, effectiveFrom: input.effectiveFrom ?? yearMonth });
+    if (usdPart && (investKey === 'us' || investKey === 'usBond')) {
+      deductNowUsd(investKey, usdPart);
+    } else {
+      adjustNowProfit(investKey, -amount);
+    }
   };
   const transferPastToNow = (item: InvestPastProfit) => {
     removeInvestPastProfit(item.id);
@@ -1023,22 +1045,53 @@ function UsdProfitModal({
 function InvestPastProfitModal({
   mode,
   yearMonth,
+  sharedRate,
   onCancel,
   onConfirm,
 }: {
   mode: 'add' | 'nowToPast';
   yearMonth: string;
+  sharedRate: string;
   onCancel: () => void;
-  onConfirm: (input: { investKey: InvestKey; amount: number; note?: string; effectiveFrom: string }) => void;
+  onConfirm: (input: { investKey: InvestKey; amount: number; note?: string; effectiveFrom: string; usdPart?: { cny: number; rate: number; usd: number } }) => void;
 }) {
   const [investKey, setInvestKey] = useState<InvestKey>('a');
   const [amount, setAmount] = useState('');
+  const [cny, setCny] = useState('');
+  const [rate, setRate] = useState(sharedRate || '');
+  const [usd, setUsd] = useState('');
+  const [rateFetchState, setRateFetchState] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
   const [note, setNote] = useState('');
   const [effectiveFrom, setEffectiveFrom] = useState(yearMonth);
-  const amountNum = parseFloat(amount) || 0;
-  const canConfirm = amountNum !== 0 && /^\d{4}-\d{2}$/.test(effectiveFrom);
+  const isUsd = investKey === 'us' || investKey === 'usBond';
+  const cnyNum = parseFloat(cny) || 0;
+  const rateNum = parseFloat(rate) || 0;
+  const usdNum = parseFloat(usd) || 0;
+  const usdTotal = Math.round((cnyNum + rateNum * usdNum) * 100) / 100;
+  const amountNum = isUsd ? usdTotal : (parseFloat(amount) || 0);
+  const canConfirm = amountNum !== 0 && /^\d{4}-\d{2}$/.test(effectiveFrom) && (!isUsd || usdNum === 0 || rateNum > 0);
   const title = mode === 'nowToPast' ? 'now→past' : '新增past收益';
   const amountLabel = mode === 'nowToPast' ? '迁移金额' : 'past金额';
+  const buildInput = () => ({
+    investKey,
+    amount: amountNum,
+    note,
+    effectiveFrom,
+    usdPart: isUsd ? { cny: cnyNum, rate: rateNum, usd: usdNum } : undefined,
+  });
+  const importUsdRate = async () => {
+    setRateFetchState('loading');
+    try {
+      const response = await fetch('/api/usd-rate');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = (await response.json()) as UsdRateResponse;
+      if (!Number.isFinite(data.rate) || data.rate <= 0) throw new Error('invalid USD rate');
+      setRate(data.rate.toFixed(4));
+      setRateFetchState('ok');
+    } catch {
+      setRateFetchState('error');
+    }
+  };
   return (
     <div
       onClick={onCancel}
@@ -1060,20 +1113,50 @@ function InvestPastProfitModal({
               {INVEST_KEYS.map((k) => <option key={k} value={k}>{investMeta[k].label}</option>)}
             </select>
           </div>
-          <div>
-            <div style={{ fontSize: 12, color: C.sub, marginBottom: 3 }}>{amountLabel}</div>
-            <AmountInput
-              value={amount}
-              onChange={setAmount}
-              placeholder="可正可负"
-              style={{ width: '100%', border: '1.5px solid #fbbf24', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontVariantNumeric: 'tabular-nums', outline: 'none', backgroundColor: '#fffbeb', boxSizing: 'border-box' }}
-              onKeyDown={(e) => {
-                if (e.key !== 'Enter' || !canConfirm) return;
-                e.preventDefault();
-                onConfirm({ investKey, amount: amountNum, note, effectiveFrom });
-              }}
-            />
-          </div>
+          {isUsd ? (
+            <div>
+              <div style={{ fontSize: 12, color: C.sub, marginBottom: 3 }}>{amountLabel}（人民币 + 汇率 × 美元）</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <AmountInput value={cny} onChange={setCny} placeholder="人民币 ¥（可留空）"
+                  style={{ width: '100%', border: '1.5px solid #fbbf24', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontVariantNumeric: 'tabular-nums', outline: 'none', backgroundColor: '#fffbeb', boxSizing: 'border-box' }} />
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <AmountInput value={rate} onChange={setRate} placeholder="美元汇率"
+                    style={{ flex: 1, border: '1.5px solid #fbbf24', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontVariantNumeric: 'tabular-nums', outline: 'none', backgroundColor: '#fffbeb', boxSizing: 'border-box' }} />
+                  <button
+                    type="button"
+                    onClick={importUsdRate}
+                    disabled={rateFetchState === 'loading'}
+                    title="导入此时美元兑人民币汇率"
+                    style={{ width: 58, flexShrink: 0, border: `1px solid ${rateFetchState === 'error' ? C.red : C.blue}`, borderRadius: 8, backgroundColor: rateFetchState === 'ok' ? '#e6f4ea' : '#fff', color: rateFetchState === 'error' ? C.red : rateFetchState === 'ok' ? C.green : C.blue, fontSize: 12, fontWeight: 700, padding: '8px 0', cursor: rateFetchState === 'loading' ? 'wait' : 'pointer' }}
+                  >
+                    {rateFetchState === 'loading' ? '导入中' : rateFetchState === 'ok' ? '已导入' : rateFetchState === 'error' ? '失败' : '导入'}
+                  </button>
+                </div>
+                <AmountInput value={usd} onChange={setUsd} placeholder="美元 $"
+                  style={{ width: '100%', border: '1.5px solid #fbbf24', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontVariantNumeric: 'tabular-nums', outline: 'none', backgroundColor: '#fffbeb', boxSizing: 'border-box' }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && canConfirm) { e.preventDefault(); onConfirm(buildInput()); } }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: C.sub }}>
+                  <span>迁移金额 = 人民币 + 汇率 × 美元</span>
+                  <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: amountNum >= 0 ? C.red : C.green }}>{amountNum >= 0 ? '+' : ''}{formatCurrency(amountNum)}</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div style={{ fontSize: 12, color: C.sub, marginBottom: 3 }}>{amountLabel}</div>
+              <AmountInput
+                value={amount}
+                onChange={setAmount}
+                placeholder="可正可负"
+                style={{ width: '100%', border: '1.5px solid #fbbf24', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontVariantNumeric: 'tabular-nums', outline: 'none', backgroundColor: '#fffbeb', boxSizing: 'border-box' }}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter' || !canConfirm) return;
+                  e.preventDefault();
+                  onConfirm(buildInput());
+                }}
+              />
+            </div>
+          )}
           <div>
             <div style={{ fontSize: 12, color: C.sub, marginBottom: 3 }}>生效月</div>
             <input
@@ -1101,7 +1184,7 @@ function InvestPastProfitModal({
         <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button onClick={onCancel} style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', cursor: 'pointer', fontSize: 13 }}>取消</button>
           <button
-            onClick={() => canConfirm && onConfirm({ investKey, amount: amountNum, note, effectiveFrom })}
+            onClick={() => canConfirm && onConfirm(buildInput())}
             disabled={!canConfirm}
             style={{ padding: '6px 14px', borderRadius: 8, border: 'none', backgroundColor: canConfirm ? C.blue : '#dadce0', color: '#fff', cursor: canConfirm ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 600 }}
           >
@@ -1286,6 +1369,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
         <InvestPastProfitModal
           mode={pastModalMode}
           yearMonth={yearMonth}
+          sharedRate={sharedUsdRate}
           onCancel={() => setPastModalMode(null)}
           onConfirm={(input) => {
             if (pastModalMode === 'nowToPast') transferNowToPast(input);
