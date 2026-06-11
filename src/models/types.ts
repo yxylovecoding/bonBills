@@ -96,6 +96,7 @@ export interface InvestPastProfit {
   investKey: InvestKey;
   amount: number;
   note?: string;
+  effectiveFrom?: string;       // "YYYY-MM"; 旧数据为空时表示全历史生效
   createdAt: string;
 }
 

@@ -35,9 +35,10 @@ export function getInvestTotalForRate(
 export function getPastProfitTotal(
   pastProfits: InvestPastProfit[],
   key: InvestKey,
+  yearMonth?: string,
 ) {
   return pastProfits
-    .filter((item) => item.investKey === key)
+    .filter((item) => item.investKey === key && (!yearMonth || !item.effectiveFrom || item.effectiveFrom <= yearMonth))
     .reduce((sum, item) => sum + item.amount, 0);
 }
 
@@ -45,9 +46,10 @@ export function getTotalInvestProfit(
   record: MonthlyRecord | undefined,
   key: InvestKey,
   pastProfits: InvestPastProfit[],
+  yearMonth = record?.yearMonth,
 ) {
   const raw = record?.investBreakdownProfit?.[key];
-  const pastTotal = getPastProfitTotal(pastProfits, key);
+  const pastTotal = getPastProfitTotal(pastProfits, key, yearMonth);
   if ((raw === undefined || raw === null) && pastTotal === 0) return null;
   return (raw ?? 0) + pastTotal;
 }

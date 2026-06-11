@@ -21,7 +21,7 @@ interface MonthlyStore {
   upsert: (record: MonthlyRecord) => void;
   updateDayCounts: (yearMonth: string, counts: DayCounts) => void;
   getByYearMonth: (ym: string) => MonthlyRecord | undefined;
-  addInvestPastProfit: (input: { investKey: InvestKey; amount: number; note?: string }) => void;
+  addInvestPastProfit: (input: { investKey: InvestKey; amount: number; note?: string; effectiveFrom?: string }) => void;
   removeInvestPastProfit: (id: string) => void;
 }
 
@@ -72,6 +72,7 @@ export function normalizeInvestPastProfits(input: unknown): InvestPastProfit[] {
         investKey: investKey as InvestKey,
         amount,
         note: typeof raw.note === 'string' && raw.note.trim() ? raw.note.trim() : undefined,
+        effectiveFrom: typeof raw.effectiveFrom === 'string' ? normalizeBillYearMonth(raw.effectiveFrom) ?? undefined : undefined,
         createdAt: typeof raw.createdAt === 'string' && raw.createdAt ? raw.createdAt : new Date().toISOString(),
       };
     })
@@ -103,7 +104,7 @@ export const useMonthlyStore = create<MonthlyStore>()(
           return { records: next };
         }),
       getByYearMonth: (ym) => get().records.find((r) => r.yearMonth === ym),
-      addInvestPastProfit: ({ investKey, amount, note }) =>
+      addInvestPastProfit: ({ investKey, amount, note, effectiveFrom }) =>
         set((s) => ({
           investPastProfits: [
             {
@@ -111,6 +112,7 @@ export const useMonthlyStore = create<MonthlyStore>()(
               investKey,
               amount,
               note: note?.trim() || undefined,
+              effectiveFrom: effectiveFrom ? normalizeBillYearMonth(effectiveFrom) ?? undefined : undefined,
               createdAt: new Date().toISOString(),
             },
             ...s.investPastProfits,

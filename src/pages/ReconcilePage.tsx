@@ -492,20 +492,21 @@ export default function ReconcilePage() {
       : DEFAULT_CONFIG.investAllocTargets,
     [config.investAllocTargets, investKeys],
   );
-  // 各品类最新一期累计收益；按品类叠加全历史 past
+  // 各品类最新一期累计收益；按品类叠加截止最新记录月生效的 past
   const latestBreakdownProfit = useMemo(
     () => {
       const sorted = [...records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth));
+      const latestMonth = sorted[0]?.yearMonth;
       const out: Partial<Record<InvestKey, { profit: number; pastTotal: number; yearMonth?: string }>> = {};
       for (const k of INVEST_TARGET_KEYS) {
-        const pastTotal = getPastProfitTotal(investPastProfits, k);
+        const pastTotal = getPastProfitTotal(investPastProfits, k, latestMonth);
         const record = sorted.find((r) => {
           const profit = r.investBreakdownProfit?.[k];
           return profit !== undefined && profit !== null;
         });
         if (!record && pastTotal === 0) continue;
         out[k] = {
-          profit: getTotalInvestProfit(record, k, investPastProfits) ?? pastTotal,
+          profit: getTotalInvestProfit(record, k, investPastProfits, latestMonth) ?? pastTotal,
           pastTotal,
           yearMonth: record?.yearMonth,
         };

@@ -586,7 +586,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     () => Object.fromEntries(INVEST_KEYS.map((k) => [k, String(existing?.investBreakdownProfit?.[k] ?? '')])) as Record<keyof InvestHoldings, string>
   );
   const [showBreakdown, setShowBreakdown] = useState(true);
-  const [pastModalOpen, setPastModalOpen] = useState(false);
+  const [pastModalMode, setPastModalMode] = useState<'add' | 'nowToPast' | null>(null);
   const [usdComponents, setUsdComponents] = useState<Partial<Record<'us' | 'usBond', { cny: string; rate: string; usd: string }>>>(() => {
     const init: Partial<Record<'us' | 'usBond', { cny: string; rate: string; usd: string }>> = {};
     for (const k of ['us', 'usBond'] as const) {
@@ -616,6 +616,28 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       Object.fromEntries(INVEST_KEYS.map((k) => [k, String(snapshotCurrent.investHoldings[k] ?? 0)])) as Partial<Record<keyof InvestHoldings, string>>,
     );
   };
+  const adjustNowProfit = (investKey: InvestKey, delta: number) => {
+    setBreakdownProfit((p) => {
+      const current = parseFloat(p[investKey] ?? '') || 0;
+      const next = Math.round((current + delta) * 100) / 100;
+      return { ...p, [investKey]: String(next) };
+    });
+    if (investKey === 'us' || investKey === 'usBond') {
+      setUsdComponents((p) => {
+        const next = { ...p };
+        delete next[investKey];
+        return next;
+      });
+    }
+  };
+  const transferNowToPast = (input: { investKey: InvestKey; amount: number; note?: string; effectiveFrom?: string }) => {
+    addInvestPastProfit({ ...input, effectiveFrom: input.effectiveFrom ?? yearMonth });
+    adjustNowProfit(input.investKey, -input.amount);
+  };
+  const transferPastToNow = (item: InvestPastProfit) => {
+    removeInvestPastProfit(item.id);
+    adjustNowProfit(item.investKey, item.amount);
+  };
 
   const n = (v: string) => parseFloat(v) || 0;
   const nOrNull = (v: string | undefined) => {
@@ -640,7 +662,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     // 本月或上月是基准月（未真正开始记录）时，本月收益无法推算
     if (isBaseline || prevRecord.isBaseline) return null;
     const profit = nOrNull(breakdownProfit[k]);
-    const pastTotal = getPastProfitTotal(investPastProfits, k);
+    const pastTotal = getPastProfitTotal(investPastProfits, k, yearMonth);
     const totalProfit = profit !== null || pastTotal !== 0 ? (profit ?? 0) + pastTotal : null;
     const prevProfit = getTotalInvestProfit(prevRecord, k, investPastProfits);
     return totalProfit !== null && prevProfit !== null ? totalProfit - prevProfit : null;
@@ -775,13 +797,15 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     majorExpenses, majorExpensesNote, setMajorExpensesNote, breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
     investPastProfits, addInvestPastProfit, removeInvestPastProfit,
     usdComponents, setUsdComponents, sharedUsdRate, setSharedUsdRate, profitModalKey, setProfitModalKey,
-    showBreakdown, setShowBreakdown, pastModalOpen, setPastModalOpen,
+    showBreakdown, setShowBreakdown, pastModalMode, setPastModalMode,
     surplus, investIncome, investMonthly, investAnnual, investTotalForRate, investTotalStoredOnly, n,
     getBreakdownMonthlyProfit,
     mainFieldRefs, breakdownRefs, breakdownProfitRefs,
     copyHoldingsFromReconcile,
+    transferNowToPast, transferPastToNow,
     handleSave,
     fieldStyle, labelStyle,
+    yearMonth,
   };
 }
 
@@ -997,17 +1021,24 @@ function UsdProfitModal({
 }
 
 function InvestPastProfitModal({
+  mode,
+  yearMonth,
   onCancel,
   onConfirm,
 }: {
+  mode: 'add' | 'nowToPast';
+  yearMonth: string;
   onCancel: () => void;
-  onConfirm: (input: { investKey: InvestKey; amount: number; note?: string }) => void;
+  onConfirm: (input: { investKey: InvestKey; amount: number; note?: string; effectiveFrom: string }) => void;
 }) {
   const [investKey, setInvestKey] = useState<InvestKey>('a');
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
+  const [effectiveFrom, setEffectiveFrom] = useState(yearMonth);
   const amountNum = parseFloat(amount) || 0;
-  const canConfirm = amountNum !== 0;
+  const canConfirm = amountNum !== 0 && /^\d{4}-\d{2}$/.test(effectiveFrom);
+  const title = mode === 'nowToPast' ? 'now→past' : '新增past收益';
+  const amountLabel = mode === 'nowToPast' ? '迁移金额' : 'past金额';
   return (
     <div
       onClick={onCancel}
@@ -1017,7 +1048,7 @@ function InvestPastProfitModal({
         onClick={(e) => e.stopPropagation()}
         style={{ width: '100%', maxWidth: 380, backgroundColor: '#fff', borderRadius: 12, padding: 16, boxShadow: '0 4px 24px rgba(0,0,0,0.18)' }}
       >
-        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>past收益</div>
+        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>{title}</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div>
             <div style={{ fontSize: 12, color: C.sub, marginBottom: 3 }}>品类</div>
@@ -1030,7 +1061,7 @@ function InvestPastProfitModal({
             </select>
           </div>
           <div>
-            <div style={{ fontSize: 12, color: C.sub, marginBottom: 3 }}>past金额</div>
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 3 }}>{amountLabel}</div>
             <AmountInput
               value={amount}
               onChange={setAmount}
@@ -1039,8 +1070,17 @@ function InvestPastProfitModal({
               onKeyDown={(e) => {
                 if (e.key !== 'Enter' || !canConfirm) return;
                 e.preventDefault();
-                onConfirm({ investKey, amount: amountNum, note });
+                onConfirm({ investKey, amount: amountNum, note, effectiveFrom });
               }}
+            />
+          </div>
+          <div>
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 3 }}>生效月</div>
+            <input
+              type="month"
+              value={effectiveFrom}
+              onChange={(e) => setEffectiveFrom(e.target.value)}
+              style={{ width: '100%', border: '1.5px solid #dadce0', borderRadius: 8, padding: '8px 10px', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
             />
           </div>
           <div>
@@ -1054,12 +1094,14 @@ function InvestPastProfitModal({
           </div>
         </div>
         <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, backgroundColor: '#f8f9fa', color: C.sub, fontSize: 12, lineHeight: 1.5 }}>
-          past 是已清仓收益，会叠加到该品类所有历史月的累计收益展示和收益率计算，不改变顶部累计盈利。
+          {mode === 'nowToPast'
+            ? '确认后新增从生效月起的 past，并从当前月 now 扣同金额，当前月展示累计不变。'
+            : 'past 会从生效月起叠加到该品类累计收益展示和收益率计算，不改变顶部累计盈利。'}
         </div>
         <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button onClick={onCancel} style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', cursor: 'pointer', fontSize: 13 }}>取消</button>
           <button
-            onClick={() => canConfirm && onConfirm({ investKey, amount: amountNum, note })}
+            onClick={() => canConfirm && onConfirm({ investKey, amount: amountNum, note, effectiveFrom })}
             disabled={!canConfirm}
             style={{ padding: '6px 14px', borderRadius: 8, border: 'none', backgroundColor: canConfirm ? C.blue : '#dadce0', color: '#fff', cursor: canConfirm ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 600 }}
           >
@@ -1080,7 +1122,8 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
     breakdownRefs, breakdownProfitRefs,
     usdComponents, profitModalKey, setProfitModalKey,
     sharedUsdRate, setSharedUsdRate,
-    pastModalOpen, setPastModalOpen,
+    pastModalMode, setPastModalMode,
+    transferNowToPast, transferPastToNow, yearMonth,
     isBaseline, setIsBaseline,
   } = state;
   return (
@@ -1089,9 +1132,16 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
         {showBreakdown && (
           <>
             <button
-              onClick={() => setPastModalOpen(true)}
+              onClick={() => setPastModalMode('nowToPast')}
               style={{ fontSize: 11, color: C.orange, border: `1px solid ${C.orange}`, borderRadius: 6, padding: '3px 8px', backgroundColor: '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }}
-              title="给品类累计收益添加一笔已清仓 past"
+              title="把本月某品类 now 收益迁移为从本月起的 past，当前月展示累计不变"
+            >
+              now→past
+            </button>
+            <button
+              onClick={() => setPastModalMode('add')}
+              style={{ fontSize: 11, color: C.orange, border: `1px solid ${C.orange}`, borderRadius: 6, padding: '3px 8px', backgroundColor: '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }}
+              title="给品类累计收益直接添加一笔已清仓 past"
             >
               past收益
             </button>
@@ -1125,7 +1175,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
           <tbody>
             {INVEST_KEYS.map((k, i) => {
               const monthlyProfit = getBreakdownMonthlyProfit(k);
-              const pastTotal = getPastProfitTotal(investPastProfits, k);
+              const pastTotal = getPastProfitTotal(investPastProfits, k, yearMonth);
               const rawProfit = parseFloat(breakdownProfit[k] ?? '');
               const totalProfit = Number.isFinite(rawProfit)
                 ? rawProfit + pastTotal
@@ -1203,10 +1253,23 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
       {showBreakdown && investPastProfits.length > 0 && (
         <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
           {investPastProfits.map((item) => (
-            <div key={item.id} style={{ display: 'grid', gridTemplateColumns: '54px 72px 1fr auto', gap: 6, alignItems: 'center', fontSize: 11, color: C.sub, backgroundColor: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '6px 8px' }}>
+            <div key={item.id} style={{ display: 'grid', gridTemplateColumns: '54px 72px 1fr auto auto', gap: 6, alignItems: 'center', fontSize: 11, color: C.sub, backgroundColor: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '6px 8px' }}>
               <span style={{ fontWeight: 700, color: C.orange }}>{investMeta[item.investKey].label}</span>
               <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: item.amount >= 0 ? C.red : C.green }}>{item.amount >= 0 ? '+' : ''}{Math.round(item.amount)}</span>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.note || item.createdAt.slice(0, 10)}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden' }}>
+                <span style={{ flexShrink: 0, backgroundColor: '#fff', border: '1px solid #fed7aa', borderRadius: 4, padding: '0 4px', color: C.orange, fontVariantNumeric: 'tabular-nums' }}>
+                  {item.effectiveFrom ? `${item.effectiveFrom}起` : '全历史'}
+                </span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.note || item.createdAt.slice(0, 10)}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => transferPastToNow(item)}
+                title="把这笔 past 迁回当前月 now 收益（past→now）"
+                style={{ border: '1px solid #fed7aa', background: '#fff', color: C.orange, cursor: 'pointer', fontSize: 10, padding: '1px 5px', borderRadius: 5, whiteSpace: 'nowrap' }}
+              >
+                →now
+              </button>
               <button
                 type="button"
                 onClick={() => removeInvestPastProfit(item.id)}
@@ -1219,12 +1282,15 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
           ))}
         </div>
       )}
-      {pastModalOpen && (
+      {pastModalMode && (
         <InvestPastProfitModal
-          onCancel={() => setPastModalOpen(false)}
+          mode={pastModalMode}
+          yearMonth={yearMonth}
+          onCancel={() => setPastModalMode(null)}
           onConfirm={(input) => {
-            addInvestPastProfit(input);
-            setPastModalOpen(false);
+            if (pastModalMode === 'nowToPast') transferNowToPast(input);
+            else addInvestPastProfit(input);
+            setPastModalMode(null);
           }}
         />
       )}
@@ -1811,11 +1877,11 @@ function MonthRow({
                     {INVEST_KEYS.filter((k) => {
                       const cur = record.investBreakdown![k] ?? 0;
                       const rawProfit = record.investBreakdownProfit?.[k];
-                      return cur > 0 || getPastProfitTotal(investPastProfits, k) !== 0 || (rawProfit !== undefined && rawProfit !== null && rawProfit !== 0);
+                      return cur > 0 || getPastProfitTotal(investPastProfits, k, record.yearMonth) !== 0 || (rawProfit !== undefined && rawProfit !== null && rawProfit !== 0);
                     }).map((k) => {
                       const cur    = record.investBreakdown![k] ?? 0;
                       const rawProfit = record.investBreakdownProfit?.[k] ?? null;
-                      const pastTotal = getPastProfitTotal(investPastProfits, k);
+                      const pastTotal = getPastProfitTotal(investPastProfits, k, record.yearMonth);
                       const profit = getTotalInvestProfit(record, k, investPastProfits);
                       const prevProfit = getTotalInvestProfit(prev, k, investPastProfits);
                       // 本月或上月是基准月（未真正开始记录）时，本月收益无法推算
