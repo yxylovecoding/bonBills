@@ -18,6 +18,7 @@ import { calcRebalance } from '../calculations/rebalance';
 import { investMeta, tagMeta } from '../data/mockData';
 import type { AccountSnapshot, DailyTag, InvestAllocTargets, InvestKey, TagKind } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
+import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { tryEvalFormula } from '../utils/formula';
 import { dateLabel, resolveIncomeForMonth, type ResolvedIncomeItem } from '../utils/payroll';
 import { getPastProfitTotal, getTotalInvestProfit } from '../utils/investRecords';
@@ -78,7 +79,10 @@ const parseAmountPart = (raw: string | undefined) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const normalizeAmountInput = (v: string) => /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v;
+const normalizeAmountInput = (v: string) => {
+  const normalized = normalizeDecimalPunctuation(v);
+  return /^-?0\d/.test(normalized) ? (normalized.replace(/^(-?)0+/, '$1') || '0') : normalized;
+};
 const fmtUsd = (value: number) => {
   const abs = Math.abs(value);
   const body = abs >= 100 ? Math.round(abs).toLocaleString('zh-CN') : abs.toFixed(2);
@@ -181,10 +185,13 @@ function RebalanceSettingsModal({
                     <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: group.color, flexShrink: 0 }} />
                     <span style={{ fontSize: 13, fontWeight: 700, color: '#202124' }}>{group.label}</span>
                     <input
-                      type="number"
+                      type="text"
                       inputMode="decimal"
                       value={groupedTargetInputs.groups[group.key]}
-                      onChange={(e) => setGroupInput(group.key, e.target.value)}
+                      onChange={(e) => {
+                        const next = sanitizeDecimalNumberInput(e.target.value);
+                        if (next !== null) setGroupInput(group.key, next);
+                      }}
                       onFocus={(e) => e.target.select()}
                       style={{ marginLeft: 'auto', width: 58, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 700, textAlign: 'right', color: '#202124', fontVariantNumeric: 'tabular-nums' }}
                     />
@@ -196,10 +203,13 @@ function RebalanceSettingsModal({
                         <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: investMeta[k].color, flexShrink: 0 }} />
                         <span style={{ flex: 1, fontSize: 12, color: C.sub, whiteSpace: 'nowrap' }}>{investMeta[k].label}</span>
                         <input
-                          type="number"
+                          type="text"
                           inputMode="decimal"
                           value={groupedTargetInputs.assets[k]}
-                          onChange={(e) => setAssetInput(k, e.target.value)}
+                          onChange={(e) => {
+                            const next = sanitizeDecimalNumberInput(e.target.value);
+                            if (next !== null) setAssetInput(k, next);
+                          }}
                           onFocus={(e) => e.target.select()}
                           style={{ width: 48, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, textAlign: 'right', color: '#202124', fontVariantNumeric: 'tabular-nums' }}
                         />

@@ -24,6 +24,7 @@ import { usePrefsStore, REVIEWABLE_CATEGORIES, type ReviewableCategory } from '.
 import { useDragSort } from '../hooks/useDragSort';
 import type { TagKind, MonthlyRecord, MajorExpense, InvestHoldings, InvestKey, InvestPastProfit } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
+import { sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { getPayrollScheduleForMonth } from '../utils/payroll';
 import { getPastProfitTotal, getTotalInvestProfit, getInvestTotalForRate } from '../utils/investRecords';
 
@@ -336,7 +337,10 @@ function SettingsModal({
           {/* 大额阈值 */}
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 12, color: '#5f6368', marginBottom: 6 }}>大额支出筛选门槛（元）</div>
-            <input type="number" value={thresholdInput} onChange={(e) => setThresholdInput(e.target.value)}
+            <input type="text" inputMode="decimal" value={thresholdInput} onChange={(e) => {
+              const next = sanitizeDecimalNumberInput(e.target.value);
+              if (next !== null) setThresholdInput(next);
+            }}
               style={{ width: '100%', border: '1.5px solid #dadce0', borderRadius: 8, padding: '8px 10px', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
           </div>
           {/* 截标记开关 */}

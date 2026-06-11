@@ -21,12 +21,13 @@ import { calcFire } from '../calculations/fire';
 import { tagMeta } from '../data/mockData';
 import type { FutureFireExpense, IncomeItem, TagKind, LocalLifeBreakdownRow, MonthlyRecord, SharedLifeBreakdownRow } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
+import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { dateLabel, daysUntilDate, resolveIncomeForMonth } from '../utils/payroll';
 import { TAX_RULE_PRESETS } from '../utils/tax';
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '全页导入';
+const RELEASE_NOTE = '小数免切';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
@@ -286,7 +287,7 @@ export default function HomePage() {
     setConfig({ fireTargetYears: Math.min(Number(raw), fire.retireYearsLeft) });
   };
   const updateFireGrowthRate = (raw: string) => {
-    const parsed = Number(raw);
+    const parsed = Number(normalizeDecimalPunctuation(raw));
     const next = Number.isFinite(parsed) ? Math.max(parsed / 100, MIN_INVEST_ANNUAL_GROWTH_RATE) : 0;
     setConfig({ investAnnualGrowthRate: next });
   };
@@ -626,10 +627,13 @@ export default function HomePage() {
               <StatRow label="年理财增长" value={(
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                   <input
-                    type="number"
+                    type="text"
                     inputMode="decimal"
                     value={(fire.investAnnualGrowthRate * 100).toFixed(1).replace(/\.0$/, '')}
-                    onChange={(e) => updateFireGrowthRate(e.target.value)}
+                    onChange={(e) => {
+                      const next = sanitizeDecimalNumberInput(e.target.value, { allowNegative: true });
+                      if (next !== null) updateFireGrowthRate(next);
+                    }}
                     onClick={(e) => e.stopPropagation()}
                     onFocus={(e) => e.target.select()}
                     style={{ width: 52, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, color: C.blue, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
