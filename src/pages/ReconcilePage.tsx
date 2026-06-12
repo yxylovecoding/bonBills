@@ -42,19 +42,8 @@ const USD_REPLACE_BUCKETS: {
 type RebalanceFundingBucket = typeof USD_REPLACE_BUCKETS[number] & {
   amountCny: number;
 };
-// 配平转账的腿标注：假置换=同步对敲、无手续费；真换汇=实际兑换、有手续费
-const FUNDING_BADGES = {
-  cny:   { label: '假置换·人民币',     bg: '#e6f4ea', color: '#137333' },
-  usd:   { label: '假置换·美元',       bg: '#e8f0fe', color: '#1a73e8' },
-  forex: { label: '真换汇·人民币→美元', bg: '#fef3e8', color: '#e8710a' },
-} as const;
-type FundingBadgeKind = keyof typeof FUNDING_BADGES;
-function FundingBadge({ kind }: { kind: FundingBadgeKind }) {
-  const b = FUNDING_BADGES[kind];
-  return (
-    <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, color: b.color, backgroundColor: b.bg, borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap' }}>{b.label}</span>
-  );
-}
+// 配平转账的腿币种标注：cny/usd=假置换同步对敲、无手续费；forex=真换汇、有手续费
+type FundingBadgeKind = 'cny' | 'usd' | 'forex';
 
 const INVEST_GROUPS = [
   { key: 'stock', label: '股', keys: ['us', 'eu', 'asia', 'a'] as InvestKey[], color: C.blue },
@@ -1107,20 +1096,52 @@ export default function ReconcilePage() {
   const usdReplaceRows = rebalanceFunding.usdReplaceRows.filter((row) => Math.abs(row.amountCny) >= 0.5);
   const usdForexCny = !allowRebalanceSell ? rebalanceFunding.cnyToUsdCny : 0;
 
-  // 人民币加仓侧：人民币 buffer → 人民币理财；美元理财 → 美元 buffer（停泊）
-  const cnyFundingLegs: FundingLeg[] = rebalanceFundingRows.flatMap((row): FundingLeg[] => [
-    { key: `${row.usdKey}__cnyIn`, kind: 'cny', op: 'cnyBufferToInvest', cnyKey: row.cnyKey, amountCny: row.amountCny, text: `人民币${row.label} → 人民币理财` },
-    { key: `${row.usdKey}__usdPark`, kind: 'usd', op: 'investUsdToBuffer', usdKey: row.usdKey, amountCny: row.amountCny, usdHint: true, text: `美元理财 → 美元${row.label}（停泊）` },
-  ]);
-  // 美元加仓侧：美元 buffer → 美元理财；人民币理财 → 人民币 buffer（补偿）；人民币理财 兑换 美元理财（真换汇）
+  // 每个 buffer 一组转换：人民币腿 + 美元腿（同一笔金额、人民币口径）
+  type FundingRow = { key: string; label: string; cnyLeg: FundingLeg; usdLeg: FundingLeg };
+  // 美元口径下的横向换汇行：左人民币、右美元，单输入驱动（可镜像到另一条腿）
+  type CnyToUsdDisplay = { key: string; label: string; cnyAmount: number; usdAmountCny: number; inputLeg: FundingLeg; mirrorKeys: string[]; fee: boolean };
+
+  // 理财调拨（人民币加仓）= 美元→人民币：理财卖美元(↓转出)、得人民币(↑进入)
+  const cnyFundingRows: FundingRow[] = rebalanceFundingRows.map((row) => ({
+    key: row.usdKey,
+    label: row.label,
+    cnyLeg: { key: `${row.usdKey}__cnyIn`, kind: 'cny', op: 'cnyBufferToInvest', cnyKey: row.cnyKey, amountCny: row.amountCny, text: `人民币${row.label} → 人民币理财` },
+    usdLeg: { key: `${row.usdKey}__usdPark`, kind: 'usd', op: 'investUsdToBuffer', usdKey: row.usdKey, amountCny: row.amountCny, usdHint: true, text: `美元理财 → 美元${row.label}（停泊）` },
+  }));
+  const cnyFundingLegs: FundingLeg[] = cnyFundingRows.flatMap((r) => [r.cnyLeg, r.usdLeg]);
+
+  // 美元调拨（美元加仓）= 人民币→美元：买美元（buffer 对敲假置换 + 真换汇）
+  const usdFundingRows: FundingRow[] = usdReplaceRows.map((row) => ({
+    key: row.usdKey,
+    label: row.label,
+    cnyLeg: { key: `${row.usdKey}__cnyComp`, kind: 'cny', op: 'investCnyToBuffer', cnyKey: row.cnyKey, amountCny: row.amountCny, text: `人民币理财 → 人民币${row.label}（补偿）` },
+    usdLeg: { key: `${row.usdKey}__usdIn`, kind: 'usd', op: 'bufferUsdToInvest', usdKey: row.usdKey, amountCny: row.amountCny, usdHint: true, text: `美元${row.label} → 美元理财` },
+  }));
+  const forexLeg: FundingLeg | null = usdForexCny >= 0.5
+    ? { key: 'forex', kind: 'forex', op: 'forex', amountCny: usdForexCny, usdHint: true, text: '人民币理财 兑换 美元理财（有手续费）' }
+    : null;
   const usdFundingLegs: FundingLeg[] = [
-    ...usdReplaceRows.flatMap((row): FundingLeg[] => [
-      { key: `${row.usdKey}__usdIn`, kind: 'usd', op: 'bufferUsdToInvest', usdKey: row.usdKey, amountCny: row.amountCny, usdHint: true, text: `美元${row.label} → 美元理财` },
-      { key: `${row.usdKey}__cnyComp`, kind: 'cny', op: 'investCnyToBuffer', cnyKey: row.cnyKey, amountCny: row.amountCny, text: `人民币理财 → 人民币${row.label}（补偿）` },
-    ]),
-    ...(usdForexCny >= 0.5
-      ? [{ key: 'forex', kind: 'forex', op: 'forex', amountCny: usdForexCny, usdHint: true, text: '人民币理财 兑换 美元理财（有手续费）' } as FundingLeg]
-      : []),
+    ...usdFundingRows.flatMap((r) => [r.usdLeg, r.cnyLeg]),
+    ...(forexLeg ? [forexLeg] : []),
+  ];
+  // 人民币→美元 横向行：buffer 行单输入镜像两条腿；真换汇单腿
+  const cnyToUsdDisplays: CnyToUsdDisplay[] = [
+    ...usdFundingRows.map((r) => ({
+      key: r.key, label: r.label,
+      cnyAmount: r.cnyLeg.amountCny,
+      usdAmountCny: r.usdLeg.amountCny,
+      inputLeg: r.cnyLeg,
+      mirrorKeys: [r.usdLeg.key],
+      fee: false,
+    })),
+    ...(forexLeg ? [{
+      key: forexLeg.key, label: '换汇',
+      cnyAmount: forexLeg.amountCny,
+      usdAmountCny: forexLeg.amountCny,
+      inputLeg: forexLeg,
+      mirrorKeys: [],
+      fee: true,
+    }] : []),
   ];
   const cnyFundingInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const usdFundingInputRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -1197,28 +1218,80 @@ export default function ReconcilePage() {
     }));
     resetFundingLegs(legs);
   };
-  const renderFundingLeg = (leg: FundingLeg, i: number, refs: { current: (HTMLInputElement | null)[] }) => {
+  const fmtLegNeed = (leg: FundingLeg) =>
+    leg.usdHint && latestUsdRate !== null ? `≈${fmtUsd(leg.amountCny / latestUsdRate)}` : `¥${fmtInt(leg.amountCny)}`;
+  const fmtUsdFromCny = (cny: number) =>
+    latestUsdRate !== null ? `≈${fmtUsd(cny / latestUsdRate)}` : `¥${fmtInt(cny)}`;
+  const renderLegInput = (
+    leg: FundingLeg,
+    refs: { current: (HTMLInputElement | null)[] },
+    refIndex: number,
+    mirrorKeys: string[] = [],
+  ) => {
     const transferred = parseAmountPart(fundingLegValue(leg.key));
-    const remain = Math.max(leg.amountCny - transferred, 0);
-    const need = leg.usdHint && latestUsdRate !== null ? `≈${fmtUsd(leg.amountCny / latestUsdRate)}` : `¥${fmtInt(leg.amountCny)}`;
     return (
-      <div key={leg.key} style={{ backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff', borderRadius: 10, padding: '8px 12px', marginBottom: 4 }}>
+      <AmountInput
+        ref={(el) => { refs.current[refIndex] = el; }}
+        value={fundingLegValue(leg.key)}
+        onChange={(v) => {
+          const nv = normalizeAmountInput(v);
+          setFundingLegValue(leg.key, nv);
+          for (const mk of mirrorKeys) setFundingLegValue(mk, nv);
+        }}
+        onFocus={(e) => e.target.select()}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); refs.current[refIndex + 1]?.focus(); } }}
+        style={{ width: '100%', border: `1.5px solid ${transferred > 0 ? '#81c995' : '#dadce0'}`, borderRadius: 8, padding: '5px 8px', fontSize: 13, fontWeight: 600, textAlign: 'right', outline: 'none', backgroundColor: transferred > 0 ? '#e6f4ea' : '#fff', color: transferred > 0 ? C.green : '#202124', boxSizing: 'border-box' }}
+      />
+    );
+  };
+  const SwapTag = ({ fee }: { fee?: boolean }) => (
+    <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap',
+      color: fee ? '#e8710a' : '#137333', backgroundColor: fee ? '#fef3e8' : '#e6f4ea' }}>
+      {fee ? '真换汇·手续费' : '假置换·免手续费'}
+    </span>
+  );
+  // 美元 → 人民币：理财卖美元(↓转出)、得人民币(↑进入)，两条腿各自输入
+  const renderUsdToCnyRow = (r: FundingRow, i: number, refs: { current: (HTMLInputElement | null)[] }) => {
+    const cnyRemain = Math.max(r.cnyLeg.amountCny - parseAmountPart(fundingLegValue(r.cnyLeg.key)), 0);
+    const usdRemain = Math.max(r.usdLeg.amountCny - parseAmountPart(fundingLegValue(r.usdLeg.key)), 0);
+    return (
+      <div key={r.key} style={{ backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff', borderRadius: 10, padding: '8px 12px', marginBottom: 4 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
-          <FundingBadge kind={leg.kind} />
-          <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{leg.text}</span>
+          <span style={{ fontSize: 12, fontWeight: 700 }}>{r.label}</span>
+          <SwapTag />
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 80px) 26px minmax(60px, 80px)', alignItems: 'center', columnGap: 4 }}>
-          <span style={{ fontSize: 12, color: C.blue, fontWeight: 600, fontVariantNumeric: 'tabular-nums', textAlign: 'right', whiteSpace: 'nowrap' }}>需{need}</span>
-          <span style={{ fontSize: 12, color: C.orange, fontWeight: 600, fontVariantNumeric: 'tabular-nums', textAlign: 'right', whiteSpace: 'nowrap' }}>还需¥{fmtInt(remain)}</span>
-          <span style={{ fontSize: 12, color: C.sub, textAlign: 'right' }}>已调</span>
-          <AmountInput
-            ref={(el) => { refs.current[i] = el; }}
-            value={fundingLegValue(leg.key)}
-            onChange={(v) => setFundingLegValue(leg.key, normalizeAmountInput(v))}
-            onFocus={(e) => e.target.select()}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); refs.current[i + 1]?.focus(); } }}
-            style={{ width: '100%', border: `1.5px solid ${transferred > 0 ? '#81c995' : '#dadce0'}`, borderRadius: 8, padding: '5px 8px', fontSize: 13, fontWeight: 600, textAlign: 'right', outline: 'none', backgroundColor: transferred > 0 ? '#e6f4ea' : '#fff', color: transferred > 0 ? C.green : '#202124', boxSizing: 'border-box' }}
-          />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 12 }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.green, fontVariantNumeric: 'tabular-nums', marginBottom: 4, textAlign: 'right' }}>↑ 进入 ¥{fmtInt(r.cnyLeg.amountCny)}</div>
+            {renderLegInput(r.cnyLeg, refs, i * 2)}
+            {cnyRemain >= 1 && <div style={{ fontSize: 10, color: C.orange, textAlign: 'right', marginTop: 2 }}>还需¥{fmtInt(cnyRemain)}</div>}
+          </div>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.blue, fontVariantNumeric: 'tabular-nums', marginBottom: 4, textAlign: 'right' }}>↓ 转出 {fmtLegNeed(r.usdLeg)}</div>
+            {renderLegInput(r.usdLeg, refs, i * 2 + 1)}
+            {usdRemain >= 1 && <div style={{ fontSize: 10, color: C.orange, textAlign: 'right', marginTop: 2 }}>还需¥{fmtInt(usdRemain)}</div>}
+          </div>
+        </div>
+      </div>
+    );
+  };
+  // 人民币 → 美元：横向箭头，单输入（buffer 行镜像驱动两条腿）
+  const renderCnyToUsdRow = (d: CnyToUsdDisplay, i: number, refs: { current: (HTMLInputElement | null)[] }) => {
+    const remain = Math.max(d.cnyAmount - parseAmountPart(fundingLegValue(d.inputLeg.key)), 0);
+    return (
+      <div key={d.key} style={{ backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff', borderRadius: 10, padding: '8px 12px', marginBottom: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+          <span style={{ fontSize: 12, fontWeight: 700 }}>{d.label}</span>
+          <SwapTag fee={d.fee} />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 28px 1fr', alignItems: 'center', columnGap: 8 }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.blue, fontVariantNumeric: 'tabular-nums', marginBottom: 4, textAlign: 'right' }}>¥{fmtInt(d.cnyAmount)}</div>
+            {renderLegInput(d.inputLeg, refs, i, d.mirrorKeys)}
+            {remain >= 1 && <div style={{ fontSize: 10, color: C.orange, textAlign: 'right', marginTop: 2 }}>还需¥{fmtInt(remain)}</div>}
+          </div>
+          <div style={{ textAlign: 'center', color: C.sub, fontSize: 18, fontWeight: 700 }}>→</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'left' }}>{fmtUsdFromCny(d.usdAmountCny)}</div>
         </div>
       </div>
     );
@@ -1824,11 +1897,15 @@ export default function ReconcilePage() {
         {!allowRebalanceSell && latestUsdRate !== null && cnyFundingLegs.length > 0 && (
           <div style={{ border: '1px solid #e8eaed', borderRadius: 10, padding: '9px 10px', backgroundColor: '#fff', marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, fontSize: 12, color: C.sub, fontWeight: 700 }}>
-              <span>理财调拨（人民币加仓）</span>
+              <span>理财调拨 · 美元 → 人民币</span>
               <span style={{ color: C.orange, fontVariantNumeric: 'tabular-nums' }}>¥{fmtInt(rebalanceFunding.cnyFromRmbBuffer)}</span>
               <div style={{ flex: 1, borderBottom: '1px dashed #dadce0' }} />
             </div>
-            {cnyFundingLegs.map((leg, i) => renderFundingLeg(leg, i, cnyFundingInputRefs))}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 12, padding: '0 12px', marginBottom: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: C.green, textAlign: 'right' }}>人民币</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: C.blue, textAlign: 'right' }}>美元</span>
+            </div>
+            {cnyFundingRows.map((r, i) => renderUsdToCnyRow(r, i, cnyFundingInputRefs))}
             <button
               onClick={() => executeFundingLegs(cnyFundingLegs)}
               disabled={!hasCnyFundingChanges}
@@ -1849,11 +1926,16 @@ export default function ReconcilePage() {
         {!allowRebalanceSell && latestUsdRate !== null && usdFundingLegs.length > 0 && (
           <div style={{ border: '1px solid #e8eaed', borderRadius: 10, padding: '9px 10px', backgroundColor: '#fff', marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, fontSize: 12, color: C.sub, fontWeight: 700 }}>
-              <span>美元调拨（美元加仓）</span>
+              <span>美元调拨 · 人民币 → 美元</span>
               <span style={{ color: C.orange, fontVariantNumeric: 'tabular-nums' }}>¥{fmtInt(rebalanceFunding.usdReplaceUseCny + rebalanceFunding.cnyToUsdCny)}</span>
               <div style={{ flex: 1, borderBottom: '1px dashed #dadce0' }} />
             </div>
-            {usdFundingLegs.map((leg, i) => renderFundingLeg(leg, i, usdFundingInputRefs))}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 28px 1fr', alignItems: 'center', columnGap: 8, padding: '0 12px', marginBottom: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: C.green, textAlign: 'right' }}>人民币</span>
+              <span />
+              <span style={{ fontSize: 11, fontWeight: 700, color: C.blue, textAlign: 'left' }}>美元</span>
+            </div>
+            {cnyToUsdDisplays.map((d, i) => renderCnyToUsdRow(d, i, usdFundingInputRefs))}
             <button
               onClick={() => executeFundingLegs(usdFundingLegs)}
               disabled={!hasUsdFundingChanges}
