@@ -25,6 +25,7 @@ import { getCategoryProfit } from '../utils/investRecords';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', sub: '#5f6368', orange: '#e8710a' };
 const RESERVABLE_HOLDING_KEY: InvestKey = 'longBond';
+const LONG_BOND_PRIORITY_FLOOR = 10000; // 加仓时长债总额优先补到此下限
 const INVEST_TARGET_KEYS: InvestKey[] = ['us', 'eu', 'asia', 'a', 'longBond', 'usBond', 'gold'];
 const USD_INVEST_KEYS: InvestKey[] = ['us', 'usBond'];
 const USD_VIRTUAL_ACCOUNT_KEYS = ['usdLivingBank', 'usdConsumptionBank', 'usdWishJar', 'investUsdBank'] as const;
@@ -570,10 +571,24 @@ export default function ReconcilePage() {
     () => roundMoney((current.accounts.investCnyBank ?? 0) + (latestUsdRate !== null ? (current.accounts.investUsdBank ?? 0) * latestUsdRate : 0)),
     [current.accounts.investCnyBank, current.accounts.investUsdBank, latestUsdRate],
   );
-  const rawRebalanceSuggested = useMemo(
-    () => calcRebalance(effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell),
-    [effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell],
-  );
+  const rawRebalanceSuggested = useMemo(() => {
+    // 加仓优先：长债总额不足 1 万时，先把新资金补到长债，剩余再按目标比例分配
+    if (!allowRebalanceSell && rebalanceNewFunds > 0) {
+      const longBondTotal = current.investHoldings.longBond ?? 0; // 用「总额」判定，honor「总额>1万」
+      const shortfall = Math.max(0, LONG_BOND_PRIORITY_FLOOR - longBondTotal);
+      const topUp = Math.min(rebalanceNewFunds, shortfall);
+      if (topUp > 0) {
+        const remaining = roundMoney(rebalanceNewFunds - topUp);
+        const holdingsAfterTopUp = {
+          ...effectiveInvestHoldings,
+          longBond: effectiveInvestHoldings.longBond + topUp,
+        };
+        const rest = calcRebalance(holdingsAfterTopUp, investAllocTargets, remaining, false);
+        return { ...rest, longBond: (rest.longBond ?? 0) + topUp };
+      }
+    }
+    return calcRebalance(effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell);
+  }, [effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell, current.investHoldings.longBond]);
   const rebalanceSuggested = useMemo(() => {
     const rounded = Object.fromEntries(
       investKeys.map((k) => [k, roundMoney(rawRebalanceSuggested[k] ?? 0)]),
