@@ -22,12 +22,15 @@ interface PrefsStore {
   showPayrollCutoffMarkers: boolean;
   reviewableCategories: ReviewableCategory[];
   expenseScopeHelpText: string;
+  // 对账页：消费/心愿美元账户「开启录入」的状态（默认隐藏，记住用户选择）
+  revealConsumptionWishUsd: boolean;
   setTagOrder: (order: TagKind[]) => void;
   setAccountOrder: (order: AccountKey[]) => void;
   setWeekdayTags: (tags: WeekdayTags) => void;
   setShowPayrollCutoffMarkers: (show: boolean) => void;
   setReviewableCategories: (cats: ReviewableCategory[]) => void;
   setExpenseScopeHelpText: (text: string) => void;
+  setRevealConsumptionWishUsd: (v: boolean) => void;
 }
 
 export const usePrefsStore = create<PrefsStore>()(
@@ -39,12 +42,14 @@ export const usePrefsStore = create<PrefsStore>()(
       showPayrollCutoffMarkers: true,
       reviewableCategories: ['周期生活', '波动生活', '消费'],
       expenseScopeHelpText: DEFAULT_EXPENSE_SCOPE_HELP_TEXT,
+      revealConsumptionWishUsd: false,
       setTagOrder: (tagOrder) => set({ tagOrder }),
       setAccountOrder: (accountOrder) => set({ accountOrder }),
       setWeekdayTags: (weekdayTags) => set({ weekdayTags }),
       setShowPayrollCutoffMarkers: (showPayrollCutoffMarkers) => set({ showPayrollCutoffMarkers }),
       setReviewableCategories: (reviewableCategories) => set({ reviewableCategories }),
       setExpenseScopeHelpText: (expenseScopeHelpText) => set({ expenseScopeHelpText }),
+      setRevealConsumptionWishUsd: (revealConsumptionWishUsd) => set({ revealConsumptionWishUsd }),
     }),
     {
       name: 'user-prefs',

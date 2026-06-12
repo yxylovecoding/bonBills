@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, useMemo, useRef, type PointerEvent } from 'react';
+import { Fragment, useEffect, useState, useMemo, useRef, type PointerEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Card from '../components/Card';
 import { formatCurrency } from '../components/CurrencyDisplay';
@@ -12,6 +12,7 @@ import { useCalendarStore } from '../stores/calendarStore';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useExpenseScopeOverrideStore } from '../stores/expenseScopeOverrideStore';
 import { useTripStore } from '../stores/tripStore';
+import { usePrefsStore } from '../stores/prefsStore';
 import { calcBudget } from '../calculations/budget';
 import { calcHistoryStats } from '../calculations/history';
 import { calcRebalance } from '../calculations/rebalance';
@@ -285,7 +286,11 @@ export default function ReconcilePage() {
   });
   const accountInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const swipeStartXRef = useRef<Partial<Record<UsdVirtualAccountKey, number>>>({});
-  const [revealedUsdAccounts, setRevealedUsdAccounts] = useState<Set<UsdVirtualAccountKey>>(() => new Set());
+  const revealConsumptionWishUsd = usePrefsStore((s) => s.revealConsumptionWishUsd);
+  const setRevealConsumptionWishUsd = usePrefsStore((s) => s.setRevealConsumptionWishUsd);
+  const [revealedUsdAccounts, setRevealedUsdAccounts] = useState<Set<UsdVirtualAccountKey>>(
+    () => new Set(revealConsumptionWishUsd ? (['usdConsumptionBank', 'usdWishJar'] as UsdVirtualAccountKey[]) : []),
+  );
   const [investUsdInputMode, setInvestUsdInputMode] = useState<'cny' | 'usd'>('cny');
   const [investUsdCnyInput, setInvestUsdCnyInput] = useState('');
   const focusNextAccount = (i: number) => {
@@ -364,7 +369,7 @@ export default function ReconcilePage() {
 
   const [expandedBudget, setExpandedBudget] = useState<BudgetKey | null>(null);
   const [expandedTransfer, setExpandedTransfer] = useState<TransferKey | null>(null);
-  const [consumptionWishOpen, setConsumptionWishOpen] = useState(false);
+  const [consumptionWishOpen, setConsumptionWishOpen] = useState(revealConsumptionWishUsd);
   const hideConsumptionWishAccounts = () => {
     setRevealedUsdAccounts((prev) => {
       const next = new Set(prev);
@@ -373,6 +378,7 @@ export default function ReconcilePage() {
       return next;
     });
     setConsumptionWishOpen(false);
+    setRevealConsumptionWishUsd(false);
   };
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [groupedTargetInputs, setGroupedTargetInputs] = useState<GroupedTargetInputs>(
@@ -1250,7 +1256,22 @@ export default function ReconcilePage() {
       {fee ? '真换汇·手续费' : '假置换·免手续费'}
     </span>
   );
-  // 美元 → 人民币：理财卖美元(↓转出)、得人民币(↑进入)，两条腿各自输入
+  // 人民币 / 美元 色块：币种 chip + 金额，下面放输入框（无输入则只显示金额）
+  const renderMoneyBlock = (kind: 'cny' | 'usd', amountText: string, input: ReactNode) => {
+    const s = kind === 'cny'
+      ? { bg: '#e6f4ea', border: '#ceead6', color: C.green, name: '人民币' }
+      : { bg: '#e8f0fe', border: '#d2e3fc', color: C.blue, name: '美元' };
+    return (
+      <div style={{ backgroundColor: s.bg, border: `1px solid ${s.border}`, borderRadius: 10, padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: s.color, backgroundColor: '#fff', borderRadius: 4, padding: '1px 5px' }}>{s.name}</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: s.color, fontVariantNumeric: 'tabular-nums' }}>{amountText}</span>
+        </div>
+        {input}
+      </div>
+    );
+  };
+  // 美元 → 人民币：理财卖美元(↓转出)、得人民币(↑进入)，两条腿各自输入；箭头在输入框下方
   const renderUsdToCnyRow = (r: FundingRow, i: number, refs: { current: (HTMLInputElement | null)[] }) => {
     const cnyRemain = Math.max(r.cnyLeg.amountCny - parseAmountPart(fundingLegValue(r.cnyLeg.key)), 0);
     const usdRemain = Math.max(r.usdLeg.amountCny - parseAmountPart(fundingLegValue(r.usdLeg.key)), 0);
@@ -1261,21 +1282,21 @@ export default function ReconcilePage() {
           <SwapTag />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 12 }}>
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: C.green, fontVariantNumeric: 'tabular-nums', marginBottom: 4, textAlign: 'right' }}>↑ 进入 ¥{fmtInt(r.cnyLeg.amountCny)}</div>
-            {renderLegInput(r.cnyLeg, refs, i * 2)}
-            {cnyRemain >= 1 && <div style={{ fontSize: 10, color: C.orange, textAlign: 'right', marginTop: 2 }}>还需¥{fmtInt(cnyRemain)}</div>}
+          {renderMoneyBlock('cny', `¥${fmtInt(r.cnyLeg.amountCny)}`, renderLegInput(r.cnyLeg, refs, i * 2))}
+          {renderMoneyBlock('usd', fmtLegNeed(r.usdLeg), renderLegInput(r.usdLeg, refs, i * 2 + 1))}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 12, marginTop: 6 }}>
+          <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 700, color: C.green }}>
+            ↑ 进入{cnyRemain >= 1 && <span style={{ marginLeft: 4, fontSize: 10, color: C.orange, fontWeight: 600 }}>还需¥{fmtInt(cnyRemain)}</span>}
           </div>
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: C.blue, fontVariantNumeric: 'tabular-nums', marginBottom: 4, textAlign: 'right' }}>↓ 转出 {fmtLegNeed(r.usdLeg)}</div>
-            {renderLegInput(r.usdLeg, refs, i * 2 + 1)}
-            {usdRemain >= 1 && <div style={{ fontSize: 10, color: C.orange, textAlign: 'right', marginTop: 2 }}>还需¥{fmtInt(usdRemain)}</div>}
+          <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 700, color: C.blue }}>
+            ↓ 转出{usdRemain >= 1 && <span style={{ marginLeft: 4, fontSize: 10, color: C.orange, fontWeight: 600 }}>还需¥{fmtInt(usdRemain)}</span>}
           </div>
         </div>
       </div>
     );
   };
-  // 人民币 → 美元：横向箭头，单输入（buffer 行镜像驱动两条腿）
+  // 人民币 → 美元：买美元/真换汇，单输入（buffer 行镜像驱动两条腿）；横向箭头在输入框下方
   const renderCnyToUsdRow = (d: CnyToUsdDisplay, i: number, refs: { current: (HTMLInputElement | null)[] }) => {
     const remain = Math.max(d.cnyAmount - parseAmountPart(fundingLegValue(d.inputLeg.key)), 0);
     return (
@@ -1284,14 +1305,15 @@ export default function ReconcilePage() {
           <span style={{ fontSize: 12, fontWeight: 700 }}>{d.label}</span>
           <SwapTag fee={d.fee} />
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 28px 1fr', alignItems: 'center', columnGap: 8 }}>
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: C.blue, fontVariantNumeric: 'tabular-nums', marginBottom: 4, textAlign: 'right' }}>¥{fmtInt(d.cnyAmount)}</div>
-            {renderLegInput(d.inputLeg, refs, i, d.mirrorKeys)}
-            {remain >= 1 && <div style={{ fontSize: 10, color: C.orange, textAlign: 'right', marginTop: 2 }}>还需¥{fmtInt(remain)}</div>}
-          </div>
-          <div style={{ textAlign: 'center', color: C.sub, fontSize: 18, fontWeight: 700 }}>→</div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'left' }}>{fmtUsdFromCny(d.usdAmountCny)}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 12 }}>
+          {renderMoneyBlock('cny', `¥${fmtInt(d.cnyAmount)}`, renderLegInput(d.inputLeg, refs, i, d.mirrorKeys))}
+          {renderMoneyBlock('usd', fmtUsdFromCny(d.usdAmountCny), null)}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 6 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: C.green }}>人民币</span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: C.sub }}>──→</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: C.blue }}>美元</span>
+          {remain >= 1 && <span style={{ fontSize: 10, color: C.orange, fontWeight: 600 }}>还需¥{fmtInt(remain)}</span>}
         </div>
       </div>
     );
@@ -1359,6 +1381,7 @@ export default function ReconcilePage() {
             revealUsdAccount('usdConsumptionBank');
             revealUsdAccount('usdWishJar');
             setConsumptionWishOpen(true);
+            setRevealConsumptionWishUsd(true);
             setSettingsOpen(false);
           }}
           onHideConsumptionWish={() => {
@@ -1901,10 +1924,6 @@ export default function ReconcilePage() {
               <span style={{ color: C.orange, fontVariantNumeric: 'tabular-nums' }}>¥{fmtInt(rebalanceFunding.cnyFromRmbBuffer)}</span>
               <div style={{ flex: 1, borderBottom: '1px dashed #dadce0' }} />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 12, padding: '0 12px', marginBottom: 4 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: C.green, textAlign: 'right' }}>人民币</span>
-              <span style={{ fontSize: 11, fontWeight: 700, color: C.blue, textAlign: 'right' }}>美元</span>
-            </div>
             {cnyFundingRows.map((r, i) => renderUsdToCnyRow(r, i, cnyFundingInputRefs))}
             <button
               onClick={() => executeFundingLegs(cnyFundingLegs)}
@@ -1929,11 +1948,6 @@ export default function ReconcilePage() {
               <span>美元调拨 · 人民币 → 美元</span>
               <span style={{ color: C.orange, fontVariantNumeric: 'tabular-nums' }}>¥{fmtInt(rebalanceFunding.usdReplaceUseCny + rebalanceFunding.cnyToUsdCny)}</span>
               <div style={{ flex: 1, borderBottom: '1px dashed #dadce0' }} />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 28px 1fr', alignItems: 'center', columnGap: 8, padding: '0 12px', marginBottom: 4 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: C.green, textAlign: 'right' }}>人民币</span>
-              <span />
-              <span style={{ fontSize: 11, fontWeight: 700, color: C.blue, textAlign: 'left' }}>美元</span>
             </div>
             {cnyToUsdDisplays.map((d, i) => renderCnyToUsdRow(d, i, usdFundingInputRefs))}
             <button
