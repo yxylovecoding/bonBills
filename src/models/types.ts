@@ -91,15 +91,6 @@ export interface MajorExpense {
   amount: number;
 }
 
-export interface InvestPastProfit {
-  id: string;
-  investKey: InvestKey;
-  amount: number;
-  note?: string;
-  effectiveFrom?: string;       // "YYYY-MM"; 旧数据为空时表示全历史生效
-  createdAt: string;
-}
-
 export interface MonthlyRecord {
   yearMonth: string;           // "2026-03"
   income: number;
@@ -107,8 +98,10 @@ export interface MonthlyRecord {
   accumulatedProfit: number;   // 截止本月的累计盈利
   investTotal: number;          // 本月理财总额
   investBreakdown?: Partial<InvestHoldings>;       // 各品类持仓（月末）
-  investBreakdownProfit?: Partial<InvestHoldings>; // 各品类累计收益（月末）
+  investBreakdownProfit?: Partial<InvestHoldings>; // 各品类 now 收益（当前持仓，月末）
   investProfitComponents?: Partial<Record<'us' | 'usBond', { cny: number; rate: number; usd: number }>>;
+  investBreakdownPastProfit?: Partial<InvestHoldings>; // 各品类 past 收益（已清仓，人民币，逐月继承）
+  investPastProfitComponents?: Partial<Record<'us' | 'usBond', { cny: number; rate: number; usd: number }>>; // past 美元拆分
   isBaseline?: boolean;         // 基准月：虽有累计盈利但未真正开始记录，各品类「本月收益」不与之相减
   volatileLife: number;
   periodicLife: number;

@@ -21,7 +21,7 @@ import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { tryEvalFormula } from '../utils/formula';
 import { dateLabel, resolveIncomeForMonth, type ResolvedIncomeItem } from '../utils/payroll';
-import { getPastProfitTotal, getTotalInvestProfit } from '../utils/investRecords';
+import { getCategoryProfit } from '../utils/investRecords';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', sub: '#5f6368', orange: '#e8710a' };
 const RESERVABLE_HOLDING_KEY: InvestKey = 'longBond';
@@ -270,7 +270,7 @@ export default function ReconcilePage() {
   const navigate = useNavigate();
   const { current, updateAccounts, updateTransfers, updateHoldings, updateHoldingReserves, saveSnapshot } = useSnapshotStore();
   const { config, setConfig } = useConfigStore();
-  const { records, investPastProfits } = useMonthlyStore();
+  const { records } = useMonthlyStore();
   const { tagMap, confirmedExpenses } = useCalendarStore();
   const { expenseItems } = useBillDetailStore();
   const { overrides: expenseScopeOverrides } = useExpenseScopeOverrideStore();
@@ -492,28 +492,23 @@ export default function ReconcilePage() {
       : DEFAULT_CONFIG.investAllocTargets,
     [config.investAllocTargets, investKeys],
   );
-  // 各品类最新一期累计收益；按品类叠加截止最新记录月生效的 past
+  // 各品类最新一期累计收益 = now + past（past 逐月继承，已落在最新记录上）
   const latestBreakdownProfit = useMemo(
     () => {
       const sorted = [...records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth));
-      const latestMonth = sorted[0]?.yearMonth;
       const out: Partial<Record<InvestKey, { profit: number; pastTotal: number; yearMonth?: string }>> = {};
       for (const k of INVEST_TARGET_KEYS) {
-        const pastTotal = getPastProfitTotal(investPastProfits, k, latestMonth);
-        const record = sorted.find((r) => {
-          const profit = r.investBreakdownProfit?.[k];
-          return profit !== undefined && profit !== null;
-        });
-        if (!record && pastTotal === 0) continue;
+        const record = sorted.find((r) => getCategoryProfit(r, k) !== null);
+        if (!record) continue;
         out[k] = {
-          profit: getTotalInvestProfit(record, k, investPastProfits, latestMonth) ?? pastTotal,
-          pastTotal,
-          yearMonth: record?.yearMonth,
+          profit: getCategoryProfit(record, k) ?? 0,
+          pastTotal: record.investBreakdownPastProfit?.[k] ?? 0,
+          yearMonth: record.yearMonth,
         };
       }
       return out;
     },
-    [records, investPastProfits],
+    [records],
   );
   const fallbackUsdRate = useMemo(
     () => [...records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth))

@@ -1,4 +1,4 @@
-import type { InvestKey, InvestPastProfit, MonthlyRecord } from '../models/types';
+import type { InvestKey, MonthlyRecord } from '../models/types';
 
 export interface InvestTotalForRate {
   value: number;
@@ -32,24 +32,13 @@ export function getInvestTotalForRate(
   };
 }
 
-export function getPastProfitTotal(
-  pastProfits: InvestPastProfit[],
-  key: InvestKey,
-  yearMonth?: string,
-) {
-  return pastProfits
-    .filter((item) => item.investKey === key && (!yearMonth || !item.effectiveFrom || item.effectiveFrom <= yearMonth))
-    .reduce((sum, item) => sum + item.amount, 0);
-}
-
-export function getTotalInvestProfit(
+// 某品类当月累计收益 = now（当前持仓）+ past（已清仓）；两者皆空时返回 null
+export function getCategoryProfit(
   record: MonthlyRecord | undefined,
   key: InvestKey,
-  pastProfits: InvestPastProfit[],
-  yearMonth = record?.yearMonth,
-) {
-  const raw = record?.investBreakdownProfit?.[key];
-  const pastTotal = getPastProfitTotal(pastProfits, key, yearMonth);
-  if ((raw === undefined || raw === null) && pastTotal === 0) return null;
-  return (raw ?? 0) + pastTotal;
+): number | null {
+  const now = record?.investBreakdownProfit?.[key];
+  const past = record?.investBreakdownPastProfit?.[key];
+  if ((now === undefined || now === null) && (past === undefined || past === null)) return null;
+  return (now ?? 0) + (past ?? 0);
 }
