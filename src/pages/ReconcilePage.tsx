@@ -349,10 +349,15 @@ export default function ReconcilePage() {
   });
 
   // 信用卡实际待还（储蓄卡先抵本期，溢出抵下期）
-  const effectiveCreditMonthly = Math.max(
+  // 长债超 1 万的部分可赎回用于偿还信用卡本期待还（储蓄卡抵扣后仍欠的部分）
+  const longBondTotalForRepay = current.investHoldings.longBond ?? 0;
+  const longBondExcess = Math.max(longBondTotalForRepay - LONG_BOND_PRIORITY_FLOOR, 0);
+  const creditMonthlyAfterSavings = Math.max(
     (current.accounts.creditMonthly ?? 0) - (current.accounts.savingsCard ?? 0),
     0,
   );
+  const longBondRepay = Math.min(longBondExcess, creditMonthlyAfterSavings);
+  const effectiveCreditMonthly = Math.max(creditMonthlyAfterSavings - longBondRepay, 0);
   const effectiveCreditNext = Math.max(
     (current.accounts.credit ?? 0)
       - Math.max(current.accounts.savingsCard ?? 0, current.accounts.creditMonthly ?? 0),
@@ -796,6 +801,23 @@ export default function ReconcilePage() {
 
   const hasTransferChanges = TRANSFER_KEYS.some((k) => (parseFloat(localTransferred[k] || '0') || 0) !== 0);
 
+  // 赎回长债超 1 万的部分用于还款：长债↓ → 储蓄卡↑（储蓄卡再抵信用卡本期待还）
+  const handleRedeemLongBond = () => {
+    const amount = roundMoney(longBondRepay);
+    if (amount <= 0) return;
+    const newLongBond = roundMoney((current.investHoldings.longBond ?? 0) - amount);
+    const newSavings = roundMoney((current.accounts.savingsCard ?? 0) + amount);
+    const curReserve = current.investHoldingReserves?.[RESERVABLE_HOLDING_KEY] ?? 0;
+    updateHoldings({ ...current.investHoldings, longBond: newLongBond });
+    setLocalHoldings((p) => ({ ...p, longBond: String(newLongBond) }));
+    if (curReserve > newLongBond) {
+      updateHoldingReserves({ [RESERVABLE_HOLDING_KEY]: Math.max(0, newLongBond) });
+      setLocalHoldingReserves((p) => ({ ...p, [RESERVABLE_HOLDING_KEY]: String(Math.max(0, newLongBond)) }));
+    }
+    updateAccounts({ savingsCard: newSavings });
+    setLocalAccounts((p) => ({ ...p, savingsCard: String(newSavings) }));
+  };
+
   const handleExecuteRebalance = () => {
     const entries = investKeys.map((k) => [k, parseFloat(localConfirmed[k]) || 0] as const);
     const hasUsdExecution = entries.some(([k, amount]) => USD_INVEST_KEYS.includes(k) && amount !== 0);
@@ -969,7 +991,7 @@ export default function ReconcilePage() {
     icon: '💳',
     label: '信用卡本期待还',
     amount: effectiveCreditMonthly,
-    note: `${config.creditPayDate}号还款${(current.accounts.savingsCard ?? 0) > 0 ? ` · ¥${fmtInt(current.accounts.creditMonthly ?? 0)}-储蓄¥${fmtInt(current.accounts.savingsCard ?? 0)}` : ''}`,
+    note: `${config.creditPayDate}号还款${(current.accounts.savingsCard ?? 0) > 0 || longBondRepay > 0 ? ` · ¥${fmtInt(current.accounts.creditMonthly ?? 0)}${(current.accounts.savingsCard ?? 0) > 0 ? `-储蓄¥${fmtInt(current.accounts.savingsCard ?? 0)}` : ''}${longBondRepay > 0 ? `-长债¥${fmtInt(longBondRepay)}` : ''}` : ''}`,
   };
   const creditInThisMonth = isMonthStartMode;
 
@@ -1043,7 +1065,7 @@ export default function ReconcilePage() {
   const campusShortfallForTransfer = Math.max(budget.needs.campusCard - (current.accounts.campusCard ?? 0), 0);
   const repaymentNeedForTransfer = current.accounts.creditMonthly ?? 0;
   const repaymentShortfallForTransfer = creditInThisMonth
-    ? Math.max(repaymentNeedForTransfer - (current.accounts.savingsCard ?? 0), 0)
+    ? Math.max(repaymentNeedForTransfer - (current.accounts.savingsCard ?? 0) - longBondRepay, 0)
     : 0;
   const livingNeedForTransfer = Math.max(
     monthlyExpenseForTransfer
@@ -1695,7 +1717,7 @@ export default function ReconcilePage() {
             ...(creditInThisMonth ? [{
               key: 'repayment' as TransferKey,
               rec: repaymentShortfallForTransfer,
-              calc: `本期待还¥${fmtInt(repaymentNeedForTransfer)} − 储蓄卡¥${fmtInt(current.accounts.savingsCard ?? 0)}`,
+              calc: `本期待还¥${fmtInt(repaymentNeedForTransfer)} − 储蓄卡¥${fmtInt(current.accounts.savingsCard ?? 0)}${longBondRepay > 0 ? ` − 长债¥${fmtInt(longBondRepay)}（超1万部分赎回）` : ''}`,
             }] : []),
             {
               key: 'living',
@@ -1759,6 +1781,19 @@ export default function ReconcilePage() {
                 {/* 第二行：计算说明（点击"需¥"展开） */}
                 {expandedTransfer === row.key && (
                   <div style={{ fontSize: 11, color: C.sub, marginTop: 4 }}>{row.calc}</div>
+                )}
+                {/* 长债超 1 万部分赎回还款：一键 长债↓ → 储蓄卡↑ */}
+                {row.key === 'repayment' && longBondRepay > 0 && (
+                  <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: '#e6f4ea', border: '1px solid #81c995', borderRadius: 8, padding: '8px 10px' }}>
+                    <span style={{ fontSize: 12, color: '#188038', lineHeight: 1.4 }}>
+                      🟢 赎回长债 <b style={{ fontVariantNumeric: 'tabular-nums' }}>¥{fmtInt(longBondRepay)}</b> → 储蓄卡<br />
+                      <span style={{ fontSize: 11, color: C.sub }}>长债¥{fmtInt(longBondTotalForRepay)}超1万部分</span>
+                    </span>
+                    <button
+                      onClick={handleRedeemLongBond}
+                      style={{ flexShrink: 0, backgroundColor: C.green, color: '#fff', fontWeight: 700, fontSize: 12, padding: '7px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    >✓ 赎回还款</button>
+                  </div>
                 )}
               </div>
               </Fragment>
