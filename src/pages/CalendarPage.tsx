@@ -641,8 +641,8 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   const investAnnual = investMonthly !== null ? investMonthly * 12 : null;
   const getBreakdownMonthlyProfit = (k: keyof InvestHoldings) => {
     if (!prevRecord) return null;
-    // 本月或上月是基准月（未真正开始记录）时，本月收益无法推算
-    if (isBaseline || prevRecord.isBaseline) return null;
+    // 本月是基准月（未真正开始记录）时本月收益无法推算；但基准月的次月仍可与基准月相减
+    if (isBaseline) return null;
     const now = nOrNull(breakdownProfit[k]);
     const past = nOrNull(pastBreakdownProfit[k]);
     const totalProfit = (now !== null || past !== null) ? (now ?? 0) + (past ?? 0) : null;
@@ -1184,7 +1184,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
       {showBreakdown && holdingsTab === 'now' && (
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.sub, marginTop: 8, cursor: 'pointer' }}>
           <input type="checkbox" checked={isBaseline} onChange={(e) => setIsBaseline(e.target.checked)} style={{ cursor: 'pointer' }} />
-          基准月（有累计盈利但未真正开始记录，本月/次月「本月收益」不参与推算）
+          基准月（有累计盈利但未真正开始记录，仅本月「本月收益」不参与推算，次月可正常推算）
         </label>
       )}
       {usdModalTarget && (() => {
@@ -1788,8 +1788,8 @@ function MonthRow({
                       const pastTotal = record.investBreakdownPastProfit?.[k] ?? 0;
                       const profit = getCategoryProfit(record, k);
                       const prevProfit = getCategoryProfit(prev, k);
-                      // 本月或上月是基准月（未真正开始记录）时，本月收益无法推算
-                      const monthlyProfit = (record.isBaseline || prev?.isBaseline || profit === null || prevProfit === null)
+                      // 本月是基准月（未真正开始记录）时本月收益无法推算；基准月的次月仍可与基准月相减
+                      const monthlyProfit = (record.isBaseline || profit === null || prevProfit === null)
                         ? null : profit - prevProfit;
                       const rate = (monthlyProfit !== null && cur > 0) ? monthlyProfit / cur : null;
                       return (
