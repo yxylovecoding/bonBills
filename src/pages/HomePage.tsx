@@ -27,7 +27,7 @@ import { TAX_RULE_PRESETS } from '../utils/tax';
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '长债超1万可赎回还信用卡';
+const RELEASE_NOTE = '场景切换';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
@@ -252,6 +252,7 @@ export default function HomePage() {
 
   // FIRE 模式切换
   const [fireMode, setFireMode] = useState<'life' | 'all'>('all');
+  const [sceneDailyMode, setSceneDailyMode] = useState<'life' | 'all'>('life');
   const [fireExpanded, setFireExpanded] = useState(false);
   const [sceneExpanded, setSceneExpanded] = useState<Set<TagKind>>(new Set());
   const [sceneLocalOpenCategories, setSceneLocalOpenCategories] = useState<Set<string>>(new Set());
@@ -373,9 +374,20 @@ export default function HomePage() {
 
   // 月度快照
   const monthlySurplus = stats.monthlyIncomeAvg - stats.totalExpenseAvg;
-  const sceneDailyRows: { tagKind: TagKind; val: number }[] = (
-    ['school', 'intern', 'home', 'travel'] as TagKind[]
-  ).map((k) => ({ tagKind: k, val: stats.stateDailyAvg[k] })).filter((r) => r.val > 0);
+  type SceneDailyRow = { tagKind: TagKind; val: number; lifeVal: number; consumptionVal: number };
+  const sceneDailyTagKinds = ['school', 'intern', 'home', 'travel'] as TagKind[];
+  const buildSceneDailyRow = (tagKind: TagKind): SceneDailyRow => {
+    const lifeVal = stats.stateDailyAvg[tagKind];
+    const consumptionVal = stats.stateConsumptionDailyAvg[tagKind];
+    return {
+      tagKind,
+      lifeVal,
+      consumptionVal,
+      val: lifeVal + (sceneDailyMode === 'all' ? consumptionVal : 0),
+    };
+  };
+  const sceneDailyRows: SceneDailyRow[] = sceneDailyTagKinds.map(buildSceneDailyRow).filter((r) => r.val > 0);
+  const hasSceneDaily = sceneDailyRows.length > 0 || sceneDailyTagKinds.some((tagKind) => stats.stateConsumptionDailyAvg[tagKind] > 0);
   const sceneBlocks = (
     [
       { key: 'campus-work', tagKinds: ['school', 'intern'] as TagKind[], bg: '#eff6ff', border: '#bfdbfe' },
@@ -385,7 +397,7 @@ export default function HomePage() {
   ).map((block) => ({
     ...block,
     rows: block.tagKinds
-      .map((tagKind) => ({ tagKind, val: stats.stateDailyAvg[tagKind] }))
+      .map(buildSceneDailyRow)
       .filter((row) => row.val > 0),
   })).filter((block) => block.rows.length > 0);
   const sceneRangeLabel = filteredRecords.length >= 12
@@ -434,10 +446,27 @@ export default function HomePage() {
         <StatRow label="消费"     indent value={<CurrencyDisplay value={stats.consumptionAvg}  color={C.purple} kFormat />} />
         <Divider />
         <StatRow label="月均结余" value={<CurrencyDisplay value={monthlySurplus} color={monthlySurplus >= 0 ? C.red : C.green} kFormat />} />
-        {sceneDailyRows.length > 0 && (
+        {hasSceneDaily && (
           <>
             <Divider />
-            <div style={{ fontSize: 12, color: C.sub, marginBottom: 4 }}>场景日均 {sceneRangeLabel}</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <div style={{ fontSize: 12, color: C.sub }}>场景日均 {sceneRangeLabel}</div>
+              <div style={{ display: 'flex', backgroundColor: '#f1f3f4', borderRadius: 999, padding: 2, gap: 2 }}>
+                {(['life', 'all'] as const).map((mode) => {
+                  const active = sceneDailyMode === mode;
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setSceneDailyMode(mode)}
+                      style={{ minWidth: 38, padding: '3px 9px', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, backgroundColor: active ? '#fff' : 'transparent', color: active ? C.blue : C.sub, boxShadow: active ? '0 1px 2px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.15s' }}
+                    >
+                      {mode === 'life' ? '活' : '生活'}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             {sceneBlocks.map((block) => (
               <div key={block.key} style={{ backgroundColor: block.bg, border: `1px solid ${block.border}`, borderRadius: 8, marginTop: 6, overflow: 'hidden' }}>
                 {block.rows.map((r, idx) => {
@@ -446,7 +475,7 @@ export default function HomePage() {
                   const sharedPct = r.val > 0 ? (stats.sharedLifeDailyBase / r.val) * 100 : 0;
                   const combinedBreakdown = mergeSceneLifeBreakdown(stats.localLifeBreakdown[r.tagKind] ?? [], stats.sharedLifeBreakdown);
                   const combinedBreakdownDaily = combinedBreakdown.reduce((sum, row) => sum + row.dailyBase, 0);
-                  const unclassifiedDaily = Math.max(r.val - combinedBreakdownDaily, 0);
+                  const unclassifiedLifeDaily = Math.max(r.lifeVal - combinedBreakdownDaily, 0);
                   return (
                     <div key={r.tagKind} style={{ borderTop: idx > 0 ? `1px solid ${block.border}` : 'none' }}>
                       <button
@@ -457,7 +486,7 @@ export default function HomePage() {
                         <span style={{ color: C.sub, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
                           <span style={{ marginRight: 4, fontSize: 10, color: '#9aa0a6' }}>{expanded ? '▼' : '▶'}</span>
                           {m.icon} {m.label}
-                          {stats.sharedLifeDailyBase > 0 && (
+                          {stats.sharedLifeDailyBase > 0 && r.lifeVal > 0 && (
                             <span style={{ fontSize: 11, color: '#9aa0a6' }}>（共享均摊 {sharedPct.toFixed(1)}%）</span>
                           )}
                         </span>
@@ -503,12 +532,20 @@ export default function HomePage() {
                               </div>
                             );
                           })}
-                          {unclassifiedDaily > 0.005 && (
+                          {unclassifiedLifeDaily > 0.005 && (
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: '#3c4043' }}>
                               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
-                                未拆分估算 <span style={{ color: '#9aa0a6' }}>· {((unclassifiedDaily / r.val) * 100).toFixed(1)}%</span>
+                                {sceneDailyMode === 'all' ? '活未拆分估算' : '未拆分估算'} <span style={{ color: '#9aa0a6' }}>· {((unclassifiedLifeDaily / r.val) * 100).toFixed(1)}%</span>
                               </span>
-                              <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>¥{unclassifiedDaily.toFixed(2)}/天</span>
+                              <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>¥{unclassifiedLifeDaily.toFixed(2)}/天</span>
+                            </div>
+                          )}
+                          {sceneDailyMode === 'all' && r.consumptionVal > 0.005 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: '#3c4043' }}>
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
+                                消费估算 <span style={{ color: '#9aa0a6' }}>· {((r.consumptionVal / r.val) * 100).toFixed(1)}%</span>
+                              </span>
+                              <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.purple }}>¥{r.consumptionVal.toFixed(2)}/天</span>
                             </div>
                           )}
                           {r.tagKind === 'school' && campusDailyAvgYear > 0 && (
