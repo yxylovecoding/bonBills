@@ -14,6 +14,35 @@ npm run dev       # 开发模式 (http://localhost:5173)
 npm run build     # 生产构建
 ```
 
+## Schwab 同步
+
+Schwab 读作 `/ʃwɑːb/`，近似“施瓦布/什瓦布”。首次使用前，需要在 [Schwab Developer Portal](https://developer.schwab.com/) 创建并获批 Trader API 应用，拿到 app key、app secret，并把 callback URL 配成和本地一致，例如 `https://127.0.0.1:8182/`。
+
+本地新建 `.env.schwab.local`，填入：
+
+```bash
+SCHWAB_CLIENT_ID=你的 app key
+SCHWAB_CLIENT_SECRET=你的 app secret
+SCHWAB_REDIRECT_URI=https://127.0.0.1:8182/
+```
+
+首次授权：
+
+```bash
+npm run schwab:login
+```
+
+脚本会输出授权链接。登录 Schwab 并允许访问后，把浏览器最终跳转到的完整 URL 粘回终端。token 会写到 `.schwab-token.json`，该文件已被 git 忽略。
+
+同步账户、余额、持仓和最近交易：
+
+```bash
+npm run schwab:sync -- --days=60
+```
+
+默认输出到 `src/data/schwabSnapshot.local.json`，该文件同样不会入库。Schwab 交易查询通常限制最近 60 天，可以用 `--from=YYYY-MM-DD --to=YYYY-MM-DD` 或 `--output=PATH` 调整。
+只同步余额和持仓时可加 `--no-transactions`。
+
 ## 目录
 
 ```

@@ -2,6 +2,12 @@ node_modules
 dist
 dist-ssr
 *.local
+.env
+.env.*
+!.env.example
+.schwab-token.json
+schwab-token.json
+src/data/*.local.json
 .vite
 .DS_Store
 *.tsbuildinfo
