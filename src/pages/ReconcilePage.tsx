@@ -97,6 +97,10 @@ const fmtUsd = (value: number) => {
 const fmtDollar = (value: number) => `$${value >= 100 ? Math.round(value).toLocaleString('zh-CN') : value.toFixed(2)}`;
 const fmtPct = (value: number | null, digits = 1) => value === null ? '—' : `${(value * 100).toFixed(digits)}%`;
 const roundMoney = (value: number) => Math.round(value * 100) / 100;
+const latestMarketBar = (chart: MarketChartResponse | null | undefined) => {
+  const bars = chart?.bars?.filter((bar) => Number.isFinite(Number(bar.adjClose ?? bar.close))) ?? [];
+  return bars.length > 0 ? bars[bars.length - 1] : null;
+};
 const effectiveInvestTargets = (targets: InvestAllocTargets) =>
   INVEST_TARGET_KEYS.some((k) => (targets[k] ?? 0) > 0) ? targets : DEFAULT_CONFIG.investAllocTargets;
 const fmtPctInput = (value: number) => String(Math.round(value * 100) / 100);
@@ -659,6 +663,40 @@ export default function ReconcilePage() {
   useEffect(() => {
     setLocalUsStockItems(usStockInputsFromItems(effectiveUsStockItems));
   }, [effectiveUsStockItems]);
+  const usStockSymbols = useMemo(
+    () => [...new Set(localUsStockItems.map((item) => item.symbol.trim().toUpperCase()).filter(Boolean))],
+    [localUsStockItems],
+  );
+  const [usStockCharts, setUsStockCharts] = useState<Record<string, MarketChartResponse>>({});
+  const [usStockPriceErrors, setUsStockPriceErrors] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    if (usStockSymbols.length === 0) return;
+    const controller = new AbortController();
+    const loadCharts = async () => {
+      const results = await Promise.allSettled(usStockSymbols.map(async (symbol) => {
+        const response = await fetch(`/api/market-chart?symbol=${encodeURIComponent(symbol)}&range=6mo&interval=1d`, { signal: controller.signal });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return [symbol, await response.json() as MarketChartResponse] as const;
+      }));
+      if (controller.signal.aborted) return;
+      const failed = new Set<string>();
+      setUsStockCharts((prev) => {
+        const next = { ...prev };
+        results.forEach((result, index) => {
+          const symbol = usStockSymbols[index];
+          if (result.status === 'fulfilled') next[result.value[0]] = result.value[1];
+          else failed.add(symbol);
+        });
+        return next;
+      });
+      setUsStockPriceErrors(failed);
+    };
+    loadCharts().catch((error) => {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      setUsStockPriceErrors(new Set(usStockSymbols));
+    });
+    return () => controller.abort();
+  }, [usStockSymbols.join('|')]);
   const commitUsStockItems = (inputs = localUsStockItems) => {
     const items = inputs.map((item, index) => {
       const amountCny = roundMoney(Math.max(0, parseAmountPart(item.amountCny)));
@@ -2436,21 +2474,48 @@ export default function ReconcilePage() {
                           {localUsStockItems.map((item) => {
                             const amount = Math.max(0, parseAmountPart(item.amountCny));
                             const weight = (current.investHoldings.us ?? 0) > 0 ? amount / (current.investHoldings.us ?? 0) : null;
+                            const symbol = item.symbol.trim().toUpperCase();
+                            const isDramItem = symbol === 'DRAM' || item.name.trim().toUpperCase() === 'DRAM';
+                            const symbolMatchesName = Boolean(symbol) && item.name.trim().toUpperCase() === symbol;
+                            const chart = isDramItem ? (dramChart ?? usStockCharts[symbol]) : usStockCharts[symbol];
+                            const priceBar = latestMarketBar(chart);
+                            const currentPrice = priceBar ? Number(priceBar.adjClose ?? priceBar.close) : null;
+                            const shares = item.shares.trim() ? Math.max(0, parseAmountPart(item.shares)) : 0;
+                            const estimatedCny = currentPrice !== null && latestUsdRate !== null && shares > 0
+                              ? roundMoney(currentPrice * shares * latestUsdRate)
+                              : null;
+                            const priceLabel = currentPrice !== null
+                              ? fmtDollar(currentPrice)
+                              : (symbol && (usStockPriceErrors.has(symbol) || (isDramItem && dramChartError)))
+                                ? '价格失败'
+                                : symbol
+                                  ? '取价中'
+                                  : '填代码';
+                            const itemDecision = isDramItem ? dramDecision : null;
+                            const itemTone = itemDecision ? dramTone[itemDecision.kind] : null;
                             return (
                               <div key={item.id} style={{ border: '1px solid #edf2fb', borderRadius: 9, padding: '7px 8px', backgroundColor: '#fbfdff' }}>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 64px 92px 28px', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(58px, 76px) 92px 28px', gap: 6, alignItems: 'center', marginBottom: 6 }}>
                                   <input
                                     value={item.name}
-                                    onChange={(e) => setLocalUsStockItem(item.id, { name: e.target.value })}
+                                    onChange={(e) => {
+                                      const nextName = e.target.value;
+                                      const previousName = item.name.trim().toUpperCase();
+                                      const previousSymbol = item.symbol.trim().toUpperCase();
+                                      setLocalUsStockItem(item.id, {
+                                        name: nextName,
+                                        ...(previousSymbol && previousSymbol === previousName ? { symbol: nextName.toUpperCase() } : {}),
+                                      });
+                                    }}
                                     onBlur={() => commitUsStockItems()}
                                     style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 800, color: '#202124' }}
                                   />
-                                  <input
-                                    value={item.symbol}
-                                    onChange={(e) => setLocalUsStockItem(item.id, { symbol: e.target.value.toUpperCase() })}
-                                    onBlur={() => commitUsStockItems()}
-                                    style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontWeight: 800, color: C.blue, textAlign: 'center', textTransform: 'uppercase' }}
-                                  />
+                                  <div style={{ minWidth: 0, textAlign: 'right' }}>
+                                    <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, lineHeight: 1.1 }}>现价</div>
+                                    <div title={priceBar?.date ?? undefined} style={{ fontSize: 12, color: currentPrice !== null ? C.blue : C.orange, fontWeight: 800, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                      {priceLabel}
+                                    </div>
+                                  </div>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                                     <span style={{ fontSize: 11, color: C.sub, fontWeight: 700 }}>¥</span>
                                     <AmountInput
@@ -2470,7 +2535,18 @@ export default function ReconcilePage() {
                                     ×
                                   </button>
                                 </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, alignItems: 'center' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: symbolMatchesName ? 'minmax(0, 1fr) minmax(0, 1fr) auto' : 'minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 1fr) auto', gap: 8, alignItems: 'center' }}>
+                                  {!symbolMatchesName && (
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                                      <span style={{ fontSize: 10, color: C.sub, fontWeight: 700, whiteSpace: 'nowrap' }}>代码</span>
+                                      <input
+                                        value={item.symbol}
+                                        onChange={(e) => setLocalUsStockItem(item.id, { symbol: e.target.value.toUpperCase() })}
+                                        onBlur={() => commitUsStockItems()}
+                                        style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: '1px solid #e8eaed', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontWeight: 800, color: C.blue, textAlign: 'right', textTransform: 'uppercase' }}
+                                      />
+                                    </label>
+                                  )}
                                   <label style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
                                     <span style={{ fontSize: 10, color: C.sub, fontWeight: 700, whiteSpace: 'nowrap' }}>股数</span>
                                     <AmountInput
@@ -2495,6 +2571,23 @@ export default function ReconcilePage() {
                                     {weight !== null ? `${(weight * 100).toFixed(1)}%` : '—'}
                                   </span>
                                 </div>
+                                {(estimatedCny !== null || itemDecision) && (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 7 }}>
+                                    {estimatedCny !== null && (
+                                      <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                                        按现价估值 ¥{fmtInt(estimatedCny)}
+                                        {Math.abs(estimatedCny - amount) >= 1 && <span style={{ color: C.orange }}> · 与录入差 ¥{fmtInt(estimatedCny - amount)}</span>}
+                                      </div>
+                                    )}
+                                    {itemDecision && itemTone && (
+                                      <div style={{ border: `1px solid ${itemTone.border}`, backgroundColor: itemTone.bg, color: '#202124', borderRadius: 8, padding: '6px 7px', fontSize: 11, lineHeight: 1.35 }}>
+                                        <span style={{ color: itemTone.color, fontWeight: 900 }}>现在：{itemDecision.headline}</span>
+                                        <span style={{ color: C.sub }}> · </span>
+                                        <span>{itemDecision.detail}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
