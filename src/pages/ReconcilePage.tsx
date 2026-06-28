@@ -2385,19 +2385,19 @@ export default function ReconcilePage() {
               return (
                 <Fragment key={k}>
                 <tr style={{ backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff', borderBottom: '1px solid #f1f3f4' }}>
-                  <td style={{ padding: '8px 0', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <td style={{ padding: '8px 0', paddingRight: k === 'us' ? 34 : 0, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', position: 'relative' }}>
+                    <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', backgroundColor: investMeta[k].color, marginRight: 4, verticalAlign: 'middle', flexShrink: 0 }} />
+                    {investMeta[k].label}
                     {k === 'us' && (
                       <button
                         type="button"
                         onClick={() => setUsStockExpanded((prev) => !prev)}
                         aria-label={usStockExpanded ? '收起美股明细' : '展开美股明细'}
-                        style={{ border: 'none', borderRadius: 8, backgroundColor: '#eef4ff', color: C.blue, width: 32, height: 32, padding: 0, margin: '-6px 2px -6px -6px', cursor: 'pointer', fontSize: 17, fontWeight: 900, lineHeight: 1, verticalAlign: 'middle' }}
+                        style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', border: 'none', borderRadius: 8, backgroundColor: '#eef4ff', color: C.blue, width: 32, height: 32, padding: 0, cursor: 'pointer', fontSize: 17, fontWeight: 900, lineHeight: 1 }}
                       >
                         {usStockExpanded ? '▾' : '▸'}
                       </button>
                     )}
-                    <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', backgroundColor: investMeta[k].color, marginRight: 4, verticalAlign: 'middle', flexShrink: 0 }} />
-                    {investMeta[k].label}
                   </td>
                   <td style={{ padding: '4px 0', textAlign: 'right' }}>
                     {k === RESERVABLE_HOLDING_KEY ? (
