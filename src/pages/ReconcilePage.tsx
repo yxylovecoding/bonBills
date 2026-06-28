@@ -1573,6 +1573,49 @@ export default function ReconcilePage() {
     const next = normalizeAmountInput(value);
     setDramConfigInputs((prev) => ({ ...prev, [field]: next }));
   };
+  const dramActionPlan = useMemo(() => {
+    if (!dramDecision) return null;
+    const usSuggested = rebalanceSuggested.us ?? 0;
+    const usDone = Math.max(0, parseAmountPart(localConfirmed.us));
+    const usRemaining = roundMoney(Math.max(usSuggested - usDone, 0));
+    const priceCny = latestUsdRate !== null ? dramDecision.latestPrice * latestUsdRate : null;
+    const sharesFromCny = (cny: number) => (priceCny !== null && priceCny > 0 ? Math.round((cny / priceCny) * 10000) / 10000 : 0);
+
+    if (dramDecision.sellShares > 0) {
+      return {
+        kind: 'sell' as const,
+        button: `减仓约 ¥${fmtInt(dramDecision.sellCny)} · ${dramDecision.sellShares.toFixed(4)}股`,
+        detail: `${dramDecision.detail} 本次执行：卖出约 ${dramDecision.sellShares.toFixed(4)} 股，约 ¥${fmtInt(dramDecision.sellCny)}。`,
+        buyCny: 0,
+        buyShares: 0,
+        usRemaining,
+      };
+    }
+
+    if (dramDecision.buyCapacityCny > 0) {
+      const buyCny = roundMoney(Math.min(dramDecision.buyCapacityCny, usRemaining));
+      const buyShares = sharesFromCny(buyCny);
+      return {
+        kind: buyCny > 0 ? 'buy' as const : 'wait' as const,
+        button: buyCny > 0 ? `加仓约 ¥${fmtInt(buyCny)} · ${buyShares.toFixed(4)}股` : '本次美股投入不足，暂不加',
+        detail: buyCny > 0
+          ? `本次美股还需投入 ¥${fmtInt(usRemaining)}，DRAM 目标剩余额度 ¥${fmtInt(dramDecision.buyCapacityCny)}；本次买入 DRAM 约 ¥${fmtInt(buyCny)}，约 ${buyShares.toFixed(4)} 股，其余给 SPY。`
+          : `DRAM 仍有目标剩余额度 ¥${fmtInt(dramDecision.buyCapacityCny)}，但本次美股还需投入 ¥${fmtInt(usRemaining)}，这次不加 DRAM。`,
+        buyCny,
+        buyShares,
+        usRemaining,
+      };
+    }
+
+    return {
+      kind: 'hold' as const,
+      button: '本次不加 DRAM',
+      detail: `${dramDecision.detail} 本次美股还需投入 ¥${fmtInt(usRemaining)}，优先给 SPY。`,
+      buyCny: 0,
+      buyShares: 0,
+      usRemaining,
+    };
+  }, [dramDecision, latestUsdRate, localConfirmed.us, rebalanceSuggested.us]);
   const renderDramDecisionPanel = () => (
     <div style={{ border: `1.5px solid ${activeDramTone.border}`, borderRadius: 12, padding: '10px 12px', backgroundColor: activeDramTone.bg }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
@@ -1640,15 +1683,15 @@ export default function ReconcilePage() {
             <div style={{ fontWeight: 800, color: activeDramTone.color, marginBottom: 3 }}>
               {dramDecision.kind === 'clear' ? '清仓信号' : dramDecision.kind === 'trim' ? '减仓信号' : dramDecision.kind === 'buy' ? '买入许可' : dramDecision.kind === 'pause' ? '暂停信号' : '持仓信号'}
             </div>
-            <div>{dramDecision.detail}</div>
+            <div>{dramActionPlan?.detail ?? dramDecision.detail}</div>
             {dramDecision.sellShares > 0 && (
               <div style={{ marginTop: 5, color: C.orange, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
                 建议卖出 {dramDecision.sellShares.toFixed(4)} 股 · 约 ¥{fmtInt(dramDecision.sellCny)}
               </div>
             )}
-            {dramDecision.buyCapacityCny > 0 && (
+            {dramActionPlan && dramActionPlan.buyCny > 0 && (
               <div style={{ marginTop: 5, color: C.green, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                DRAM 可买上限 ¥{fmtInt(dramDecision.buyCapacityCny)}，剩余美股资金投 SPY
+                建议买入 {dramActionPlan.buyShares.toFixed(4)} 股 · 约 ¥{fmtInt(dramActionPlan.buyCny)}
               </div>
             )}
           </div>
@@ -2206,10 +2249,9 @@ export default function ReconcilePage() {
                     style={{ width: 74, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${color}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color, textAlign: 'right' }}
                   />
                 </div>
-                {showUsdAccount(usdKey) && (
-                  <>
-                    <span style={{ color: C.sub, fontSize: 13 }}>·</span>
-                    {investUsdInputMode === 'usd' ? (
+                <>
+                  <span style={{ color: C.sub, fontSize: 13 }}>·</span>
+                  {investUsdInputMode === 'usd' ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: C.sub }}>境外</span>
                         <button
@@ -2225,12 +2267,12 @@ export default function ReconcilePage() {
                           value={localAccounts[usdKey]}
                           onChange={(v) => setLocalAccounts((p) => ({ ...p, [usdKey]: normalizeAmountInput(v) }))}
                           onFocus={(e) => e.target.select()}
-                          onBlur={() => { syncAccounts(); hideUsdAccount(usdKey); }}
+                          onBlur={() => syncAccounts()}
                           onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); holdingInputRefs.current[0]?.focus(); } }}
                           style={{ width: 68, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
                         />
                       </div>
-                    ) : (
+                  ) : (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: C.sub }}>境外</span>
                         <button
@@ -2248,7 +2290,7 @@ export default function ReconcilePage() {
                             value={investUsdCnyInput}
                             onChange={(v) => setInvestUsdCnyInput(normalizeAmountInput(v))}
                             onFocus={(e) => e.target.select()}
-                            onBlur={() => { commitInvestUsdCnyInput(); hideUsdAccount(usdKey); }}
+                            onBlur={() => commitInvestUsdCnyInput()}
                             onKeyDown={(e) => { if (e.key === 'Enter') { commitInvestUsdCnyInput(); holdingInputRefs.current[0]?.focus(); } }}
                             style={{ width: 74, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
                           />
@@ -2262,9 +2304,8 @@ export default function ReconcilePage() {
                           </button>
                         )}
                       </div>
-                    )}
-                  </>
-                )}
+                  )}
+                </>
               </div>
             </Fragment>
           ))}
@@ -2635,6 +2676,12 @@ export default function ReconcilePage() {
                                       <span style={{ color: activeDramTone.color, fontWeight: 900 }}>
                                         决策详情：{dramChartLoading ? '加载中' : dramDecision?.headline ?? (dramChartError ? '价格失败' : '等待价格')}
                                       </span>
+                                      {dramActionPlan && (
+                                        <>
+                                          <span style={{ color: C.sub }}> · </span>
+                                          <span style={{ color: activeDramTone.color, fontWeight: 800 }}>{dramActionPlan.button}</span>
+                                        </>
+                                      )}
                                       <span style={{ color: C.sub }}> · </span>
                                       <span style={{ color: C.sub, fontWeight: 700 }}>{dramDecisionExpanded ? '收起' : '点击查看'}</span>
                                     </button>
