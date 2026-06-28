@@ -667,13 +667,13 @@ export default function ReconcilePage() {
   );
   const effectiveUsStockItems = useMemo<UsStockHoldingItem[]>(() => {
     if (storedUsStockItems.length > 0) return storedUsStockItems;
-    const dramValue = dramDecision?.dramValueCny ?? 0;
+    const dramCostValue = latestUsdRate !== null ? roundMoney(dramConfig.shares * dramConfig.costPrice * latestUsdRate) : 0;
     return [
       {
         id: 'dram',
         name: 'DRAM',
         symbol: dramConfig.symbol,
-        amountCny: roundMoney(dramValue),
+        amountCny: dramCostValue,
         shares: dramConfig.shares,
         costPrice: dramConfig.costPrice,
       },
@@ -681,18 +681,43 @@ export default function ReconcilePage() {
         id: 'sp500',
         name: '标普',
         symbol: 'SPY',
-        amountCny: roundMoney(Math.max((current.investHoldings.us ?? 0) - dramValue, 0)),
+        amountCny: roundMoney(Math.max((current.investHoldings.us ?? 0) - dramCostValue, 0)),
       },
     ];
-  }, [current.investHoldings.us, dramConfig, dramDecision?.dramValueCny, storedUsStockItems]);
+  }, [current.investHoldings.us, dramConfig, latestUsdRate, storedUsStockItems]);
+  const autoFillUsStockAmount = (item: UsStockItemInput) => {
+    if (isSpyUsStockInput(item)) return item;
+    const amountCny = usStockCostAmountCny(item, latestUsdRate);
+    return amountCny !== null ? { ...item, amountCny: String(amountCny) } : item;
+  };
+  const normalizeUsStockInputs = (inputs: UsStockItemInput[], options?: { autoAmount?: boolean; usTotalCny?: number }) => {
+    const shouldAutoAmount = options?.autoAmount !== false;
+    const amountInputs = shouldAutoAmount ? inputs.map(autoFillUsStockAmount) : inputs;
+    return syncSpyUsStockAmount(amountInputs, options?.usTotalCny ?? (current.investHoldings.us ?? 0));
+  };
+  const usStockInputsToItems = (inputs: UsStockItemInput[]) => (
+    inputs.map((item, index) => {
+      const amountCny = roundMoney(Math.max(0, parseAmountPart(item.amountCny)));
+      const shares = item.shares.trim() ? Math.max(0, parseAmountPart(item.shares)) : undefined;
+      const costPrice = item.costPrice.trim() ? Math.max(0, parseAmountPart(item.costPrice)) : undefined;
+      return {
+        id: item.id || `us-stock-${Date.now()}-${index}`,
+        name: item.name.trim() || `项目${index + 1}`,
+        symbol: item.symbol.trim().toUpperCase(),
+        amountCny,
+        ...(shares !== undefined ? { shares } : {}),
+        ...(costPrice !== undefined ? { costPrice } : {}),
+      };
+    })
+  );
   const [usStockExpanded, setUsStockExpanded] = useState(false);
   const [dramDecisionExpanded, setDramDecisionExpanded] = useState(false);
   const [localUsStockItems, setLocalUsStockItems] = useState<UsStockItemInput[]>(
-    () => syncSpyUsStockAmount(usStockInputsFromItems(effectiveUsStockItems), current.investHoldings.us ?? 0),
+    () => normalizeUsStockInputs(usStockInputsFromItems(effectiveUsStockItems)),
   );
   useEffect(() => {
-    setLocalUsStockItems(syncSpyUsStockAmount(usStockInputsFromItems(effectiveUsStockItems), current.investHoldings.us ?? 0));
-  }, [current.investHoldings.us, effectiveUsStockItems]);
+    setLocalUsStockItems(normalizeUsStockInputs(usStockInputsFromItems(effectiveUsStockItems)));
+  }, [current.investHoldings.us, effectiveUsStockItems, latestUsdRate]);
   const usStockSymbols = useMemo(
     () => [...new Set(localUsStockItems.map((item) => item.symbol.trim().toUpperCase()).filter(Boolean))],
     [localUsStockItems],
@@ -727,30 +752,6 @@ export default function ReconcilePage() {
     });
     return () => controller.abort();
   }, [usStockSymbols.join('|')]);
-  const autoFillUsStockAmount = (item: UsStockItemInput) => {
-    if (isSpyUsStockInput(item)) return item;
-    const amountCny = usStockCostAmountCny(item, latestUsdRate);
-    return amountCny !== null ? { ...item, amountCny: String(amountCny) } : item;
-  };
-  const normalizeUsStockInputs = (inputs: UsStockItemInput[], options?: { autoAmount?: boolean; usTotalCny?: number }) => {
-    const amountInputs = options?.autoAmount ? inputs.map(autoFillUsStockAmount) : inputs;
-    return syncSpyUsStockAmount(amountInputs, options?.usTotalCny ?? (current.investHoldings.us ?? 0));
-  };
-  const usStockInputsToItems = (inputs: UsStockItemInput[]) => (
-    inputs.map((item, index) => {
-      const amountCny = roundMoney(Math.max(0, parseAmountPart(item.amountCny)));
-      const shares = item.shares.trim() ? Math.max(0, parseAmountPart(item.shares)) : undefined;
-      const costPrice = item.costPrice.trim() ? Math.max(0, parseAmountPart(item.costPrice)) : undefined;
-      return {
-        id: item.id || `us-stock-${Date.now()}-${index}`,
-        name: item.name.trim() || `项目${index + 1}`,
-        symbol: item.symbol.trim().toUpperCase(),
-        amountCny,
-        ...(shares !== undefined ? { shares } : {}),
-        ...(costPrice !== undefined ? { costPrice } : {}),
-      };
-    })
-  );
   const commitUsStockItems = (inputs = localUsStockItems, options?: { autoAmount?: boolean }) => {
     const normalizedInputs = normalizeUsStockInputs(inputs, options);
     setLocalUsStockItems(normalizedInputs);
@@ -2528,10 +2529,8 @@ export default function ReconcilePage() {
                             const chart = isDramItem ? (dramChart ?? usStockCharts[symbol]) : usStockCharts[symbol];
                             const priceBar = latestMarketBar(chart);
                             const currentPrice = priceBar ? Number(priceBar.adjClose ?? priceBar.close) : null;
-                            const shares = item.shares.trim() ? Math.max(0, parseAmountPart(item.shares)) : 0;
-                            const estimatedCny = currentPrice !== null && latestUsdRate !== null && shares > 0
-                              ? roundMoney(currentPrice * shares * latestUsdRate)
-                              : null;
+                            const costAmountCny = isSpyItem ? null : usStockCostAmountCny(item, latestUsdRate);
+                            const amountLocked = isSpyItem || costAmountCny !== null;
                             const priceLabel = currentPrice !== null
                               ? fmtDollar(currentPrice)
                               : (symbol && (usStockPriceErrors.has(symbol) || (isDramItem && dramChartError)))
@@ -2567,17 +2566,17 @@ export default function ReconcilePage() {
                                     <AmountInput
                                       value={item.amountCny}
                                       onChange={(v) => {
-                                        if (isSpyItem) return;
+                                        if (amountLocked) return;
                                         setLocalUsStockItem(item.id, { amountCny: normalizeAmountInput(v) });
                                       }}
                                       onFocus={(e) => e.target.select()}
                                       onBlur={() => {
-                                        if (!isSpyItem) commitUsStockItems();
+                                        if (!amountLocked) commitUsStockItems();
                                       }}
-                                      readOnly={isSpyItem}
-                                      tabIndex={isSpyItem ? -1 : undefined}
-                                      title={isSpyItem ? '由美股总额扣除其他美股自动计算' : undefined}
-                                      style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: isSpyItem ? '#f8fbff' : 'transparent', fontSize: 13, fontWeight: 800, color: isSpyItem ? C.blue : '#202124', textAlign: 'right', fontVariantNumeric: 'tabular-nums', cursor: isSpyItem ? 'default' : 'text' }}
+                                      readOnly={amountLocked}
+                                      tabIndex={amountLocked ? -1 : undefined}
+                                      title={isSpyItem ? '由美股总额扣除其他美股自动计算' : costAmountCny !== null ? '由股数和成本价自动计算' : undefined}
+                                      style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: amountLocked ? '#f8fbff' : 'transparent', fontSize: 13, fontWeight: 800, color: amountLocked ? C.blue : '#202124', textAlign: 'right', fontVariantNumeric: 'tabular-nums', cursor: amountLocked ? 'default' : 'text' }}
                                     />
                                   </div>
                                   <button
@@ -2625,31 +2624,21 @@ export default function ReconcilePage() {
                                     {weight !== null ? `${(weight * 100).toFixed(1)}%` : '—'}
                                   </span>
                                 </div>
-                                {(estimatedCny !== null || isDramItem) && (
+                                {isDramItem && (
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 7 }}>
-                                    {estimatedCny !== null && (
-                                      <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                                        按现价估值 ¥{fmtInt(estimatedCny)}
-                                        {Math.abs(estimatedCny - amount) >= 1 && <span style={{ color: C.orange }}> · 与录入差 ¥{fmtInt(estimatedCny - amount)}</span>}
-                                      </div>
-                                    )}
-                                    {isDramItem && (
-                                      <>
-                                        <button
-                                          type="button"
-                                          onClick={() => setDramDecisionExpanded((prev) => !prev)}
-                                          aria-expanded={dramDecisionExpanded}
-                                          style={{ width: '100%', border: `1px solid ${activeDramTone.border}`, borderRadius: 8, backgroundColor: activeDramTone.bg, color: '#202124', padding: '7px 8px', cursor: 'pointer', textAlign: 'left', fontSize: 11, lineHeight: 1.35 }}
-                                        >
-                                          <span style={{ color: activeDramTone.color, fontWeight: 900 }}>
-                                            决策详情：{dramChartLoading ? '加载中' : dramDecision?.headline ?? (dramChartError ? '价格失败' : '等待价格')}
-                                          </span>
-                                          <span style={{ color: C.sub }}> · </span>
-                                          <span style={{ color: C.sub, fontWeight: 700 }}>{dramDecisionExpanded ? '收起' : '点击查看'}</span>
-                                        </button>
-                                        {dramDecisionExpanded && renderDramDecisionPanel()}
-                                      </>
-                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => setDramDecisionExpanded((prev) => !prev)}
+                                      aria-expanded={dramDecisionExpanded}
+                                      style={{ width: '100%', border: `1px solid ${activeDramTone.border}`, borderRadius: 8, backgroundColor: activeDramTone.bg, color: '#202124', padding: '7px 8px', cursor: 'pointer', textAlign: 'left', fontSize: 11, lineHeight: 1.35 }}
+                                    >
+                                      <span style={{ color: activeDramTone.color, fontWeight: 900 }}>
+                                        决策详情：{dramChartLoading ? '加载中' : dramDecision?.headline ?? (dramChartError ? '价格失败' : '等待价格')}
+                                      </span>
+                                      <span style={{ color: C.sub }}> · </span>
+                                      <span style={{ color: C.sub, fontWeight: 700 }}>{dramDecisionExpanded ? '收起' : '点击查看'}</span>
+                                    </button>
+                                    {dramDecisionExpanded && renderDramDecisionPanel()}
                                   </div>
                                 )}
                               </div>
