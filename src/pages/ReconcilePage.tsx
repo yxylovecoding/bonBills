@@ -101,6 +101,12 @@ const latestMarketBar = (chart: MarketChartResponse | null | undefined) => {
   const bars = chart?.bars?.filter((bar) => Number.isFinite(Number(bar.adjClose ?? bar.close))) ?? [];
   return bars.length > 0 ? bars[bars.length - 1] : null;
 };
+const usStockCostAmountCny = (item: UsStockItemInput, usdRate: number | null) => {
+  if (usdRate === null) return null;
+  const shares = item.shares.trim() ? Math.max(0, parseAmountPart(item.shares)) : 0;
+  const costPrice = item.costPrice.trim() ? Math.max(0, parseAmountPart(item.costPrice)) : 0;
+  return shares > 0 && costPrice > 0 ? roundMoney(shares * costPrice * usdRate) : null;
+};
 const effectiveInvestTargets = (targets: InvestAllocTargets) =>
   INVEST_TARGET_KEYS.some((k) => (targets[k] ?? 0) > 0) ? targets : DEFAULT_CONFIG.investAllocTargets;
 const fmtPctInput = (value: number) => String(Math.round(value * 100) / 100);
@@ -697,8 +703,14 @@ export default function ReconcilePage() {
     });
     return () => controller.abort();
   }, [usStockSymbols.join('|')]);
-  const commitUsStockItems = (inputs = localUsStockItems) => {
-    const items = inputs.map((item, index) => {
+  const autoFillUsStockAmount = (item: UsStockItemInput) => {
+    const amountCny = usStockCostAmountCny(item, latestUsdRate);
+    return amountCny !== null ? { ...item, amountCny: String(amountCny) } : item;
+  };
+  const commitUsStockItems = (inputs = localUsStockItems, options?: { autoAmount?: boolean }) => {
+    const normalizedInputs = options?.autoAmount ? inputs.map(autoFillUsStockAmount) : inputs;
+    if (options?.autoAmount) setLocalUsStockItems(normalizedInputs);
+    const items = normalizedInputs.map((item, index) => {
       const amountCny = roundMoney(Math.max(0, parseAmountPart(item.amountCny)));
       const shares = item.shares.trim() ? Math.max(0, parseAmountPart(item.shares)) : undefined;
       const costPrice = item.costPrice.trim() ? Math.max(0, parseAmountPart(item.costPrice)) : undefined;
@@ -727,8 +739,12 @@ export default function ReconcilePage() {
       });
     }
   };
-  const setLocalUsStockItem = (id: string, patch: Partial<UsStockItemInput>) =>
-    setLocalUsStockItems((prev) => prev.map((item) => item.id === id ? { ...item, ...patch } : item));
+  const patchUsStockItem = (item: UsStockItemInput, patch: Partial<UsStockItemInput>, options?: { autoAmount?: boolean }) => {
+    const next = { ...item, ...patch };
+    return options?.autoAmount ? autoFillUsStockAmount(next) : next;
+  };
+  const setLocalUsStockItem = (id: string, patch: Partial<UsStockItemInput>, options?: { autoAmount?: boolean }) =>
+    setLocalUsStockItems((prev) => prev.map((item) => item.id === id ? patchUsStockItem(item, patch, options) : item));
   const addUsStockItem = () => {
     const next = [
       ...localUsStockItems,
@@ -2551,9 +2567,9 @@ export default function ReconcilePage() {
                                     <span style={{ fontSize: 10, color: C.sub, fontWeight: 700, whiteSpace: 'nowrap' }}>股数</span>
                                     <AmountInput
                                       value={item.shares}
-                                      onChange={(v) => setLocalUsStockItem(item.id, { shares: normalizeAmountInput(v) })}
+                                      onChange={(v) => setLocalUsStockItem(item.id, { shares: normalizeAmountInput(v) }, { autoAmount: true })}
                                       onFocus={(e) => e.target.select()}
-                                      onBlur={() => commitUsStockItems()}
+                                      onBlur={() => commitUsStockItems(undefined, { autoAmount: true })}
                                       style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: '1px solid #e8eaed', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontWeight: 700, color: C.sub, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
                                     />
                                   </label>
@@ -2561,9 +2577,9 @@ export default function ReconcilePage() {
                                     <span style={{ fontSize: 10, color: C.sub, fontWeight: 700, whiteSpace: 'nowrap' }}>成本$</span>
                                     <AmountInput
                                       value={item.costPrice}
-                                      onChange={(v) => setLocalUsStockItem(item.id, { costPrice: normalizeAmountInput(v) })}
+                                      onChange={(v) => setLocalUsStockItem(item.id, { costPrice: normalizeAmountInput(v) }, { autoAmount: true })}
                                       onFocus={(e) => e.target.select()}
-                                      onBlur={() => commitUsStockItems()}
+                                      onBlur={() => commitUsStockItems(undefined, { autoAmount: true })}
                                       style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: '1px solid #e8eaed', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontWeight: 700, color: C.sub, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
                                     />
                                   </label>
