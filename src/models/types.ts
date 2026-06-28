@@ -36,6 +36,16 @@ export interface FutureFireExpense {
   isActive: boolean;
 }
 
+export interface DramDecisionConfig {
+  symbol: string;
+  shares: number;
+  costPrice: number;
+  targetWeight: number;   // DRAM 在美股仓位内的目标上限
+  hardLimit: number;      // 超过后强制减回 targetWeight
+  minBuyWeight: number;   // 低于该比例且趋势满足时可补仓
+  drawdownClear: number;  // 从近端高点回撤达到该比例时清仓
+}
+
 export interface AppConfig {
   birthDate: string;          // "2002-12-29"
   retireAge: number;          // 55
@@ -51,6 +61,7 @@ export interface AppConfig {
   incomeItems: IncomeItem[];
   futureFireExpenses: FutureFireExpense[];
   majorExpenseThreshold: number; // 大额支出筛选门槛，默认 500
+  dramDecision?: DramDecisionConfig;
 }
 
 // ── AccountSnapshot ────────────────────────────────────────────────

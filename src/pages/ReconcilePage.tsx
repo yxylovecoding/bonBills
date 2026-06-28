@@ -23,6 +23,12 @@ import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../util
 import { tryEvalFormula } from '../utils/formula';
 import { dateLabel, resolveIncomeForMonth, type ResolvedIncomeItem } from '../utils/payroll';
 import { getCategoryProfit } from '../utils/investRecords';
+import {
+  buildDramDecision,
+  normalizeDramDecisionConfig,
+  type DramDecisionKind,
+  type MarketChartResponse,
+} from '../utils/dramDecision';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', sub: '#5f6368', orange: '#e8710a' };
 const RESERVABLE_HOLDING_KEY: InvestKey = 'longBond';
@@ -79,6 +85,8 @@ const fmtUsd = (value: number) => {
   const body = abs >= 100 ? Math.round(abs).toLocaleString('zh-CN') : abs.toFixed(2);
   return `${value > 0 ? '+' : value < 0 ? '-' : ''}$${body}`;
 };
+const fmtDollar = (value: number) => `$${value >= 100 ? Math.round(value).toLocaleString('zh-CN') : value.toFixed(2)}`;
+const fmtPct = (value: number | null, digits = 1) => value === null ? '—' : `${(value * 100).toFixed(digits)}%`;
 const roundMoney = (value: number) => Math.round(value * 100) / 100;
 const effectiveInvestTargets = (targets: InvestAllocTargets) =>
   INVEST_TARGET_KEYS.some((k) => (targets[k] ?? 0) > 0) ? targets : DEFAULT_CONFIG.investAllocTargets;
@@ -539,6 +547,54 @@ export default function ReconcilePage() {
     : fallbackUsdRate !== null
       ? `${usdRateError ? '联网失败 · ' : ''}历史汇率`
       : '暂无汇率';
+  const dramConfig = useMemo(() => normalizeDramDecisionConfig(config.dramDecision), [config.dramDecision]);
+  const [dramConfigInputs, setDramConfigInputs] = useState({
+    shares: String(dramConfig.shares),
+    costPrice: String(dramConfig.costPrice),
+  });
+  useEffect(() => {
+    setDramConfigInputs({
+      shares: String(dramConfig.shares),
+      costPrice: String(dramConfig.costPrice),
+    });
+  }, [dramConfig.shares, dramConfig.costPrice]);
+  const commitDramConfig = (patch?: Partial<typeof dramConfig>) => {
+    const next = {
+      ...dramConfig,
+      shares: Math.max(0, parseAmountPart(patch?.shares !== undefined ? String(patch.shares) : dramConfigInputs.shares)),
+      costPrice: Math.max(0, parseAmountPart(patch?.costPrice !== undefined ? String(patch.costPrice) : dramConfigInputs.costPrice)),
+      ...patch,
+    };
+    setConfig({ dramDecision: next });
+  };
+  const [dramChart, setDramChart] = useState<MarketChartResponse | null>(null);
+  const [dramChartLoading, setDramChartLoading] = useState(false);
+  const [dramChartError, setDramChartError] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    setDramChartLoading(true);
+    setDramChartError(false);
+    fetch(`/api/market-chart?symbol=${encodeURIComponent(dramConfig.symbol)}&range=6mo&interval=1d`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        setDramChart((await response.json()) as MarketChartResponse);
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        setDramChartError(true);
+      })
+      .finally(() => setDramChartLoading(false));
+    return () => controller.abort();
+  }, [dramConfig.symbol]);
+  const dramDecision = useMemo(
+    () => dramChart ? buildDramDecision({
+      chart: dramChart,
+      config: dramConfig,
+      usdRate: latestUsdRate,
+      usStockValueCny: current.investHoldings.us ?? 0,
+    }) : null,
+    [current.investHoldings.us, dramChart, dramConfig, latestUsdRate],
+  );
   const commitInvestUsdCnyInput = (rawCny = investUsdCnyInput) => {
     if (latestUsdRate === null) {
       syncAccounts();
@@ -1308,6 +1364,19 @@ export default function ReconcilePage() {
       </div>
     );
   };
+  const dramTone: Record<DramDecisionKind, { bg: string; border: string; color: string }> = {
+    clear: { bg: '#fce8e6', border: '#f28b82', color: C.red },
+    trim: { bg: '#fff4e5', border: '#fbbc04', color: C.orange },
+    pause: { bg: '#fff4e5', border: '#fbbc04', color: C.orange },
+    buy: { bg: '#e6f4ea', border: '#81c995', color: C.green },
+    hold: { bg: '#e8f0fe', border: '#a8c7fa', color: C.blue },
+    wait: { bg: '#f8f9fa', border: '#dadce0', color: C.sub },
+  };
+  const activeDramTone = dramTone[dramDecision?.kind ?? 'wait'];
+  const updateDramField = (field: 'shares' | 'costPrice', value: string) => {
+    const next = normalizeAmountInput(value);
+    setDramConfigInputs((prev) => ({ ...prev, [field]: next }));
+  };
 
   const ALL_STEPS = [
     { label: '日历标记',   note: '标记本月各天状态',   monthEndOnly: false, action: () => navigate('/calendar') },
@@ -1910,6 +1979,97 @@ export default function ReconcilePage() {
               </div>
             </Fragment>
           ))}
+        </div>
+        <div style={{ border: `1.5px solid ${activeDramTone.border}`, borderRadius: 12, padding: '10px 12px', backgroundColor: activeDramTone.bg, marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+            <div>
+              <div style={{ fontSize: 14, color: '#202124', fontWeight: 800 }}>DRAM 决策树</div>
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
+                用美股总仓位做分母 · 每周检查一次
+              </div>
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              <div style={{ display: 'inline-flex', borderRadius: 999, padding: '3px 9px', backgroundColor: '#fff', color: activeDramTone.color, fontSize: 12, fontWeight: 800, border: `1px solid ${activeDramTone.border}` }}>
+                {dramChartLoading ? '加载中' : dramDecision?.headline ?? (dramChartError ? '价格失败' : '等待价格')}
+              </div>
+              <div style={{ fontSize: 10, color: C.sub, marginTop: 3 }}>
+                {dramDecision ? `${dramDecision.latestDate} · ${dramChart?.source ?? '市场数据'}` : dramChartError ? '稍后重试' : dramConfig.symbol}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+            <label style={{ backgroundColor: '#fff', borderRadius: 8, padding: '7px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <span style={{ fontSize: 12, color: C.sub, fontWeight: 700 }}>股数</span>
+              <AmountInput
+                value={dramConfigInputs.shares}
+                onChange={(v) => updateDramField('shares', v)}
+                onFocus={(e) => e.target.select()}
+                onBlur={() => commitDramConfig()}
+                style={{ width: 78, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 700, textAlign: 'right', color: '#202124', fontVariantNumeric: 'tabular-nums' }}
+              />
+            </label>
+            <label style={{ backgroundColor: '#fff', borderRadius: 8, padding: '7px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <span style={{ fontSize: 12, color: C.sub, fontWeight: 700 }}>成本价</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <span style={{ fontSize: 12, color: C.sub, fontWeight: 700 }}>$</span>
+                <AmountInput
+                  value={dramConfigInputs.costPrice}
+                  onChange={(v) => updateDramField('costPrice', v)}
+                  onFocus={(e) => e.target.select()}
+                  onBlur={() => commitDramConfig()}
+                  style={{ width: 68, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 700, textAlign: 'right', color: '#202124', fontVariantNumeric: 'tabular-nums' }}
+                />
+              </div>
+            </label>
+          </div>
+
+          {dramDecision ? (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6, marginBottom: 8 }}>
+                {[
+                  { label: '现价', value: fmtDollar(dramDecision.latestPrice), color: '#202124' },
+                  { label: '成本盈亏', value: fmtPct(dramDecision.costProfitRate), color: (dramDecision.costProfitRate ?? 0) >= 0 ? C.red : C.green },
+                  { label: '占美股', value: fmtPct(dramDecision.weight), color: (dramDecision.weight ?? 0) > dramConfig.targetWeight ? C.orange : C.blue },
+                  { label: 'MA5', value: dramDecision.ma5 ? fmtDollar(dramDecision.ma5) : '—', color: dramDecision.priceState.aboveMa5 === false ? C.orange : C.green },
+                  { label: 'MA20', value: dramDecision.ma20 ? fmtDollar(dramDecision.ma20) : '—', color: dramDecision.priceState.aboveMa20 === false ? C.orange : C.green },
+                  { label: '高点回撤', value: fmtPct(dramDecision.drawdownFromPeak), color: -dramDecision.drawdownFromPeak >= dramConfig.drawdownClear ? C.red : C.sub },
+                ].map((item) => (
+                  <div key={item.label} style={{ backgroundColor: '#fff', borderRadius: 8, padding: '6px 7px', minWidth: 0 }}>
+                    <div style={{ fontSize: 10, color: C.sub, fontWeight: 700 }}>{item.label}</div>
+                    <div style={{ fontSize: 12, color: item.color, fontWeight: 800, marginTop: 2, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ backgroundColor: '#fff', borderRadius: 9, padding: '8px 9px', fontSize: 12, color: '#202124', lineHeight: 1.45 }}>
+                <div style={{ fontWeight: 800, color: activeDramTone.color, marginBottom: 3 }}>
+                  {dramDecision.kind === 'clear' ? '清仓信号' : dramDecision.kind === 'trim' ? '减仓信号' : dramDecision.kind === 'buy' ? '买入许可' : dramDecision.kind === 'pause' ? '暂停信号' : '持仓信号'}
+                </div>
+                <div>{dramDecision.detail}</div>
+                {dramDecision.sellShares > 0 && (
+                  <div style={{ marginTop: 5, color: C.orange, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                    建议卖出 {dramDecision.sellShares.toFixed(4)} 股 · 约 ¥{fmtInt(dramDecision.sellCny)}
+                  </div>
+                )}
+                {dramDecision.buyCapacityCny > 0 && (
+                  <div style={{ marginTop: 5, color: C.green, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                    DRAM 可买上限 ¥{fmtInt(dramDecision.buyCapacityCny)}，剩余美股资金投 SPY
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8, fontSize: 10, color: C.sub }}>
+                <span>美股总额 ¥{fmtInt(dramDecision.usStockValueCny)}</span>
+                {dramDecision.dramValueCny !== null && <span>DRAM 市值 ¥{fmtInt(dramDecision.dramValueCny)}</span>}
+                <span>清仓线：两周&lt;MA20 或回撤{Math.round(dramConfig.drawdownClear * 100)}%</span>
+              </div>
+            </>
+          ) : (
+            <div style={{ backgroundColor: '#fff', borderRadius: 9, padding: '8px 9px', fontSize: 12, color: dramChartError ? C.orange : C.sub }}>
+              {dramChartError ? '暂时没有拿到 DRAM 最新价格，保留原有美股再平衡建议。' : '正在获取 DRAM 最新价格和均线。'}
+            </div>
+          )}
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px', marginBottom: 14, fontSize: 13, color: allowRebalanceSell ? C.blue : C.sub, fontWeight: 600, cursor: 'pointer' }}>
           <input

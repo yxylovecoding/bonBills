@@ -17,6 +17,15 @@ export const DEFAULT_CONFIG: AppConfig = {
   incomeItems: [],
   futureFireExpenses: [],
   majorExpenseThreshold: 500,
+  dramDecision: {
+    symbol: 'DRAM',
+    shares: 2.8255,
+    costPrice: 70.77,
+    targetWeight: 0.2,
+    hardLimit: 0.25,
+    minBuyWeight: 0.1,
+    drawdownClear: 0.3,
+  },
 };
 
 interface ConfigStore {

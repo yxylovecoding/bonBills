@@ -21,5 +21,14 @@
     { "id": "advisor", "name": "导师劳务费", "amount": 1500, "payDay": 15, "isActive": true },
     { "id": "subsidy", "name": "院校低保", "amount": 680, "payDay": 1, "isActive": true }
   ],
-  "futureFireExpenses": []
+  "futureFireExpenses": [],
+  "dramDecision": {
+    "symbol": "DRAM",
+    "shares": 2.8255,
+    "costPrice": 70.77,
+    "targetWeight": 0.2,
+    "hardLimit": 0.25,
+    "minBuyWeight": 0.1,
+    "drawdownClear": 0.3
+  }
 }
