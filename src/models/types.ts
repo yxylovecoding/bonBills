@@ -17,6 +17,15 @@ export type InvestKey = keyof InvestHoldings;
 
 export interface InvestAllocTargets extends InvestHoldings {}
 
+export interface UsStockHoldingItem {
+  id: string;
+  name: string;
+  symbol: string;
+  amountCny: number;
+  shares?: number;
+  costPrice?: number;
+}
+
 // ── AppConfig ─────────────────────────────────────────────────────
 export interface IncomeItem {
   id: string;
@@ -85,6 +94,7 @@ export interface AccountSnapshot {
   };
   investHoldings: InvestHoldings;
   investHoldingReserves?: Partial<InvestHoldings>; // 计入账户但不参与仓位再平衡的暂存金额
+  usStockHoldings?: UsStockHoldingItem[]; // 美股内部明细，合计对应 investHoldings.us
   transfersDone: {
     campusCard: number;
     repayment: number;

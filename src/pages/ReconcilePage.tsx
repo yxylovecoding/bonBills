@@ -17,7 +17,7 @@ import { calcBudget } from '../calculations/budget';
 import { calcHistoryStats } from '../calculations/history';
 import { calcRebalance } from '../calculations/rebalance';
 import { investMeta, tagMeta } from '../data/mockData';
-import type { AccountSnapshot, DailyTag, InvestAllocTargets, InvestKey, TagKind } from '../models/types';
+import type { AccountSnapshot, DailyTag, InvestAllocTargets, InvestKey, TagKind, UsStockHoldingItem } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { tryEvalFormula } from '../utils/formula';
@@ -36,6 +36,7 @@ const LONG_BOND_PRIORITY_FLOOR = 10000; // 加仓时长债总额优先补到此�
 const INVEST_TARGET_KEYS: InvestKey[] = ['us', 'eu', 'asia', 'a', 'longBond', 'usBond', 'gold'];
 const USD_INVEST_KEYS: InvestKey[] = ['us', 'usBond'];
 const USD_VIRTUAL_ACCOUNT_KEYS = ['usdLivingBank', 'usdConsumptionBank', 'usdWishJar', 'investUsdBank'] as const;
+const EMPTY_US_STOCK_ITEMS: UsStockHoldingItem[] = [];
 type UsdVirtualAccountKey = typeof USD_VIRTUAL_ACCOUNT_KEYS[number];
 const USD_REPLACE_BUCKETS: {
   usdKey: UsdVirtualAccountKey;
@@ -61,6 +62,14 @@ type InvestGroupKey = typeof INVEST_GROUPS[number]['key'];
 type GroupedTargetInputs = {
   groups: Record<InvestGroupKey, string>;
   assets: Record<InvestKey, string>;
+};
+type UsStockItemInput = {
+  id: string;
+  name: string;
+  symbol: string;
+  amountCny: string;
+  shares: string;
+  costPrice: string;
 };
 type UsdRateResponse = {
   rate: number;
@@ -110,6 +119,15 @@ const groupedTargetInputsToConfig = (inputs: GroupedTargetInputs): InvestAllocTa
     const assetPct = parseFloat(inputs.assets[k]) || 0;
     return [k, (groupPct / 100) * (assetPct / 100)];
   })) as unknown as InvestAllocTargets;
+const usStockInputsFromItems = (items: UsStockHoldingItem[]): UsStockItemInput[] =>
+  items.map((item) => ({
+    id: item.id,
+    name: item.name,
+    symbol: item.symbol,
+    amountCny: String(item.amountCny ?? 0),
+    shares: item.shares !== undefined ? String(item.shares) : '',
+    costPrice: item.costPrice !== undefined ? String(item.costPrice) : '',
+  }));
 
 function RebalanceSettingsModal({
   groupedTargetInputs,
@@ -267,7 +285,7 @@ const defaultReconcileMode = (date: Date): ReconcileMode => (date.getDate() >= 1
 
 export default function ReconcilePage() {
   const navigate = useNavigate();
-  const { current, updateAccounts, updateTransfers, updateHoldings, updateHoldingReserves, saveSnapshot } = useSnapshotStore();
+  const { current, updateAccounts, updateTransfers, updateHoldings, updateHoldingReserves, updateUsStockHoldings, saveSnapshot } = useSnapshotStore();
   const { config, setConfig } = useConfigStore();
   const { records } = useMonthlyStore();
   const { tagMap, confirmedExpenses } = useCalendarStore();
@@ -547,7 +565,19 @@ export default function ReconcilePage() {
     : fallbackUsdRate !== null
       ? `${usdRateError ? '联网失败 · ' : ''}历史汇率`
       : '暂无汇率';
-  const dramConfig = useMemo(() => normalizeDramDecisionConfig(config.dramDecision), [config.dramDecision]);
+  const storedUsStockItems = current.usStockHoldings ?? EMPTY_US_STOCK_ITEMS;
+  const storedDramItem = useMemo(
+    () => storedUsStockItems.find((item) => item.symbol.trim().toUpperCase() === 'DRAM' || item.name.trim().toUpperCase() === 'DRAM') ?? null,
+    [storedUsStockItems],
+  );
+  const dramConfig = useMemo(() => normalizeDramDecisionConfig({
+    ...config.dramDecision,
+    ...(storedDramItem ? {
+      symbol: storedDramItem.symbol || config.dramDecision?.symbol,
+      shares: storedDramItem.shares ?? config.dramDecision?.shares,
+      costPrice: storedDramItem.costPrice ?? config.dramDecision?.costPrice,
+    } : {}),
+  }), [config.dramDecision, storedDramItem]);
   const [dramConfigInputs, setDramConfigInputs] = useState({
     shares: String(dramConfig.shares),
     costPrice: String(dramConfig.costPrice),
@@ -566,6 +596,13 @@ export default function ReconcilePage() {
       ...patch,
     };
     setConfig({ dramDecision: next });
+    if (storedDramItem) {
+      updateUsStockHoldings(storedUsStockItems.map((item) => (
+        item.id === storedDramItem.id
+          ? { ...item, symbol: next.symbol, shares: next.shares, costPrice: next.costPrice }
+          : item
+      )));
+    }
   };
   const [dramChart, setDramChart] = useState<MarketChartResponse | null>(null);
   const [dramChartLoading, setDramChartLoading] = useState(false);
@@ -595,6 +632,81 @@ export default function ReconcilePage() {
     }) : null,
     [current.investHoldings.us, dramChart, dramConfig, latestUsdRate],
   );
+  const effectiveUsStockItems = useMemo<UsStockHoldingItem[]>(() => {
+    if (storedUsStockItems.length > 0) return storedUsStockItems;
+    const dramValue = dramDecision?.dramValueCny ?? 0;
+    return [
+      {
+        id: 'dram',
+        name: 'DRAM',
+        symbol: dramConfig.symbol,
+        amountCny: roundMoney(dramValue),
+        shares: dramConfig.shares,
+        costPrice: dramConfig.costPrice,
+      },
+      {
+        id: 'sp500',
+        name: '标普',
+        symbol: 'SPY',
+        amountCny: roundMoney(Math.max((current.investHoldings.us ?? 0) - dramValue, 0)),
+      },
+    ];
+  }, [current.investHoldings.us, dramConfig, dramDecision?.dramValueCny, storedUsStockItems]);
+  const [usStockExpanded, setUsStockExpanded] = useState(false);
+  const [localUsStockItems, setLocalUsStockItems] = useState<UsStockItemInput[]>(
+    () => usStockInputsFromItems(effectiveUsStockItems),
+  );
+  useEffect(() => {
+    setLocalUsStockItems(usStockInputsFromItems(effectiveUsStockItems));
+  }, [effectiveUsStockItems]);
+  const commitUsStockItems = (inputs = localUsStockItems) => {
+    const items = inputs.map((item, index) => {
+      const amountCny = roundMoney(Math.max(0, parseAmountPart(item.amountCny)));
+      const shares = item.shares.trim() ? Math.max(0, parseAmountPart(item.shares)) : undefined;
+      const costPrice = item.costPrice.trim() ? Math.max(0, parseAmountPart(item.costPrice)) : undefined;
+      return {
+        id: item.id || `us-stock-${Date.now()}-${index}`,
+        name: item.name.trim() || `项目${index + 1}`,
+        symbol: item.symbol.trim().toUpperCase(),
+        amountCny,
+        ...(shares !== undefined ? { shares } : {}),
+        ...(costPrice !== undefined ? { costPrice } : {}),
+      };
+    });
+    const nextUsTotal = roundMoney(items.reduce((sum, item) => sum + item.amountCny, 0));
+    updateUsStockHoldings(items);
+    updateHoldings({ ...current.investHoldings, us: nextUsTotal });
+    setLocalHoldings((prev) => ({ ...prev, us: String(nextUsTotal) }));
+    const nextDram = items.find((item) => item.symbol === 'DRAM' || item.name.trim().toUpperCase() === 'DRAM');
+    if (nextDram) {
+      setConfig({
+        dramDecision: {
+          ...dramConfig,
+          symbol: nextDram.symbol || 'DRAM',
+          shares: nextDram.shares ?? dramConfig.shares,
+          costPrice: nextDram.costPrice ?? dramConfig.costPrice,
+        },
+      });
+    }
+  };
+  const setLocalUsStockItem = (id: string, patch: Partial<UsStockItemInput>) =>
+    setLocalUsStockItems((prev) => prev.map((item) => item.id === id ? { ...item, ...patch } : item));
+  const addUsStockItem = () => {
+    const next = [
+      ...localUsStockItems,
+      { id: `us-stock-${Date.now()}`, name: '新项目', symbol: '', amountCny: '0', shares: '', costPrice: '' },
+    ];
+    setLocalUsStockItems(next);
+    commitUsStockItems(next);
+    setUsStockExpanded(true);
+  };
+  const removeUsStockItem = (id: string) => {
+    const next = localUsStockItems.filter((item) => item.id !== id);
+    setLocalUsStockItems(next);
+    commitUsStockItems(next);
+  };
+  const usStockDetailTotal = localUsStockItems.reduce((sum, item) => sum + Math.max(0, parseAmountPart(item.amountCny)), 0);
+  const usStockDetailGap = roundMoney(usStockDetailTotal - (current.investHoldings.us ?? 0));
   const commitInvestUsdCnyInput = (rawCny = investUsdCnyInput) => {
     if (latestUsdRate === null) {
       syncAccounts();
@@ -2189,8 +2301,19 @@ export default function ReconcilePage() {
                       ? `+${Math.round(remaining)}`
                       : `${Math.round(remaining)}`;
               return (
-                <tr key={k} style={{ backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff', borderBottom: '1px solid #f1f3f4' }}>
+                <Fragment key={k}>
+                <tr style={{ backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff', borderBottom: '1px solid #f1f3f4' }}>
                   <td style={{ padding: '8px 0', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {k === 'us' && (
+                      <button
+                        type="button"
+                        onClick={() => setUsStockExpanded((prev) => !prev)}
+                        aria-label={usStockExpanded ? '收起美股明细' : '展开美股明细'}
+                        style={{ border: 'none', backgroundColor: 'transparent', color: C.blue, width: 18, padding: 0, marginRight: 1, cursor: 'pointer', fontSize: 11, fontWeight: 800, lineHeight: 1 }}
+                      >
+                        {usStockExpanded ? '▾' : '▸'}
+                      </button>
+                    )}
                     <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', backgroundColor: investMeta[k].color, marginRight: 4, verticalAlign: 'middle', flexShrink: 0 }} />
                     {investMeta[k].label}
                   </td>
@@ -2289,6 +2412,98 @@ export default function ReconcilePage() {
                     />
                   </td>
                 </tr>
+                {k === 'us' && usStockExpanded && (
+                  <tr style={{ backgroundColor: '#f8fbff', borderBottom: '1px solid #e8f0fe' }}>
+                    <td colSpan={5} style={{ padding: '8px 0 10px' }}>
+                      <div style={{ border: '1px solid #d2e3fc', borderRadius: 10, padding: '8px 9px', backgroundColor: '#fff' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 800, color: '#202124' }}>美股明细</div>
+                            <div style={{ fontSize: 10, color: Math.abs(usStockDetailGap) >= 1 ? C.orange : C.sub, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+                              合计 ¥{fmtInt(usStockDetailTotal)} · 美股 ¥{fmtInt(current.investHoldings.us ?? 0)}
+                              {Math.abs(usStockDetailGap) >= 1 ? ` · 差额 ${usStockDetailGap > 0 ? '+' : ''}¥${fmtInt(usStockDetailGap)}` : ''}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={addUsStockItem}
+                            style={{ border: 'none', borderRadius: 8, backgroundColor: '#e8f0fe', color: C.blue, padding: '6px 9px', fontSize: 12, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                          >
+                            + 项目
+                          </button>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                          {localUsStockItems.map((item) => {
+                            const amount = Math.max(0, parseAmountPart(item.amountCny));
+                            const weight = (current.investHoldings.us ?? 0) > 0 ? amount / (current.investHoldings.us ?? 0) : null;
+                            return (
+                              <div key={item.id} style={{ border: '1px solid #edf2fb', borderRadius: 9, padding: '7px 8px', backgroundColor: '#fbfdff' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 64px 92px 28px', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+                                  <input
+                                    value={item.name}
+                                    onChange={(e) => setLocalUsStockItem(item.id, { name: e.target.value })}
+                                    onBlur={() => commitUsStockItems()}
+                                    style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 800, color: '#202124' }}
+                                  />
+                                  <input
+                                    value={item.symbol}
+                                    onChange={(e) => setLocalUsStockItem(item.id, { symbol: e.target.value.toUpperCase() })}
+                                    onBlur={() => commitUsStockItems()}
+                                    style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontWeight: 800, color: C.blue, textAlign: 'center', textTransform: 'uppercase' }}
+                                  />
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                    <span style={{ fontSize: 11, color: C.sub, fontWeight: 700 }}>¥</span>
+                                    <AmountInput
+                                      value={item.amountCny}
+                                      onChange={(v) => setLocalUsStockItem(item.id, { amountCny: normalizeAmountInput(v) })}
+                                      onFocus={(e) => e.target.select()}
+                                      onBlur={() => commitUsStockItems()}
+                                      style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 800, color: '#202124', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
+                                    />
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeUsStockItem(item.id)}
+                                    aria-label={`删除${item.name || item.symbol || '美股项目'}`}
+                                    style={{ border: 'none', borderRadius: 7, width: 26, height: 26, backgroundColor: '#fce8e6', color: C.red, fontSize: 14, fontWeight: 800, cursor: 'pointer', lineHeight: 1 }}
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, alignItems: 'center' }}>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                                    <span style={{ fontSize: 10, color: C.sub, fontWeight: 700, whiteSpace: 'nowrap' }}>股数</span>
+                                    <AmountInput
+                                      value={item.shares}
+                                      onChange={(v) => setLocalUsStockItem(item.id, { shares: normalizeAmountInput(v) })}
+                                      onFocus={(e) => e.target.select()}
+                                      onBlur={() => commitUsStockItems()}
+                                      style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: '1px solid #e8eaed', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontWeight: 700, color: C.sub, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
+                                    />
+                                  </label>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                                    <span style={{ fontSize: 10, color: C.sub, fontWeight: 700, whiteSpace: 'nowrap' }}>成本$</span>
+                                    <AmountInput
+                                      value={item.costPrice}
+                                      onChange={(v) => setLocalUsStockItem(item.id, { costPrice: normalizeAmountInput(v) })}
+                                      onFocus={(e) => e.target.select()}
+                                      onBlur={() => commitUsStockItems()}
+                                      style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: '1px solid #e8eaed', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontWeight: 700, color: C.sub, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
+                                    />
+                                  </label>
+                                  <span style={{ fontSize: 10, color: C.sub, fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                                    {weight !== null ? `${(weight * 100).toFixed(1)}%` : '—'}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               );
             })}
           </tbody>
