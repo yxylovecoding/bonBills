@@ -2363,7 +2363,7 @@ export default function ReconcilePage() {
                         type="button"
                         onClick={() => setUsStockExpanded((prev) => !prev)}
                         aria-label={usStockExpanded ? '收起美股明细' : '展开美股明细'}
-                        style={{ border: 'none', backgroundColor: 'transparent', color: C.blue, width: 18, padding: 0, marginRight: 1, cursor: 'pointer', fontSize: 11, fontWeight: 800, lineHeight: 1 }}
+                        style={{ border: 'none', borderRadius: 8, backgroundColor: '#eef4ff', color: C.blue, width: 32, height: 32, padding: 0, margin: '-6px 2px -6px -6px', cursor: 'pointer', fontSize: 17, fontWeight: 900, lineHeight: 1, verticalAlign: 'middle' }}
                       >
                         {usStockExpanded ? '▾' : '▸'}
                       </button>
