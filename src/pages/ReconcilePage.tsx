@@ -686,6 +686,7 @@ export default function ReconcilePage() {
     ];
   }, [current.investHoldings.us, dramConfig, dramDecision?.dramValueCny, storedUsStockItems]);
   const [usStockExpanded, setUsStockExpanded] = useState(false);
+  const [dramDecisionExpanded, setDramDecisionExpanded] = useState(false);
   const [localUsStockItems, setLocalUsStockItems] = useState<UsStockItemInput[]>(
     () => syncSpyUsStockAmount(usStockInputsFromItems(effectiveUsStockItems), current.investHoldings.us ?? 0),
   );
@@ -2632,7 +2633,23 @@ export default function ReconcilePage() {
                                         {Math.abs(estimatedCny - amount) >= 1 && <span style={{ color: C.orange }}> · 与录入差 ¥{fmtInt(estimatedCny - amount)}</span>}
                                       </div>
                                     )}
-                                    {isDramItem && renderDramDecisionPanel()}
+                                    {isDramItem && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() => setDramDecisionExpanded((prev) => !prev)}
+                                          aria-expanded={dramDecisionExpanded}
+                                          style={{ width: '100%', border: `1px solid ${activeDramTone.border}`, borderRadius: 8, backgroundColor: activeDramTone.bg, color: '#202124', padding: '7px 8px', cursor: 'pointer', textAlign: 'left', fontSize: 11, lineHeight: 1.35 }}
+                                        >
+                                          <span style={{ color: activeDramTone.color, fontWeight: 900 }}>
+                                            决策详情：{dramChartLoading ? '加载中' : dramDecision?.headline ?? (dramChartError ? '价格失败' : '等待价格')}
+                                          </span>
+                                          <span style={{ color: C.sub }}> · </span>
+                                          <span style={{ color: C.sub, fontWeight: 700 }}>{dramDecisionExpanded ? '收起' : '点击查看'}</span>
+                                        </button>
+                                        {dramDecisionExpanded && renderDramDecisionPanel()}
+                                      </>
+                                    )}
                                   </div>
                                 )}
                               </div>
