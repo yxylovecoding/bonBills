@@ -107,6 +107,23 @@ const usStockCostAmountCny = (item: UsStockItemInput, usdRate: number | null) =>
   const costPrice = item.costPrice.trim() ? Math.max(0, parseAmountPart(item.costPrice)) : 0;
   return shares > 0 && costPrice > 0 ? roundMoney(shares * costPrice * usdRate) : null;
 };
+const isSpyUsStockInput = (item: UsStockItemInput) =>
+  item.symbol.trim().toUpperCase() === 'SPY' || item.name.trim() === '标普';
+const syncSpyUsStockAmount = (items: UsStockItemInput[], usTotalCny: number) => {
+  const spyIndex = items.findIndex(isSpyUsStockInput);
+  if (spyIndex < 0) return items;
+  const nonSpyTotal = items.reduce((sum, item, index) => (
+    index === spyIndex || isSpyUsStockInput(item) ? sum : sum + Math.max(0, parseAmountPart(item.amountCny))
+  ), 0);
+  let usedSpy = false;
+  const spyAmount = String(roundMoney(Math.max(0, usTotalCny - nonSpyTotal)));
+  return items.map((item) => {
+    if (!isSpyUsStockInput(item)) return item;
+    if (usedSpy) return { ...item, amountCny: '0' };
+    usedSpy = true;
+    return { ...item, amountCny: spyAmount };
+  });
+};
 const effectiveInvestTargets = (targets: InvestAllocTargets) =>
   INVEST_TARGET_KEYS.some((k) => (targets[k] ?? 0) > 0) ? targets : DEFAULT_CONFIG.investAllocTargets;
 const fmtPctInput = (value: number) => String(Math.round(value * 100) / 100);
@@ -451,7 +468,13 @@ export default function ReconcilePage() {
   const longBondReserveInputRef = useRef<HTMLInputElement | null>(null);
   const transferInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const syncHolding = (k: InvestKey) => {
-    updateHoldings({ ...current.investHoldings, [k]: parseAmountPart(localHoldings[k]) });
+    const nextHolding = parseAmountPart(localHoldings[k]);
+    updateHoldings({ ...current.investHoldings, [k]: nextHolding });
+    if (k === 'us') {
+      const nextInputs = normalizeUsStockInputs(localUsStockItems, { usTotalCny: nextHolding });
+      setLocalUsStockItems(nextInputs);
+      updateUsStockHoldings(usStockInputsToItems(nextInputs));
+    }
     if (k === RESERVABLE_HOLDING_KEY) {
       updateHoldingReserves({ [k]: Math.max(0, parseAmountPart(localHoldingReserves[k])) });
     }
@@ -664,11 +687,11 @@ export default function ReconcilePage() {
   }, [current.investHoldings.us, dramConfig, dramDecision?.dramValueCny, storedUsStockItems]);
   const [usStockExpanded, setUsStockExpanded] = useState(false);
   const [localUsStockItems, setLocalUsStockItems] = useState<UsStockItemInput[]>(
-    () => usStockInputsFromItems(effectiveUsStockItems),
+    () => syncSpyUsStockAmount(usStockInputsFromItems(effectiveUsStockItems), current.investHoldings.us ?? 0),
   );
   useEffect(() => {
-    setLocalUsStockItems(usStockInputsFromItems(effectiveUsStockItems));
-  }, [effectiveUsStockItems]);
+    setLocalUsStockItems(syncSpyUsStockAmount(usStockInputsFromItems(effectiveUsStockItems), current.investHoldings.us ?? 0));
+  }, [current.investHoldings.us, effectiveUsStockItems]);
   const usStockSymbols = useMemo(
     () => [...new Set(localUsStockItems.map((item) => item.symbol.trim().toUpperCase()).filter(Boolean))],
     [localUsStockItems],
@@ -704,13 +727,16 @@ export default function ReconcilePage() {
     return () => controller.abort();
   }, [usStockSymbols.join('|')]);
   const autoFillUsStockAmount = (item: UsStockItemInput) => {
+    if (isSpyUsStockInput(item)) return item;
     const amountCny = usStockCostAmountCny(item, latestUsdRate);
     return amountCny !== null ? { ...item, amountCny: String(amountCny) } : item;
   };
-  const commitUsStockItems = (inputs = localUsStockItems, options?: { autoAmount?: boolean }) => {
-    const normalizedInputs = options?.autoAmount ? inputs.map(autoFillUsStockAmount) : inputs;
-    if (options?.autoAmount) setLocalUsStockItems(normalizedInputs);
-    const items = normalizedInputs.map((item, index) => {
+  const normalizeUsStockInputs = (inputs: UsStockItemInput[], options?: { autoAmount?: boolean; usTotalCny?: number }) => {
+    const amountInputs = options?.autoAmount ? inputs.map(autoFillUsStockAmount) : inputs;
+    return syncSpyUsStockAmount(amountInputs, options?.usTotalCny ?? (current.investHoldings.us ?? 0));
+  };
+  const usStockInputsToItems = (inputs: UsStockItemInput[]) => (
+    inputs.map((item, index) => {
       const amountCny = roundMoney(Math.max(0, parseAmountPart(item.amountCny)));
       const shares = item.shares.trim() ? Math.max(0, parseAmountPart(item.shares)) : undefined;
       const costPrice = item.costPrice.trim() ? Math.max(0, parseAmountPart(item.costPrice)) : undefined;
@@ -722,11 +748,13 @@ export default function ReconcilePage() {
         ...(shares !== undefined ? { shares } : {}),
         ...(costPrice !== undefined ? { costPrice } : {}),
       };
-    });
-    const nextUsTotal = roundMoney(items.reduce((sum, item) => sum + item.amountCny, 0));
+    })
+  );
+  const commitUsStockItems = (inputs = localUsStockItems, options?: { autoAmount?: boolean }) => {
+    const normalizedInputs = normalizeUsStockInputs(inputs, options);
+    setLocalUsStockItems(normalizedInputs);
+    const items = usStockInputsToItems(normalizedInputs);
     updateUsStockHoldings(items);
-    updateHoldings({ ...current.investHoldings, us: nextUsTotal });
-    setLocalHoldings((prev) => ({ ...prev, us: String(nextUsTotal) }));
     const nextDram = items.find((item) => item.symbol === 'DRAM' || item.name.trim().toUpperCase() === 'DRAM');
     if (nextDram) {
       setConfig({
@@ -744,18 +772,18 @@ export default function ReconcilePage() {
     return options?.autoAmount ? autoFillUsStockAmount(next) : next;
   };
   const setLocalUsStockItem = (id: string, patch: Partial<UsStockItemInput>, options?: { autoAmount?: boolean }) =>
-    setLocalUsStockItems((prev) => prev.map((item) => item.id === id ? patchUsStockItem(item, patch, options) : item));
+    setLocalUsStockItems((prev) => normalizeUsStockInputs(prev.map((item) => item.id === id ? patchUsStockItem(item, patch, options) : item)));
   const addUsStockItem = () => {
-    const next = [
+    const next = normalizeUsStockInputs([
       ...localUsStockItems,
       { id: `us-stock-${Date.now()}`, name: '新项目', symbol: '', amountCny: '0', shares: '', costPrice: '' },
-    ];
+    ]);
     setLocalUsStockItems(next);
     commitUsStockItems(next);
     setUsStockExpanded(true);
   };
   const removeUsStockItem = (id: string) => {
-    const next = localUsStockItems.filter((item) => item.id !== id);
+    const next = normalizeUsStockInputs(localUsStockItems.filter((item) => item.id !== id));
     setLocalUsStockItems(next);
     commitUsStockItems(next);
   };
@@ -2491,6 +2519,7 @@ export default function ReconcilePage() {
                             const amount = Math.max(0, parseAmountPart(item.amountCny));
                             const weight = (current.investHoldings.us ?? 0) > 0 ? amount / (current.investHoldings.us ?? 0) : null;
                             const symbol = item.symbol.trim().toUpperCase();
+                            const isSpyItem = isSpyUsStockInput(item);
                             const isDramItem = symbol === 'DRAM' || item.name.trim().toUpperCase() === 'DRAM';
                             const symbolMatchesName = Boolean(symbol) && item.name.trim().toUpperCase() === symbol;
                             const chart = isDramItem ? (dramChart ?? usStockCharts[symbol]) : usStockCharts[symbol];
@@ -2536,10 +2565,18 @@ export default function ReconcilePage() {
                                     <span style={{ fontSize: 11, color: C.sub, fontWeight: 700 }}>¥</span>
                                     <AmountInput
                                       value={item.amountCny}
-                                      onChange={(v) => setLocalUsStockItem(item.id, { amountCny: normalizeAmountInput(v) })}
+                                      onChange={(v) => {
+                                        if (isSpyItem) return;
+                                        setLocalUsStockItem(item.id, { amountCny: normalizeAmountInput(v) });
+                                      }}
                                       onFocus={(e) => e.target.select()}
-                                      onBlur={() => commitUsStockItems()}
-                                      style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 800, color: '#202124', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
+                                      onBlur={() => {
+                                        if (!isSpyItem) commitUsStockItems();
+                                      }}
+                                      readOnly={isSpyItem}
+                                      tabIndex={isSpyItem ? -1 : undefined}
+                                      title={isSpyItem ? '由美股总额扣除其他美股自动计算' : undefined}
+                                      style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: isSpyItem ? '#f8fbff' : 'transparent', fontSize: 13, fontWeight: 800, color: isSpyItem ? C.blue : '#202124', textAlign: 'right', fontVariantNumeric: 'tabular-nums', cursor: isSpyItem ? 'default' : 'text' }}
                                     />
                                   </div>
                                   <button
