@@ -2588,7 +2588,7 @@ export default function ReconcilePage() {
                                   : '填代码';
                             return (
                               <div key={item.id} style={{ border: '1px solid #edf2fb', borderRadius: 9, padding: '7px 8px', backgroundColor: '#fbfdff' }}>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(58px, 76px) minmax(86px, 98px) 28px', gap: 6, alignItems: 'center', marginBottom: isSpyItem ? 0 : 6 }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(54px, 86px) minmax(58px, 76px) minmax(96px, 1fr) 28px', gap: 6, alignItems: 'center', marginBottom: isSpyItem ? 0 : 6 }}>
                                   <input
                                     value={item.name}
                                     onChange={(e) => {
