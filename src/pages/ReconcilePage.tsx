@@ -2578,6 +2578,7 @@ export default function ReconcilePage() {
                             const currentPrice = marketNowPrice(chart);
                             const costAmountCny = isSpyItem ? null : usStockCostAmountCny(item, latestUsdRate);
                             const amountLocked = isSpyItem || costAmountCny !== null;
+                            const weightLabel = weight !== null ? `${(weight * 100).toFixed(1)}%` : '—';
                             const priceLabel = currentPrice !== null
                               ? fmtDollar(currentPrice)
                               : (symbol && (usStockPriceErrors.has(symbol) || (isDramItem && dramChartError)))
@@ -2587,7 +2588,7 @@ export default function ReconcilePage() {
                                   : '填代码';
                             return (
                               <div key={item.id} style={{ border: '1px solid #edf2fb', borderRadius: 9, padding: '7px 8px', backgroundColor: '#fbfdff' }}>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(58px, 76px) 92px 28px', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(58px, 76px) minmax(86px, 98px) 28px', gap: 6, alignItems: 'center', marginBottom: isSpyItem ? 0 : 6 }}>
                                   <input
                                     value={item.name}
                                     onChange={(e) => {
@@ -2610,21 +2611,24 @@ export default function ReconcilePage() {
                                   </div>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                                     <span style={{ fontSize: 11, color: C.sub, fontWeight: 700 }}>¥</span>
-                                    <AmountInput
-                                      value={item.amountCny}
-                                      onChange={(v) => {
-                                        if (amountLocked) return;
-                                        setLocalUsStockItem(item.id, { amountCny: normalizeAmountInput(v) });
-                                      }}
-                                      onFocus={(e) => e.target.select()}
-                                      onBlur={() => {
-                                        if (!amountLocked) commitUsStockItems();
-                                      }}
-                                      readOnly={amountLocked}
-                                      tabIndex={amountLocked ? -1 : undefined}
-                                      title={isSpyItem ? '由美股总额扣除其他美股自动计算' : costAmountCny !== null ? '由股数和成本价自动计算' : undefined}
-                                      style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: amountLocked ? '#f8fbff' : 'transparent', fontSize: 13, fontWeight: 800, color: amountLocked ? C.blue : '#202124', textAlign: 'right', fontVariantNumeric: 'tabular-nums', cursor: amountLocked ? 'default' : 'text' }}
-                                    />
+                                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, minWidth: 0, width: '100%' }}>
+                                      <AmountInput
+                                        value={item.amountCny}
+                                        onChange={(v) => {
+                                          if (amountLocked) return;
+                                          setLocalUsStockItem(item.id, { amountCny: normalizeAmountInput(v) });
+                                        }}
+                                        onFocus={(e) => e.target.select()}
+                                        onBlur={() => {
+                                          if (!amountLocked) commitUsStockItems();
+                                        }}
+                                        readOnly={amountLocked}
+                                        tabIndex={amountLocked ? -1 : undefined}
+                                        title={isSpyItem ? '由美股总额扣除其他美股自动计算' : costAmountCny !== null ? '由股数和成本价自动计算' : undefined}
+                                        style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: amountLocked ? '#f8fbff' : 'transparent', fontSize: 13, fontWeight: 800, color: amountLocked ? C.blue : '#202124', textAlign: 'right', fontVariantNumeric: 'tabular-nums', cursor: amountLocked ? 'default' : 'text' }}
+                                      />
+                                      <span style={{ fontSize: 10, color: C.sub, fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{weightLabel}</span>
+                                    </div>
                                   </div>
                                   <button
                                     type="button"
@@ -2635,7 +2639,8 @@ export default function ReconcilePage() {
                                     ×
                                   </button>
                                 </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: symbolMatchesName ? 'minmax(0, 1fr) minmax(0, 1fr) auto' : 'minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 1fr) auto', gap: 8, alignItems: 'center' }}>
+                                {!isSpyItem && (
+                                <div style={{ display: 'grid', gridTemplateColumns: symbolMatchesName ? 'minmax(0, 1fr) minmax(0, 1fr)' : 'minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 1fr)', gap: 8, alignItems: 'center' }}>
                                   {!symbolMatchesName && (
                                     <label style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
                                       <span style={{ fontSize: 10, color: C.sub, fontWeight: 700, whiteSpace: 'nowrap' }}>代码</span>
@@ -2667,10 +2672,8 @@ export default function ReconcilePage() {
                                       style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: '1px solid #e8eaed', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontWeight: 700, color: C.sub, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
                                     />
                                   </label>
-                                  <span style={{ fontSize: 10, color: C.sub, fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                                    {weight !== null ? `${(weight * 100).toFixed(1)}%` : '—'}
-                                  </span>
                                 </div>
+                                )}
                                 {isDramItem && (
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 7 }}>
                                     <button
