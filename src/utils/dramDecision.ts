@@ -141,6 +141,9 @@ export function buildDramDecision({
   const latestMa5 = ma5[lastIndex];
   const latestMa20 = ma20[lastIndex];
   const latestMa60 = ma60[lastIndex];
+  const intradayPrice = Number(chart.regularMarketPrice);
+  const latestPrice = Number.isFinite(intradayPrice) && intradayPrice > 0 ? intradayPrice : latest.close;
+  const latestDate = chart.regularMarketTime ? chart.regularMarketTime.slice(0, 10) : latest.date;
   const weeklyIndexes = lastWeeklyIndexes(bars);
   const twoWeeksBelowMa20 = lastTwoWeeksBelow(weeklyIndexes, closes, ma20);
   const twoWeeksBelowMa60 = lastTwoWeeksBelow(weeklyIndexes, closes, ma60);
@@ -153,17 +156,21 @@ export function buildDramDecision({
       peakDate = bar.date;
     }
   }
+  if (latestPrice > peakPrice) {
+    peakPrice = latestPrice;
+    peakDate = latestDate;
+  }
 
-  const drawdownFromPeak = latest.close / peakPrice - 1;
+  const drawdownFromPeak = latestPrice / peakPrice - 1;
   const clearReasons: string[] = [];
   if (twoWeeksBelowMa20) clearReasons.push('连续两周低于 MA20');
   if (-drawdownFromPeak >= config.drawdownClear) clearReasons.push(`高点回撤达到 ${Math.round(config.drawdownClear * 100)}%`);
   if (twoWeeksBelowMa60) clearReasons.push('连续两周低于 MA60');
 
-  const priceCny = usdRate !== null ? latest.close * usdRate : null;
+  const priceCny = usdRate !== null ? latestPrice * usdRate : null;
   const dramValueCny = priceCny !== null ? roundMoney(priceCny * config.shares) : null;
   const weight = dramValueCny !== null && usStockValueCny > 0 ? dramValueCny / usStockValueCny : null;
-  const costProfitRate = config.costPrice > 0 ? latest.close / config.costPrice - 1 : null;
+  const costProfitRate = config.costPrice > 0 ? latestPrice / config.costPrice - 1 : null;
 
   const targetCny = usStockValueCny * config.targetWeight;
   const hardLimitCny = usStockValueCny * config.hardLimit;
@@ -177,16 +184,16 @@ export function buildDramDecision({
     ? roundMoney(Math.max(targetCny - dramValueCny, 0))
     : 0;
 
-  const aboveMa5 = latestMa5 === null ? null : latest.close > latestMa5;
-  const aboveMa20 = latestMa20 === null ? null : latest.close > latestMa20;
+  const aboveMa5 = latestMa5 === null ? null : latestPrice > latestMa5;
+  const aboveMa20 = latestMa20 === null ? null : latestPrice > latestMa20;
 
   if (clearReasons.length > 0) {
     return {
       kind: 'clear',
       headline: '清仓 DRAM',
       detail: `触发${clearReasons.join('、')}，卖出全部 ${config.shares.toFixed(4)} 股，资金转 SPY 或现金。`,
-      latestDate: latest.date,
-      latestPrice: latest.close,
+      latestDate,
+      latestPrice,
       costProfitRate,
       ma5: latestMa5,
       ma10: ma10[lastIndex],
@@ -211,8 +218,8 @@ export function buildDramDecision({
       kind: 'wait',
       headline: '先补数据',
       detail: '需要美元汇率和美股总额，才能计算 DRAM 在美股里的比例。',
-      latestDate: latest.date,
-      latestPrice: latest.close,
+      latestDate,
+      latestPrice,
       costProfitRate,
       ma5: latestMa5,
       ma10: ma10[lastIndex],
@@ -237,8 +244,8 @@ export function buildDramDecision({
       kind: 'trim',
       headline: '减到 20%',
       detail: `DRAM 已超过美股 ${Math.round(config.hardLimit * 100)}% 硬上限，卖出约 ${sellToTargetShares.toFixed(4)} 股，降回 ${Math.round(config.targetWeight * 100)}%。`,
-      latestDate: latest.date,
-      latestPrice: latest.close,
+      latestDate,
+      latestPrice,
       costProfitRate,
       ma5: latestMa5,
       ma10: ma10[lastIndex],
@@ -266,8 +273,8 @@ export function buildDramDecision({
       detail: overTarget
         ? `已跌破 MA5，卖出约 ${sellToTargetShares.toFixed(4)} 股，把 DRAM 压回 ${Math.round(config.targetWeight * 100)}%；核心仓不清。`
         : '已跌破 MA5，只暂停买入；未触发 MA20/回撤清仓条件，核心仓继续留着。',
-      latestDate: latest.date,
-      latestPrice: latest.close,
+      latestDate,
+      latestPrice,
       costProfitRate,
       ma5: latestMa5,
       ma10: ma10[lastIndex],
@@ -292,8 +299,8 @@ export function buildDramDecision({
       kind: 'buy',
       headline: weight < config.minBuyWeight ? '可补 DRAM' : '小额可买',
       detail: `趋势在 MA5 上方，DRAM 低于 ${Math.round(config.targetWeight * 100)}% 上限；本次美股新增资金最多给 DRAM 约 ¥${Math.round(buyCapacityCny)}，其余给 SPY。`,
-      latestDate: latest.date,
-      latestPrice: latest.close,
+      latestDate,
+      latestPrice,
       costProfitRate,
       ma5: latestMa5,
       ma10: ma10[lastIndex],
@@ -317,8 +324,8 @@ export function buildDramDecision({
     kind: 'hold',
     headline: '持有不加',
     detail: `趋势仍在 MA5 上方，但 DRAM 已接近或超过 ${Math.round(config.targetWeight * 100)}% 目标；新增美股资金优先投 SPY。`,
-    latestDate: latest.date,
-    latestPrice: latest.close,
+    latestDate,
+    latestPrice,
     costProfitRate,
     ma5: latestMa5,
     ma10: ma10[lastIndex],

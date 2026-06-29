@@ -101,6 +101,12 @@ const latestMarketBar = (chart: MarketChartResponse | null | undefined) => {
   const bars = chart?.bars?.filter((bar) => Number.isFinite(Number(bar.adjClose ?? bar.close))) ?? [];
   return bars.length > 0 ? bars[bars.length - 1] : null;
 };
+const marketNowPrice = (chart: MarketChartResponse | null | undefined) => {
+  const regularMarketPrice = Number(chart?.regularMarketPrice);
+  if (Number.isFinite(regularMarketPrice) && regularMarketPrice > 0) return regularMarketPrice;
+  const latestBar = latestMarketBar(chart);
+  return latestBar ? Number(latestBar.adjClose ?? latestBar.close) : null;
+};
 const usStockCostAmountCny = (item: UsStockItemInput, usdRate: number | null) => {
   if (usdRate === null) return null;
   const shares = item.shares.trim() ? Math.max(0, parseAmountPart(item.shares)) : 0;
@@ -2569,7 +2575,7 @@ export default function ReconcilePage() {
                             const symbolMatchesName = Boolean(symbol) && item.name.trim().toUpperCase() === symbol;
                             const chart = isDramItem ? (dramChart ?? usStockCharts[symbol]) : usStockCharts[symbol];
                             const priceBar = latestMarketBar(chart);
-                            const currentPrice = priceBar ? Number(priceBar.adjClose ?? priceBar.close) : null;
+                            const currentPrice = marketNowPrice(chart);
                             const costAmountCny = isSpyItem ? null : usStockCostAmountCny(item, latestUsdRate);
                             const amountLocked = isSpyItem || costAmountCny !== null;
                             const priceLabel = currentPrice !== null
@@ -2598,7 +2604,7 @@ export default function ReconcilePage() {
                                   />
                                   <div style={{ minWidth: 0, textAlign: 'right' }}>
                                     <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, lineHeight: 1.1 }}>现价</div>
-                                    <div title={priceBar?.date ?? undefined} style={{ fontSize: 12, color: currentPrice !== null ? C.blue : C.orange, fontWeight: 800, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    <div title={chart?.regularMarketTime ?? priceBar?.date ?? undefined} style={{ fontSize: 12, color: currentPrice !== null ? C.blue : C.orange, fontWeight: 800, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                       {priceLabel}
                                     </div>
                                   </div>
