@@ -373,6 +373,7 @@ async function findLatestBillAttachment(): Promise<{
   const client = await ImapClient.connect(host, port, timeoutMs);
   try {
     await client.command(`LOGIN ${quoteImap(user)} ${quoteImap(pass)}`, '登录');
+    await client.command('ID ("name" "monthlyBills" "version" "1.0.6" "vendor" "monthlyBills")', '发送客户端标识');
     await client.command(`SELECT ${quoteImap(mailbox)}`, '打开邮箱');
     const search = await client.command(`UID SEARCH SINCE ${imapSinceDate(Number.isFinite(lookbackDays) ? lookbackDays : 90)}`, '搜索邮件');
     const uids = parseSearchUids(search).slice(-(Number.isFinite(scanLimit) ? scanLimit : 80)).reverse();
