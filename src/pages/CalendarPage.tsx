@@ -2390,23 +2390,26 @@ export default function CalendarPage() {
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>
           {tab === 'month' ? '日历标记' : '历史记录'}
         </h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
           <button
             onClick={importLatestBillFromMail}
             disabled={billImporting}
-            style={{ fontSize: 12, padding: '5px 10px', borderRadius: 8, border: `1px solid ${C.border}`, backgroundColor: billImporting ? '#f1f3f4' : '#fff', color: billImporting ? '#9aa0a6' : C.sub, cursor: billImporting ? 'default' : 'pointer' }}
+            title="从 163 邮箱导入最新账单附件"
+            style={{ fontSize: 11, lineHeight: 1, padding: '4px 7px', borderRadius: 7, border: `1px solid ${C.border}`, backgroundColor: billImporting ? '#f1f3f4' : '#fff', color: billImporting ? '#9aa0a6' : C.sub, cursor: billImporting ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
           >
-            {billImporting ? '导入中' : '📥 邮箱导入'}
+            {billImporting ? '导入中' : '邮箱'}
           </button>
           <button
             onClick={() => billFileRef.current?.click()}
             disabled={billImporting}
             title="手动选择账单文件"
-            style={{ fontSize: 12, padding: '5px 8px', borderRadius: 8, border: `1px solid ${C.border}`, backgroundColor: '#fff', color: billImporting ? '#9aa0a6' : C.sub, cursor: billImporting ? 'default' : 'pointer' }}
+            style={{ fontSize: 11, lineHeight: 1, padding: '4px 7px', borderRadius: 7, border: `1px solid ${C.border}`, backgroundColor: '#fff', color: billImporting ? '#9aa0a6' : C.sub, cursor: billImporting ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
           >
             本地
           </button>
-          {billImportMsg && <span style={{ fontSize: 11, color: C.sub, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{billImportMsg}</span>}
+          </div>
+          {billImportMsg && <span style={{ flex: '1 1 180px', minWidth: 160, maxWidth: 360, fontSize: 11, lineHeight: 1.35, color: C.sub, whiteSpace: 'normal', overflowWrap: 'anywhere' }}>{billImportMsg}</span>}
         <div style={{ display: 'flex', backgroundColor: '#e8eaed', borderRadius: 20, padding: 3, gap: 2 }}>
           {(['month', 'year'] as const).map((t) => {
             const active = tab === t;
