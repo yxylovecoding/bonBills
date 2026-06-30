@@ -69,18 +69,65 @@ export type BillParseResult = {
   expenseItems: Record<string, BillExpenseMonth>;
 };
 
-// 一木记账导出格式（22 列）：日期,收支类型,金额,类别,子类,账户,账本,报销账户,报销金额,
-// 退款金额,备注,标签,多币种,地址,创建用户,优惠,其他,附件1,附件2,附件3
-const COL_DATE = 0;
-const COL_TYPE = 1;
-const COL_AMT = 2;
-const COL_CAT = 3;
-const COL_SUBCAT = 4;
-const COL_ACCOUNT = 5;
-const COL_REIMB_AMT = 8;
-const COL_NOTE = 10;
-const COL_TAGS = 11;
-const COL_OTHER = 16;
+type BillColumnMap = {
+  date: number;
+  type: number;
+  amount: number;
+  category: number | null;
+  subcategory: number | null;
+  account: number | null;
+  reimburseAmount: number | null;
+  note: number | null;
+  tags: number | null;
+  other: number | null;
+};
+
+function normalizeHeaderName(value: string): string {
+  return value.replace(/^\uFEFF/, '').trim();
+}
+
+function buildHeaderMap(cols: string[]): Map<string, number> {
+  const map = new Map<string, number>();
+  cols.forEach((col, idx) => {
+    const name = normalizeHeaderName(col);
+    if (name && !map.has(name)) map.set(name, idx);
+  });
+  return map;
+}
+
+function findHeaderIndex(headerMap: Map<string, number>, aliases: string[]): number | null {
+  for (const alias of aliases) {
+    const idx = headerMap.get(alias);
+    if (idx !== undefined) return idx;
+  }
+  return null;
+}
+
+function requireHeaderIndex(headerMap: Map<string, number>, aliases: string[], label: string): number {
+  const idx = findHeaderIndex(headerMap, aliases);
+  if (idx === null) throw new Error(`账单缺少「${label}」列`);
+  return idx;
+}
+
+function buildBillColumnMap(headerCols: string[]): BillColumnMap {
+  const headerMap = buildHeaderMap(headerCols);
+  return {
+    date: requireHeaderIndex(headerMap, ['日期'], '日期'),
+    type: requireHeaderIndex(headerMap, ['收支类型'], '收支类型'),
+    amount: requireHeaderIndex(headerMap, ['金额'], '金额'),
+    category: findHeaderIndex(headerMap, ['类别', '分类']),
+    subcategory: findHeaderIndex(headerMap, ['二级分类', '子类', '子类别', '子分类']),
+    account: findHeaderIndex(headerMap, ['账户', '账号']),
+    reimburseAmount: findHeaderIndex(headerMap, ['报销金额']),
+    note: findHeaderIndex(headerMap, ['备注', '说明']),
+    tags: findHeaderIndex(headerMap, ['标签']),
+    other: findHeaderIndex(headerMap, ['其他']),
+  };
+}
+
+function cell(cols: string[], idx: number | null): string {
+  return idx === null ? '' : (cols[idx] || '');
+}
 
 function parseLine(line: string): string[] {
   const cols: string[] = [];
@@ -181,38 +228,41 @@ export async function parseBillFile(file: File): Promise<BillParseResult> {
   const months: Record<string, BillTagMonth> = {};
   const aggs: Record<string, BillMonthlyAgg> = {};
   const expenseItems: Record<string, BillExpenseMonth> = {};
+  const headerIdx = lines.findIndex((line) => line.trim());
+  if (headerIdx < 0) throw new Error('账单内容为空');
+  const columns = buildBillColumnMap(parseLine(lines[headerIdx]));
 
   const ensureAgg = (ym: string) => {
     if (!aggs[ym]) aggs[ym] = emptyBillMonthlyAgg();
     return aggs[ym];
   };
 
-  for (let i = 1; i < lines.length; i++) {
+  for (let i = headerIdx + 1; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
     const cols = parseLine(line);
 
-    const other = (cols[COL_OTHER] || '').trim();
+    const other = cell(cols, columns.other).trim();
     if (other.includes('不计入')) continue;
 
-    const date = normalizeBillDate(cols[COL_DATE] || '');
+    const date = normalizeBillDate(cell(cols, columns.date));
     if (!date) continue;
     const yearMonth = date.slice(0, 7);
 
-    const type = (cols[COL_TYPE] || '').trim();
-    // C 列「金额」已是退款后的净额，J 列退款金额无需再扣
-    const amount = parseAmount(cols[COL_AMT] || '0');
+    const type = cell(cols, columns.type).trim();
+    // 「金额」已是退款后的净额，退款列无需再扣
+    const amount = parseAmount(cell(cols, columns.amount) || '0');
     // 报销金额列非空 ⇒ 整行跳过（无论待报销 0.00 还是已报销正数，都不算自己实际支出）
-    if ((cols[COL_REIMB_AMT] || '').trim()) continue;
+    if (cell(cols, columns.reimburseAmount).trim()) continue;
     if (amount === 0) continue;
     if (type !== '支出' && type !== '收入') continue;
 
-    const tagsRaw = (cols[COL_TAGS] || '').trim();
+    const tagsRaw = cell(cols, columns.tags).trim();
     const tags = tagsRaw.split(',').map(t => t.trim()).filter(Boolean);
-    const account = (cols[COL_ACCOUNT] || '').trim();
-    const category = (cols[COL_CAT] || '').trim();
-    const subcategory = (cols[COL_SUBCAT] || '').trim();
-    const note = (cols[COL_NOTE] || '').trim();
+    const account = cell(cols, columns.account).trim();
+    const category = cell(cols, columns.category).trim();
+    const subcategory = cell(cols, columns.subcategory).trim();
+    const note = cell(cols, columns.note).trim();
 
     const a = ensureAgg(yearMonth);
     if (type === '收入') {
