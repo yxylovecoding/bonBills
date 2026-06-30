@@ -12,6 +12,11 @@ type HeaderValue = {
   params: Record<string, string>;
 };
 
+type ImapStatus = {
+  status: 'OK' | 'NO' | 'BAD';
+  detail: string;
+};
+
 const DEFAULT_ATTACHMENT_PATTERN = '^账单_\\d{10}\\.xlsx?$';
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -40,8 +45,13 @@ function imapSinceDate(days: number): string {
   return `${d.getUTCDate()}-${MONTH_NAMES[d.getUTCMonth()]}-${d.getUTCFullYear()}`;
 }
 
-function taggedStatus(text: string, tag: string): RegExpMatchArray | null {
-  return text.match(new RegExp(`(?:^|\\r\\n)${tag} (OK|NO|BAD)(?: |\\r\\n)`));
+function taggedStatus(text: string, tag: string): ImapStatus | null {
+  const match = text.match(new RegExp(`(?:^|\\r\\n)${tag} (OK|NO|BAD)([^\\r\\n]*)`));
+  if (!match) return null;
+  return {
+    status: match[1] as ImapStatus['status'],
+    detail: match[2].trim(),
+  };
 }
 
 class ImapClient {
@@ -80,7 +90,7 @@ class ImapClient {
     });
   }
 
-  command(command: string): Promise<Buffer> {
+  command(command: string, label = '命令'): Promise<Buffer> {
     const tag = `A${this.nextTag++}`;
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
@@ -104,7 +114,10 @@ class ImapClient {
         const status = taggedStatus(text, tag);
         if (!status) return;
         cleanup();
-        if (status[1] !== 'OK') reject(new Error(`邮箱返回 ${status[1]}`));
+        if (status.status !== 'OK') {
+          const detail = status.detail ? `：${status.detail}` : '';
+          reject(new Error(`邮箱${label}失败：${status.status}${detail}`));
+        }
         else resolve(buf);
       };
       this.socket.on('data', onData);
@@ -359,12 +372,12 @@ async function findLatestBillAttachment(): Promise<{
 
   const client = await ImapClient.connect(host, port, timeoutMs);
   try {
-    await client.command(`LOGIN ${quoteImap(user)} ${quoteImap(pass)}`);
-    await client.command(`SELECT ${quoteImap(mailbox)}`);
-    const search = await client.command(`UID SEARCH SINCE ${imapSinceDate(Number.isFinite(lookbackDays) ? lookbackDays : 90)}`);
+    await client.command(`LOGIN ${quoteImap(user)} ${quoteImap(pass)}`, '登录');
+    await client.command(`SELECT ${quoteImap(mailbox)}`, '打开邮箱');
+    const search = await client.command(`UID SEARCH SINCE ${imapSinceDate(Number.isFinite(lookbackDays) ? lookbackDays : 90)}`, '搜索邮件');
     const uids = parseSearchUids(search).slice(-(Number.isFinite(scanLimit) ? scanLimit : 80)).reverse();
     for (const uid of uids) {
-      const fetched = await client.command(`UID FETCH ${uid} (BODY.PEEK[])`);
+      const fetched = await client.command(`UID FETCH ${uid} (BODY.PEEK[])`, '读取邮件');
       const raw = extractFetchLiteral(fetched);
       if (!raw) continue;
       const attachment = collectAttachments(raw.toString('latin1')).find((item) => filePattern.test(item.fileName));
@@ -375,7 +388,7 @@ async function findLatestBillAttachment(): Promise<{
     }
   } finally {
     try {
-      await client.command('LOGOUT');
+      await client.command('LOGOUT', '退出');
     } catch {
       // ignore logout errors
     }
