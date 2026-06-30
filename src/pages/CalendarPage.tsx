@@ -27,6 +27,7 @@ import { useHolidayYears } from '../utils/holidays';
 import { sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { getPayrollScheduleForMonth } from '../utils/payroll';
 import { getCategoryProfit, getInvestTotalForRate } from '../utils/investRecords';
+import { getActiveSyncSecret } from '../utils/syncEngine';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', border: '#e0e0e0', weekend: '#ea4335', orange: '#e8710a' };
 const CN_MONTH = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
@@ -37,6 +38,12 @@ type UsdRateResponse = {
   rate: number;
   date?: string;
   source?: string;
+};
+
+type BillAttachmentResponse = {
+  fileName: string;
+  contentType?: string;
+  base64: string;
 };
 
 // ── Calendar helpers ──────────────────────────────────────────────
@@ -61,6 +68,27 @@ function getRange(a: string, b: string): string[] {
 
 function formatSignedCurrency(value: number) {
   return `${value >= 0 ? '+' : '-'}¥${formatCurrency(Math.abs(value))}`;
+}
+
+function base64ToFile(base64: string, fileName: string, contentType?: string): File {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new File([bytes], fileName, { type: contentType || 'application/vnd.ms-excel' });
+}
+
+async function fetchLatestBillAttachment(): Promise<File> {
+  const secret = getActiveSyncSecret();
+  if (!secret) throw new Error('缺少同步密码');
+  const res = await fetch('/api/latest-bill-attachment', {
+    headers: { Authorization: `Bearer ${secret}` },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null) as { error?: string } | null;
+    throw new Error(body?.error || `HTTP ${res.status}`);
+  }
+  const body = await res.json() as BillAttachmentResponse;
+  return base64ToFile(body.base64, body.fileName, body.contentType);
 }
 
 // ── Bill tag detail helpers ───────────────────────────────────────
@@ -2253,13 +2281,30 @@ export default function CalendarPage() {
   const [thresholdInput, setThresholdInput] = useState(String(config.majorExpenseThreshold ?? 500));
   const [expandedTag, setExpandedTag] = useState<null | 'eat' | 'red' | 'black'>(null);
   const [billImportMsg, setBillImportMsg] = useState<string>('');
+  const [billImporting, setBillImporting] = useState(false);
   const billFileRef = useRef<HTMLInputElement>(null);
   const importBillFromFile = async (file: File) => {
+    setBillImporting(true);
     try {
       const result = await importBillFileIntoStores(file);
       setBillImportMsg(`已导入 ${result.updatedMonths} 个月记录${result.importedPossessions > 0 ? ` · ${result.importedPossessions} 个物品动作` : ''} · ${result.fileName}`);
     } catch (err) {
       setBillImportMsg(`导入失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBillImporting(false);
+    }
+  };
+  const importLatestBillFromMail = async () => {
+    setBillImporting(true);
+    setBillImportMsg('邮箱查找中');
+    try {
+      const file = await fetchLatestBillAttachment();
+      const result = await importBillFileIntoStores(file);
+      setBillImportMsg(`邮箱已导入 ${result.updatedMonths} 个月记录${result.importedPossessions > 0 ? ` · ${result.importedPossessions} 个物品动作` : ''} · ${result.fileName}`);
+    } catch (err) {
+      setBillImportMsg(`邮箱导入失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBillImporting(false);
     }
   };
   const handleBillFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2347,10 +2392,19 @@ export default function CalendarPage() {
         </h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
-            onClick={() => billFileRef.current?.click()}
-            style={{ fontSize: 12, padding: '5px 10px', borderRadius: 8, border: `1px solid ${C.border}`, backgroundColor: '#fff', color: C.sub, cursor: 'pointer' }}
+            onClick={importLatestBillFromMail}
+            disabled={billImporting}
+            style={{ fontSize: 12, padding: '5px 10px', borderRadius: 8, border: `1px solid ${C.border}`, backgroundColor: billImporting ? '#f1f3f4' : '#fff', color: billImporting ? '#9aa0a6' : C.sub, cursor: billImporting ? 'default' : 'pointer' }}
           >
-            📥 导入账单
+            {billImporting ? '导入中' : '📥 邮箱导入'}
+          </button>
+          <button
+            onClick={() => billFileRef.current?.click()}
+            disabled={billImporting}
+            title="手动选择账单文件"
+            style={{ fontSize: 12, padding: '5px 8px', borderRadius: 8, border: `1px solid ${C.border}`, backgroundColor: '#fff', color: billImporting ? '#9aa0a6' : C.sub, cursor: billImporting ? 'default' : 'pointer' }}
+          >
+            本地
           </button>
           {billImportMsg && <span style={{ fontSize: 11, color: C.sub, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{billImportMsg}</span>}
         <div style={{ display: 'flex', backgroundColor: '#e8eaed', borderRadius: 20, padding: 3, gap: 2 }}>

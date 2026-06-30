@@ -14,6 +14,28 @@ npm run dev       # 开发模式 (http://localhost:5173)
 npm run build     # 生产构建
 ```
 
+## 163 邮箱账单导入
+
+记录页的“邮箱导入”会通过服务端 IMAP 拉取最近匹配 `账单_数字.xls/xlsx` 的附件，然后复用前端账单导入规则。
+
+部署环境需要配置：
+
+```bash
+SYNC_SECRET=访问应用时 ?key= 使用的同步密钥
+BILL_MAIL_USER=你的163邮箱
+BILL_MAIL_PASS=163客户端授权码
+```
+
+可选配置：
+
+```bash
+BILL_MAIL_HOST=imap.163.com
+BILL_MAIL_PORT=993
+BILL_MAIL_LOOKBACK_DAYS=90
+BILL_MAIL_SCAN_LIMIT=80
+BILL_ATTACHMENT_PATTERN=^账单_\d{10}\.xlsx?$
+```
+
 ## Schwab 同步
 
 Schwab 读作 `/ʃwɑːb/`，近似“施瓦布/什瓦布”。首次使用前，需要在 [Schwab Developer Portal](https://developer.schwab.com/) 创建并获批 Trader API 应用，拿到 app key、app secret，并把 callback URL 配成和本地一致，例如 `https://127.0.0.1:8182/`。

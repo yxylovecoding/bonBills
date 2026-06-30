@@ -179,6 +179,15 @@ function debounce<T extends (...args: never[]) => void>(fn: T, ms: number) {
 let syncingFromServer = false; // 防止首次 setState 触发回传
 let activeSecret: string | null = null;
 
+export function getActiveSyncSecret(): string | null {
+  if (activeSecret) return activeSecret;
+  try {
+    return sessionStorage.getItem(LS_SECRET_KEY);
+  } catch {
+    return null;
+  }
+}
+
 export async function triggerUpload() {
   if (!activeSecret) return;
   const status = useSyncStatus.getState();
