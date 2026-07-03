@@ -67,7 +67,7 @@ declare global {
 }
 
 const IMAGE_NAME_RE = /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i;
-const OCR_AMOUNT_RE = /(?:^|[^\w])([+-]?\s*[¥$]?\s*\d[\d,]*(?:\.\d+)?|[¥$]\s*[+-]?\s*\d[\d,]*(?:\.\d+)?)/g;
+const OCR_AMOUNT_RE = /(?:^|[^\w])([+\-−]?\s*[¥$]?\s*\d[\d,]*(?:\.\d+)?|[¥$]\s*[+\-−]?\s*\d[\d,]*(?:\.\d+)?)/g;
 const INVEST_KEYS: InvestKey[] = ['us', 'eu', 'asia', 'a', 'longBond', 'usBond', 'gold'];
 
 const roundMoney = (value: number) => Math.round(value * 100) / 100;
@@ -139,7 +139,7 @@ function parseOcrAmounts(raw: string): OcrAmountToken[] {
   const tokens: OcrAmountToken[] = [];
   for (const match of raw.matchAll(OCR_AMOUNT_RE)) {
     const token = (match[1] ?? '').trim();
-    const value = Number(token.replace(/[¥$,\s]/g, ''));
+    const value = Number(token.replace(/−/g, '-').replace(/[¥$,\s]/g, ''));
     if (!Number.isFinite(value)) continue;
     tokens.push({
       value,
@@ -182,6 +182,25 @@ function pushOcrRow(result: ScreenshotParseResult, section: string, name: string
   result.recognizedRows.push({ section, name, amount, currency, mappedTo, confidence: 0.7 });
 }
 
+function livingSectionNegativeCredit(lines: string[]) {
+  const livingLines = sectionLines(lines, /^生活/, /^(消费|收入|理财)/);
+  let skippedUsd = false;
+  const total = livingLines.reduce((sum, line) => {
+    if (/可用|本期|天后|已还|已清|可报|已报|已收|应收/.test(line)) return sum;
+    const amount = pickOcrAmount(line, { pick: 'last' });
+    if (!amount || amount.value >= 0) return sum;
+    if (amount.currency === 'USD') {
+      skippedUsd = true;
+      return sum;
+    }
+    return sum + amount.value;
+  }, 0);
+  return {
+    amount: total < 0 ? roundMoney(Math.abs(total)) : null,
+    skippedUsd,
+  };
+}
+
 function parseAccountsOcr(text: string): ScreenshotParseResult {
   const result = emptyScreenshotParseResult('accounts');
   const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
@@ -195,7 +214,9 @@ function parseAccountsOcr(text: string): ScreenshotParseResult {
   const consumption = findLabeledAmount(lines, /^消费/, { pick: 'last', lookahead: 1 })?.value ?? null;
   const income = findLabeledAmount(lines, /^收入/, { pick: 'last', lookahead: 1 })?.value ?? null;
   const campus = findLabeledAmount(lines, /校园卡/, { currency: 'CNY', pick: 'last', lookahead: 1 })?.value ?? null;
-  const credit = findLabeledAmount(lines, /应付|债务/, { currency: 'CNY', pick: 'first', lookahead: 1 })?.value ?? null;
+  const livingCredit = livingSectionNegativeCredit(lines);
+  const fallbackCredit = findLabeledAmount(lines, /应付|债务/, { currency: 'CNY', pick: 'first', lookahead: 1 })?.value ?? null;
+  const credit = livingCredit.amount ?? fallbackCredit;
   const creditMonthly = findLabeledAmount(lines, /本期.*还|待还/, { currency: 'CNY', pick: 'first', lookahead: 1 })?.value ?? null;
   const investCny = findLabeledAmount(lines, /中国银行|中行/, { currency: 'CNY', pick: 'last', lookahead: 2 })?.value ?? null;
   const investUsd = findLabeledAmount(lines, /嘉信|Schwab|Charles/i, { currency: 'USD', pick: 'last', lookahead: 2 })?.value ?? null;
@@ -214,11 +235,12 @@ function parseAccountsOcr(text: string): ScreenshotParseResult {
   pushOcrRow(result, '账户', '消费', consumption, 'CNY', 'consumptionBank');
   pushOcrRow(result, '账户', '收入', income, 'CNY', 'incomeBank');
   pushOcrRow(result, '账户', '校园卡', campus, 'CNY', 'campusCard');
-  pushOcrRow(result, '账户', '待还/债务', credit, 'CNY', 'credit');
+  pushOcrRow(result, '账户', livingCredit.amount !== null ? '生活负数合计' : '待还/债务', credit, 'CNY', 'credit');
   pushOcrRow(result, '理财现金', '中国银行=境内', investCny, 'CNY', 'investCnyBank');
   pushOcrRow(result, '理财现金', '嘉信=境外', investUsd, 'USD', 'investUsdBank');
   if (result.recognizedRows.length === 0) result.notes.push('没有识别到可映射的账户金额，可以换一张更清晰或完整的截图。');
-  result.notes.push('账户规则：生活=建设银行+微信，收入取收入栏，理财现金中国银行=境内、嘉信=境外。');
+  result.notes.push('账户规则：生活=建设银行+微信，信用卡应还=生活分组下人民币负数合计，收入取收入栏，理财现金中国银行=境内、嘉信=境外。');
+  if (livingCredit.skippedUsd) result.notes.push('生活分组下的美元负数未折算进人民币信用卡应还。');
   return result;
 }
 
