@@ -19,12 +19,13 @@ function isFileDrag(e: DragEvent) {
   return !!e.dataTransfer?.types.includes('Files');
 }
 
-function dispatchFinanceScreenshotDraft(draft: ScreenshotParseResult, fileName: string) {
+function dispatchFinanceScreenshotDraft(draft: ScreenshotParseResult, file: File) {
   let handled = false;
   window.dispatchEvent(new CustomEvent<FinanceScreenshotDraftEventDetail>(FINANCE_SCREENSHOT_DRAFT_EVENT, {
     detail: {
       draft,
-      fileName,
+      fileName: file.name,
+      file,
       handled: () => {
         handled = true;
       },
@@ -73,7 +74,7 @@ export default function BillDropImporter() {
         if (isFinanceScreenshotFile(file)) {
           showMessage('图片OCR中');
           const draft = await parseFinanceScreenshot(file);
-          const handled = dispatchFinanceScreenshotDraft(draft, file.name);
+          const handled = dispatchFinanceScreenshotDraft(draft, file);
           if (handled) {
             showMessage(`已识别 ${screenshotDraftItemCount(draft)} 项 · 请确认草稿`);
             return;

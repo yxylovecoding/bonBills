@@ -38,6 +38,7 @@ export type ScreenshotParseResult = {
 export type FinanceScreenshotDraftEventDetail = {
   draft: ScreenshotParseResult;
   fileName: string;
+  file?: File;
   handled?: () => void;
 };
 export type FinanceScreenshotApplyResult = {

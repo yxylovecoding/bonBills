@@ -484,20 +484,45 @@ export default function ReconcilePage() {
   const [saved, setSaved] = useState(false);
   const [screenshotImportMsg, setScreenshotImportMsg] = useState('');
   const [screenshotDraft, setScreenshotDraft] = useState<ScreenshotParseResult | null>(null);
+  const [screenshotPreview, setScreenshotPreview] = useState<{ url: string; fileName: string } | null>(null);
+  const screenshotPreviewUrlRef = useRef<string | null>(null);
   const [reconcileMode, setReconcileMode] = useState<ReconcileMode>(() => defaultReconcileMode(new Date()));
   const isMonthStartMode = reconcileMode === 'monthStart';
+
+  const clearScreenshotDraft = () => {
+    if (screenshotPreviewUrlRef.current) {
+      URL.revokeObjectURL(screenshotPreviewUrlRef.current);
+      screenshotPreviewUrlRef.current = null;
+    }
+    setScreenshotPreview(null);
+    setScreenshotDraft(null);
+  };
 
   useEffect(() => {
     const onFinanceScreenshotDraft = (event: Event) => {
       const detail = (event as CustomEvent<FinanceScreenshotDraftEventDetail>).detail;
       if (!detail?.draft) return;
       detail.handled?.();
+      if (screenshotPreviewUrlRef.current) {
+        URL.revokeObjectURL(screenshotPreviewUrlRef.current);
+        screenshotPreviewUrlRef.current = null;
+      }
+      if (detail.file) {
+        const url = URL.createObjectURL(detail.file);
+        screenshotPreviewUrlRef.current = url;
+        setScreenshotPreview({ url, fileName: detail.fileName });
+      } else {
+        setScreenshotPreview(null);
+      }
       setScreenshotDraft(detail.draft);
       const kind = detail.draft.mode === 'investments' ? '理财' : detail.draft.mode === 'accounts' ? '资产' : '图片';
       setScreenshotImportMsg(`已识别${kind} ${screenshotDraftItemCount(detail.draft)} 项 · ${detail.fileName}`);
     };
     window.addEventListener(FINANCE_SCREENSHOT_DRAFT_EVENT, onFinanceScreenshotDraft);
-    return () => window.removeEventListener(FINANCE_SCREENSHOT_DRAFT_EVENT, onFinanceScreenshotDraft);
+    return () => {
+      window.removeEventListener(FINANCE_SCREENSHOT_DRAFT_EVENT, onFinanceScreenshotDraft);
+      if (screenshotPreviewUrlRef.current) URL.revokeObjectURL(screenshotPreviewUrlRef.current);
+    };
   }, []);
 
   const [allowRebalanceSell, setAllowRebalanceSell] = useState(false);
@@ -871,8 +896,8 @@ export default function ReconcilePage() {
       setUsStockExpanded(true);
     }
 
-    setScreenshotDraft(null);
-    setScreenshotImportMsg('截图已应用');
+    clearScreenshotDraft();
+    setScreenshotImportMsg('图片已应用');
   };
   const patchUsStockItem = (item: UsStockItemInput, patch: Partial<UsStockItemInput>, options?: { autoAmount?: boolean }) => {
     const next = { ...item, ...patch };
@@ -2837,7 +2862,7 @@ export default function ReconcilePage() {
 
       {screenshotDraft && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000, backgroundColor: 'rgba(32,33,36,0.32)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ width: 'min(520px, 100%)', maxHeight: '82vh', overflow: 'auto', backgroundColor: '#fff', borderRadius: 14, boxShadow: '0 12px 36px rgba(0,0,0,0.24)', padding: 16 }}>
+          <div style={{ width: 'min(760px, 100%)', maxHeight: '86vh', overflow: 'auto', backgroundColor: '#fff', borderRadius: 14, boxShadow: '0 12px 36px rgba(0,0,0,0.24)', padding: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 800, color: '#202124' }}>图片导入草稿</div>
@@ -2847,13 +2872,26 @@ export default function ReconcilePage() {
               </div>
               <button
                 type="button"
-                onClick={() => setScreenshotDraft(null)}
+                onClick={clearScreenshotDraft}
                 aria-label="关闭图片导入草稿"
                 style={{ border: 'none', borderRadius: 8, backgroundColor: '#f1f3f4', color: C.sub, width: 30, height: 30, fontSize: 16, fontWeight: 800, cursor: 'pointer' }}
               >
                 ×
               </button>
             </div>
+
+            {screenshotPreview && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: '#202124', marginBottom: 6 }}>原图</div>
+                <div style={{ border: '1px solid #e8eaed', borderRadius: 10, overflow: 'hidden', backgroundColor: '#f8f9fa' }}>
+                  <img
+                    src={screenshotPreview.url}
+                    alt={screenshotPreview.fileName}
+                    style={{ display: 'block', width: '100%', maxHeight: 'min(42vh, 420px)', objectFit: 'contain', backgroundColor: '#f8f9fa' }}
+                  />
+                </div>
+              </div>
+            )}
 
             {screenshotAccountEntries.length > 0 && (
               <div style={{ marginBottom: 12 }}>
@@ -2915,7 +2953,7 @@ export default function ReconcilePage() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               <button
                 type="button"
-                onClick={() => setScreenshotDraft(null)}
+                onClick={clearScreenshotDraft}
                 style={{ border: '1px solid #dadce0', borderRadius: 10, backgroundColor: '#fff', color: C.sub, padding: '10px 0', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}
               >
                 取消
