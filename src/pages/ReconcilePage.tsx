@@ -23,7 +23,6 @@ import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../util
 import { tryEvalFormula } from '../utils/formula';
 import { dateLabel, resolveIncomeForMonth, type ResolvedIncomeItem } from '../utils/payroll';
 import { getCategoryProfit } from '../utils/investRecords';
-import { getActiveSyncSecret } from '../utils/syncEngine';
 import {
   buildDramDecision,
   normalizeDramDecisionConfig,
@@ -109,6 +108,18 @@ type ScreenshotParseResult = {
   recognizedRows: ScreenshotRow[];
   notes: string[];
 };
+type TesseractRecognizeResult = { data: { text: string } };
+declare global {
+  interface Window {
+    Tesseract?: {
+      recognize: (
+        image: File,
+        langs: string,
+        options?: Record<string, unknown>,
+      ) => Promise<TesseractRecognizeResult>;
+    };
+  }
+}
 
 const parseAmountPart = (raw: string | undefined) => {
   const value = raw?.trim() ?? '';
@@ -187,28 +198,153 @@ const INVEST_FIELD_LABELS: Record<InvestKey, string> = {
   usBond: '美债',
   gold: '黄金',
 };
-function imageFileToDataUrl(file: File): Promise<string> {
+function emptyScreenshotParseResult(mode: ScreenshotImportMode): ScreenshotParseResult {
+  return {
+    mode,
+    totals: {
+      netAssetsCny: null,
+      totalAssetsCny: null,
+      liabilitiesCny: null,
+      investTotalCny: null,
+      investProfitCny: null,
+    },
+    accounts: {
+      credit: null,
+      creditMonthly: null,
+      savingsCard: null,
+      incomeBank: null,
+      livingBank: null,
+      campusCard: null,
+      consumptionBank: null,
+      wishJar: null,
+      investCnyBank: null,
+      usdLivingBank: null,
+      usdConsumptionBank: null,
+      usdWishJar: null,
+      investUsdBank: null,
+    },
+    investHoldings: {
+      us: null,
+      eu: null,
+      asia: null,
+      a: null,
+      longBond: null,
+      usBond: null,
+      gold: null,
+    },
+    usStockHoldings: [],
+    recognizedRows: [],
+    notes: [],
+  };
+}
+function loadTesseract(): Promise<NonNullable<Window['Tesseract']>> {
+  if (window.Tesseract) return Promise.resolve(window.Tesseract);
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error ?? new Error('读取图片失败'));
-    reader.readAsDataURL(file);
+    const existing = document.querySelector<HTMLScriptElement>('script[data-ocr="tesseract"]');
+    if (existing) {
+      existing.addEventListener('load', () => window.Tesseract ? resolve(window.Tesseract) : reject(new Error('OCR 加载失败')));
+      existing.addEventListener('error', () => reject(new Error('OCR 加载失败')));
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    script.async = true;
+    script.dataset.ocr = 'tesseract';
+    script.onload = () => window.Tesseract ? resolve(window.Tesseract) : reject(new Error('OCR 加载失败'));
+    script.onerror = () => reject(new Error('OCR 加载失败'));
+    document.head.appendChild(script);
   });
 }
-async function parseFinanceScreenshot(file: File, mode: ScreenshotImportMode): Promise<ScreenshotParseResult> {
-  const secret = getActiveSyncSecret();
-  if (!secret) throw new Error('缺少同步密码');
-  const imageDataUrl = await imageFileToDataUrl(file);
-  const res = await fetch('/api/parse-finance-screenshot', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mode, imageDataUrl }),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => null) as { error?: string } | null;
-    throw new Error(body?.error || `HTTP ${res.status}`);
+function parseOcrAmount(raw: string): number | null {
+  const match = raw.match(/[-+]?\s*[¥$]?\s*\d[\d,.\s]*/);
+  if (!match) return null;
+  const n = Number(match[0].replace(/[¥$,\s]/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+function findLineAmount(lines: string[], pattern: RegExp): number | null {
+  const line = lines.find((row) => pattern.test(row));
+  return line ? parseOcrAmount(line) : null;
+}
+function pushOcrRow(result: ScreenshotParseResult, section: string, name: string, amount: number | null, currency: ScreenshotCurrency, mappedTo: string | null) {
+  if (amount === null) return;
+  result.recognizedRows.push({ section, name, amount, currency, mappedTo, confidence: 0.7 });
+}
+function parseAccountsOcr(text: string): ScreenshotParseResult {
+  const result = emptyScreenshotParseResult('accounts');
+  const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const living = findLineAmount(lines, /^生活\b|^生活\s/);
+  const consumption = findLineAmount(lines, /^消费\b|^消费\s/);
+  const income = findLineAmount(lines, /^收入\b|^收入\s/);
+  const campus = findLineAmount(lines, /校园卡/);
+  const credit = findLineAmount(lines, /应付|待还|债务/);
+  const creditMonthly = findLineAmount(lines, /本期.*还|待还/);
+  result.accounts.livingBank = living;
+  result.accounts.consumptionBank = consumption;
+  result.accounts.incomeBank = income;
+  result.accounts.campusCard = campus;
+  result.accounts.credit = credit !== null ? Math.abs(credit) : null;
+  result.accounts.creditMonthly = creditMonthly !== null ? Math.abs(creditMonthly) : null;
+  pushOcrRow(result, '账户', '生活', living, 'CNY', 'livingBank');
+  pushOcrRow(result, '账户', '消费', consumption, 'CNY', 'consumptionBank');
+  pushOcrRow(result, '账户', '收入', income, 'CNY', 'incomeBank');
+  pushOcrRow(result, '账户', '校园卡', campus, 'CNY', 'campusCard');
+  pushOcrRow(result, '账户', '待还/债务', credit, 'CNY', 'credit');
+  if (result.recognizedRows.length === 0) result.notes.push('没有识别到可映射的账户金额，可以换一张更清晰或完整的截图。');
+  result.notes.push('本地 OCR 只按固定字段关键词映射，应用前请核对金额。');
+  return result;
+}
+function firstHeaderAmount(lines: string[], pattern: RegExp): number | null {
+  const line = lines.find((row) => pattern.test(row) && /\d/.test(row));
+  return line ? parseOcrAmount(line) : null;
+}
+function sectionLines(lines: string[], start: RegExp, stop: RegExp): string[] {
+  const startIndex = lines.findIndex((line) => start.test(line));
+  if (startIndex < 0) return [];
+  const endOffset = lines.slice(startIndex + 1).findIndex((line) => stop.test(line));
+  const endIndex = endOffset < 0 ? lines.length : startIndex + 1 + endOffset;
+  return lines.slice(startIndex + 1, endIndex);
+}
+function parseInvestmentsOcr(text: string): ScreenshotParseResult {
+  const result = emptyScreenshotParseResult('investments');
+  const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const headers: Array<[InvestKey, RegExp, string]> = [
+    ['usBond', /^美债/, '美债'],
+    ['us', /^美(?!债)|美国|美股/, '美股'],
+    ['eu', /^欧|欧洲/, '欧洲'],
+    ['asia', /^亚|亚洲/, '亚洲'],
+    ['a', /^A\b|^A股|^A\s/, 'A股'],
+    ['longBond', /^债(?!券20)|长债|国开债/, '长债'],
+    ['gold', /^黄金|黄金/, '黄金'],
+  ];
+  for (const [key, pattern, label] of headers) {
+    const amount = firstHeaderAmount(lines, pattern);
+    result.investHoldings[key] = amount;
+    pushOcrRow(result, '理财', label, amount, 'CNY', key);
   }
-  return await res.json() as ScreenshotParseResult;
+
+  const usLines = sectionLines(lines, /^美(?!债)|美国|美股/, /^(欧|欧洲|亚|亚洲|A\b|A股|债|美债|黄金)/);
+  for (const line of usLines) {
+    if (/最新价|今日收益|昨日收益|累计|盈亏/.test(line)) continue;
+    const amountMatches = line.match(/([$¥]?)\s*[-+]?\d[\d,.]*/g);
+    const amountMatch = amountMatches ? amountMatches[amountMatches.length - 1] : undefined;
+    if (!amountMatch) continue;
+    const amount = parseOcrAmount(amountMatch);
+    if (amount === null) continue;
+    const currency: ScreenshotCurrency = amountMatch.includes('$') ? 'USD' : 'CNY';
+    const name = line.slice(0, Math.max(line.lastIndexOf(amountMatch), 0)).trim() || '美股项目';
+    const symbol = line.match(/\b([a-z]{2,8}|of\d{6}|sh\d{6}|sz\d{6})\b/i)?.[1]?.toUpperCase() ?? null;
+    result.usStockHoldings.push({ name, symbol, amount, currency, confidence: 0.65 });
+  }
+  if (result.recognizedRows.length === 0 && result.usStockHoldings.length === 0) {
+    result.notes.push('没有识别到可映射的理财金额，可以换一张更清晰或完整的截图。');
+  }
+  result.notes.push('本地 OCR 只按固定分组关键词映射，应用前请核对金额。');
+  return result;
+}
+async function parseFinanceScreenshot(file: File, mode: ScreenshotImportMode): Promise<ScreenshotParseResult> {
+  const tesseract = await loadTesseract();
+  const { data } = await tesseract.recognize(file, 'chi_sim+eng');
+  return mode === 'accounts' ? parseAccountsOcr(data.text) : parseInvestmentsOcr(data.text);
 }
 const effectiveInvestTargets = (targets: InvestAllocTargets) =>
   INVEST_TARGET_KEYS.some((k) => (targets[k] ?? 0) > 0) ? targets : DEFAULT_CONFIG.investAllocTargets;
@@ -868,7 +1004,7 @@ export default function ReconcilePage() {
     const file = e.target.files?.[0];
     if (!file) return;
     setScreenshotImporting(true);
-    setScreenshotImportMsg('截图识别中');
+    setScreenshotImportMsg('本地OCR识别中');
     try {
       const draft = await parseFinanceScreenshot(file, screenshotModeRef.current);
       setScreenshotDraft(draft);

@@ -38,19 +38,7 @@ BILL_ATTACHMENT_PATTERN=^账单_\d{10}\.xlsx?$
 
 ## 截图识别导入
 
-对账页的账户余额和理财配置支持上传截图识别。识别通过服务端调用 OpenAI Vision，返回结构化草稿，确认后才写入账户或理财数据。
-
-部署环境需要配置：
-
-```bash
-OPENAI_API_KEY=你的 OpenAI API Key
-```
-
-可选配置：
-
-```bash
-OPENAI_VISION_MODEL=gpt-4.1-mini
-```
+对账页的账户余额和理财配置支持上传截图识别。识别在浏览器本地通过 Tesseract OCR 完成，再按固定分组关键词生成结构化草稿，确认后才写入账户或理财数据。首次使用会下载 OCR worker 与中文语言包，之后由浏览器缓存。
 
 ## Schwab 同步
 
