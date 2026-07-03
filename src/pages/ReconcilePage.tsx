@@ -120,6 +120,11 @@ declare global {
     };
   }
 }
+type OcrAmountToken = {
+  value: number;
+  currency: ScreenshotCurrency;
+  raw: string;
+};
 
 const parseAmountPart = (raw: string | undefined) => {
   const value = raw?.trim() ?? '';
@@ -255,15 +260,47 @@ function loadTesseract(): Promise<NonNullable<Window['Tesseract']>> {
     document.head.appendChild(script);
   });
 }
-function parseOcrAmount(raw: string): number | null {
-  const match = raw.match(/[-+]?\s*[¥$]?\s*\d[\d,.\s]*/);
-  if (!match) return null;
-  const n = Number(match[0].replace(/[¥$,\s]/g, ''));
-  return Number.isFinite(n) ? n : null;
+const OCR_AMOUNT_RE = /(?:^|[^\w])([+-]?\s*[¥$]?\s*\d[\d,]*(?:\.\d+)?|[¥$]\s*[+-]?\s*\d[\d,]*(?:\.\d+)?)/g;
+function parseOcrAmounts(raw: string): OcrAmountToken[] {
+  const tokens: OcrAmountToken[] = [];
+  for (const match of raw.matchAll(OCR_AMOUNT_RE)) {
+    const token = (match[1] ?? '').trim();
+    const normalized = token.replace(/[¥$,\s]/g, '');
+    const value = Number(normalized);
+    if (!Number.isFinite(value)) continue;
+    tokens.push({
+      value,
+      currency: token.includes('$') ? 'USD' : token.includes('¥') ? 'CNY' : 'UNKNOWN',
+      raw: token,
+    });
+  }
+  return tokens;
 }
-function findLineAmount(lines: string[], pattern: RegExp): number | null {
-  const line = lines.find((row) => pattern.test(row));
-  return line ? parseOcrAmount(line) : null;
+function pickOcrAmount(raw: string, options?: { currency?: ScreenshotCurrency; pick?: 'first' | 'last' }): OcrAmountToken | null {
+  const amounts = parseOcrAmounts(raw);
+  if (amounts.length === 0) return null;
+  const preferred = options?.currency ? amounts.filter((item) => item.currency === options.currency) : [];
+  const pool = preferred.length > 0 ? preferred : amounts;
+  return options?.pick === 'first' ? pool[0] : pool[pool.length - 1];
+}
+function findLabeledAmount(
+  lines: string[],
+  pattern: RegExp,
+  options?: { currency?: ScreenshotCurrency; pick?: 'first' | 'last'; lookahead?: number },
+): OcrAmountToken | null {
+  for (let i = 0; i < lines.length; i += 1) {
+    const match = lines[i].match(pattern);
+    if (!match) continue;
+    const tail = typeof match.index === 'number' ? lines[i].slice(match.index + match[0].length) : lines[i];
+    const sameLine = pickOcrAmount(tail, options);
+    if (sameLine) return sameLine;
+    const lookahead = options?.lookahead ?? 1;
+    for (let offset = 1; offset <= lookahead && i + offset < lines.length; offset += 1) {
+      const nextLine = pickOcrAmount(lines[i + offset], options);
+      if (nextLine) return nextLine;
+    }
+  }
+  return null;
 }
 function pushOcrRow(result: ScreenshotParseResult, section: string, name: string, amount: number | null, currency: ScreenshotCurrency, mappedTo: string | null) {
   if (amount === null) return;
@@ -272,30 +309,45 @@ function pushOcrRow(result: ScreenshotParseResult, section: string, name: string
 function parseAccountsOcr(text: string): ScreenshotParseResult {
   const result = emptyScreenshotParseResult('accounts');
   const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
-  const living = findLineAmount(lines, /^生活\b|^生活\s/);
-  const consumption = findLineAmount(lines, /^消费\b|^消费\s/);
-  const income = findLineAmount(lines, /^收入\b|^收入\s/);
-  const campus = findLineAmount(lines, /校园卡/);
-  const credit = findLineAmount(lines, /应付|待还|债务/);
-  const creditMonthly = findLineAmount(lines, /本期.*还|待还/);
+  const livingParts = [
+    ['建设银行', findLabeledAmount(lines, /建设银行|建行/, { currency: 'CNY', pick: 'last', lookahead: 2 })],
+    ['微信钱包', findLabeledAmount(lines, /微信钱包|微信/, { currency: 'CNY', pick: 'last', lookahead: 2 })],
+  ] as const;
+  const living = livingParts.some(([, amount]) => amount !== null)
+    ? roundMoney(livingParts.reduce((sum, [, amount]) => sum + (amount?.value ?? 0), 0))
+    : null;
+  const consumption = findLabeledAmount(lines, /^消费/, { pick: 'last', lookahead: 1 })?.value ?? null;
+  const income = findLabeledAmount(lines, /^收入/, { pick: 'last', lookahead: 1 })?.value ?? null;
+  const campus = findLabeledAmount(lines, /校园卡/, { currency: 'CNY', pick: 'last', lookahead: 1 })?.value ?? null;
+  const credit = findLabeledAmount(lines, /应付|债务/, { currency: 'CNY', pick: 'first', lookahead: 1 })?.value ?? null;
+  const creditMonthly = findLabeledAmount(lines, /本期.*还|待还/, { currency: 'CNY', pick: 'first', lookahead: 1 })?.value ?? null;
+  const investCny = findLabeledAmount(lines, /中国银行|中行/, { currency: 'CNY', pick: 'last', lookahead: 2 })?.value ?? null;
+  const investUsd = findLabeledAmount(lines, /嘉信|Schwab|Charles/i, { currency: 'USD', pick: 'last', lookahead: 2 })?.value ?? null;
   result.accounts.livingBank = living;
   result.accounts.consumptionBank = consumption;
   result.accounts.incomeBank = income;
   result.accounts.campusCard = campus;
   result.accounts.credit = credit !== null ? Math.abs(credit) : null;
   result.accounts.creditMonthly = creditMonthly !== null ? Math.abs(creditMonthly) : null;
-  pushOcrRow(result, '账户', '生活', living, 'CNY', 'livingBank');
+  result.accounts.investCnyBank = investCny;
+  result.accounts.investUsdBank = investUsd;
+  pushOcrRow(result, '账户', '生活=建行+微信', living, 'CNY', 'livingBank');
+  for (const [label, amount] of livingParts) {
+    pushOcrRow(result, '账户明细', label, amount?.value ?? null, amount?.currency ?? 'CNY', 'livingBank');
+  }
   pushOcrRow(result, '账户', '消费', consumption, 'CNY', 'consumptionBank');
   pushOcrRow(result, '账户', '收入', income, 'CNY', 'incomeBank');
   pushOcrRow(result, '账户', '校园卡', campus, 'CNY', 'campusCard');
   pushOcrRow(result, '账户', '待还/债务', credit, 'CNY', 'credit');
+  pushOcrRow(result, '理财现金', '中国银行=境内', investCny, 'CNY', 'investCnyBank');
+  pushOcrRow(result, '理财现金', '嘉信=境外', investUsd, 'USD', 'investUsdBank');
   if (result.recognizedRows.length === 0) result.notes.push('没有识别到可映射的账户金额，可以换一张更清晰或完整的截图。');
-  result.notes.push('本地 OCR 只按固定字段关键词映射，应用前请核对金额。');
+  result.notes.push('账户规则：生活=建设银行+微信，收入取收入栏，理财现金中国银行=境内、嘉信=境外。');
   return result;
 }
 function firstHeaderAmount(lines: string[], pattern: RegExp): number | null {
   const line = lines.find((row) => pattern.test(row) && /\d/.test(row));
-  return line ? parseOcrAmount(line) : null;
+  return line ? pickOcrAmount(line, { pick: 'last' })?.value ?? null : null;
 }
 function sectionLines(lines: string[], start: RegExp, stop: RegExp): string[] {
   const startIndex = lines.findIndex((line) => start.test(line));
@@ -328,7 +380,8 @@ function parseInvestmentsOcr(text: string): ScreenshotParseResult {
     const amountMatches = line.match(/([$¥]?)\s*[-+]?\d[\d,.]*/g);
     const amountMatch = amountMatches ? amountMatches[amountMatches.length - 1] : undefined;
     if (!amountMatch) continue;
-    const amount = parseOcrAmount(amountMatch);
+    const amountToken = pickOcrAmount(amountMatch, { pick: 'last' });
+    const amount = amountToken?.value ?? null;
     if (amount === null) continue;
     const currency: ScreenshotCurrency = amountMatch.includes('$') ? 'USD' : 'CNY';
     const name = line.slice(0, Math.max(line.lastIndexOf(amountMatch), 0)).trim() || '美股项目';
@@ -338,7 +391,7 @@ function parseInvestmentsOcr(text: string): ScreenshotParseResult {
   if (result.recognizedRows.length === 0 && result.usStockHoldings.length === 0) {
     result.notes.push('没有识别到可映射的理财金额，可以换一张更清晰或完整的截图。');
   }
-  result.notes.push('本地 OCR 只按固定分组关键词映射，应用前请核对金额。');
+  result.notes.push('理财截图金额按 now/当前市值写入，应用前请核对金额。');
   return result;
 }
 async function parseFinanceScreenshot(file: File, mode: ScreenshotImportMode): Promise<ScreenshotParseResult> {
@@ -3104,7 +3157,7 @@ export default function ReconcilePage() {
 
             {screenshotDraft.usStockHoldings.length > 0 && (
               <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 800, color: C.green, marginBottom: 6 }}>美股明细</div>
+                <div style={{ fontSize: 12, fontWeight: 800, color: C.green, marginBottom: 6 }}>美股明细（now）</div>
                 <div style={{ border: '1px solid #e8eaed', borderRadius: 10, overflow: 'hidden' }}>
                   {screenshotDraft.usStockHoldings.map((item, index) => (
                     <div key={`${item.name}-${index}`} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, padding: '7px 9px', borderBottom: '1px solid #f1f3f4', fontSize: 12 }}>
