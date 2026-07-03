@@ -182,22 +182,48 @@ function pushOcrRow(result: ScreenshotParseResult, section: string, name: string
   result.recognizedRows.push({ section, name, amount, currency, mappedTo, confidence: 0.7 });
 }
 
-function livingSectionNegativeCredit(lines: string[]) {
+function livingHeaderAmount(lines: string[]) {
+  const line = lines.find((row) => /^生活/.test(row));
+  return line ? pickOcrAmount(line, { pick: 'last' }) : null;
+}
+
+function isLivingDetailNoise(line: string) {
+  return /可用|本期|天后|已还|已清|可报|已报|已收|应收/.test(line);
+}
+
+function livingSectionCredit(lines: string[]) {
   const livingLines = sectionLines(lines, /^生活/, /^(消费|收入|理财)/);
-  let skippedUsd = false;
-  const total = livingLines.reduce((sum, line) => {
-    if (/可用|本期|天后|已还|已清|可报|已报|已收|应收/.test(line)) return sum;
+  const headerAmount = livingHeaderAmount(lines);
+  let positiveTotal = 0;
+  let negativeTotal = 0;
+  let skippedPositiveUsd = false;
+  let skippedNegativeUsd = false;
+  for (const line of livingLines) {
+    if (isLivingDetailNoise(line)) continue;
     const amount = pickOcrAmount(line, { pick: 'last' });
-    if (!amount || amount.value >= 0) return sum;
+    if (!amount || amount.value === 0) continue;
     if (amount.currency === 'USD') {
-      skippedUsd = true;
-      return sum;
+      if (amount.value > 0) skippedPositiveUsd = true;
+      if (amount.value < 0) skippedNegativeUsd = true;
+      continue;
     }
-    return sum + amount.value;
-  }, 0);
+    if (amount.value > 0) positiveTotal += amount.value;
+    if (amount.value < 0) negativeTotal += amount.value;
+  }
+  const derived = headerAmount !== null && positiveTotal > 0 ? roundMoney(positiveTotal - headerAmount.value) : null;
+  if (derived !== null && derived > 0) {
+    return {
+      amount: derived,
+      source: 'living-net' as const,
+      skippedPositiveUsd,
+      skippedNegativeUsd,
+    };
+  }
   return {
-    amount: total < 0 ? roundMoney(Math.abs(total)) : null,
-    skippedUsd,
+    amount: negativeTotal < 0 ? roundMoney(Math.abs(negativeTotal)) : null,
+    source: negativeTotal < 0 ? 'negative-sum' as const : null,
+    skippedPositiveUsd,
+    skippedNegativeUsd,
   };
 }
 
@@ -214,7 +240,7 @@ function parseAccountsOcr(text: string): ScreenshotParseResult {
   const consumption = findLabeledAmount(lines, /^消费/, { pick: 'last', lookahead: 1 })?.value ?? null;
   const income = findLabeledAmount(lines, /^收入/, { pick: 'last', lookahead: 1 })?.value ?? null;
   const campus = findLabeledAmount(lines, /校园卡/, { currency: 'CNY', pick: 'last', lookahead: 1 })?.value ?? null;
-  const livingCredit = livingSectionNegativeCredit(lines);
+  const livingCredit = livingSectionCredit(lines);
   const fallbackCredit = findLabeledAmount(lines, /应付|债务/, { currency: 'CNY', pick: 'first', lookahead: 1 })?.value ?? null;
   const credit = livingCredit.amount ?? fallbackCredit;
   const creditMonthly = findLabeledAmount(lines, /本期.*还|待还/, { currency: 'CNY', pick: 'first', lookahead: 1 })?.value ?? null;
@@ -235,12 +261,13 @@ function parseAccountsOcr(text: string): ScreenshotParseResult {
   pushOcrRow(result, '账户', '消费', consumption, 'CNY', 'consumptionBank');
   pushOcrRow(result, '账户', '收入', income, 'CNY', 'incomeBank');
   pushOcrRow(result, '账户', '校园卡', campus, 'CNY', 'campusCard');
-  pushOcrRow(result, '账户', livingCredit.amount !== null ? '生活负数合计' : '待还/债务', credit, 'CNY', 'credit');
+  pushOcrRow(result, '账户', livingCredit.source === 'living-net' ? '生活净额反推' : livingCredit.source === 'negative-sum' ? '生活负数合计' : '待还/债务', credit, 'CNY', 'credit');
   pushOcrRow(result, '理财现金', '中国银行=境内', investCny, 'CNY', 'investCnyBank');
   pushOcrRow(result, '理财现金', '嘉信=境外', investUsd, 'USD', 'investUsdBank');
   if (result.recognizedRows.length === 0) result.notes.push('没有识别到可映射的账户金额，可以换一张更清晰或完整的截图。');
-  result.notes.push('账户规则：生活=建设银行+微信，信用卡应还=生活分组下人民币负数合计，收入取收入栏，理财现金中国银行=境内、嘉信=境外。');
-  if (livingCredit.skippedUsd) result.notes.push('生活分组下的美元负数未折算进人民币信用卡应还。');
+  result.notes.push('账户规则：生活=建设银行+微信，信用卡应还优先用生活正数合计减生活净额，收入取收入栏，理财现金中国银行=境内、嘉信=境外。');
+  if (livingCredit.source === 'negative-sum' && livingCredit.skippedNegativeUsd) result.notes.push('未识别到生活净额时，美元负数不会直接折算进人民币信用卡应还。');
+  if (livingCredit.skippedPositiveUsd) result.notes.push('生活分组下的美元正数未参与信用卡应还反推。');
   return result;
 }
 
