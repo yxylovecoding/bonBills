@@ -28,6 +28,11 @@ import { sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { getPayrollScheduleForMonth } from '../utils/payroll';
 import { getCategoryProfit, getInvestTotalForRate } from '../utils/investRecords';
 import { getActiveSyncSecret } from '../utils/syncEngine';
+import {
+  financeScreenshotImportMessage,
+  importFinanceScreenshotFileIntoSnapshot,
+  isFinanceScreenshotFile,
+} from '../utils/financeScreenshotOcr';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', border: '#e0e0e0', weekend: '#ea4335', orange: '#e8710a' };
 const CN_MONTH = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
@@ -2286,6 +2291,12 @@ export default function CalendarPage() {
   const importBillFromFile = async (file: File) => {
     setBillImporting(true);
     try {
+      if (isFinanceScreenshotFile(file)) {
+        setBillImportMsg('图片OCR中');
+        const { result } = await importFinanceScreenshotFileIntoSnapshot(file);
+        setBillImportMsg(financeScreenshotImportMessage(result, file.name));
+        return;
+      }
       const result = await importBillFileIntoStores(file);
       setBillImportMsg(`已导入 ${result.updatedMonths} 个月记录${result.importedPossessions > 0 ? ` · ${result.importedPossessions} 个物品动作` : ''} · ${result.fileName}`);
     } catch (err) {
@@ -2299,6 +2310,12 @@ export default function CalendarPage() {
     setBillImportMsg('邮箱查找中');
     try {
       const file = await fetchLatestBillAttachment();
+      if (isFinanceScreenshotFile(file)) {
+        setBillImportMsg('邮箱图片OCR中');
+        const { result } = await importFinanceScreenshotFileIntoSnapshot(file);
+        setBillImportMsg(`邮箱${financeScreenshotImportMessage(result, file.name)}`);
+        return;
+      }
       const result = await importBillFileIntoStores(file);
       setBillImportMsg(`邮箱已导入 ${result.updatedMonths} 个月记录${result.importedPossessions > 0 ? ` · ${result.importedPossessions} 个物品动作` : ''} · ${result.fileName}`);
     } catch (err) {
@@ -2384,7 +2401,7 @@ export default function CalendarPage() {
   // ── Render ────────────────────────────────────────────────────────
   return (
     <div>
-      <input ref={billFileRef} type="file" accept=".xls,.xlsx,.csv" style={{ display: 'none' }} onChange={handleBillFile} />
+      <input ref={billFileRef} type="file" accept=".xls,.xlsx,.csv,image/*" style={{ display: 'none' }} onChange={handleBillFile} />
       {/* 页头 + 胶囊切换 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '0 0 16px' }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>
@@ -2395,7 +2412,7 @@ export default function CalendarPage() {
           <button
             onClick={importLatestBillFromMail}
             disabled={billImporting}
-            title="从 163 邮箱导入最新账单附件"
+            title="从 163 邮箱导入最新账单或图片附件"
             style={{ fontSize: 11, lineHeight: 1, padding: '4px 7px', borderRadius: 7, border: `1px solid ${C.border}`, backgroundColor: billImporting ? '#f1f3f4' : '#fff', color: billImporting ? '#9aa0a6' : C.sub, cursor: billImporting ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
           >
             {billImporting ? '导入中' : '邮箱'}
@@ -2403,7 +2420,7 @@ export default function CalendarPage() {
           <button
             onClick={() => billFileRef.current?.click()}
             disabled={billImporting}
-            title="手动选择账单文件"
+            title="手动选择账单或图片文件"
             style={{ fontSize: 11, lineHeight: 1, padding: '4px 7px', borderRadius: 7, border: `1px solid ${C.border}`, backgroundColor: '#fff', color: billImporting ? '#9aa0a6' : C.sub, cursor: billImporting ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
           >
             本地

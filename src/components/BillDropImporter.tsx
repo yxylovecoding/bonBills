@@ -1,10 +1,36 @@
 import { useEffect, useRef, useState } from 'react';
 import { importBillFileIntoStores } from '../utils/billImportActions';
+import {
+  FINANCE_SCREENSHOT_DRAFT_EVENT,
+  applyFinanceScreenshotDraftToSnapshot,
+  fetchFinanceScreenshotUsdRate,
+  financeScreenshotImportMessage,
+  financeScreenshotNeedsUsdRate,
+  isFinanceScreenshotFile,
+  parseFinanceScreenshot,
+  screenshotDraftItemCount,
+  type FinanceScreenshotDraftEventDetail,
+  type ScreenshotParseResult,
+} from '../utils/financeScreenshotOcr';
 
 const C = { blue: '#1a73e8', red: '#ea4335', sub: '#5f6368' };
 
 function isFileDrag(e: DragEvent) {
   return !!e.dataTransfer?.types.includes('Files');
+}
+
+function dispatchFinanceScreenshotDraft(draft: ScreenshotParseResult, fileName: string) {
+  let handled = false;
+  window.dispatchEvent(new CustomEvent<FinanceScreenshotDraftEventDetail>(FINANCE_SCREENSHOT_DRAFT_EVENT, {
+    detail: {
+      draft,
+      fileName,
+      handled: () => {
+        handled = true;
+      },
+    },
+  }));
+  return handled;
 }
 
 export default function BillDropImporter() {
@@ -44,6 +70,19 @@ export default function BillDropImporter() {
       const file = e.dataTransfer?.files?.[0];
       if (!file) return;
       try {
+        if (isFinanceScreenshotFile(file)) {
+          showMessage('图片OCR中');
+          const draft = await parseFinanceScreenshot(file);
+          const handled = dispatchFinanceScreenshotDraft(draft, file.name);
+          if (handled) {
+            showMessage(`已识别 ${screenshotDraftItemCount(draft)} 项 · 请确认草稿`);
+            return;
+          }
+          const usdRate = financeScreenshotNeedsUsdRate(draft) ? await fetchFinanceScreenshotUsdRate() : null;
+          const result = applyFinanceScreenshotDraftToSnapshot(draft, { usdRate });
+          showMessage(financeScreenshotImportMessage(result, file.name));
+          return;
+        }
         const result = await importBillFileIntoStores(file);
         showMessage(`已导入 ${result.updatedMonths} 个月记录${result.importedPossessions > 0 ? ` · ${result.importedPossessions} 个物品动作` : ''} · ${result.fileName}`);
       } catch (err) {
@@ -69,7 +108,7 @@ export default function BillDropImporter() {
       {dragOver && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 999, backgroundColor: 'rgba(26,115,232,0.12)', border: '3px dashed #1a73e8', borderRadius: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
           <div style={{ backgroundColor: '#fff', borderRadius: 12, padding: '20px 32px', fontSize: 16, fontWeight: 600, color: C.blue, boxShadow: '0 4px 20px rgba(0,0,0,0.12)' }}>
-            松手导入账单
+            松手导入文件
           </div>
         </div>
       )}

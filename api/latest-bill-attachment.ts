@@ -18,6 +18,7 @@ type ImapStatus = {
 };
 
 const DEFAULT_ATTACHMENT_PATTERN = '^账单_\\d{10}\\.xlsx?$';
+const DEFAULT_IMAGE_ATTACHMENT_PATTERN = '\\.(png|jpe?g|webp|gif|bmp|tiff?)$';
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function authOk(req: VercelRequest): boolean {
@@ -344,6 +345,10 @@ function collectAttachments(raw: string): Attachment[] {
   }];
 }
 
+function isImageAttachment(attachment: Attachment, imagePattern: RegExp) {
+  return attachment.contentType.toLowerCase().startsWith('image/') || imagePattern.test(attachment.fileName);
+}
+
 function messageMeta(raw: Buffer): { subject: string; date: string } {
   const { headers } = splitHeaderBody(raw.toString('latin1'));
   return {
@@ -369,6 +374,7 @@ async function findLatestBillAttachment(): Promise<{
   const scanLimit = Number(envValue('BILL_MAIL_SCAN_LIMIT') || 80);
   const timeoutMs = Number(envValue('BILL_MAIL_TIMEOUT_MS') || 20000);
   const filePattern = new RegExp(envValue('BILL_ATTACHMENT_PATTERN') || DEFAULT_ATTACHMENT_PATTERN, 'i');
+  const imagePattern = new RegExp(envValue('BILL_IMAGE_ATTACHMENT_PATTERN') || DEFAULT_IMAGE_ATTACHMENT_PATTERN, 'i');
 
   const client = await ImapClient.connect(host, port, timeoutMs);
   try {
@@ -381,7 +387,9 @@ async function findLatestBillAttachment(): Promise<{
       const fetched = await client.command(`UID FETCH ${uid} (BODY.PEEK[])`, '读取邮件');
       const raw = extractFetchLiteral(fetched);
       if (!raw) continue;
-      const attachment = collectAttachments(raw.toString('latin1')).find((item) => filePattern.test(item.fileName));
+      const attachments = collectAttachments(raw.toString('latin1'));
+      const attachment = attachments.find((item) => filePattern.test(item.fileName))
+        ?? attachments.find((item) => isImageAttachment(item, imagePattern));
       if (attachment) {
         const meta = messageMeta(raw);
         return { attachment, uid, ...meta };
@@ -396,7 +404,7 @@ async function findLatestBillAttachment(): Promise<{
     client.close();
   }
 
-  throw new Error('没有找到匹配的账单附件');
+  throw new Error('没有找到匹配的账单或图片附件');
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

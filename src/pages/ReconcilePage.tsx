@@ -24,6 +24,12 @@ import { tryEvalFormula } from '../utils/formula';
 import { dateLabel, resolveIncomeForMonth, type ResolvedIncomeItem } from '../utils/payroll';
 import { getCategoryProfit } from '../utils/investRecords';
 import {
+  FINANCE_SCREENSHOT_DRAFT_EVENT,
+  screenshotDraftItemCount,
+  type FinanceScreenshotDraftEventDetail,
+  type ScreenshotParseResult,
+} from '../utils/financeScreenshotOcr';
+import {
   buildDramDecision,
   normalizeDramDecisionConfig,
   type DramDecisionKind,
@@ -75,55 +81,6 @@ type UsdRateResponse = {
   rate: number;
   date: string;
   source: string;
-};
-type ScreenshotImportMode = 'accounts' | 'investments';
-type ScreenshotCurrency = 'CNY' | 'USD' | 'UNKNOWN';
-type ScreenshotRow = {
-  section: string;
-  name: string;
-  amount: number;
-  currency: ScreenshotCurrency;
-  mappedTo: string | null;
-  confidence: number;
-};
-type ScreenshotUsStockHolding = {
-  name: string;
-  symbol: string | null;
-  amount: number;
-  currency: ScreenshotCurrency;
-  confidence: number;
-};
-type ScreenshotParseResult = {
-  mode: 'accounts' | 'investments' | 'mixed' | 'unknown';
-  totals: {
-    netAssetsCny: number | null;
-    totalAssetsCny: number | null;
-    liabilitiesCny: number | null;
-    investTotalCny: number | null;
-    investProfitCny: number | null;
-  };
-  accounts: Record<keyof AccountSnapshot['accounts'], number | null>;
-  investHoldings: Record<InvestKey, number | null>;
-  usStockHoldings: ScreenshotUsStockHolding[];
-  recognizedRows: ScreenshotRow[];
-  notes: string[];
-};
-type TesseractRecognizeResult = { data: { text: string } };
-declare global {
-  interface Window {
-    Tesseract?: {
-      recognize: (
-        image: File,
-        langs: string,
-        options?: Record<string, unknown>,
-      ) => Promise<TesseractRecognizeResult>;
-    };
-  }
-}
-type OcrAmountToken = {
-  value: number;
-  currency: ScreenshotCurrency;
-  raw: string;
 };
 
 const parseAmountPart = (raw: string | undefined) => {
@@ -203,202 +160,6 @@ const INVEST_FIELD_LABELS: Record<InvestKey, string> = {
   usBond: '美债',
   gold: '黄金',
 };
-function emptyScreenshotParseResult(mode: ScreenshotImportMode): ScreenshotParseResult {
-  return {
-    mode,
-    totals: {
-      netAssetsCny: null,
-      totalAssetsCny: null,
-      liabilitiesCny: null,
-      investTotalCny: null,
-      investProfitCny: null,
-    },
-    accounts: {
-      credit: null,
-      creditMonthly: null,
-      savingsCard: null,
-      incomeBank: null,
-      livingBank: null,
-      campusCard: null,
-      consumptionBank: null,
-      wishJar: null,
-      investCnyBank: null,
-      usdLivingBank: null,
-      usdConsumptionBank: null,
-      usdWishJar: null,
-      investUsdBank: null,
-    },
-    investHoldings: {
-      us: null,
-      eu: null,
-      asia: null,
-      a: null,
-      longBond: null,
-      usBond: null,
-      gold: null,
-    },
-    usStockHoldings: [],
-    recognizedRows: [],
-    notes: [],
-  };
-}
-function loadTesseract(): Promise<NonNullable<Window['Tesseract']>> {
-  if (window.Tesseract) return Promise.resolve(window.Tesseract);
-  return new Promise((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>('script[data-ocr="tesseract"]');
-    if (existing) {
-      existing.addEventListener('load', () => window.Tesseract ? resolve(window.Tesseract) : reject(new Error('OCR 加载失败')));
-      existing.addEventListener('error', () => reject(new Error('OCR 加载失败')));
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-    script.async = true;
-    script.dataset.ocr = 'tesseract';
-    script.onload = () => window.Tesseract ? resolve(window.Tesseract) : reject(new Error('OCR 加载失败'));
-    script.onerror = () => reject(new Error('OCR 加载失败'));
-    document.head.appendChild(script);
-  });
-}
-const OCR_AMOUNT_RE = /(?:^|[^\w])([+-]?\s*[¥$]?\s*\d[\d,]*(?:\.\d+)?|[¥$]\s*[+-]?\s*\d[\d,]*(?:\.\d+)?)/g;
-function parseOcrAmounts(raw: string): OcrAmountToken[] {
-  const tokens: OcrAmountToken[] = [];
-  for (const match of raw.matchAll(OCR_AMOUNT_RE)) {
-    const token = (match[1] ?? '').trim();
-    const normalized = token.replace(/[¥$,\s]/g, '');
-    const value = Number(normalized);
-    if (!Number.isFinite(value)) continue;
-    tokens.push({
-      value,
-      currency: token.includes('$') ? 'USD' : token.includes('¥') ? 'CNY' : 'UNKNOWN',
-      raw: token,
-    });
-  }
-  return tokens;
-}
-function pickOcrAmount(raw: string, options?: { currency?: ScreenshotCurrency; pick?: 'first' | 'last' }): OcrAmountToken | null {
-  const amounts = parseOcrAmounts(raw);
-  if (amounts.length === 0) return null;
-  const preferred = options?.currency ? amounts.filter((item) => item.currency === options.currency) : [];
-  const pool = preferred.length > 0 ? preferred : amounts;
-  return options?.pick === 'first' ? pool[0] : pool[pool.length - 1];
-}
-function findLabeledAmount(
-  lines: string[],
-  pattern: RegExp,
-  options?: { currency?: ScreenshotCurrency; pick?: 'first' | 'last'; lookahead?: number },
-): OcrAmountToken | null {
-  for (let i = 0; i < lines.length; i += 1) {
-    const match = lines[i].match(pattern);
-    if (!match) continue;
-    const tail = typeof match.index === 'number' ? lines[i].slice(match.index + match[0].length) : lines[i];
-    const sameLine = pickOcrAmount(tail, options);
-    if (sameLine) return sameLine;
-    const lookahead = options?.lookahead ?? 1;
-    for (let offset = 1; offset <= lookahead && i + offset < lines.length; offset += 1) {
-      const nextLine = pickOcrAmount(lines[i + offset], options);
-      if (nextLine) return nextLine;
-    }
-  }
-  return null;
-}
-function pushOcrRow(result: ScreenshotParseResult, section: string, name: string, amount: number | null, currency: ScreenshotCurrency, mappedTo: string | null) {
-  if (amount === null) return;
-  result.recognizedRows.push({ section, name, amount, currency, mappedTo, confidence: 0.7 });
-}
-function parseAccountsOcr(text: string): ScreenshotParseResult {
-  const result = emptyScreenshotParseResult('accounts');
-  const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
-  const livingParts = [
-    ['建设银行', findLabeledAmount(lines, /建设银行|建行/, { currency: 'CNY', pick: 'last', lookahead: 2 })],
-    ['微信钱包', findLabeledAmount(lines, /微信钱包|微信/, { currency: 'CNY', pick: 'last', lookahead: 2 })],
-  ] as const;
-  const living = livingParts.some(([, amount]) => amount !== null)
-    ? roundMoney(livingParts.reduce((sum, [, amount]) => sum + (amount?.value ?? 0), 0))
-    : null;
-  const consumption = findLabeledAmount(lines, /^消费/, { pick: 'last', lookahead: 1 })?.value ?? null;
-  const income = findLabeledAmount(lines, /^收入/, { pick: 'last', lookahead: 1 })?.value ?? null;
-  const campus = findLabeledAmount(lines, /校园卡/, { currency: 'CNY', pick: 'last', lookahead: 1 })?.value ?? null;
-  const credit = findLabeledAmount(lines, /应付|债务/, { currency: 'CNY', pick: 'first', lookahead: 1 })?.value ?? null;
-  const creditMonthly = findLabeledAmount(lines, /本期.*还|待还/, { currency: 'CNY', pick: 'first', lookahead: 1 })?.value ?? null;
-  const investCny = findLabeledAmount(lines, /中国银行|中行/, { currency: 'CNY', pick: 'last', lookahead: 2 })?.value ?? null;
-  const investUsd = findLabeledAmount(lines, /嘉信|Schwab|Charles/i, { currency: 'USD', pick: 'last', lookahead: 2 })?.value ?? null;
-  result.accounts.livingBank = living;
-  result.accounts.consumptionBank = consumption;
-  result.accounts.incomeBank = income;
-  result.accounts.campusCard = campus;
-  result.accounts.credit = credit !== null ? Math.abs(credit) : null;
-  result.accounts.creditMonthly = creditMonthly !== null ? Math.abs(creditMonthly) : null;
-  result.accounts.investCnyBank = investCny;
-  result.accounts.investUsdBank = investUsd;
-  pushOcrRow(result, '账户', '生活=建行+微信', living, 'CNY', 'livingBank');
-  for (const [label, amount] of livingParts) {
-    pushOcrRow(result, '账户明细', label, amount?.value ?? null, amount?.currency ?? 'CNY', 'livingBank');
-  }
-  pushOcrRow(result, '账户', '消费', consumption, 'CNY', 'consumptionBank');
-  pushOcrRow(result, '账户', '收入', income, 'CNY', 'incomeBank');
-  pushOcrRow(result, '账户', '校园卡', campus, 'CNY', 'campusCard');
-  pushOcrRow(result, '账户', '待还/债务', credit, 'CNY', 'credit');
-  pushOcrRow(result, '理财现金', '中国银行=境内', investCny, 'CNY', 'investCnyBank');
-  pushOcrRow(result, '理财现金', '嘉信=境外', investUsd, 'USD', 'investUsdBank');
-  if (result.recognizedRows.length === 0) result.notes.push('没有识别到可映射的账户金额，可以换一张更清晰或完整的截图。');
-  result.notes.push('账户规则：生活=建设银行+微信，收入取收入栏，理财现金中国银行=境内、嘉信=境外。');
-  return result;
-}
-function firstHeaderAmount(lines: string[], pattern: RegExp): number | null {
-  const line = lines.find((row) => pattern.test(row) && /\d/.test(row));
-  return line ? pickOcrAmount(line, { pick: 'last' })?.value ?? null : null;
-}
-function sectionLines(lines: string[], start: RegExp, stop: RegExp): string[] {
-  const startIndex = lines.findIndex((line) => start.test(line));
-  if (startIndex < 0) return [];
-  const endOffset = lines.slice(startIndex + 1).findIndex((line) => stop.test(line));
-  const endIndex = endOffset < 0 ? lines.length : startIndex + 1 + endOffset;
-  return lines.slice(startIndex + 1, endIndex);
-}
-function parseInvestmentsOcr(text: string): ScreenshotParseResult {
-  const result = emptyScreenshotParseResult('investments');
-  const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
-  const headers: Array<[InvestKey, RegExp, string]> = [
-    ['usBond', /^美债/, '美债'],
-    ['us', /^美(?!债)|美国|美股/, '美股'],
-    ['eu', /^欧|欧洲/, '欧洲'],
-    ['asia', /^亚|亚洲/, '亚洲'],
-    ['a', /^A\b|^A股|^A\s/, 'A股'],
-    ['longBond', /^债(?!券20)|长债|国开债/, '长债'],
-    ['gold', /^黄金|黄金/, '黄金'],
-  ];
-  for (const [key, pattern, label] of headers) {
-    const amount = firstHeaderAmount(lines, pattern);
-    result.investHoldings[key] = amount;
-    pushOcrRow(result, '理财', label, amount, 'CNY', key);
-  }
-
-  const usLines = sectionLines(lines, /^美(?!债)|美国|美股/, /^(欧|欧洲|亚|亚洲|A\b|A股|债|美债|黄金)/);
-  for (const line of usLines) {
-    if (/最新价|今日收益|昨日收益|累计|盈亏/.test(line)) continue;
-    const amountMatches = line.match(/([$¥]?)\s*[-+]?\d[\d,.]*/g);
-    const amountMatch = amountMatches ? amountMatches[amountMatches.length - 1] : undefined;
-    if (!amountMatch) continue;
-    const amountToken = pickOcrAmount(amountMatch, { pick: 'last' });
-    const amount = amountToken?.value ?? null;
-    if (amount === null) continue;
-    const currency: ScreenshotCurrency = amountMatch.includes('$') ? 'USD' : 'CNY';
-    const name = line.slice(0, Math.max(line.lastIndexOf(amountMatch), 0)).trim() || '美股项目';
-    const symbol = line.match(/\b([a-z]{2,8}|of\d{6}|sh\d{6}|sz\d{6})\b/i)?.[1]?.toUpperCase() ?? null;
-    result.usStockHoldings.push({ name, symbol, amount, currency, confidence: 0.65 });
-  }
-  if (result.recognizedRows.length === 0 && result.usStockHoldings.length === 0) {
-    result.notes.push('没有识别到可映射的理财金额，可以换一张更清晰或完整的截图。');
-  }
-  result.notes.push('理财截图金额按 now/当前市值写入，应用前请核对金额。');
-  return result;
-}
-async function parseFinanceScreenshot(file: File, mode: ScreenshotImportMode): Promise<ScreenshotParseResult> {
-  const tesseract = await loadTesseract();
-  const { data } = await tesseract.recognize(file, 'chi_sim+eng');
-  return mode === 'accounts' ? parseAccountsOcr(data.text) : parseInvestmentsOcr(data.text);
-}
 const effectiveInvestTargets = (targets: InvestAllocTargets) =>
   INVEST_TARGET_KEYS.some((k) => (targets[k] ?? 0) > 0) ? targets : DEFAULT_CONFIG.investAllocTargets;
 const fmtPctInput = (value: number) => String(Math.round(value * 100) / 100);
@@ -721,13 +482,23 @@ export default function ReconcilePage() {
   const [usdRateError, setUsdRateError] = useState(false);
   const [usdRebalanceCells, setUsdRebalanceCells] = useState<Set<InvestKey>>(() => new Set());
   const [saved, setSaved] = useState(false);
-  const screenshotInputRef = useRef<HTMLInputElement | null>(null);
-  const screenshotModeRef = useRef<ScreenshotImportMode>('accounts');
-  const [screenshotImporting, setScreenshotImporting] = useState(false);
   const [screenshotImportMsg, setScreenshotImportMsg] = useState('');
   const [screenshotDraft, setScreenshotDraft] = useState<ScreenshotParseResult | null>(null);
   const [reconcileMode, setReconcileMode] = useState<ReconcileMode>(() => defaultReconcileMode(new Date()));
   const isMonthStartMode = reconcileMode === 'monthStart';
+
+  useEffect(() => {
+    const onFinanceScreenshotDraft = (event: Event) => {
+      const detail = (event as CustomEvent<FinanceScreenshotDraftEventDetail>).detail;
+      if (!detail?.draft) return;
+      detail.handled?.();
+      setScreenshotDraft(detail.draft);
+      const kind = detail.draft.mode === 'investments' ? '理财' : detail.draft.mode === 'accounts' ? '资产' : '图片';
+      setScreenshotImportMsg(`已识别${kind} ${screenshotDraftItemCount(detail.draft)} 项 · ${detail.fileName}`);
+    };
+    window.addEventListener(FINANCE_SCREENSHOT_DRAFT_EVENT, onFinanceScreenshotDraft);
+    return () => window.removeEventListener(FINANCE_SCREENSHOT_DRAFT_EVENT, onFinanceScreenshotDraft);
+  }, []);
 
   const [allowRebalanceSell, setAllowRebalanceSell] = useState(false);
 
@@ -1047,29 +818,6 @@ export default function ReconcilePage() {
           costPrice: nextDram.costPrice ?? dramConfig.costPrice,
         },
       });
-    }
-  };
-  const openScreenshotPicker = (mode: ScreenshotImportMode) => {
-    screenshotModeRef.current = mode;
-    screenshotInputRef.current?.click();
-  };
-  const handleScreenshotFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setScreenshotImporting(true);
-    setScreenshotImportMsg('本地OCR识别中');
-    try {
-      const draft = await parseFinanceScreenshot(file, screenshotModeRef.current);
-      setScreenshotDraft(draft);
-      const count = Object.values(draft.accounts).filter((v) => v !== null).length
-        + Object.values(draft.investHoldings).filter((v) => v !== null).length
-        + draft.usStockHoldings.length;
-      setScreenshotImportMsg(`已识别 ${count} 项`);
-    } catch (err) {
-      setScreenshotImportMsg(`截图识别失败：${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setScreenshotImporting(false);
-      if (screenshotInputRef.current) screenshotInputRef.current.value = '';
     }
   };
   const applyScreenshotDraft = () => {
@@ -2087,9 +1835,11 @@ export default function ReconcilePage() {
 
   return (
     <div>
-      <input ref={screenshotInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleScreenshotFile} />
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, margin: '0 0 4px' }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>对账 / 转账</h1>
+        <div style={{ minWidth: 0 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>对账 / 转账</h1>
+          {screenshotImportMsg && <div style={{ marginTop: 4, fontSize: 11, lineHeight: 1.35, color: C.sub, overflowWrap: 'anywhere' }}>{screenshotImportMsg}</div>}
+        </div>
         <button
           onClick={() => {
             setGroupedTargetInputs(groupedTargetInputFromConfig(effectiveInvestTargets(config.investAllocTargets)));
@@ -2199,17 +1949,6 @@ export default function ReconcilePage() {
       <div id="sec-accounts">
       <Card title="账户余额" subtitle="填写各账户当前实际余额，回车跳下一项">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              onClick={() => openScreenshotPicker('accounts')}
-              disabled={screenshotImporting}
-              style={{ border: `1px solid ${C.blue}`, backgroundColor: '#fff', color: screenshotImporting ? C.sub : C.blue, borderRadius: 8, padding: '5px 9px', fontSize: 12, fontWeight: 800, cursor: screenshotImporting ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
-            >
-              {screenshotImporting ? '识别中' : '截图识别'}
-            </button>
-            {screenshotImportMsg && <span style={{ flex: '1 1 160px', minWidth: 0, textAlign: 'right', fontSize: 11, lineHeight: 1.35, color: C.sub, overflowWrap: 'anywhere' }}>{screenshotImportMsg}</span>}
-          </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: C.sub, backgroundColor: '#f8f9fa', borderRadius: 8, padding: '6px 10px' }}>
             <span>美元汇率</span>
             <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
@@ -2600,17 +2339,6 @@ export default function ReconcilePage() {
       {/* Step 3: 理财配置 & 再平衡 */}
       <div id="sec-invest">
       <Card title="③ 理财配置 & 再平衡" subtitle="编辑持仓金额，可选择仅加仓或加减仓换仓">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-          <button
-            type="button"
-            onClick={() => openScreenshotPicker('investments')}
-            disabled={screenshotImporting}
-            style={{ border: `1px solid ${C.blue}`, backgroundColor: '#fff', color: screenshotImporting ? C.sub : C.blue, borderRadius: 8, padding: '5px 9px', fontSize: 12, fontWeight: 800, cursor: screenshotImporting ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
-          >
-            {screenshotImporting ? '识别中' : '截图识别'}
-          </button>
-          {screenshotImportMsg && <span style={{ flex: '1 1 160px', minWidth: 0, textAlign: 'right', fontSize: 11, lineHeight: 1.35, color: C.sub, overflowWrap: 'anywhere' }}>{screenshotImportMsg}</span>}
-        </div>
         {/* 本次投入 */}
         <div {...makeUsdSwipeHandlers('investUsdBank')} style={{ touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, border: '1.5px solid #fbbf24', borderRadius: 10, padding: '10px 12px', backgroundColor: '#fffbeb', marginBottom: 14 }}>
           {([
@@ -3112,7 +2840,7 @@ export default function ReconcilePage() {
           <div style={{ width: 'min(520px, 100%)', maxHeight: '82vh', overflow: 'auto', backgroundColor: '#fff', borderRadius: 14, boxShadow: '0 12px 36px rgba(0,0,0,0.24)', padding: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
               <div>
-                <div style={{ fontSize: 16, fontWeight: 800, color: '#202124' }}>截图识别草稿</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: '#202124' }}>图片导入草稿</div>
                 <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>
                   {screenshotDraft.mode === 'accounts' ? '账户截图' : screenshotDraft.mode === 'investments' ? '理财截图' : screenshotDraft.mode === 'mixed' ? '混合截图' : '未确定类型'}
                 </div>
@@ -3120,7 +2848,7 @@ export default function ReconcilePage() {
               <button
                 type="button"
                 onClick={() => setScreenshotDraft(null)}
-                aria-label="关闭截图识别草稿"
+                aria-label="关闭图片导入草稿"
                 style={{ border: 'none', borderRadius: 8, backgroundColor: '#f1f3f4', color: C.sub, width: 30, height: 30, fontSize: 16, fontWeight: 800, cursor: 'pointer' }}
               >
                 ×
