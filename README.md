@@ -36,6 +36,22 @@ BILL_MAIL_SCAN_LIMIT=80
 BILL_ATTACHMENT_PATTERN=^账单_\d{10}\.xlsx?$
 ```
 
+## 截图识别导入
+
+对账页的账户余额和理财配置支持上传截图识别。识别通过服务端调用 OpenAI Vision，返回结构化草稿，确认后才写入账户或理财数据。
+
+部署环境需要配置：
+
+```bash
+OPENAI_API_KEY=你的 OpenAI API Key
+```
+
+可选配置：
+
+```bash
+OPENAI_VISION_MODEL=gpt-4.1-mini
+```
+
 ## Schwab 同步
 
 Schwab 读作 `/ʃwɑːb/`，近似“施瓦布/什瓦布”。首次使用前，需要在 [Schwab Developer Portal](https://developer.schwab.com/) 创建并获批 Trader API 应用，拿到 app key、app secret，并把 callback URL 配成和本地一致，例如 `https://127.0.0.1:8182/`。
