@@ -8,6 +8,8 @@ export interface IncomeTaxResult {
 
 export interface AnnualComprehensiveTaxResult {
   grossAnnualIncome: number;
+  socialInsuranceAmount: number;
+  housingFundAmount: number;
   socialContributionAmount: number;
   socialContributionRate: number;
   taxableIncome: number;
@@ -22,6 +24,15 @@ export interface AnnualComprehensiveTaxSegment {
   taxableAmount: number;
   rate: number;
   taxAmount: number;
+}
+
+export interface AnnualSocialContributionPolicy {
+  socialInsuranceRate: number;
+  socialInsuranceMonthlyBaseMin: number;
+  socialInsuranceMonthlyBaseMax: number;
+  housingFundRate: number;
+  housingFundMonthlyBaseMin: number;
+  housingFundMonthlyBaseMax: number;
 }
 
 export const TAX_RULE_PRESETS = [
@@ -39,7 +50,13 @@ export const TAX_RULE_PRESETS = [
 
 const MONEY_ROUNDING = 100;
 const ANNUAL_BASIC_DEDUCTION = 60000;
-export const DEFAULT_EMPLOYEE_SOCIAL_CONTRIBUTION_RATE = 0.225;
+// 截至 2026-07-13 的杭州最新已公布口径：社保 2025 年、公积金上限 2025 年度、下限按 2026 年市区最低工资。
+export const HANGZHOU_EMPLOYEE_SOCIAL_INSURANCE_RATE = 0.105;
+export const HANGZHOU_DEFAULT_HOUSING_FUND_RATE = 0.12;
+export const HANGZHOU_SOCIAL_INSURANCE_MONTHLY_BASE_MIN = 4986;
+export const HANGZHOU_SOCIAL_INSURANCE_MONTHLY_BASE_MAX = 25299;
+export const HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MIN = 2660;
+export const HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MAX = 40694;
 const ANNUAL_COMPREHENSIVE_TAX_BRACKETS = [
   { limit: 36000, rate: 0.03 },
   { limit: 144000, rate: 0.10 },
@@ -63,16 +80,45 @@ function ceilMoney(value: number) {
   return Math.ceil(value * MONEY_ROUNDING) / MONEY_ROUNDING;
 }
 
+function normalizeRate(rate: number | undefined, fallback = 0) {
+  return Math.min(Math.max(Number.isFinite(rate) ? Number(rate) : fallback, 0), 0.99);
+}
+
+function calculateAnnualContribution(
+  grossAnnualIncome: number,
+  rate: number,
+  monthlyBaseMin: number,
+  monthlyBaseMax: number,
+) {
+  if (grossAnnualIncome <= 0 || rate <= 0) return 0;
+  const monthlyGross = grossAnnualIncome / 12;
+  const safeBaseMin = Math.max(Number.isFinite(monthlyBaseMin) ? monthlyBaseMin : 0, 0);
+  const safeBaseMax = Math.max(Number.isFinite(monthlyBaseMax) ? monthlyBaseMax : Infinity, safeBaseMin);
+  const monthlyBase = Math.min(Math.max(monthlyGross, safeBaseMin), safeBaseMax);
+  return roundMoney(monthlyBase * rate * 12);
+}
+
 export function calculateAnnualComprehensiveTax(
   grossAnnualIncome: number,
-  employeeSocialContributionRate = 0,
+  contributionPolicy?: Partial<AnnualSocialContributionPolicy>,
 ): AnnualComprehensiveTaxResult {
   const safeGross = roundMoney(Math.max(Number.isFinite(grossAnnualIncome) ? grossAnnualIncome : 0, 0));
-  const socialContributionRate = Math.min(Math.max(
-    Number.isFinite(employeeSocialContributionRate) ? employeeSocialContributionRate : 0,
-    0,
-  ), 0.99);
-  const socialContributionAmount = roundMoney(safeGross * socialContributionRate);
+  const socialInsuranceRate = normalizeRate(contributionPolicy?.socialInsuranceRate);
+  const housingFundRate = normalizeRate(contributionPolicy?.housingFundRate);
+  const socialInsuranceAmount = calculateAnnualContribution(
+    safeGross,
+    socialInsuranceRate,
+    contributionPolicy?.socialInsuranceMonthlyBaseMin ?? 0,
+    contributionPolicy?.socialInsuranceMonthlyBaseMax ?? Infinity,
+  );
+  const housingFundAmount = calculateAnnualContribution(
+    safeGross,
+    housingFundRate,
+    contributionPolicy?.housingFundMonthlyBaseMin ?? 0,
+    contributionPolicy?.housingFundMonthlyBaseMax ?? Infinity,
+  );
+  const socialContributionAmount = roundMoney(socialInsuranceAmount + housingFundAmount);
+  const socialContributionRate = safeGross > 0 ? socialContributionAmount / safeGross : 0;
   const taxableIncome = roundMoney(Math.max(safeGross - socialContributionAmount - ANNUAL_BASIC_DEDUCTION, 0));
   const taxSegments: AnnualComprehensiveTaxSegment[] = [];
   let previousLimit = 0;
@@ -97,6 +143,8 @@ export function calculateAnnualComprehensiveTax(
 
   return {
     grossAnnualIncome: safeGross,
+    socialInsuranceAmount,
+    housingFundAmount,
     socialContributionAmount,
     socialContributionRate,
     taxableIncome,
@@ -110,20 +158,20 @@ export function calculateAnnualComprehensiveTax(
 
 export function estimateGrossAnnualIncomeForNet(
   targetNetAnnualIncome: number,
-  employeeSocialContributionRate = 0,
+  contributionPolicy?: Partial<AnnualSocialContributionPolicy>,
 ): AnnualComprehensiveTaxResult {
   const targetNet = roundMoney(Math.max(Number.isFinite(targetNetAnnualIncome) ? targetNetAnnualIncome : 0, 0));
-  if (targetNet <= 0) return calculateAnnualComprehensiveTax(0, employeeSocialContributionRate);
+  if (targetNet <= 0) return calculateAnnualComprehensiveTax(0, contributionPolicy);
 
   let low = 0;
   let high = Math.max(targetNet, ANNUAL_BASIC_DEDUCTION);
-  while (calculateAnnualComprehensiveTax(high, employeeSocialContributionRate).netAnnualIncome < targetNet) {
+  while (calculateAnnualComprehensiveTax(high, contributionPolicy).netAnnualIncome < targetNet) {
     high *= 2;
   }
 
   for (let i = 0; i < 80; i++) {
     const mid = (low + high) / 2;
-    if (calculateAnnualComprehensiveTax(mid, employeeSocialContributionRate).netAnnualIncome >= targetNet) {
+    if (calculateAnnualComprehensiveTax(mid, contributionPolicy).netAnnualIncome >= targetNet) {
       high = mid;
     } else {
       low = mid;
@@ -131,10 +179,10 @@ export function estimateGrossAnnualIncomeForNet(
   }
 
   let gross = ceilMoney(high);
-  let result = calculateAnnualComprehensiveTax(gross, employeeSocialContributionRate);
+  let result = calculateAnnualComprehensiveTax(gross, contributionPolicy);
   while (result.netAnnualIncome < targetNet) {
     gross = ceilMoney(gross + 0.01);
-    result = calculateAnnualComprehensiveTax(gross, employeeSocialContributionRate);
+    result = calculateAnnualComprehensiveTax(gross, contributionPolicy);
   }
   return result;
 }

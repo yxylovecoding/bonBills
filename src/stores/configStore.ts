@@ -8,7 +8,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   fireTargetYears: undefined,
   safeWithdrawRate: 0.04,
   investAnnualGrowthRate: 0.04,
-  fireSocialContributionRate: 0.225,
+  fireHousingFundRate: 0.12,
   lifeExpectancy: 85,
   investAllocTargets: { us: 0.2333, eu: 0.0333, asia: 0.0333, a: 0.0333, longBond: 0.2333, usBond: 0.1, gold: 0.3333 },
   creditBillDate: 1,

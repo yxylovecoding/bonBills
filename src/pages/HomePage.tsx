@@ -23,11 +23,18 @@ import type { FutureFireExpense, IncomeItem, MajorFireWish, TagKind, LocalLifeBr
 import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { dateLabel, daysUntilDate, resolveIncomeForMonth } from '../utils/payroll';
-import { TAX_RULE_PRESETS } from '../utils/tax';
+import {
+  HANGZHOU_EMPLOYEE_SOCIAL_INSURANCE_RATE,
+  HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MAX,
+  HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MIN,
+  HANGZHOU_SOCIAL_INSURANCE_MONTHLY_BASE_MAX,
+  HANGZHOU_SOCIAL_INSURANCE_MONTHLY_BASE_MIN,
+  TAX_RULE_PRESETS,
+} from '../utils/tax';
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '五险一金';
+const RELEASE_NOTE = '杭州社保';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
@@ -255,7 +262,7 @@ export default function HomePage() {
   const [fireMode, setFireMode] = useState<'life' | 'all'>('all');
   const [sceneDailyMode, setSceneDailyMode] = useState<'life' | 'all'>('life');
   const [fireExpanded, setFireExpanded] = useState(false);
-  const [fireSocialContributionRateDraft, setFireSocialContributionRateDraft] = useState<string | null>(null);
+  const [fireHousingFundRateDraft, setFireHousingFundRateDraft] = useState<string | null>(null);
   const [sceneExpanded, setSceneExpanded] = useState<Set<TagKind>>(new Set());
   const [sceneLocalOpenCategories, setSceneLocalOpenCategories] = useState<Set<string>>(new Set());
   const futureFireExpenses = config.futureFireExpenses ?? [];
@@ -297,11 +304,12 @@ export default function HomePage() {
     const next = Number.isFinite(parsed) ? Math.max(parsed / 100, MIN_INVEST_ANNUAL_GROWTH_RATE) : 0;
     setConfig({ investAnnualGrowthRate: next });
   };
-  const updateFireSocialContributionRate = (raw: string) => {
-    setFireSocialContributionRateDraft(raw);
+  const updateFireHousingFundRate = (raw: string) => {
+    setFireHousingFundRateDraft(raw);
+    if (raw === '') return;
     const parsed = Number(normalizeDecimalPunctuation(raw));
-    const next = Number.isFinite(parsed) ? Math.min(Math.max(parsed / 100, 0), 0.99) : 0;
-    setConfig({ fireSocialContributionRate: next });
+    const next = Number.isFinite(parsed) ? Math.min(Math.max(parsed / 100, 0.05), 0.12) : 0.12;
+    setConfig({ fireHousingFundRate: next });
   };
   const toggleScene = (tagKind: TagKind) => {
     setSceneExpanded((prev) => {
@@ -729,27 +737,39 @@ export default function HomePage() {
               <StatRow label="月需存入" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(fire.monthlyNeeded)}</span>} />
               <StatRow label="估算月结余" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: fire.monthlySurplus >= 0 ? C.green : C.red }}>{fmt万(fire.monthlySurplus)}</span>} />
               <StatRow label="税后年需" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(fire.requiredAnnualNetIncome)}</span>} />
-              <StatRow label="五险一金" value={(
+              <StatRow label="杭州五险一金" value={<span style={{ fontWeight: 500, color: C.purple, fontVariantNumeric: 'tabular-nums' }}>{fmt万(fire.requiredAnnualSocialContribution)}</span>} />
+              <StatRow indent label="社保" value={(
+                <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  <span style={{ fontWeight: 500, color: C.purple }}>{fmt万(fire.requiredAnnualSocialInsurance)}</span>
+                  <span style={{ marginLeft: 4, fontSize: 11, color: C.sub }}>· 个人 {(HANGZHOU_EMPLOYEE_SOCIAL_INSURANCE_RATE * 100).toFixed(1)}%</span>
+                </span>
+              )} />
+              <StatRow indent label="公积金" value={(
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontVariantNumeric: 'tabular-nums' }}>
-                  <span style={{ fontWeight: 500, color: C.purple }}>{fmt万(fire.requiredAnnualSocialContribution)}</span>
+                  <span style={{ fontWeight: 500, color: C.purple }}>{fmt万(fire.requiredAnnualHousingFund)}</span>
                   <span style={{ fontSize: 11, color: C.sub }}>· 个人</span>
                   <input
                     type="text"
                     inputMode="decimal"
-                    aria-label="个人五险一金比例"
-                    value={fireSocialContributionRateDraft ?? (fire.socialContributionRate * 100).toFixed(1).replace(/\.0$/, '')}
+                    aria-label="个人住房公积金比例"
+                    value={fireHousingFundRateDraft ?? (fire.housingFundRate * 100).toFixed(1).replace(/\.0$/, '')}
                     onChange={(e) => {
                       const next = sanitizeDecimalNumberInput(e.target.value);
-                      if (next !== null) updateFireSocialContributionRate(next);
+                      if (next !== null) updateFireHousingFundRate(next);
                     }}
                     onFocus={(e) => e.target.select()}
-                    onBlur={() => setFireSocialContributionRateDraft(null)}
+                    onBlur={() => setFireHousingFundRateDraft(null)}
                     style={{ width: 38, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontWeight: 600, color: C.purple, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
                   />
                   <span style={{ fontSize: 11, color: C.sub }}>%</span>
                 </span>
               )} />
               <StatRow label="预估个税" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(fire.requiredAnnualTax)} · 分段最高{(fire.requiredMarginalTaxRate * 100).toFixed(0)}%</span>} />
+              <div style={{ marginTop: 6, padding: '8px 10px', borderRadius: 8, backgroundColor: '#f8f9fa', color: C.sub, fontSize: 11, lineHeight: 1.55 }}>
+                杭州最新已公布口径：社保基数 ¥{HANGZHOU_SOCIAL_INSURANCE_MONTHLY_BASE_MIN}–¥{HANGZHOU_SOCIAL_INSURANCE_MONTHLY_BASE_MAX}/月；公积金基数 ¥{HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MIN}–¥{HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MAX}/月，比例 5%–12%。
+                <br />
+                🏠 35岁及以下青年或新市民在杭无房租赁，可按月提取本人月缴存公积金支付房租；此处税前年薪仍先按工资扣款测算。
+              </div>
             </FireDetailGroup>
             <div style={{ paddingTop: 10, borderTop: '1px solid #f1f3f4' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>

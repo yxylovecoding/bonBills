@@ -1,5 +1,13 @@
 import type { AppConfig, CurrentStats } from '../models/types';
-import { DEFAULT_EMPLOYEE_SOCIAL_CONTRIBUTION_RATE, estimateGrossAnnualIncomeForNet } from '../utils/tax';
+import {
+  estimateGrossAnnualIncomeForNet,
+  HANGZHOU_DEFAULT_HOUSING_FUND_RATE,
+  HANGZHOU_EMPLOYEE_SOCIAL_INSURANCE_RATE,
+  HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MAX,
+  HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MIN,
+  HANGZHOU_SOCIAL_INSURANCE_MONTHLY_BASE_MAX,
+  HANGZHOU_SOCIAL_INSURANCE_MONTHLY_BASE_MIN,
+} from '../utils/tax';
 
 const DEFAULT_INVEST_ANNUAL_GROWTH_RATE = 0.04;
 const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
@@ -32,8 +40,10 @@ export interface FireResult {
   requiredAnnualNetIncome: number;
   requiredAnnualGrossIncome: number;
   requiredAnnualTax: number;
+  requiredAnnualSocialInsurance: number;
+  requiredAnnualHousingFund: number;
   requiredAnnualSocialContribution: number;
-  socialContributionRate: number;
+  housingFundRate: number;
   requiredMonthlyNetIncome: number;
   requiredMarginalTaxRate: number;
   lifeProgress: number;
@@ -82,13 +92,22 @@ export function calcFire(
   const monthlyNeeded = requiredAnnualSavings / 12;
   const monthlySurplus = stats.monthlyIncomeAvg - stats.totalExpenseAvg;
   const requiredAnnualNetIncome = annualExpense + requiredAnnualSavings;
-  const socialContributionRate = typeof config.fireSocialContributionRate === 'number'
-    && Number.isFinite(config.fireSocialContributionRate)
-    ? Math.min(Math.max(config.fireSocialContributionRate, 0), 0.99)
-    : DEFAULT_EMPLOYEE_SOCIAL_CONTRIBUTION_RATE;
-  const requiredIncomeTax = estimateGrossAnnualIncomeForNet(requiredAnnualNetIncome, socialContributionRate);
+  const housingFundRate = typeof config.fireHousingFundRate === 'number'
+    && Number.isFinite(config.fireHousingFundRate)
+    ? Math.min(Math.max(config.fireHousingFundRate, 0.05), 0.12)
+    : HANGZHOU_DEFAULT_HOUSING_FUND_RATE;
+  const requiredIncomeTax = estimateGrossAnnualIncomeForNet(requiredAnnualNetIncome, {
+    socialInsuranceRate: HANGZHOU_EMPLOYEE_SOCIAL_INSURANCE_RATE,
+    socialInsuranceMonthlyBaseMin: HANGZHOU_SOCIAL_INSURANCE_MONTHLY_BASE_MIN,
+    socialInsuranceMonthlyBaseMax: HANGZHOU_SOCIAL_INSURANCE_MONTHLY_BASE_MAX,
+    housingFundRate,
+    housingFundMonthlyBaseMin: HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MIN,
+    housingFundMonthlyBaseMax: HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MAX,
+  });
   const requiredAnnualGrossIncome = requiredIncomeTax.grossAnnualIncome;
   const requiredAnnualTax = requiredIncomeTax.taxAmount;
+  const requiredAnnualSocialInsurance = requiredIncomeTax.socialInsuranceAmount;
+  const requiredAnnualHousingFund = requiredIncomeTax.housingFundAmount;
   const requiredAnnualSocialContribution = requiredIncomeTax.socialContributionAmount;
   const requiredMonthlyNetIncome = requiredAnnualNetIncome / 12;
   const requiredMarginalTaxRate = requiredIncomeTax.marginalTaxRate;
@@ -120,8 +139,10 @@ export function calcFire(
     requiredAnnualNetIncome,
     requiredAnnualGrossIncome,
     requiredAnnualTax,
+    requiredAnnualSocialInsurance,
+    requiredAnnualHousingFund,
     requiredAnnualSocialContribution,
-    socialContributionRate,
+    housingFundRate,
     requiredMonthlyNetIncome,
     requiredMarginalTaxRate,
     lifeProgress,

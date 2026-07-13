@@ -3,7 +3,7 @@
   "retireAge": 55,
   "safeWithdrawRate": 0.04,
   "investAnnualGrowthRate": 0.04,
-  "fireSocialContributionRate": 0.225,
+  "fireHousingFundRate": 0.12,
   "lifeExpectancy": 85,
   "investAllocTargets": {
     "us": 0.2333,
