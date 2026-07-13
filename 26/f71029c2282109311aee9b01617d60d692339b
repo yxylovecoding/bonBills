@@ -1,0 +1,31 @@
+src/calculations/fire.ts
+  s_931da009929ff6::t_e136851fc6cf27 2,35-36,85-89,92,123-124
+src/data/appConfig.json
+  s_931da009929ff6::t_e9eaed2fe6aa8c 6
+src/models/types.ts
+  s_931da009929ff6::t_8df3a674cf28a5 71
+src/pages/HomePage.tsx
+  s_931da009929ff6::t_45e06bad3661ea 30,44,258,264,300-305,351-364,653,706,732-751,796,818-821,824
+src/stores/configStore.ts
+  s_931da009929ff6::t_8824ba8ca77c3d 11
+src/utils/tax.ts
+  s_931da009929ff6::t_f77895f5b49527 11-12,42,66-69,71-76,96,100-101,111-114,116,120,126,134,137
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "26f71029c2282109311aee9b01617d60d692339b",
+  "prompts": {},
+  "sessions": {
+    "s_931da009929ff6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f5956-b2b5-7313-a9f7-0ec549c218d2",
+        "model": "unknown"
+      },
+      "human_author": "yxylovecoding <yangxy1229@163.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
