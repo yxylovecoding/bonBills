@@ -1,5 +1,5 @@
 import type { AppConfig, CurrentStats } from '../models/types';
-import { estimateGrossAnnualIncomeForNet } from '../utils/tax';
+import { DEFAULT_EMPLOYEE_SOCIAL_CONTRIBUTION_RATE, estimateGrossAnnualIncomeForNet } from '../utils/tax';
 
 const DEFAULT_INVEST_ANNUAL_GROWTH_RATE = 0.04;
 const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
@@ -32,6 +32,8 @@ export interface FireResult {
   requiredAnnualNetIncome: number;
   requiredAnnualGrossIncome: number;
   requiredAnnualTax: number;
+  requiredAnnualSocialContribution: number;
+  socialContributionRate: number;
   requiredMonthlyNetIncome: number;
   requiredMarginalTaxRate: number;
   lifeProgress: number;
@@ -80,9 +82,14 @@ export function calcFire(
   const monthlyNeeded = requiredAnnualSavings / 12;
   const monthlySurplus = stats.monthlyIncomeAvg - stats.totalExpenseAvg;
   const requiredAnnualNetIncome = annualExpense + requiredAnnualSavings;
-  const requiredIncomeTax = estimateGrossAnnualIncomeForNet(requiredAnnualNetIncome);
+  const socialContributionRate = typeof config.fireSocialContributionRate === 'number'
+    && Number.isFinite(config.fireSocialContributionRate)
+    ? Math.min(Math.max(config.fireSocialContributionRate, 0), 0.99)
+    : DEFAULT_EMPLOYEE_SOCIAL_CONTRIBUTION_RATE;
+  const requiredIncomeTax = estimateGrossAnnualIncomeForNet(requiredAnnualNetIncome, socialContributionRate);
   const requiredAnnualGrossIncome = requiredIncomeTax.grossAnnualIncome;
   const requiredAnnualTax = requiredIncomeTax.taxAmount;
+  const requiredAnnualSocialContribution = requiredIncomeTax.socialContributionAmount;
   const requiredMonthlyNetIncome = requiredAnnualNetIncome / 12;
   const requiredMarginalTaxRate = requiredIncomeTax.marginalTaxRate;
 
@@ -113,6 +120,8 @@ export function calcFire(
     requiredAnnualNetIncome,
     requiredAnnualGrossIncome,
     requiredAnnualTax,
+    requiredAnnualSocialContribution,
+    socialContributionRate,
     requiredMonthlyNetIncome,
     requiredMarginalTaxRate,
     lifeProgress,

@@ -8,6 +8,8 @@ export interface IncomeTaxResult {
 
 export interface AnnualComprehensiveTaxResult {
   grossAnnualIncome: number;
+  socialContributionAmount: number;
+  socialContributionRate: number;
   taxableIncome: number;
   taxAmount: number;
   netAnnualIncome: number;
@@ -37,6 +39,7 @@ export const TAX_RULE_PRESETS = [
 
 const MONEY_ROUNDING = 100;
 const ANNUAL_BASIC_DEDUCTION = 60000;
+export const DEFAULT_EMPLOYEE_SOCIAL_CONTRIBUTION_RATE = 0.225;
 const ANNUAL_COMPREHENSIVE_TAX_BRACKETS = [
   { limit: 36000, rate: 0.03 },
   { limit: 144000, rate: 0.10 },
@@ -60,9 +63,17 @@ function ceilMoney(value: number) {
   return Math.ceil(value * MONEY_ROUNDING) / MONEY_ROUNDING;
 }
 
-export function calculateAnnualComprehensiveTax(grossAnnualIncome: number): AnnualComprehensiveTaxResult {
+export function calculateAnnualComprehensiveTax(
+  grossAnnualIncome: number,
+  employeeSocialContributionRate = 0,
+): AnnualComprehensiveTaxResult {
   const safeGross = roundMoney(Math.max(Number.isFinite(grossAnnualIncome) ? grossAnnualIncome : 0, 0));
-  const taxableIncome = roundMoney(Math.max(safeGross - ANNUAL_BASIC_DEDUCTION, 0));
+  const socialContributionRate = Math.min(Math.max(
+    Number.isFinite(employeeSocialContributionRate) ? employeeSocialContributionRate : 0,
+    0,
+  ), 0.99);
+  const socialContributionAmount = roundMoney(safeGross * socialContributionRate);
+  const taxableIncome = roundMoney(Math.max(safeGross - socialContributionAmount - ANNUAL_BASIC_DEDUCTION, 0));
   const taxSegments: AnnualComprehensiveTaxSegment[] = [];
   let previousLimit = 0;
   let remainingTaxable = taxableIncome;
@@ -82,10 +93,12 @@ export function calculateAnnualComprehensiveTax(grossAnnualIncome: number): Annu
   }
 
   const taxAmount = clampTax(taxSegments.reduce((sum, segment) => sum + segment.taxAmount, 0), safeGross);
-  const netAnnualIncome = roundMoney(safeGross - taxAmount);
+  const netAnnualIncome = roundMoney(safeGross - socialContributionAmount - taxAmount);
 
   return {
     grossAnnualIncome: safeGross,
+    socialContributionAmount,
+    socialContributionRate,
     taxableIncome,
     taxAmount,
     netAnnualIncome,
@@ -95,19 +108,22 @@ export function calculateAnnualComprehensiveTax(grossAnnualIncome: number): Annu
   };
 }
 
-export function estimateGrossAnnualIncomeForNet(targetNetAnnualIncome: number): AnnualComprehensiveTaxResult {
+export function estimateGrossAnnualIncomeForNet(
+  targetNetAnnualIncome: number,
+  employeeSocialContributionRate = 0,
+): AnnualComprehensiveTaxResult {
   const targetNet = roundMoney(Math.max(Number.isFinite(targetNetAnnualIncome) ? targetNetAnnualIncome : 0, 0));
-  if (targetNet <= 0) return calculateAnnualComprehensiveTax(0);
+  if (targetNet <= 0) return calculateAnnualComprehensiveTax(0, employeeSocialContributionRate);
 
   let low = 0;
   let high = Math.max(targetNet, ANNUAL_BASIC_DEDUCTION);
-  while (calculateAnnualComprehensiveTax(high).netAnnualIncome < targetNet) {
+  while (calculateAnnualComprehensiveTax(high, employeeSocialContributionRate).netAnnualIncome < targetNet) {
     high *= 2;
   }
 
   for (let i = 0; i < 80; i++) {
     const mid = (low + high) / 2;
-    if (calculateAnnualComprehensiveTax(mid).netAnnualIncome >= targetNet) {
+    if (calculateAnnualComprehensiveTax(mid, employeeSocialContributionRate).netAnnualIncome >= targetNet) {
       high = mid;
     } else {
       low = mid;
@@ -115,10 +131,10 @@ export function estimateGrossAnnualIncomeForNet(targetNetAnnualIncome: number): 
   }
 
   let gross = ceilMoney(high);
-  let result = calculateAnnualComprehensiveTax(gross);
+  let result = calculateAnnualComprehensiveTax(gross, employeeSocialContributionRate);
   while (result.netAnnualIncome < targetNet) {
     gross = ceilMoney(gross + 0.01);
-    result = calculateAnnualComprehensiveTax(gross);
+    result = calculateAnnualComprehensiveTax(gross, employeeSocialContributionRate);
   }
   return result;
 }

@@ -68,6 +68,7 @@ export interface AppConfig {
   fireTargetYears?: number;   // FIRE 攒钱目标年数，默认到退休年龄
   safeWithdrawRate: number;   // 0.04
   investAnnualGrowthRate?: number; // FIRE 预计理财年增长率，默认 0.04
+  fireSocialContributionRate?: number; // FIRE 税前年薪反推使用的个人五险一金比例
   lifeExpectancy: number;     // 85
   investAllocTargets: InvestAllocTargets;
   creditBillDate: number;     // 26
