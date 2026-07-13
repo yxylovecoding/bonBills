@@ -34,7 +34,7 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '校准年薪';
+const RELEASE_NOTE = 'E类测算';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
@@ -42,6 +42,7 @@ const CNY_ASSET_ACCOUNT_KEYS = ['savingsCard', 'incomeBank', 'livingBank', 'camp
 const USD_ASSET_ACCOUNT_KEYS = ['usdLivingBank', 'usdConsumptionBank', 'usdWishJar', 'investUsdBank'] as const;
 const FIRE_SCENARIO_LABELS: Record<TagKind, string> = { intern: '工作', school: '在校', home: '居家', travel: '旅行' };
 const FIRE_DEGREE_LABELS = { none: '不计人才政策', bachelor: '本科', master: '硕士', doctor: '博士' } as const;
+const HANGZHOU_E_TALENT_WAGE_THRESHOLD = 500000;
 
 type UsdRateResponse = {
   rate: number;
@@ -265,6 +266,7 @@ export default function HomePage() {
   const [sceneDailyMode, setSceneDailyMode] = useState<'life' | 'all'>('life');
   const [fireExpanded, setFireExpanded] = useState(false);
   const [fireHousingFundRateDraft, setFireHousingFundRateDraft] = useState<string | null>(null);
+  const [fireExpectedWageDraft, setFireExpectedWageDraft] = useState<string | null>(null);
   const [sceneExpanded, setSceneExpanded] = useState<Set<TagKind>>(new Set());
   const [sceneLocalOpenCategories, setSceneLocalOpenCategories] = useState<Set<string>>(new Set());
   const futureFireExpenses = config.futureFireExpenses ?? [];
@@ -288,6 +290,11 @@ export default function HomePage() {
   const fireExpenseAvg = fireAnnualExpense / 12;
   const fireStats = useMemo(() => ({ ...stats, totalExpenseAvg: fireExpenseAvg }), [stats, fireExpenseAvg]);
   const fire = useMemo(() => calcFire(config, fireStats, totalInvest), [config, fireStats, totalInvest]);
+  const expectedAnnualWageIncome = config.fireExpectedAnnualWageIncome ?? HANGZHOU_E_TALENT_WAGE_THRESHOLD;
+  const expectsETalent = config.fireExpectedTalentClass !== 'none';
+  const eTalentIncomeThresholdMet = expectedAnnualWageIncome >= HANGZHOU_E_TALENT_WAGE_THRESHOLD;
+  const eTalentRecognitionYear = Math.min(Math.max(Math.round(config.fireETalentRecognitionYear ?? 3), 2), 5);
+  const expectedWageMargin = expectedAnnualWageIncome - fire.requiredAnnualGrossIncome;
   const customFireTargetYears = config.fireTargetYears && config.fireTargetYears > 0 && config.fireTargetYears < fire.retireYearsLeft
     ? Math.min(config.fireTargetYears, fire.retireYearsLeft)
     : undefined;
@@ -317,6 +324,14 @@ export default function HomePage() {
     const parsed = Number(normalizeDecimalPunctuation(raw));
     const next = Number.isFinite(parsed) ? Math.min(Math.max(parsed / 100, 0.05), 0.12) : 0.12;
     setConfig({ fireHousingFundRate: next });
+  };
+  const updateFireExpectedWageWan = (raw: string) => {
+    const normalized = sanitizeDecimalNumberInput(raw);
+    if (normalized === null) return;
+    setFireExpectedWageDraft(normalized);
+    if (normalized === '') return;
+    const amountWan = Number(normalized);
+    setConfig({ fireExpectedAnnualWageIncome: Number.isFinite(amountWan) ? Math.max(amountWan, 0) * 10000 : HANGZHOU_E_TALENT_WAGE_THRESHOLD });
   };
   const toggleScene = (tagKind: TagKind) => {
     setSceneExpanded((prev) => {
@@ -678,6 +693,7 @@ export default function HomePage() {
                 {fireTargetYearLabel}达标 · 工资到手 {fmt万(fire.requiredAnnualSalaryNetIncome)}
                 {fire.requiredAnnualHousingFundRentWithdrawal > 0 && <span style={{ color: C.green }}> · 公积金抵租 {fmt万(fire.requiredAnnualHousingFundRentWithdrawal)}</span>}
                 {fire.majorWishTotal > 0 && <span style={{ color: C.purple }}> · 含愿望 {fmtW(fire.majorWishTotal)}</span>}
+                <span style={{ color: expectedWageMargin >= 0 ? C.green : C.orange }}> · 预期 {fmtW(expectedAnnualWageIncome)}</span>
               </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, flex: '1 1 230px', minWidth: 0 }}>
@@ -749,7 +765,41 @@ export default function HomePage() {
                   </select>
                 </span>
               )} />
-              <StatRow label="应届人才补贴" value={(
+              <StatRow label="预期工资性收入" value={(
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={fireExpectedWageDraft ?? (expectedAnnualWageIncome / 10000).toFixed(2).replace(/\.00$/, '')}
+                    onChange={(e) => updateFireExpectedWageWan(e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                    onBlur={() => setFireExpectedWageDraft(null)}
+                    aria-label="预期年工资性收入"
+                    style={{ width: 64, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontWeight: 700, color: eTalentIncomeThresholdMet ? C.green : C.orange, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
+                  />
+                  <span style={{ fontSize: 11, color: C.sub }}>w/年</span>
+                  <span style={{ fontSize: 11, color: expectedWageMargin >= 0 ? C.green : C.orange }}>· {expectedWageMargin >= 0 ? '高于' : '低于'}最低 {fmtW(Math.abs(expectedWageMargin))}</span>
+                </span>
+              )} />
+              <StatRow label="E 类人才预期" value={(
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: expectsETalent && eTalentIncomeThresholdMet ? C.green : C.sub }}>
+                    <input type="checkbox" checked={expectsETalent} onChange={(e) => setConfig({ fireExpectedTalentClass: e.target.checked ? 'e' : 'none' })} />
+                    <span style={{ fontWeight: 600 }}>{eTalentIncomeThresholdMet ? '收入达门槛' : '收入未达 50w'}</span>
+                  </label>
+                  {expectsETalent && (
+                    <select
+                      value={eTalentRecognitionYear}
+                      onChange={(e) => setConfig({ fireETalentRecognitionYear: Number(e.target.value) })}
+                      aria-label="E 类人才预计认定年度"
+                      style={{ border: '1px solid #e0e0e0', borderRadius: 7, backgroundColor: '#fff', color: '#202124', fontSize: 12, fontWeight: 600, padding: '3px 5px', outline: 'none' }}
+                    >
+                      {[2, 3, 4, 5].map((year) => <option key={year} value={year}>第{year}就业年认定</option>)}
+                    </select>
+                  )}
+                </span>
+              )} />
+              <StatRow label="人才补贴方案" value={(
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: config.fireTalentSubsidyEnabled === false ? C.sub : C.green }}>
                   <input type="checkbox" checked={config.fireTalentSubsidyEnabled !== false} onChange={(e) => setConfig({ fireTalentSubsidyEnabled: e.target.checked })} />
                   <span style={{ fontWeight: 600 }}>目标期计入 {fmt万(fire.talentSubsidyNominalTotal)}</span>
@@ -768,7 +818,11 @@ export default function HomePage() {
                 </label>
               )} />
               <div style={{ marginTop: 6, padding: '8px 10px', borderRadius: 8, backgroundColor: '#f8f9fa', color: C.sub, fontSize: 11, lineHeight: 1.55 }}>
-                硕士生活补贴 3w；无房应届生实际租房时，再按 1w/年×3 测算租房补贴。均需在毕业、首次参保和连续参保时限内达标，不确定时可关闭。
+                {expectsETalent && eTalentIncomeThresholdMet
+                  ? `按保守口径：硕士生活补贴 3w；为保留 E 类租赁补贴资格，不叠加应届生租房补贴，预计第 ${eTalentRecognitionYear} 就业年起按 2500 元/月、最长 5 年计入。`
+                  : '硕士生活补贴 3w；无房应届生实际租房时，再按 1w/年×3 测算租房补贴。'}
+                <br />
+                E 类收入通道还要求上一年度工资性收入及所在企业资质同时达标；50w offer 不等于必然认定。
               </div>
             </FireDetailGroup>
             <FireDetailGroup title="资产目标">
@@ -803,6 +857,9 @@ export default function HomePage() {
               <StatRow label="年支出+储蓄" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(fire.requiredAnnualNetIncome)}</span>} />
               <StatRow label="预计工资到手" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(fire.requiredAnnualSalaryNetIncome)}</span>} />
               {fire.talentSubsidyFutureValue > 0 && <StatRow label="人才补贴" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.green }}>合计 {fmt万(fire.talentSubsidyNominalTotal)} · 折到目标 {fmt万(fire.talentSubsidyFutureValue)}</span>} />}
+              {fire.graduateLifeSubsidyTotal > 0 && <StatRow indent label="硕士生活补贴" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.green }}>{fmt万(fire.graduateLifeSubsidyTotal)}</span>} />}
+              {fire.graduateRentSubsidyTotal > 0 && <StatRow indent label="应届租房补贴" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.green }}>{fmt万(fire.graduateRentSubsidyTotal)}</span>} />}
+              {fire.eTalentRentSubsidyTotal > 0 && <StatRow indent label="E 类租赁补贴" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.green }}>{fmt万(fire.eTalentRentSubsidyTotal)}</span>} />}
               <StatRow label="杭州五险一金" value={<span style={{ fontWeight: 500, color: C.purple, fontVariantNumeric: 'tabular-nums' }}>{fmt万(fire.requiredAnnualSocialContribution)}</span>} />
               <StatRow indent label="社保" value={(
                 <span style={{ fontVariantNumeric: 'tabular-nums' }}>

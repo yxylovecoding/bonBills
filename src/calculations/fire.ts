@@ -51,6 +51,9 @@ export interface FireResult {
   annualRentTaxDeduction: number;
   talentSubsidyNominalTotal: number;
   talentSubsidyFutureValue: number;
+  graduateLifeSubsidyTotal: number;
+  graduateRentSubsidyTotal: number;
+  eTalentRentSubsidyTotal: number;
   housingFundRate: number;
   requiredMonthlyNetIncome: number;
   requiredMarginalTaxRate: number;
@@ -72,6 +75,9 @@ function calcFutureSavingsFactor(annualGrowthRate: number, years: number): numbe
 const HANGZHOU_ANNUAL_RENT_TAX_DEDUCTION = 1500 * 12;
 const HANGZHOU_ANNUAL_GRADUATE_RENT_SUBSIDY = 10000;
 const HANGZHOU_GRADUATE_RENT_SUBSIDY_YEARS = 3;
+const HANGZHOU_E_TALENT_ANNUAL_RENT_SUBSIDY = 2500 * 12;
+const HANGZHOU_E_TALENT_RENT_SUBSIDY_YEARS = 5;
+const HANGZHOU_E_TALENT_ANNUAL_WAGE_THRESHOLD = 500000;
 
 function getGraduateLifeSubsidy(config: AppConfig): number {
   if (config.fireTalentSubsidyEnabled === false) return 0;
@@ -98,19 +104,38 @@ function calcTalentSubsidies(
   const enabled = config.fireTalentSubsidyEnabled !== false;
   const degreeEligible = (config.fireTalentDegree ?? 'master') !== 'none';
   const lifeSubsidy = getGraduateLifeSubsidy(config);
-  const rentSubsidy = enabled && degreeEligible && config.fireHasHangzhouHome !== true && annualRentExpense > 0
-    ? HANGZHOU_ANNUAL_GRADUATE_RENT_SUBSIDY
-    : 0;
+  const housingSubsidyEligible = enabled && degreeEligible && config.fireHasHangzhouHome !== true && annualRentExpense > 0;
+  const expectedAnnualWageIncome = config.fireExpectedAnnualWageIncome ?? HANGZHOU_E_TALENT_ANNUAL_WAGE_THRESHOLD;
+  const expectsETalent = config.fireExpectedTalentClass !== 'none'
+    && expectedAnnualWageIncome >= HANGZHOU_E_TALENT_ANNUAL_WAGE_THRESHOLD;
+  const eTalentRecognitionYear = Math.min(Math.max(Math.round(config.fireETalentRecognitionYear ?? 3), 2), 5);
   const wholeYears = Math.max(Math.floor(targetYears), 0);
   let nominalTotal = 0;
   let futureValue = 0;
+  let graduateRentSubsidyTotal = 0;
+  let eTalentRentSubsidyTotal = 0;
   for (let year = 1; year <= wholeYears; year += 1) {
-    const amount = (year === 1 ? lifeSubsidy : 0)
-      + (year <= HANGZHOU_GRADUATE_RENT_SUBSIDY_YEARS ? rentSubsidy : 0);
+    let housingSubsidy = 0;
+    if (housingSubsidyEligible && expectsETalent) {
+      if (year >= eTalentRecognitionYear && year < eTalentRecognitionYear + HANGZHOU_E_TALENT_RENT_SUBSIDY_YEARS) {
+        housingSubsidy = HANGZHOU_E_TALENT_ANNUAL_RENT_SUBSIDY;
+        eTalentRentSubsidyTotal += housingSubsidy;
+      }
+    } else if (housingSubsidyEligible && year <= HANGZHOU_GRADUATE_RENT_SUBSIDY_YEARS) {
+      housingSubsidy = HANGZHOU_ANNUAL_GRADUATE_RENT_SUBSIDY;
+      graduateRentSubsidyTotal += housingSubsidy;
+    }
+    const amount = (year === 1 ? lifeSubsidy : 0) + housingSubsidy;
     nominalTotal += amount;
     futureValue += amount * Math.pow(1 + annualGrowthRate, Math.max(targetYears - year, 0));
   }
-  return { nominalTotal, futureValue };
+  return {
+    nominalTotal,
+    futureValue,
+    graduateLifeSubsidyTotal: wholeYears >= 1 ? lifeSubsidy : 0,
+    graduateRentSubsidyTotal,
+    eTalentRentSubsidyTotal,
+  };
 }
 
 export function calcFire(
@@ -227,6 +252,9 @@ export function calcFire(
     annualRentTaxDeduction,
     talentSubsidyNominalTotal: talentSubsidy.nominalTotal,
     talentSubsidyFutureValue,
+    graduateLifeSubsidyTotal: talentSubsidy.graduateLifeSubsidyTotal,
+    graduateRentSubsidyTotal: talentSubsidy.graduateRentSubsidyTotal,
+    eTalentRentSubsidyTotal: talentSubsidy.eTalentRentSubsidyTotal,
     housingFundRate,
     requiredMonthlyNetIncome,
     requiredMarginalTaxRate,

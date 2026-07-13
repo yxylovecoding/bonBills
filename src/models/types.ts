@@ -72,6 +72,9 @@ export interface AppConfig {
   fireExpenseTagKind?: TagKind; // FIRE 未来生活支出参照场景，待就业默认按工作/实习测算
   fireTalentDegree?: 'none' | 'bachelor' | 'master' | 'doctor';
   fireHasHangzhouHome?: boolean;
+  fireExpectedAnnualWageIncome?: number; // 预期年工资性收入，用于人才政策情景，不代替“最低年薪”
+  fireExpectedTalentClass?: 'none' | 'e';
+  fireETalentRecognitionYear?: number; // 预计第几个就业年度起完成 E 类认定
   fireTalentSubsidyEnabled?: boolean; // 是否将预期符合的杭州应届生补贴折算进 FIRE
   fireRentTaxDeductionEnabled?: boolean; // 杭州无房租金个税专项附加扣除
   fireHousingFundRentWithdrawalEnabled?: boolean; // 青年/新市民无房租赁公积金提取
