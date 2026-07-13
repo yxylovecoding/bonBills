@@ -33,6 +33,7 @@ export interface AnnualSocialContributionPolicy {
   housingFundRate: number;
   housingFundMonthlyBaseMin: number;
   housingFundMonthlyBaseMax: number;
+  annualSpecialAdditionalDeduction: number;
 }
 
 export const TAX_RULE_PRESETS = [
@@ -119,7 +120,16 @@ export function calculateAnnualComprehensiveTax(
   );
   const socialContributionAmount = roundMoney(socialInsuranceAmount + housingFundAmount);
   const socialContributionRate = safeGross > 0 ? socialContributionAmount / safeGross : 0;
-  const taxableIncome = roundMoney(Math.max(safeGross - socialContributionAmount - ANNUAL_BASIC_DEDUCTION, 0));
+  const annualSpecialAdditionalDeduction = Math.max(
+    Number.isFinite(contributionPolicy?.annualSpecialAdditionalDeduction)
+      ? Number(contributionPolicy?.annualSpecialAdditionalDeduction)
+      : 0,
+    0,
+  );
+  const taxableIncome = roundMoney(Math.max(
+    safeGross - socialContributionAmount - ANNUAL_BASIC_DEDUCTION - annualSpecialAdditionalDeduction,
+    0,
+  ));
   const taxSegments: AnnualComprehensiveTaxSegment[] = [];
   let previousLimit = 0;
   let remainingTaxable = taxableIncome;
@@ -160,18 +170,31 @@ export function estimateGrossAnnualIncomeForNet(
   targetNetAnnualIncome: number,
   contributionPolicy?: Partial<AnnualSocialContributionPolicy>,
 ): AnnualComprehensiveTaxResult {
-  const targetNet = roundMoney(Math.max(Number.isFinite(targetNetAnnualIncome) ? targetNetAnnualIncome : 0, 0));
+  return estimateGrossAnnualIncomeForResources(targetNetAnnualIncome, contributionPolicy);
+}
+
+export function estimateGrossAnnualIncomeForResources(
+  targetAnnualResources: number,
+  contributionPolicy?: Partial<AnnualSocialContributionPolicy>,
+  resourceCredit: (result: AnnualComprehensiveTaxResult) => number = () => 0,
+): AnnualComprehensiveTaxResult {
+  const targetNet = roundMoney(Math.max(Number.isFinite(targetAnnualResources) ? targetAnnualResources : 0, 0));
   if (targetNet <= 0) return calculateAnnualComprehensiveTax(0, contributionPolicy);
+
+  const resourcesFor = (gross: number) => {
+    const result = calculateAnnualComprehensiveTax(gross, contributionPolicy);
+    return result.netAnnualIncome + Math.max(resourceCredit(result), 0);
+  };
 
   let low = 0;
   let high = Math.max(targetNet, ANNUAL_BASIC_DEDUCTION);
-  while (calculateAnnualComprehensiveTax(high, contributionPolicy).netAnnualIncome < targetNet) {
+  while (resourcesFor(high) < targetNet) {
     high *= 2;
   }
 
   for (let i = 0; i < 80; i++) {
     const mid = (low + high) / 2;
-    if (calculateAnnualComprehensiveTax(mid, contributionPolicy).netAnnualIncome >= targetNet) {
+    if (resourcesFor(mid) >= targetNet) {
       high = mid;
     } else {
       low = mid;
@@ -180,7 +203,7 @@ export function estimateGrossAnnualIncomeForNet(
 
   let gross = ceilMoney(high);
   let result = calculateAnnualComprehensiveTax(gross, contributionPolicy);
-  while (result.netAnnualIncome < targetNet) {
+  while (result.netAnnualIncome + Math.max(resourceCredit(result), 0) < targetNet) {
     gross = ceilMoney(gross + 0.01);
     result = calculateAnnualComprehensiveTax(gross, contributionPolicy);
   }

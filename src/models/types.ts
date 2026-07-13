@@ -67,8 +67,14 @@ export interface AppConfig {
   retireAge: number;          // 55
   fireTargetYears?: number;   // FIRE 攒钱目标年数，默认到退休年龄
   safeWithdrawRate: number;   // 0.04
-  investAnnualGrowthRate?: number; // FIRE 预计理财年增长率，默认 0.04
+  investAnnualGrowthRate?: number; // FIRE 扣除通胀后的实际年化收益率，默认 0.04
   fireHousingFundRate?: number; // FIRE 杭州口径中的个人公积金比例（5%–12%）
+  fireExpenseTagKind?: TagKind; // FIRE 未来生活支出参照场景，待就业默认按工作/实习测算
+  fireTalentDegree?: 'none' | 'bachelor' | 'master' | 'doctor';
+  fireHasHangzhouHome?: boolean;
+  fireTalentSubsidyEnabled?: boolean; // 是否将预期符合的杭州应届生补贴折算进 FIRE
+  fireRentTaxDeductionEnabled?: boolean; // 杭州无房租金个税专项附加扣除
+  fireHousingFundRentWithdrawalEnabled?: boolean; // 青年/新市民无房租赁公积金提取
   lifeExpectancy: number;     // 85
   investAllocTargets: InvestAllocTargets;
   creditBillDate: number;     // 26

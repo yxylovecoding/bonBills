@@ -4,6 +4,12 @@
   "safeWithdrawRate": 0.04,
   "investAnnualGrowthRate": 0.04,
   "fireHousingFundRate": 0.12,
+  "fireExpenseTagKind": "intern",
+  "fireTalentDegree": "master",
+  "fireHasHangzhouHome": false,
+  "fireTalentSubsidyEnabled": true,
+  "fireRentTaxDeductionEnabled": true,
+  "fireHousingFundRentWithdrawalEnabled": true,
   "lifeExpectancy": 85,
   "investAllocTargets": {
     "us": 0.2333,

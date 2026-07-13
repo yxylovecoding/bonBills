@@ -1,6 +1,6 @@
 import type { AppConfig, CurrentStats } from '../models/types';
 import {
-  estimateGrossAnnualIncomeForNet,
+  estimateGrossAnnualIncomeForResources,
   HANGZHOU_DEFAULT_HOUSING_FUND_RATE,
   HANGZHOU_EMPLOYEE_SOCIAL_INSURANCE_RATE,
   HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MAX,
@@ -14,6 +14,7 @@ const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
 
 export function getAge(birthDate: string): number {
   const birth = new Date(birthDate);
+  if (Number.isNaN(birth.getTime())) return 0;
   const now = new Date();
   let age = now.getFullYear() - birth.getFullYear();
   const m = now.getMonth() - birth.getMonth();
@@ -37,12 +38,19 @@ export interface FireResult {
   monthlyNeeded: number;
   monthlySurplus: number;
   requiredAnnualSavings: number;
+  requiredAnnualSavingsBeforeTalentSubsidy: number;
   requiredAnnualNetIncome: number;
+  requiredAnnualSalaryNetIncome: number;
   requiredAnnualGrossIncome: number;
   requiredAnnualTax: number;
   requiredAnnualSocialInsurance: number;
   requiredAnnualHousingFund: number;
   requiredAnnualSocialContribution: number;
+  requiredAnnualHousingFundRentWithdrawal: number;
+  annualRentExpense: number;
+  annualRentTaxDeduction: number;
+  talentSubsidyNominalTotal: number;
+  talentSubsidyFutureValue: number;
   housingFundRate: number;
   requiredMonthlyNetIncome: number;
   requiredMarginalTaxRate: number;
@@ -61,6 +69,50 @@ function calcFutureSavingsFactor(annualGrowthRate: number, years: number): numbe
   return (Math.pow(1 + annualGrowthRate, years) - 1) / annualGrowthRate;
 }
 
+const HANGZHOU_ANNUAL_RENT_TAX_DEDUCTION = 1500 * 12;
+const HANGZHOU_ANNUAL_GRADUATE_RENT_SUBSIDY = 10000;
+const HANGZHOU_GRADUATE_RENT_SUBSIDY_YEARS = 3;
+
+function getGraduateLifeSubsidy(config: AppConfig): number {
+  if (config.fireTalentSubsidyEnabled === false) return 0;
+  switch (config.fireTalentDegree ?? 'master') {
+    case 'bachelor': return 10000;
+    case 'master': return 30000;
+    case 'doctor': return 100000;
+    default: return 0;
+  }
+}
+
+function getAnnualRentExpense(config: AppConfig): number {
+  return (config.futureFireExpenses ?? [])
+    .filter((item) => item.isActive && /\u79df\u623f|\u623f\u79df|\u4f4f\u623f\u79df\u91d1/.test(item.name))
+    .reduce((sum, item) => sum + Math.max(Number.isFinite(item.monthlyAmount) ? item.monthlyAmount : 0, 0) * 12, 0);
+}
+
+function calcTalentSubsidies(
+  config: AppConfig,
+  annualRentExpense: number,
+  targetYears: number,
+  annualGrowthRate: number,
+) {
+  const enabled = config.fireTalentSubsidyEnabled !== false;
+  const degreeEligible = (config.fireTalentDegree ?? 'master') !== 'none';
+  const lifeSubsidy = getGraduateLifeSubsidy(config);
+  const rentSubsidy = enabled && degreeEligible && config.fireHasHangzhouHome !== true && annualRentExpense > 0
+    ? HANGZHOU_ANNUAL_GRADUATE_RENT_SUBSIDY
+    : 0;
+  const wholeYears = Math.max(Math.floor(targetYears), 0);
+  let nominalTotal = 0;
+  let futureValue = 0;
+  for (let year = 1; year <= wholeYears; year += 1) {
+    const amount = (year === 1 ? lifeSubsidy : 0)
+      + (year <= HANGZHOU_GRADUATE_RENT_SUBSIDY_YEARS ? rentSubsidy : 0);
+    nominalTotal += amount;
+    futureValue += amount * Math.pow(1 + annualGrowthRate, Math.max(targetYears - year, 0));
+  }
+  return { nominalTotal, futureValue };
+}
+
 export function calcFire(
   config: AppConfig,
   stats: CurrentStats,
@@ -70,8 +122,9 @@ export function calcFire(
   const annualExpense = stats.totalExpenseAvg * 12;
 
   const target4pct = annualExpense / config.safeWithdrawRate;
-  const targetAge  = annualExpense * Math.max(config.retireAge - age, 1);
-  const retirementTarget = Math.min(target4pct, targetAge);
+  // FIRE 目标是退休后的可持续资产，不能用“当前年龄到退休的年数”截短。
+  const targetAge = target4pct;
+  const retirementTarget = target4pct;
   const majorWishTotal = (config.majorFireWishes ?? [])
     .filter((wish) => wish.isActive)
     .reduce((sum, wish) => sum + (Number.isFinite(wish.amount) ? Math.max(wish.amount, 0) : 0), 0);
@@ -86,8 +139,15 @@ export function calcFire(
   const investAnnualGrowthRate = normalizeInvestAnnualGrowthRate(config.investAnnualGrowthRate);
   const projectedCurrentInvest = investTotal * Math.pow(1 + investAnnualGrowthRate, targetYears);
   const projectedInvestmentGrowth = projectedCurrentInvest - investTotal;
-  const remainingTarget = Math.max(fireTarget - projectedCurrentInvest, 0);
+  const annualRentExpense = getAnnualRentExpense(config);
+  const talentSubsidy = calcTalentSubsidies(config, annualRentExpense, targetYears, investAnnualGrowthRate);
+  const remainingTargetBeforeTalentSubsidy = Math.max(fireTarget - projectedCurrentInvest, 0);
+  const talentSubsidyFutureValue = Math.min(talentSubsidy.futureValue, remainingTargetBeforeTalentSubsidy);
+  const remainingTarget = Math.max(remainingTargetBeforeTalentSubsidy - talentSubsidyFutureValue, 0);
   const savingsFutureValueFactor = calcFutureSavingsFactor(investAnnualGrowthRate, targetYears);
+  const requiredAnnualSavingsBeforeTalentSubsidy = savingsFutureValueFactor > 0
+    ? remainingTargetBeforeTalentSubsidy / savingsFutureValueFactor
+    : remainingTargetBeforeTalentSubsidy / targetYears;
   const requiredAnnualSavings = savingsFutureValueFactor > 0 ? remainingTarget / savingsFutureValueFactor : remainingTarget / targetYears;
   const monthlyNeeded = requiredAnnualSavings / 12;
   const monthlySurplus = stats.monthlyIncomeAvg - stats.totalExpenseAvg;
@@ -96,20 +156,38 @@ export function calcFire(
     && Number.isFinite(config.fireHousingFundRate)
     ? Math.min(Math.max(config.fireHousingFundRate, 0.05), 0.12)
     : HANGZHOU_DEFAULT_HOUSING_FUND_RATE;
-  const requiredIncomeTax = estimateGrossAnnualIncomeForNet(requiredAnnualNetIncome, {
+  const annualRentTaxDeduction = config.fireHasHangzhouHome !== true
+    && config.fireRentTaxDeductionEnabled !== false
+    && annualRentExpense > 0
+    ? HANGZHOU_ANNUAL_RENT_TAX_DEDUCTION
+    : 0;
+  const contributionPolicy = {
     socialInsuranceRate: HANGZHOU_EMPLOYEE_SOCIAL_INSURANCE_RATE,
     socialInsuranceMonthlyBaseMin: HANGZHOU_SOCIAL_INSURANCE_MONTHLY_BASE_MIN,
     socialInsuranceMonthlyBaseMax: HANGZHOU_SOCIAL_INSURANCE_MONTHLY_BASE_MAX,
     housingFundRate,
     housingFundMonthlyBaseMin: HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MIN,
     housingFundMonthlyBaseMax: HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MAX,
-  });
+    annualSpecialAdditionalDeduction: annualRentTaxDeduction,
+  };
+  const housingFundRentCredit = (housingFundAmount: number) => config.fireHasHangzhouHome !== true
+    && config.fireHousingFundRentWithdrawalEnabled !== false
+    && annualRentExpense > 0
+    ? Math.min(annualRentExpense, housingFundAmount * 2)
+    : 0;
+  const requiredIncomeTax = estimateGrossAnnualIncomeForResources(
+    requiredAnnualNetIncome,
+    contributionPolicy,
+    (result) => housingFundRentCredit(result.housingFundAmount),
+  );
   const requiredAnnualGrossIncome = requiredIncomeTax.grossAnnualIncome;
   const requiredAnnualTax = requiredIncomeTax.taxAmount;
   const requiredAnnualSocialInsurance = requiredIncomeTax.socialInsuranceAmount;
   const requiredAnnualHousingFund = requiredIncomeTax.housingFundAmount;
   const requiredAnnualSocialContribution = requiredIncomeTax.socialContributionAmount;
-  const requiredMonthlyNetIncome = requiredAnnualNetIncome / 12;
+  const requiredAnnualHousingFundRentWithdrawal = housingFundRentCredit(requiredAnnualHousingFund);
+  const requiredAnnualSalaryNetIncome = requiredIncomeTax.netAnnualIncome;
+  const requiredMonthlyNetIncome = requiredAnnualSalaryNetIncome / 12;
   const requiredMarginalTaxRate = requiredIncomeTax.marginalTaxRate;
 
   // 人生时钟
@@ -136,12 +214,19 @@ export function calcFire(
     monthlyNeeded,
     monthlySurplus,
     requiredAnnualSavings,
+    requiredAnnualSavingsBeforeTalentSubsidy,
     requiredAnnualNetIncome,
+    requiredAnnualSalaryNetIncome,
     requiredAnnualGrossIncome,
     requiredAnnualTax,
     requiredAnnualSocialInsurance,
     requiredAnnualHousingFund,
     requiredAnnualSocialContribution,
+    requiredAnnualHousingFundRentWithdrawal,
+    annualRentExpense,
+    annualRentTaxDeduction,
+    talentSubsidyNominalTotal: talentSubsidy.nominalTotal,
+    talentSubsidyFutureValue,
     housingFundRate,
     requiredMonthlyNetIncome,
     requiredMarginalTaxRate,

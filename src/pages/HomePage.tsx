@@ -34,12 +34,14 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '杭州社保';
+const RELEASE_NOTE = '校准年薪';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
 const CNY_ASSET_ACCOUNT_KEYS = ['savingsCard', 'incomeBank', 'livingBank', 'campusCard', 'consumptionBank', 'wishJar', 'investCnyBank'] as const;
 const USD_ASSET_ACCOUNT_KEYS = ['usdLivingBank', 'usdConsumptionBank', 'usdWishJar', 'investUsdBank'] as const;
+const FIRE_SCENARIO_LABELS: Record<TagKind, string> = { intern: '工作', school: '在校', home: '居家', travel: '旅行' };
+const FIRE_DEGREE_LABELS = { none: '不计人才政策', bachelor: '本科', master: '硕士', doctor: '博士' } as const;
 
 type UsdRateResponse = {
   rate: number;
@@ -273,8 +275,13 @@ export default function HomePage() {
   const activeFutureFireMonthly = futureFireExpenses
     .filter((item) => item.isActive)
     .reduce((sum, item) => sum + item.monthlyAmount, 0);
-  const futureLifeAnnualExpense = stats.stateDailyAvg.school * 365 + activeFutureFireMonthly * 12;
-  const futureConsumptionAnnualExpense = stats.consumptionAvg * 12;
+  const configuredFireExpenseTagKind = config.fireExpenseTagKind ?? 'intern';
+  const fireExpenseScenarioHasData = stats.stateDailyConfidence[configuredFireExpenseTagKind] > 0;
+  const effectiveFireExpenseTagKind = fireExpenseScenarioHasData ? configuredFireExpenseTagKind : 'school';
+  const futureLifeAnnualExpense = stats.stateDailyAvg[effectiveFireExpenseTagKind] * 365 + activeFutureFireMonthly * 12;
+  const futureConsumptionAnnualExpense = fireExpenseScenarioHasData
+    ? stats.stateConsumptionDailyAvg[effectiveFireExpenseTagKind] * 365
+    : stats.consumptionAvg * 12;
   const fireAnnualExpense = fireMode === 'life'
     ? futureLifeAnnualExpense
     : futureLifeAnnualExpense + futureConsumptionAnnualExpense;
@@ -639,6 +646,17 @@ export default function HomePage() {
               })}
             </div>
             <select
+              value={configuredFireExpenseTagKind}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => setConfig({ fireExpenseTagKind: e.target.value as TagKind })}
+              aria-label="FIRE 未来支出场景"
+              style={{ border: '1px solid #e0e0e0', borderRadius: 999, backgroundColor: '#fff', color: '#202124', fontSize: 12, fontWeight: 700, padding: '5px 8px', outline: 'none', cursor: 'pointer' }}
+            >
+              {(Object.keys(FIRE_SCENARIO_LABELS) as TagKind[]).map((kind) => (
+                <option key={kind} value={kind}>{FIRE_SCENARIO_LABELS[kind]}</option>
+              ))}
+            </select>
+            <select
               value={fireTargetYearSelectValue}
               onClick={(e) => e.stopPropagation()}
               onChange={(e) => updateFireTargetYears(e.target.value)}
@@ -657,7 +675,8 @@ export default function HomePage() {
               <div style={{ fontSize: 12, color: C.sub, marginBottom: 3 }}>最低税前年薪</div>
               <div style={{ fontSize: 32, lineHeight: 1.05, fontWeight: 800, color: C.red, fontVariantNumeric: 'tabular-nums' }}>{fmt万(fire.requiredAnnualGrossIncome)}</div>
               <div style={{ marginTop: 5, fontSize: 12, color: C.sub }}>
-                {fireTargetYearLabel}达标 · 税后年需 {fmt万(fire.requiredAnnualNetIncome)}
+                {fireTargetYearLabel}达标 · 工资到手 {fmt万(fire.requiredAnnualSalaryNetIncome)}
+                {fire.requiredAnnualHousingFundRentWithdrawal > 0 && <span style={{ color: C.green }}> · 公积金抵租 {fmt万(fire.requiredAnnualHousingFundRentWithdrawal)}</span>}
                 {fire.majorWishTotal > 0 && <span style={{ color: C.purple }}> · 含愿望 {fmtW(fire.majorWishTotal)}</span>}
               </div>
             </div>
@@ -704,16 +723,60 @@ export default function HomePage() {
               />
             </FireDetailGroup>
             <FireDetailGroup title="支出口径">
+              <StatRow label="未来场景" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{FIRE_SCENARIO_LABELS[configuredFireExpenseTagKind]}{!fireExpenseScenarioHasData ? ' · 暂沿用在校样本' : ''}</span>} />
               <StatRow label="生活年支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(futureLifeAnnualExpense)}</span>} />
               <StatRow label="消费年支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.purple }}>{fmt万(futureConsumptionAnnualExpense)}</span>} />
               <StatRow label="未来固定支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(activeFutureFireMonthly * 12)}</span>} />
+            </FireDetailGroup>
+            <FireDetailGroup title="杭州未来情景">
+              <StatRow label="测算状态" value={<span style={{ fontWeight: 500, color: C.blue }}>待就业 · 未来杭州工资</span>} />
+              <StatRow label="人才身份" value={(
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <select
+                    value={config.fireTalentDegree ?? 'master'}
+                    onChange={(e) => setConfig({ fireTalentDegree: e.target.value as NonNullable<typeof config.fireTalentDegree> })}
+                    style={{ border: '1px solid #e0e0e0', borderRadius: 7, backgroundColor: '#fff', color: '#202124', fontSize: 12, fontWeight: 600, padding: '3px 5px', outline: 'none' }}
+                  >
+                    {(Object.keys(FIRE_DEGREE_LABELS) as (keyof typeof FIRE_DEGREE_LABELS)[]).map((degree) => <option key={degree} value={degree}>{FIRE_DEGREE_LABELS[degree]}</option>)}
+                  </select>
+                  <select
+                    value={config.fireHasHangzhouHome === true ? 'home' : 'no-home'}
+                    onChange={(e) => setConfig({ fireHasHangzhouHome: e.target.value === 'home' })}
+                    style={{ border: '1px solid #e0e0e0', borderRadius: 7, backgroundColor: '#fff', color: '#202124', fontSize: 12, fontWeight: 600, padding: '3px 5px', outline: 'none' }}
+                  >
+                    <option value="no-home">杭州无房</option>
+                    <option value="home">杭州有房</option>
+                  </select>
+                </span>
+              )} />
+              <StatRow label="应届人才补贴" value={(
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: config.fireTalentSubsidyEnabled === false ? C.sub : C.green }}>
+                  <input type="checkbox" checked={config.fireTalentSubsidyEnabled !== false} onChange={(e) => setConfig({ fireTalentSubsidyEnabled: e.target.checked })} />
+                  <span style={{ fontWeight: 600 }}>目标期计入 {fmt万(fire.talentSubsidyNominalTotal)}</span>
+                </label>
+              )} />
+              <StatRow label="租金个税扣除" value={(
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: fire.annualRentTaxDeduction > 0 ? C.green : C.sub }}>
+                  <input type="checkbox" checked={config.fireRentTaxDeductionEnabled !== false} onChange={(e) => setConfig({ fireRentTaxDeductionEnabled: e.target.checked })} />
+                  <span style={{ fontWeight: 600 }}>{fire.annualRentTaxDeduction > 0 ? `${fmt万(fire.annualRentTaxDeduction)}/年` : '添加租房后生效'}</span>
+                </label>
+              )} />
+              <StatRow label="公积金抵房租" value={(
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: fire.requiredAnnualHousingFundRentWithdrawal > 0 ? C.green : C.sub }}>
+                  <input type="checkbox" checked={config.fireHousingFundRentWithdrawalEnabled !== false} onChange={(e) => setConfig({ fireHousingFundRentWithdrawalEnabled: e.target.checked })} />
+                  <span style={{ fontWeight: 600 }}>{fire.requiredAnnualHousingFundRentWithdrawal > 0 ? `${fmt万(fire.requiredAnnualHousingFundRentWithdrawal)}/年` : '添加租房后生效'}</span>
+                </label>
+              )} />
+              <div style={{ marginTop: 6, padding: '8px 10px', borderRadius: 8, backgroundColor: '#f8f9fa', color: C.sub, fontSize: 11, lineHeight: 1.55 }}>
+                硕士生活补贴 3w；无房应届生实际租房时，再按 1w/年×3 测算租房补贴。均需在毕业、首次参保和连续参保时限内达标，不确定时可关闭。
+              </div>
             </FireDetailGroup>
             <FireDetailGroup title="资产目标">
               <StatRow label="目标资产" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(fire.fireTarget)}</span>} />
               <StatRow label="退休所需" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(fire.retirementTarget)}</span>} />
               <StatRow label="大额愿望" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.purple }}>{fmtW(fire.majorWishTotal)}</span>} />
               <StatRow label="理财总额" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(totalInvest)}</span>} />
-              <StatRow label="年理财增长" value={(
+              <StatRow label="实际年化收益" value={(
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                   <input
                     type="text"
@@ -730,13 +793,16 @@ export default function HomePage() {
                   <span style={{ fontSize: 12, color: C.sub }}>%</span>
                 </span>
               )} />
+              <div style={{ marginTop: 4, color: C.sub, fontSize: 11, lineHeight: 1.5 }}>此处按扣除通胀后的实际收益测算，因为 FIRE 目标使用今日支出口径。</div>
               <StatRow label="到期现有资产" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: fire.projectedInvestmentGrowth >= 0 ? C.green : C.red }}>{fmt万(fire.projectedCurrentInvest)}</span>} />
               <StatRow label="目标年数" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt年(fire.targetYears)}年 · 最晚{fmt年(fire.retireYearsLeft)}年</span>} />
             </FireDetailGroup>
             <FireDetailGroup title="收入需求">
               <StatRow label="月需存入" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(fire.monthlyNeeded)}</span>} />
               <StatRow label="估算月结余" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: fire.monthlySurplus >= 0 ? C.green : C.red }}>{fmt万(fire.monthlySurplus)}</span>} />
-              <StatRow label="税后年需" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(fire.requiredAnnualNetIncome)}</span>} />
+              <StatRow label="年支出+储蓄" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(fire.requiredAnnualNetIncome)}</span>} />
+              <StatRow label="预计工资到手" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(fire.requiredAnnualSalaryNetIncome)}</span>} />
+              {fire.talentSubsidyFutureValue > 0 && <StatRow label="人才补贴" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.green }}>合计 {fmt万(fire.talentSubsidyNominalTotal)} · 折到目标 {fmt万(fire.talentSubsidyFutureValue)}</span>} />}
               <StatRow label="杭州五险一金" value={<span style={{ fontWeight: 500, color: C.purple, fontVariantNumeric: 'tabular-nums' }}>{fmt万(fire.requiredAnnualSocialContribution)}</span>} />
               <StatRow indent label="社保" value={(
                 <span style={{ fontVariantNumeric: 'tabular-nums' }}>
@@ -764,11 +830,13 @@ export default function HomePage() {
                   <span style={{ fontSize: 11, color: C.sub }}>%</span>
                 </span>
               )} />
+              {fire.requiredAnnualHousingFundRentWithdrawal > 0 && <StatRow indent label="公积金抵租" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.green }}>{fmt万(fire.requiredAnnualHousingFundRentWithdrawal)} · 已计入年薪</span>} />}
               <StatRow label="预估个税" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(fire.requiredAnnualTax)} · 分段最高{(fire.requiredMarginalTaxRate * 100).toFixed(0)}%</span>} />
+              {fire.annualRentTaxDeduction > 0 && <StatRow indent label="住房租金扣除" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.green }}>{fmt万(fire.annualRentTaxDeduction)}/年 · 已减应纳税所得额</span>} />}
               <div style={{ marginTop: 6, padding: '8px 10px', borderRadius: 8, backgroundColor: '#f8f9fa', color: C.sub, fontSize: 11, lineHeight: 1.55 }}>
                 杭州最新已公布口径：社保基数 ¥{HANGZHOU_SOCIAL_INSURANCE_MONTHLY_BASE_MIN}–¥{HANGZHOU_SOCIAL_INSURANCE_MONTHLY_BASE_MAX}/月；公积金基数 ¥{HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MIN}–¥{HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MAX}/月，比例 5%–12%。
                 <br />
-                🏠 35岁及以下青年或新市民在杭无房租赁，可按月提取本人月缴存公积金支付房租；此处税前年薪仍先按工资扣款测算。
+                🏠 无房青年租赁提取按个人账户月缴存额测算（默认单位与个人同比例缴存），不超过实际年租金。年薪按 12 个月固定工资测算，未拆分年终奖。
               </div>
             </FireDetailGroup>
             <div style={{ paddingTop: 10, borderTop: '1px solid #f1f3f4' }}>
