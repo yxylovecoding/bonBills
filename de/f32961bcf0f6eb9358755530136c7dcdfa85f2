@@ -1,0 +1,29 @@
+src/calculations/fire.ts
+  s_931da009929ff6::t_ba5f956e427d41 19-20,62-66,100-101
+src/data/appConfig.json
+  s_931da009929ff6::t_691f08481032e8 25
+src/models/types.ts
+  s_931da009929ff6::t_335e6bd16c3a0d 48-54,79
+src/pages/HomePage.tsx
+  s_931da009929ff6::t_9203d240b92b3c 22,30,261-262,328-341,628-631,682-683,741-782
+src/stores/configStore.ts
+  s_931da009929ff6::t_220cfd0b8520d4 19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "def32961bcf0f6eb9358755530136c7dcdfa85f2",
+  "prompts": {},
+  "sessions": {
+    "s_931da009929ff6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f5956-b2b5-7313-a9f7-0ec549c218d2",
+        "model": "unknown"
+      },
+      "human_author": "yxylovecoding <yangxy1229@163.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
