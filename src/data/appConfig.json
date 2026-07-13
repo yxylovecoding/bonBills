@@ -22,6 +22,7 @@
     { "id": "subsidy", "name": "院校低保", "amount": 680, "payDay": 1, "isActive": true }
   ],
   "futureFireExpenses": [],
+  "majorFireWishes": [],
   "dramDecision": {
     "symbol": "DRAM",
     "shares": 2.8255,

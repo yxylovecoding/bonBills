@@ -16,6 +16,8 @@ export function getAge(birthDate: string): number {
 export interface FireResult {
   age: number;
   fireTarget: number;
+  retirementTarget: number;
+  majorWishTotal: number;
   target4pct: number;
   targetAge: number;
   progress: number;
@@ -57,7 +59,11 @@ export function calcFire(
 
   const target4pct = annualExpense / config.safeWithdrawRate;
   const targetAge  = annualExpense * Math.max(config.retireAge - age, 1);
-  const fireTarget = Math.min(target4pct, targetAge);
+  const retirementTarget = Math.min(target4pct, targetAge);
+  const majorWishTotal = (config.majorFireWishes ?? [])
+    .filter((wish) => wish.isActive)
+    .reduce((sum, wish) => sum + (Number.isFinite(wish.amount) ? Math.max(wish.amount, 0) : 0), 0);
+  const fireTarget = retirementTarget + majorWishTotal;
 
   const progress = fireTarget > 0 ? investTotal / fireTarget : 0;
   const retireYearsLeft = Math.max(config.retireAge - age, 1);
@@ -91,6 +97,8 @@ export function calcFire(
   return {
     age,
     fireTarget,
+    retirementTarget,
+    majorWishTotal,
     target4pct,
     targetAge,
     progress,

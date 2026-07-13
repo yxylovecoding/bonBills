@@ -16,6 +16,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   reconcileDates: [1, 11, 21],
   incomeItems: [],
   futureFireExpenses: [],
+  majorFireWishes: [],
   majorExpenseThreshold: 500,
   dramDecision: {
     symbol: 'DRAM',

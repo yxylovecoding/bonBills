@@ -19,7 +19,7 @@ import { useTripStore } from '../stores/tripStore';
 import { calcHistoryStats } from '../calculations/history';
 import { calcFire } from '../calculations/fire';
 import { tagMeta } from '../data/mockData';
-import type { FutureFireExpense, IncomeItem, TagKind, LocalLifeBreakdownRow, MonthlyRecord, SharedLifeBreakdownRow } from '../models/types';
+import type { FutureFireExpense, IncomeItem, MajorFireWish, TagKind, LocalLifeBreakdownRow, MonthlyRecord, SharedLifeBreakdownRow } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { dateLabel, daysUntilDate, resolveIncomeForMonth } from '../utils/payroll';
@@ -27,7 +27,7 @@ import { TAX_RULE_PRESETS } from '../utils/tax';
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '外币应还';
+const RELEASE_NOTE = '大额愿望';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
@@ -258,6 +258,8 @@ export default function HomePage() {
   const [sceneLocalOpenCategories, setSceneLocalOpenCategories] = useState<Set<string>>(new Set());
   const futureFireExpenses = config.futureFireExpenses ?? [];
   const syncFutureFireExpenses = (items: FutureFireExpense[]) => setConfig({ futureFireExpenses: items });
+  const majorFireWishes = config.majorFireWishes ?? [];
+  const syncMajorFireWishes = (items: MajorFireWish[]) => setConfig({ majorFireWishes: items });
   const activeFutureFireMonthly = futureFireExpenses
     .filter((item) => item.isActive)
     .reduce((sum, item) => sum + item.monthlyAmount, 0);
@@ -323,6 +325,20 @@ export default function HomePage() {
     { id: `future_fire_${Date.now()}`, name: '租房', monthlyAmount: 0, isActive: true },
   ]);
   const removeFutureFireExpense = (id: string) => syncFutureFireExpenses(futureFireExpenses.filter((item) => item.id !== id));
+  const updateMajorFireWish = (id: string, field: keyof MajorFireWish, raw: string | boolean) => {
+    syncMajorFireWishes(majorFireWishes.map((item) => {
+      if (item.id !== id) return item;
+      if (field === 'name') return { ...item, name: String(raw) };
+      if (field === 'amount') return { ...item, amount: Math.max(parseFloat(String(raw)) || 0, 0) };
+      if (field === 'isActive') return { ...item, isActive: Boolean(raw) };
+      return item;
+    }));
+  };
+  const addMajorFireWish = () => syncMajorFireWishes([
+    ...majorFireWishes,
+    { id: `major_fire_wish_${Date.now()}`, name: '买房', amount: 0, isActive: true },
+  ]);
+  const removeMajorFireWish = (id: string) => syncMajorFireWishes(majorFireWishes.filter((item) => item.id !== id));
 
   // 固定收入编辑
   const [localIncome, setLocalIncome] = useState<IncomeItem[]>(config.incomeItems);
@@ -609,7 +625,10 @@ export default function HomePage() {
             <div style={{ minWidth: 180, flex: '1 1 180px' }}>
               <div style={{ fontSize: 12, color: C.sub, marginBottom: 3 }}>最低税前年薪</div>
               <div style={{ fontSize: 32, lineHeight: 1.05, fontWeight: 800, color: C.red, fontVariantNumeric: 'tabular-nums' }}>{fmt万(fire.requiredAnnualGrossIncome)}</div>
-              <div style={{ marginTop: 5, fontSize: 12, color: C.sub }}>{fireTargetYearLabel}达标 · 税后年需 {fmt万(fire.requiredAnnualNetIncome)}</div>
+              <div style={{ marginTop: 5, fontSize: 12, color: C.sub }}>
+                {fireTargetYearLabel}达标 · 税后年需 {fmt万(fire.requiredAnnualNetIncome)}
+                {fire.majorWishTotal > 0 && <span style={{ color: C.purple }}> · 含愿望 {fmt万(fire.majorWishTotal)}</span>}
+              </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, flex: '1 1 230px', minWidth: 0 }}>
               {[
@@ -660,6 +679,8 @@ export default function HomePage() {
             </FireDetailGroup>
             <FireDetailGroup title="资产目标">
               <StatRow label="目标资产" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(fire.fireTarget)}</span>} />
+              <StatRow label="退休所需" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(fire.retirementTarget)}</span>} />
+              <StatRow label="大额愿望" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.purple }}>{fmt万(fire.majorWishTotal)}</span>} />
               <StatRow label="理财总额" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(totalInvest)}</span>} />
               <StatRow label="年理财增长" value={(
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -717,6 +738,48 @@ export default function HomePage() {
                     />
                     <span style={{ fontSize: 11, color: C.sub }}>/月</span>
                     <button onClick={() => removeFutureFireExpense(item.id)} style={{ flexShrink: 0, background: 'none', border: 'none', color: '#dadce0', fontSize: 16, cursor: 'pointer', padding: '0 2px', lineHeight: 1 }}>×</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{ paddingTop: 14, marginTop: 14, borderTop: '1px solid #f1f3f4' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#202124' }}>大额愿望</span>
+                <button onClick={addMajorFireWish} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 999, border: 'none', backgroundColor: '#f3e8ff', color: C.purple, cursor: 'pointer', fontWeight: 600 }}>
+                  + 添加
+                </button>
+              </div>
+              <div style={{ fontSize: 11, color: C.sub, marginBottom: 8 }}>
+                启用项会加入目标资产，并参与进度、月需存入和收入测算。
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {majorFireWishes.length === 0 && (
+                  <div style={{ fontSize: 12, color: C.sub, backgroundColor: '#f8f9fa', borderRadius: 8, padding: '8px 10px' }}>
+                    暂无大额愿望，例如买房、买车
+                  </div>
+                )}
+                {majorFireWishes.map((item) => (
+                  <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 6, backgroundColor: item.isActive ? '#faf5ff' : '#fff', border: `1px solid ${item.isActive ? '#e9d5ff' : '#f1f3f4'}`, borderRadius: 10, padding: '7px 8px' }}>
+                    <button
+                      aria-label={item.isActive ? '不计入大额愿望' : '计入大额愿望'}
+                      onClick={() => updateMajorFireWish(item.id, 'isActive', !item.isActive)}
+                      style={{ flexShrink: 0, width: 16, height: 16, borderRadius: '50%', border: `2px solid ${item.isActive ? C.purple : '#dadce0'}`, backgroundColor: item.isActive ? C.purple : '#fff', cursor: 'pointer' }}
+                    />
+                    <input
+                      aria-label="愿望名称"
+                      value={item.name}
+                      onChange={(e) => updateMajorFireWish(item.id, 'name', e.target.value)}
+                      style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontWeight: 600, color: item.isActive ? '#202124' : '#9aa0a6' }}
+                    />
+                    <span style={{ fontSize: 11, color: C.sub }}>¥</span>
+                    <AmountInput
+                      value={String(item.amount || '')}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(v) => updateMajorFireWish(item.id, 'amount', /^0\d/.test(v) ? (v.replace(/^0+/, '') || '0') : v)}
+                      style={{ width: 82, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontWeight: 600, color: C.purple, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
+                    />
+                    <span style={{ fontSize: 11, color: C.sub }}>总额</span>
+                    <button aria-label="删除大额愿望" onClick={() => removeMajorFireWish(item.id)} style={{ flexShrink: 0, background: 'none', border: 'none', color: '#dadce0', fontSize: 16, cursor: 'pointer', padding: '0 2px', lineHeight: 1 }}>×</button>
                   </div>
                 ))}
               </div>
