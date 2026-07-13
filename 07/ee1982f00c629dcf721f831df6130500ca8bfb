@@ -1,0 +1,27 @@
+src/data/appConfig.json
+  s_931da009929ff6::t_dfb384295da19c 7-12
+src/models/types.ts
+  s_931da009929ff6::t_69091fd39cae6d 70,72-77
+src/pages/HomePage.tsx
+  s_931da009929ff6::t_27069efd3aa141 37,43-44,278-284,648-658,678-679,726,731-773,779,796,803-805,833,835,839
+src/utils/tax.ts
+  s_931da009929ff6::t_86f3fdfd6e05a0 36,123-132,173-181,184-188,191,197,206
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "07ee1982f00c629dcf721f831df6130500ca8bfb",
+  "prompts": {},
+  "sessions": {
+    "s_931da009929ff6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f5956-b2b5-7313-a9f7-0ec549c218d2",
+        "model": "unknown"
+      },
+      "human_author": "yxylovecoding <yangxy1229@163.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
