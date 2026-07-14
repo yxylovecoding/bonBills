@@ -1,0 +1,29 @@
+src/models/types.ts
+  s_ca48a89f86f80c::t_48b70dbaf9a566 137
+src/pages/CalendarPage.tsx
+  s_ca48a89f86f80c::t_c873c0053f3ad1 30,565,578,590-591,601,612,669-673,683-685,788,793,799,814,818,846,867,891-916,1770-1771,1830-1855
+src/pages/HomePage.tsx
+  s_ca48a89f86f80c::t_bf5d2cecaf95f9 37
+src/utils/billImportActions.ts
+  s_ca48a89f86f80c::t_696312338ee248 46
+src/utils/monthlyMetrics.ts
+  s_ca48a89f86f80c::t_79c7a55e497abc 1-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "470f0403e1301ac92b505824c666dd34bbcd3c12",
+  "prompts": {},
+  "sessions": {
+    "s_ca48a89f86f80c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f5f73-326c-7cd1-8acb-e23429c11c64",
+        "model": "unknown"
+      },
+      "human_author": "yxylovecoding <yangxy1229@163.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
