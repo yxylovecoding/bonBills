@@ -11,6 +11,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   fireHousingFundRate: 0.12,
   fireExpenseTagKind: 'intern',
   fireTalentDegree: 'master',
+  fireProfileSource: 'boncv',
+  fireGraduationDate: null,
   fireHasHangzhouHome: false,
   fireExpectedAnnualWageIncome: 500000,
   fireExpectedTalentClass: 'e',

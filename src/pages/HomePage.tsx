@@ -16,6 +16,7 @@ import { useCalendarStore } from '../stores/calendarStore';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useExpenseScopeOverrideStore } from '../stores/expenseScopeOverrideStore';
 import { useTripStore } from '../stores/tripStore';
+import { fetchBonCvFireProfile } from '../utils/bonCv';
 import { calcHistoryStats } from '../calculations/history';
 import { calcFire } from '../calculations/fire';
 import { tagMeta } from '../data/mockData';
@@ -34,7 +35,7 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '储蓄再校准';
+const RELEASE_NOTE = '简历联动';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
@@ -267,6 +268,7 @@ export default function HomePage() {
   const [fireExpanded, setFireExpanded] = useState(false);
   const [fireHousingFundRateDraft, setFireHousingFundRateDraft] = useState<string | null>(null);
   const [fireExpectedWageDraft, setFireExpectedWageDraft] = useState<string | null>(null);
+  const [bonCvStatus, setBonCvStatus] = useState<'idle' | 'loading' | 'connected' | 'stale' | 'unconfigured'>('idle');
   const [sceneExpanded, setSceneExpanded] = useState<Set<TagKind>>(new Set());
   const [sceneLocalOpenCategories, setSceneLocalOpenCategories] = useState<Set<string>>(new Set());
   const futureFireExpenses = config.futureFireExpenses ?? [];
@@ -277,6 +279,45 @@ export default function HomePage() {
   const activeFutureFireMonthly = futureFireExpenses
     .filter((item) => item.isActive)
     .reduce((sum, item) => sum + item.monthlyAmount, 0);
+  const bonCvSyncedAtLabel = config.bonCvFireSnapshot?.syncedAt
+    ? new Date(config.bonCvFireSnapshot.syncedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : '';
+
+  const refreshBonCv = async () => {
+    if ((config.fireProfileSource ?? 'boncv') !== 'boncv') return;
+    setBonCvStatus('loading');
+    try {
+      const result = await fetchBonCvFireProfile(config.bonCvFireSnapshot?.etag);
+      if (result.status === 'not-modified') {
+        if (config.bonCvFireSnapshot) setConfig({ bonCvFireSnapshot: { ...config.bonCvFireSnapshot, syncedAt: new Date().toISOString() } });
+        setBonCvStatus('connected');
+        return;
+      }
+      const profile = result.profile;
+      setConfig({
+        birthDate: profile.birthDate || config.birthDate,
+        fireTalentDegree: profile.education.level,
+        fireGraduationDate: profile.education.graduationDate,
+        bonCvFireSnapshot: {
+          revision: profile.revision,
+          updatedAt: profile.updatedAt,
+          syncedAt: new Date().toISOString(),
+          etag: result.etag,
+          birthDate: profile.birthDate,
+          education: profile.education,
+        },
+      });
+      setBonCvStatus('connected');
+    } catch (error) {
+      setBonCvStatus(error instanceof Error && error.message === 'BONCV_NOT_CONFIGURED' ? 'unconfigured' : 'stale');
+    }
+  };
+
+  useEffect(() => {
+    if ((config.fireProfileSource ?? 'boncv') === 'boncv') void refreshBonCv();
+    // 仅在来源切换或页面首次进入时同步，避免写回配置后重复请求。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.fireProfileSource]);
   const configuredFireExpenseTagKind = config.fireExpenseTagKind ?? 'intern';
   const fireExpenseScenarioHasData = stats.stateDailyConfidence[configuredFireExpenseTagKind] > 0;
   const effectiveFireExpenseTagKind = fireExpenseScenarioHasData ? configuredFireExpenseTagKind : 'school';
@@ -745,12 +786,29 @@ export default function HomePage() {
               <StatRow label="未来固定支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(activeFutureFireMonthly * 12)}</span>} />
             </FireDetailGroup>
             <FireDetailGroup title="杭州未来情景">
+              <StatRow label="BonCV 联动" value={(
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <select
+                    value={config.fireProfileSource ?? 'boncv'}
+                    onChange={(e) => setConfig({ fireProfileSource: e.target.value as 'boncv' | 'manual' })}
+                    style={{ border: '1px solid #e0e0e0', borderRadius: 7, backgroundColor: '#fff', color: '#202124', fontSize: 12, fontWeight: 600, padding: '3px 5px', outline: 'none' }}
+                  >
+                    <option value="boncv">来自 BonCV</option>
+                    <option value="manual">手工维护</option>
+                  </select>
+                  {(config.fireProfileSource ?? 'boncv') === 'boncv' && <button type="button" onClick={() => void refreshBonCv()} disabled={bonCvStatus === 'loading'} style={{ border: 0, borderRadius: 7, backgroundColor: '#eef4ff', color: C.blue, fontSize: 11, fontWeight: 600, padding: '4px 7px', cursor: 'pointer' }}>{bonCvStatus === 'loading' ? '同步中' : '刷新'}</button>}
+                  <span style={{ fontSize: 11, color: bonCvStatus === 'connected' ? C.green : bonCvStatus === 'stale' ? C.orange : C.sub }}>
+                    {bonCvStatus === 'connected' ? `已连接 · v${config.bonCvFireSnapshot?.revision ?? '—'} · ${bonCvSyncedAtLabel}` : bonCvStatus === 'stale' ? `旧数据 · ${bonCvSyncedAtLabel || '未同步'}` : bonCvStatus === 'unconfigured' ? '待配置' : ''}
+                  </span>
+                </span>
+              )} />
               <StatRow label="测算状态" value={<span style={{ fontWeight: 500, color: C.blue }}>待就业 · 未来杭州工资</span>} />
               <StatRow label="人才身份" value={(
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   <select
                     value={config.fireTalentDegree ?? 'master'}
                     onChange={(e) => setConfig({ fireTalentDegree: e.target.value as NonNullable<typeof config.fireTalentDegree> })}
+                    disabled={(config.fireProfileSource ?? 'boncv') === 'boncv' && Boolean(config.bonCvFireSnapshot)}
                     style={{ border: '1px solid #e0e0e0', borderRadius: 7, backgroundColor: '#fff', color: '#202124', fontSize: 12, fontWeight: 600, padding: '3px 5px', outline: 'none' }}
                   >
                     {(Object.keys(FIRE_DEGREE_LABELS) as (keyof typeof FIRE_DEGREE_LABELS)[]).map((degree) => <option key={degree} value={degree}>{FIRE_DEGREE_LABELS[degree]}</option>)}
@@ -818,6 +876,7 @@ export default function HomePage() {
                 </label>
               )} />
               <div style={{ marginTop: 6, padding: '8px 10px', borderRadius: 8, backgroundColor: '#f8f9fa', color: C.sub, fontSize: 11, lineHeight: 1.55 }}>
+                {config.fireGraduationDate && <>BonCV 毕业日期：{config.fireGraduationDate}，人才补贴从毕业后的首个就业年度开始计入。<br /></>}
                 {expectsETalent && eTalentIncomeThresholdMet
                   ? `按保守口径：硕士生活补贴 3w；为保留 E 类租赁补贴资格，不叠加应届生租房补贴，预计第 ${eTalentRecognitionYear} 就业年起按 2500 元/月、最长 5 年计入。`
                   : '硕士生活补贴 3w；无房应届生实际租房时，再按 1w/年×3 测算租房补贴。'}

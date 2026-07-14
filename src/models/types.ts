@@ -62,6 +62,19 @@ export interface DramDecisionConfig {
   drawdownClear: number;  // 从近端高点回撤达到该比例时清仓
 }
 
+export interface BonCvFireSnapshot {
+  revision: number;
+  updatedAt: string;
+  syncedAt: string;
+  etag?: string;
+  birthDate: string;
+  education: {
+    level: 'none' | 'bachelor' | 'master' | 'doctor';
+    status: 'completed' | 'in_progress';
+    graduationDate: string | null;
+  };
+}
+
 export interface AppConfig {
   birthDate: string;          // "2002-12-29"
   retireAge: number;          // 55
@@ -71,6 +84,9 @@ export interface AppConfig {
   fireHousingFundRate?: number; // FIRE 杭州口径中的个人公积金比例（5%–12%）
   fireExpenseTagKind?: TagKind; // FIRE 未来生活支出参照场景，待就业默认按工作/实习测算
   fireTalentDegree?: 'none' | 'bachelor' | 'master' | 'doctor';
+  fireProfileSource?: 'boncv' | 'manual';
+  fireGraduationDate?: string | null;
+  bonCvFireSnapshot?: BonCvFireSnapshot;
   fireHasHangzhouHome?: boolean;
   fireExpectedAnnualWageIncome?: number; // 预期年工资性收入，用于人才政策情景，不代替“最低年薪”
   fireExpectedTalentClass?: 'none' | 'e';

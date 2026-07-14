@@ -37,6 +37,17 @@ BILL_ATTACHMENT_PATTERN=^账单_\d{10}\.xlsx?$
 BILL_IMAGE_ATTACHMENT_PATTERN=\.(png|jpe?g|webp|gif|bmp|tiff?)$
 ```
 
+## BonCV FIRE 联动
+
+首页 FIRE 可以从 BonCV 单向同步出生日期、最高学历和毕业日期。BonCV 连接密钥只保存在服务端，浏览器通过受现有 `SYNC_SECRET` 保护的代理读取最小字段。
+
+```bash
+BONCV_API_BASE_URL=https://你的-boncv-域名
+BONCV_API_KEY=从 BonCV“连接”页面创建的 fire:read 密钥
+```
+
+连接失败时会保留上次成功快照；也可在 FIRE 详情中切换为手工维护。
+
 ## 图片 OCR 导入
 
 拖入图片或从邮箱获取图片附件时，会在浏览器本地通过 Tesseract OCR 识别，并按内容自动判断资产页或理财页。对账页的图片导入草稿会同步展示原图，便于和识别结果对照。账户截图按“生活=建设银行+微信、信用卡应还优先用生活正数合计减生活净额、收入=收入栏、理财现金中国银行=境内/嘉信=境外”映射，理财截图金额按 now/当前市值写入。首次使用会下载 OCR worker 与中文语言包，之后由浏览器缓存。

@@ -110,29 +110,36 @@ function calcTalentSubsidies(
     && expectedAnnualWageIncome >= HANGZHOU_E_TALENT_ANNUAL_WAGE_THRESHOLD;
   const eTalentRecognitionYear = Math.min(Math.max(Math.round(config.fireETalentRecognitionYear ?? 3), 2), 5);
   const wholeYears = Math.max(Math.floor(targetYears), 0);
+  const graduationDate = config.fireGraduationDate ? new Date(config.fireGraduationDate) : null;
+  const now = new Date();
+  const careerStartOffsetYears = graduationDate && !Number.isNaN(graduationDate.getTime()) && graduationDate > now
+    ? (graduationDate.getTime() - now.getTime()) / (365.25 * 24 * 60 * 60 * 1000)
+    : 0;
   let nominalTotal = 0;
   let futureValue = 0;
   let graduateRentSubsidyTotal = 0;
   let eTalentRentSubsidyTotal = 0;
   for (let year = 1; year <= wholeYears; year += 1) {
+    const employmentYear = Math.floor(year - careerStartOffsetYears);
+    if (employmentYear < 1) continue;
     let housingSubsidy = 0;
     if (housingSubsidyEligible && expectsETalent) {
-      if (year >= eTalentRecognitionYear && year < eTalentRecognitionYear + HANGZHOU_E_TALENT_RENT_SUBSIDY_YEARS) {
+      if (employmentYear >= eTalentRecognitionYear && employmentYear < eTalentRecognitionYear + HANGZHOU_E_TALENT_RENT_SUBSIDY_YEARS) {
         housingSubsidy = HANGZHOU_E_TALENT_ANNUAL_RENT_SUBSIDY;
         eTalentRentSubsidyTotal += housingSubsidy;
       }
-    } else if (housingSubsidyEligible && year <= HANGZHOU_GRADUATE_RENT_SUBSIDY_YEARS) {
+    } else if (housingSubsidyEligible && employmentYear <= HANGZHOU_GRADUATE_RENT_SUBSIDY_YEARS) {
       housingSubsidy = HANGZHOU_ANNUAL_GRADUATE_RENT_SUBSIDY;
       graduateRentSubsidyTotal += housingSubsidy;
     }
-    const amount = (year === 1 ? lifeSubsidy : 0) + housingSubsidy;
+    const amount = (employmentYear === 1 ? lifeSubsidy : 0) + housingSubsidy;
     nominalTotal += amount;
     futureValue += amount * Math.pow(1 + annualGrowthRate, Math.max(targetYears - year, 0));
   }
   return {
     nominalTotal,
     futureValue,
-    graduateLifeSubsidyTotal: wholeYears >= 1 ? lifeSubsidy : 0,
+    graduateLifeSubsidyTotal: wholeYears > careerStartOffsetYears ? lifeSubsidy : 0,
     graduateRentSubsidyTotal,
     eTalentRentSubsidyTotal,
   };
