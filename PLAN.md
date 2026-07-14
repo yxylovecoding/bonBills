@@ -112,6 +112,7 @@ interface MonthlyRecord {
   // 用户输入 (淡黄色)
   income: number;              // 总收入
   totalExpense: number;        // 总支出
+  totalAssets?: number;        // 月末总资产（手动录入）
   accumulatedProfit: number;   // 累计盈利(用于算本月理财收入)
   investTotal: number;         // 理财总额(用于算收益率)
   volatileLife: number;        // 波动生活
@@ -133,6 +134,9 @@ interface MonthlyRecord {
   totalLife: number;           // = 周期生活 + 波动生活
   surplus: number;             // = 收入 - 总支出
   lifeSurplus: number;         // = 收入 - 生活支出
+  assetChange?: number;        // = 本月总资产 - 上月总资产
+  savedAmount?: number;        // = 资产增加 - 理财收入（真正存下来的金额）
+  savingsRate?: number;        // = 实际存下 / 收入；不是结余 / 收入
 
   // 天数统计 (从日历tag聚合)
   dayStats: {

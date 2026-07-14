@@ -27,7 +27,7 @@ import { useHolidayYears } from '../utils/holidays';
 import { sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { getPayrollScheduleForMonth } from '../utils/payroll';
 import { getCategoryProfit, getInvestTotalForRate } from '../utils/investRecords';
-import { getMonthlyAssetChange, getMonthlySavingsRate } from '../utils/monthlyMetrics';
+import { getMonthlyAssetChange, getMonthlySavedAmount, getMonthlySavingsRate } from '../utils/monthlyMetrics';
 import { getActiveSyncSecret } from '../utils/syncEngine';
 import {
   financeScreenshotImportMessage,
@@ -681,9 +681,16 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   );
   const surplus = n(income) - n(totalExpense);
   const totalAssetsValue = nOrUndefined(totalAssets);
-  const savingsRate = getMonthlySavingsRate({ income: n(income), totalExpense: n(totalExpense) });
   const assetChange = getMonthlyAssetChange({ totalAssets: totalAssetsValue }, prevRecord);
   const investIncome = prevRecord ? n(accProfit) - (prevRecord.accumulatedProfit ?? 0) : null;
+  const savingsDraft = {
+    income: n(income),
+    totalAssets: totalAssetsValue,
+    accumulatedProfit: n(accProfit),
+    isBaseline,
+  };
+  const savedAmount = getMonthlySavedAmount(savingsDraft, prevRecord);
+  const savingsRate = getMonthlySavingsRate(savingsDraft, prevRecord);
   const investMonthly = investIncome !== null && investTotalForRate !== null ? investIncome / investTotalForRate.value : null;
   const investAnnual = investMonthly !== null ? investMonthly * 12 : null;
   const getBreakdownMonthlyProfit = (k: keyof InvestHoldings) => {
@@ -843,7 +850,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   return {
     income, setIncome, totalExpense, setTotalExpense, periodicLife, setPeriodicLife,
     volatileLife, setVolatileLife, consumption, setConsumption, school, setSchool,
-    totalAssets, setTotalAssets, totalAssetsValue, assetChange, savingsRate,
+    totalAssets, setTotalAssets, totalAssetsValue, assetChange, savedAmount, savingsRate,
     accProfit, setAccProfit, investTotal, isBaseline, setIsBaseline,
     majorExpenses, majorExpensesNote, setMajorExpensesNote, breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
     pastBreakdownProfit, setPastBreakdownProfit, pastUsdComponents, setPastUsdComponents,
@@ -864,7 +871,7 @@ type MonthFormState = ReturnType<typeof useMonthForm>;
 function MonthDataSection({ state }: { state: MonthFormState }) {
   const {
     income, totalExpense, periodicLife, volatileLife, consumption, school,
-    totalAssets, setTotalAssets, totalAssetsValue, assetChange, savingsRate,
+    totalAssets, setTotalAssets, totalAssetsValue, assetChange, savedAmount, savingsRate,
     accProfit, setAccProfit, investTotal,
     surplus, investIncome, investMonthly, investAnnual, investTotalForRate, investTotalStoredOnly, n,
     mainFieldRefs, breakdownRefs, labelStyle,
@@ -888,12 +895,6 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
             {surplus >= 0 ? '+' : '-'}¥{formatCurrency(Math.abs(surplus))}
           </div>
         </div>
-        <div style={{ flex: 1, minWidth: 100, backgroundColor: savingsRate !== null && savingsRate >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
-          <div style={{ fontSize: 11, color: C.sub }}>储蓄率</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: savingsRate !== null && savingsRate >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>
-            {savingsRate !== null ? `${(savingsRate * 100).toFixed(1)}%` : '—'}
-          </div>
-        </div>
         <div style={{ flex: 1, minWidth: 100, backgroundColor: '#fffbeb', borderRadius: 10, padding: '10px 14px' }}>
           <div style={{ fontSize: 11, color: C.sub }}>总资产（手填）</div>
           <AmountInput
@@ -913,6 +914,20 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
           {assetChange === null && totalAssetsValue !== undefined && (
             <div style={{ marginTop: 2, fontSize: 10, color: C.sub }}>上月未记录</div>
           )}
+        </div>
+        <div style={{ flex: 1, minWidth: 100, backgroundColor: savedAmount !== null && savedAmount >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
+          <div style={{ fontSize: 11, color: C.sub }}>实际存下</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: savedAmount !== null && savedAmount >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>
+            {savedAmount !== null ? formatSignedCurrency(savedAmount) : '—'}
+          </div>
+          <div style={{ marginTop: 2, fontSize: 10, color: C.sub }}>资产增加 − 理财收入</div>
+        </div>
+        <div style={{ flex: 1, minWidth: 100, backgroundColor: savingsRate !== null && savingsRate >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
+          <div style={{ fontSize: 11, color: C.sub }}>储蓄率</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: savingsRate !== null && savingsRate >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>
+            {savingsRate !== null ? `${(savingsRate * 100).toFixed(1)}%` : '—'}
+          </div>
+          <div style={{ marginTop: 2, fontSize: 10, color: C.sub }}>实际存下 ÷ 收入</div>
         </div>
         {investIncome !== null && (
           <div style={{ flex: 1, minWidth: 100, backgroundColor: investIncome >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
@@ -1767,8 +1782,9 @@ function MonthRow({
 }) {
   const [open, setOpen] = useState(false);
   const surplus = record.income - record.totalExpense;
-  const savingsRate = getMonthlySavingsRate(record);
   const assetChange = getMonthlyAssetChange(record, prev);
+  const savedAmount = getMonthlySavedAmount(record, prev);
+  const savingsRate = getMonthlySavingsRate(record, prev);
   const expenseSum = record.periodicLife + record.volatileLife + record.consumption;
   const expenseDiff = Math.round((expenseSum - record.totalExpense) * 100) / 100;
   const expenseMismatch = Math.abs(expenseDiff) > 0.01;
@@ -1827,7 +1843,7 @@ function MonthRow({
               <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{expenseDiff > 0 ? '+' : ''}{formatCurrency(expenseDiff)}</span>
             </div>
           )}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginBottom: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginBottom: 12 }}>
             {([
               {
                 label: '总资产',
@@ -1838,6 +1854,11 @@ function MonthRow({
                 label: '资产增加',
                 value: assetChange !== null ? formatSignedCurrency(assetChange) : '—',
                 color: assetChange !== null ? (assetChange >= 0 ? C.red : C.green) : C.sub,
+              },
+              {
+                label: '实际存下',
+                value: savedAmount !== null ? formatSignedCurrency(savedAmount) : '—',
+                color: savedAmount !== null ? (savedAmount >= 0 ? C.red : C.green) : C.sub,
               },
               {
                 label: '储蓄率',

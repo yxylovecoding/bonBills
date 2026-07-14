@@ -3,6 +3,7 @@ import type { BillExpenseMonth } from '../utils/importBill';
 import { assignExpenseIds } from '../utils/importBill';
 import { normalizeConfirmedSelection } from '../stores/calendarStore';
 import type { ExpenseScopeOverrides } from '../stores/expenseScopeOverrideStore';
+import { getMonthlySavedAmount } from '../utils/monthlyMetrics';
 import { resolveExpenseScope } from '../stores/expenseScopeOverrideStore';
 
 // ── Ridge 回归（正规方程 + 对角正则化，避免奇异）────────────────
@@ -235,9 +236,18 @@ export function calcHistoryStats(
   const totalExpenseAvg  = sum('totalExpense') / n;
   const monthlyIncomeAvg = sum('income') / n;
 
-  const totalIncome  = sum('income');
-  const totalExpense = sum('totalExpense');
-  const savingsRate  = totalIncome > 0 ? (totalIncome - totalExpense) / totalIncome : 0;
+  const byMonth = new Map(records.map((record) => [record.yearMonth, record]));
+  const savingsRows = records.flatMap((record) => {
+    const [year, month] = record.yearMonth.split('-').map(Number);
+    const previousMonth = month === 1
+      ? `${year - 1}-12`
+      : `${year}-${String(month - 1).padStart(2, '0')}`;
+    const savedAmount = getMonthlySavedAmount(record, byMonth.get(previousMonth));
+    return savedAmount !== null && record.income > 0 ? [{ income: record.income, savedAmount }] : [];
+  });
+  const savingsIncome = savingsRows.reduce((total, row) => total + row.income, 0);
+  const totalSaved = savingsRows.reduce((total, row) => total + row.savedAmount, 0);
+  const savingsRate = savingsIncome > 0 ? totalSaved / savingsIncome : 0;
 
   // 按月解析实际各状态天数：tagMap 优先，fallback 到 MonthlyRecord 字段或推算
   function getStateDays(r: MonthlyRecord): ByTag {
