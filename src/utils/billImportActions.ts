@@ -43,6 +43,7 @@ export function recordFromBillAggregate(yearMonth: string, a: BillMonthlyAgg, pr
     volatileLife: pick('volatileLife', prev?.volatileLife ?? 0),
     consumption: pick('consumption', prev?.consumption ?? 0),
     school: pick('school', prev?.school ?? 0),
+    totalAssets: prev?.totalAssets,
     accumulatedProfit: prev?.accumulatedProfit ?? 0,
     investTotal: prev?.investTotal ?? 0,
     investBreakdown: prev?.investBreakdown,

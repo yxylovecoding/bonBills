@@ -27,6 +27,7 @@ import { useHolidayYears } from '../utils/holidays';
 import { sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { getPayrollScheduleForMonth } from '../utils/payroll';
 import { getCategoryProfit, getInvestTotalForRate } from '../utils/investRecords';
+import { getMonthlyAssetChange, getMonthlySavingsRate } from '../utils/monthlyMetrics';
 import { getActiveSyncSecret } from '../utils/syncEngine';
 import {
   financeScreenshotImportMessage,
@@ -561,6 +562,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   const [volatileLife, setVolatileLife]  = useState(String(existing?.volatileLife  ?? ''));
   const [consumption,  setConsumption]   = useState(String(existing?.consumption   ?? ''));
   const [school,       setSchool]        = useState(String(existing?.school        ?? ''));
+  const [totalAssets,  setTotalAssets]   = useState(String(existing?.totalAssets   ?? ''));
   const [accProfit,    setAccProfit]     = useState(String(existing?.accumulatedProfit ?? ''));
   // 基准月：有累计盈利但未真正开始记录，本月/次月各品类「本月收益」不参与推算
   const [isBaseline,   setIsBaseline]    = useState(existing?.isBaseline ?? false);
@@ -573,6 +575,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   const ourLastWrittenRef = useRef<{
     income: number; totalExpense: number; periodicLife: number;
     volatileLife: number; consumption: number; school: number;
+    totalAssets?: number;
   } | null>(null);
 
   useEffect(() => {
@@ -584,7 +587,8 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       && our.periodicLife  === (existing?.periodicLife  ?? 0)
       && our.volatileLife  === (existing?.volatileLife  ?? 0)
       && our.consumption   === (existing?.consumption   ?? 0)
-      && our.school        === (existing?.school        ?? 0);
+      && our.school        === (existing?.school        ?? 0)
+      && our.totalAssets   === existing?.totalAssets;
     // 自己保存后 store 反弹回来：state 已经是最新值，不要再 setState/复位 flag，
     // 否则用户连续输入会被下一次 sync 触发的 isFirstSave 复位吃掉
     if (isBounceback) return;
@@ -594,6 +598,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     setVolatileLife(String(existing?.volatileLife ?? ''));
     setConsumption(String(existing?.consumption ?? ''));
     setSchool(String(existing?.school ?? ''));
+    setTotalAssets(String(existing?.totalAssets ?? ''));
     // existing 由外部刷新（导入账单 upsert 等）时，跳过下一次由派生依赖触发的自动保存，
     // 避免在 setState 还未应用的闭包里读到空字符串把 store 清零
     isFirstSave.current = true;
@@ -604,6 +609,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     existing?.volatileLife,
     existing?.consumption,
     existing?.school,
+    existing?.totalAssets,
   ]);
 
   const homeDays   = tagCounts.home   > 0 ? tagCounts.home   : (existing?.homeDays   ?? 0);
@@ -660,6 +666,11 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     const parsed = parseFloat(v);
     return Number.isFinite(parsed) ? parsed : null;
   };
+  const nOrUndefined = (v: string) => {
+    if (v.trim() === '') return undefined;
+    const parsed = parseFloat(v);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  };
   const breakdownInvestTotal = INVEST_KEYS.reduce((sum, k) => sum + (parseFloat(breakdown[k] ?? '') || 0), 0);
   const hasBreakdownAmount = INVEST_KEYS.some((k) => (parseFloat(breakdown[k] ?? '') || 0) > 0);
   const investTotalStoredOnly = !hasBreakdownAmount && (existing?.investTotal ?? 0) > 0;
@@ -669,6 +680,9 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     [yearMonth, investTotal, allRecords],
   );
   const surplus = n(income) - n(totalExpense);
+  const totalAssetsValue = nOrUndefined(totalAssets);
+  const savingsRate = getMonthlySavingsRate({ income: n(income), totalExpense: n(totalExpense) });
+  const assetChange = getMonthlyAssetChange({ totalAssets: totalAssetsValue }, prevRecord);
   const investIncome = prevRecord ? n(accProfit) - (prevRecord.accumulatedProfit ?? 0) : null;
   const investMonthly = investIncome !== null && investTotalForRate !== null ? investIncome / investTotalForRate.value : null;
   const investAnnual = investMonthly !== null ? investMonthly * 12 : null;
@@ -771,16 +785,18 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     const volatileLifeNum = n(volatileLife);
     const consumptionNum  = n(consumption);
     const schoolNum       = n(school);
+    const totalAssetsNum  = nOrUndefined(totalAssets);
     // 记录本次写出的核心字段，便于 sync effect 识别 store 反弹（避免误复位 isFirstSave）
     ourLastWrittenRef.current = {
       income: incomeNum, totalExpense: totalExpenseNum,
       periodicLife: periodicLifeNum, volatileLife: volatileLifeNum,
-      consumption: consumptionNum, school: schoolNum,
+      consumption: consumptionNum, school: schoolNum, totalAssets: totalAssetsNum,
     };
     onSave({
       yearMonth, income: incomeNum, totalExpense: totalExpenseNum,
       periodicLife: periodicLifeNum, volatileLife: volatileLifeNum,
       consumption: consumptionNum, school: schoolNum,
+      totalAssets: totalAssetsNum,
       accumulatedProfit: n(accProfit), investTotal,
       investBreakdown: hasBreakdown ? bd : undefined,
       investBreakdownProfit: hasBreakdownProfit ? bp : undefined,
@@ -795,11 +811,11 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   };
 
   const autoSaveSignature = useMemo(() => JSON.stringify({
-    income, totalExpense, periodicLife, volatileLife, consumption, school, accProfit, isBaseline,
+    income, totalExpense, periodicLife, volatileLife, consumption, school, totalAssets, accProfit, isBaseline,
     majorExpenses, majorExpensesNote, breakdown, breakdownProfit, usdComponents, sharedUsdRate,
     pastBreakdownProfit, pastUsdComponents,
   }), [
-    income, totalExpense, periodicLife, volatileLife, consumption, school, accProfit, isBaseline,
+    income, totalExpense, periodicLife, volatileLife, consumption, school, totalAssets, accProfit, isBaseline,
     majorExpenses, majorExpensesNote, breakdown, breakdownProfit, usdComponents, sharedUsdRate,
     pastBreakdownProfit, pastUsdComponents,
   ]);
@@ -827,6 +843,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   return {
     income, setIncome, totalExpense, setTotalExpense, periodicLife, setPeriodicLife,
     volatileLife, setVolatileLife, consumption, setConsumption, school, setSchool,
+    totalAssets, setTotalAssets, totalAssetsValue, assetChange, savingsRate,
     accProfit, setAccProfit, investTotal, isBaseline, setIsBaseline,
     majorExpenses, majorExpensesNote, setMajorExpensesNote, breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
     pastBreakdownProfit, setPastBreakdownProfit, pastUsdComponents, setPastUsdComponents,
@@ -847,6 +864,7 @@ type MonthFormState = ReturnType<typeof useMonthForm>;
 function MonthDataSection({ state }: { state: MonthFormState }) {
   const {
     income, totalExpense, periodicLife, volatileLife, consumption, school,
+    totalAssets, setTotalAssets, totalAssetsValue, assetChange, savingsRate,
     accProfit, setAccProfit, investTotal,
     surplus, investIncome, investMonthly, investAnnual, investTotalForRate, investTotalStoredOnly, n,
     mainFieldRefs, breakdownRefs, labelStyle,
@@ -869,6 +887,32 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
           <div style={{ fontSize: 16, fontWeight: 700, color: surplus >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>
             {surplus >= 0 ? '+' : '-'}¥{formatCurrency(Math.abs(surplus))}
           </div>
+        </div>
+        <div style={{ flex: 1, minWidth: 100, backgroundColor: savingsRate !== null && savingsRate >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
+          <div style={{ fontSize: 11, color: C.sub }}>储蓄率</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: savingsRate !== null && savingsRate >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>
+            {savingsRate !== null ? `${(savingsRate * 100).toFixed(1)}%` : '—'}
+          </div>
+        </div>
+        <div style={{ flex: 1, minWidth: 100, backgroundColor: '#fffbeb', borderRadius: 10, padding: '10px 14px' }}>
+          <div style={{ fontSize: 11, color: C.sub }}>总资产（手填）</div>
+          <AmountInput
+            ref={(el) => { mainFieldRefs.current[1] = el; }}
+            aria-label="月末总资产"
+            value={totalAssets}
+            onChange={setTotalAssets}
+            placeholder="0.00"
+            style={{ width: '100%', border: 'none', borderBottom: '1.5px solid #fbbf24', borderRadius: 0, padding: '2px 0', fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', outline: 'none', backgroundColor: 'transparent', boxSizing: 'border-box', color: '#202124' }}
+          />
+        </div>
+        <div style={{ flex: 1, minWidth: 100, backgroundColor: assetChange !== null && assetChange >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
+          <div style={{ fontSize: 11, color: C.sub }}>资产增加</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: assetChange !== null && assetChange >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>
+            {assetChange !== null ? formatSignedCurrency(assetChange) : '—'}
+          </div>
+          {assetChange === null && totalAssetsValue !== undefined && (
+            <div style={{ marginTop: 2, fontSize: 10, color: C.sub }}>上月未记录</div>
+          )}
         </div>
         {investIncome !== null && (
           <div style={{ flex: 1, minWidth: 100, backgroundColor: investIncome >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
@@ -1723,6 +1767,8 @@ function MonthRow({
 }) {
   const [open, setOpen] = useState(false);
   const surplus = record.income - record.totalExpense;
+  const savingsRate = getMonthlySavingsRate(record);
+  const assetChange = getMonthlyAssetChange(record, prev);
   const expenseSum = record.periodicLife + record.volatileLife + record.consumption;
   const expenseDiff = Math.round((expenseSum - record.totalExpense) * 100) / 100;
   const expenseMismatch = Math.abs(expenseDiff) > 0.01;
@@ -1781,6 +1827,32 @@ function MonthRow({
               <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{expenseDiff > 0 ? '+' : ''}{formatCurrency(expenseDiff)}</span>
             </div>
           )}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginBottom: 12 }}>
+            {([
+              {
+                label: '总资产',
+                value: record.totalAssets !== undefined ? `¥${formatCurrency(record.totalAssets)}` : '未记录',
+                color: record.totalAssets !== undefined ? '#202124' : C.sub,
+              },
+              {
+                label: '资产增加',
+                value: assetChange !== null ? formatSignedCurrency(assetChange) : '—',
+                color: assetChange !== null ? (assetChange >= 0 ? C.red : C.green) : C.sub,
+              },
+              {
+                label: '储蓄率',
+                value: savingsRate !== null ? `${(savingsRate * 100).toFixed(1)}%` : '—',
+                color: savingsRate !== null ? (savingsRate >= 0 ? C.red : C.green) : C.sub,
+              },
+            ]).map((item) => (
+              <div key={item.label} style={{ minWidth: 0, padding: '8px 10px', borderRadius: 8, backgroundColor: '#fff' }}>
+                <div style={{ fontSize: 10, color: C.sub, marginBottom: 3 }}>{item.label}</div>
+                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 13, fontWeight: 600, color: item.color, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                  {item.value}
+                </div>
+              </div>
+            ))}
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
             <div>
               <StatRow label="收入"   value={<CurrencyDisplay value={record.income}       color={C.red}   />} />

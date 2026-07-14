@@ -134,6 +134,7 @@ export interface MonthlyRecord {
   yearMonth: string;           // "2026-03"
   income: number;
   totalExpense: number;
+  totalAssets?: number;        // 月末总资产（手动录入）
   accumulatedProfit: number;   // 截止本月的累计盈利
   investTotal: number;          // 本月理财总额
   investBreakdown?: Partial<InvestHoldings>;       // 各品类持仓（月末）
