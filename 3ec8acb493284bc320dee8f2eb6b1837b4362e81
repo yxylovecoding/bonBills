@@ -1,0 +1,27 @@
+PLAN.md
+  s_ca48a89f86f80c::t_c639fbc7f7c06c 138
+src/pages/CalendarPage.tsx
+  s_ca48a89f86f80c::t_9955549eaee8b1 688,923
+src/pages/HomePage.tsx
+  s_ca48a89f86f80c::t_2f6835d23b573f 37
+src/utils/monthlyMetrics.ts
+  s_ca48a89f86f80c::t_c58babf9b3f4a1 5,7,25-32,34-35,37,39-40,45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "3ec8acb493284bc320dee8f2eb6b1837b4362e81",
+  "prompts": {},
+  "sessions": {
+    "s_ca48a89f86f80c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f5f73-326c-7cd1-8acb-e23429c11c64",
+        "model": "unknown"
+      },
+      "human_author": "yxylovecoding <yangxy1229@163.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
