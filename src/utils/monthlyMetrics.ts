@@ -2,8 +2,9 @@ import type { MonthlyRecord } from '../models/types';
 
 type MonthlyCashFlow = Pick<MonthlyRecord, 'income'>;
 type MonthlyAssets = Pick<MonthlyRecord, 'totalAssets'>;
+type MonthlyInvestmentAssets = Pick<MonthlyRecord, 'investTotal'>;
 type MonthlyInvestment = Pick<MonthlyRecord, 'accumulatedProfit' | 'isBaseline'>;
-type MonthlySavings = MonthlyCashFlow & MonthlyAssets & MonthlyInvestment;
+type MonthlySavings = MonthlyCashFlow & MonthlyInvestmentAssets & MonthlyInvestment;
 
 export function getMonthlyAssetChange(
   record: MonthlyAssets,
@@ -21,19 +22,27 @@ export function getMonthlyInvestmentIncome(
   return record.accumulatedProfit - previous.accumulatedProfit;
 }
 
-export function getMonthlySavedAmount(
-  record: MonthlyAssets & MonthlyInvestment,
-  previous?: MonthlyAssets & MonthlyInvestment,
+export function getMonthlyInvestmentAssetChange(
+  record: MonthlyInvestmentAssets,
+  previous?: MonthlyInvestmentAssets,
 ): number | null {
-  const assetChange = getMonthlyAssetChange(record, previous);
+  if (!previous) return null;
+  return record.investTotal - previous.investTotal;
+}
+
+export function getMonthlySavedAmount(
+  record: MonthlyInvestmentAssets & MonthlyInvestment,
+  previous?: MonthlyInvestmentAssets & MonthlyInvestment,
+): number | null {
+  const investmentAssetChange = getMonthlyInvestmentAssetChange(record, previous);
   const investmentIncome = getMonthlyInvestmentIncome(record, previous);
-  if (assetChange === null || investmentIncome === null) return null;
-  return assetChange - investmentIncome;
+  if (investmentAssetChange === null || investmentIncome === null) return null;
+  return investmentAssetChange - investmentIncome;
 }
 
 export function getMonthlySavingsRate(
   record: MonthlySavings,
-  previous?: MonthlyAssets & MonthlyInvestment,
+  previous?: MonthlyInvestmentAssets & MonthlyInvestment,
 ): number | null {
   const savedAmount = getMonthlySavedAmount(record, previous);
   return savedAmount !== null && record.income > 0

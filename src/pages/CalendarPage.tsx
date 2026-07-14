@@ -685,7 +685,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   const investIncome = prevRecord ? n(accProfit) - (prevRecord.accumulatedProfit ?? 0) : null;
   const savingsDraft = {
     income: n(income),
-    totalAssets: totalAssetsValue,
+    investTotal,
     accumulatedProfit: n(accProfit),
     isBaseline,
   };
@@ -920,7 +920,7 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
           <div style={{ fontSize: 16, fontWeight: 700, color: savedAmount !== null && savedAmount >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>
             {savedAmount !== null ? formatSignedCurrency(savedAmount) : '—'}
           </div>
-          <div style={{ marginTop: 2, fontSize: 10, color: C.sub }}>资产增加 − 理财收入</div>
+          <div style={{ marginTop: 2, fontSize: 10, color: C.sub }}>理财资产增加 − 理财收入</div>
         </div>
         <div style={{ flex: 1, minWidth: 100, backgroundColor: savingsRate !== null && savingsRate >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
           <div style={{ fontSize: 11, color: C.sub }}>储蓄率</div>
