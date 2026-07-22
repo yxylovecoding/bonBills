@@ -37,8 +37,7 @@ import {
 } from '../utils/dramDecision';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', sub: '#5f6368', orange: '#e8710a' };
-const RESERVABLE_HOLDING_KEY: InvestKey = 'longBond';
-const LONG_BOND_PRIORITY_FLOOR = 10000; // 加仓时长债总额优先补到此下限
+const LONG_BOND_REPAY_THRESHOLD = 10000; // 长债补仓与自动还债共用的固定阈值
 const INVEST_TARGET_KEYS: InvestKey[] = ['us', 'eu', 'asia', 'a', 'longBond', 'usBond', 'gold'];
 const USD_INVEST_KEYS: InvestKey[] = ['us', 'usBond'];
 const USD_VIRTUAL_ACCOUNT_KEYS = ['usdLivingBank', 'usdConsumptionBank', 'usdWishJar', 'investUsdBank'] as const;
@@ -247,6 +246,17 @@ function RebalanceSettingsModal({
               </div>
             </div>
           </div>
+          <div style={{ border: '1px solid #f1f3f4', borderRadius: 10, padding: '9px 10px', backgroundColor: '#fafafa', marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#202124' }}>长债自动还债线</div>
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>超过此金额的部分用于偿还本期待还</div>
+              </div>
+              <div style={{ flexShrink: 0, color: C.green, fontSize: 14, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                ¥{fmtInt(LONG_BOND_REPAY_THRESHOLD)}
+              </div>
+            </div>
+          </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#202124' }}>大类目标比例</div>
             <div style={{ fontSize: 11, fontWeight: 600, color: totalOk ? C.green : C.orange }}>
@@ -348,7 +358,7 @@ const defaultReconcileMode = (date: Date): ReconcileMode => (date.getDate() >= 1
 
 export default function ReconcilePage() {
   const navigate = useNavigate();
-  const { current, updateAccounts, updateTransfers, updateHoldings, updateHoldingReserves, updateUsStockHoldings, saveSnapshot } = useSnapshotStore();
+  const { current, updateAccounts, updateTransfers, updateHoldings, updateUsStockHoldings, saveSnapshot } = useSnapshotStore();
   const { config, setConfig } = useConfigStore();
   const { records } = useMonthlyStore();
   const { tagMap, confirmedExpenses } = useCalendarStore();
@@ -438,9 +448,9 @@ export default function ReconcilePage() {
   });
 
   // 信用卡实际待还（储蓄卡先抵本期，溢出抵下期）
-  // 长债超 1 万的部分可赎回用于偿还信用卡本期待还（储蓄卡抵扣后仍欠的部分）
+  // 长债超过固定阈值的部分可赎回用于偿还信用卡本期待还（储蓄卡抵扣后仍欠的部分）
   const longBondTotalForRepay = current.investHoldings.longBond ?? 0;
-  const longBondExcess = Math.max(longBondTotalForRepay - LONG_BOND_PRIORITY_FLOOR, 0);
+  const longBondExcess = Math.max(longBondTotalForRepay - LONG_BOND_REPAY_THRESHOLD, 0);
   const creditMonthlyAfterSavings = Math.max(
     (current.accounts.creditMonthly ?? 0) - (current.accounts.savingsCard ?? 0),
     0,
@@ -534,14 +544,7 @@ export default function ReconcilePage() {
       String(current.investHoldings[k]),
     ])) as Record<InvestKey, string>
   );
-  const [localHoldingReserves, setLocalHoldingReserves] = useState<Record<InvestKey, string>>(
-    () => Object.fromEntries((Object.keys(current.investHoldings) as InvestKey[]).map((k) => [
-      k,
-      String(current.investHoldingReserves?.[k] ?? 0),
-    ])) as Record<InvestKey, string>
-  );
   const holdingInputRefs = useRef<(HTMLInputElement | null)[]>([]);
-  const longBondReserveInputRef = useRef<HTMLInputElement | null>(null);
   const transferInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const syncHolding = (k: InvestKey) => {
     const nextHolding = parseAmountPart(localHoldings[k]);
@@ -550,9 +553,6 @@ export default function ReconcilePage() {
       const nextInputs = normalizeUsStockInputs(localUsStockItems, { usTotalCny: nextHolding });
       setLocalUsStockItems(nextInputs);
       updateUsStockHoldings(usStockInputsToItems(nextInputs));
-    }
-    if (k === RESERVABLE_HOLDING_KEY) {
-      updateHoldingReserves({ [k]: Math.max(0, parseAmountPart(localHoldingReserves[k])) });
     }
   };
 
@@ -616,11 +616,8 @@ export default function ReconcilePage() {
   // 理财再平衡建议（算法值）
   const effectiveInvestHoldings = useMemo(() => ({
     ...current.investHoldings,
-    [RESERVABLE_HOLDING_KEY]: Math.max(
-      0,
-      current.investHoldings[RESERVABLE_HOLDING_KEY] - (current.investHoldingReserves?.[RESERVABLE_HOLDING_KEY] ?? 0),
-    ),
-  }), [current.investHoldings, current.investHoldingReserves]);
+    longBond: Math.max(0, current.investHoldings.longBond - longBondRepay),
+  }), [current.investHoldings, longBondRepay]);
   const investKeys = Object.keys(current.investHoldings) as InvestKey[];
   const investAllocTargets = useMemo(
     () => investKeys.some((k) => (config.investAllocTargets[k] ?? 0) > 0)
@@ -954,10 +951,10 @@ export default function ReconcilePage() {
     [current.accounts.investCnyBank, current.accounts.investUsdBank, latestUsdRate],
   );
   const rawRebalanceSuggested = useMemo(() => {
-    // 加仓优先：长债总额不足 1 万时，先把新资金补到长债，剩余再按目标比例分配
+    // 加仓优先：长债总额不足自动还债阈值时，先把新资金补到长债，剩余再按目标比例分配
     if (!allowRebalanceSell && rebalanceNewFunds > 0) {
-      const longBondTotal = current.investHoldings.longBond ?? 0; // 用「总额」判定，honor「总额>1万」
-      const shortfall = Math.max(0, LONG_BOND_PRIORITY_FLOOR - longBondTotal);
+      const longBondTotal = current.investHoldings.longBond ?? 0;
+      const shortfall = Math.max(0, LONG_BOND_REPAY_THRESHOLD - longBondTotal);
       const topUp = Math.min(rebalanceNewFunds, shortfall);
       if (topUp > 0) {
         const remaining = roundMoney(rebalanceNewFunds - topUp);
@@ -1183,19 +1180,14 @@ export default function ReconcilePage() {
 
   const hasTransferChanges = TRANSFER_KEYS.some((k) => (parseFloat(localTransferred[k] || '0') || 0) !== 0);
 
-  // 赎回长债超 1 万的部分用于还款：长债↓ → 储蓄卡↑（储蓄卡再抵信用卡本期待还）
+  // 赎回长债超过阈值的部分用于还款：长债↓ → 储蓄卡↑（储蓄卡再抵信用卡本期待还）
   const handleRedeemLongBond = () => {
     const amount = roundMoney(longBondRepay);
     if (amount <= 0) return;
     const newLongBond = roundMoney((current.investHoldings.longBond ?? 0) - amount);
     const newSavings = roundMoney((current.accounts.savingsCard ?? 0) + amount);
-    const curReserve = current.investHoldingReserves?.[RESERVABLE_HOLDING_KEY] ?? 0;
     updateHoldings({ ...current.investHoldings, longBond: newLongBond });
     setLocalHoldings((p) => ({ ...p, longBond: String(newLongBond) }));
-    if (curReserve > newLongBond) {
-      updateHoldingReserves({ [RESERVABLE_HOLDING_KEY]: Math.max(0, newLongBond) });
-      setLocalHoldingReserves((p) => ({ ...p, [RESERVABLE_HOLDING_KEY]: String(Math.max(0, newLongBond)) }));
-    }
     updateAccounts({ savingsCard: newSavings });
     setLocalAccounts((p) => ({ ...p, savingsCard: String(newSavings) }));
   };
@@ -2259,7 +2251,7 @@ export default function ReconcilePage() {
             ...(creditInThisMonth ? [{
               key: 'repayment' as TransferKey,
               rec: repaymentShortfallForTransfer,
-              calc: `本期待还¥${fmtInt(repaymentNeedForTransfer)} − 储蓄卡¥${fmtInt(current.accounts.savingsCard ?? 0)}${longBondRepay > 0 ? ` − 长债¥${fmtInt(longBondRepay)}（超1万部分赎回）` : ''}`,
+              calc: `本期待还¥${fmtInt(repaymentNeedForTransfer)} − 储蓄卡¥${fmtInt(current.accounts.savingsCard ?? 0)}${longBondRepay > 0 ? ` − 长债¥${fmtInt(longBondRepay)}（超¥${fmtInt(LONG_BOND_REPAY_THRESHOLD)}部分赎回）` : ''}`,
             }] : []),
             {
               key: 'living',
@@ -2324,12 +2316,12 @@ export default function ReconcilePage() {
                 {expandedTransfer === row.key && (
                   <div style={{ fontSize: 11, color: C.sub, marginTop: 4 }}>{row.calc}</div>
                 )}
-                {/* 长债超 1 万部分赎回还款：一键 长债↓ → 储蓄卡↑ */}
+                {/* 长债超过阈值部分赎回还款：一键 长债↓ → 储蓄卡↑ */}
                 {row.key === 'repayment' && longBondRepay > 0 && (
                   <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: '#e6f4ea', border: '1px solid #81c995', borderRadius: 8, padding: '8px 10px' }}>
                     <span style={{ fontSize: 12, color: '#188038', lineHeight: 1.4 }}>
                       🟢 赎回长债 <b style={{ fontVariantNumeric: 'tabular-nums' }}>¥{fmtInt(longBondRepay)}</b> → 储蓄卡<br />
-                      <span style={{ fontSize: 11, color: C.sub }}>长债¥{fmtInt(longBondTotalForRepay)}超1万部分</span>
+                      <span style={{ fontSize: 11, color: C.sub }}>长债¥{fmtInt(longBondTotalForRepay)}超过¥{fmtInt(LONG_BOND_REPAY_THRESHOLD)}的部分</span>
                     </span>
                     <button
                       onClick={handleRedeemLongBond}
@@ -2586,46 +2578,17 @@ export default function ReconcilePage() {
                     )}
                   </td>
                   <td style={{ padding: '4px 0', textAlign: 'right' }}>
-                    {k === RESERVABLE_HOLDING_KEY ? (
-                      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'flex-end', gap: 2, width: '100%', fontVariantNumeric: 'tabular-nums' }}>
-                        <AmountInput
-                          ref={(el) => { holdingInputRefs.current[i] = el; }}
-                          value={localHoldings[k]}
-                          onChange={(v) => setLocalHoldings((p) => ({ ...p, [k]: normalizeAmountInput(v) }))}
-                          onFocus={(e) => e.target.select()}
-                          onBlur={() => syncHolding(k)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') { syncHolding(k); holdingInputRefs.current[i + 1]?.focus(); }
-                          }}
-                          style={{ width: 72, minWidth: 0, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124', textAlign: 'right' }}
-                        />
-                        <span style={{ color: C.sub, fontSize: 12, lineHeight: 1 }}>(</span>
-                        <AmountInput
-                          ref={longBondReserveInputRef}
-                          value={localHoldingReserves[k]}
-                          onChange={(v) => setLocalHoldingReserves((p) => ({ ...p, [k]: normalizeAmountInput(v) }))}
-                          onFocus={(e) => e.target.select()}
-                          onBlur={() => syncHolding(k)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') { syncHolding(k); holdingInputRefs.current[i + 1]?.focus(); }
-                          }}
-                          style={{ width: 54, minWidth: 0, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.sub, textAlign: 'right' }}
-                        />
-                        <span style={{ color: C.sub, fontSize: 12, lineHeight: 1 }}>)</span>
-                      </div>
-                    ) : (
-                      <AmountInput
-                        ref={(el) => { holdingInputRefs.current[i] = el; }}
-                        value={localHoldings[k]}
-                        onChange={(v) => setLocalHoldings((p) => ({ ...p, [k]: normalizeAmountInput(v) }))}
-                        onFocus={(e) => e.target.select()}
-                        onBlur={() => syncHolding(k)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') { syncHolding(k); holdingInputRefs.current[i + 1]?.focus(); }
-                        }}
-                        style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124', textAlign: 'right' }}
-                      />
-                    )}
+                    <AmountInput
+                      ref={(el) => { holdingInputRefs.current[i] = el; }}
+                      value={localHoldings[k]}
+                      onChange={(v) => setLocalHoldings((p) => ({ ...p, [k]: normalizeAmountInput(v) }))}
+                      onFocus={(e) => e.target.select()}
+                      onBlur={() => syncHolding(k)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { syncHolding(k); holdingInputRefs.current[i + 1]?.focus(); }
+                      }}
+                      style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124', textAlign: 'right' }}
+                    />
                   </td>
                   {/* 累计收益率 */}
                   <td

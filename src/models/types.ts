@@ -127,7 +127,6 @@ export interface AccountSnapshot {
     investUsdBank: number;       // 美元理财账户（美元原币）
   };
   investHoldings: InvestHoldings;
-  investHoldingReserves?: Partial<InvestHoldings>; // 计入账户但不参与仓位再平衡的暂存金额
   usStockHoldings?: UsStockHoldingItem[]; // 美股内部明细，合计对应 investHoldings.us
   transfersDone: {
     campusCard: number;

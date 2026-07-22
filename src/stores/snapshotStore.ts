@@ -29,7 +29,6 @@ export const DEFAULT_SNAPSHOT: AccountSnapshot = {
     usBond: 0,
     gold: 0,
   },
-  investHoldingReserves: {},
   usStockHoldings: [
     { id: 'dram', name: 'DRAM', symbol: 'DRAM', amountCny: 0, shares: 2.8255, costPrice: 70.77 },
     { id: 'sp500', name: '标普', symbol: 'SPY', amountCny: 0 },
@@ -50,7 +49,6 @@ interface SnapshotStore {
   updateAccounts: (accounts: Partial<AccountSnapshot['accounts']>) => void;
   updateTransfers: (transfers: Partial<AccountSnapshot['transfersDone']>) => void;
   updateHoldings: (holdings: Partial<AccountSnapshot['investHoldings']>) => void;
-  updateHoldingReserves: (reserves: Partial<AccountSnapshot['investHoldings']>) => void;
   updateUsStockHoldings: (items: AccountSnapshot['usStockHoldings']) => void;
   saveSnapshot: () => void;
   resetToDefault: () => void;
@@ -67,8 +65,6 @@ export const useSnapshotStore = create<SnapshotStore>()(
         set((s) => ({ current: { ...s.current, transfersDone: { ...s.current.transfersDone, ...transfers } } })),
       updateHoldings: (holdings) =>
         set((s) => ({ current: { ...s.current, investHoldings: { ...s.current.investHoldings, ...holdings } } })),
-      updateHoldingReserves: (reserves) =>
-        set((s) => ({ current: { ...s.current, investHoldingReserves: { ...s.current.investHoldingReserves, ...reserves } } })),
       updateUsStockHoldings: (items) =>
         set((s) => ({ current: { ...s.current, usStockHoldings: items ?? [] } })),
       saveSnapshot: () =>
