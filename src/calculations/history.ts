@@ -123,40 +123,26 @@ function buildConfirmedAggregatesByMonth(
 
       let lifeAllResolved = true; // 该天所有 isLife 是否都被显式归属
       let dayHadLocalCons = false;
+      let dayHadReroutedLocalLife = false;
 
       for (const { item, id } of dayItems) {
         const tagList = item.tags.split(',').map((t) => t.trim());
         const isPeriodicLife = tagList.includes('周期生活');
         const isLife = isPeriodicLife || tagList.includes('波动生活');
         const isCons = tagList.includes('消费');
-
-        // 出游归集：命中 trip tag 的账单直接转入 travel 桶，不论当天 state，
-        // 也不动 resolvedLifeDays / localConsDays（只搬钱不搬天）
-        if (tripTagSet.size > 0 && tagList.some((t) => tripTagSet.has(t))) {
-          if (isLife) {
-            out.localLife.travel += item.amount;
-            const cat = item.category || '(未分类)';
-            const sub = item.subcategory || '未细分';
-            out.localLifeByCategory.travel[cat] = (out.localLifeByCategory.travel[cat] ?? 0) + item.amount;
-            out.localLifeBySubcategory.travel[cat] = out.localLifeBySubcategory.travel[cat] ?? {};
-            out.localLifeBySubcategory.travel[cat][sub] = (out.localLifeBySubcategory.travel[cat][sub] ?? 0) + item.amount;
-          } else if (isCons) {
-            out.localCons.travel += item.amount;
-          }
-          // life 类视为已 resolved（不进 !lifeAllResolved 分支）
-          continue;
-        }
+        const localState: TagKind = tagList.some((t) => tripTagSet.has(t)) ? 'travel' : state;
 
         if (isLife) {
           // 优先级：override > 显式 local/shared > 旧数据 reviewed 兜底 > 残差
           const ov = resolveExpenseScope(item, overrides);
           const addLocal = () => {
-            out.localLife[state] += item.amount;
+            out.localLife[localState] += item.amount;
+            if (localState !== state) dayHadReroutedLocalLife = true;
             const cat = item.category || '(未分类)';
             const sub = item.subcategory || '未细分';
-            out.localLifeByCategory[state][cat] = (out.localLifeByCategory[state][cat] ?? 0) + item.amount;
-            out.localLifeBySubcategory[state][cat] = out.localLifeBySubcategory[state][cat] ?? {};
-            out.localLifeBySubcategory[state][cat][sub] = (out.localLifeBySubcategory[state][cat][sub] ?? 0) + item.amount;
+            out.localLifeByCategory[localState][cat] = (out.localLifeByCategory[localState][cat] ?? 0) + item.amount;
+            out.localLifeBySubcategory[localState][cat] = out.localLifeBySubcategory[localState][cat] ?? {};
+            out.localLifeBySubcategory[localState][cat][sub] = (out.localLifeBySubcategory[localState][cat][sub] ?? 0) + item.amount;
           };
           const addShared = () => {
             out.sharedLife += item.amount;
@@ -184,15 +170,16 @@ function buildConfirmedAggregatesByMonth(
         } else if (isCons) {
           // 消费仅在显式归本地时进入本地；其它情况留 y
           if (localSet.has(id)) {
-            out.localCons[state] += item.amount;
-            dayHadLocalCons = true;
+            out.localCons[localState] += item.amount;
+            if (localState === state) dayHadLocalCons = true;
           }
         }
       }
 
       // 该天 isLife 全部被显式归属 → resolvedLifeDays + 1（用于 X_life 残差扣除）
       // 没有 isLife 账单的天也算 "resolved"（life 部分本来就没有需要分配的金额）
-      if (lifeAllResolved) out.resolvedLifeDays[state] += 1;
+      // 出游标签把金额转到 travel 时不搬交易日，原场景当天仍留在残差回归中。
+      if (lifeAllResolved && !dayHadReroutedLocalLife) out.resolvedLifeDays[state] += 1;
       if (dayHadLocalCons) out.localConsDays[state] += 1;
     }
 
