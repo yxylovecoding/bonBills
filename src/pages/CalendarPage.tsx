@@ -14,7 +14,12 @@ import type { TripGroup } from '../utils/trips';
 import AmountInput from '../components/AmountInput';
 import { calcHistoryStats } from '../calculations/history';
 import { buildExpenseScopeStats, suggestScope, isInconsistent, type ExpenseScopeStatRow } from '../calculations/expenseScopeStats';
-import { normalizeConfirmedSelection, useCalendarStore, type ConfirmedExpenseSelection } from '../stores/calendarStore';
+import {
+  normalizeConfirmedSelection,
+  useCalendarStore,
+  type ConfirmedExpenseAssignment,
+  type ConfirmedExpenseSelection,
+} from '../stores/calendarStore';
 import { useConfigStore } from '../stores/configStore';
 import { useSnapshotStore } from '../stores/snapshotStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
@@ -1449,7 +1454,7 @@ function SubcategoryRow({ sub, items, total }: { sub: string; items: BillExpense
 
 function PendingManualPanel({ entries, onSetScope, onClose }: {
   entries: { date: string; id: string; item: BillExpenseItem }[];
-  onSetScope: (date: string, id: string, scope: ExpenseScope) => void;
+  onSetScope: (date: string, id: string, scope: ConfirmedExpenseAssignment) => void;
   onClose: () => void;
 }) {
   const total = entries.reduce((s, e) => s + e.item.amount, 0);
@@ -1499,8 +1504,10 @@ function PendingManualPanel({ entries, onSetScope, onClose }: {
                       }}
                     >
                       <div style={{ display: 'inline-flex', borderRadius: 6, border: `1px solid ${C.border}`, overflow: 'hidden', flexShrink: 0 }}>
-                        {(['local', 'shared'] as const).map((p) => {
-                          const activeBg = p === 'local' ? C.blue : C.orange;
+                        {((item.tags.split(',').map((tag) => tag.trim()).includes('消费')
+                          ? ['local', 'travel', 'shared']
+                          : ['local', 'shared']) as ConfirmedExpenseAssignment[]).map((p, index) => {
+                          const activeBg = p === 'local' ? C.blue : p === 'travel' ? tagMeta.travel.color : C.orange;
                           return (
                             <button
                               key={p}
@@ -1508,10 +1515,10 @@ function PendingManualPanel({ entries, onSetScope, onClose }: {
                               onClick={() => onSetScope(d, id, p)}
                               style={{
                                 padding: '3px 10px', fontSize: 11, fontWeight: 600, lineHeight: 1.3,
-                                border: 'none', borderLeft: p === 'shared' ? `1px solid ${C.border}` : 'none',
+                                border: 'none', borderLeft: index > 0 ? `1px solid ${C.border}` : 'none',
                                 backgroundColor: '#fff', color: activeBg, cursor: 'pointer',
                               }}
-                            >{p === 'local' ? '本地' : '共享'}</button>
+                            >{p === 'local' ? '本地' : p === 'travel' ? '游' : '共享'}</button>
                           );
                         })}
                       </div>
@@ -1540,7 +1547,7 @@ function DayDetailPanel({ date, items, selection, onSetScope, onMarkZero, onClea
   date: string;
   items: BillExpenseItem[];
   selection: ConfirmedExpenseSelection;
-  onSetScope: (id: string, scope: ExpenseScope) => void;
+  onSetScope: (id: string, scope: ConfirmedExpenseAssignment) => void;
   onMarkZero: () => void;
   onClear: () => void;
   resolveOverride: (item: BillExpenseItem) => ExpenseScope | null;
@@ -1549,16 +1556,18 @@ function DayDetailPanel({ date, items, selection, onSetScope, onMarkZero, onClea
   const hasExplicitShared = selection.sharedIds !== undefined;
   const withIds = useMemo(() => assignExpenseIds(items), [items]);
   const localSet = useMemo(() => new Set(selection.localIds), [selection.localIds]);
+  const travelSet = useMemo(() => new Set(selection.travelIds ?? []), [selection.travelIds]);
   const sharedSet = useMemo(() => new Set(selection.sharedIds ?? []), [selection.sharedIds]);
   const rows = withIds.map(({ item, id }) => {
     const auto = resolveOverride(item);
-    let manualScope: ExpenseScope | null = null;
+    let manualScope: ConfirmedExpenseAssignment | null = null;
     if (!auto) {
-      if (localSet.has(id)) manualScope = 'local';
+      if (travelSet.has(id)) manualScope = 'travel';
+      else if (localSet.has(id)) manualScope = 'local';
       else if (sharedSet.has(id)) manualScope = 'shared';
       else if (isReviewed && !hasExplicitShared) manualScope = 'shared'; // 旧数据兜底
     }
-    const scope: ExpenseScope | null = auto ?? manualScope;
+    const scope: ExpenseScope | null = auto ?? (manualScope === 'travel' ? 'local' : manualScope);
     const checked = scope === 'local';
     return { item, id, auto, manualScope, scope, checked, needsManual: auto === null && manualScope === null };
   });
@@ -1640,8 +1649,11 @@ function DayDetailPanel({ date, items, selection, onSetScope, onMarkZero, onClea
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {displayRows.map(({ item, id, auto, manualScope, scope, needsManual }) => {
-          const bg = scope === 'local' ? '#e8f0fe' : scope === 'shared' ? '#fff4e8' : (isReviewed ? '#f8f9fa' : '#fffaf0');
+          const bg = manualScope === 'travel' ? `${tagMeta.travel.color}18` : scope === 'local' ? '#e8f0fe' : scope === 'shared' ? '#fff4e8' : (isReviewed ? '#f8f9fa' : '#fffaf0');
           const isManualRow = auto === null;
+          const assignmentOptions: ConfirmedExpenseAssignment[] = item.tags.split(',').map((tag) => tag.trim()).includes('消费')
+            ? ['local', 'travel', 'shared']
+            : ['local', 'shared'];
           return (
             <div
               key={id}
@@ -1655,9 +1667,9 @@ function DayDetailPanel({ date, items, selection, onSetScope, onMarkZero, onClea
             >
               {isManualRow ? (
                 <div style={{ display: 'inline-flex', borderRadius: 6, border: `1px solid ${C.border}`, overflow: 'hidden', flexShrink: 0 }}>
-                  {(['local', 'shared'] as const).map((p) => {
+                  {assignmentOptions.map((p, index) => {
                     const active = manualScope === p;
-                    const activeBg = p === 'local' ? C.blue : C.orange;
+                    const activeBg = p === 'local' ? C.blue : p === 'travel' ? tagMeta.travel.color : C.orange;
                     return (
                       <button
                         key={p}
@@ -1665,12 +1677,12 @@ function DayDetailPanel({ date, items, selection, onSetScope, onMarkZero, onClea
                         onClick={() => onSetScope(id, p)}
                         style={{
                           padding: '3px 8px', fontSize: 11, fontWeight: 600, lineHeight: 1.3,
-                          border: 'none', borderLeft: p === 'shared' ? `1px solid ${C.border}` : 'none',
+                          border: 'none', borderLeft: index > 0 ? `1px solid ${C.border}` : 'none',
                           backgroundColor: active ? activeBg : '#fff',
                           color: active ? '#fff' : C.sub, cursor: 'pointer',
                         }}
                       >
-                        {p === 'local' ? '本地' : '共享'}
+                        {p === 'local' ? '本地' : p === 'travel' ? '游' : '共享'}
                       </button>
                     );
                   })}
@@ -1704,7 +1716,7 @@ function DayDetailPanel({ date, items, selection, onSetScope, onMarkZero, onClea
                   )}
                 </div>
               </div>
-              <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: scope === 'local' ? C.blue : scope === 'shared' ? C.orange : '#202124', flexShrink: 0 }}>¥{formatCurrency(item.amount)}</span>
+              <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: manualScope === 'travel' ? tagMeta.travel.color : scope === 'local' ? C.blue : scope === 'shared' ? C.orange : '#202124', flexShrink: 0 }}>¥{formatCurrency(item.amount)}</span>
             </div>
           );
         })}
@@ -2703,14 +2715,16 @@ export default function CalendarPage() {
                     const tag = tagMap[day];
                     if (!tag) continue; // 未标记的天不参与状态聚合
                     const normalized = normalizeConfirmedSelection(selection);
+                    const travelSet = new Set(normalized.travelIds ?? []);
                     for (const id of normalized.localIds) {
                       const item = itemsById.get(`${day}|${id}`);
                       if (!item) continue;
                       const tags = item.tags.split(',').map(t => t.trim());
+                      const localState: TagKind = travelSet.has(id) ? 'travel' : tag;
                       if (tags.includes('周期生活') || tags.includes('波动生活')) {
-                        confirmedLifeByState[tag] += item.amount;
+                        confirmedLifeByState[localState] += item.amount;
                       } else if (tags.includes('消费')) {
-                        confirmedConsByState[tag] += item.amount;
+                        confirmedConsByState[localState] += item.amount;
                       }
                     }
                     if (normalized.reviewed) confirmedDaysByState[tag] += 1;

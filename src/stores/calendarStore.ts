@@ -5,12 +5,20 @@ import type { TagKind } from '../models/types';
 // tagMap: { "2026-04-11": "school", ... }
 type TagMap = Record<string, TagKind>;
 // localIds: 显式归本地的账单 id
+// travelIds: localIds 的子集，显式归“游”的本地账单 id
 // sharedIds: 显式归共享的账单 id（undefined = 旧数据，按"日级 reviewed → 未勾即共享"兜底）
 // reviewed: 该天用户是否动过（用于日历圆点 + 旧数据兜底语义）
-export type ConfirmedExpenseSelection = { localIds: string[]; sharedIds?: string[]; reviewed: boolean };
+export type ConfirmedExpenseAssignment = 'local' | 'travel' | 'shared';
+export type ConfirmedExpenseSelection = {
+  localIds: string[];
+  travelIds?: string[];
+  sharedIds?: string[];
+  reviewed: boolean;
+};
 type LegacyConfirmedExpenseSelection = {
   ids?: unknown[];
   localIds?: unknown[];
+  travelIds?: unknown[];
   sharedIds?: unknown[];
   reviewed?: unknown;
 } & Record<string, unknown>;
@@ -25,13 +33,19 @@ export function normalizeConfirmedSelection(value: unknown): ConfirmedExpenseSel
   if (Array.isArray(value)) return { localIds: normalizeIds(value), reviewed: value.length > 0 };
   if (!value || typeof value !== 'object') return { localIds: [], reviewed: false };
   const raw = value as LegacyConfirmedExpenseSelection;
-  const localIds = normalizeIds(raw.localIds ?? raw.ids);
+  const travelIds = normalizeIds(raw.travelIds);
+  const localIds = [...new Set([...normalizeIds(raw.localIds ?? raw.ids), ...travelIds])];
   const sharedIdsRaw = raw.sharedIds ?? raw[LEGACY_SHARED_IDS_KEY];
   const sharedIds = Array.isArray(sharedIdsRaw) ? normalizeIds(sharedIdsRaw) : undefined;
   const reviewed = typeof raw.reviewed === 'boolean'
     ? raw.reviewed
-    : localIds.length > 0 || (sharedIds?.length ?? 0) > 0;
-  return sharedIds !== undefined ? { localIds, sharedIds, reviewed } : { localIds, reviewed };
+    : localIds.length > 0 || travelIds.length > 0 || (sharedIds?.length ?? 0) > 0;
+  return {
+    localIds,
+    ...(travelIds.length > 0 ? { travelIds } : {}),
+    ...(sharedIds !== undefined ? { sharedIds } : {}),
+    reviewed,
+  };
 }
 
 export function normalizeConfirmedExpenses(input: unknown): Record<string, ConfirmedExpenseSelection> {
@@ -58,7 +72,7 @@ interface CalendarStore {
   initMonthFromCounts: (yearMonth: string, counts: { school: number; intern: number; home: number; travel: number }) => void;
   markInitialized: () => void;
   toggleConfirmedExpense: (date: string, id: string) => void;
-  setConfirmedExpenseScope: (date: string, id: string, scope: 'local' | 'shared') => void;
+  setConfirmedExpenseScope: (date: string, id: string, scope: ConfirmedExpenseAssignment) => void;
   markConfirmedExpenseZero: (date: string) => void;
   clearConfirmedExpenseSelection: (date: string) => void;
 }
@@ -145,9 +159,10 @@ export const useCalendarStore = create<CalendarStore>()(
           const cur = normalizeConfirmedSelection(s.confirmedExpenses[date]);
           const exists = cur.localIds.includes(id);
           const localIds = exists ? cur.localIds.filter((x) => x !== id) : [...cur.localIds, id];
+          const travelIds = (cur.travelIds ?? []).filter((x) => x !== id);
           const sharedIds = (cur.sharedIds ?? []).filter((x) => x !== id);
           const nextMap = { ...s.confirmedExpenses };
-          nextMap[date] = { localIds, sharedIds, reviewed: true };
+          nextMap[date] = { localIds, travelIds, sharedIds, reviewed: true };
           return { confirmedExpenses: nextMap };
         }),
 
@@ -155,11 +170,15 @@ export const useCalendarStore = create<CalendarStore>()(
         set((s) => {
           const cur = normalizeConfirmedSelection(s.confirmedExpenses[date]);
           const localIds = cur.localIds.filter((x) => x !== id);
+          const travelIds = (cur.travelIds ?? []).filter((x) => x !== id);
           const sharedIds = (cur.sharedIds ?? []).filter((x) => x !== id);
           if (scope === 'local') localIds.push(id);
-          else sharedIds.push(id);
+          else if (scope === 'travel') {
+            localIds.push(id);
+            travelIds.push(id);
+          } else sharedIds.push(id);
           const nextMap = { ...s.confirmedExpenses };
-          nextMap[date] = { localIds, sharedIds, reviewed: true };
+          nextMap[date] = { localIds, travelIds, sharedIds, reviewed: true };
           return { confirmedExpenses: nextMap };
         }),
 
@@ -167,7 +186,7 @@ export const useCalendarStore = create<CalendarStore>()(
         set((s) => ({
           confirmedExpenses: {
             ...s.confirmedExpenses,
-            [date]: { localIds: [], sharedIds: [], reviewed: true },
+            [date]: { localIds: [], travelIds: [], sharedIds: [], reviewed: true },
           },
         })),
 
@@ -180,7 +199,7 @@ export const useCalendarStore = create<CalendarStore>()(
     }),
     {
       name: 'calendar-tags',
-      version: 3,
+      version: 4,
       migrate: (persistedState) => {
         if (!persistedState || typeof persistedState !== 'object') return persistedState;
         const state = persistedState as { confirmedExpenses?: unknown };

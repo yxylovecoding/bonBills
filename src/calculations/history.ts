@@ -118,6 +118,7 @@ function buildConfirmedAggregatesByMonth(
       const sel = normalizeConfirmedSelection(confirmedExpenses[date]);
       const reviewed = sel.reviewed;
       const localSet = new Set(sel.localIds);
+      const travelSet = new Set(sel.travelIds ?? []);
       const hasExplicitShared = sel.sharedIds !== undefined;
       const sharedSet = new Set(sel.sharedIds ?? []);
 
@@ -130,7 +131,7 @@ function buildConfirmedAggregatesByMonth(
         const isPeriodicLife = tagList.includes('周期生活');
         const isLife = isPeriodicLife || tagList.includes('波动生活');
         const isCons = tagList.includes('消费');
-        const localState: TagKind = tagList.some((t) => tripTagSet.has(t)) ? 'travel' : state;
+        const localState: TagKind = travelSet.has(id) || tagList.some((t) => tripTagSet.has(t)) ? 'travel' : state;
 
         if (isLife) {
           // 优先级：override > 显式 local/shared > 旧数据 reviewed 兜底 > 残差
