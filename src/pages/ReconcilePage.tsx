@@ -68,6 +68,7 @@ const INVEST_GROUP_TONES: Record<InvestGroupKey, { header: string; surface: stri
   bond: { header: '#e6f4ea', surface: '#f5fbf7', border: '#ceead6' },
   commodity: { header: '#fef7e0', surface: '#fffaf0', border: '#fde293' },
 };
+const INVEST_GROUP_WARNING_THRESHOLD = 0.1;
 type GroupedTargetInputs = {
   groups: Record<InvestGroupKey, string>;
   assets: Record<InvestKey, string>;
@@ -2720,6 +2721,10 @@ export default function ReconcilePage() {
               const isGroupStart = groupKeys[0] === k;
               const groupTotal = groupKeys.reduce((sum, key) => sum + Math.max(current.investHoldings[key] ?? 0, 0), 0);
               const groupRatio = currentInvestTotal > 0 ? groupTotal / currentInvestTotal : null;
+              const groupTargetRatio = groupKeys.reduce((sum, key) => sum + (investAllocTargets[key] ?? 0), 0);
+              const groupTargetGap = groupRatio === null ? null : Math.abs(groupRatio - groupTargetRatio);
+              const groupTargetWarning = groupTargetGap !== null
+                && groupTargetGap >= INVEST_GROUP_WARNING_THRESHOLD - 1e-9;
               const cur = current.investHoldings[k];
               const profitInfo = latestBreakdownProfit[k] ?? null;
               const profit = profitInfo?.profit ?? null;
@@ -2751,15 +2756,22 @@ export default function ReconcilePage() {
                   <tr>
                     <td
                       colSpan={5}
-                      style={{ padding: '7px 10px', backgroundColor: groupTone.header, borderBottom: `1px solid ${groupTone.border}` }}
+                      style={{ padding: '7px 10px', backgroundColor: groupTargetWarning ? '#fce8e6' : groupTone.header, borderBottom: `1px solid ${groupTargetWarning ? '#f28b82' : groupTone.border}` }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: group.color, fontSize: 12, fontWeight: 800 }}>
                           <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: group.color, flexShrink: 0 }} />
                           {group.label}
                         </span>
-                        <span style={{ color: C.sub, fontSize: 11, fontWeight: 600 }}>
-                          当前 <strong style={{ color: group.color, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>{fmtPct(groupRatio)}</strong>
+                        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, flexWrap: 'wrap', color: groupTargetWarning ? C.red : C.sub, fontSize: 11, fontWeight: 600 }}>
+                          <span>
+                            当前 <strong style={{ color: groupTargetWarning ? C.red : group.color, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>{fmtPct(groupRatio)}</strong>
+                          </span>
+                          {groupTargetWarning && (
+                            <span style={{ padding: '2px 6px', borderRadius: 999, backgroundColor: '#fff', color: C.red, fontSize: 10, fontWeight: 800, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                              偏离目标 {(groupTargetGap * 100).toFixed(1)}点
+                            </span>
+                          )}
                         </span>
                       </div>
                     </td>
