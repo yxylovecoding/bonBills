@@ -1,0 +1,23 @@
+src/pages/CalendarPage.tsx
+  s_ebcfaa5b8e9fcf::t_11bfb717f5ff29 2159,2940,2942,2946-2951
+src/pages/HomePage.tsx
+  s_ebcfaa5b8e9fcf::t_7be3a3e8abc4da 38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "8ebf459776ea67862b5653ab06531a94617343b5",
+  "prompts": {},
+  "sessions": {
+    "s_ebcfaa5b8e9fcf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fbc46-4014-7ec2-88a1-d7a0a6dfd21e",
+        "model": "unknown"
+      },
+      "human_author": "yxylovecoding <yangxy1229@163.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
