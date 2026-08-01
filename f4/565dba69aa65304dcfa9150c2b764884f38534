@@ -1,0 +1,23 @@
+src/pages/HomePage.tsx
+  s_ebcfaa5b8e9fcf::t_5ea2de7effaa7a 38
+src/pages/ReconcilePage.tsx
+  s_ebcfaa5b8e9fcf::t_534932f19e7eba 67-71,1023,2549-2554,2577-2600
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "f4565dba69aa65304dcfa9150c2b764884f38534",
+  "prompts": {},
+  "sessions": {
+    "s_ebcfaa5b8e9fcf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fbc46-4014-7ec2-88a1-d7a0a6dfd21e",
+        "model": "unknown"
+      },
+      "human_author": "yxylovecoding <yangxy1229@163.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
