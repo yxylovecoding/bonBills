@@ -64,6 +64,11 @@ const INVEST_GROUPS = [
   { key: 'commodity', label: '商', keys: ['gold'] as InvestKey[], color: C.orange },
 ] as const;
 type InvestGroupKey = typeof INVEST_GROUPS[number]['key'];
+const INVEST_GROUP_TONES: Record<InvestGroupKey, { header: string; surface: string; border: string }> = {
+  stock: { header: '#e8f0fe', surface: '#f7faff', border: '#d2e3fc' },
+  bond: { header: '#e6f4ea', surface: '#f5fbf7', border: '#ceead6' },
+  commodity: { header: '#fef7e0', surface: '#fffaf0', border: '#fde293' },
+};
 type GroupedTargetInputs = {
   groups: Record<InvestGroupKey, string>;
   assets: Record<InvestKey, string>;
@@ -1015,6 +1020,7 @@ export default function ReconcilePage() {
     () => Object.fromEntries(investKeys.map((k) => [k, '0'])) as Record<InvestKey, string>
   );
   const totalInvest = investKeys.reduce((s, k) => s + effectiveInvestHoldings[k], 0);
+  const currentInvestTotal = investKeys.reduce((s, k) => s + Math.max(current.investHoldings[k] ?? 0, 0), 0);
   const rebalanceFunding = useMemo(() => {
     const isUsdKey = (k: InvestKey) => USD_INVEST_KEYS.includes(k);
     const usdBuyCny = investKeys.reduce((s, k) => s + (isUsdKey(k) ? Math.max(rebalanceSuggested[k], 0) : 0), 0);
@@ -2540,6 +2546,12 @@ export default function ReconcilePage() {
           </thead>
           <tbody>
             {investKeys.map((k, i) => {
+              const group = INVEST_GROUPS.find((item) => item.keys.includes(k))!;
+              const groupTone = INVEST_GROUP_TONES[group.key];
+              const groupKeys = group.keys.filter((key) => investKeys.includes(key));
+              const isGroupStart = groupKeys[0] === k;
+              const groupTotal = groupKeys.reduce((sum, key) => sum + Math.max(current.investHoldings[key] ?? 0, 0), 0);
+              const groupRatio = currentInvestTotal > 0 ? groupTotal / currentInvestTotal : null;
               const cur = current.investHoldings[k];
               const profitInfo = latestBreakdownProfit[k] ?? null;
               const profit = profitInfo?.profit ?? null;
@@ -2562,7 +2574,30 @@ export default function ReconcilePage() {
                       : `${Math.round(remaining)}`;
               return (
                 <Fragment key={k}>
-                <tr style={{ backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff', borderBottom: '1px solid #f1f3f4' }}>
+                {isGroupStart && i > 0 && (
+                  <tr aria-hidden="true">
+                    <td colSpan={5} style={{ height: 8, padding: 0, backgroundColor: '#fff' }} />
+                  </tr>
+                )}
+                {isGroupStart && (
+                  <tr>
+                    <td
+                      colSpan={5}
+                      style={{ padding: '7px 10px', backgroundColor: groupTone.header, borderBottom: `1px solid ${groupTone.border}` }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: group.color, fontSize: 12, fontWeight: 800 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: group.color, flexShrink: 0 }} />
+                          {group.label}
+                        </span>
+                        <span style={{ color: C.sub, fontSize: 11, fontWeight: 600 }}>
+                          当前 <strong style={{ color: group.color, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>{fmtPct(groupRatio)}</strong>
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                <tr style={{ backgroundColor: groupTone.surface, borderBottom: `1px solid ${groupTone.border}` }}>
                   <td style={{ padding: '8px 0', paddingRight: k === 'us' ? 34 : 0, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', position: 'relative' }}>
                     <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', backgroundColor: investMeta[k].color, marginRight: 4, verticalAlign: 'middle', flexShrink: 0 }} />
                     {investMeta[k].label}
