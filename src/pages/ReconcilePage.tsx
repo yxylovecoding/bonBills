@@ -2713,6 +2713,7 @@ export default function ReconcilePage() {
               const groupTargetGap = groupRatio === null ? null : Math.abs(groupRatio - groupTargetRatio);
               const groupTargetWarning = groupTargetGap !== null
                 && groupTargetGap >= INVEST_GROUP_WARNING_THRESHOLD - 1e-9;
+              const groupTargetDirection = groupRatio !== null && groupRatio > groupTargetRatio ? '偏高' : '偏低';
               const cur = current.investHoldings[k];
               const profitInfo = latestBreakdownProfit[k] ?? null;
               const profit = profitInfo?.profit ?? null;
@@ -2757,7 +2758,7 @@ export default function ReconcilePage() {
                           </span>
                           {groupTargetWarning && (
                             <span style={{ padding: '2px 6px', borderRadius: 999, backgroundColor: '#fff', color: C.red, fontSize: 10, fontWeight: 800, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
-                              偏离目标 {(groupTargetGap * 100).toFixed(1)}点
+                              {groupTargetDirection} {(groupTargetGap * 100).toFixed(1)}点
                             </span>
                           )}
                         </span>
