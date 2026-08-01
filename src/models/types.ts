@@ -83,6 +83,7 @@ export interface AppConfig {
   investAnnualGrowthRate?: number; // FIRE 扣除通胀后的实际年化收益率，默认 0.04
   fireHousingFundRate?: number; // FIRE 杭州口径中的个人公积金比例（5%–12%）
   fireExpenseTagKind?: TagKind; // FIRE 未来生活支出参照场景，待就业默认按工作/实习测算
+  fireSavingsAllocationRate?: number; // FIRE“分配”模式中，覆盖“活”后收入的存入比例
   fireTalentDegree?: 'none' | 'bachelor' | 'master' | 'doctor';
   fireProfileSource?: 'boncv' | 'manual';
   fireGraduationDate?: string | null;

@@ -35,13 +35,15 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '导入不换行';
+const RELEASE_NOTE = '新增分配';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
 const CNY_ASSET_ACCOUNT_KEYS = ['savingsCard', 'incomeBank', 'livingBank', 'campusCard', 'consumptionBank', 'wishJar', 'investCnyBank'] as const;
 const USD_ASSET_ACCOUNT_KEYS = ['usdLivingBank', 'usdConsumptionBank', 'usdWishJar', 'investUsdBank'] as const;
 const FIRE_SCENARIO_LABELS: Record<TagKind, string> = { intern: '工作', school: '在校', home: '居家', travel: '旅行' };
+const FIRE_MODE_LABELS = { life: '活', all: '生活', allocation: '分配' } as const;
+type FireMode = keyof typeof FIRE_MODE_LABELS;
 const FIRE_DEGREE_LABELS = { none: '不计人才政策', bachelor: '本科', master: '硕士', doctor: '博士' } as const;
 const HANGZHOU_E_TALENT_WAGE_THRESHOLD = 500000;
 
@@ -263,7 +265,7 @@ export default function HomePage() {
   }, [current.accounts, latestUsdRate, records, totalInvest]);
 
   // FIRE 模式切换
-  const [fireMode, setFireMode] = useState<'life' | 'all'>('all');
+  const [fireMode, setFireMode] = useState<FireMode>('all');
   const [sceneDailyMode, setSceneDailyMode] = useState<'life' | 'all'>('life');
   const [fireExpanded, setFireExpanded] = useState(false);
   const [fireHousingFundRateDraft, setFireHousingFundRateDraft] = useState<string | null>(null);
@@ -325,12 +327,20 @@ export default function HomePage() {
   const futureConsumptionAnnualExpense = fireExpenseScenarioHasData
     ? stats.stateConsumptionDailyAvg[effectiveFireExpenseTagKind] * 365
     : stats.consumptionAvg * 12;
-  const fireAnnualExpense = fireMode === 'life'
-    ? futureLifeAnnualExpense
-    : futureLifeAnnualExpense + futureConsumptionAnnualExpense;
+  const fireSavingsAllocationRate = Math.min(Math.max(config.fireSavingsAllocationRate ?? 0.5, 0.05), 1);
+  const fireAnnualExpense = fireMode === 'all'
+    ? futureLifeAnnualExpense + futureConsumptionAnnualExpense
+    : futureLifeAnnualExpense;
   const fireExpenseAvg = fireAnnualExpense / 12;
   const fireStats = useMemo(() => ({ ...stats, totalExpenseAvg: fireExpenseAvg }), [stats, fireExpenseAvg]);
-  const fire = useMemo(() => calcFire(config, fireStats, totalInvest), [config, fireStats, totalInvest]);
+  const fire = useMemo(() => calcFire(
+    config,
+    fireStats,
+    totalInvest,
+    fireMode === 'allocation'
+      ? { postEssentialSavingsRate: fireSavingsAllocationRate, wishShare: 0.8 }
+      : undefined,
+  ), [config, fireMode, fireSavingsAllocationRate, fireStats, totalInvest]);
   const expectedAnnualWageIncome = config.fireExpectedAnnualWageIncome ?? HANGZHOU_E_TALENT_WAGE_THRESHOLD;
   const expectsETalent = config.fireExpectedTalentClass !== 'none';
   const eTalentIncomeThresholdMet = expectedAnnualWageIncome >= HANGZHOU_E_TALENT_WAGE_THRESHOLD;
@@ -358,6 +368,11 @@ export default function HomePage() {
     const parsed = Number(normalizeDecimalPunctuation(raw));
     const next = Number.isFinite(parsed) ? Math.max(parsed / 100, MIN_INVEST_ANNUAL_GROWTH_RATE) : 0;
     setConfig({ investAnnualGrowthRate: next });
+  };
+  const updateFireSavingsAllocationRate = (raw: string) => {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return;
+    setConfig({ fireSavingsAllocationRate: Math.min(Math.max(parsed / 100, 0.05), 1) });
   };
   const updateFireHousingFundRate = (raw: string) => {
     setFireHousingFundRateDraft(raw);
@@ -692,11 +707,11 @@ export default function HomePage() {
           </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', backgroundColor: '#f1f3f4', borderRadius: 999, padding: 2, gap: 2 }} onClick={(e) => e.stopPropagation()}>
-              {(['life', 'all'] as const).map((mode) => {
+              {(Object.keys(FIRE_MODE_LABELS) as FireMode[]).map((mode) => {
                 const active = fireMode === mode;
                 return (
-                  <button key={mode} onClick={() => setFireMode(mode)} style={{ minWidth: 42, padding: '4px 10px', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, backgroundColor: active ? '#fff' : 'transparent', color: active ? C.blue : C.sub, boxShadow: active ? '0 1px 2px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.15s' }}>
-                    {mode === 'life' ? '活' : '生活'}
+                  <button key={mode} onClick={() => setFireMode(mode)} style={{ minWidth: 40, padding: '4px 8px', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, backgroundColor: active ? '#fff' : 'transparent', color: active ? C.blue : C.sub, boxShadow: active ? '0 1px 2px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.15s' }}>
+                    {FIRE_MODE_LABELS[mode]}
                   </button>
                 );
               })}
@@ -725,6 +740,28 @@ export default function HomePage() {
             </select>
           </div>
         </div>
+        {fireMode === 'allocation' && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14, padding: '9px 11px', borderRadius: 10, backgroundColor: '#f8f5ff', border: '1px solid #ede7f6' }}
+          >
+            <span style={{ fontSize: 12, fontWeight: 700, color: C.purple, whiteSpace: 'nowrap' }}>活后分配</span>
+            <input
+              type="range"
+              min="5"
+              max="100"
+              step="5"
+              value={Math.round(fireSavingsAllocationRate * 100)}
+              onChange={(e) => updateFireSavingsAllocationRate(e.target.value)}
+              aria-label="覆盖活后收入的存入比例"
+              style={{ flex: '1 1 110px', minWidth: 90, accentColor: C.purple, cursor: 'pointer' }}
+            />
+            <span style={{ fontSize: 12, color: C.sub, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+              存 <strong style={{ color: C.blue }}>{Math.round(fireSavingsAllocationRate * 100)}%</strong>
+              {' · '}消费/心愿 <strong style={{ color: C.purple }}>{Math.round((1 - fireSavingsAllocationRate) * 100)}%</strong>
+            </span>
+          </div>
+        )}
         <div onClick={() => setFireExpanded((v) => !v)} style={{ cursor: 'pointer', userSelect: 'none' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap' }}>
             <div style={{ minWidth: 180, flex: '1 1 180px' }}>
@@ -732,6 +769,7 @@ export default function HomePage() {
               <div style={{ fontSize: 32, lineHeight: 1.05, fontWeight: 800, color: C.red, fontVariantNumeric: 'tabular-nums' }}>{fmt万(fire.requiredAnnualGrossIncome)}</div>
               <div style={{ marginTop: 5, fontSize: 12, color: C.sub }}>
                 {fireTargetYearLabel}达标 · 工资到手 {fmt万(fire.requiredAnnualSalaryNetIncome)}
+                {fireMode === 'allocation' && <span style={{ color: C.purple }}> · 消费/心愿 {fmt万(fire.requiredAnnualFlexibleSpending)}</span>}
                 {fire.requiredAnnualHousingFundRentWithdrawal > 0 && <span style={{ color: C.green }}> · 公积金抵租 {fmt万(fire.requiredAnnualHousingFundRentWithdrawal)}</span>}
                 {fire.majorWishTotal > 0 && <span style={{ color: C.purple }}> · 含愿望 {fmtW(fire.majorWishTotal)}</span>}
                 <span style={{ color: expectedWageMargin >= 0 ? C.green : C.orange }}> · 预期 {fmtW(expectedAnnualWageIncome)}</span>
@@ -781,9 +819,13 @@ export default function HomePage() {
             </FireDetailGroup>
             <FireDetailGroup title="支出口径">
               <StatRow label="未来场景" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{FIRE_SCENARIO_LABELS[configuredFireExpenseTagKind]}{!fireExpenseScenarioHasData ? ' · 暂沿用在校样本' : ''}</span>} />
-              <StatRow label="生活年支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(futureLifeAnnualExpense)}</span>} />
-              <StatRow label="消费年支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.purple }}>{fmt万(futureConsumptionAnnualExpense)}</span>} />
+              <StatRow label="活年支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(futureLifeAnnualExpense)}</span>} />
+              <StatRow label="历史消费年支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.purple }}>{fmt万(futureConsumptionAnnualExpense)}</span>} />
+              {fireMode === 'allocation' && <StatRow label="分配消费/心愿" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.purple }}>{fmt万(fire.requiredAnnualFlexibleSpending)}</span>} />}
+              {fireMode === 'allocation' && <StatRow indent label="心愿 · 80%" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.purple }}>{fmt万(fire.requiredAnnualWishAllocation)}</span>} />}
+              {fireMode === 'allocation' && <StatRow indent label="消费 · 20%" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(fire.requiredAnnualConsumptionAllocation)}</span>} />}
               <StatRow label="未来固定支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(activeFutureFireMonthly * 12)}</span>} />
+              {fireMode === 'allocation' && <div style={{ marginTop: 4, color: C.sub, fontSize: 11, lineHeight: 1.5 }}>分配模式以历史“活”作为 FIRE 刚需；覆盖后按上方比例存入，其余沿用“建议转账”，按心愿 80%、消费 20% 拆分。</div>}
             </FireDetailGroup>
             <FireDetailGroup title="杭州未来情景">
               <StatRow label="BonCV 联动" value={(
@@ -913,7 +955,8 @@ export default function HomePage() {
             <FireDetailGroup title="收入需求">
               <StatRow label="月需存入" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(fire.monthlyNeeded)}</span>} />
               <StatRow label="估算月结余" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: fire.monthlySurplus >= 0 ? C.green : C.red }}>{fmt万(fire.monthlySurplus)}</span>} />
-              <StatRow label="年支出+储蓄" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(fire.requiredAnnualNetIncome)}</span>} />
+              {fireMode === 'allocation' && <StatRow label="活后分配" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.purple }}>存 {Math.round(fire.postEssentialSavingsRate * 100)}% · 消费/心愿 {Math.round((1 - fire.postEssentialSavingsRate) * 100)}%</span>} />}
+              <StatRow label={fireMode === 'allocation' ? '活+分配所需' : '年支出+储蓄'} value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(fire.requiredAnnualNetIncome)}</span>} />
               <StatRow label="预计工资到手" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(fire.requiredAnnualSalaryNetIncome)}</span>} />
               {fire.talentSubsidyFutureValue > 0 && <StatRow label="人才补贴" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.green }}>合计 {fmt万(fire.talentSubsidyNominalTotal)} · 折到目标 {fmt万(fire.talentSubsidyFutureValue)}</span>} />}
               {fire.graduateLifeSubsidyTotal > 0 && <StatRow indent label="硕士生活补贴" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.green }}>{fmt万(fire.graduateLifeSubsidyTotal)}</span>} />}

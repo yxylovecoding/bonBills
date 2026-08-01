@@ -39,6 +39,10 @@ export interface FireResult {
   monthlySurplus: number;
   requiredAnnualSavings: number;
   requiredAnnualSavingsBeforeTalentSubsidy: number;
+  postEssentialSavingsRate: number;
+  requiredAnnualFlexibleSpending: number;
+  requiredAnnualWishAllocation: number;
+  requiredAnnualConsumptionAllocation: number;
   requiredAnnualNetIncome: number;
   requiredAnnualSalaryNetIncome: number;
   requiredAnnualGrossIncome: number;
@@ -60,6 +64,13 @@ export interface FireResult {
   lifeProgress: number;
   lifeClockStr: string;
   lifeClockPeriod: string;
+}
+
+export interface FireCalculationOptions {
+  /** 覆盖刚需支出后，剩余收入中用于储蓄的比例；默认 100%。 */
+  postEssentialSavingsRate?: number;
+  /** 弹性分配中进入心愿账户的比例；默认沿用“建议转账”的 80%。 */
+  wishShare?: number;
 }
 
 function normalizeInvestAnnualGrowthRate(rate: number | undefined): number {
@@ -149,6 +160,7 @@ export function calcFire(
   config: AppConfig,
   stats: CurrentStats,
   investTotal: number,
+  options?: FireCalculationOptions,
 ): FireResult {
   const age = getAge(config.birthDate);
   const annualExpense = stats.totalExpenseAvg * 12;
@@ -183,7 +195,21 @@ export function calcFire(
   const requiredAnnualSavings = savingsFutureValueFactor > 0 ? remainingTarget / savingsFutureValueFactor : remainingTarget / targetYears;
   const monthlyNeeded = requiredAnnualSavings / 12;
   const monthlySurplus = stats.monthlyIncomeAvg - stats.totalExpenseAvg;
-  const requiredAnnualNetIncome = annualExpense + requiredAnnualSavings;
+  const configuredSavingsRate = options?.postEssentialSavingsRate ?? 1;
+  const postEssentialSavingsRate = Number.isFinite(configuredSavingsRate)
+    ? Math.min(Math.max(configuredSavingsRate, 0.01), 1)
+    : 1;
+  const configuredWishShare = options?.wishShare ?? 0.8;
+  const wishShare = Number.isFinite(configuredWishShare)
+    ? Math.min(Math.max(configuredWishShare, 0), 1)
+    : 0.8;
+  // “分配”模式先覆盖刚需，再按比例分配剩余收入。为了仍能存下达标所需金额，
+  // 反推覆盖刚需后的总收入，并将非储蓄部分拆给消费/心愿。
+  const requiredAnnualPostEssentialIncome = requiredAnnualSavings / postEssentialSavingsRate;
+  const requiredAnnualFlexibleSpending = Math.max(requiredAnnualPostEssentialIncome - requiredAnnualSavings, 0);
+  const requiredAnnualWishAllocation = requiredAnnualFlexibleSpending * wishShare;
+  const requiredAnnualConsumptionAllocation = requiredAnnualFlexibleSpending - requiredAnnualWishAllocation;
+  const requiredAnnualNetIncome = annualExpense + requiredAnnualPostEssentialIncome;
   const housingFundRate = typeof config.fireHousingFundRate === 'number'
     && Number.isFinite(config.fireHousingFundRate)
     ? Math.min(Math.max(config.fireHousingFundRate, 0.05), 0.12)
@@ -247,6 +273,10 @@ export function calcFire(
     monthlySurplus,
     requiredAnnualSavings,
     requiredAnnualSavingsBeforeTalentSubsidy,
+    postEssentialSavingsRate,
+    requiredAnnualFlexibleSpending,
+    requiredAnnualWishAllocation,
+    requiredAnnualConsumptionAllocation,
     requiredAnnualNetIncome,
     requiredAnnualSalaryNetIncome,
     requiredAnnualGrossIncome,

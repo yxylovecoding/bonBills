@@ -10,6 +10,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   investAnnualGrowthRate: 0.04,
   fireHousingFundRate: 0.12,
   fireExpenseTagKind: 'intern',
+  fireSavingsAllocationRate: 0.5,
   fireTalentDegree: 'master',
   fireProfileSource: 'boncv',
   fireGraduationDate: null,
