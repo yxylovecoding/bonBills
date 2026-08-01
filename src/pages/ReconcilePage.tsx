@@ -1565,12 +1565,9 @@ export default function ReconcilePage() {
     setLocalFundingLeg((p) => { const n = { ...p }; for (const l of legs) n[l.key] = '0'; return n; });
 
   // 页面级撤回：只在用户交互触发的可见状态变化前入栈，忽略汇率等异步刷新。
-  const [canUndo, setCanUndo] = useState(false);
-  const [undoFeedback, setUndoFeedback] = useState(false);
   const undoHistoryRef = useRef<{ state: ReconcileUndoState; fingerprint: string }[]>([]);
   const pendingUndoRef = useRef<{ state: ReconcileUndoState; fingerprint: string } | null>(null);
   const pendingUndoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const undoFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restoringUndoRef = useRef(false);
   const previousUndoFingerprintRef = useRef<string | null>(null);
   const latestUndoState = useMemo<ReconcileUndoState>(() => ({
@@ -1639,7 +1636,6 @@ export default function ReconcilePage() {
         history.push(pending);
         if (history.length > 50) history.shift();
       }
-      setCanUndo(history.length > 0);
     }
     pendingUndoRef.current = null;
     previousUndoFingerprintRef.current = latestUndoFingerprint;
@@ -1678,13 +1674,6 @@ export default function ReconcilePage() {
     setDramConfigInputs({ ...previous.state.dramConfigInputs });
     setLocalConfirmed({ ...previous.state.localConfirmed });
     setLocalFundingLeg({ ...previous.state.localFundingLeg });
-    setCanUndo(undoHistoryRef.current.length > 0);
-    setUndoFeedback(true);
-    if (undoFeedbackTimerRef.current) clearTimeout(undoFeedbackTimerRef.current);
-    undoFeedbackTimerRef.current = setTimeout(() => {
-      setUndoFeedback(false);
-      undoFeedbackTimerRef.current = null;
-    }, 1200);
   };
 
   const handleUndoRef = useRef(handleUndo);
@@ -1699,7 +1688,6 @@ export default function ReconcilePage() {
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       if (pendingUndoTimerRef.current) clearTimeout(pendingUndoTimerRef.current);
-      if (undoFeedbackTimerRef.current) clearTimeout(undoFeedbackTimerRef.current);
     };
   }, []);
 
@@ -3148,29 +3136,6 @@ export default function ReconcilePage() {
         </div>
       )}
 
-      {/* 页面级撤回：固定在底部导航上方，滚动到任意位置都可用 */}
-      <button
-        type="button"
-        data-undo-control="true"
-        onClick={handleUndo}
-        disabled={!canUndo}
-        aria-label="撤回上一步，快捷键 Ctrl 或 Command 加 Z"
-        aria-keyshortcuts="Control+Z Meta+Z"
-        title="撤回上一步（Ctrl/Command + Z）"
-        style={{
-          position: 'fixed', right: 'max(16px, calc((100vw - 480px) / 2 + 16px))', bottom: 76, zIndex: 90,
-          display: 'inline-flex', alignItems: 'center', gap: 6,
-          backgroundColor: canUndo ? '#fff' : '#f1f3f4', color: canUndo ? C.blue : '#9aa0a6',
-          fontWeight: 700, fontSize: 13, padding: '9px 13px', borderRadius: 999,
-          border: `1px solid ${canUndo ? '#a8c7fa' : '#dadce0'}`,
-          cursor: canUndo ? 'pointer' : 'default',
-          boxShadow: canUndo ? '0 3px 10px rgba(32,33,36,0.18)' : 'none',
-          transition: 'background-color 0.2s, color 0.2s, box-shadow 0.2s',
-        }}
-      >
-        <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>↶</span>
-        {undoFeedback ? '已撤回' : '撤回'}
-      </button>
     </div>
   );
 }
