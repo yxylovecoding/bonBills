@@ -1,5 +1,4 @@
 import { Fragment, useEffect, useLayoutEffect, useState, useMemo, useRef, type PointerEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
 import Card from '../components/Card';
 import { formatCurrency } from '../components/CurrencyDisplay';
 import AmountInput from '../components/AmountInput';
@@ -372,7 +371,6 @@ type ReconcileUndoState = {
   dramConfigInputs: { shares: string; costPrice: string };
   localConfirmed: Record<InvestKey, string>;
   localFundingLeg: Record<string, string>;
-  doneSteps: number[];
 };
 
 const cloneAccountSnapshot = (snapshot: AccountSnapshot): AccountSnapshot => ({
@@ -403,7 +401,6 @@ const cloneReconcileUndoState = (state: ReconcileUndoState): ReconcileUndoState 
   dramConfigInputs: { ...state.dramConfigInputs },
   localConfirmed: { ...state.localConfirmed },
   localFundingLeg: { ...state.localFundingLeg },
-  doneSteps: [...state.doneSteps],
 });
 
 const reconcileUndoFingerprint = (state: ReconcileUndoState) => {
@@ -430,7 +427,6 @@ const reconcileUndoFingerprint = (state: ReconcileUndoState) => {
     dramConfigInputs: state.dramConfigInputs,
     localConfirmed: state.localConfirmed,
     localFundingLeg: state.localFundingLeg,
-    doneSteps: [...state.doneSteps].sort((a, b) => a - b),
   });
 };
 
@@ -443,7 +439,6 @@ const RECONCILE_MODES: { key: ReconcileMode; label: string; hint: string }[] = [
 const defaultReconcileMode = (date: Date): ReconcileMode => (date.getDate() >= 1 && date.getDate() <= 13 ? 'monthStart' : 'monthMiddle');
 
 export default function ReconcilePage() {
-  const navigate = useNavigate();
   const { current, updateAccounts, updateTransfers, updateHoldings, updateUsStockHoldings, restoreCurrent } = useSnapshotStore();
   const { config, setConfig } = useConfigStore();
   const { records } = useMonthlyStore();
@@ -1550,10 +1545,6 @@ export default function ReconcilePage() {
     { key: 'beyond',  name: '月外 (跨月)',   inc: sumDetailInc('beyond'),  exp: sumDetailExp('beyond') },
   ];
 
-  const [doneSteps, setDoneSteps] = useState<Set<number>>(new Set());
-  const toggleDone = (i: number) =>
-    setDoneSteps((prev) => { const next = new Set(prev); next.has(i) ? next.delete(i) : next.add(i); return next; });
-
   // 配平转账拆成独立的「单腿」：每条都是同币种账户互转（或一笔真换汇），可分开调、分开执行
   type FundingLegOp = 'cnyBufferToInvest' | 'investUsdToBuffer' | 'bufferUsdToInvest' | 'investCnyToBuffer' | 'forex';
   type FundingLeg = {
@@ -1606,10 +1597,9 @@ export default function ReconcilePage() {
     dramConfigInputs: { ...dramConfigInputs },
     localConfirmed: { ...localConfirmed },
     localFundingLeg: { ...localFundingLeg },
-    doneSteps: [...doneSteps],
   }), [
     allowRebalanceSell, config.dramDecision, config.investAllocTargets, confirmed, consumptionWishOpen,
-    current, doneSteps, dramConfigInputs, groupedTargetInputs, investUsdCnyInput, investUsdInputMode,
+    current, dramConfigInputs, groupedTargetInputs, investUsdCnyInput, investUsdInputMode,
     localAccounts, localConfirmed, localFundingLeg, localHoldings, localTransferred, localUsStockItems,
     reconcileMode, revealConsumptionWishUsd, revealedUsdAccounts,
   ]);
@@ -1687,7 +1677,6 @@ export default function ReconcilePage() {
     setDramConfigInputs({ ...previous.state.dramConfigInputs });
     setLocalConfirmed({ ...previous.state.localConfirmed });
     setLocalFundingLeg({ ...previous.state.localFundingLeg });
-    setDoneSteps(new Set(previous.state.doneSteps));
     setCanUndo(undoHistoryRef.current.length > 0);
     setUndoFeedback(true);
     if (undoFeedbackTimerRef.current) clearTimeout(undoFeedbackTimerRef.current);
@@ -2051,15 +2040,6 @@ export default function ReconcilePage() {
     </div>
   );
 
-  const ALL_STEPS = [
-    { label: '日历标记',   note: '标记本月各天状态',   monthEndOnly: false, action: () => navigate('/calendar') },
-    { label: '更新余额',   note: '填写各账户最新余额', monthEndOnly: false, action: () => document.getElementById('sec-accounts')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
-    { label: '预算计算',   note: '查看三层预算明细',   monthEndOnly: false, action: () => document.getElementById('sec-budget')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
-    { label: '执行转账',   note: '划转资金到各账户',   monthEndOnly: false, action: () => document.getElementById('sec-transfer')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
-    { label: '理财再平衡', note: '按比例投入新资金',   monthEndOnly: true,  action: () => document.getElementById('sec-invest')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
-    { label: '历史记录',   note: '录入本月收支数据',   monthEndOnly: true,  action: () => navigate('/calendar?tab=year') },
-  ];
-  const STEPS = ALL_STEPS.filter((s) => !s.monthEndOnly || isMonthStartMode);
   const screenshotAccountEntries = screenshotDraft
     ? (Object.entries(screenshotDraft.accounts) as [keyof AccountSnapshot['accounts'], number | null][])
       .filter(([, value]) => value !== null)
@@ -2155,42 +2135,6 @@ export default function ReconcilePage() {
           {holidayWarning}
         </div>
       )}
-
-      {/* 对账流程引导 */}
-      <Card title="对账流程" collapsible defaultCollapsed>
-        {STEPS.map((step, i) => {
-          const done = doneSteps.has(i);
-          return (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: i < STEPS.length - 1 ? '1px solid #f1f3f4' : 'none' }}>
-              {/* 完成键 */}
-              <button
-                onClick={() => toggleDone(i)}
-                style={{
-                  flexShrink: 0, width: 22, height: 22, borderRadius: '50%',
-                  border: `2px solid ${done ? C.green : '#dadce0'}`,
-                  backgroundColor: done ? C.green : '#fff',
-                  color: '#fff', fontSize: 12, fontWeight: 700,
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}
-              >
-                {done ? '✓' : ''}
-              </button>
-              {/* 文字 */}
-              <div style={{ flex: 1, opacity: done ? 0.45 : 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#202124', textDecoration: done ? 'line-through' : 'none' }}>{step.label}</div>
-                <div style={{ fontSize: 11, color: C.sub }}>{step.note}</div>
-              </div>
-              {/* 跳转键 */}
-              <button
-                onClick={step.action}
-                style={{ flexShrink: 0, fontSize: 12, color: C.blue, backgroundColor: '#e8f0fe', border: 'none', borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontWeight: 600 }}
-              >
-                前往 →
-              </button>
-            </div>
-          );
-        })}
-      </Card>
 
       {/* 账户余额 */}
       <div id="sec-accounts">
