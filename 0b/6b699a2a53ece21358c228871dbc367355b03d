@@ -1,0 +1,27 @@
+src/calculations/fire.ts
+  s_ebcfaa5b8e9fcf::t_963c9c29093958 42-45,69-75,163,198-212,276-279
+src/data/appConfig.json
+  s_ebcfaa5b8e9fcf::t_fa7fa56906bda8 8
+src/models/types.ts
+  s_ebcfaa5b8e9fcf::t_9057689490ac4d 86
+src/stores/configStore.ts
+  s_ebcfaa5b8e9fcf::t_d0a9cf2a6a40c8 13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "0b6b699a2a53ece21358c228871dbc367355b03d",
+  "prompts": {},
+  "sessions": {
+    "s_ebcfaa5b8e9fcf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fbc46-4014-7ec2-88a1-d7a0a6dfd21e",
+        "model": "unknown"
+      },
+      "human_author": "yxylovecoding <yangxy1229@163.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
