@@ -1,0 +1,21 @@
+src/pages/HomePage.tsx
+  s_ebcfaa5b8e9fcf::t_792bc3eb3a295a 38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "024128895b5c59658b21906ea6c2febce127b34e",
+  "prompts": {},
+  "sessions": {
+    "s_ebcfaa5b8e9fcf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fbc46-4014-7ec2-88a1-d7a0a6dfd21e",
+        "model": "unknown"
+      },
+      "human_author": "yxylovecoding <yangxy1229@163.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
