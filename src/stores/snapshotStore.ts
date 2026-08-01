@@ -50,6 +50,7 @@ interface SnapshotStore {
   updateTransfers: (transfers: Partial<AccountSnapshot['transfersDone']>) => void;
   updateHoldings: (holdings: Partial<AccountSnapshot['investHoldings']>) => void;
   updateUsStockHoldings: (items: AccountSnapshot['usStockHoldings']) => void;
+  restoreCurrent: (snapshot: AccountSnapshot) => void;
   saveSnapshot: () => void;
   resetToDefault: () => void;
 }
@@ -67,6 +68,7 @@ export const useSnapshotStore = create<SnapshotStore>()(
         set((s) => ({ current: { ...s.current, investHoldings: { ...s.current.investHoldings, ...holdings } } })),
       updateUsStockHoldings: (items) =>
         set((s) => ({ current: { ...s.current, usStockHoldings: items ?? [] } })),
+      restoreCurrent: (snapshot) => set({ current: snapshot }),
       saveSnapshot: () =>
         set((s) => ({
           history: [s.current, ...s.history].slice(0, 50),

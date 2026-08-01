@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, useMemo, useRef, type PointerEvent } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useState, useMemo, useRef, type PointerEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Card from '../components/Card';
 import { formatCurrency } from '../components/CurrencyDisplay';
@@ -17,7 +17,7 @@ import { calcBudget } from '../calculations/budget';
 import { calcHistoryStats } from '../calculations/history';
 import { calcRebalance } from '../calculations/rebalance';
 import { investMeta, tagMeta } from '../data/mockData';
-import type { AccountSnapshot, DailyTag, InvestAllocTargets, InvestKey, TagKind, UsStockHoldingItem } from '../models/types';
+import type { AccountSnapshot, AppConfig, DailyTag, InvestAllocTargets, InvestKey, TagKind, UsStockHoldingItem } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { tryEvalFormula } from '../utils/formula';
@@ -353,6 +353,87 @@ const TRANSFER_META: Record<TransferKey, { label: string; accountKey?: string }>
 type BudgetKey = 'weekly' | 'monthly' | 'beyond';
 type ReconcileMode = 'monthStart' | 'monthMiddle';
 
+type ReconcileUndoState = {
+  current: AccountSnapshot;
+  config: Pick<AppConfig, 'investAllocTargets' | 'dramDecision'>;
+  revealConsumptionWishUsd: boolean;
+  localAccounts: Record<keyof AccountSnapshot['accounts'], string>;
+  revealedUsdAccounts: UsdVirtualAccountKey[];
+  investUsdInputMode: 'cny' | 'usd';
+  investUsdCnyInput: string;
+  confirmed: Record<TransferKey, number>;
+  localTransferred: Record<TransferKey, string>;
+  consumptionWishOpen: boolean;
+  groupedTargetInputs: GroupedTargetInputs;
+  reconcileMode: ReconcileMode;
+  allowRebalanceSell: boolean;
+  localHoldings: Record<InvestKey, string>;
+  localUsStockItems: UsStockItemInput[];
+  dramConfigInputs: { shares: string; costPrice: string };
+  localConfirmed: Record<InvestKey, string>;
+  localFundingLeg: Record<string, string>;
+  doneSteps: number[];
+};
+
+const cloneAccountSnapshot = (snapshot: AccountSnapshot): AccountSnapshot => ({
+  ...snapshot,
+  accounts: { ...snapshot.accounts },
+  investHoldings: { ...snapshot.investHoldings },
+  usStockHoldings: snapshot.usStockHoldings?.map((item) => ({ ...item })),
+  transfersDone: { ...snapshot.transfersDone },
+});
+
+const cloneReconcileUndoState = (state: ReconcileUndoState): ReconcileUndoState => ({
+  ...state,
+  current: cloneAccountSnapshot(state.current),
+  config: {
+    investAllocTargets: { ...state.config.investAllocTargets },
+    dramDecision: state.config.dramDecision ? { ...state.config.dramDecision } : undefined,
+  },
+  localAccounts: { ...state.localAccounts },
+  revealedUsdAccounts: [...state.revealedUsdAccounts],
+  confirmed: { ...state.confirmed },
+  localTransferred: { ...state.localTransferred },
+  groupedTargetInputs: {
+    groups: { ...state.groupedTargetInputs.groups },
+    assets: { ...state.groupedTargetInputs.assets },
+  },
+  localHoldings: { ...state.localHoldings },
+  localUsStockItems: state.localUsStockItems.map((item) => ({ ...item })),
+  dramConfigInputs: { ...state.dramConfigInputs },
+  localConfirmed: { ...state.localConfirmed },
+  localFundingLeg: { ...state.localFundingLeg },
+  doneSteps: [...state.doneSteps],
+});
+
+const reconcileUndoFingerprint = (state: ReconcileUndoState) => {
+  const visibleAccounts = {
+    ...state.localAccounts,
+    investUsdBank: state.investUsdInputMode === 'cny'
+      ? `cny:${state.investUsdCnyInput}`
+      : state.localAccounts.investUsdBank,
+  };
+  return JSON.stringify({
+    config: state.config,
+    revealConsumptionWishUsd: state.revealConsumptionWishUsd,
+    localAccounts: visibleAccounts,
+    revealedUsdAccounts: [...state.revealedUsdAccounts].sort(),
+    investUsdInputMode: state.investUsdInputMode,
+    confirmed: state.confirmed,
+    localTransferred: state.localTransferred,
+    consumptionWishOpen: state.consumptionWishOpen,
+    groupedTargetInputs: state.groupedTargetInputs,
+    reconcileMode: state.reconcileMode,
+    allowRebalanceSell: state.allowRebalanceSell,
+    localHoldings: state.localHoldings,
+    localUsStockItems: state.localUsStockItems,
+    dramConfigInputs: state.dramConfigInputs,
+    localConfirmed: state.localConfirmed,
+    localFundingLeg: state.localFundingLeg,
+    doneSteps: [...state.doneSteps].sort((a, b) => a - b),
+  });
+};
+
 interface BudgetDetailItem { icon: string; label: string; amount: number; note?: string }
 
 const RECONCILE_MODES: { key: ReconcileMode; label: string; hint: string }[] = [
@@ -363,7 +444,7 @@ const defaultReconcileMode = (date: Date): ReconcileMode => (date.getDate() >= 1
 
 export default function ReconcilePage() {
   const navigate = useNavigate();
-  const { current, updateAccounts, updateTransfers, updateHoldings, updateUsStockHoldings, saveSnapshot } = useSnapshotStore();
+  const { current, updateAccounts, updateTransfers, updateHoldings, updateUsStockHoldings, restoreCurrent } = useSnapshotStore();
   const { config, setConfig } = useConfigStore();
   const { records } = useMonthlyStore();
   const { tagMap, confirmedExpenses } = useCalendarStore();
@@ -496,7 +577,6 @@ export default function ReconcilePage() {
   const [remoteUsdRate, setRemoteUsdRate] = useState<UsdRateResponse | null>(null);
   const [usdRateError, setUsdRateError] = useState(false);
   const [usdRebalanceCells, setUsdRebalanceCells] = useState<Set<InvestKey>>(() => new Set());
-  const [saved, setSaved] = useState(false);
   const [screenshotImportMsg, setScreenshotImportMsg] = useState('');
   const [screenshotDraft, setScreenshotDraft] = useState<ScreenshotParseResult | null>(null);
   const [screenshotPreview, setScreenshotPreview] = useState<{ url: string; fileName: string } | null>(null);
@@ -1321,14 +1401,6 @@ export default function ReconcilePage() {
     setLocalConfirmed(Object.fromEntries(investKeys.map((k) => [k, '0'])) as Record<InvestKey, string>);
   };
 
-  // 保存快照
-  const handleSave = () => {
-    updateTransfers(confirmed);
-    saveSnapshot();
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
-
   const todayDate = today.getDate();
   const weekEnd = todayDate + Math.min(budget.daysLeftInMonth, 7);
   const payDateDay = (item: ResolvedIncomeItem) => Number(item.resolvedPayDate.slice(8, 10));
@@ -1499,6 +1571,147 @@ export default function ReconcilePage() {
   const setFundingLegValue = (key: string, v: string) => setLocalFundingLeg((p) => ({ ...p, [key]: v }));
   const resetFundingLegs = (legs: FundingLeg[]) =>
     setLocalFundingLeg((p) => { const n = { ...p }; for (const l of legs) n[l.key] = '0'; return n; });
+
+  // 页面级撤回：只在用户交互触发的可见状态变化前入栈，忽略汇率等异步刷新。
+  const [canUndo, setCanUndo] = useState(false);
+  const [undoFeedback, setUndoFeedback] = useState(false);
+  const undoHistoryRef = useRef<{ state: ReconcileUndoState; fingerprint: string }[]>([]);
+  const pendingUndoRef = useRef<{ state: ReconcileUndoState; fingerprint: string } | null>(null);
+  const pendingUndoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const undoFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restoringUndoRef = useRef(false);
+  const previousUndoFingerprintRef = useRef<string | null>(null);
+  const latestUndoState = useMemo<ReconcileUndoState>(() => ({
+    current: cloneAccountSnapshot(current),
+    config: {
+      investAllocTargets: { ...config.investAllocTargets },
+      dramDecision: config.dramDecision ? { ...config.dramDecision } : undefined,
+    },
+    revealConsumptionWishUsd,
+    localAccounts: { ...localAccounts },
+    revealedUsdAccounts: [...revealedUsdAccounts],
+    investUsdInputMode,
+    investUsdCnyInput,
+    confirmed: { ...confirmed },
+    localTransferred: { ...localTransferred },
+    consumptionWishOpen,
+    groupedTargetInputs: {
+      groups: { ...groupedTargetInputs.groups },
+      assets: { ...groupedTargetInputs.assets },
+    },
+    reconcileMode,
+    allowRebalanceSell,
+    localHoldings: { ...localHoldings },
+    localUsStockItems: localUsStockItems.map((item) => ({ ...item })),
+    dramConfigInputs: { ...dramConfigInputs },
+    localConfirmed: { ...localConfirmed },
+    localFundingLeg: { ...localFundingLeg },
+    doneSteps: [...doneSteps],
+  }), [
+    allowRebalanceSell, config.dramDecision, config.investAllocTargets, confirmed, consumptionWishOpen,
+    current, doneSteps, dramConfigInputs, groupedTargetInputs, investUsdCnyInput, investUsdInputMode,
+    localAccounts, localConfirmed, localFundingLeg, localHoldings, localTransferred, localUsStockItems,
+    reconcileMode, revealConsumptionWishUsd, revealedUsdAccounts,
+  ]);
+  const latestUndoFingerprint = useMemo(() => reconcileUndoFingerprint(latestUndoState), [latestUndoState]);
+  const latestUndoStateRef = useRef(latestUndoState);
+  latestUndoStateRef.current = latestUndoState;
+
+  const armUndoCheckpoint = () => {
+    if (restoringUndoRef.current) return;
+    const state = cloneReconcileUndoState(latestUndoStateRef.current);
+    pendingUndoRef.current = { state, fingerprint: reconcileUndoFingerprint(state) };
+    if (pendingUndoTimerRef.current) clearTimeout(pendingUndoTimerRef.current);
+    pendingUndoTimerRef.current = setTimeout(() => {
+      pendingUndoRef.current = null;
+      pendingUndoTimerRef.current = null;
+    }, 0);
+  };
+
+  useLayoutEffect(() => {
+    const previousFingerprint = previousUndoFingerprintRef.current;
+    if (previousFingerprint === null) {
+      previousUndoFingerprintRef.current = latestUndoFingerprint;
+      return;
+    }
+    if (restoringUndoRef.current) {
+      restoringUndoRef.current = false;
+      pendingUndoRef.current = null;
+      previousUndoFingerprintRef.current = latestUndoFingerprint;
+      return;
+    }
+    if (latestUndoFingerprint === previousFingerprint) return;
+    const pending = pendingUndoRef.current;
+    if (pending?.fingerprint === previousFingerprint) {
+      const history = undoHistoryRef.current;
+      if (history[history.length - 1]?.fingerprint !== pending.fingerprint) {
+        history.push(pending);
+        if (history.length > 50) history.shift();
+      }
+      setCanUndo(history.length > 0);
+    }
+    pendingUndoRef.current = null;
+    previousUndoFingerprintRef.current = latestUndoFingerprint;
+  }, [latestUndoFingerprint]);
+
+  const handleUndo = () => {
+    const previous = undoHistoryRef.current.pop();
+    if (!previous) return;
+    restoringUndoRef.current = true;
+    pendingUndoRef.current = null;
+    if (pendingUndoTimerRef.current) {
+      clearTimeout(pendingUndoTimerRef.current);
+      pendingUndoTimerRef.current = null;
+    }
+    restoreCurrent(cloneAccountSnapshot(previous.state.current));
+    setConfig({
+      investAllocTargets: { ...previous.state.config.investAllocTargets },
+      dramDecision: previous.state.config.dramDecision ? { ...previous.state.config.dramDecision } : undefined,
+    });
+    setRevealConsumptionWishUsd(previous.state.revealConsumptionWishUsd);
+    setLocalAccounts({ ...previous.state.localAccounts });
+    setRevealedUsdAccounts(new Set(previous.state.revealedUsdAccounts));
+    setInvestUsdInputMode(previous.state.investUsdInputMode);
+    setInvestUsdCnyInput(previous.state.investUsdCnyInput);
+    setConfirmed({ ...previous.state.confirmed });
+    setLocalTransferred({ ...previous.state.localTransferred });
+    setConsumptionWishOpen(previous.state.consumptionWishOpen);
+    setGroupedTargetInputs({
+      groups: { ...previous.state.groupedTargetInputs.groups },
+      assets: { ...previous.state.groupedTargetInputs.assets },
+    });
+    setReconcileMode(previous.state.reconcileMode);
+    setAllowRebalanceSell(previous.state.allowRebalanceSell);
+    setLocalHoldings({ ...previous.state.localHoldings });
+    setLocalUsStockItems(previous.state.localUsStockItems.map((item) => ({ ...item })));
+    setDramConfigInputs({ ...previous.state.dramConfigInputs });
+    setLocalConfirmed({ ...previous.state.localConfirmed });
+    setLocalFundingLeg({ ...previous.state.localFundingLeg });
+    setDoneSteps(new Set(previous.state.doneSteps));
+    setCanUndo(undoHistoryRef.current.length > 0);
+    setUndoFeedback(true);
+    if (undoFeedbackTimerRef.current) clearTimeout(undoFeedbackTimerRef.current);
+    undoFeedbackTimerRef.current = setTimeout(() => {
+      setUndoFeedback(false);
+      undoFeedbackTimerRef.current = null;
+    }, 1200);
+  };
+
+  const handleUndoRef = useRef(handleUndo);
+  handleUndoRef.current = handleUndo;
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.altKey || event.key.toLowerCase() !== 'z') return;
+      event.preventDefault();
+      handleUndoRef.current();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      if (pendingUndoTimerRef.current) clearTimeout(pendingUndoTimerRef.current);
+      if (undoFeedbackTimerRef.current) clearTimeout(undoFeedbackTimerRef.current);
+    };
+  }, []);
 
   const rebalanceFundingRows = rebalanceFunding.cnyBufferRows.filter((row) => Math.abs(row.amountCny) >= 0.5);
   const usdReplaceRows = rebalanceFunding.usdReplaceRows.filter((row) => Math.abs(row.amountCny) >= 0.5);
@@ -1857,7 +2070,18 @@ export default function ReconcilePage() {
     : [];
 
   return (
-    <div>
+    <div
+      onPointerDownCapture={armUndoCheckpoint}
+      onPointerUpCapture={armUndoCheckpoint}
+      onClickCapture={armUndoCheckpoint}
+      onBeforeInputCapture={armUndoCheckpoint}
+      onInputCapture={armUndoCheckpoint}
+      onChangeCapture={armUndoCheckpoint}
+      onKeyDownCapture={(event) => {
+        if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'z') return;
+        armUndoCheckpoint();
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, margin: '0 0 4px' }}>
         <div style={{ minWidth: 0 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>对账 / 转账</h1>
@@ -2968,17 +3192,28 @@ export default function ReconcilePage() {
         </div>
       )}
 
-      {/* 保存 */}
+      {/* 页面级撤回：固定在底部导航上方，滚动到任意位置都可用 */}
       <button
-        onClick={handleSave}
+        type="button"
+        data-undo-control="true"
+        onClick={handleUndo}
+        disabled={!canUndo}
+        aria-label="撤回上一步，快捷键 Ctrl 或 Command 加 Z"
+        aria-keyshortcuts="Control+Z Meta+Z"
+        title="撤回上一步（Ctrl/Command + Z）"
         style={{
-          width: '100%', backgroundColor: saved ? C.green : C.blue, color: '#fff',
-          fontWeight: 600, fontSize: 15, padding: '14px 0', borderRadius: 12,
-          border: 'none', cursor: 'pointer', marginTop: 8, marginBottom: 16,
-          boxShadow: '0 1px 3px rgba(26,115,232,0.3)', transition: 'background-color 0.3s',
+          position: 'fixed', right: 'max(16px, calc((100vw - 480px) / 2 + 16px))', bottom: 76, zIndex: 90,
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          backgroundColor: canUndo ? '#fff' : '#f1f3f4', color: canUndo ? C.blue : '#9aa0a6',
+          fontWeight: 700, fontSize: 13, padding: '9px 13px', borderRadius: 999,
+          border: `1px solid ${canUndo ? '#a8c7fa' : '#dadce0'}`,
+          cursor: canUndo ? 'pointer' : 'default',
+          boxShadow: canUndo ? '0 3px 10px rgba(32,33,36,0.18)' : 'none',
+          transition: 'background-color 0.2s, color 0.2s, box-shadow 0.2s',
         }}
       >
-        {saved ? '✓ 已保存' : '保存本次对账'}
+        <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>↶</span>
+        {undoFeedback ? '已撤回' : '撤回'}
       </button>
     </div>
   );
