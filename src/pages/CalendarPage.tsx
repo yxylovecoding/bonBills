@@ -2888,6 +2888,13 @@ export default function CalendarPage() {
 
           {/* Tag 选择器 */}
           <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8, marginBottom: 8, alignItems: 'center' }}>
+            <div style={{ display: 'flex', flexShrink: 0, gap: 0, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
+              {(['single', 'range'] as const).map((m) => (
+                <button key={m} onClick={() => switchMode(m)} style={{ padding: '6px 16px', fontSize: 13, border: 'none', cursor: 'pointer', backgroundColor: selectMode === m ? C.blue : '#fff', color: selectMode === m ? '#fff' : C.sub, fontWeight: selectMode === m ? 600 : 400 }}>
+                  {m === 'single' ? '单击' : '起止'}
+                </button>
+              ))}
+            </div>
             {tagOrder.map((t, i) => {
               const meta    = tagMeta[t];
               const active  = selectedTag === t;
@@ -2934,15 +2941,8 @@ export default function CalendarPage() {
             )}
           </div>
 
-          {/* 选择模式切换 */}
+          {/* 明细与待分类 */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', gap: 0, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
-              {(['single', 'range'] as const).map((m) => (
-                <button key={m} onClick={() => switchMode(m)} style={{ padding: '6px 16px', fontSize: 13, border: 'none', cursor: 'pointer', backgroundColor: selectMode === m ? C.blue : '#fff', color: selectMode === m ? '#fff' : C.sub, fontWeight: selectMode === m ? 600 : 400 }}>
-                  {m === 'single' ? '单击' : '起止'}
-                </button>
-              ))}
-            </div>
             <button
               onClick={() => switchMode('detail')}
               style={{ padding: '6px 16px', fontSize: 13, borderRadius: 10, border: `1px solid ${selectMode === 'detail' ? C.blue : C.border}`, cursor: 'pointer', backgroundColor: selectMode === 'detail' ? C.blue : '#fff', color: selectMode === 'detail' ? '#fff' : C.sub, fontWeight: selectMode === 'detail' ? 600 : 400 }}
