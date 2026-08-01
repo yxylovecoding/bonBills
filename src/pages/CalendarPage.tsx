@@ -2156,7 +2156,7 @@ export default function CalendarPage() {
   const [year,  setYear]  = useState(_now.getFullYear());
   const [month, setMonth] = useState(_now.getMonth());
   const [selectedTag, setSelectedTag] = useState<TagKind>('school');
-  const [selectMode, setSelectMode]   = useState<'single' | 'range' | 'detail'>('single');
+  const [selectMode, setSelectMode]   = useState<'single' | 'range' | 'detail'>('detail');
   const [rangeStart, setRangeStart]   = useState<string | null>(null);
   const [rangeHover, setRangeHover]   = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
@@ -2937,12 +2937,18 @@ export default function CalendarPage() {
           {/* 选择模式切换 */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', gap: 0, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
-              {(['single', 'range', 'detail'] as const).map((m) => (
+              {(['single', 'range'] as const).map((m) => (
                 <button key={m} onClick={() => switchMode(m)} style={{ padding: '6px 16px', fontSize: 13, border: 'none', cursor: 'pointer', backgroundColor: selectMode === m ? C.blue : '#fff', color: selectMode === m ? '#fff' : C.sub, fontWeight: selectMode === m ? 600 : 400 }}>
-                  {m === 'single' ? '单击' : m === 'range' ? '起止' : '明细'}
+                  {m === 'single' ? '单击' : '起止'}
                 </button>
               ))}
             </div>
+            <button
+              onClick={() => switchMode('detail')}
+              style={{ padding: '6px 16px', fontSize: 13, borderRadius: 10, border: `1px solid ${selectMode === 'detail' ? C.blue : C.border}`, cursor: 'pointer', backgroundColor: selectMode === 'detail' ? C.blue : '#fff', color: selectMode === 'detail' ? '#fff' : C.sub, fontWeight: selectMode === 'detail' ? 600 : 400 }}
+            >
+              明细
+            </button>
             <button
               onClick={() => setShowPendingPanel((v) => !v)}
               title="集中处理所有未被规则覆盖的待手动分类账单"
