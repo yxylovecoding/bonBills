@@ -1,0 +1,25 @@
+src/pages/HomePage.tsx
+  s_ebcfaa5b8e9fcf::t_c5249e5d24782d 38
+src/pages/ReconcilePage.tsx
+  s_ebcfaa5b8e9fcf::t_9f616a5fee2b66 1,20,356-436,447,1575-1715,2073-2084,3195,3197-3203,3205-3212,3215-3216
+src/stores/snapshotStore.ts
+  s_ebcfaa5b8e9fcf::t_dd412efebe9986 53,71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "59039e4d2c6f192178c0c2a3a7b38a4017f40fa7",
+  "prompts": {},
+  "sessions": {
+    "s_ebcfaa5b8e9fcf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fbc46-4014-7ec2-88a1-d7a0a6dfd21e",
+        "model": "unknown"
+      },
+      "human_author": "yxylovecoding <yangxy1229@163.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
