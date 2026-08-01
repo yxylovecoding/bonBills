@@ -2508,55 +2508,61 @@ export default function CalendarPage() {
     <div>
       <input ref={billFileRef} type="file" accept=".xls,.xlsx,.csv,image/*" style={{ display: 'none' }} onChange={handleBillFile} />
       {/* 页头 + 胶囊切换 */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '0 0 16px' }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>
-          {tab === 'month' ? '日历标记' : '历史记录'}
-        </h1>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-          <button
-            onClick={importLatestBillFromMail}
-            disabled={billImporting}
-            title="从 163 邮箱导入最新账单或图片附件"
-            style={{ fontSize: 11, lineHeight: 1, padding: '4px 7px', borderRadius: 7, border: `1px solid ${C.border}`, backgroundColor: billImporting ? '#f1f3f4' : '#fff', color: billImporting ? '#9aa0a6' : C.sub, cursor: billImporting ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
-          >
-            {billImporting ? '导入中' : '邮箱'}
-          </button>
-          <button
-            onClick={() => billFileRef.current?.click()}
-            disabled={billImporting}
-            title="手动选择账单或图片文件"
-            style={{ fontSize: 11, lineHeight: 1, padding: '4px 7px', borderRadius: 7, border: `1px solid ${C.border}`, backgroundColor: '#fff', color: billImporting ? '#9aa0a6' : C.sub, cursor: billImporting ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
-          >
-            本地
-          </button>
-          </div>
-          {billImportMsg && <span style={{ flex: '1 1 180px', minWidth: 160, maxWidth: 360, fontSize: 11, lineHeight: 1.35, color: C.sub, whiteSpace: 'normal', overflowWrap: 'anywhere' }}>{billImportMsg}</span>}
-        <div style={{ display: 'flex', backgroundColor: '#e8eaed', borderRadius: 20, padding: 3, gap: 2 }}>
-          {(['month', 'year'] as const).map((t) => {
-            const active = tab === t;
-            return (
-              <button key={t} onClick={() => setTab(t)} style={{
-                padding: '5px 14px', borderRadius: 16, border: 'none', cursor: 'pointer',
-                fontSize: 13, fontWeight: 600,
-                backgroundColor: active ? '#fff' : 'transparent',
-                color: active ? C.blue : C.sub,
-                boxShadow: active ? '0 1px 3px rgba(0,0,0,0.15)' : 'none',
-                transition: 'all 0.15s',
-              }}>
-                {t === 'month' ? '月' : '年'}
+      <div style={{ margin: '0 0 16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, flexWrap: 'nowrap', minWidth: 0 }}>
+          <h1 style={{ fontSize: 'clamp(18px, 4.8vw, 22px)', fontWeight: 700, margin: 0, whiteSpace: 'nowrap', flexShrink: 0 }}>
+            {tab === 'month' ? '日历标记' : '历史记录'}
+          </h1>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 'clamp(3px, 1.5vw, 8px)', flexWrap: 'nowrap', minWidth: 0, flexShrink: 0, whiteSpace: 'nowrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+              <button
+                onClick={importLatestBillFromMail}
+                disabled={billImporting}
+                title="从 163 邮箱导入最新账单或图片附件"
+                style={{ fontSize: 11, lineHeight: 1, padding: '4px clamp(5px, 1.5vw, 7px)', borderRadius: 7, border: `1px solid ${C.border}`, backgroundColor: billImporting ? '#f1f3f4' : '#fff', color: billImporting ? '#9aa0a6' : C.sub, cursor: billImporting ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
+              >
+                {billImporting ? '导入中' : '邮箱'}
               </button>
-            );
-          })}
+              <button
+                onClick={() => billFileRef.current?.click()}
+                disabled={billImporting}
+                title="手动选择账单或图片文件"
+                style={{ fontSize: 11, lineHeight: 1, padding: '4px clamp(5px, 1.5vw, 7px)', borderRadius: 7, border: `1px solid ${C.border}`, backgroundColor: '#fff', color: billImporting ? '#9aa0a6' : C.sub, cursor: billImporting ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
+              >
+                本地
+              </button>
+            </div>
+            <div style={{ display: 'flex', backgroundColor: '#e8eaed', borderRadius: 20, padding: 3, gap: 2, flexShrink: 0 }}>
+              {(['month', 'year'] as const).map((t) => {
+                const active = tab === t;
+                return (
+                  <button key={t} onClick={() => setTab(t)} style={{
+                    padding: '5px clamp(9px, 3vw, 14px)', borderRadius: 16, border: 'none', cursor: 'pointer',
+                    fontSize: 13, fontWeight: 600,
+                    backgroundColor: active ? '#fff' : 'transparent',
+                    color: active ? C.blue : C.sub,
+                    boxShadow: active ? '0 1px 3px rgba(0,0,0,0.15)' : 'none',
+                    transition: 'all 0.15s',
+                  }}>
+                    {t === 'month' ? '月' : '年'}
+                  </button>
+                );
+              })}
+            </div>
+            <button onClick={() => {
+              setThresholdInput(String(config.majorExpenseThreshold ?? 500));
+              setSettingsOpen(true);
+            }}
+              style={{ fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', padding: '4px clamp(2px, 1.5vw, 6px)', color: C.sub, lineHeight: 1, flexShrink: 0 }}>
+              ⚙️
+            </button>
+          </div>
         </div>
-        <button onClick={() => {
-          setThresholdInput(String(config.majorExpenseThreshold ?? 500));
-          setSettingsOpen(true);
-        }}
-          style={{ fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', color: C.sub, lineHeight: 1 }}>
-          ⚙️
-        </button>
-        </div>
+        {billImportMsg && (
+          <div role="status" title={billImportMsg} style={{ marginTop: 6, fontSize: 11, lineHeight: 1.35, color: C.sub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'right' }}>
+            {billImportMsg}
+          </div>
+        )}
       </div>
       {holidayWarning && (
         <div style={{ margin: '0 0 16px', fontSize: 12, color: C.orange, backgroundColor: '#fff4e8', border: '1px solid #fed7aa', borderRadius: 10, padding: '8px 10px' }}>
