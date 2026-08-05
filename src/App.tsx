@@ -4,6 +4,7 @@ import HomePage from './pages/HomePage';
 import CalendarPage from './pages/CalendarPage';
 import ReconcilePage from './pages/ReconcilePage';
 import PossessionsPage from './pages/PossessionsPage';
+import WishesPage from './pages/WishesPage';
 
 export default function App() {
   return (
@@ -13,6 +14,7 @@ export default function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/reconcile" element={<ReconcilePage />} />
+          <Route path="/wishes" element={<WishesPage />} />
           <Route path="/possessions" element={<PossessionsPage />} />
           <Route path="/history" element={<Navigate to="/calendar?tab=year" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />

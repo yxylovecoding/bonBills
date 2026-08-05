@@ -32,6 +32,15 @@ const tabs = [
       </svg>
     ),
   },
+  {
+    to: '/wishes',
+    label: '心愿',
+    icon: (active: boolean) => (
+      <span style={{ fontSize: 24, lineHeight: 1, color: active ? '#7c3aed' : '#5f6368' }}>
+        {active ? '♥' : '♡'}
+      </span>
+    ),
+  },
 ];
 
 export default function Nav() {
