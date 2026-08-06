@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import AmountInput from '../components/AmountInput';
 import Card from '../components/Card';
-import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
+import { formatCurrency } from '../components/CurrencyDisplay';
 import { calcHistoryStats } from '../calculations/history';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useCalendarStore } from '../stores/calendarStore';
@@ -10,15 +10,24 @@ import { useExpenseScopeOverrideStore } from '../stores/expenseScopeOverrideStor
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { useSnapshotStore } from '../stores/snapshotStore';
 import { useTripStore } from '../stores/tripStore';
-import type { TagKind, WishItem } from '../models/types';
+import type { WishItem } from '../models/types';
 import { calculateWishPlan, FLEXIBLE_WISH_SHARE, POST_LIFE_FLEXIBLE_SHARE, POST_LIFE_WISH_SHARE } from '../utils/wishes';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
-const SCENE_LABELS: Record<TagKind, string> = { intern: '工作', school: '在校', home: '居家', travel: '旅行' };
 
 function sanitizeAmount(raw: string): number {
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? Math.max(parsed, 0) : 0;
+}
+
+function offsetYearMonth(date: Date, offset: number): string {
+  const target = new Date(date.getFullYear(), date.getMonth() + offset, 1);
+  return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function monthLabel(value: string, currentYearMonth: string): string {
+  const [year, month] = value.split('-').map(Number);
+  return value === currentYearMonth ? `${month}月 · 本月余` : `${year}年${month}月`;
 }
 
 export default function WishesPage() {
@@ -30,7 +39,10 @@ export default function WishesPage() {
   const { overrides } = useExpenseScopeOverrideStore();
   const { tripTags } = useTripStore();
   const [amountDrafts, setAmountDrafts] = useState<Record<string, string>>({});
+  const [showAllForecast, setShowAllForecast] = useState(false);
   const today = new Date();
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const currentYearMonth = todayKey.slice(0, 7);
   const twoYearsAgo = `${today.getFullYear() - 1}-01`;
   const wishes = config.wishes ?? [];
 
@@ -42,24 +54,38 @@ export default function WishesPage() {
     () => calcHistoryStats(filteredRecords, tagMap, confirmedExpenses, expenseItems, overrides, tripTags),
     [filteredRecords, tagMap, confirmedExpenses, expenseItems, overrides, tripTags],
   );
-  const configuredScene = config.fireExpenseTagKind ?? 'intern';
-  const sceneHasData = stats.stateDailyConfidence[configuredScene] > 0;
-  const activeFutureMonthly = (config.futureFireExpenses ?? [])
-    .filter((item) => item.isActive)
-    .reduce((sum, item) => sum + Math.max(item.monthlyAmount, 0), 0);
-  const baseMonthlyLifeExpense = sceneHasData
-    ? stats.stateDailyAvg[configuredScene] * 365 / 12
-    : stats.totalLife;
-  const monthlyLifeExpense = baseMonthlyLifeExpense + activeFutureMonthly;
-  const plan = useMemo(
-    () => calculateWishPlan(wishes, monthlyLifeExpense, today),
-    // 日期只需随页面重新进入刷新，避免把 Date 对象作为不稳定依赖。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [wishes, monthlyLifeExpense, today.toDateString()],
+  const savingsReserved = Math.max(current.accounts.savingsCard ?? 0, 0);
+  const currentCreditDue = Math.max((current.accounts.creditMonthly ?? 0) - savingsReserved, 0);
+  const nextCreditDue = Math.max(
+    (current.accounts.credit ?? 0) - Math.max(savingsReserved, current.accounts.creditMonthly ?? 0),
+    0,
   );
-  const incomeGap = plan.requiredMonthlyNetIncome - stats.monthlyIncomeAvg;
+  const configuredPayDay = Math.min(Math.max(Math.round(config.creditPayDate || 1), 1), 31);
+  const daysThisMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const currentDueOffset = today.getDate() <= Math.min(configuredPayDay, daysThisMonth) ? 0 : 1;
+  const currentDueMonth = offsetYearMonth(today, currentDueOffset);
+  const nextDueMonth = offsetYearMonth(today, currentDueOffset + 1);
+  const repaymentsByMonth = useMemo(() => ({
+    [currentDueMonth]: currentCreditDue,
+    [nextDueMonth]: nextCreditDue,
+  }), [currentCreditDue, currentDueMonth, nextCreditDue, nextDueMonth]);
+  const plan = useMemo(
+    () => calculateWishPlan(wishes, {
+      today,
+      tagMap,
+      stateDailyAvg: stats.stateDailyAvg,
+      repaymentsByMonth,
+    }),
+    // todayKey 每日变化一次，避免 Date 实例导致无意义的重复计算。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [wishes, tagMap, stats.stateDailyAvg, repaymentsByMonth, todayKey],
+  );
   const registeredSavings = wishes.reduce((sum, item) => sum + Math.max(item.savedAmount, 0), 0);
   const wishJarBalance = Math.max(current.accounts.wishJar ?? 0, 0);
+  const totalTaggedDays = plan.months.reduce((sum, month) => sum + month.taggedDays, 0);
+  const totalAvailableDays = plan.months.reduce((sum, month) => sum + month.availableDays, 0);
+  const incompleteCalendarMonths = plan.months.filter((month) => month.taggedDays < month.availableDays);
+  const visibleForecastMonths = showAllForecast ? plan.months : plan.months.slice(0, 12);
 
   const syncWishes = (items: WishItem[]) => setConfig({ wishes: items });
   const addWish = () => syncWishes([
@@ -110,27 +136,24 @@ export default function WishesPage() {
       <section style={{ background: 'linear-gradient(145deg, #6d28d9 0%, #8b5cf6 58%, #a78bfa 100%)', color: '#fff', borderRadius: 18, padding: '20px', marginBottom: 12, boxShadow: '0 8px 24px rgba(109,40,217,0.2)' }}>
         {plan.activeDeadlineCount > 0 ? (
           <>
-            <div style={{ fontSize: 12, opacity: 0.82, marginBottom: 5 }}>{plan.activeDeadlineCount} 个 DDL 心愿所需税后月收入</div>
+            <div style={{ fontSize: 12, opacity: 0.82, marginBottom: 5 }}>从本月起 · 平均每月需赚</div>
             <div style={{ fontSize: 30, lineHeight: 1.15, fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: -0.5 }}>
-              ¥{formatCurrency(plan.requiredMonthlyNetIncome)}
+              ¥{formatCurrency(plan.averageRequiredMonthlyNetIncome)}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 16 }}>
               <div style={{ borderRadius: 12, padding: '9px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
-                <div style={{ fontSize: 10, opacity: 0.76 }}>每月生活</div>
-                <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>¥{formatCurrency(monthlyLifeExpense)}</div>
+                <div style={{ fontSize: 10, opacity: 0.76 }}>预测区间</div>
+                <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>{plan.months.length} 个月</div>
               </div>
               <div style={{ borderRadius: 12, padding: '9px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
-                <div style={{ fontSize: 10, opacity: 0.76 }}>每月攒心愿</div>
-                <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>¥{formatCurrency(plan.monthlyWishAmount)}</div>
+                <div style={{ fontSize: 10, opacity: 0.76 }}>平均每月攒心愿</div>
+                <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>¥{formatCurrency(plan.averageMonthlyWishAmount)}</div>
               </div>
             </div>
-            {stats.monthlyIncomeAvg > 0 && (
-              <div style={{ marginTop: 10, fontSize: 11, lineHeight: 1.5, color: incomeGap > 0 ? '#fde68a' : '#dcfce7' }}>
-                {incomeGap > 0
-                  ? `比历史月均收入还需多赚 ¥${formatCurrency(incomeGap)}`
-                  : `历史月均收入可覆盖，余量 ¥${formatCurrency(Math.abs(incomeGap))}`}
-              </div>
-            )}
+            <div style={{ marginTop: 10, fontSize: 11, lineHeight: 1.5, color: incompleteCalendarMonths.length > 0 ? '#fde68a' : '#dcfce7' }}>
+              日历已标记 {totalTaggedDays}/{totalAvailableDays} 天
+              {incompleteCalendarMonths.length > 0 ? ` · ${incompleteCalendarMonths.length} 个月仍有空白日期` : ' · 已完整计入生活安排'}
+            </div>
           </>
         ) : (
           <>
@@ -139,37 +162,68 @@ export default function WishesPage() {
           </>
         )}
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.2)', marginTop: 14, paddingTop: 11, fontSize: 11, lineHeight: 1.55, opacity: 0.84 }}>
-          收入先抵生活；余额的 {POST_LIFE_FLEXIBLE_SHARE * 100}% 给消费＋心愿，其中 {FLEXIBLE_WISH_SHARE * 100}% 给心愿，所以每多攒 ¥1 心愿需多赚 ¥{(1 / POST_LIFE_WISH_SHARE).toFixed(1)}。
+          收入先抵当月日历生活和还款；余额的 {POST_LIFE_FLEXIBLE_SHARE * 100}% 给消费＋心愿，其中 {FLEXIBLE_WISH_SHARE * 100}% 给心愿，所以每多攒 ¥1 心愿需多赚 ¥{(1 / POST_LIFE_WISH_SHARE).toFixed(1)}。
         </div>
       </section>
 
-      <Card title="计算口径" subtitle={sceneHasData ? `按${SCENE_LABELS[configuredScene]}场景` : '场景数据不足，按历史月均'} collapsible defaultCollapsed>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
-          <label htmlFor="wish-life-scene" style={{ fontSize: 12, color: C.sub }}>生活场景</label>
-          <select
-            id="wish-life-scene"
-            value={configuredScene}
-            onChange={(event) => setConfig({ fireExpenseTagKind: event.target.value as TagKind })}
-            style={{ border: '1px solid #e0e0e0', borderRadius: 999, backgroundColor: '#fff', fontSize: 12, fontWeight: 700, padding: '5px 9px', outline: 'none' }}
-          >
-            {(Object.keys(SCENE_LABELS) as TagKind[]).map((kind) => <option key={kind} value={kind}>{SCENE_LABELS[kind]}</option>)}
-          </select>
+      <Card title="计算口径" subtitle="日历逐月计算" collapsible defaultCollapsed>
+        <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.65 }}>
+          <div style={{ display: 'flex', gap: 8, padding: '4px 0' }}><span>①</span><span>从今天起，按日历每天的工作、在校、居家、旅行标记乘以对应生活日均。</span></div>
+          <div style={{ display: 'flex', gap: 8, padding: '4px 0' }}><span>②</span><span>计入当前对账已知的本期和下期还款，储蓄卡已预留金额优先抵扣。</span></div>
+          <div style={{ display: 'flex', gap: 8, padding: '4px 0' }}><span>③</span><span>每个心愿的剩余金额，从本月到 DDL 月平均分摊。</span></div>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 0' }}>
-          <span style={{ color: C.sub }}>月生活费</span>
-          <CurrencyDisplay value={monthlyLifeExpense} color={C.blue} />
-        </div>
-        {activeFutureMonthly > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0' }}>
-            <span style={{ color: C.sub }}>含 FIRE 未来固定支出</span>
-            <span style={{ color: C.orange }}>¥{formatCurrency(activeFutureMonthly)}/月</span>
-          </div>
-        )}
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 0' }}>
+        <div style={{ borderTop: '1px solid #f1f3f4', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
           <span style={{ color: C.sub }}>心愿实际分配率</span>
           <span style={{ color: C.purple, fontWeight: 700 }}>50% × 80% = 40%</span>
         </div>
+        {(currentCreditDue > 0 || nextCreditDue > 0) && (
+          <div style={{ marginTop: 8, fontSize: 11, color: C.sub, backgroundColor: '#f8f9fa', borderRadius: 9, padding: '7px 9px', lineHeight: 1.55 }}>
+            已知还款：{currentDueMonth} ¥{formatCurrency(currentCreditDue)}
+            {nextCreditDue > 0 ? ` · ${nextDueMonth} ¥${formatCurrency(nextCreditDue)}` : ''}
+          </div>
+        )}
       </Card>
+
+      {plan.months.length > 0 && (
+        <Card title="逐月收入目标" subtitle="生活＋还款＋心愿">
+          {incompleteCalendarMonths.length > 0 && (
+            <div style={{ color: C.orange, backgroundColor: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, fontSize: 11, lineHeight: 1.5, padding: '7px 9px', marginBottom: 10 }}>
+              未标记的日期暂不计生活费；继续在日历补齐安排后，这里的金额会自动更新。
+            </div>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {visibleForecastMonths.map((month, index) => {
+              const incomplete = month.taggedDays < month.availableDays;
+              return (
+                <div key={month.yearMonth} style={{ padding: '10px 0', borderTop: index > 0 ? '1px solid #f1f3f4' : 'none' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700 }}>{monthLabel(month.yearMonth, currentYearMonth)}</span>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: C.purple, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(month.requiredNetIncome)}</span>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 9px', marginTop: 4, fontSize: 10, color: C.sub, lineHeight: 1.45 }}>
+                    <span>生活 ¥{formatCurrency(month.lifeExpense)}</span>
+                    {month.repayment > 0 && <span>还款 ¥{formatCurrency(month.repayment)}</span>}
+                    <span>心愿 ¥{formatCurrency(month.wishAmount)}</span>
+                    <span style={{ color: incomplete ? C.orange : C.green }}>日历 {month.taggedDays}/{month.availableDays} 天</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {plan.months.length > 12 && (
+            <button
+              type="button"
+              onClick={() => setShowAllForecast((value) => !value)}
+              style={{ width: '100%', border: 'none', borderRadius: 10, backgroundColor: '#f5f3ff', color: C.purple, fontSize: 11, fontWeight: 700, padding: '8px 10px', cursor: 'pointer', marginTop: 4 }}
+            >
+              {showAllForecast ? '收起远期月份' : `查看全部 ${plan.months.length} 个月`}
+            </button>
+          )}
+          <div style={{ marginTop: 9, fontSize: 10, color: '#9aa0a6', lineHeight: 1.5 }}>
+            还款仅展示当前对账已经知道的本期与下期，后续月份会随新账单自动更新。
+          </div>
+        </Card>
+      )}
 
       <Card title="心愿清单" subtitle={`${wishes.length} 个心愿`}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '0 0 12px', marginBottom: 12, borderBottom: '1px solid #f1f3f4', fontSize: 11 }}>
