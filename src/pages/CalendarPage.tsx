@@ -156,6 +156,7 @@ function TagLogicStats({ items, initialTag }: { items: BillStatisticItem[]; init
   const [endDate, setEndDate] = useState('');
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [accountsExpanded, setAccountsExpanded] = useState(false);
+  const queryInputRef = useRef<HTMLInputElement>(null);
 
   const availableRange = useMemo(() => {
     let earliest = '';
@@ -272,6 +273,10 @@ function TagLogicStats({ items, initialTag }: { items: BillStatisticItem[]; init
     setExpanded(true);
   };
 
+  const focusQueryInput = () => {
+    window.requestAnimationFrame(() => queryInputRef.current?.focus());
+  };
+
   const addTag = (tag: string) => {
     if (!tag) return;
     setLogicParts((current) => {
@@ -285,6 +290,7 @@ function TagLogicStats({ items, initialTag }: { items: BillStatisticItem[]; init
     });
     setQuery('');
     setExpanded(true);
+    focusQueryInput();
   };
 
   const appendLogicToken = (token: TagLogicOperator) => {
@@ -320,6 +326,7 @@ function TagLogicStats({ items, initialTag }: { items: BillStatisticItem[]; init
     const firstSuggestedTag = suggestions[0]?.tag;
     if (firstSuggestedTag) addTag(firstSuggestedTag);
     appendLogicToken(token);
+    focusQueryInput();
   };
 
   return (
@@ -440,6 +447,7 @@ function TagLogicStats({ items, initialTag }: { items: BillStatisticItem[]; init
           );
         })}
         <input
+          ref={queryInputRef}
           value={query}
           aria-label="输入标签或逻辑符"
           disabled={accountFilteredItems.length === 0}
@@ -469,7 +477,7 @@ function TagLogicStats({ items, initialTag }: { items: BillStatisticItem[]; init
             {inputOperator ? (
               <button
                 type="button"
-                onClick={() => { appendLogicToken(inputOperator); setQuery(''); }}
+                onClick={() => { appendLogicToken(inputOperator); setQuery(''); focusQueryInput(); }}
                 style={{ border: '1px solid #c4b5fd', backgroundColor: '#ede9fe', color: C.purple, borderRadius: 7, padding: '4px 8px', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}
               >
                 添加逻辑符 {inputOperator}
