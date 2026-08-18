@@ -306,6 +306,12 @@ function TagLogicStats({ items }: { items: BillStatisticItem[] }) {
     setExpanded(true);
   };
 
+  const appendLogicTokenFromButton = (token: TagLogicOperator) => {
+    const firstSuggestedTag = suggestions[0]?.tag;
+    if (firstSuggestedTag) addTag(firstSuggestedTag);
+    appendLogicToken(token);
+  };
+
   return (
     <div style={{ padding: 12, borderRadius: 12, border: '1px solid #ddd6fe', backgroundColor: '#faf8ff' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
@@ -485,7 +491,7 @@ function TagLogicStats({ items }: { items: BillStatisticItem[] }) {
             key={token}
             type="button"
             title={title}
-            onClick={() => appendLogicToken(token)}
+            onClick={() => appendLogicTokenFromButton(token)}
             style={{ border: '1px solid #c4b5fd', backgroundColor: '#ede9fe', color: C.purple, borderRadius: 7, padding: '4px 8px', fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}
           >
             {token}
