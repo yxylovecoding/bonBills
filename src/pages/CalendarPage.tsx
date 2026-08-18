@@ -1875,7 +1875,6 @@ function ExpenseItemLine({ it, fullDate = false }: { it: CategorizedBillItem; fu
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         <span style={{ color: C.sub, marginRight: 6 }}>{fullDate ? it.date : it.date.slice(5)}</span>
         {isIncome && <span style={{ color: C.red, marginRight: 6 }}>收入</span>}
-        {it.transactionType && <span style={{ color: C.purple, marginRight: 6 }}>{getStatisticAccount(it.account)}</span>}
         {it.note || it.subcategory || it.category || '—'}
       </span>
       <span style={{ color: isIncome ? C.red : 'inherit', fontVariantNumeric: 'tabular-nums', flexShrink: 0, marginLeft: 8 }}>{isIncome ? '+' : ''}¥{formatCurrency(it.amount)}</span>
