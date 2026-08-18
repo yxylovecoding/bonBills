@@ -109,7 +109,7 @@ const NOISE_NOTE_PATTERNS = [/账户余额补齐/, /美团平台商户/];
 function extractMeaningful(tagsRaw: string, note: string): string {
   const tags = tagsRaw.split(',').map(t => t.trim()).filter(t => t && !NOISE_TAGS.has(t));
   const cleanNote = NOISE_NOTE_PATTERNS.some(p => p.test(note)) ? '' : note;
-  return [cleanNote, ...tags].filter(Boolean).join(' · ');
+  return [...new Set([cleanNote, ...tags].filter(Boolean))].join(' · ');
 }
 
 function splitBillTags(tagsRaw: string): string[] {
@@ -1870,12 +1870,13 @@ function MonthFormCards(props: MonthFormProps & { subtitle?: string }) {
 // ── Category drill-down ────────────────────────────────────────────
 function ExpenseItemLine({ it, fullDate = false }: { it: CategorizedBillItem; fullDate?: boolean }) {
   const isIncome = it.transactionType === '收入';
+  const detail = extractMeaningful(it.tags, it.note) || it.subcategory || it.category || '—';
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0 2px 32px', color: '#5f6368' }}>
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         <span style={{ color: C.sub, marginRight: 6 }}>{fullDate ? it.date : it.date.slice(5)}</span>
         {isIncome && <span style={{ color: C.red, marginRight: 6 }}>收入</span>}
-        {it.note || it.subcategory || it.category || '—'}
+        {detail}
       </span>
       <span style={{ color: isIncome ? C.red : 'inherit', fontVariantNumeric: 'tabular-nums', flexShrink: 0, marginLeft: 8 }}>{isIncome ? '+' : ''}¥{formatCurrency(it.amount)}</span>
     </div>
