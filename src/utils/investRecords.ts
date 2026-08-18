@@ -42,3 +42,44 @@ export function getCategoryProfit(
   if ((now === undefined || now === null) && (past === undefined || past === null)) return null;
   return (now ?? 0) + (past ?? 0);
 }
+
+function previousYearMonth(yearMonth: string): string {
+  const [year, month] = yearMonth.split('-').map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return '';
+  const previousMonth = month === 1 ? 12 : month - 1;
+  const previousYear = month === 1 ? year - 1 : year;
+  return `${previousYear}-${String(previousMonth).padStart(2, '0')}`;
+}
+
+// 某品类累计收益率 = 各有效月份（本月收益 ÷ 本月持仓）的加总。
+export function getCategoryCumulativeRate(
+  records: MonthlyRecord[],
+  key: InvestKey,
+): number | null {
+  const recordsByMonth = new Map<string, MonthlyRecord>();
+  for (const record of records) recordsByMonth.set(record.yearMonth, record);
+
+  let cumulativeRate = 0;
+  let validMonthCount = 0;
+  const sortedRecords = [...recordsByMonth.values()].sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
+  for (const record of sortedRecords) {
+    if (record.isBaseline) continue;
+    const previousRecord = recordsByMonth.get(previousYearMonth(record.yearMonth));
+    if (!previousRecord) continue;
+
+    const currentProfit = getCategoryProfit(record, key);
+    const previousProfit = getCategoryProfit(previousRecord, key);
+    const currentHolding = Number(record.investBreakdown?.[key]);
+    if (
+      currentProfit === null
+      || previousProfit === null
+      || !Number.isFinite(currentHolding)
+      || currentHolding <= 0
+    ) continue;
+
+    cumulativeRate += (currentProfit - previousProfit) / currentHolding;
+    validMonthCount += 1;
+  }
+
+  return validMonthCount > 0 ? cumulativeRate : null;
+}

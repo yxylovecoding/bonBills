@@ -21,7 +21,7 @@ import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { tryEvalFormula } from '../utils/formula';
 import { dateLabel, resolveIncomeForMonth, type ResolvedIncomeItem } from '../utils/payroll';
-import { getCategoryProfit } from '../utils/investRecords';
+import { getCategoryCumulativeRate } from '../utils/investRecords';
 import {
   FINANCE_SCREENSHOT_DRAFT_EVENT,
   screenshotDraftItemCount,
@@ -706,22 +706,10 @@ export default function ReconcilePage() {
       : DEFAULT_CONFIG.investAllocTargets,
     [config.investAllocTargets, investKeys],
   );
-  // 各品类最新一期累计收益 = now + past（past 逐月继承，已落在最新记录上）
-  const latestBreakdownProfit = useMemo(
-    () => {
-      const sorted = [...records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth));
-      const out: Partial<Record<InvestKey, { profit: number; pastTotal: number; yearMonth?: string }>> = {};
-      for (const k of INVEST_TARGET_KEYS) {
-        const record = sorted.find((r) => getCategoryProfit(r, k) !== null);
-        if (!record) continue;
-        out[k] = {
-          profit: getCategoryProfit(record, k) ?? 0,
-          pastTotal: record.investBreakdownPastProfit?.[k] ?? 0,
-          yearMonth: record.yearMonth,
-        };
-      }
-      return out;
-    },
+  const cumulativeBreakdownRates = useMemo(
+    () => Object.fromEntries(
+      INVEST_TARGET_KEYS.map((key) => [key, getCategoryCumulativeRate(records, key)]),
+    ) as Record<InvestKey, number | null>,
     [records],
   );
   const fallbackUsdRate = useMemo(
@@ -2714,12 +2702,7 @@ export default function ReconcilePage() {
               const groupTargetWarning = groupTargetGap !== null
                 && groupTargetGap >= INVEST_GROUP_WARNING_THRESHOLD - 1e-9;
               const groupTargetDirection = groupRatio !== null && groupRatio > groupTargetRatio ? '偏高' : '偏低';
-              const cur = current.investHoldings[k];
-              const profitInfo = latestBreakdownProfit[k] ?? null;
-              const profit = profitInfo?.profit ?? null;
-              const pastTotal = profitInfo?.pastTotal ?? 0;
-              const costBasis = profit !== null ? cur - profit : null;
-              const profitRate = costBasis !== null && costBasis > 0 ? profit! / costBasis : null;
+              const profitRate = cumulativeBreakdownRates[k] ?? null;
               const suggested = Math.round(rebalanceSuggested[k]);
               // 需加/需赎 = 建议 - 已加，赎回时为负数
               const localDone = parseFloat(localConfirmed[k]) || 0;
@@ -2801,22 +2784,12 @@ export default function ReconcilePage() {
                   </td>
                   {/* 累计收益率 */}
                   <td
-                    title={pastTotal !== 0 ? `${profitInfo?.yearMonth ?? '历史'} 累计收益含 past ${pastTotal >= 0 ? '+' : ''}${Math.round(pastTotal)}` : undefined}
+                    title="累计收益率 = 各月收益率之和"
                     style={{ padding: '8px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
                   >
                     {profitRate !== null ? (
-                      <div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: profitRate >= 0 ? C.red : C.green }}>
-                          {profitRate >= 0 ? '+' : ''}{(profitRate * 100).toFixed(1)}%
-                        </div>
-                        {pastTotal !== 0 && <div style={{ fontSize: 10, color: C.orange, lineHeight: 1.1 }}>past</div>}
-                      </div>
-                    ) : profit !== null ? (
-                      <div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: profit >= 0 ? C.red : C.green }}>
-                          {profit >= 0 ? '+' : ''}¥{Math.round(profit)}
-                        </div>
-                        {pastTotal !== 0 && <div style={{ fontSize: 10, color: C.orange, lineHeight: 1.1 }}>past</div>}
+                      <div style={{ fontSize: 12, fontWeight: 600, color: profitRate >= 0 ? C.red : C.green }}>
+                        {profitRate >= 0 ? '+' : ''}{(profitRate * 100).toFixed(1)}%
                       </div>
                     ) : (
                       <span style={{ fontSize: 11, color: C.sub }}>—</span>
