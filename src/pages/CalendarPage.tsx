@@ -192,11 +192,17 @@ function TagLogicStats({ items, initialTag }: { items: BillStatisticItem[]; init
 
   const tagOptions = useMemo(() => {
     const counts = new Map<string, number>();
+    let lifeCount = 0;
     for (const item of accountFilteredItems) {
-      for (const tag of getStatisticTags(item)) {
+      const tags = getStatisticTags(item);
+      for (const tag of tags) {
         counts.set(tag, (counts.get(tag) ?? 0) + 1);
       }
+      if (item.transactionType !== '收入' && (tags.includes('周期生活') || tags.includes('波动生活'))) {
+        lifeCount += 1;
+      }
     }
+    if (lifeCount > 0) counts.set('生活', lifeCount);
     return [...counts.entries()]
       .map(([tag, count]) => ({ tag, count }))
       .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag, 'zh-CN'));

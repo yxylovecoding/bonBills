@@ -10,6 +10,15 @@ export interface CompiledTagLogic {
   referencedTags: string[];
 }
 
+const TAG_ALIASES: Record<string, readonly string[]> = {
+  生活: ['周期生活', '波动生活'],
+};
+
+function expandTagReference(tag: string): string[] {
+  const aliases = TAG_ALIASES[tag];
+  return aliases ? [tag, ...aliases] : [tag];
+}
+
 function tokenize(source: string): LogicToken[] {
   const tokens: LogicToken[] = [];
   let index = 0;
@@ -98,7 +107,7 @@ export function compileTagLogic(source: string): CompiledTagLogic {
 
   try {
     const tokens = tokenize(source);
-    const referencedTags = [...new Set(tokens.flatMap((token) => token.kind === 'tag' ? [token.value] : []))];
+    const referencedTags = [...new Set(tokens.flatMap((token) => token.kind === 'tag' ? expandTagReference(token.value) : []))];
     let cursor = 0;
 
     const current = () => tokens[cursor];
@@ -108,7 +117,10 @@ export function compileTagLogic(source: string): CompiledTagLogic {
       if (!token) throw new Error('逻辑还没写完整');
       if (token.kind === 'tag') {
         cursor += 1;
-        return (tags) => tags.has(token.value);
+        const aliases = TAG_ALIASES[token.value];
+        return aliases
+          ? (tags) => aliases.some((tag) => tags.has(tag))
+          : (tags) => tags.has(token.value);
       }
       if (token.kind === 'leftParen') {
         cursor += 1;
