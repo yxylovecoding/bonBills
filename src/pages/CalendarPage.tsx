@@ -39,6 +39,7 @@ import {
   importFinanceScreenshotFileIntoSnapshot,
   isFinanceScreenshotFile,
 } from '../utils/financeScreenshotOcr';
+import { compileTagLogic, formatTagReference } from '../utils/tagLogic';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', border: '#e0e0e0', weekend: '#ea4335', orange: '#e8710a' };
 const CN_MONTH = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
@@ -115,8 +116,8 @@ function splitBillTags(tagsRaw: string): string[] {
   return [...new Set(tagsRaw.split(',').map((tag) => tag.trim()).filter(Boolean))];
 }
 
-function TagIntersectionStats({ items }: { items: BillExpenseItem[] }) {
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+function TagLogicStats({ items }: { items: BillExpenseItem[] }) {
+  const [expression, setExpression] = useState('');
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState(true);
   const [startDate, setStartDate] = useState('');
@@ -148,18 +149,19 @@ function TagIntersectionStats({ items }: { items: BillExpenseItem[] }) {
       .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag, 'zh-CN'));
   }, [rangedItems]);
 
-  const selectedSet = useMemo(() => new Set(selectedTags), [selectedTags]);
+  const compiledLogic = useMemo(() => compileTagLogic(expression), [expression]);
+  const referencedTagSet = useMemo(() => new Set(compiledLogic.referencedTags), [compiledLogic.referencedTags]);
   const normalizedQuery = query.trim().toLocaleLowerCase('zh-CN');
   const suggestions = tagOptions
-    .filter(({ tag }) => !selectedSet.has(tag) && (!normalizedQuery || tag.toLocaleLowerCase('zh-CN').includes(normalizedQuery)))
+    .filter(({ tag }) => !referencedTagSet.has(tag) && (!normalizedQuery || tag.toLocaleLowerCase('zh-CN').includes(normalizedQuery)))
     .slice(0, 8);
   const matchedItems = useMemo(() => {
-    if (selectedTags.length === 0) return [];
+    if (!compiledLogic.test) return [];
     return rangedItems.filter((item) => {
       const tags = new Set(splitBillTags(item.tags));
-      return selectedTags.every((tag) => tags.has(tag));
+      return compiledLogic.test?.(tags) ?? false;
     });
-  }, [rangedItems, selectedTags]);
+  }, [rangedItems, compiledLogic]);
   const totalAmount = matchedItems.reduce((sum, item) => sum + item.amount, 0);
   const rangedAmount = rangedItems.reduce((sum, item) => sum + item.amount, 0);
   const averageAmount = matchedItems.length > 0 ? totalAmount / matchedItems.length : 0;
@@ -169,9 +171,20 @@ function TagIntersectionStats({ items }: { items: BillExpenseItem[] }) {
     : `${startDate || availableRange.earliest} 至 ${endDate || availableRange.latest} · ${rangedItems.length} 笔`;
 
   const addTag = (tag: string) => {
-    if (!tag || selectedSet.has(tag)) return;
-    setSelectedTags((current) => [...current, tag]);
+    if (!tag) return;
+    const reference = formatTagReference(tag);
+    setExpression((current) => {
+      const trimmed = current.trimEnd();
+      if (!trimmed) return reference;
+      if (/(?:\b(?:AND|OR|NOT)|[且与或非(（])\s*$/i.test(trimmed)) return `${trimmed} ${reference}`;
+      return `${trimmed} AND ${reference}`;
+    });
     setQuery('');
+    setExpanded(true);
+  };
+
+  const appendLogicToken = (token: string) => {
+    setExpression((current) => current.trimEnd() ? `${current.trimEnd()} ${token}` : token);
     setExpanded(true);
   };
 
@@ -222,32 +235,49 @@ function TagIntersectionStats({ items }: { items: BillExpenseItem[] }) {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, margin: '12px 0 8px', paddingTop: 10, borderTop: '1px solid #ede9fe' }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: '#202124' }}>账单标签</span>
-        <span style={{ fontSize: 10, color: C.purple }}>全部满足（AND）</span>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#202124' }}>标签逻辑</span>
+        <span style={{ fontSize: 10, color: C.purple }}>NOT ＞ AND ＞ OR</span>
       </div>
 
-      {selectedTags.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-          {selectedTags.map((tag) => (
-            <button
-              key={tag}
-              type="button"
-              aria-label={`移除标签 ${tag}`}
-              onClick={() => setSelectedTags((current) => current.filter((item) => item !== tag))}
-              style={{ border: '1px solid #c4b5fd', backgroundColor: '#ede9fe', color: C.purple, borderRadius: 14, padding: '3px 8px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
-            >
-              {tag} ×
-            </button>
-          ))}
+      <textarea
+        value={expression}
+        aria-label="编辑标签统计逻辑"
+        rows={3}
+        placeholder="例如：[26.8台湾] AND ([消费] OR [吃好喝好])"
+        onChange={(event) => setExpression(event.target.value)}
+        style={{ width: '100%', border: `1px solid ${compiledLogic.error ? '#fca5a5' : '#d8d1ee'}`, borderRadius: 8, padding: '8px 9px', backgroundColor: '#fff', color: '#202124', fontSize: 12, lineHeight: 1.5, outline: 'none', resize: 'vertical', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}
+      />
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 5, marginTop: 6 }}>
+        {[
+          { token: 'AND', title: '且：左右条件都满足' },
+          { token: 'OR', title: '或：左右条件满足一个即可' },
+          { token: 'NOT', title: '非：排除后面的条件' },
+          { token: '(', title: '左括号' },
+          { token: ')', title: '右括号' },
+        ].map(({ token, title }) => (
+          <button
+            key={token}
+            type="button"
+            title={title}
+            onClick={() => appendLogicToken(token)}
+            style={{ border: '1px solid #c4b5fd', backgroundColor: '#ede9fe', color: C.purple, borderRadius: 7, padding: '4px 8px', fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}
+          >
+            {token}
+          </button>
+        ))}
+        {expression && (
           <button
             type="button"
-            onClick={() => setSelectedTags([])}
-            style={{ border: 'none', background: 'none', color: C.sub, padding: '3px 2px', fontSize: 11, cursor: 'pointer' }}
+            onClick={() => setExpression('')}
+            style={{ marginLeft: 'auto', border: 'none', background: 'none', color: C.sub, padding: '4px 2px', fontSize: 10, cursor: 'pointer' }}
           >
-            清空
+            清空逻辑
           </button>
-        </div>
-      )}
+        )}
+      </div>
+      <div style={{ marginTop: 5, fontSize: 10, color: compiledLogic.error ? C.red : C.sub }} role={compiledLogic.error ? 'alert' : undefined}>
+        {compiledLogic.error ? `逻辑有误：${compiledLogic.error}` : '标签请写成 [标签名]；也支持中文“且 / 或 / 非”。'}
+      </div>
 
       <input
         value={query}
@@ -260,7 +290,7 @@ function TagIntersectionStats({ items }: { items: BillExpenseItem[] }) {
           event.preventDefault();
           addTag(suggestions[0].tag);
         }}
-        style={{ width: '100%', border: '1px solid #d8d1ee', borderRadius: 8, padding: '7px 9px', backgroundColor: tagOptions.length === 0 ? '#f8f9fa' : '#fff', color: tagOptions.length === 0 ? '#9aa0a6' : '#202124', fontSize: 12, outline: 'none' }}
+        style={{ width: '100%', marginTop: 8, border: '1px solid #d8d1ee', borderRadius: 8, padding: '7px 9px', backgroundColor: tagOptions.length === 0 ? '#f8f9fa' : '#fff', color: tagOptions.length === 0 ? '#9aa0a6' : '#202124', fontSize: 12, outline: 'none' }}
       />
       {suggestions.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 7 }}>
@@ -277,10 +307,12 @@ function TagIntersectionStats({ items }: { items: BillExpenseItem[] }) {
         </div>
       )}
 
-      {selectedTags.length === 0 ? (
+      {!expression.trim() ? (
         <div style={{ marginTop: 9, fontSize: 11, color: C.sub }}>
-          {rangedItems.length === 0 ? '该时间范围暂无账单。' : '选择两个或更多标签，即可统计同时拥有这些标签的账单。'}
+          {rangedItems.length === 0 ? '该时间范围暂无账单。' : '点击标签和运算符，或直接输入逻辑表达式。'}
         </div>
+      ) : compiledLogic.error ? (
+        <div style={{ marginTop: 9, fontSize: 11, color: C.red }}>修正标签逻辑后即可查看统计结果。</div>
       ) : (
         <div style={{ marginTop: 10, borderTop: '1px solid #ede9fe', paddingTop: 8 }}>
           <button
@@ -289,8 +321,8 @@ function TagIntersectionStats({ items }: { items: BillExpenseItem[] }) {
             onClick={() => setExpanded((current) => !current)}
             style={{ width: '100%', border: 'none', background: 'none', padding: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, textAlign: 'left', cursor: 'pointer' }}
           >
-            <span style={{ minWidth: 0, fontSize: 11, color: C.sub, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {expanded ? '▾' : '▸'} 同时包含 {selectedTags.join(' + ')}
+            <span title={expression} style={{ minWidth: 0, fontSize: 11, color: C.sub, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {expanded ? '▾' : '▸'} 按当前逻辑匹配
             </span>
             <span style={{ flexShrink: 0, fontSize: 13, fontWeight: 700, color: C.purple, fontVariantNumeric: 'tabular-nums' }}>
               ¥{formatCurrency(totalAmount)} · {matchedItems.length} 笔
@@ -302,11 +334,11 @@ function TagIntersectionStats({ items }: { items: BillExpenseItem[] }) {
           {expanded && (
             <div style={{ marginTop: 6, maxHeight: 220, overflowY: 'auto' }}>
               {matchedItems.length === 0 ? (
-                <div style={{ padding: '8px 0 2px', fontSize: 11, color: '#9aa0a6', textAlign: 'center' }}>暂无同时匹配的账单</div>
+                <div style={{ padding: '8px 0 2px', fontSize: 11, color: '#9aa0a6', textAlign: 'center' }}>暂无符合当前逻辑的账单</div>
               ) : (
                 [...matchedItems].sort((a, b) => b.date.localeCompare(a.date)).map((item, index) => {
                   const category = item.subcategory ? `${item.category}·${item.subcategory}` : item.category;
-                  const otherTags = splitBillTags(item.tags).filter((tag) => !selectedSet.has(tag));
+                  const otherTags = splitBillTags(item.tags).filter((tag) => !referencedTagSet.has(tag));
                   const info = [item.note, ...otherTags].filter(Boolean).join(' · ');
                   return (
                     <div key={`${item.date}-${item.amount}-${item.note}-${index}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, padding: '4px 0', borderBottom: '1px dashed #e9e5f4', fontSize: 11 }}>
@@ -3320,8 +3352,8 @@ export default function CalendarPage() {
           </Card>
 
           {allBillExpenseItems.length > 0 && (
-            <Card title="标签交集统计" subtitle="默认全部时间">
-              <TagIntersectionStats items={allBillExpenseItems} />
+            <Card title="标签逻辑统计" subtitle="默认全部时间">
+              <TagLogicStats items={allBillExpenseItems} />
             </Card>
           )}
 
