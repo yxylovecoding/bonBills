@@ -188,6 +188,22 @@ function TagLogicStats({ items }: { items: BillExpenseItem[] }) {
       return compiledLogic.test?.(tags) ?? false;
     });
   }, [rangedItems, compiledLogic]);
+  const matchedCategoryGroups = useMemo(() => {
+    const groups = new Map<string, BillExpenseItem[]>();
+    for (const item of matchedItems) {
+      const category = item.category || '';
+      const categoryItems = groups.get(category) ?? [];
+      categoryItems.push(item);
+      groups.set(category, categoryItems);
+    }
+    return [...groups.entries()]
+      .map(([category, categoryItems]) => ({
+        category,
+        items: categoryItems,
+        total: categoryItems.reduce((sum, item) => sum + item.amount, 0),
+      }))
+      .sort((a, b) => b.total - a.total);
+  }, [matchedItems]);
   const totalAmount = matchedItems.reduce((sum, item) => sum + item.amount, 0);
   const rangedAmount = rangedItems.reduce((sum, item) => sum + item.amount, 0);
   const averageAmount = matchedItems.length > 0 ? totalAmount / matchedItems.length : 0;
@@ -414,24 +430,19 @@ function TagLogicStats({ items }: { items: BillExpenseItem[] }) {
             均 ¥{formatCurrency(averageAmount)} · 占该时段 {rangedShare.toFixed(1)}%
           </div>
           {expanded && (
-            <div style={{ marginTop: 6, maxHeight: 220, overflowY: 'auto' }}>
+            <div style={{ marginTop: 6, maxHeight: 360, overflowY: 'auto' }}>
               {matchedItems.length === 0 ? (
                 <div style={{ padding: '8px 0 2px', fontSize: 11, color: '#9aa0a6', textAlign: 'center' }}>暂无符合当前逻辑的账单</div>
               ) : (
-                [...matchedItems].sort((a, b) => b.date.localeCompare(a.date)).map((item, index) => {
-                  const category = item.subcategory ? `${item.category}·${item.subcategory}` : item.category;
-                  const otherTags = splitBillTags(item.tags).filter((tag) => !referencedTagSet.has(tag));
-                  const info = [item.note, ...otherTags].filter(Boolean).join(' · ');
-                  return (
-                    <div key={`${item.date}-${item.amount}-${item.note}-${index}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, padding: '4px 0', borderBottom: '1px dashed #e9e5f4', fontSize: 11 }}>
-                      <span style={{ minWidth: 0, color: C.sub, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        <span style={{ fontVariantNumeric: 'tabular-nums' }}>{item.date.slice(5)}</span> · {category || '未分类'}
-                        {info && <span style={{ color: '#9aa0a6', marginLeft: 6 }}>{info}</span>}
-                      </span>
-                      <span style={{ flexShrink: 0, color: '#202124', fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(item.amount)}</span>
-                    </div>
-                  );
-                })
+                matchedCategoryGroups.map((group) => (
+                  <CategoryRow
+                    key={group.category}
+                    cat={group.category}
+                    items={group.items}
+                    total={totalAmount}
+                    fullDate
+                  />
+                ))
               )}
             </div>
           )}
@@ -1751,11 +1762,11 @@ function MonthFormCards(props: MonthFormProps & { subtitle?: string }) {
 }
 
 // ── Category drill-down ────────────────────────────────────────────
-function ExpenseItemLine({ it }: { it: BillExpenseItem }) {
+function ExpenseItemLine({ it, fullDate = false }: { it: BillExpenseItem; fullDate?: boolean }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0 2px 32px', color: '#5f6368' }}>
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        <span style={{ color: C.sub, marginRight: 6 }}>{it.date.slice(5)}</span>
+        <span style={{ color: C.sub, marginRight: 6 }}>{fullDate ? it.date : it.date.slice(5)}</span>
         {it.note || it.subcategory || it.category || '—'}
       </span>
       <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, marginLeft: 8 }}>¥{formatCurrency(it.amount)}</span>
@@ -1763,21 +1774,23 @@ function ExpenseItemLine({ it }: { it: BillExpenseItem }) {
   );
 }
 
-function SubcategoryRow({ sub, items, total }: { sub: string; items: BillExpenseItem[]; total: number }) {
+function SubcategoryRow({ sub, items, total, fullDate = false }: { sub: string; items: BillExpenseItem[]; total: number; fullDate?: boolean }) {
   const [open, setOpen] = useState(false);
   const sum = items.reduce((s, i) => s + i.amount, 0);
   const pct = total > 0 ? (sum / total) * 100 : 0;
   const sorted = [...items].sort((a, b) => b.amount - a.amount);
   return (
     <div>
-      <div
+      <button
+        type="button"
+        aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0 3px 16px', cursor: 'pointer', color: '#3c4043' }}
+        style={{ width: '100%', display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0 3px 16px', cursor: 'pointer', color: '#3c4043', border: 'none', background: 'none', textAlign: 'left' }}
       >
-        <span>{open ? '▼' : '▶'} {sub || '(无二级)'}</span>
-        <span style={{ fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(sum)} · {pct.toFixed(1)}%</span>
-      </div>
-      {open && sorted.map((it, i) => <ExpenseItemLine key={i} it={it} />)}
+        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{open ? '▼' : '▶'} {sub || '(无二级分类)'}</span>
+        <span style={{ flexShrink: 0, marginLeft: 8, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(sum)} · {items.length}笔 · {pct.toFixed(1)}%</span>
+      </button>
+      {open && sorted.map((it, i) => <ExpenseItemLine key={`${it.date}-${it.amount}-${it.note}-${i}`} it={it} fullDate={fullDate} />)}
     </div>
   );
 }
@@ -2081,7 +2094,7 @@ function CategoryBreakdown({ items }: { items: BillExpenseItem[] }) {
   );
 }
 
-function CategoryRow({ cat, items, total }: { cat: string; items: BillExpenseItem[]; total: number }) {
+function CategoryRow({ cat, items, total, fullDate = false }: { cat: string; items: BillExpenseItem[]; total: number; fullDate?: boolean }) {
   const [open, setOpen] = useState(false);
   const sum = items.reduce((s, i) => s + i.amount, 0);
   const pct = total > 0 ? (sum / total) * 100 : 0;
@@ -2096,14 +2109,16 @@ function CategoryRow({ cat, items, total }: { cat: string; items: BillExpenseIte
     .sort((a, b) => b.total - a.total);
   return (
     <div>
-      <div
+      <button
+        type="button"
+        aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0', cursor: 'pointer', color: '#202124', fontWeight: 500 }}
+        style={{ width: '100%', display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0', cursor: 'pointer', color: '#202124', fontWeight: 500, border: 'none', background: 'none', textAlign: 'left' }}
       >
-        <span>{open ? '▼' : '▶'} {cat || '(无分类)'}</span>
-        <span style={{ fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(sum)} · {pct.toFixed(1)}%</span>
-      </div>
-      {open && subs.map((s) => <SubcategoryRow key={s.sub} sub={s.sub} items={s.items} total={total} />)}
+        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{open ? '▼' : '▶'} {cat || '(未分类)'}</span>
+        <span style={{ flexShrink: 0, marginLeft: 8, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(sum)} · {items.length}笔 · {pct.toFixed(1)}%</span>
+      </button>
+      {open && subs.map((s) => <SubcategoryRow key={s.sub} sub={s.sub} items={s.items} total={total} fullDate={fullDate} />)}
     </div>
   );
 }
