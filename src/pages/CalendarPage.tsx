@@ -116,6 +116,15 @@ function splitBillTags(tagsRaw: string): string[] {
   return [...new Set(tagsRaw.split(',').map((tag) => tag.trim()).filter(Boolean))];
 }
 
+type BillTransactionType = '支出' | '收入';
+type CategorizedBillItem = BillExpenseItem & { transactionType?: BillTransactionType };
+type BillStatisticItem = BillExpenseItem & { transactionType: BillTransactionType };
+
+function getStatisticTags(item: BillStatisticItem): string[] {
+  const tags = splitBillTags(item.tags);
+  return item.transactionType === '收入' && !tags.includes('收入') ? [...tags, '收入'] : tags;
+}
+
 type TagLogicOperator = 'AND' | 'OR' | 'NOT' | '(' | ')';
 type TagLogicPart =
   | { kind: 'tag'; value: string }
@@ -131,7 +140,7 @@ function resolveTagLogicOperator(raw: string): TagLogicOperator | null {
   return null;
 }
 
-function TagLogicStats({ items }: { items: BillExpenseItem[] }) {
+function TagLogicStats({ items }: { items: BillStatisticItem[] }) {
   const [logicParts, setLogicParts] = useState<TagLogicPart[]>([]);
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState(true);
@@ -155,7 +164,7 @@ function TagLogicStats({ items }: { items: BillExpenseItem[] }) {
   const tagOptions = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of rangedItems) {
-      for (const tag of splitBillTags(item.tags)) {
+      for (const tag of getStatisticTags(item)) {
         counts.set(tag, (counts.get(tag) ?? 0) + 1);
       }
     }
@@ -184,12 +193,12 @@ function TagLogicStats({ items }: { items: BillExpenseItem[] }) {
   const matchedItems = useMemo(() => {
     if (!compiledLogic.test) return [];
     return rangedItems.filter((item) => {
-      const tags = new Set(splitBillTags(item.tags));
+      const tags = new Set(getStatisticTags(item));
       return compiledLogic.test?.(tags) ?? false;
     });
   }, [rangedItems, compiledLogic]);
   const matchedCategoryGroups = useMemo(() => {
-    const groups = new Map<string, BillExpenseItem[]>();
+    const groups = new Map<string, BillStatisticItem[]>();
     for (const item of matchedItems) {
       const category = item.category || '';
       const categoryItems = groups.get(category) ?? [];
@@ -205,12 +214,19 @@ function TagLogicStats({ items }: { items: BillExpenseItem[] }) {
       .sort((a, b) => b.total - a.total);
   }, [matchedItems]);
   const totalAmount = matchedItems.reduce((sum, item) => sum + item.amount, 0);
+  const expenseAmount = matchedItems.reduce((sum, item) => sum + (item.transactionType === '支出' ? item.amount : 0), 0);
+  const incomeAmount = matchedItems.reduce((sum, item) => sum + (item.transactionType === '收入' ? item.amount : 0), 0);
   const rangedAmount = rangedItems.reduce((sum, item) => sum + item.amount, 0);
   const averageAmount = matchedItems.length > 0 ? totalAmount / matchedItems.length : 0;
   const rangedShare = rangedAmount > 0 ? totalAmount / rangedAmount * 100 : 0;
   const rangeLabel = !startDate && !endDate
     ? `全部时间 · ${rangedItems.length} 笔`
     : `${startDate || availableRange.earliest} 至 ${endDate || availableRange.latest} · ${rangedItems.length} 笔`;
+  const amountLabel = expenseAmount > 0 && incomeAmount > 0
+    ? `支出 ¥${formatCurrency(expenseAmount)} · 收入 ¥${formatCurrency(incomeAmount)}`
+    : incomeAmount > 0
+      ? `收入 ¥${formatCurrency(incomeAmount)}`
+      : `支出 ¥${formatCurrency(expenseAmount)}`;
 
   const addTag = (tag: string) => {
     if (!tag) return;
@@ -423,7 +439,7 @@ function TagLogicStats({ items }: { items: BillExpenseItem[] }) {
               {expanded ? '▾' : '▸'} 按当前逻辑匹配
             </span>
             <span style={{ flexShrink: 0, fontSize: 13, fontWeight: 700, color: C.purple, fontVariantNumeric: 'tabular-nums' }}>
-              ¥{formatCurrency(totalAmount)} · {matchedItems.length} 笔
+              {amountLabel} · {matchedItems.length} 笔
             </span>
           </button>
           <div style={{ marginTop: 4, fontSize: 10, color: C.sub, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
@@ -441,6 +457,7 @@ function TagLogicStats({ items }: { items: BillExpenseItem[] }) {
                     items={group.items}
                     total={totalAmount}
                     fullDate
+                    showCoreTagStats
                   />
                 ))
               )}
@@ -1762,19 +1779,58 @@ function MonthFormCards(props: MonthFormProps & { subtitle?: string }) {
 }
 
 // ── Category drill-down ────────────────────────────────────────────
-function ExpenseItemLine({ it, fullDate = false }: { it: BillExpenseItem; fullDate?: boolean }) {
+function ExpenseItemLine({ it, fullDate = false }: { it: CategorizedBillItem; fullDate?: boolean }) {
+  const isIncome = it.transactionType === '收入';
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0 2px 32px', color: '#5f6368' }}>
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         <span style={{ color: C.sub, marginRight: 6 }}>{fullDate ? it.date : it.date.slice(5)}</span>
+        {isIncome && <span style={{ color: C.red, marginRight: 6 }}>收入</span>}
         {it.note || it.subcategory || it.category || '—'}
       </span>
-      <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, marginLeft: 8 }}>¥{formatCurrency(it.amount)}</span>
+      <span style={{ color: isIncome ? C.red : 'inherit', fontVariantNumeric: 'tabular-nums', flexShrink: 0, marginLeft: 8 }}>{isIncome ? '+' : ''}¥{formatCurrency(it.amount)}</span>
     </div>
   );
 }
 
-function SubcategoryRow({ sub, items, total, fullDate = false }: { sub: string; items: BillExpenseItem[]; total: number; fullDate?: boolean }) {
+const CORE_BILL_TAGS = [
+  { label: '消费', color: C.purple },
+  { label: '波动生活', color: C.orange },
+  { label: '周期生活', color: C.blue },
+  { label: '收入', color: C.red, hint: '含周期/波动' },
+] as const;
+
+function CoreBillTagStats({ items, indent = 16 }: { items: CategorizedBillItem[]; indent?: number }) {
+  const stats = CORE_BILL_TAGS.map((coreTag) => {
+    const { label } = coreTag;
+    const tagged = items.filter((item) => {
+      if (label === '收入') return item.transactionType === '收入';
+      if (item.transactionType === '收入') return false;
+      return splitBillTags(item.tags).includes(label);
+    });
+    return {
+      ...coreTag,
+      count: tagged.length,
+      amount: tagged.reduce((sum, item) => sum + item.amount, 0),
+    };
+  });
+  return (
+    <div style={{ margin: `3px 0 6px ${indent}px`, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 4 }}>
+      {stats.map((stat) => (
+        <div key={stat.label} style={{ minWidth: 0, padding: '4px 6px', borderRadius: 7, backgroundColor: `${stat.color}0d`, border: `1px solid ${stat.color}26` }}>
+          <div style={{ fontSize: 9, color: stat.color, fontWeight: 700 }}>
+            {stat.label}{'hint' in stat && stat.hint ? <span style={{ marginLeft: 3, fontWeight: 500 }}>· {stat.hint}</span> : null}
+          </div>
+          <div style={{ marginTop: 1, fontSize: 10, color: stat.count > 0 ? '#3c4043' : '#9aa0a6', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            ¥{formatCurrency(stat.amount)} · {stat.count}笔
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SubcategoryRow({ sub, items, total, fullDate = false, showCoreTagStats = false }: { sub: string; items: CategorizedBillItem[]; total: number; fullDate?: boolean; showCoreTagStats?: boolean }) {
   const [open, setOpen] = useState(false);
   const sum = items.reduce((s, i) => s + i.amount, 0);
   const pct = total > 0 ? (sum / total) * 100 : 0;
@@ -1790,6 +1846,7 @@ function SubcategoryRow({ sub, items, total, fullDate = false }: { sub: string; 
         <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{open ? '▼' : '▶'} {sub || '(无二级分类)'}</span>
         <span style={{ flexShrink: 0, marginLeft: 8, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(sum)} · {items.length}笔 · {pct.toFixed(1)}%</span>
       </button>
+      {open && showCoreTagStats && <CoreBillTagStats items={items} indent={32} />}
       {open && sorted.map((it, i) => <ExpenseItemLine key={`${it.date}-${it.amount}-${it.note}-${i}`} it={it} fullDate={fullDate} />)}
     </div>
   );
@@ -2094,11 +2151,11 @@ function CategoryBreakdown({ items }: { items: BillExpenseItem[] }) {
   );
 }
 
-function CategoryRow({ cat, items, total, fullDate = false }: { cat: string; items: BillExpenseItem[]; total: number; fullDate?: boolean }) {
+function CategoryRow({ cat, items, total, fullDate = false, showCoreTagStats = false }: { cat: string; items: CategorizedBillItem[]; total: number; fullDate?: boolean; showCoreTagStats?: boolean }) {
   const [open, setOpen] = useState(false);
   const sum = items.reduce((s, i) => s + i.amount, 0);
   const pct = total > 0 ? (sum / total) * 100 : 0;
-  const subMap = new Map<string, BillExpenseItem[]>();
+  const subMap = new Map<string, CategorizedBillItem[]>();
   for (const it of items) {
     const s = it.subcategory || '';
     if (!subMap.has(s)) subMap.set(s, []);
@@ -2118,7 +2175,8 @@ function CategoryRow({ cat, items, total, fullDate = false }: { cat: string; ite
         <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{open ? '▼' : '▶'} {cat || '(未分类)'}</span>
         <span style={{ flexShrink: 0, marginLeft: 8, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(sum)} · {items.length}笔 · {pct.toFixed(1)}%</span>
       </button>
-      {open && subs.map((s) => <SubcategoryRow key={s.sub} sub={s.sub} items={s.items} total={total} fullDate={fullDate} />)}
+      {open && showCoreTagStats && <CoreBillTagStats items={items} />}
+      {open && subs.map((s) => <SubcategoryRow key={s.sub} sub={s.sub} items={s.items} total={total} fullDate={fullDate} showCoreTagStats={showCoreTagStats} />)}
     </div>
   );
 }
@@ -2517,7 +2575,7 @@ export default function CalendarPage() {
   const { tagMap, setTag, toggleTag, countByTag, bulkFillSchool, confirmedExpenses, setConfirmedExpenseScope, markConfirmedExpenseZero, clearConfirmedExpenseSelection } = useCalendarStore();
   const { config, setConfig } = useConfigStore();
   const { records, upsert, updateDayCounts } = useMonthlyStore();
-  const { tagStats: billTagStats, aggregates: billAggregates, expenseItems: billExpenseItems } = useBillDetailStore();
+  const { tagStats: billTagStats, aggregates: billAggregates, expenseItems: billExpenseItems, incomeItems: billIncomeItems } = useBillDetailStore();
   const { overrides: expenseScopeOverrides, setOverride: setExpenseScopeOverride } = useExpenseScopeOverrideStore();
   const { tripTags, tripSplits, setTripTag, clearTripTag, toggleTripSplit } = useTripStore();
   const {
@@ -2812,9 +2870,12 @@ export default function CalendarPage() {
     }
     return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
   }, [records]);
-  const allBillExpenseItems = useMemo(
-    () => Object.values(billExpenseItems).flat(),
-    [billExpenseItems],
+  const allBillStatisticItems = useMemo<BillStatisticItem[]>(
+    () => [
+      ...Object.values(billExpenseItems).flat().map((item) => ({ ...item, transactionType: '支出' as const })),
+      ...Object.values(billIncomeItems).flat().map((item) => ({ ...item, transactionType: '收入' as const })),
+    ],
+    [billExpenseItems, billIncomeItems],
   );
 
   // 快捷跳转面板可选年份：最早记录年 → 当前查看年与今年的较大者
@@ -3448,9 +3509,9 @@ export default function CalendarPage() {
             )}
           </Card>
 
-          {allBillExpenseItems.length > 0 && (
+          {allBillStatisticItems.length > 0 && (
             <Card title="标签逻辑统计" subtitle="默认全部时间">
-              <TagLogicStats items={allBillExpenseItems} />
+              <TagLogicStats items={allBillStatisticItems} />
             </Card>
           )}
 

@@ -59,8 +59,8 @@ export function recordFromBillAggregate(yearMonth: string, a: BillMonthlyAgg, pr
 }
 
 export async function importBillFileIntoStores(file: File) {
-  const { tagStats, aggregates, expenseItems } = await parseBillFile(file);
-  useBillDetailStore.getState().updateFromImport(tagStats, expenseItems, aggregates);
+  const { tagStats, aggregates, expenseItems, incomeItems } = await parseBillFile(file);
+  useBillDetailStore.getState().updateFromImport(tagStats, expenseItems, incomeItems, aggregates);
 
   const possessionStore = usePossessionStore.getState();
   const possessionImport = mergePossessionsFromBills({

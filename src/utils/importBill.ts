@@ -14,7 +14,7 @@ export type BillMonthlyAgg = {
   consumption: number;
   school: number;
 };
-export type BillExpenseItem = {
+export type BillTransactionItem = {
   date: string;
   category: string;
   subcategory: string;
@@ -23,7 +23,10 @@ export type BillExpenseItem = {
   tags: string;
   note: string;
 };
+export type BillExpenseItem = BillTransactionItem;
+export type BillIncomeItem = BillTransactionItem;
 export type BillExpenseMonth = BillExpenseItem[];
+export type BillIncomeMonth = BillIncomeItem[];
 
 export function emptyBillMonthlyAgg(): BillMonthlyAgg {
   return { income: 0, totalExpense: 0, periodicLife: 0, volatileLife: 0, consumption: 0, school: 0 };
@@ -67,6 +70,7 @@ export type BillParseResult = {
   tagStats: Record<string, BillTagMonth>;
   aggregates: Record<string, BillMonthlyAgg>;
   expenseItems: Record<string, BillExpenseMonth>;
+  incomeItems: Record<string, BillIncomeMonth>;
 };
 
 type BillColumnMap = {
@@ -228,6 +232,7 @@ export async function parseBillFile(file: File): Promise<BillParseResult> {
   const months: Record<string, BillTagMonth> = {};
   const aggs: Record<string, BillMonthlyAgg> = {};
   const expenseItems: Record<string, BillExpenseMonth> = {};
+  const incomeItems: Record<string, BillIncomeMonth> = {};
   const headerIdx = lines.findIndex((line) => line.trim());
   if (headerIdx < 0) throw new Error('账单内容为空');
   const columns = buildBillColumnMap(parseLine(lines[headerIdx]));
@@ -267,6 +272,12 @@ export async function parseBillFile(file: File): Promise<BillParseResult> {
     const a = ensureAgg(yearMonth);
     if (type === '收入') {
       a.income += amount;
+      if (!incomeItems[yearMonth]) incomeItems[yearMonth] = [];
+      incomeItems[yearMonth].push({
+        date, category, subcategory,
+        amount: Math.round(amount * 100) / 100,
+        account, tags: tagsRaw, note,
+      });
       continue;
     }
     // type === '支出'
@@ -322,7 +333,7 @@ export async function parseBillFile(file: File): Promise<BillParseResult> {
     a.consumption = r2(a.consumption);
     a.school = r2(a.school);
   }
-  return { tagStats: months, aggregates: aggs, expenseItems };
+  return { tagStats: months, aggregates: aggs, expenseItems, incomeItems };
 }
 
 // ── 导出为内置数据文件 ──────────────────────────────────────────────
