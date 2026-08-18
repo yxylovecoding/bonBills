@@ -13,6 +13,10 @@ export function isTripTagFormat(tag: string): boolean {
   return TRIP_TAG_PATTERN.test(tag);
 }
 
+export function isDailyTripTagFormat(tag: string): boolean {
+  return !!tag.match(TRIP_TAG_PATTERN)?.[3];
+}
+
 // 解析 tag 前缀 → "yy.m"（月份无前导 0），不匹配返回 null
 export function tagYearMonthPrefix(tag: string): string | null {
   const m = tag.match(TRIP_TAG_PATTERN);

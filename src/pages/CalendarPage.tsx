@@ -9,7 +9,7 @@ import { fieldsNeedingRestore, importBillFileIntoStores, recordFromBillAggregate
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useExpenseScopeOverrideStore, resolveExpenseScope, subcategoryKey, type ExpenseScope, type OverrideValue, type OverrideDimension } from '../stores/expenseScopeOverrideStore';
 import { useTripStore } from '../stores/tripStore';
-import { detectTrips, detectTripGroups, extractCandidateTags, sumBillsByTag, flattenExpenseItems } from '../utils/trips';
+import { detectTrips, detectTripGroups, extractCandidateTags, sumBillsByTag, flattenExpenseItems, isDailyTripTagFormat } from '../utils/trips';
 import type { TripGroup } from '../utils/trips';
 import AmountInput from '../components/AmountInput';
 import { calcHistoryStats } from '../calculations/history';
@@ -1972,7 +1972,8 @@ function RepresentativeTagExpenses({ items, hiddenTags }: { items: CategorizedBi
     const tagIndices = new Map<string, Set<number>>();
     for (let index = 0; index < expenseItems.length; index += 1) {
       for (const tag of splitBillTags(expenseItems[index].tags)) {
-        if (hiddenTags?.has(tag) || CORE_BILL_TAGS.some(({ label }) => label === tag) || isMajorExcludedTag(tag, tagCategory)) continue;
+        const isDailyTripTag = isDailyTripTagFormat(tag);
+        if (hiddenTags?.has(tag) || CORE_BILL_TAGS.some(({ label }) => label === tag) || (isMajorExcludedTag(tag, tagCategory) && !isDailyTripTag)) continue;
         const indices = tagIndices.get(tag) ?? new Set<number>();
         indices.add(index);
         tagIndices.set(tag, indices);
@@ -1981,6 +1982,7 @@ function RepresentativeTagExpenses({ items, hiddenTags }: { items: CategorizedBi
 
     const candidateTags = [...tagIndices.keys()];
     const representativeTags = candidateTags.filter((tag) => {
+      if (isDailyTripTagFormat(tag)) return true;
       const ownIndices = tagIndices.get(tag)!;
       return !candidateTags.some((otherTag) => {
         if (otherTag === tag) return false;
@@ -1993,7 +1995,7 @@ function RepresentativeTagExpenses({ items, hiddenTags }: { items: CategorizedBi
       });
     });
 
-    return representativeTags.map((tag) => {
+    const sortedRows = representativeTags.map((tag) => {
       const indices = [...tagIndices.get(tag)!];
       const taggedItems = indices.map((index) => expenseItems[index]);
       const amount = taggedItems.reduce((sum, item) => sum + item.amount, 0);
@@ -2009,8 +2011,13 @@ function RepresentativeTagExpenses({ items, hiddenTags }: { items: CategorizedBi
         amount,
         count: taggedItems.length,
         type: consumptionAmount > lifeAmount ? '消费' as const : '生活' as const,
+        isDailyTripTag: isDailyTripTagFormat(tag),
       };
-    }).sort((a, b) => b.amount - a.amount || a.tag.localeCompare(b.tag, 'zh-CN')).slice(0, 8);
+    }).sort((a, b) => b.amount - a.amount || a.tag.localeCompare(b.tag, 'zh-CN'));
+    const dailyTripRows = sortedRows.filter((row) => row.isDailyTripTag);
+    const otherRows = sortedRows.filter((row) => !row.isDailyTripTag);
+    return [...dailyTripRows, ...otherRows.slice(0, Math.max(0, 8 - dailyTripRows.length))]
+      .sort((a, b) => b.amount - a.amount || a.tag.localeCompare(b.tag, 'zh-CN'));
   }, [hiddenTags, items, tagCategory]);
 
   if (rows.length === 0) return null;
