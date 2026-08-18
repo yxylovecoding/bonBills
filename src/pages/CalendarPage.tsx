@@ -535,16 +535,20 @@ function TagLogicStats({ items }: { items: BillStatisticItem[] }) {
               {matchedItems.length === 0 ? (
                 <div style={{ padding: '8px 0 2px', fontSize: 11, color: '#9aa0a6', textAlign: 'center' }}>暂无符合当前筛选的账单</div>
               ) : (
-                matchedCategoryGroups.map((group) => (
-                  <CategoryRow
-                    key={group.category}
-                    cat={group.category}
-                    items={group.items}
-                    total={totalAmount}
-                    fullDate
-                    showCoreTagStats
-                  />
-                ))
+                <>
+                  {matchedCategoryGroups.map((group) => (
+                    <CategoryRow
+                      key={group.category}
+                      cat={group.category}
+                      items={group.items}
+                      total={totalAmount}
+                      fullDate
+                    />
+                  ))}
+                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #ede9fe' }}>
+                    <CoreBillTagStats items={matchedItems} indent={0} />
+                  </div>
+                </>
               )}
             </div>
           )}
@@ -1916,7 +1920,7 @@ function CoreBillTagStats({ items, indent = 16 }: { items: CategorizedBillItem[]
   );
 }
 
-function SubcategoryRow({ sub, items, total, fullDate = false, showCoreTagStats = false }: { sub: string; items: CategorizedBillItem[]; total: number; fullDate?: boolean; showCoreTagStats?: boolean }) {
+function SubcategoryRow({ sub, items, total, fullDate = false }: { sub: string; items: CategorizedBillItem[]; total: number; fullDate?: boolean }) {
   const [open, setOpen] = useState(false);
   const sum = items.reduce((s, i) => s + i.amount, 0);
   const pct = total > 0 ? (sum / total) * 100 : 0;
@@ -1932,7 +1936,6 @@ function SubcategoryRow({ sub, items, total, fullDate = false, showCoreTagStats 
         <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{open ? '▼' : '▶'} {sub || '(无二级分类)'}</span>
         <span style={{ flexShrink: 0, marginLeft: 8, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(sum)} · {items.length}笔 · {pct.toFixed(1)}%</span>
       </button>
-      {open && showCoreTagStats && <CoreBillTagStats items={items} indent={32} />}
       {open && sorted.map((it, i) => <ExpenseItemLine key={`${it.date}-${it.amount}-${it.note}-${i}`} it={it} fullDate={fullDate} />)}
     </div>
   );
@@ -2237,7 +2240,7 @@ function CategoryBreakdown({ items }: { items: BillExpenseItem[] }) {
   );
 }
 
-function CategoryRow({ cat, items, total, fullDate = false, showCoreTagStats = false }: { cat: string; items: CategorizedBillItem[]; total: number; fullDate?: boolean; showCoreTagStats?: boolean }) {
+function CategoryRow({ cat, items, total, fullDate = false }: { cat: string; items: CategorizedBillItem[]; total: number; fullDate?: boolean }) {
   const [open, setOpen] = useState(false);
   const sum = items.reduce((s, i) => s + i.amount, 0);
   const pct = total > 0 ? (sum / total) * 100 : 0;
@@ -2261,8 +2264,7 @@ function CategoryRow({ cat, items, total, fullDate = false, showCoreTagStats = f
         <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{open ? '▼' : '▶'} {cat || '(未分类)'}</span>
         <span style={{ flexShrink: 0, marginLeft: 8, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(sum)} · {items.length}笔 · {pct.toFixed(1)}%</span>
       </button>
-      {open && showCoreTagStats && <CoreBillTagStats items={items} />}
-      {open && subs.map((s) => <SubcategoryRow key={s.sub} sub={s.sub} items={s.items} total={total} fullDate={fullDate} showCoreTagStats={showCoreTagStats} />)}
+      {open && subs.map((s) => <SubcategoryRow key={s.sub} sub={s.sub} items={s.items} total={total} fullDate={fullDate} />)}
     </div>
   );
 }
