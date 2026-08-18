@@ -21,7 +21,7 @@ import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { tryEvalFormula } from '../utils/formula';
 import { dateLabel, resolveIncomeForMonth, type ResolvedIncomeItem } from '../utils/payroll';
-import { getCategoryCumulativeRateSummary, type CategoryCumulativeRateSummary } from '../utils/investRecords';
+import { getCategoryCumulativeRateSummary, getCategoryProfit, type CategoryCumulativeRateSummary } from '../utils/investRecords';
 import {
   FINANCE_SCREENSHOT_DRAFT_EVENT,
   screenshotDraftItemCount,
@@ -578,6 +578,7 @@ export default function ReconcilePage() {
   const [screenshotPreview, setScreenshotPreview] = useState<{ url: string; fileName: string } | null>(null);
   const screenshotPreviewUrlRef = useRef<string | null>(null);
   const [reconcileMode, setReconcileMode] = useState<ReconcileMode>(() => defaultReconcileMode(new Date()));
+  const [investProfitDisplayMode, setInvestProfitDisplayMode] = useState<'rate' | 'amount'>('rate');
   const isMonthStartMode = reconcileMode === 'monthStart';
 
   const clearScreenshotDraft = () => {
@@ -712,6 +713,15 @@ export default function ReconcilePage() {
     ) as Record<InvestKey, CategoryCumulativeRateSummary | null>,
     [records],
   );
+  const latestBreakdownProfits = useMemo(() => {
+    const sortedRecords = [...records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth));
+    return Object.fromEntries(INVEST_TARGET_KEYS.map((key) => {
+      const record = sortedRecords.find((item) => getCategoryProfit(item, key) !== null);
+      return [key, record
+        ? { amount: getCategoryProfit(record, key)!, yearMonth: record.yearMonth }
+        : null];
+    })) as Record<InvestKey, { amount: number; yearMonth: string } | null>;
+  }, [records]);
   const fallbackUsdRate = useMemo(
     () => [...records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth))
       .map((r) => r.investProfitComponents?.us?.rate ?? r.investProfitComponents?.usBond?.rate)
@@ -2683,7 +2693,17 @@ export default function ReconcilePage() {
             <tr style={{ borderBottom: '2px solid #e8eaed' }}>
               <th style={thStyle}>品类</th>
               <th style={{ ...thStyle, textAlign: 'right' }}>当前金额</th>
-              <th style={{ ...thStyle, textAlign: 'right' }}>累计收益率</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>
+                <button
+                  type="button"
+                  onClick={() => setInvestProfitDisplayMode((mode) => mode === 'rate' ? 'amount' : 'rate')}
+                  title={investProfitDisplayMode === 'rate' ? '点击切换为累计收益' : '点击切换为累计收益率'}
+                  aria-label={investProfitDisplayMode === 'rate' ? '累计收益率，点击切换为累计收益' : '累计收益，点击切换为累计收益率'}
+                  style={{ padding: 0, border: 'none', borderBottom: `1px dashed ${C.sub}`, background: 'transparent', color: 'inherit', font: 'inherit', cursor: 'pointer' }}
+                >
+                  {investProfitDisplayMode === 'rate' ? '累计收益率' : '累计收益'}
+                </button>
+              </th>
               <th style={{ ...thStyle, textAlign: 'right', color: allowRebalanceSell ? C.blue : C.orange }}>{allowRebalanceSell ? '需加/赎' : '需加'}</th>
               <th style={{ ...thStyle, textAlign: 'right', color: C.green }}>{allowRebalanceSell ? '已执行' : '已加'}</th>
             </tr>
@@ -2704,6 +2724,8 @@ export default function ReconcilePage() {
               const groupTargetDirection = groupRatio !== null && groupRatio > groupTargetRatio ? '偏高' : '偏低';
               const profitRateSummary = cumulativeBreakdownRates[k] ?? null;
               const profitRate = profitRateSummary?.rate ?? null;
+              const cumulativeProfitSummary = latestBreakdownProfits[k] ?? null;
+              const cumulativeProfit = cumulativeProfitSummary?.amount ?? null;
               const suggested = Math.round(rebalanceSuggested[k]);
               // 需加/需赎 = 建议 - 已加，赎回时为负数
               const localDone = parseFloat(localConfirmed[k]) || 0;
@@ -2785,16 +2807,27 @@ export default function ReconcilePage() {
                   </td>
                   {/* 累计收益率 */}
                   <td
-                    title={profitRateSummary ? `自 ${profitRateSummary.startYearMonth} 起，累计 ${profitRateSummary.monthCount} 个月的月收益率` : '暂无可累计的月收益率'}
+                    title={investProfitDisplayMode === 'rate'
+                      ? (profitRateSummary ? `自 ${profitRateSummary.startYearMonth} 起，累计 ${profitRateSummary.monthCount} 个月的月收益率` : '暂无可累计的月收益率')
+                      : (cumulativeProfitSummary ? `截至 ${cumulativeProfitSummary.yearMonth}，累计收益 = now + past` : '暂无累计收益')}
                     style={{ padding: '8px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
                   >
-                    {profitRate !== null ? (
+                    {investProfitDisplayMode === 'rate' && profitRate !== null ? (
                       <div>
                         <div style={{ fontSize: 12, fontWeight: 600, color: profitRate >= 0 ? C.red : C.green }}>
                           {profitRate >= 0 ? '+' : ''}{(profitRate * 100).toFixed(1)}%
                         </div>
                         <div style={{ marginTop: 2, fontSize: 9, lineHeight: 1.1, color: C.sub, whiteSpace: 'nowrap' }}>
                           自 {profitRateSummary!.startYearMonth}
+                        </div>
+                      </div>
+                    ) : investProfitDisplayMode === 'amount' && cumulativeProfit !== null ? (
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: cumulativeProfit >= 0 ? C.red : C.green }}>
+                          {cumulativeProfit >= 0 ? '+' : '-'}¥{fmtInt(Math.abs(cumulativeProfit))}
+                        </div>
+                        <div style={{ marginTop: 2, fontSize: 9, lineHeight: 1.1, color: C.sub, whiteSpace: 'nowrap' }}>
+                          截至 {cumulativeProfitSummary!.yearMonth}
                         </div>
                       </div>
                     ) : (
