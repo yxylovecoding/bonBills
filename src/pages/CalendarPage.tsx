@@ -119,10 +119,26 @@ function TagIntersectionStats({ items }: { items: BillExpenseItem[] }) {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState(true);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+
+  const availableRange = useMemo(() => {
+    let earliest = '';
+    let latest = '';
+    for (const item of items) {
+      if (!earliest || item.date < earliest) earliest = item.date;
+      if (!latest || item.date > latest) latest = item.date;
+    }
+    return { earliest, latest };
+  }, [items]);
+  const rangedItems = useMemo(
+    () => items.filter((item) => (!startDate || item.date >= startDate) && (!endDate || item.date <= endDate)),
+    [items, startDate, endDate],
+  );
 
   const tagOptions = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const item of items) {
+    for (const item of rangedItems) {
       for (const tag of splitBillTags(item.tags)) {
         counts.set(tag, (counts.get(tag) ?? 0) + 1);
       }
@@ -130,7 +146,7 @@ function TagIntersectionStats({ items }: { items: BillExpenseItem[] }) {
     return [...counts.entries()]
       .map(([tag, count]) => ({ tag, count }))
       .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag, 'zh-CN'));
-  }, [items]);
+  }, [rangedItems]);
 
   const selectedSet = useMemo(() => new Set(selectedTags), [selectedTags]);
   const normalizedQuery = query.trim().toLocaleLowerCase('zh-CN');
@@ -139,15 +155,18 @@ function TagIntersectionStats({ items }: { items: BillExpenseItem[] }) {
     .slice(0, 8);
   const matchedItems = useMemo(() => {
     if (selectedTags.length === 0) return [];
-    return items.filter((item) => {
+    return rangedItems.filter((item) => {
       const tags = new Set(splitBillTags(item.tags));
       return selectedTags.every((tag) => tags.has(tag));
     });
-  }, [items, selectedTags]);
+  }, [rangedItems, selectedTags]);
   const totalAmount = matchedItems.reduce((sum, item) => sum + item.amount, 0);
-  const monthlyAmount = items.reduce((sum, item) => sum + item.amount, 0);
+  const rangedAmount = rangedItems.reduce((sum, item) => sum + item.amount, 0);
   const averageAmount = matchedItems.length > 0 ? totalAmount / matchedItems.length : 0;
-  const monthlyShare = monthlyAmount > 0 ? totalAmount / monthlyAmount * 100 : 0;
+  const rangedShare = rangedAmount > 0 ? totalAmount / rangedAmount * 100 : 0;
+  const rangeLabel = !startDate && !endDate
+    ? `全部时间 · ${rangedItems.length} 笔`
+    : `${startDate || availableRange.earliest} 至 ${endDate || availableRange.latest} · ${rangedItems.length} 笔`;
 
   const addTag = (tag: string) => {
     if (!tag || selectedSet.has(tag)) return;
@@ -156,12 +175,54 @@ function TagIntersectionStats({ items }: { items: BillExpenseItem[] }) {
     setExpanded(true);
   };
 
-  if (tagOptions.length === 0) return null;
-
   return (
-    <div style={{ marginTop: 10, padding: 12, borderRadius: 12, border: '1px solid #ddd6fe', backgroundColor: '#faf8ff' }}>
+    <div style={{ padding: 12, borderRadius: 12, border: '1px solid #ddd6fe', backgroundColor: '#faf8ff' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: '#202124' }}>🏷️ 标签交集</span>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#202124' }}>时间范围</span>
+        <span style={{ fontSize: 10, color: C.purple }}>{rangeLabel}</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+        <label style={{ flex: '1 1 130px', minWidth: 0 }}>
+          <span style={{ display: 'block', marginBottom: 4, fontSize: 10, color: C.sub }}>开始日期</span>
+          <input
+            type="date"
+            value={startDate}
+            min={availableRange.earliest}
+            max={endDate || availableRange.latest}
+            onChange={(event) => {
+              const next = event.target.value;
+              setStartDate(next);
+              if (next && endDate && next > endDate) setEndDate(next);
+            }}
+            style={{ width: '100%', minWidth: 0, border: '1px solid #d8d1ee', borderRadius: 8, padding: '6px 7px', backgroundColor: '#fff', fontSize: 11 }}
+          />
+        </label>
+        <label style={{ flex: '1 1 130px', minWidth: 0 }}>
+          <span style={{ display: 'block', marginBottom: 4, fontSize: 10, color: C.sub }}>结束日期</span>
+          <input
+            type="date"
+            value={endDate}
+            min={startDate || availableRange.earliest}
+            max={availableRange.latest}
+            onChange={(event) => {
+              const next = event.target.value;
+              setEndDate(next);
+              if (next && startDate && next < startDate) setStartDate(next);
+            }}
+            style={{ width: '100%', minWidth: 0, border: '1px solid #d8d1ee', borderRadius: 8, padding: '6px 7px', backgroundColor: '#fff', fontSize: 11 }}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={() => { setStartDate(''); setEndDate(''); }}
+          style={{ flexShrink: 0, border: `1px solid ${!startDate && !endDate ? '#c4b5fd' : '#e5e7eb'}`, backgroundColor: !startDate && !endDate ? '#ede9fe' : '#fff', color: !startDate && !endDate ? C.purple : C.sub, borderRadius: 8, padding: '7px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+        >
+          全部时间
+        </button>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, margin: '12px 0 8px', paddingTop: 10, borderTop: '1px solid #ede9fe' }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#202124' }}>账单标签</span>
         <span style={{ fontSize: 10, color: C.purple }}>全部满足（AND）</span>
       </div>
 
@@ -191,14 +252,15 @@ function TagIntersectionStats({ items }: { items: BillExpenseItem[] }) {
       <input
         value={query}
         aria-label="搜索账单标签"
-        placeholder="搜索并添加标签"
+        disabled={tagOptions.length === 0}
+        placeholder={rangedItems.length === 0 ? '该时段暂无账单' : '搜索并添加标签'}
         onChange={(event) => setQuery(event.target.value)}
         onKeyDown={(event) => {
           if (event.key !== 'Enter' || suggestions.length === 0) return;
           event.preventDefault();
           addTag(suggestions[0].tag);
         }}
-        style={{ width: '100%', border: '1px solid #d8d1ee', borderRadius: 8, padding: '7px 9px', backgroundColor: '#fff', fontSize: 12, outline: 'none' }}
+        style={{ width: '100%', border: '1px solid #d8d1ee', borderRadius: 8, padding: '7px 9px', backgroundColor: tagOptions.length === 0 ? '#f8f9fa' : '#fff', color: tagOptions.length === 0 ? '#9aa0a6' : '#202124', fontSize: 12, outline: 'none' }}
       />
       {suggestions.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 7 }}>
@@ -216,7 +278,9 @@ function TagIntersectionStats({ items }: { items: BillExpenseItem[] }) {
       )}
 
       {selectedTags.length === 0 ? (
-        <div style={{ marginTop: 9, fontSize: 11, color: C.sub }}>选择两个或更多标签，即可统计同时拥有这些标签的账单。</div>
+        <div style={{ marginTop: 9, fontSize: 11, color: C.sub }}>
+          {rangedItems.length === 0 ? '该时间范围暂无账单。' : '选择两个或更多标签，即可统计同时拥有这些标签的账单。'}
+        </div>
       ) : (
         <div style={{ marginTop: 10, borderTop: '1px solid #ede9fe', paddingTop: 8 }}>
           <button
@@ -233,7 +297,7 @@ function TagIntersectionStats({ items }: { items: BillExpenseItem[] }) {
             </span>
           </button>
           <div style={{ marginTop: 4, fontSize: 10, color: C.sub, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-            均 ¥{formatCurrency(averageAmount)} · 占本月 {monthlyShare.toFixed(1)}%
+            均 ¥{formatCurrency(averageAmount)} · 占该时段 {rangedShare.toFixed(1)}%
           </div>
           {expanded && (
             <div style={{ marginTop: 6, maxHeight: 220, overflowY: 'auto' }}>
@@ -2619,6 +2683,10 @@ export default function CalendarPage() {
     }
     return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
   }, [records]);
+  const allBillExpenseItems = useMemo(
+    () => Object.values(billExpenseItems).flat(),
+    [billExpenseItems],
+  );
 
   // 快捷跳转面板可选年份：最早记录年 → 当前查看年与今年的较大者
   const yearOptions = useMemo(() => {
@@ -3016,10 +3084,7 @@ export default function CalendarPage() {
               );
             })()}
             {billExpenseItems[yearMonth] && billExpenseItems[yearMonth]!.length > 0 && (
-              <>
-                <TagIntersectionStats key={yearMonth} items={billExpenseItems[yearMonth]!} />
-                <CategoryBreakdown items={billExpenseItems[yearMonth]!} />
-              </>
+              <CategoryBreakdown items={billExpenseItems[yearMonth]!} />
             )}
             {stats.tagged < stats.total && (
               <div style={{ marginTop: 12, fontSize: 13, color: C.orange, backgroundColor: '#fef7e0', border: '1px solid #fdd663', borderRadius: 12, padding: '10px 14px' }}>
@@ -3253,6 +3318,12 @@ export default function CalendarPage() {
               </>
             )}
           </Card>
+
+          {allBillExpenseItems.length > 0 && (
+            <Card title="标签交集统计" subtitle="默认全部时间">
+              <TagIntersectionStats items={allBillExpenseItems} />
+            </Card>
+          )}
 
           {/* 历史明细（按年展开） */}
           <Card title="历史明细" subtitle="点击年份展开月度">
