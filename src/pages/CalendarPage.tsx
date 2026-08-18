@@ -1890,7 +1890,9 @@ const CORE_BILL_TAGS = [
 ] as const;
 
 function CoreBillTagStats({ items, hiddenTags }: { items: CategorizedBillItem[]; hiddenTags?: ReadonlySet<string> }) {
-  const stats = CORE_BILL_TAGS.filter(({ label }) => !hiddenTags?.has(label)).map((coreTag) => {
+  // 四类是互斥的账单类型；任一类型已作为筛选条件时，整组汇总都不再重复展示。
+  if (CORE_BILL_TAGS.some(({ label }) => hiddenTags?.has(label))) return null;
+  const stats = CORE_BILL_TAGS.map((coreTag) => {
     const { label } = coreTag;
     const tagged = items.filter((item) => {
       if (label === '收入') return item.transactionType === '收入';
@@ -1903,7 +1905,6 @@ function CoreBillTagStats({ items, hiddenTags }: { items: CategorizedBillItem[];
       amount: tagged.reduce((sum, item) => sum + item.amount, 0),
     };
   });
-  if (stats.length === 0) return null;
   return (
     <div style={{ margin: '8px 0 6px', paddingTop: 8, borderTop: '1px solid #ede9fe', display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 4 }}>
       {stats.map((stat) => (
