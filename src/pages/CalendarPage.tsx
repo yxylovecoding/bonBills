@@ -2786,6 +2786,7 @@ export default function CalendarPage() {
   const [showWeekTemplate, setShowWeekTemplate] = useState(false);
   const [showPendingPanel, setShowPendingPanel] = useState(false);
   const [activeTripStartDate, setActiveTripStartDate] = useState<string | null>(null);
+  const [tripFilterPanelOpen, setTripFilterPanelOpen] = useState(false);
 
   // ── History state ──
   const [yearProfitMode, setYearProfitMode] = useState<YearProfitMode>('rate');
@@ -3101,6 +3102,7 @@ export default function CalendarPage() {
     ],
     [billExpenseItems, billIncomeItems],
   );
+  const tripFilterLayoutOpen = tripFilterPanelOpen && !!activeTripFilterTag;
 
   // 快捷跳转面板可选年份：最早记录年 → 当前查看年与今年的较大者
   const yearOptions = useMemo(() => {
@@ -3139,7 +3141,7 @@ export default function CalendarPage() {
 
   // ── Render ────────────────────────────────────────────────────────
   return (
-    <div className={`calendar-page-shell${tab === 'month' ? ' calendar-page-shell--month' : ''}`}>
+    <div className={`calendar-page-shell${tab === 'month' && tripFilterLayoutOpen ? ' calendar-page-shell--split' : ''}`}>
       <input ref={billFileRef} type="file" accept=".xls,.xlsx,.csv,image/*" style={{ display: 'none' }} onChange={handleBillFile} />
       {/* 页头 + 胶囊切换 */}
       <div className="calendar-page-header" style={{ margin: '0 0 16px' }}>
@@ -3679,11 +3681,23 @@ export default function CalendarPage() {
             tripNotes={tripNotes}
             tripSplits={tripSplits}
             activeTripStartDate={effectiveActiveTripStartDate}
+            filterPanelOpen={tripFilterPanelOpen}
             onSetTripTag={setTripTag}
             onSetTripNote={setTripNote}
-            onClearTripTag={clearTripTag}
+            onClearTripTag={(startDate) => {
+              clearTripTag(startDate);
+              if (effectiveActiveTripStartDate === startDate) setTripFilterPanelOpen(false);
+            }}
             onToggleTripSplit={toggleTripSplit}
             onActivateTrip={setActiveTripStartDate}
+            onToggleFilterPanel={(startDate) => {
+              if (effectiveActiveTripStartDate === startDate) {
+                setTripFilterPanelOpen((open) => !open);
+                return;
+              }
+              setActiveTripStartDate(startDate);
+              setTripFilterPanelOpen(true);
+            }}
           />
 
           {selectMode === 'detail' && selectedDay && (() => {
@@ -3708,7 +3722,7 @@ export default function CalendarPage() {
             );
           })()}
           </div>
-          {activeTripFilterTag && allBillStatisticItems.length > 0 && (
+          {tripFilterLayoutOpen && allBillStatisticItems.length > 0 && (
             <aside className="trip-filter-sidecar" aria-label={`${activeTripFilterTag} 出游筛选统计`}>
               <Card title="标签逻辑统计" subtitle={`已同步 ${activeTripFilterTag}`}>
                 <TagLogicStats key={activeTripFilterTag} items={allBillStatisticItems} initialTag={activeTripFilterTag} />
@@ -3769,11 +3783,13 @@ function TripsSection({
   tripNotes,
   tripSplits,
   activeTripStartDate,
+  filterPanelOpen,
   onSetTripTag,
   onSetTripNote,
   onClearTripTag,
   onToggleTripSplit,
   onActivateTrip,
+  onToggleFilterPanel,
 }: {
   groups: TripGroup[];
   allExpenseItems: Record<string, import('../utils/importBill').BillExpenseMonth>;
@@ -3781,11 +3797,13 @@ function TripsSection({
   tripNotes: Record<string, string>;
   tripSplits: Record<string, true>;
   activeTripStartDate: string | null;
+  filterPanelOpen: boolean;
   onSetTripTag: (startDate: string, tag: string) => void;
   onSetTripNote: (startDate: string, note: string) => void;
   onClearTripTag: (startDate: string) => void;
   onToggleTripSplit: (date: string) => void;
   onActivateTrip: (startDate: string) => void;
+  onToggleFilterPanel: (startDate: string) => void;
 }) {
   const flatItems = useMemo(() => flattenExpenseItems(allExpenseItems), [allExpenseItems]);
   if (groups.length === 0) return null;
@@ -3832,6 +3850,7 @@ function TripsSection({
               const summary = selectedTag ? sumBillsByTag(flatItems, selectedTag) : null;
               const note = tripNotes[t.startDate] ?? '';
               const active = activeTripStartDate === t.startDate;
+              const filterPanelOpenForTrip = active && filterPanelOpen;
               const optionTags = selectedTag && !candidates.some((c) => c.tag === selectedTag)
                 ? [selectedTag, ...candidates.map((c) => c.tag)]
                 : candidates.map((c) => c.tag);
@@ -3842,12 +3861,25 @@ function TripsSection({
                       {tagMeta.travel.icon} {formatTripDateRange(t.startDate, t.endDate)} · {t.dates.length}天
                     </span>
                     {selectedTag && (
-                      <button
-                        onClick={() => { onActivateTrip(t.startDate); onClearTripTag(t.startDate); }}
-                        style={{ fontSize: 11, color: '#5f6368', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
-                      >
-                        清除
-                      </button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                        <button
+                          type="button"
+                          className="trip-filter-toggle"
+                          onClick={() => onToggleFilterPanel(t.startDate)}
+                          aria-expanded={filterPanelOpenForTrip}
+                          title={filterPanelOpenForTrip ? '收回右侧筛选' : '在右侧展开筛选'}
+                          style={{ fontSize: 11, lineHeight: 1, color: tagMeta.travel.color, background: '#fff', border: `1px solid ${tagMeta.travel.color}80`, borderRadius: 6, cursor: 'pointer', padding: '4px 6px', whiteSpace: 'nowrap' }}
+                        >
+                          {filterPanelOpenForTrip ? '收回筛选' : '展开筛选'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { onActivateTrip(t.startDate); onClearTripTag(t.startDate); }}
+                          style={{ fontSize: 11, color: '#5f6368', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
+                        >
+                          清除
+                        </button>
+                      </div>
                     )}
                   </div>
                   <select
