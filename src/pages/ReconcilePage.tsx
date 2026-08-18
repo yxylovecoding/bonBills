@@ -578,7 +578,7 @@ export default function ReconcilePage() {
   const [screenshotPreview, setScreenshotPreview] = useState<{ url: string; fileName: string } | null>(null);
   const screenshotPreviewUrlRef = useRef<string | null>(null);
   const [reconcileMode, setReconcileMode] = useState<ReconcileMode>(() => defaultReconcileMode(new Date()));
-  const [investProfitDisplayMode, setInvestProfitDisplayMode] = useState<'rate' | 'amount'>('rate');
+  const [investProfitDisplayMode, setInvestProfitDisplayMode] = useState<'rate' | 'amount'>('amount');
   const isMonthStartMode = reconcileMode === 'monthStart';
 
   const clearScreenshotDraft = () => {
