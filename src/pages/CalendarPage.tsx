@@ -223,21 +223,29 @@ function TagLogicStats({ items }: { items: BillStatisticItem[] }) {
       return compiledLogic.test?.(tags) ?? false;
     });
   }, [accountFilteredItems, compiledLogic, selectedAccounts.length]);
-  const matchedCategoryGroups = useMemo(() => {
-    const groups = new Map<string, BillStatisticItem[]>();
-    for (const item of matchedItems) {
-      const category = item.category || '';
-      const categoryItems = groups.get(category) ?? [];
-      categoryItems.push(item);
-      groups.set(category, categoryItems);
-    }
-    return [...groups.entries()]
-      .map(([category, categoryItems]) => ({
-        category,
-        items: categoryItems,
-        total: categoryItems.reduce((sum, item) => sum + item.amount, 0),
-      }))
-      .sort((a, b) => b.total - a.total);
+  const matchedTransactionSections = useMemo(() => {
+    return (['支出', '收入'] as const).map((transactionType) => {
+      const sectionItems = matchedItems.filter((item) => item.transactionType === transactionType);
+      const groups = new Map<string, BillStatisticItem[]>();
+      for (const item of sectionItems) {
+        const category = item.category || '';
+        const categoryItems = groups.get(category) ?? [];
+        categoryItems.push(item);
+        groups.set(category, categoryItems);
+      }
+      return {
+        transactionType,
+        items: sectionItems,
+        total: sectionItems.reduce((sum, item) => sum + item.amount, 0),
+        categoryGroups: [...groups.entries()]
+          .map(([category, categoryItems]) => ({
+            category,
+            items: categoryItems,
+            total: categoryItems.reduce((sum, item) => sum + item.amount, 0),
+          }))
+          .sort((a, b) => b.total - a.total),
+      };
+    }).filter((section) => section.items.length > 0);
   }, [matchedItems]);
   const totalAmount = matchedItems.reduce((sum, item) => sum + item.amount, 0);
   const expenseAmount = matchedItems.reduce((sum, item) => sum + (item.transactionType === '支出' ? item.amount : 0), 0);
@@ -542,16 +550,27 @@ function TagLogicStats({ items }: { items: BillStatisticItem[] }) {
                 <div style={{ padding: '8px 0 2px', fontSize: 11, color: '#9aa0a6', textAlign: 'center' }}>暂无符合当前筛选的账单</div>
               ) : (
                 <>
-                  {matchedCategoryGroups.map((group) => (
-                    <CategoryRow
-                      key={group.category}
-                      cat={group.category}
-                      items={group.items}
-                      total={totalAmount}
-                      fullDate
-                      hiddenTags={referencedTagSet}
-                    />
-                  ))}
+                  {matchedTransactionSections.map((section, sectionIndex) => {
+                    const color = section.transactionType === '收入' ? C.red : C.green;
+                    return (
+                      <div key={section.transactionType} style={{ marginTop: sectionIndex > 0 ? 10 : 0, paddingTop: sectionIndex > 0 ? 9 : 0, borderTop: sectionIndex > 0 ? '1px solid #ede9fe' : 'none' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 3, color, fontSize: 11, fontWeight: 700 }}>
+                          <span>{section.transactionType}</span>
+                          <span style={{ fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(section.total)} · {section.items.length}笔</span>
+                        </div>
+                        {section.categoryGroups.map((group) => (
+                          <CategoryRow
+                            key={`${section.transactionType}-${group.category}`}
+                            cat={group.category}
+                            items={group.items}
+                            total={section.total}
+                            fullDate
+                            hiddenTags={referencedTagSet}
+                          />
+                        ))}
+                      </div>
+                    );
+                  })}
                   <CoreBillTagStats items={matchedItems} hiddenTags={referencedTagSet} />
                 </>
               )}
