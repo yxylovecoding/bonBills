@@ -1560,6 +1560,7 @@ function UsdProfitModal({
 }
 
 function HoldingsSection({ state }: { state: MonthFormState }) {
+  const [monthlyProfitMode, setMonthlyProfitMode] = useState<'amount' | 'rate'>('amount');
   const {
     showBreakdown, setShowBreakdown, copyHoldingsFromReconcile,
     breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
@@ -1616,12 +1617,26 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
               <th style={{ textAlign: 'left', padding: '4px 0', color: C.sub, fontWeight: 500, width: '25%' }}>品类</th>
               <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '25%' }}>持仓金额</th>
               <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '25%' }}>now收益</th>
-              <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '25%' }}>本月收益</th>
+              <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '25%' }}>
+                <button
+                  type="button"
+                  onClick={() => setMonthlyProfitMode((mode) => mode === 'amount' ? 'rate' : 'amount')}
+                  title={monthlyProfitMode === 'amount' ? '点击切换为本月收益率' : '点击切换为本月收益'}
+                  aria-label={monthlyProfitMode === 'amount' ? '本月收益，点击切换为本月收益率' : '本月收益率，点击切换为本月收益'}
+                  style={{ padding: 0, border: 'none', borderBottom: `1px dashed ${C.sub}`, background: 'transparent', color: 'inherit', font: 'inherit', cursor: 'pointer' }}
+                >
+                  {monthlyProfitMode === 'amount' ? '本月收益' : '本月收益率'}
+                </button>
+              </th>
             </tr>
           </thead>
           <tbody>
             {INVEST_KEYS.map((k, i) => {
               const monthlyProfit = getBreakdownMonthlyProfit(k);
+              const holdingAmount = parseFloat(breakdown[k] ?? '') || 0;
+              const monthlyProfitRate = monthlyProfit !== null && holdingAmount > 0
+                ? monthlyProfit / holdingAmount
+                : null;
               return (
                 <tr key={k} style={{ borderBottom: '1px solid #f1f3f4' }}>
                   <td style={{ padding: '5px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1668,7 +1683,9 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                     )}
                   </td>
                   <td style={{ padding: '4px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: monthlyProfit !== null ? (monthlyProfit >= 0 ? C.red : C.green) : C.sub }}>
-                    {monthlyProfit !== null ? `${monthlyProfit >= 0 ? '+' : ''}${Math.round(monthlyProfit)}` : '—'}
+                    {monthlyProfitMode === 'amount'
+                      ? (monthlyProfit !== null ? `${monthlyProfit >= 0 ? '+' : ''}${Math.round(monthlyProfit)}` : '—')
+                      : (monthlyProfitRate !== null ? `${monthlyProfitRate >= 0 ? '+' : ''}${(monthlyProfitRate * 100).toFixed(1)}%` : '—')}
                   </td>
                 </tr>
               );
