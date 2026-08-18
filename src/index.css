@@ -50,3 +50,41 @@ input[type='number'] { -moz-appearance: textfield; }
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+
+.calendar-page-shell {
+  width: 100%;
+  max-width: 448px;
+  margin: 0 auto;
+}
+
+.calendar-month-grid {
+  display: block;
+}
+
+.trip-filter-sidecar {
+  display: none;
+}
+
+@media (min-width: 960px) {
+  .calendar-page-shell--month {
+    max-width: 912px;
+  }
+
+  .calendar-page-header {
+    width: 448px;
+  }
+
+  .calendar-month-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 448px));
+    gap: 16px;
+    align-items: start;
+  }
+
+  .trip-filter-sidecar {
+    display: block;
+    position: sticky;
+    top: 16px;
+    min-width: 0;
+  }
+}

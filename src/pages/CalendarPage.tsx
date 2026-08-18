@@ -146,8 +146,10 @@ function resolveTagLogicOperator(raw: string): TagLogicOperator | null {
   return null;
 }
 
-function TagLogicStats({ items }: { items: BillStatisticItem[] }) {
-  const [logicParts, setLogicParts] = useState<TagLogicPart[]>([]);
+function TagLogicStats({ items, initialTag }: { items: BillStatisticItem[]; initialTag?: string }) {
+  const [logicParts, setLogicParts] = useState<TagLogicPart[]>(
+    () => initialTag ? [{ kind: 'tag', value: initialTag }] : [],
+  );
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState(true);
   const [startDate, setStartDate] = useState('');
@@ -2762,6 +2764,7 @@ export default function CalendarPage() {
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [showWeekTemplate, setShowWeekTemplate] = useState(false);
   const [showPendingPanel, setShowPendingPanel] = useState(false);
+  const [activeTripStartDate, setActiveTripStartDate] = useState<string | null>(null);
 
   // ── History state ──
   const [yearProfitMode, setYearProfitMode] = useState<YearProfitMode>('rate');
@@ -2773,7 +2776,7 @@ export default function CalendarPage() {
   const { records, upsert, updateDayCounts } = useMonthlyStore();
   const { tagStats: billTagStats, aggregates: billAggregates, expenseItems: billExpenseItems, incomeItems: billIncomeItems } = useBillDetailStore();
   const { overrides: expenseScopeOverrides, setOverride: setExpenseScopeOverride } = useExpenseScopeOverrideStore();
-  const { tripTags, tripSplits, setTripTag, clearTripTag, toggleTripSplit } = useTripStore();
+  const { tripTags, tripNotes, tripSplits, setTripTag, setTripNote, clearTripTag, toggleTripSplit } = useTripStore();
   const {
     tagOrder, setTagOrder, weekdayTags, setWeekdayTags,
     showPayrollCutoffMarkers, setShowPayrollCutoffMarkers,
@@ -2865,6 +2868,14 @@ export default function CalendarPage() {
   // ── 出游胶囊：连接同段 trip 内同周的相邻 cell（splits 处自动断开）──
   const tripsThisMonth = useMemo(() => detectTrips(tagMap, yearMonth, tripSplits), [tagMap, yearMonth, tripSplits]);
   const tripGroupsThisMonth = useMemo(() => detectTripGroups(tagMap, yearMonth, tripSplits), [tagMap, yearMonth, tripSplits]);
+  const selectedTripStartsThisMonth = useMemo(
+    () => tripGroupsThisMonth.flatMap((group) => group.trips.map((trip) => trip.startDate)).filter((startDate) => !!tripTags[startDate]),
+    [tripGroupsThisMonth, tripTags],
+  );
+  const effectiveActiveTripStartDate = activeTripStartDate && selectedTripStartsThisMonth.includes(activeTripStartDate)
+    ? activeTripStartDate
+    : (selectedTripStartsThisMonth[0] ?? null);
+  const activeTripFilterTag = effectiveActiveTripStartDate ? (tripTags[effectiveActiveTripStartDate] ?? '') : '';
   const tripConnect = useMemo(() => {
     // 用每段 trip 的 dates 单独构造连接集合，跨 trip（即 split 点两侧）不连
     const datesByTripKey = tripsThisMonth.map((t) => new Set(t.dates));
@@ -3107,10 +3118,10 @@ export default function CalendarPage() {
 
   // ── Render ────────────────────────────────────────────────────────
   return (
-    <div>
+    <div className={`calendar-page-shell${tab === 'month' ? ' calendar-page-shell--month' : ''}`}>
       <input ref={billFileRef} type="file" accept=".xls,.xlsx,.csv,image/*" style={{ display: 'none' }} onChange={handleBillFile} />
       {/* 页头 + 胶囊切换 */}
-      <div style={{ margin: '0 0 16px' }}>
+      <div className="calendar-page-header" style={{ margin: '0 0 16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, flexWrap: 'nowrap', minWidth: 0 }}>
           <h1 style={{ fontSize: 'clamp(18px, 4.8vw, 22px)', fontWeight: 700, margin: 0, whiteSpace: 'nowrap', flexShrink: 0 }}>
             {tab === 'month' ? '日历标记' : '历史记录'}
@@ -3167,7 +3178,7 @@ export default function CalendarPage() {
         )}
       </div>
       {holidayWarning && (
-        <div style={{ margin: '0 0 16px', fontSize: 12, color: C.orange, backgroundColor: '#fff4e8', border: '1px solid #fed7aa', borderRadius: 10, padding: '8px 10px' }}>
+        <div className="calendar-page-header" style={{ margin: '0 0 16px', fontSize: 12, color: C.orange, backgroundColor: '#fff4e8', border: '1px solid #fed7aa', borderRadius: 10, padding: '8px 10px' }}>
           {holidayWarning}
         </div>
       )}
@@ -3194,7 +3205,8 @@ export default function CalendarPage() {
 
       {tab === 'month' ? (
         /* ── 统计月：日历标记 ── */
-        <>
+        <div className="calendar-month-grid">
+          <div>
           {/* 月份导航（sticky） */}
           <div style={{
             position: 'sticky', top: 0, zIndex: 10,
@@ -3643,10 +3655,14 @@ export default function CalendarPage() {
             groups={tripGroupsThisMonth}
             allExpenseItems={billExpenseItems}
             tripTags={tripTags}
+            tripNotes={tripNotes}
             tripSplits={tripSplits}
+            activeTripStartDate={effectiveActiveTripStartDate}
             onSetTripTag={setTripTag}
+            onSetTripNote={setTripNote}
             onClearTripTag={clearTripTag}
             onToggleTripSplit={toggleTripSplit}
+            onActivateTrip={setActiveTripStartDate}
           />
 
           {selectMode === 'detail' && selectedDay && (() => {
@@ -3670,7 +3686,15 @@ export default function CalendarPage() {
               />
             );
           })()}
-        </>
+          </div>
+          {activeTripFilterTag && allBillStatisticItems.length > 0 && (
+            <aside className="trip-filter-sidecar" aria-label={`${activeTripFilterTag} 出游筛选统计`}>
+              <Card title="标签逻辑统计" subtitle={`已同步 ${activeTripFilterTag}`}>
+                <TagLogicStats key={activeTripFilterTag} items={allBillStatisticItems} initialTag={activeTripFilterTag} />
+              </Card>
+            </aside>
+          )}
+        </div>
       ) : (
         /* ── 统计年：历史明细 ── */
         <>
@@ -3721,18 +3745,26 @@ function TripsSection({
   groups,
   allExpenseItems,
   tripTags,
+  tripNotes,
   tripSplits,
+  activeTripStartDate,
   onSetTripTag,
+  onSetTripNote,
   onClearTripTag,
   onToggleTripSplit,
+  onActivateTrip,
 }: {
   groups: TripGroup[];
   allExpenseItems: Record<string, import('../utils/importBill').BillExpenseMonth>;
   tripTags: Record<string, string>;
+  tripNotes: Record<string, string>;
   tripSplits: Record<string, true>;
+  activeTripStartDate: string | null;
   onSetTripTag: (startDate: string, tag: string) => void;
+  onSetTripNote: (startDate: string, note: string) => void;
   onClearTripTag: (startDate: string) => void;
   onToggleTripSplit: (date: string) => void;
+  onActivateTrip: (startDate: string) => void;
 }) {
   const flatItems = useMemo(() => flattenExpenseItems(allExpenseItems), [allExpenseItems]);
   if (groups.length === 0) return null;
@@ -3777,18 +3809,20 @@ function TripsSection({
               }
               const candidates = extractCandidateTags(flatItems, tripDateSet, excludeTags);
               const summary = selectedTag ? sumBillsByTag(flatItems, selectedTag) : null;
+              const note = tripNotes[t.startDate] ?? '';
+              const active = activeTripStartDate === t.startDate;
               const optionTags = selectedTag && !candidates.some((c) => c.tag === selectedTag)
                 ? [selectedTag, ...candidates.map((c) => c.tag)]
                 : candidates.map((c) => c.tag);
               return (
-                <div key={t.startDate} style={{ border: `1px solid ${tagMeta.travel.color}40`, borderRadius: 10, padding: '10px 12px', backgroundColor: `${tagMeta.travel.color}10` }}>
+                <div key={t.startDate} style={{ border: `${active ? 1.5 : 1}px solid ${tagMeta.travel.color}${active ? '99' : '40'}`, borderRadius: 10, padding: '10px 12px', backgroundColor: `${tagMeta.travel.color}${active ? '18' : '10'}` }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: tagMeta.travel.color }}>
                       {tagMeta.travel.icon} {formatTripDateRange(t.startDate, t.endDate)} · {t.dates.length}天
                     </span>
                     {selectedTag && (
                       <button
-                        onClick={() => onClearTripTag(t.startDate)}
+                        onClick={() => { onActivateTrip(t.startDate); onClearTripTag(t.startDate); }}
                         style={{ fontSize: 11, color: '#5f6368', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
                       >
                         清除
@@ -3797,7 +3831,10 @@ function TripsSection({
                   </div>
                   <select
                     value={selectedTag}
+                    aria-label={`${formatTripDateRange(t.startDate, t.endDate)} 出游标签`}
+                    onFocus={() => onActivateTrip(t.startDate)}
                     onChange={(e) => {
+                      onActivateTrip(t.startDate);
                       const v = e.target.value;
                       if (v === '') onClearTripTag(t.startDate);
                       else onSetTripTag(t.startDate, v);
@@ -3813,6 +3850,15 @@ function TripsSection({
                       <span style={{ color: '#5f6368', marginLeft: 6 }}>· {summary.count} 条命中</span>
                     </div>
                   )}
+                  <textarea
+                    value={note}
+                    aria-label={`${formatTripDateRange(t.startDate, t.endDate)} 出游备注`}
+                    onFocus={() => onActivateTrip(t.startDate)}
+                    onChange={(event) => onSetTripNote(t.startDate, event.target.value)}
+                    placeholder="备注（可选）"
+                    rows={2}
+                    style={{ width: '100%', minHeight: 34, marginTop: 8, padding: '6px 8px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', color: '#202124', fontSize: 12, lineHeight: 1.4, resize: 'vertical', boxSizing: 'border-box' }}
+                  />
                 </div>
               );
             })}
