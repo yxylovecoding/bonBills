@@ -125,6 +125,12 @@ function getStatisticTags(item: BillStatisticItem): string[] {
   return item.transactionType === '收入' && !tags.includes('收入') ? [...tags, '收入'] : tags;
 }
 
+function getStatisticAccount(account: string): string {
+  const normalized = account.trim();
+  if (normalized.includes('♑') || normalized.includes('花呗') || normalized.includes('先用后付')) return '信用卡';
+  return normalized || '(无账户)';
+}
+
 type TagLogicOperator = 'AND' | 'OR' | 'NOT' | '(' | ')';
 type TagLogicPart =
   | { kind: 'tag'; value: string }
@@ -146,6 +152,7 @@ function TagLogicStats({ items }: { items: BillStatisticItem[] }) {
   const [expanded, setExpanded] = useState(true);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
 
   const availableRange = useMemo(() => {
     let earliest = '';
@@ -161,9 +168,25 @@ function TagLogicStats({ items }: { items: BillStatisticItem[] }) {
     [items, startDate, endDate],
   );
 
-  const tagOptions = useMemo(() => {
+  const accountOptions = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of rangedItems) {
+      const account = getStatisticAccount(item.account);
+      counts.set(account, (counts.get(account) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([account, count]) => ({ account, count }))
+      .sort((a, b) => b.count - a.count || a.account.localeCompare(b.account, 'zh-CN'));
+  }, [rangedItems]);
+  const accountFilteredItems = useMemo(() => {
+    if (selectedAccounts.length === 0) return rangedItems;
+    const selected = new Set(selectedAccounts);
+    return rangedItems.filter((item) => selected.has(getStatisticAccount(item.account)));
+  }, [rangedItems, selectedAccounts]);
+
+  const tagOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of accountFilteredItems) {
       for (const tag of getStatisticTags(item)) {
         counts.set(tag, (counts.get(tag) ?? 0) + 1);
       }
@@ -171,7 +194,7 @@ function TagLogicStats({ items }: { items: BillStatisticItem[] }) {
     return [...counts.entries()]
       .map(([tag, count]) => ({ tag, count }))
       .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag, 'zh-CN'));
-  }, [rangedItems]);
+  }, [accountFilteredItems]);
 
   const expression = useMemo(
     () => logicParts.map((part) => part.kind === 'tag' ? formatTagReference(part.value) : part.value).join(' '),
@@ -191,12 +214,12 @@ function TagLogicStats({ items }: { items: BillStatisticItem[] }) {
       .filter(({ tag }) => !referencedTagSet.has(tag) && tag.toLocaleLowerCase('zh-CN').includes(normalizedQuery))
       .slice(0, 8);
   const matchedItems = useMemo(() => {
-    if (!compiledLogic.test) return [];
-    return rangedItems.filter((item) => {
+    if (!compiledLogic.test) return selectedAccounts.length > 0 ? accountFilteredItems : [];
+    return accountFilteredItems.filter((item) => {
       const tags = new Set(getStatisticTags(item));
       return compiledLogic.test?.(tags) ?? false;
     });
-  }, [rangedItems, compiledLogic]);
+  }, [accountFilteredItems, compiledLogic, selectedAccounts.length]);
   const matchedCategoryGroups = useMemo(() => {
     const groups = new Map<string, BillStatisticItem[]>();
     for (const item of matchedItems) {
@@ -216,17 +239,25 @@ function TagLogicStats({ items }: { items: BillStatisticItem[] }) {
   const totalAmount = matchedItems.reduce((sum, item) => sum + item.amount, 0);
   const expenseAmount = matchedItems.reduce((sum, item) => sum + (item.transactionType === '支出' ? item.amount : 0), 0);
   const incomeAmount = matchedItems.reduce((sum, item) => sum + (item.transactionType === '收入' ? item.amount : 0), 0);
-  const rangedAmount = rangedItems.reduce((sum, item) => sum + item.amount, 0);
+  const rangedAmount = accountFilteredItems.reduce((sum, item) => sum + item.amount, 0);
   const averageAmount = matchedItems.length > 0 ? totalAmount / matchedItems.length : 0;
   const rangedShare = rangedAmount > 0 ? totalAmount / rangedAmount * 100 : 0;
   const rangeLabel = !startDate && !endDate
-    ? `全部时间 · ${rangedItems.length} 笔`
-    : `${startDate || availableRange.earliest} 至 ${endDate || availableRange.latest} · ${rangedItems.length} 笔`;
+    ? `全部时间 · ${accountFilteredItems.length} 笔`
+    : `${startDate || availableRange.earliest} 至 ${endDate || availableRange.latest} · ${accountFilteredItems.length} 笔`;
   const amountLabel = expenseAmount > 0 && incomeAmount > 0
     ? `支出 ¥${formatCurrency(expenseAmount)} · 收入 ¥${formatCurrency(incomeAmount)}`
     : incomeAmount > 0
       ? `收入 ¥${formatCurrency(incomeAmount)}`
       : `支出 ¥${formatCurrency(expenseAmount)}`;
+  const hasActiveFilter = logicParts.length > 0 || selectedAccounts.length > 0;
+
+  const toggleAccount = (account: string) => {
+    setSelectedAccounts((current) => current.includes(account)
+      ? current.filter((item) => item !== account)
+      : [...current, account]);
+    setExpanded(true);
+  };
 
   const addTag = (tag: string) => {
     if (!tag) return;
@@ -319,6 +350,35 @@ function TagLogicStats({ items }: { items: BillStatisticItem[] }) {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, margin: '12px 0 8px', paddingTop: 10, borderTop: '1px solid #ede9fe' }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#202124' }}>账户</span>
+        <span style={{ fontSize: 10, color: C.purple }}>可多选 · ♑️ / 花呗 / 先用后付 → 信用卡</span>
+      </div>
+      <div role="group" aria-label="账户筛选" style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+        <button
+          type="button"
+          aria-pressed={selectedAccounts.length === 0}
+          onClick={() => { setSelectedAccounts([]); setExpanded(true); }}
+          style={{ border: `1px solid ${selectedAccounts.length === 0 ? '#c4b5fd' : '#e5e7eb'}`, backgroundColor: selectedAccounts.length === 0 ? '#ede9fe' : '#fff', color: selectedAccounts.length === 0 ? C.purple : C.sub, borderRadius: 14, padding: '4px 9px', fontSize: 10, fontWeight: selectedAccounts.length === 0 ? 700 : 500, cursor: 'pointer' }}
+        >
+          全部账户 · {rangedItems.length}
+        </button>
+        {accountOptions.map(({ account, count }) => {
+          const active = selectedAccounts.includes(account);
+          return (
+            <button
+              key={account}
+              type="button"
+              aria-pressed={active}
+              onClick={() => toggleAccount(account)}
+              style={{ border: `1px solid ${active ? '#c4b5fd' : '#e5e7eb'}`, backgroundColor: active ? '#ede9fe' : '#fff', color: active ? C.purple : C.sub, borderRadius: 14, padding: '4px 9px', fontSize: 10, fontWeight: active ? 700 : 500, cursor: 'pointer' }}
+            >
+              {account === '信用卡' ? '💳 ' : ''}{account} · {count}
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, margin: '12px 0 8px', paddingTop: 10, borderTop: '1px solid #ede9fe' }}>
         <span style={{ fontSize: 12, fontWeight: 700, color: '#202124' }}>标签逻辑</span>
         <span style={{ fontSize: 10, color: C.purple }}>输入标签或逻辑符</span>
       </div>
@@ -341,8 +401,8 @@ function TagLogicStats({ items }: { items: BillStatisticItem[] }) {
         <input
           value={query}
           aria-label="输入标签或逻辑符"
-          disabled={rangedItems.length === 0}
-          placeholder={rangedItems.length === 0 ? '该时段暂无账单' : logicParts.length === 0 ? '输入标签或 AND / OR / NOT' : '继续输入…'}
+          disabled={accountFilteredItems.length === 0}
+          placeholder={accountFilteredItems.length === 0 ? '当前范围暂无账单' : logicParts.length === 0 ? '输入标签或 AND / OR / NOT' : '继续输入…'}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Backspace' && !query && logicParts.length > 0) {
@@ -360,7 +420,7 @@ function TagLogicStats({ items }: { items: BillStatisticItem[] }) {
             event.preventDefault();
             addTag(suggestions[0].tag);
           }}
-          style={{ flex: '1 1 150px', minWidth: 120, border: 'none', padding: '4px 3px', backgroundColor: 'transparent', color: rangedItems.length === 0 ? '#9aa0a6' : '#202124', fontSize: 11, outline: 'none' }}
+          style={{ flex: '1 1 150px', minWidth: 120, border: 'none', padding: '4px 3px', backgroundColor: 'transparent', color: accountFilteredItems.length === 0 ? '#9aa0a6' : '#202124', fontSize: 11, outline: 'none' }}
         />
 
         {query.trim() && (
@@ -421,9 +481,9 @@ function TagLogicStats({ items }: { items: BillStatisticItem[] }) {
         {compiledLogic.error ? `逻辑有误：${compiledLogic.error}` : '非逻辑符输入会匹配标签；优先级：NOT ＞ AND ＞ OR。'}
       </div>
 
-      {logicParts.length === 0 ? (
+      {!hasActiveFilter ? (
         <div style={{ marginTop: 9, fontSize: 11, color: C.sub }}>
-          {rangedItems.length === 0 ? '该时间范围暂无账单。' : '输入标签前几个字符并点击匹配，或直接输入逻辑符。'}
+          {rangedItems.length === 0 ? '该时间范围暂无账单。' : '选择账户，或输入标签前几个字符并点击匹配。'}
         </div>
       ) : compiledLogic.error ? (
         <div style={{ marginTop: 9, fontSize: 11, color: C.red }}>修正标签逻辑后即可查看统计结果。</div>
@@ -436,19 +496,19 @@ function TagLogicStats({ items }: { items: BillStatisticItem[] }) {
             style={{ width: '100%', border: 'none', background: 'none', padding: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, textAlign: 'left', cursor: 'pointer' }}
           >
             <span title={logicLabel} style={{ minWidth: 0, fontSize: 11, color: C.sub, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {expanded ? '▾' : '▸'} 按当前逻辑匹配
+              {expanded ? '▾' : '▸'} 按当前筛选匹配
             </span>
             <span style={{ flexShrink: 0, fontSize: 13, fontWeight: 700, color: C.purple, fontVariantNumeric: 'tabular-nums' }}>
               {amountLabel} · {matchedItems.length} 笔
             </span>
           </button>
           <div style={{ marginTop: 4, fontSize: 10, color: C.sub, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-            均 ¥{formatCurrency(averageAmount)} · 占该时段 {rangedShare.toFixed(1)}%
+            均 ¥{formatCurrency(averageAmount)} · 占当前范围 {rangedShare.toFixed(1)}%
           </div>
           {expanded && (
             <div style={{ marginTop: 6, maxHeight: 360, overflowY: 'auto' }}>
               {matchedItems.length === 0 ? (
-                <div style={{ padding: '8px 0 2px', fontSize: 11, color: '#9aa0a6', textAlign: 'center' }}>暂无符合当前逻辑的账单</div>
+                <div style={{ padding: '8px 0 2px', fontSize: 11, color: '#9aa0a6', textAlign: 'center' }}>暂无符合当前筛选的账单</div>
               ) : (
                 matchedCategoryGroups.map((group) => (
                   <CategoryRow
@@ -1786,6 +1846,7 @@ function ExpenseItemLine({ it, fullDate = false }: { it: CategorizedBillItem; fu
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         <span style={{ color: C.sub, marginRight: 6 }}>{fullDate ? it.date : it.date.slice(5)}</span>
         {isIncome && <span style={{ color: C.red, marginRight: 6 }}>收入</span>}
+        {it.transactionType && <span style={{ color: C.purple, marginRight: 6 }}>{getStatisticAccount(it.account)}</span>}
         {it.note || it.subcategory || it.category || '—'}
       </span>
       <span style={{ color: isIncome ? C.red : 'inherit', fontVariantNumeric: 'tabular-nums', flexShrink: 0, marginLeft: 8 }}>{isIncome ? '+' : ''}¥{formatCurrency(it.amount)}</span>
