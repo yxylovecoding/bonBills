@@ -111,6 +111,158 @@ function extractMeaningful(tagsRaw: string, note: string): string {
   return [cleanNote, ...tags].filter(Boolean).join(' · ');
 }
 
+function splitBillTags(tagsRaw: string): string[] {
+  return [...new Set(tagsRaw.split(',').map((tag) => tag.trim()).filter(Boolean))];
+}
+
+function TagIntersectionStats({ items }: { items: BillExpenseItem[] }) {
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [query, setQuery] = useState('');
+  const [expanded, setExpanded] = useState(true);
+
+  const tagOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of items) {
+      for (const tag of splitBillTags(item.tags)) {
+        counts.set(tag, (counts.get(tag) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag, 'zh-CN'));
+  }, [items]);
+
+  const selectedSet = useMemo(() => new Set(selectedTags), [selectedTags]);
+  const normalizedQuery = query.trim().toLocaleLowerCase('zh-CN');
+  const suggestions = tagOptions
+    .filter(({ tag }) => !selectedSet.has(tag) && (!normalizedQuery || tag.toLocaleLowerCase('zh-CN').includes(normalizedQuery)))
+    .slice(0, 8);
+  const matchedItems = useMemo(() => {
+    if (selectedTags.length === 0) return [];
+    return items.filter((item) => {
+      const tags = new Set(splitBillTags(item.tags));
+      return selectedTags.every((tag) => tags.has(tag));
+    });
+  }, [items, selectedTags]);
+  const totalAmount = matchedItems.reduce((sum, item) => sum + item.amount, 0);
+  const monthlyAmount = items.reduce((sum, item) => sum + item.amount, 0);
+  const averageAmount = matchedItems.length > 0 ? totalAmount / matchedItems.length : 0;
+  const monthlyShare = monthlyAmount > 0 ? totalAmount / monthlyAmount * 100 : 0;
+
+  const addTag = (tag: string) => {
+    if (!tag || selectedSet.has(tag)) return;
+    setSelectedTags((current) => [...current, tag]);
+    setQuery('');
+    setExpanded(true);
+  };
+
+  if (tagOptions.length === 0) return null;
+
+  return (
+    <div style={{ marginTop: 10, padding: 12, borderRadius: 12, border: '1px solid #ddd6fe', backgroundColor: '#faf8ff' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: '#202124' }}>🏷️ 标签交集</span>
+        <span style={{ fontSize: 10, color: C.purple }}>全部满足（AND）</span>
+      </div>
+
+      {selectedTags.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+          {selectedTags.map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              aria-label={`移除标签 ${tag}`}
+              onClick={() => setSelectedTags((current) => current.filter((item) => item !== tag))}
+              style={{ border: '1px solid #c4b5fd', backgroundColor: '#ede9fe', color: C.purple, borderRadius: 14, padding: '3px 8px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+            >
+              {tag} ×
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setSelectedTags([])}
+            style={{ border: 'none', background: 'none', color: C.sub, padding: '3px 2px', fontSize: 11, cursor: 'pointer' }}
+          >
+            清空
+          </button>
+        </div>
+      )}
+
+      <input
+        value={query}
+        aria-label="搜索账单标签"
+        placeholder="搜索并添加标签"
+        onChange={(event) => setQuery(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' || suggestions.length === 0) return;
+          event.preventDefault();
+          addTag(suggestions[0].tag);
+        }}
+        style={{ width: '100%', border: '1px solid #d8d1ee', borderRadius: 8, padding: '7px 9px', backgroundColor: '#fff', fontSize: 12, outline: 'none' }}
+      />
+      {suggestions.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 7 }}>
+          {suggestions.map(({ tag, count }) => (
+            <button
+              key={tag}
+              type="button"
+              onClick={() => addTag(tag)}
+              style={{ border: '1px solid #e5e7eb', backgroundColor: '#fff', color: C.sub, borderRadius: 14, padding: '3px 8px', fontSize: 11, cursor: 'pointer' }}
+            >
+              ＋{tag} · {count}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {selectedTags.length === 0 ? (
+        <div style={{ marginTop: 9, fontSize: 11, color: C.sub }}>选择两个或更多标签，即可统计同时拥有这些标签的账单。</div>
+      ) : (
+        <div style={{ marginTop: 10, borderTop: '1px solid #ede9fe', paddingTop: 8 }}>
+          <button
+            type="button"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((current) => !current)}
+            style={{ width: '100%', border: 'none', background: 'none', padding: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, textAlign: 'left', cursor: 'pointer' }}
+          >
+            <span style={{ minWidth: 0, fontSize: 11, color: C.sub, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {expanded ? '▾' : '▸'} 同时包含 {selectedTags.join(' + ')}
+            </span>
+            <span style={{ flexShrink: 0, fontSize: 13, fontWeight: 700, color: C.purple, fontVariantNumeric: 'tabular-nums' }}>
+              ¥{formatCurrency(totalAmount)} · {matchedItems.length} 笔
+            </span>
+          </button>
+          <div style={{ marginTop: 4, fontSize: 10, color: C.sub, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+            均 ¥{formatCurrency(averageAmount)} · 占本月 {monthlyShare.toFixed(1)}%
+          </div>
+          {expanded && (
+            <div style={{ marginTop: 6, maxHeight: 220, overflowY: 'auto' }}>
+              {matchedItems.length === 0 ? (
+                <div style={{ padding: '8px 0 2px', fontSize: 11, color: '#9aa0a6', textAlign: 'center' }}>暂无同时匹配的账单</div>
+              ) : (
+                [...matchedItems].sort((a, b) => b.date.localeCompare(a.date)).map((item, index) => {
+                  const category = item.subcategory ? `${item.category}·${item.subcategory}` : item.category;
+                  const otherTags = splitBillTags(item.tags).filter((tag) => !selectedSet.has(tag));
+                  const info = [item.note, ...otherTags].filter(Boolean).join(' · ');
+                  return (
+                    <div key={`${item.date}-${item.amount}-${item.note}-${index}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, padding: '4px 0', borderBottom: '1px dashed #e9e5f4', fontSize: 11 }}>
+                      <span style={{ minWidth: 0, color: C.sub, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontVariantNumeric: 'tabular-nums' }}>{item.date.slice(5)}</span> · {category || '未分类'}
+                        {info && <span style={{ color: '#9aa0a6', marginLeft: 6 }}>{info}</span>}
+                      </span>
+                      <span style={{ flexShrink: 0, color: '#202124', fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(item.amount)}</span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── History helpers ───────────────────────────────────────────────
 const YEARLY_ONLY_BEFORE = '2023-01';
 const INVEST_KEYS = ['us', 'eu', 'asia', 'a', 'longBond', 'usBond', 'gold'] as const;
@@ -2864,7 +3016,10 @@ export default function CalendarPage() {
               );
             })()}
             {billExpenseItems[yearMonth] && billExpenseItems[yearMonth]!.length > 0 && (
-              <CategoryBreakdown items={billExpenseItems[yearMonth]!} />
+              <>
+                <TagIntersectionStats key={yearMonth} items={billExpenseItems[yearMonth]!} />
+                <CategoryBreakdown items={billExpenseItems[yearMonth]!} />
+              </>
             )}
             {stats.tagged < stats.total && (
               <div style={{ marginTop: 12, fontSize: 13, color: C.orange, backgroundColor: '#fef7e0', border: '1px solid #fdd663', borderRadius: 12, padding: '10px 14px' }}>
