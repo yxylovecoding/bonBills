@@ -562,10 +562,6 @@ const YEARLY_ONLY_BEFORE = '2023-01';
 const INVEST_KEYS = ['us', 'eu', 'asia', 'a', 'longBond', 'usBond', 'gold'] as const;
 const _NOW = new Date();
 
-function currentYearMonth() {
-  return `${_NOW.getFullYear()}-${String(_NOW.getMonth() + 1).padStart(2, '0')}`;
-}
-
 function prevYearMonth(ym: string) {
   const [y, m] = ym.split('-').map(Number);
   return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
@@ -1828,17 +1824,6 @@ function MajorExpensesSection({ state }: { state: MonthFormState }) {
   );
 }
 
-function MonthForm(props: MonthFormProps) {
-  const state = useMonthForm(props);
-  return (
-    <div>
-      <MonthDataSection state={state} />
-      <HoldingsSection state={state} />
-      <MajorExpensesSection state={state} />
-    </div>
-  );
-}
-
 function MonthFormCards(props: MonthFormProps & { subtitle?: string }) {
   const state = useMonthForm(props);
   const majorTotal = state.majorExpenses.reduce((s, e) => s + Math.round(e.amount || 0), 0);
@@ -2656,7 +2641,6 @@ export default function CalendarPage() {
   const [showPendingPanel, setShowPendingPanel] = useState(false);
 
   // ── History state ──
-  const [formOpen, setFormOpen] = useState(false);
   const [yearProfitMode, setYearProfitMode] = useState<YearProfitMode>('rate');
   const toggleYearProfitMode = () => setYearProfitMode((m) => m === 'rate' ? 'amount' : 'rate');
 
@@ -2939,10 +2923,6 @@ export default function CalendarPage() {
   }, [pickerOpen]);
 
   // ── History computed ──
-  const thisMonth         = currentYearMonth();
-  const existingThisMonth = records.find((r) => r.yearMonth === thisMonth);
-  const prevMonthRecord   = records.find((r) => r.yearMonth === prevYearMonth(thisMonth));
-
   // 当前日历所在月的数据（月视图用）
   const existingForYearMonth = records.find((r) => r.yearMonth === yearMonth);
   const derivedExpenseForYearMonth = useMemo(
@@ -3571,33 +3551,6 @@ export default function CalendarPage() {
       ) : (
         /* ── 统计年：历史明细 ── */
         <>
-          {/* 本月录入 */}
-          <Card
-            title={`${thisMonth} 本月`}
-            subtitle={existingThisMonth ? '已有数据，点击修改' : '尚未填写，点击录入'}
-          >
-            {!formOpen ? (
-              <button onClick={() => setFormOpen(true)} style={{ width: '100%', padding: '11px 0', borderRadius: 10, border: `1.5px dashed ${C.blue}`, backgroundColor: '#f0f4ff', color: C.blue, fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
-                {existingThisMonth ? '✏️ 修改本月数据' : '＋ 录入本月数据'}
-              </button>
-            ) : (
-              <>
-                <MonthForm
-                  yearMonth={thisMonth}
-                  existing={existingThisMonth}
-                  prevRecord={prevMonthRecord}
-                  allRecords={records}
-                  tagCounts={countByTag(thisMonth)}
-                  expenseItems={billExpenseItems[thisMonth]}
-                  onSave={(r) => { upsert(r); setFormOpen(false); }}
-                />
-                <button onClick={() => setFormOpen(false)} style={{ width: '100%', marginTop: 8, padding: '10px 0', borderRadius: 10, border: '1px solid #dadce0', backgroundColor: '#fff', color: C.sub, fontSize: 13, cursor: 'pointer' }}>
-                  取消
-                </button>
-              </>
-            )}
-          </Card>
-
           {allBillStatisticItems.length > 0 && (
             <Card title="标签逻辑统计" subtitle="默认全部时间">
               <TagLogicStats items={allBillStatisticItems} />
