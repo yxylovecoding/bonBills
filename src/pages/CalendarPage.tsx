@@ -106,8 +106,8 @@ async function fetchLatestBillAttachment(): Promise<File> {
 // ── Bill tag detail helpers ───────────────────────────────────────
 const NOISE_TAGS = new Set(['周期生活', '波动生活', '消费', '吃好喝好', '红', '黑', '消耗品', '白', '家']);
 const NOISE_NOTE_PATTERNS = [/账户余额补齐/, /美团平台商户/];
-function extractMeaningful(tagsRaw: string, note: string): string {
-  const tags = tagsRaw.split(',').map(t => t.trim()).filter(t => t && !NOISE_TAGS.has(t));
+function extractMeaningful(tagsRaw: string, note: string, hiddenTags?: ReadonlySet<string>): string {
+  const tags = tagsRaw.split(',').map(t => t.trim()).filter(t => t && !NOISE_TAGS.has(t) && !hiddenTags?.has(t));
   const cleanNote = NOISE_NOTE_PATTERNS.some(p => p.test(note)) ? '' : note;
   return [...new Set([cleanNote, ...tags].filter(Boolean))].join(' · ');
 }
@@ -543,11 +543,10 @@ function TagLogicStats({ items }: { items: BillStatisticItem[] }) {
                       items={group.items}
                       total={totalAmount}
                       fullDate
+                      hiddenTags={referencedTagSet}
                     />
                   ))}
-                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #ede9fe' }}>
-                    <CoreBillTagStats items={matchedItems} indent={0} />
-                  </div>
+                  <CoreBillTagStats items={matchedItems} hiddenTags={referencedTagSet} />
                 </>
               )}
             </div>
@@ -1868,9 +1867,9 @@ function MonthFormCards(props: MonthFormProps & { subtitle?: string }) {
 }
 
 // ── Category drill-down ────────────────────────────────────────────
-function ExpenseItemLine({ it, fullDate = false }: { it: CategorizedBillItem; fullDate?: boolean }) {
+function ExpenseItemLine({ it, fullDate = false, hiddenTags }: { it: CategorizedBillItem; fullDate?: boolean; hiddenTags?: ReadonlySet<string> }) {
   const isIncome = it.transactionType === '收入';
-  const detail = extractMeaningful(it.tags, it.note) || it.subcategory || it.category || '—';
+  const detail = extractMeaningful(it.tags, it.note, hiddenTags) || it.subcategory || it.category || '—';
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0 2px 32px', color: '#5f6368' }}>
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1890,8 +1889,8 @@ const CORE_BILL_TAGS = [
   { label: '收入', color: C.red, hint: '含周期/波动' },
 ] as const;
 
-function CoreBillTagStats({ items, indent = 16 }: { items: CategorizedBillItem[]; indent?: number }) {
-  const stats = CORE_BILL_TAGS.map((coreTag) => {
+function CoreBillTagStats({ items, hiddenTags }: { items: CategorizedBillItem[]; hiddenTags?: ReadonlySet<string> }) {
+  const stats = CORE_BILL_TAGS.filter(({ label }) => !hiddenTags?.has(label)).map((coreTag) => {
     const { label } = coreTag;
     const tagged = items.filter((item) => {
       if (label === '收入') return item.transactionType === '收入';
@@ -1904,8 +1903,9 @@ function CoreBillTagStats({ items, indent = 16 }: { items: CategorizedBillItem[]
       amount: tagged.reduce((sum, item) => sum + item.amount, 0),
     };
   });
+  if (stats.length === 0) return null;
   return (
-    <div style={{ margin: `3px 0 6px ${indent}px`, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 4 }}>
+    <div style={{ margin: '8px 0 6px', paddingTop: 8, borderTop: '1px solid #ede9fe', display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 4 }}>
       {stats.map((stat) => (
         <div key={stat.label} style={{ minWidth: 0, padding: '4px 6px', borderRadius: 7, backgroundColor: `${stat.color}0d`, border: `1px solid ${stat.color}26` }}>
           <div style={{ fontSize: 9, color: stat.color, fontWeight: 700 }}>
@@ -1920,7 +1920,7 @@ function CoreBillTagStats({ items, indent = 16 }: { items: CategorizedBillItem[]
   );
 }
 
-function SubcategoryRow({ sub, items, total, fullDate = false }: { sub: string; items: CategorizedBillItem[]; total: number; fullDate?: boolean }) {
+function SubcategoryRow({ sub, items, total, fullDate = false, hiddenTags }: { sub: string; items: CategorizedBillItem[]; total: number; fullDate?: boolean; hiddenTags?: ReadonlySet<string> }) {
   const [open, setOpen] = useState(false);
   const sum = items.reduce((s, i) => s + i.amount, 0);
   const pct = total > 0 ? (sum / total) * 100 : 0;
@@ -1936,7 +1936,7 @@ function SubcategoryRow({ sub, items, total, fullDate = false }: { sub: string; 
         <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{open ? '▼' : '▶'} {sub || '(无二级分类)'}</span>
         <span style={{ flexShrink: 0, marginLeft: 8, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(sum)} · {items.length}笔 · {pct.toFixed(1)}%</span>
       </button>
-      {open && sorted.map((it, i) => <ExpenseItemLine key={`${it.date}-${it.amount}-${it.note}-${i}`} it={it} fullDate={fullDate} />)}
+      {open && sorted.map((it, i) => <ExpenseItemLine key={`${it.date}-${it.amount}-${it.note}-${i}`} it={it} fullDate={fullDate} hiddenTags={hiddenTags} />)}
     </div>
   );
 }
@@ -2240,7 +2240,7 @@ function CategoryBreakdown({ items }: { items: BillExpenseItem[] }) {
   );
 }
 
-function CategoryRow({ cat, items, total, fullDate = false }: { cat: string; items: CategorizedBillItem[]; total: number; fullDate?: boolean }) {
+function CategoryRow({ cat, items, total, fullDate = false, hiddenTags }: { cat: string; items: CategorizedBillItem[]; total: number; fullDate?: boolean; hiddenTags?: ReadonlySet<string> }) {
   const [open, setOpen] = useState(false);
   const sum = items.reduce((s, i) => s + i.amount, 0);
   const pct = total > 0 ? (sum / total) * 100 : 0;
@@ -2264,7 +2264,7 @@ function CategoryRow({ cat, items, total, fullDate = false }: { cat: string; ite
         <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{open ? '▼' : '▶'} {cat || '(未分类)'}</span>
         <span style={{ flexShrink: 0, marginLeft: 8, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(sum)} · {items.length}笔 · {pct.toFixed(1)}%</span>
       </button>
-      {open && subs.map((s) => <SubcategoryRow key={s.sub} sub={s.sub} items={s.items} total={total} fullDate={fullDate} />)}
+      {open && subs.map((s) => <SubcategoryRow key={s.sub} sub={s.sub} items={s.items} total={total} fullDate={fullDate} hiddenTags={hiddenTags} />)}
     </div>
   );
 }
