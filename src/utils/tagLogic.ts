@@ -83,7 +83,7 @@ function tokenize(source: string): LogicToken[] {
       }
       throw new Error(`不支持的运算符「${word}」`);
     }
-    throw new Error(`标签「${source.slice(index).trim()}」请用 [ ] 包住`);
+    throw new Error(`无法识别「${source.slice(index).trim()}」`);
   }
 
   return tokens;

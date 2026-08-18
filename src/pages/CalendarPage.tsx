@@ -116,8 +116,12 @@ function splitBillTags(tagsRaw: string): string[] {
   return [...new Set(tagsRaw.split(',').map((tag) => tag.trim()).filter(Boolean))];
 }
 
+type TagLogicPart =
+  | { kind: 'tag'; value: string }
+  | { kind: 'operator'; value: 'AND' | 'OR' | 'NOT' | '(' | ')' };
+
 function TagLogicStats({ items }: { items: BillExpenseItem[] }) {
-  const [expression, setExpression] = useState('');
+  const [logicParts, setLogicParts] = useState<TagLogicPart[]>([]);
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState(true);
   const [startDate, setStartDate] = useState('');
@@ -149,6 +153,14 @@ function TagLogicStats({ items }: { items: BillExpenseItem[] }) {
       .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag, 'zh-CN'));
   }, [rangedItems]);
 
+  const expression = useMemo(
+    () => logicParts.map((part) => part.kind === 'tag' ? formatTagReference(part.value) : part.value).join(' '),
+    [logicParts],
+  );
+  const logicLabel = useMemo(
+    () => logicParts.map((part) => part.value).join(' '),
+    [logicParts],
+  );
   const compiledLogic = useMemo(() => compileTagLogic(expression), [expression]);
   const referencedTagSet = useMemo(() => new Set(compiledLogic.referencedTags), [compiledLogic.referencedTags]);
   const normalizedQuery = query.trim().toLocaleLowerCase('zh-CN');
@@ -172,19 +184,46 @@ function TagLogicStats({ items }: { items: BillExpenseItem[] }) {
 
   const addTag = (tag: string) => {
     if (!tag) return;
-    const reference = formatTagReference(tag);
-    setExpression((current) => {
-      const trimmed = current.trimEnd();
-      if (!trimmed) return reference;
-      if (/(?:\b(?:AND|OR|NOT)|[且与或非(（])\s*$/i.test(trimmed)) return `${trimmed} ${reference}`;
-      return `${trimmed} AND ${reference}`;
+    setLogicParts((current) => {
+      const next = [...current];
+      const last = next[next.length - 1];
+      if (last?.kind === 'tag' || (last?.kind === 'operator' && last.value === ')')) {
+        next.push({ kind: 'operator', value: 'AND' });
+      }
+      next.push({ kind: 'tag', value: tag });
+      return next;
     });
     setQuery('');
     setExpanded(true);
   };
 
-  const appendLogicToken = (token: string) => {
-    setExpression((current) => current.trimEnd() ? `${current.trimEnd()} ${token}` : token);
+  const appendLogicToken = (token: TagLogicPart['value']) => {
+    if (token !== 'AND' && token !== 'OR' && token !== 'NOT' && token !== '(' && token !== ')') return;
+    setLogicParts((current) => {
+      const next = [...current];
+      const last = next[next.length - 1];
+      const endsWithValue = last?.kind === 'tag' || (last?.kind === 'operator' && last.value === ')');
+      if (token === 'AND' || token === 'OR') {
+        if (!last) return current;
+        if (last.kind === 'operator' && (last.value === 'AND' || last.value === 'OR')) {
+          next[next.length - 1] = { kind: 'operator', value: token };
+          return next;
+        }
+        if (!endsWithValue) return current;
+      } else if (token === 'NOT' || token === '(') {
+        if (endsWithValue) next.push({ kind: 'operator', value: 'AND' });
+      } else {
+        const openCount = next.reduce((count, part) => {
+          if (part.kind !== 'operator') return count;
+          if (part.value === '(') return count + 1;
+          if (part.value === ')') return count - 1;
+          return count;
+        }, 0);
+        if (!endsWithValue || openCount <= 0) return current;
+      }
+      next.push({ kind: 'operator', value: token });
+      return next;
+    });
     setExpanded(true);
   };
 
@@ -235,48 +274,8 @@ function TagLogicStats({ items }: { items: BillExpenseItem[] }) {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, margin: '12px 0 8px', paddingTop: 10, borderTop: '1px solid #ede9fe' }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: '#202124' }}>标签逻辑</span>
-        <span style={{ fontSize: 10, color: C.purple }}>NOT ＞ AND ＞ OR</span>
-      </div>
-
-      <textarea
-        value={expression}
-        aria-label="编辑标签统计逻辑"
-        rows={3}
-        placeholder="例如：[26.8台湾] AND ([消费] OR [吃好喝好])"
-        onChange={(event) => setExpression(event.target.value)}
-        style={{ width: '100%', border: `1px solid ${compiledLogic.error ? '#fca5a5' : '#d8d1ee'}`, borderRadius: 8, padding: '8px 9px', backgroundColor: '#fff', color: '#202124', fontSize: 12, lineHeight: 1.5, outline: 'none', resize: 'vertical', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}
-      />
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 5, marginTop: 6 }}>
-        {[
-          { token: 'AND', title: '且：左右条件都满足' },
-          { token: 'OR', title: '或：左右条件满足一个即可' },
-          { token: 'NOT', title: '非：排除后面的条件' },
-          { token: '(', title: '左括号' },
-          { token: ')', title: '右括号' },
-        ].map(({ token, title }) => (
-          <button
-            key={token}
-            type="button"
-            title={title}
-            onClick={() => appendLogicToken(token)}
-            style={{ border: '1px solid #c4b5fd', backgroundColor: '#ede9fe', color: C.purple, borderRadius: 7, padding: '4px 8px', fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}
-          >
-            {token}
-          </button>
-        ))}
-        {expression && (
-          <button
-            type="button"
-            onClick={() => setExpression('')}
-            style={{ marginLeft: 'auto', border: 'none', background: 'none', color: C.sub, padding: '4px 2px', fontSize: 10, cursor: 'pointer' }}
-          >
-            清空逻辑
-          </button>
-        )}
-      </div>
-      <div style={{ marginTop: 5, fontSize: 10, color: compiledLogic.error ? C.red : C.sub }} role={compiledLogic.error ? 'alert' : undefined}>
-        {compiledLogic.error ? `逻辑有误：${compiledLogic.error}` : '标签请写成 [标签名]；也支持中文“且 / 或 / 非”。'}
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#202124' }}>添加标签</span>
+        <span style={{ fontSize: 10, color: C.purple }}>输入前几个字符后点击匹配</span>
       </div>
 
       <input
@@ -307,9 +306,64 @@ function TagLogicStats({ items }: { items: BillExpenseItem[] }) {
         </div>
       )}
 
-      {!expression.trim() ? (
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, margin: '12px 0 8px', paddingTop: 10, borderTop: '1px solid #ede9fe' }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#202124' }}>标签逻辑</span>
+        <span style={{ fontSize: 10, color: C.purple }}>点击逻辑块可移除</span>
+      </div>
+      <div role="group" aria-label="当前标签逻辑" style={{ minHeight: 42, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 5, padding: 8, border: `1px solid ${compiledLogic.error ? '#fca5a5' : '#d8d1ee'}`, borderRadius: 8, backgroundColor: '#fff' }}>
+        {logicParts.length === 0 ? (
+          <span style={{ fontSize: 11, color: '#9aa0a6' }}>先在上方搜索并点击标签</span>
+        ) : logicParts.map((part, index) => {
+          const isTag = part.kind === 'tag';
+          return (
+            <button
+              key={`${part.kind}-${part.value}-${index}`}
+              type="button"
+              aria-label={`移除 ${part.value}`}
+              title="点击移除"
+              onClick={() => setLogicParts((current) => current.filter((_, partIndex) => partIndex !== index))}
+              style={{ border: `1px solid ${isTag ? '#c4b5fd' : '#d1d5db'}`, backgroundColor: isTag ? '#ede9fe' : '#f3f4f6', color: isTag ? C.purple : '#374151', borderRadius: isTag ? 14 : 7, padding: isTag ? '4px 8px' : '4px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: isTag ? 'inherit' : 'ui-monospace, SFMono-Regular, Menlo, monospace' }}
+            >
+              {part.value} ×
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 5, marginTop: 6 }}>
+        {[
+          { token: 'AND' as const, title: '且：左右条件都满足' },
+          { token: 'OR' as const, title: '或：左右条件满足一个即可' },
+          { token: 'NOT' as const, title: '非：排除后面的条件' },
+          { token: '(' as const, title: '左括号' },
+          { token: ')' as const, title: '右括号' },
+        ].map(({ token, title }) => (
+          <button
+            key={token}
+            type="button"
+            title={title}
+            onClick={() => appendLogicToken(token)}
+            style={{ border: '1px solid #c4b5fd', backgroundColor: '#ede9fe', color: C.purple, borderRadius: 7, padding: '4px 8px', fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}
+          >
+            {token}
+          </button>
+        ))}
+        {logicParts.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setLogicParts([])}
+            style={{ marginLeft: 'auto', border: 'none', background: 'none', color: C.sub, padding: '4px 2px', fontSize: 10, cursor: 'pointer' }}
+          >
+            清空逻辑
+          </button>
+        )}
+      </div>
+      <div style={{ marginTop: 5, fontSize: 10, color: compiledLogic.error ? C.red : C.sub }} role={compiledLogic.error ? 'alert' : undefined}>
+        {compiledLogic.error ? `逻辑有误：${compiledLogic.error}` : '运算优先级：NOT ＞ AND ＞ OR；可用括号调整。'}
+      </div>
+
+      {logicParts.length === 0 ? (
         <div style={{ marginTop: 9, fontSize: 11, color: C.sub }}>
-          {rangedItems.length === 0 ? '该时间范围暂无账单。' : '点击标签和运算符，或直接输入逻辑表达式。'}
+          {rangedItems.length === 0 ? '该时间范围暂无账单。' : '搜索标签并点击匹配，再按需要添加运算符。'}
         </div>
       ) : compiledLogic.error ? (
         <div style={{ marginTop: 9, fontSize: 11, color: C.red }}>修正标签逻辑后即可查看统计结果。</div>
@@ -321,7 +375,7 @@ function TagLogicStats({ items }: { items: BillExpenseItem[] }) {
             onClick={() => setExpanded((current) => !current)}
             style={{ width: '100%', border: 'none', background: 'none', padding: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, textAlign: 'left', cursor: 'pointer' }}
           >
-            <span title={expression} style={{ minWidth: 0, fontSize: 11, color: C.sub, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span title={logicLabel} style={{ minWidth: 0, fontSize: 11, color: C.sub, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {expanded ? '▾' : '▸'} 按当前逻辑匹配
             </span>
             <span style={{ flexShrink: 0, fontSize: 13, fontWeight: 700, color: C.purple, fontVariantNumeric: 'tabular-nums' }}>
