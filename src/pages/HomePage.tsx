@@ -35,10 +35,11 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '精简年页';
+const RELEASE_NOTE = '分配下限';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
+const MIN_FIRE_SAVINGS_ALLOCATION_RATE = 0.1;
 const CNY_ASSET_ACCOUNT_KEYS = ['savingsCard', 'incomeBank', 'livingBank', 'campusCard', 'consumptionBank', 'wishJar', 'investCnyBank'] as const;
 const USD_ASSET_ACCOUNT_KEYS = ['usdLivingBank', 'usdConsumptionBank', 'usdWishJar', 'investUsdBank'] as const;
 const FIRE_SCENARIO_LABELS: Record<TagKind, string> = { intern: '工作', school: '在校', home: '居家', travel: '旅行' };
@@ -327,7 +328,7 @@ export default function HomePage() {
   const futureConsumptionAnnualExpense = fireExpenseScenarioHasData
     ? stats.stateConsumptionDailyAvg[effectiveFireExpenseTagKind] * 365
     : stats.consumptionAvg * 12;
-  const fireSavingsAllocationRate = Math.min(Math.max(config.fireSavingsAllocationRate ?? 0.5, 0.05), 1);
+  const fireSavingsAllocationRate = Math.min(Math.max(config.fireSavingsAllocationRate ?? 0.5, MIN_FIRE_SAVINGS_ALLOCATION_RATE), 1);
   const fireAnnualExpense = fireMode === 'all'
     ? futureLifeAnnualExpense + futureConsumptionAnnualExpense
     : futureLifeAnnualExpense;
@@ -372,7 +373,7 @@ export default function HomePage() {
   const updateFireSavingsAllocationRate = (raw: string) => {
     const parsed = Number(raw);
     if (!Number.isFinite(parsed)) return;
-    setConfig({ fireSavingsAllocationRate: Math.min(Math.max(parsed / 100, 0.05), 1) });
+    setConfig({ fireSavingsAllocationRate: Math.min(Math.max(parsed / 100, MIN_FIRE_SAVINGS_ALLOCATION_RATE), 1) });
   };
   const updateFireHousingFundRate = (raw: string) => {
     setFireHousingFundRateDraft(raw);
@@ -748,7 +749,7 @@ export default function HomePage() {
             <span style={{ fontSize: 12, fontWeight: 700, color: C.purple, whiteSpace: 'nowrap' }}>活后分配</span>
             <input
               type="range"
-              min="5"
+              min="10"
               max="100"
               step="5"
               value={Math.round(fireSavingsAllocationRate * 100)}
