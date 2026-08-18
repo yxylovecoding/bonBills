@@ -572,6 +572,7 @@ function TagLogicStats({ items }: { items: BillStatisticItem[] }) {
                     );
                   })}
                   <CoreBillTagStats items={matchedItems} hiddenTags={referencedTagSet} />
+                  <RepresentativeTagExpenses items={matchedItems} hiddenTags={referencedTagSet} />
                 </>
               )}
             </div>
@@ -1944,6 +1945,86 @@ function CoreBillTagStats({ items, hiddenTags }: { items: CategorizedBillItem[];
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function RepresentativeTagExpenses({ items, hiddenTags }: { items: CategorizedBillItem[]; hiddenTags?: ReadonlySet<string> }) {
+  const { tagCategory } = usePossessionStore();
+  const rows = useMemo(() => {
+    const expenseItems = items.filter((item) => item.transactionType === '支出');
+    const tagIndices = new Map<string, Set<number>>();
+    for (let index = 0; index < expenseItems.length; index += 1) {
+      for (const tag of splitBillTags(expenseItems[index].tags)) {
+        if (hiddenTags?.has(tag) || CORE_BILL_TAGS.some(({ label }) => label === tag) || isMajorExcludedTag(tag, tagCategory)) continue;
+        const indices = tagIndices.get(tag) ?? new Set<number>();
+        indices.add(index);
+        tagIndices.set(tag, indices);
+      }
+    }
+
+    const candidateTags = [...tagIndices.keys()];
+    const representativeTags = candidateTags.filter((tag) => {
+      const ownIndices = tagIndices.get(tag)!;
+      return !candidateTags.some((otherTag) => {
+        if (otherTag === tag) return false;
+        const otherIndices = tagIndices.get(otherTag)!;
+        if (otherIndices.size < ownIndices.size) return false;
+        const isCovered = [...ownIndices].every((index) => otherIndices.has(index));
+        if (!isCovered) return false;
+        return otherIndices.size > ownIndices.size
+          || (otherIndices.size === ownIndices.size && otherTag.localeCompare(tag, 'zh-CN') < 0);
+      });
+    });
+
+    return representativeTags.map((tag) => {
+      const indices = [...tagIndices.get(tag)!];
+      const taggedItems = indices.map((index) => expenseItems[index]);
+      const amount = taggedItems.reduce((sum, item) => sum + item.amount, 0);
+      let consumptionAmount = 0;
+      let lifeAmount = 0;
+      for (const item of taggedItems) {
+        const tags = splitBillTags(item.tags);
+        if (tags.includes('消费')) consumptionAmount += item.amount;
+        if (tags.includes('周期生活') || tags.includes('波动生活')) lifeAmount += item.amount;
+      }
+      return {
+        tag,
+        amount,
+        count: taggedItems.length,
+        type: consumptionAmount > lifeAmount ? '消费' as const : '生活' as const,
+      };
+    }).sort((a, b) => b.amount - a.amount || a.tag.localeCompare(b.tag, 'zh-CN')).slice(0, 8);
+  }, [hiddenTags, items, tagCategory]);
+
+  if (rows.length === 0) return null;
+  const amounts = rows.map((row) => row.amount);
+  const maxAmount = Math.max(...amounts);
+  const minAmount = Math.min(...amounts);
+  return (
+    <div style={{ margin: '8px 0 5px', paddingTop: 7, borderTop: '1px solid #ede9fe' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 5, fontSize: 10, color: C.sub }}>
+        <span style={{ fontWeight: 700, color: '#202124' }}>支出标签</span>
+        <span>金额前 {rows.length} 项</span>
+      </div>
+      {rows.map((row) => {
+        const ratio = maxAmount > minAmount ? (row.amount - minAmount) / (maxAmount - minAmount) : 1;
+        const hue = 120 - ratio * 120;
+        const typeColor = row.type === '生活' ? C.blue : C.purple;
+        return (
+          <div key={row.tag} style={{ display: 'grid', gridTemplateColumns: '34px minmax(0, 1fr) 68px', gap: 4, alignItems: 'center', marginBottom: 3 }}>
+            <span style={{ padding: '3px 1px', border: `1px solid ${typeColor}`, borderRadius: 5, backgroundColor: `${typeColor}0d`, color: typeColor, fontSize: 9, fontWeight: 700, textAlign: 'center' }}>
+              {row.type}
+            </span>
+            <span title={row.tag} style={{ minWidth: 0, padding: '2px 3px', color: '#202124', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {row.tag}<span style={{ marginLeft: 4, color: '#9aa0a6', fontSize: 9 }}>· {row.count}笔</span>
+            </span>
+            <span style={{ padding: '3px 5px', border: `1px solid hsl(${hue}, 65%, 55%)`, borderRadius: 5, backgroundColor: `hsl(${hue}, 72%, 92%)`, color: `hsl(${hue}, 70%, 30%)`, fontSize: 10, fontWeight: 700, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+              ¥{formatCurrency(row.amount)}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
