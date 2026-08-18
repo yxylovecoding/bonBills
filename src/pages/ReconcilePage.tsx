@@ -1034,7 +1034,7 @@ export default function ReconcilePage() {
   const rawRebalanceSuggested = useMemo(() => {
     // 加仓优先：长债总额不足自动还债阈值时，先把新资金补到长债，剩余再按目标比例分配
     if (!allowRebalanceSell && rebalanceNewFunds > 0) {
-      const longBondTotal = current.investHoldings.longBond ?? 0;
+      const longBondTotal = effectiveInvestHoldings.longBond ?? 0;
       const shortfall = Math.max(0, LONG_BOND_REPAY_THRESHOLD - longBondTotal);
       const topUp = Math.min(rebalanceNewFunds, shortfall);
       if (topUp > 0) {
@@ -1048,7 +1048,7 @@ export default function ReconcilePage() {
       }
     }
     return calcRebalance(effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell);
-  }, [effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell, current.investHoldings.longBond]);
+  }, [effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell]);
   const rebalanceSuggested = useMemo(() => {
     const rounded = Object.fromEntries(
       investKeys.map((k) => [k, roundMoney(rawRebalanceSuggested[k] ?? 0)]),
@@ -1096,7 +1096,6 @@ export default function ReconcilePage() {
     () => Object.fromEntries(investKeys.map((k) => [k, '0'])) as Record<InvestKey, string>
   );
   const totalInvest = investKeys.reduce((s, k) => s + effectiveInvestHoldings[k], 0);
-  const currentInvestTotal = investKeys.reduce((s, k) => s + Math.max(current.investHoldings[k] ?? 0, 0), 0);
   const rebalanceFunding = useMemo(() => {
     const isUsdKey = (k: InvestKey) => USD_INVEST_KEYS.includes(k);
     const usdBuyCny = investKeys.reduce((s, k) => s + (isUsdKey(k) ? Math.max(rebalanceSuggested[k], 0) : 0), 0);
@@ -2707,8 +2706,9 @@ export default function ReconcilePage() {
               const groupTone = INVEST_GROUP_TONES[group.key];
               const groupKeys = group.keys.filter((key) => investKeys.includes(key));
               const isGroupStart = groupKeys[0] === k;
-              const groupTotal = groupKeys.reduce((sum, key) => sum + Math.max(current.investHoldings[key] ?? 0, 0), 0);
-              const groupRatio = currentInvestTotal > 0 ? groupTotal / currentInvestTotal : null;
+              // 配置占比使用有效持仓：长债先扣除已划作信用卡还款的部分。
+              const groupTotal = groupKeys.reduce((sum, key) => sum + Math.max(effectiveInvestHoldings[key] ?? 0, 0), 0);
+              const groupRatio = totalInvest > 0 ? groupTotal / totalInvest : null;
               const groupTargetRatio = groupKeys.reduce((sum, key) => sum + (investAllocTargets[key] ?? 0), 0);
               const groupTargetGap = groupRatio === null ? null : Math.abs(groupRatio - groupTargetRatio);
               const groupTargetWarning = groupTargetGap !== null
@@ -2793,6 +2793,11 @@ export default function ReconcilePage() {
                       }}
                       style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124', textAlign: 'right' }}
                     />
+                    {k === 'longBond' && longBondRepay > 0 && (
+                      <div title={`已扣除信用卡还款 ¥${fmtInt(longBondRepay)}`} style={{ marginTop: 2, color: C.sub, fontSize: 9, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                        配置净额 ¥{fmtInt(effectiveInvestHoldings.longBond)}
+                      </div>
+                    )}
                   </td>
                   {/* 累计收益率 */}
                   <td
