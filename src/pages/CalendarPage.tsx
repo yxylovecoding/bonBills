@@ -153,6 +153,7 @@ function TagLogicStats({ items }: { items: BillStatisticItem[] }) {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
+  const [accountsExpanded, setAccountsExpanded] = useState(false);
 
   const availableRange = useMemo(() => {
     let earliest = '';
@@ -183,6 +184,8 @@ function TagLogicStats({ items }: { items: BillStatisticItem[] }) {
     const selected = new Set(selectedAccounts);
     return rangedItems.filter((item) => selected.has(getStatisticAccount(item.account)));
   }, [rangedItems, selectedAccounts]);
+  const creditCardCount = accountOptions.find(({ account }) => account === '信用卡')?.count ?? 0;
+  const selectedAccountLabel = selectedAccounts.length === 0 ? '全部账户' : selectedAccounts.join('、');
 
   const tagOptions = useMemo(() => {
     const counts = new Map<string, number>();
@@ -349,34 +352,56 @@ function TagLogicStats({ items }: { items: BillStatisticItem[] }) {
         </button>
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, margin: '12px 0 8px', paddingTop: 10, borderTop: '1px solid #ede9fe' }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: '#202124' }}>账户</span>
-        <span style={{ fontSize: 10, color: C.purple }}>可多选 · ♑️ / 花呗 / 先用后付 → 信用卡</span>
-      </div>
-      <div role="group" aria-label="账户筛选" style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 12, paddingTop: 10, borderTop: '1px solid #ede9fe', flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          aria-expanded={accountsExpanded}
+          onClick={() => setAccountsExpanded((current) => !current)}
+          style={{ minWidth: 0, flex: '1 1 130px', display: 'flex', alignItems: 'center', gap: 5, border: 'none', background: 'none', color: '#202124', padding: '3px 0', fontSize: 12, fontWeight: 700, cursor: 'pointer', textAlign: 'left' }}
+        >
+          <span>{accountsExpanded ? '▼' : '▶'}</span>
+          <span>账户</span>
+          <span title={selectedAccountLabel} style={{ minWidth: 0, color: C.purple, fontSize: 10, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>· {selectedAccountLabel}</span>
+        </button>
         <button
           type="button"
           aria-pressed={selectedAccounts.length === 0}
           onClick={() => { setSelectedAccounts([]); setExpanded(true); }}
-          style={{ border: `1px solid ${selectedAccounts.length === 0 ? '#c4b5fd' : '#e5e7eb'}`, backgroundColor: selectedAccounts.length === 0 ? '#ede9fe' : '#fff', color: selectedAccounts.length === 0 ? C.purple : C.sub, borderRadius: 14, padding: '4px 9px', fontSize: 10, fontWeight: selectedAccounts.length === 0 ? 700 : 500, cursor: 'pointer' }}
+          style={{ border: `1px solid ${selectedAccounts.length === 0 ? '#c4b5fd' : '#e5e7eb'}`, backgroundColor: selectedAccounts.length === 0 ? '#ede9fe' : '#fff', color: selectedAccounts.length === 0 ? C.purple : C.sub, borderRadius: 14, padding: '4px 8px', fontSize: 10, fontWeight: selectedAccounts.length === 0 ? 700 : 500, cursor: 'pointer' }}
         >
-          全部账户 · {rangedItems.length}
+          全部 · {rangedItems.length}
         </button>
-        {accountOptions.map(({ account, count }) => {
-          const active = selectedAccounts.includes(account);
-          return (
-            <button
-              key={account}
-              type="button"
-              aria-pressed={active}
-              onClick={() => toggleAccount(account)}
-              style={{ border: `1px solid ${active ? '#c4b5fd' : '#e5e7eb'}`, backgroundColor: active ? '#ede9fe' : '#fff', color: active ? C.purple : C.sub, borderRadius: 14, padding: '4px 9px', fontSize: 10, fontWeight: active ? 700 : 500, cursor: 'pointer' }}
-            >
-              {account === '信用卡' ? '💳 ' : ''}{account} · {count}
-            </button>
-          );
-        })}
+        <button
+          type="button"
+          aria-pressed={selectedAccounts.includes('信用卡')}
+          disabled={creditCardCount === 0}
+          onClick={() => { setSelectedAccounts(['信用卡']); setExpanded(true); }}
+          style={{ border: `1px solid ${selectedAccounts.includes('信用卡') ? '#c4b5fd' : '#e5e7eb'}`, backgroundColor: selectedAccounts.includes('信用卡') ? '#ede9fe' : '#fff', color: selectedAccounts.includes('信用卡') ? C.purple : C.sub, borderRadius: 14, padding: '4px 8px', fontSize: 10, fontWeight: selectedAccounts.includes('信用卡') ? 700 : 500, cursor: creditCardCount === 0 ? 'not-allowed' : 'pointer', opacity: creditCardCount === 0 ? 0.45 : 1 }}
+        >
+          💳 信用卡 · {creditCardCount}
+        </button>
       </div>
+      {accountsExpanded && (
+        <div style={{ marginTop: 7 }}>
+          <div style={{ marginBottom: 6, fontSize: 10, color: C.sub }}>可多选 · ♑️ / 花呗 / 先用后付 → 信用卡</div>
+          <div role="group" aria-label="账户筛选" style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+            {accountOptions.filter(({ account }) => account !== '信用卡').map(({ account, count }) => {
+              const active = selectedAccounts.includes(account);
+              return (
+                <button
+                  key={account}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => toggleAccount(account)}
+                  style={{ border: `1px solid ${active ? '#c4b5fd' : '#e5e7eb'}`, backgroundColor: active ? '#ede9fe' : '#fff', color: active ? C.purple : C.sub, borderRadius: 14, padding: '4px 9px', fontSize: 10, fontWeight: active ? 700 : 500, cursor: 'pointer' }}
+                >
+                  {account} · {count}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, margin: '12px 0 8px', paddingTop: 10, borderTop: '1px solid #ede9fe' }}>
         <span style={{ fontSize: 12, fontWeight: 700, color: '#202124' }}>标签逻辑</span>
