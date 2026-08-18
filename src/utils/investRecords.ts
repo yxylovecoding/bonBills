@@ -51,16 +51,23 @@ function previousYearMonth(yearMonth: string): string {
   return `${previousYear}-${String(previousMonth).padStart(2, '0')}`;
 }
 
+export interface CategoryCumulativeRateSummary {
+  rate: number;
+  startYearMonth: string;
+  monthCount: number;
+}
+
 // 某品类累计收益率 = 各有效月份（本月收益 ÷ 本月持仓）的加总。
-export function getCategoryCumulativeRate(
+export function getCategoryCumulativeRateSummary(
   records: MonthlyRecord[],
   key: InvestKey,
-): number | null {
+): CategoryCumulativeRateSummary | null {
   const recordsByMonth = new Map<string, MonthlyRecord>();
   for (const record of records) recordsByMonth.set(record.yearMonth, record);
 
   let cumulativeRate = 0;
   let validMonthCount = 0;
+  let startYearMonth = '';
   const sortedRecords = [...recordsByMonth.values()].sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
   for (const record of sortedRecords) {
     if (record.isBaseline) continue;
@@ -78,8 +85,11 @@ export function getCategoryCumulativeRate(
     ) continue;
 
     cumulativeRate += (currentProfit - previousProfit) / currentHolding;
+    if (validMonthCount === 0) startYearMonth = record.yearMonth;
     validMonthCount += 1;
   }
 
-  return validMonthCount > 0 ? cumulativeRate : null;
+  return validMonthCount > 0
+    ? { rate: cumulativeRate, startYearMonth, monthCount: validMonthCount }
+    : null;
 }

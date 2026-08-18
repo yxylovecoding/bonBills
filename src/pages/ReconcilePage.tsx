@@ -21,7 +21,7 @@ import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { tryEvalFormula } from '../utils/formula';
 import { dateLabel, resolveIncomeForMonth, type ResolvedIncomeItem } from '../utils/payroll';
-import { getCategoryCumulativeRate } from '../utils/investRecords';
+import { getCategoryCumulativeRateSummary, type CategoryCumulativeRateSummary } from '../utils/investRecords';
 import {
   FINANCE_SCREENSHOT_DRAFT_EVENT,
   screenshotDraftItemCount,
@@ -708,8 +708,8 @@ export default function ReconcilePage() {
   );
   const cumulativeBreakdownRates = useMemo(
     () => Object.fromEntries(
-      INVEST_TARGET_KEYS.map((key) => [key, getCategoryCumulativeRate(records, key)]),
-    ) as Record<InvestKey, number | null>,
+      INVEST_TARGET_KEYS.map((key) => [key, getCategoryCumulativeRateSummary(records, key)]),
+    ) as Record<InvestKey, CategoryCumulativeRateSummary | null>,
     [records],
   );
   const fallbackUsdRate = useMemo(
@@ -2702,7 +2702,8 @@ export default function ReconcilePage() {
               const groupTargetWarning = groupTargetGap !== null
                 && groupTargetGap >= INVEST_GROUP_WARNING_THRESHOLD - 1e-9;
               const groupTargetDirection = groupRatio !== null && groupRatio > groupTargetRatio ? '偏高' : '偏低';
-              const profitRate = cumulativeBreakdownRates[k] ?? null;
+              const profitRateSummary = cumulativeBreakdownRates[k] ?? null;
+              const profitRate = profitRateSummary?.rate ?? null;
               const suggested = Math.round(rebalanceSuggested[k]);
               // 需加/需赎 = 建议 - 已加，赎回时为负数
               const localDone = parseFloat(localConfirmed[k]) || 0;
@@ -2784,12 +2785,17 @@ export default function ReconcilePage() {
                   </td>
                   {/* 累计收益率 */}
                   <td
-                    title="累计收益率 = 各月收益率之和"
+                    title={profitRateSummary ? `自 ${profitRateSummary.startYearMonth} 起，累计 ${profitRateSummary.monthCount} 个月的月收益率` : '暂无可累计的月收益率'}
                     style={{ padding: '8px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
                   >
                     {profitRate !== null ? (
-                      <div style={{ fontSize: 12, fontWeight: 600, color: profitRate >= 0 ? C.red : C.green }}>
-                        {profitRate >= 0 ? '+' : ''}{(profitRate * 100).toFixed(1)}%
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: profitRate >= 0 ? C.red : C.green }}>
+                          {profitRate >= 0 ? '+' : ''}{(profitRate * 100).toFixed(1)}%
+                        </div>
+                        <div style={{ marginTop: 2, fontSize: 9, lineHeight: 1.1, color: C.sub, whiteSpace: 'nowrap' }}>
+                          自 {profitRateSummary!.startYearMonth}
+                        </div>
                       </div>
                     ) : (
                       <span style={{ fontSize: 11, color: C.sub }}>—</span>
