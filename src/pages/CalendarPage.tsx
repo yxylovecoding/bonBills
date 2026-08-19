@@ -259,6 +259,7 @@ function TagLogicStats({ items, initialTag }: { items: BillStatisticItem[]; init
   const totalAmount = matchedItems.reduce((sum, item) => sum + item.amount, 0);
   const expenseAmount = matchedItems.reduce((sum, item) => sum + (item.transactionType === '支出' ? item.amount : 0), 0);
   const incomeAmount = matchedItems.reduce((sum, item) => sum + (item.transactionType === '收入' ? item.amount : 0), 0);
+  const balanceAmount = incomeAmount - expenseAmount;
   const rangedAmount = accountFilteredItems.reduce((sum, item) => sum + item.amount, 0);
   const averageAmount = matchedItems.length > 0 ? totalAmount / matchedItems.length : 0;
   const rangedShare = rangedAmount > 0 ? totalAmount / rangedAmount * 100 : 0;
@@ -266,10 +267,10 @@ function TagLogicStats({ items, initialTag }: { items: BillStatisticItem[]; init
     ? `全部时间 · ${accountFilteredItems.length} 笔`
     : `${startDate || availableRange.earliest} 至 ${endDate || availableRange.latest} · ${accountFilteredItems.length} 笔`;
   const amountLabel = expenseAmount > 0 && incomeAmount > 0
-    ? `支出 ¥${formatCurrency(expenseAmount)} · 收入 ¥${formatCurrency(incomeAmount)}`
+    ? `支出 ¥${formatCurrency(expenseAmount)} · 收入 ¥${formatCurrency(incomeAmount)} · 结余 ${formatSignedCurrency(balanceAmount)}`
     : incomeAmount > 0
-      ? `收入 ¥${formatCurrency(incomeAmount)}`
-      : `支出 ¥${formatCurrency(expenseAmount)}`;
+      ? `收入 ¥${formatCurrency(incomeAmount)} · 结余 ${formatSignedCurrency(balanceAmount)}`
+      : `支出 ¥${formatCurrency(expenseAmount)} · 结余 ${formatSignedCurrency(balanceAmount)}`;
   const hasActiveFilter = logicParts.length > 0 || selectedAccounts.length > 0;
 
   const toggleAccount = (account: string) => {
@@ -553,7 +554,7 @@ function TagLogicStats({ items, initialTag }: { items: BillStatisticItem[]; init
             <span title={logicLabel} style={{ minWidth: 0, fontSize: 11, color: C.sub, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {expanded ? '▾' : '▸'} 按当前筛选匹配
             </span>
-            <span style={{ flexShrink: 0, fontSize: 13, fontWeight: 700, color: C.purple, fontVariantNumeric: 'tabular-nums' }}>
+            <span style={{ minWidth: 0, fontSize: 13, fontWeight: 700, color: C.purple, fontVariantNumeric: 'tabular-nums', textAlign: 'right', lineHeight: 1.45 }}>
               {amountLabel} · {matchedItems.length} 笔
             </span>
           </button>
