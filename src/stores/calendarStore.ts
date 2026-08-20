@@ -64,6 +64,7 @@ interface CalendarStore {
   // key: 'YYYY-MM-DD'，value: 已确认状态 + 当日已勾选的 expenseItemId 列表（id 由 importBill.ts 派生）
   confirmedExpenses: Record<string, ConfirmedExpenseSelection>;
   setTag: (date: string, tag: TagKind) => void;
+  setTags: (dates: string[], tag: TagKind) => void;
   removeTag: (date: string) => void;
   toggleTag: (date: string, tag: TagKind) => void;
   getTagsForMonth: (yearMonth: string) => TagMap;
@@ -86,6 +87,18 @@ export const useCalendarStore = create<CalendarStore>()(
 
       setTag: (date, tag) =>
         set((s) => ({ tagMap: { ...s.tagMap, [date]: tag } })),
+
+      setTags: (dates, tag) =>
+        set((s) => {
+          const next = { ...s.tagMap };
+          let changed = false;
+          for (const date of dates) {
+            if (next[date] === tag) continue;
+            next[date] = tag;
+            changed = true;
+          }
+          return changed ? { tagMap: next } : s;
+        }),
 
       removeTag: (date) =>
         set((s) => {

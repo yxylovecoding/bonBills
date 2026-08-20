@@ -55,7 +55,7 @@ export default function WishesPage() {
   const { config, setConfig } = useConfigStore();
   const { current } = useSnapshotStore();
   const { records } = useMonthlyStore();
-  const { tagMap, confirmedExpenses } = useCalendarStore();
+  const { tagMap, confirmedExpenses, setTags } = useCalendarStore();
   const { expenseItems } = useBillDetailStore();
   const { overrides } = useExpenseScopeOverrideStore();
   const { tripTags, tripSplits } = useTripStore();
@@ -231,6 +231,13 @@ export default function WishesPage() {
       return next;
     });
   };
+  const allInternDaysApplied = internPlan.availableInternDays > 0
+    && internPlan.scheduledInternDays >= internPlan.availableInternDays;
+  const applyAllInternDays = () => {
+    if (internPlan.availableInternDateKeys.length === 0) return;
+    setTags(internPlan.availableInternDateKeys, 'intern');
+    setSelectedInternDays(internPlan.availableInternDays);
+  };
 
   return (
     <div className="wishes-page-shell">
@@ -270,61 +277,90 @@ export default function WishesPage() {
         </div>
         {internPlan.wishAmountIncludingLife > 0 ? (
           <>
-            <div style={{ fontSize: 12, opacity: 0.82, marginBottom: 5 }}>
-              {internPlan.minimumInternDays === null
-                ? '消费可用部分也补入后仍无法按期攒够'
-                : internPlan.usesConsumptionTransfer
-                  ? '工作日全部实习，并从消费单向补入心愿'
-                  : internPlan.selectedInternDays > minimumSelectableInternDays
-                    ? `当前比最低方案多实习 ${internPlan.selectedInternDays - minimumSelectableInternDays} 天`
-                    : '按期攒够的最少实习方案'}
-            </div>
+            {!internPlan.usesConsumptionTransfer && internPlan.minimumInternDays !== null ? (
+              <div style={{ fontSize: 12, opacity: 0.82, marginBottom: 5 }}>
+                {internPlan.selectedInternDays > minimumSelectableInternDays
+                  ? `当前比最低方案多实习 ${internPlan.selectedInternDays - minimumSelectableInternDays} 天`
+                  : '按期攒够的最少实习方案'}
+              </div>
+            ) : null}
             <div style={{ fontSize: 30, lineHeight: 1.15, fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: -0.5 }}>
-              {internPlan.minimumInternDays === null
-                ? `还差 ¥${formatCurrency(internPlan.shortfall)}`
-                : internPlan.additionalInternDays > 0
-                  ? `最少再实习 ${internPlan.additionalInternDays} 天`
-                  : internPlan.reducibleInternDays > 0
-                    ? `最多可少实习 ${internPlan.reducibleInternDays} 天`
-                    : '当前实习天数刚好'}
+              {internPlan.usesConsumptionTransfer
+                ? `全部实习，从消费补${formatCurrency(internPlan.consumptionTransferredToWish)}元${internPlan.shortfall > 0.005 ? `，仍差${formatCurrency(internPlan.shortfall)}元` : ''}`
+                : internPlan.minimumInternDays === null
+                  ? `全部实习仍差 ¥${formatCurrency(internPlan.shortfall)}`
+                  : internPlan.additionalInternDays > 0
+                    ? `最少再实习 ${internPlan.additionalInternDays} 天`
+                    : internPlan.reducibleInternDays > 0
+                      ? `最多可少实习 ${internPlan.reducibleInternDays} 天`
+                      : '当前实习天数刚好'}
             </div>
-            <div style={{ fontSize: 11, opacity: 0.82, marginTop: 6 }}>
-              当前日历已排 {internPlan.scheduledInternDays} 天实习
-              {' · '}按期至少 {minimumSelectableInternDays} 天
-              {' · '}最多 {internPlan.availableInternDays} 个非家非游法定工作日
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 14 }}>
-              <div style={{ borderRadius: 12, padding: '9px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
-                <div style={{ fontSize: 10, opacity: 0.76 }}>最少还需增加</div>
-                <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>{internPlan.additionalInternDays} 天</div>
-              </div>
-              <div style={{ borderRadius: 12, padding: '9px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
-                <div style={{ fontSize: 10, opacity: 0.76 }}>最多可以减少</div>
-                <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>{internPlan.reducibleInternDays} 天</div>
-              </div>
-            </div>
-            <div style={{ marginTop: 10, borderRadius: 12, padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
-                <span style={{ fontSize: 11, fontWeight: 700 }}>实习天数</span>
-                <span style={{ fontSize: 16, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{internPlan.selectedInternDays} 天</span>
-              </div>
-              <input
-                type="range"
-                aria-label="规划实习天数"
-                aria-valuetext={`${internPlan.selectedInternDays} 天`}
-                min={minimumSelectableInternDays}
-                max={internPlan.availableInternDays}
-                step={1}
-                value={internPlan.selectedInternDays}
-                disabled={minimumSelectableInternDays >= internPlan.availableInternDays}
-                onChange={(event) => setSelectedInternDays(Number(event.target.value))}
-                style={{ width: '100%', margin: '9px 0 4px', accentColor: '#fff', cursor: minimumSelectableInternDays < internPlan.availableInternDays ? 'pointer' : 'default' }}
-              />
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 9, opacity: 0.72 }}>
-                <span>{internPlan.minimumInternDays === null ? `拉满仍缺 ¥${formatCurrency(internPlan.shortfall)}` : `满足心愿 ${minimumSelectableInternDays} 天`}</span>
-                <span>法定工作日上限 {internPlan.availableInternDays} 天</span>
-              </div>
-            </div>
+            {internPlan.usesConsumptionTransfer || internPlan.minimumInternDays === null ? (
+              <button
+                type="button"
+                aria-label="把规划范围内所有非家非游的中国法定工作日设为实习"
+                disabled={allInternDaysApplied || internPlan.availableInternDays === 0}
+                onClick={applyAllInternDays}
+                style={{ width: '100%', marginTop: 14, border: '1px solid rgba(255,255,255,0.5)', borderRadius: 11, backgroundColor: allInternDaysApplied ? 'rgba(255,255,255,0.12)' : '#fff', color: allInternDaysApplied ? 'rgba(255,255,255,0.68)' : C.purple, padding: '9px 12px', fontSize: 12, fontWeight: 800, cursor: allInternDaysApplied || internPlan.availableInternDays === 0 ? 'default' : 'pointer' }}
+              >
+                {internPlan.availableInternDays === 0
+                  ? '没有可改的工作日'
+                  : allInternDaysApplied
+                    ? '日历已全部实习'
+                    : `一键全部实习 · ${internPlan.availableInternDays} 天`}
+              </button>
+            ) : (
+              <>
+                <div style={{ fontSize: 11, opacity: 0.82, marginTop: 6 }}>
+                  当前日历已排 {internPlan.scheduledInternDays} 天实习
+                  {' · '}按期至少 {minimumSelectableInternDays} 天
+                  {' · '}最多 {internPlan.availableInternDays} 个非家非游法定工作日
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 14 }}>
+                  <div style={{ borderRadius: 12, padding: '9px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
+                    <div style={{ fontSize: 10, opacity: 0.76 }}>最少还需增加</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>{internPlan.additionalInternDays} 天</div>
+                  </div>
+                  <div style={{ borderRadius: 12, padding: '9px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
+                    <div style={{ fontSize: 10, opacity: 0.76 }}>最多可以减少</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>{internPlan.reducibleInternDays} 天</div>
+                  </div>
+                </div>
+                <div style={{ marginTop: 10, borderRadius: 12, padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700 }}>实习天数</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                      <button
+                        type="button"
+                        aria-label="把规划范围内所有非家非游的中国法定工作日设为实习"
+                        disabled={allInternDaysApplied || internPlan.availableInternDays === 0}
+                        onClick={applyAllInternDays}
+                        style={{ border: '1px solid rgba(255,255,255,0.42)', borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', padding: '4px 7px', fontSize: 9, fontWeight: 700, cursor: allInternDaysApplied || internPlan.availableInternDays === 0 ? 'default' : 'pointer', opacity: allInternDaysApplied ? 0.55 : 1 }}
+                      >
+                        {internPlan.availableInternDays === 0 ? '无可改工作日' : allInternDaysApplied ? '已全部实习' : '一键全部实习'}
+                      </button>
+                      <span style={{ fontSize: 16, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{internPlan.selectedInternDays} 天</span>
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    aria-label="规划实习天数"
+                    aria-valuetext={`${internPlan.selectedInternDays} 天`}
+                    min={minimumSelectableInternDays}
+                    max={internPlan.availableInternDays}
+                    step={1}
+                    value={internPlan.selectedInternDays}
+                    disabled={minimumSelectableInternDays >= internPlan.availableInternDays}
+                    onChange={(event) => setSelectedInternDays(Number(event.target.value))}
+                    style={{ width: '100%', margin: '9px 0 4px', accentColor: '#fff', cursor: minimumSelectableInternDays < internPlan.availableInternDays ? 'pointer' : 'default' }}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 9, opacity: 0.72 }}>
+                    <span>满足心愿 {minimumSelectableInternDays} 天</span>
+                    <span>法定工作日上限 {internPlan.availableInternDays} 天</span>
+                  </div>
+                </div>
+              </>
+            )}
             <div style={{ marginTop: 10, borderRadius: 12, padding: '11px 12px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
                 <span style={{ fontSize: 11, opacity: 0.8 }}>按 {internPlan.selectedInternDays} 天方案理论可攒</span>
@@ -358,11 +394,6 @@ export default function WishesPage() {
                   <div style={{ marginTop: 2, fontSize: 11, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedInvestmentSaving)}</div>
                 </div>
               </div>
-              {internPlan.consumptionTransferredToWish > 0.005 && (
-                <div style={{ marginTop: 7, textAlign: 'right', fontSize: 10, fontWeight: 700, fontVariantNumeric: 'tabular-nums', opacity: 0.84 }}>
-                  消费 → 心愿&nbsp; ¥{formatCurrency(internPlan.consumptionTransferredToWish)}
-                </div>
-              )}
             </div>
           </>
         ) : (

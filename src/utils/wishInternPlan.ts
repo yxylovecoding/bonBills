@@ -43,6 +43,7 @@ export interface WishInternPlan {
   selectedInternDays: number;
   additionalInternDays: number;
   reducibleInternDays: number;
+  availableInternDateKeys: string[];
   recommendedDates: string[];
   months: WishInternMonthPlan[];
   projectedWishSaving: number;
@@ -373,6 +374,7 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
     selectedInternDays: recommendedDates.length,
     additionalInternDays,
     reducibleInternDays,
+    availableInternDateKeys: flexibleWorkingDates,
     recommendedDates,
     months: monthPlans,
     projectedWishSaving,
