@@ -196,10 +196,10 @@ export const currentStats: CurrentStats = {
 
 // Tag 元信息
 export const tagMeta = {
-  intern: { icon: '💼', label: '实习', color: '#8b5cf6' },
+  intern: { icon: '💼', label: '实习', color: '#16a34a' },
   school: { icon: '📚', label: '学', color: '#3b82f6' },
-  home:   { icon: '🏠', label: '家', color: '#10b981' },
-  travel: { icon: '✈️', label: '游', color: '#fb923c' },
+  home:   { icon: '🏠', label: '家', color: '#ca8a04' },
+  travel: { icon: '✈️', label: '游', color: '#c026d3' },
 } as const;
 
 // 各资产品类的元信息

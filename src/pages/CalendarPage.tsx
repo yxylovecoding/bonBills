@@ -42,6 +42,10 @@ import {
 import { compileTagLogic, formatTagReference } from '../utils/tagLogic';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', border: '#e0e0e0', weekend: '#ea4335', orange: '#e8710a' };
+const HOLIDAY_COLORS = {
+  off: { color: '#dc2626', background: '#fee2e2', cellBackground: '#fff0f0' },
+  work: { color: '#15803d', background: '#dcfce7', cellBackground: '#f0fdf4' },
+} as const;
 const CN_MONTH = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
 const WEEK_HEADERS = ['一', '二', '三', '四', '五', '六', '日'];
 const HISTORY_GRID_COLUMNS = '64px 1fr 1fr 1fr 88px';
@@ -3541,7 +3545,7 @@ export default function CalendarPage() {
               return (
                 <button key={t} ref={(el) => tagDrag.itemRef(el, i)} {...hp}
                   onClick={() => { setSelectedTag(t); cancelRange(); }}
-                  style={{ ...hp.style, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, padding: '6px 14px', borderRadius: 20, fontSize: 13, border: active ? `2px solid ${C.blue}` : `1px solid ${C.border}`, backgroundColor: active ? '#e8f0fe' : '#ffffff', color: active ? C.blue : C.sub, fontWeight: active ? 600 : 400, cursor: 'pointer', opacity: dragging ? 0.5 : 1, transition: 'opacity 0.15s' }}
+                  style={{ ...hp.style, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, padding: '6px 14px', borderRadius: 20, fontSize: 13, border: active ? `2px solid ${meta.color}` : `1px solid ${C.border}`, backgroundColor: active ? `${meta.color}18` : '#ffffff', color: active ? meta.color : C.sub, fontWeight: active ? 600 : 400, cursor: 'pointer', opacity: dragging ? 0.5 : 1, transition: 'opacity 0.15s' }}
                 >
                   {meta.icon} {meta.label}
                 </button>
@@ -3625,8 +3629,8 @@ export default function CalendarPage() {
           {/* 月历 */}
           <Card>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginBottom: 5, fontSize: 9, color: C.sub }}>
-              <span><span style={{ marginRight: 3, borderRadius: 4, padding: '1px 3px', backgroundColor: '#fee2e2', color: '#dc2626', fontWeight: 700 }}>休</span>法定节假日</span>
-              <span><span style={{ marginRight: 3, borderRadius: 4, padding: '1px 3px', backgroundColor: '#ffedd5', color: '#c2410c', fontWeight: 700 }}>班</span>调休上班</span>
+              <span><span style={{ marginRight: 3, borderRadius: 4, padding: '1px 3px', backgroundColor: HOLIDAY_COLORS.off.background, color: HOLIDAY_COLORS.off.color, fontWeight: 700 }}>休</span>法定节假日</span>
+              <span><span style={{ marginRight: 3, borderRadius: 4, padding: '1px 3px', backgroundColor: HOLIDAY_COLORS.work.background, color: HOLIDAY_COLORS.work.color, fontWeight: 700 }}>班</span>调休上班</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, textAlign: 'center', fontSize: 11, marginBottom: 4, fontWeight: 500 }}>
               {WEEK_HEADERS.map((w, i) => <div key={w} style={{ color: (i === 5 || i === 6) ? C.weekend : C.sub }}>{w}</div>)}
@@ -3659,17 +3663,19 @@ export default function CalendarPage() {
                 const travelColor = tagMeta.travel.color;
                 const backgroundColor = displayMeta
                   ? `${displayMeta.color}20`
-                  : isAdjustedWorkday
-                    ? '#fff7ed'
-                    : (isStatutoryHoliday || weekend)
-                      ? '#fff0f0'
+                  : isStatutoryHoliday
+                    ? HOLIDAY_COLORS.off.cellBackground
+                    : isAdjustedWorkday
+                      ? HOLIDAY_COLORS.work.cellBackground
                       : '#f8f9fa';
                 const textColor = displayMeta
                   ? displayMeta.color
-                  : isAdjustedWorkday
-                    ? C.orange
-                    : (isStatutoryHoliday || weekend)
-                      ? C.weekend
+                  : isStatutoryHoliday
+                    ? HOLIDAY_COLORS.off.color
+                    : isAdjustedWorkday
+                      ? HOLIDAY_COLORS.work.color
+                      : weekend
+                        ? C.weekend
                       : '#202124';
                 const radiusStyle: React.CSSProperties = connect
                   ? {
@@ -3696,7 +3702,7 @@ export default function CalendarPage() {
                       <span style={{ position: 'absolute', top: 2, right: 3, display: 'inline-flex', alignItems: 'center', gap: 1, pointerEvents: 'none', zIndex: 2 }}>
                         {isPayrollCutoff && <span style={{ fontSize: 8, fontWeight: 700, color: C.blue }}>截</span>}
                         {holidayMarker && (
-                          <span style={{ borderRadius: 4, padding: '1px 2px', backgroundColor: holidayMarker === '休' ? '#fee2e2' : '#ffedd5', color: holidayMarker === '休' ? '#dc2626' : '#c2410c', fontSize: 8, lineHeight: 1.1, fontWeight: 800 }}>
+                          <span style={{ borderRadius: 4, padding: '1px 2px', backgroundColor: holidayMarker === '休' ? HOLIDAY_COLORS.off.background : HOLIDAY_COLORS.work.background, color: holidayMarker === '休' ? HOLIDAY_COLORS.off.color : HOLIDAY_COLORS.work.color, fontSize: 8, lineHeight: 1.1, fontWeight: 800 }}>
                             {holidayMarker}
                           </span>
                         )}
