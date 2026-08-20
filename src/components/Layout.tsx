@@ -17,7 +17,7 @@ export default function Layout() {
       <BillDropImporter />
       <div
         style={{
-          maxWidth: isCalendarPage ? 944 : isWishesPage ? 590 : 480,
+          maxWidth: isCalendarPage ? 944 : isWishesPage ? 1200 : 480,
           width: '100%',
           margin: '0 auto',
           minHeight: '100vh',

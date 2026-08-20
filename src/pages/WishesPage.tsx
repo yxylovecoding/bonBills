@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AmountInput from '../components/AmountInput';
 import Card from '../components/Card';
 import { formatCurrency } from '../components/CurrencyDisplay';
@@ -19,6 +19,11 @@ import { calculateTravelWishEstimate, calculateWishPlan } from '../utils/wishes'
 import { calculateCreditRepaymentPlan } from '../utils/creditRepayment';
 import { roundToSitePrecision } from '../utils/numberInput';
 import { buildWishTimelineEntries } from '../utils/wishTimeline';
+import {
+  calculateWishMilestonePlan,
+  repaymentsThroughDeadline,
+  type WishRepaymentDue,
+} from '../utils/wishMilestonePlan';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 
@@ -62,7 +67,9 @@ export default function WishesPage() {
   const [amountDrafts, setAmountDrafts] = useState<Record<string, string>>({});
   const [budgetEstimateWishId, setBudgetEstimateWishId] = useState<string | null>(null);
   const [planningDeadline, setPlanningDeadline] = useState('');
-  const [selectedInternDays, setSelectedInternDays] = useState<number | null>(null);
+  const [activeWishId, setActiveWishId] = useState<string | null>(null);
+  const [selectedSegmentDays, setSelectedSegmentDays] = useState<Record<string, number>>({});
+  const wishScrollFrameRef = useRef<number | null>(null);
   const today = new Date();
   const todayYear = today.getFullYear();
   const todayKey = `${todayYear}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -83,8 +90,21 @@ export default function WishesPage() {
       .reduce((latest, wish) => wish.deadline && wish.deadline > latest ? wish.deadline : latest, todayKey),
     [todayKey, wishes],
   );
-  const effectivePlanningDeadline = planningDeadline >= todayKey ? planningDeadline : defaultPlanningDeadline;
-  const planningEndYear = Math.max(Number(effectivePlanningDeadline.slice(0, 4)) || todayYear, todayYear);
+  const selectedPlanningWish = useMemo(() => {
+    const eligible = wishes
+      .filter((wish) => wish.isActive && wish.deadline && wish.deadline >= todayKey && wish.targetAmount > wish.savedAmount)
+      .sort((a, b) => (a.deadline ?? '').localeCompare(b.deadline ?? '') || a.id.localeCompare(b.id));
+    return eligible.find((wish) => wish.id === activeWishId) ?? eligible[0] ?? null;
+  }, [activeWishId, todayKey, wishes]);
+  const selectedWishDeadline = selectedPlanningWish?.deadline && selectedPlanningWish.deadline >= todayKey
+    ? selectedPlanningWish.deadline
+    : null;
+  const effectivePlanningDeadline = selectedWishDeadline
+    ?? (planningDeadline >= todayKey ? planningDeadline : defaultPlanningDeadline);
+  const furthestPlanningDeadline = planningDeadline >= todayKey && planningDeadline > defaultPlanningDeadline
+    ? planningDeadline
+    : defaultPlanningDeadline;
+  const planningEndYear = Math.max(Number(furthestPlanningDeadline.slice(0, 4)) || todayYear, todayYear);
   const holidayYears = useMemo(
     () => Array.from(
       { length: Math.min(planningEndYear - todayYear + 1, 20) },
@@ -124,12 +144,14 @@ export default function WishesPage() {
     [currentDueMonth]: currentCreditDue,
     [nextDueMonth]: nextCreditDue,
   }), [currentCreditDue, currentDueMonth, nextCreditDue, nextDueMonth]);
-  const planningRepaymentsByMonth = useMemo(() => {
-    const result: Record<string, number> = {};
-    if (currentDueDate >= todayKey && currentDueDate <= effectivePlanningDeadline) result[currentDueMonth] = currentCreditDue;
-    if (nextDueDate >= todayKey && nextDueDate <= effectivePlanningDeadline) result[nextDueMonth] = nextCreditDue;
-    return result;
-  }, [currentCreditDue, currentDueDate, currentDueMonth, effectivePlanningDeadline, nextCreditDue, nextDueDate, nextDueMonth, todayKey]);
+  const repaymentDues = useMemo<WishRepaymentDue[]>(() => [
+    { date: currentDueDate, yearMonth: currentDueMonth, amount: currentCreditDue },
+    { date: nextDueDate, yearMonth: nextDueMonth, amount: nextCreditDue },
+  ], [currentCreditDue, currentDueDate, currentDueMonth, nextCreditDue, nextDueDate, nextDueMonth]);
+  const planningRepaymentsByMonth = useMemo(
+    () => repaymentsThroughDeadline(repaymentDues, todayKey, effectivePlanningDeadline),
+    [effectivePlanningDeadline, repaymentDues, todayKey],
+  );
   const planningLongBondRepay = (
     currentDueDate >= todayKey && currentDueDate <= effectivePlanningDeadline ? longBondRepay : 0
   ) + (
@@ -146,6 +168,43 @@ export default function WishesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [wishes, tagMap, stats.stateDailyAvg, repaymentsByMonth, todayKey],
   );
+  const milestonePlan = useMemo(
+    () => calculateWishMilestonePlan({
+      today,
+      wishes,
+      incomeItems: config.incomeItems,
+      tagMap,
+      stateDailyAvg: stats.stateDailyAvg,
+      repaymentDues,
+      holidayDataByYear,
+      tripDatesByStart,
+    }),
+    // todayKey 每日变化一次，避免 Date 实例导致无意义的重复计算。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [config.incomeItems, holidayDataByYear, repaymentDues, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart, wishes],
+  );
+  const activeSegment = selectedPlanningWish
+    ? milestonePlan.segmentByWishId[selectedPlanningWish.id]
+    : milestonePlan.segments[0];
+  const scheduledPlanDates = useMemo(() => {
+    const selectedDates = new Set(milestonePlan.recommendedDates);
+    for (const segment of milestonePlan.segments) {
+      const minimum = segment.minimumInternDateKeys.length;
+      const requested = selectedSegmentDays[segment.deadline] ?? minimum;
+      const desired = Math.min(Math.max(Math.round(requested), minimum), segment.availableInternDateKeys.length);
+      let selectedInSegment = segment.minimumInternDateKeys.length;
+      for (const date of segment.availableInternDateKeys) {
+        if (selectedInSegment >= desired) break;
+        if (selectedDates.has(date)) continue;
+        selectedDates.add(date);
+        selectedInSegment += 1;
+      }
+    }
+    return [...selectedDates].sort();
+  }, [milestonePlan, selectedSegmentDays]);
+  const selectedCumulativeInternDays = activeSegment
+    ? scheduledPlanDates.filter((date) => date <= activeSegment.deadline).length
+    : null;
   const internPlan = useMemo(
     () => calculateWishInternPlan({
       today,
@@ -157,41 +216,71 @@ export default function WishesPage() {
       repaymentsByMonth: planningRepaymentsByMonth,
       holidayDataByYear,
       tripDatesByStart,
-      selectedInternDays,
+      selectedInternDays: selectedCumulativeInternDays,
     }),
     // todayKey 每日变化一次，避免 Date 实例导致无意义的重复计算。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [config.incomeItems, effectivePlanningDeadline, holidayDataByYear, planningRepaymentsByMonth, selectedInternDays, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart, wishes],
+    [config.incomeItems, effectivePlanningDeadline, holidayDataByYear, planningRepaymentsByMonth, selectedCumulativeInternDays, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart, wishes],
   );
-  const minimumSelectableInternDays = internPlan.minimumInternDays ?? internPlan.availableInternDays;
+  const minimumSelectableInternDays = activeSegment
+    ? activeSegment.minimumInternDateKeys.length
+    : internPlan.minimumInternDays ?? internPlan.availableInternDays;
+  const availableSelectableInternDays = activeSegment
+    ? activeSegment.availableInternDateKeys.length
+    : internPlan.availableInternDays;
+  const selectedIntervalInternDays = activeSegment
+    ? Math.min(
+      Math.max(selectedSegmentDays[activeSegment.deadline] ?? minimumSelectableInternDays, minimumSelectableInternDays),
+      availableSelectableInternDays,
+    )
+    : internPlan.selectedInternDays;
+  const scheduledIntervalInternDays = activeSegment
+    ? activeSegment.availableInternDateKeys.filter((date) => tagMap[date] === 'intern').length
+    : internPlan.scheduledInternDays;
+  const intervalAdditionalInternDays = Math.max(minimumSelectableInternDays - scheduledIntervalInternDays, 0);
+  const intervalReducibleInternDays = Math.max(scheduledIntervalInternDays - minimumSelectableInternDays, 0);
+  const selectedSegmentLabel = activeSegment?.wishNames.join('、') || selectedPlanningWish?.name || '当前心愿';
+  const selectedIntervalStartDate = activeSegment?.intervalStartDate ?? todayKey;
   const timelineEndDate = useMemo(() => {
-    let latest = effectivePlanningDeadline > offsetDateKey(todayKey, 30)
-      ? effectivePlanningDeadline
+    let latest = furthestPlanningDeadline > offsetDateKey(todayKey, 30)
+      ? furthestPlanningDeadline
       : offsetDateKey(todayKey, 30);
     for (const trip of availableTripSegments) {
       if (trip.endDate > latest) latest = trip.endDate;
     }
     return latest;
-  }, [availableTripSegments, effectivePlanningDeadline, todayKey]);
+  }, [availableTripSegments, furthestPlanningDeadline, todayKey]);
   const timelineEntries = useMemo(
     () => buildWishTimelineEntries({
       startDate: todayKey,
       endDate: timelineEndDate,
       tagMap,
       stateDailyAvg: stats.stateDailyAvg,
-      recommendedInternDates: internPlan.recommendedDates,
+      recommendedInternDates: scheduledPlanDates,
       wishes,
       trips: allTripSegments,
       tripTags,
     }),
-    [allTripSegments, internPlan.recommendedDates, stats.stateDailyAvg, tagMap, timelineEndDate, todayKey, tripTags, wishes],
+    [allTripSegments, scheduledPlanDates, stats.stateDailyAvg, tagMap, timelineEndDate, todayKey, tripTags, wishes],
+  );
+  const orderedPlanItems = useMemo(
+    () => [...plan.items].sort((a, b) => {
+      const firstDeadline = a.deadline && a.deadline >= todayKey ? a.deadline : '9999-12-31';
+      const secondDeadline = b.deadline && b.deadline >= todayKey ? b.deadline : '9999-12-31';
+      return firstDeadline.localeCompare(secondDeadline) || a.id.localeCompare(b.id);
+    }),
+    [plan.items, todayKey],
+  );
+  const selectableWishIds = useMemo(
+    () => new Set(Object.keys(milestonePlan.segmentByWishId)),
+    [milestonePlan.segmentByWishId],
   );
   const registeredSavings = wishes.reduce((sum, item) => sum + Math.max(item.savedAmount, 0), 0);
   const wishJarBalance = Math.max(current.accounts.wishJar ?? 0, 0);
 
   const syncWishes = (items: WishItem[]) => setConfig({ wishes: items });
   const addWish = () => {
-    setSelectedInternDays(null);
+    setSelectedSegmentDays({});
     syncWishes([
       ...wishes,
       {
@@ -205,16 +294,17 @@ export default function WishesPage() {
     ]);
   };
   const removeWish = (id: string) => {
-    setSelectedInternDays(null);
+    setSelectedSegmentDays({});
+    setActiveWishId((currentId) => currentId === id ? null : currentId);
     setBudgetEstimateWishId((currentId) => currentId === id ? null : currentId);
     syncWishes(wishes.filter((item) => item.id !== id));
   };
   const updateWish = <K extends keyof WishItem>(id: string, field: K, value: WishItem[K]) => {
-    if (field !== 'name') setSelectedInternDays(null);
+    if (field !== 'name') setSelectedSegmentDays({});
     syncWishes(wishes.map((item) => item.id === id ? { ...item, [field]: value } : item));
   };
   const updateWishFields = (id: string, patch: Partial<WishItem>) => {
-    setSelectedInternDays(null);
+    setSelectedSegmentDays({});
     syncWishes(wishes.map((item) => item.id === id ? { ...item, ...patch } : item));
   };
   type WishAmountField = 'targetAmount' | 'savedAmount' | 'travelTicketAmount' | 'travelLodgingDailyAmount';
@@ -231,19 +321,55 @@ export default function WishesPage() {
       return next;
     });
   };
-  const allInternDaysApplied = internPlan.availableInternDays > 0
-    && internPlan.scheduledInternDays >= internPlan.availableInternDays;
+  const allInternDaysApplied = availableSelectableInternDays > 0
+    && scheduledIntervalInternDays >= availableSelectableInternDays;
   const applyAllInternDays = () => {
-    if (internPlan.availableInternDateKeys.length === 0) return;
-    setTags(internPlan.availableInternDateKeys, 'intern');
-    setSelectedInternDays(internPlan.availableInternDays);
+    const dates = activeSegment?.availableInternDateKeys ?? internPlan.availableInternDateKeys;
+    if (dates.length === 0) return;
+    setTags(dates, 'intern');
+    if (activeSegment) {
+      setSelectedSegmentDays((current) => ({
+        ...current,
+        [activeSegment.deadline]: activeSegment.availableInternDateKeys.length,
+      }));
+    }
   };
+  const setSelectedInternDays = (days: number) => {
+    if (!activeSegment) return;
+    setSelectedSegmentDays((current) => ({ ...current, [activeSegment.deadline]: days }));
+  };
+  const handleWishListScroll = useCallback((container: HTMLDivElement) => {
+    if (wishScrollFrameRef.current !== null) cancelAnimationFrame(wishScrollFrameRef.current);
+    wishScrollFrameRef.current = requestAnimationFrame(() => {
+      const containerRect = container.getBoundingClientRect();
+      const anchor = containerRect.top + 24;
+      const cards = container.querySelectorAll<HTMLElement>('[data-wish-id]');
+      let closestWishId: string | null = null;
+      let closestDistance = Number.POSITIVE_INFINITY;
+      for (const card of cards) {
+        const wishId = card.dataset.wishId;
+        if (!wishId || !selectableWishIds.has(wishId)) continue;
+        const rect = card.getBoundingClientRect();
+        if (rect.bottom < containerRect.top || rect.top > containerRect.bottom) continue;
+        const distance = Math.abs(rect.top - anchor);
+        if (distance >= closestDistance) continue;
+        closestDistance = distance;
+        closestWishId = wishId;
+      }
+      if (closestWishId) setActiveWishId(closestWishId);
+      wishScrollFrameRef.current = null;
+    });
+  }, [selectableWishIds]);
+
+  useEffect(() => () => {
+    if (wishScrollFrameRef.current !== null) cancelAnimationFrame(wishScrollFrameRef.current);
+  }, []);
 
   return (
     <div className="wishes-page-shell">
       <WishTimeline entries={timelineEntries} />
       <div className="wishes-page-content">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, marginBottom: 16 }}>
+      <div className="wishes-page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, marginBottom: 16 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 2px' }}>心愿</h1>
           <p style={{ fontSize: 13, color: C.sub, margin: 0 }}>把想要的，变成每个月做得到的</p>
@@ -257,11 +383,12 @@ export default function WishesPage() {
         </button>
       </div>
 
-      <section style={{ background: 'linear-gradient(145deg, #6d28d9 0%, #8b5cf6 58%, #a78bfa 100%)', color: '#fff', borderRadius: 18, padding: '20px', marginBottom: 12, boxShadow: '0 8px 24px rgba(109,40,217,0.2)' }}>
+      <div className="wishes-planning-grid">
+      <section className="wish-planning-panel" style={{ background: 'linear-gradient(145deg, #6d28d9 0%, #8b5cf6 58%, #a78bfa 100%)', color: '#fff', borderRadius: 18, padding: '20px', marginBottom: 12, boxShadow: '0 8px 24px rgba(109,40,217,0.2)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
           <div>
-            <div style={{ fontSize: 10, opacity: 0.72 }}>从今天开始规划</div>
-            <div style={{ fontSize: 12, fontWeight: 700, marginTop: 2 }}>{todayKey} 至</div>
+            <div style={{ fontSize: 10, opacity: 0.72 }}>当前区间 · {selectedSegmentLabel}</div>
+            <div style={{ fontSize: 12, fontWeight: 700, marginTop: 2 }}>{selectedIntervalStartDate} 至</div>
           </div>
           <input
             type="date"
@@ -269,8 +396,9 @@ export default function WishesPage() {
             min={todayKey}
             value={effectivePlanningDeadline}
             onChange={(event) => {
-              setPlanningDeadline(event.target.value);
-              setSelectedInternDays(null);
+              const value = event.target.value;
+              if (selectedPlanningWish) updateWish(selectedPlanningWish.id, 'deadline', value || null);
+              else setPlanningDeadline(value);
             }}
             style={{ minWidth: 132, border: '1px solid rgba(255,255,255,0.38)', borderRadius: 9, outline: 'none', backgroundColor: 'rgba(255,255,255,0.16)', color: '#fff', padding: '6px 8px', fontSize: 12, fontWeight: 700, colorScheme: 'dark' }}
           />
@@ -279,51 +407,53 @@ export default function WishesPage() {
           <>
             {!internPlan.usesConsumptionTransfer && internPlan.minimumInternDays !== null ? (
               <div style={{ fontSize: 12, opacity: 0.82, marginBottom: 5 }}>
-                {internPlan.selectedInternDays > minimumSelectableInternDays
-                  ? `当前比最低方案多实习 ${internPlan.selectedInternDays - minimumSelectableInternDays} 天`
-                  : '按期攒够的最少实习方案'}
+                {selectedIntervalInternDays > minimumSelectableInternDays
+                  ? `本段比最低方案多实习 ${selectedIntervalInternDays - minimumSelectableInternDays} 天`
+                  : '按全部心愿截止日分段安排'}
               </div>
             ) : null}
             <div style={{ fontSize: 30, lineHeight: 1.15, fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: -0.5 }}>
               {internPlan.usesConsumptionTransfer
                 ? `全部实习，从消费补${formatCurrency(internPlan.consumptionTransferredToWish)}元${internPlan.shortfall > 0.005 ? `，仍差${formatCurrency(internPlan.shortfall)}元` : ''}`
                 : internPlan.minimumInternDays === null
-                  ? `全部实习仍差 ¥${formatCurrency(internPlan.shortfall)}`
-                  : internPlan.additionalInternDays > 0
-                    ? `最少再实习 ${internPlan.additionalInternDays} 天`
-                    : internPlan.reducibleInternDays > 0
-                      ? `最多可少实习 ${internPlan.reducibleInternDays} 天`
-                      : '当前实习天数刚好'}
+                  ? `本段全部实习仍差 ¥${formatCurrency(internPlan.shortfall)}`
+                  : minimumSelectableInternDays >= availableSelectableInternDays && availableSelectableInternDays > 0
+                    ? '本段全部实习'
+                    : intervalAdditionalInternDays > 0
+                      ? `本段最少再实习 ${intervalAdditionalInternDays} 天`
+                      : intervalReducibleInternDays > 0
+                        ? `本段最多可少实习 ${intervalReducibleInternDays} 天`
+                        : `本段安排 ${selectedIntervalInternDays} 天实习`}
             </div>
             {internPlan.usesConsumptionTransfer || internPlan.minimumInternDays === null ? (
               <button
                 type="button"
                 aria-label="把规划范围内所有非家非游的中国法定工作日设为实习"
-                disabled={allInternDaysApplied || internPlan.availableInternDays === 0}
+                disabled={allInternDaysApplied || availableSelectableInternDays === 0}
                 onClick={applyAllInternDays}
-                style={{ width: '100%', marginTop: 14, border: '1px solid rgba(255,255,255,0.5)', borderRadius: 11, backgroundColor: allInternDaysApplied ? 'rgba(255,255,255,0.12)' : '#fff', color: allInternDaysApplied ? 'rgba(255,255,255,0.68)' : C.purple, padding: '9px 12px', fontSize: 12, fontWeight: 800, cursor: allInternDaysApplied || internPlan.availableInternDays === 0 ? 'default' : 'pointer' }}
+                style={{ width: '100%', marginTop: 14, border: '1px solid rgba(255,255,255,0.5)', borderRadius: 11, backgroundColor: allInternDaysApplied ? 'rgba(255,255,255,0.12)' : '#fff', color: allInternDaysApplied ? 'rgba(255,255,255,0.68)' : C.purple, padding: '9px 12px', fontSize: 12, fontWeight: 800, cursor: allInternDaysApplied || availableSelectableInternDays === 0 ? 'default' : 'pointer' }}
               >
-                {internPlan.availableInternDays === 0
+                {availableSelectableInternDays === 0
                   ? '没有可改的工作日'
                   : allInternDaysApplied
                     ? '日历已全部实习'
-                    : `一键全部实习 · ${internPlan.availableInternDays} 天`}
+                    : `本段一键全部实习 · ${availableSelectableInternDays} 天`}
               </button>
             ) : (
               <>
                 <div style={{ fontSize: 11, opacity: 0.82, marginTop: 6 }}>
-                  当前日历已排 {internPlan.scheduledInternDays} 天实习
-                  {' · '}按期至少 {minimumSelectableInternDays} 天
-                  {' · '}最多 {internPlan.availableInternDays} 个非家非游法定工作日
+                  本段日历已排 {scheduledIntervalInternDays} 天实习
+                  {' · '}至少 {minimumSelectableInternDays} 天
+                  {' · '}最多 {availableSelectableInternDays} 个非家非游法定工作日
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 14 }}>
                   <div style={{ borderRadius: 12, padding: '9px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
                     <div style={{ fontSize: 10, opacity: 0.76 }}>最少还需增加</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>{internPlan.additionalInternDays} 天</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>{intervalAdditionalInternDays} 天</div>
                   </div>
                   <div style={{ borderRadius: 12, padding: '9px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
                     <div style={{ fontSize: 10, opacity: 0.76 }}>最多可以减少</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>{internPlan.reducibleInternDays} 天</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>{intervalReducibleInternDays} 天</div>
                   </div>
                 </div>
                 <div style={{ marginTop: 10, borderRadius: 12, padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
@@ -333,37 +463,37 @@ export default function WishesPage() {
                       <button
                         type="button"
                         aria-label="把规划范围内所有非家非游的中国法定工作日设为实习"
-                        disabled={allInternDaysApplied || internPlan.availableInternDays === 0}
+                        disabled={allInternDaysApplied || availableSelectableInternDays === 0}
                         onClick={applyAllInternDays}
-                        style={{ border: '1px solid rgba(255,255,255,0.42)', borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', padding: '4px 7px', fontSize: 9, fontWeight: 700, cursor: allInternDaysApplied || internPlan.availableInternDays === 0 ? 'default' : 'pointer', opacity: allInternDaysApplied ? 0.55 : 1 }}
+                        style={{ border: '1px solid rgba(255,255,255,0.42)', borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', padding: '4px 7px', fontSize: 9, fontWeight: 700, cursor: allInternDaysApplied || availableSelectableInternDays === 0 ? 'default' : 'pointer', opacity: allInternDaysApplied ? 0.55 : 1 }}
                       >
-                        {internPlan.availableInternDays === 0 ? '无可改工作日' : allInternDaysApplied ? '已全部实习' : '一键全部实习'}
+                        {availableSelectableInternDays === 0 ? '无可改工作日' : allInternDaysApplied ? '已全部实习' : '本段全部实习'}
                       </button>
-                      <span style={{ fontSize: 16, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{internPlan.selectedInternDays} 天</span>
+                      <span style={{ fontSize: 16, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{selectedIntervalInternDays} 天</span>
                     </span>
                   </div>
                   <input
                     type="range"
                     aria-label="规划实习天数"
-                    aria-valuetext={`${internPlan.selectedInternDays} 天`}
+                    aria-valuetext={`${selectedIntervalInternDays} 天`}
                     min={minimumSelectableInternDays}
-                    max={internPlan.availableInternDays}
+                    max={availableSelectableInternDays}
                     step={1}
-                    value={internPlan.selectedInternDays}
-                    disabled={minimumSelectableInternDays >= internPlan.availableInternDays}
+                    value={selectedIntervalInternDays}
+                    disabled={minimumSelectableInternDays >= availableSelectableInternDays}
                     onChange={(event) => setSelectedInternDays(Number(event.target.value))}
-                    style={{ width: '100%', margin: '9px 0 4px', accentColor: '#fff', cursor: minimumSelectableInternDays < internPlan.availableInternDays ? 'pointer' : 'default' }}
+                    style={{ width: '100%', margin: '9px 0 4px', accentColor: '#fff', cursor: minimumSelectableInternDays < availableSelectableInternDays ? 'pointer' : 'default' }}
                   />
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 9, opacity: 0.72 }}>
                     <span>满足心愿 {minimumSelectableInternDays} 天</span>
-                    <span>法定工作日上限 {internPlan.availableInternDays} 天</span>
+                    <span>本段工作日上限 {availableSelectableInternDays} 天</span>
                   </div>
                 </div>
               </>
             )}
             <div style={{ marginTop: 10, borderRadius: 12, padding: '11px 12px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
-                <span style={{ fontSize: 11, opacity: 0.8 }}>按 {internPlan.selectedInternDays} 天方案理论可攒</span>
+                <span style={{ fontSize: 11, opacity: 0.8 }}>截至 {effectivePlanningDeadline} · 累计 {internPlan.selectedInternDays} 天</span>
                 <span style={{ fontSize: 21, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedTotalSaving)}</span>
               </div>
               <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.2)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px 12px', fontSize: 11 }}>
@@ -404,6 +534,10 @@ export default function WishesPage() {
         )}
       </section>
 
+      <div
+        className="wish-list-scroll"
+        onScroll={(event) => handleWishListScroll(event.currentTarget)}
+      >
       <Card title="心愿清单" subtitle={`${wishes.length} 个心愿`}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '0 0 12px', marginBottom: 12, borderBottom: '1px solid #f1f3f4', fontSize: 11 }}>
           <span style={{ color: C.sub }}>心愿罐 ¥{formatCurrency(wishJarBalance)}</span>
@@ -422,7 +556,7 @@ export default function WishesPage() {
           </div>
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {plan.items.map((item) => {
+          {orderedPlanItems.map((item) => {
             const progress = item.targetAmount > 0 ? Math.min(item.savedAmount / item.targetAmount, 1) : 0;
             const targetKey = `${item.id}:targetAmount`;
             const savedKey = `${item.id}:savedAmount`;
@@ -457,8 +591,20 @@ export default function WishesPage() {
             const roundedTravelTargetAmount = roundToSitePrecision(travelEstimate.targetAmount);
             const budgetEstimateVisible = budgetEstimateWishId === item.id
               || (item.targetAmount <= 0 && itemTravelDays > 0);
+            const isSelectedPlanningWish = selectedPlanningWish?.id === item.id;
             return (
-              <div key={item.id} style={{ border: `1px solid ${item.isActive ? '#e9d5ff' : '#e5e7eb'}`, backgroundColor: item.isActive ? '#fdfaff' : '#fafafa', borderRadius: 14, padding: '12px' }}>
+              <div
+                key={item.id}
+                data-wish-id={item.id}
+                aria-current={isSelectedPlanningWish ? 'true' : undefined}
+                onClick={() => {
+                  if (selectableWishIds.has(item.id)) setActiveWishId(item.id);
+                }}
+                onFocusCapture={() => {
+                  if (selectableWishIds.has(item.id)) setActiveWishId(item.id);
+                }}
+                style={{ border: `1px solid ${isSelectedPlanningWish ? '#8b5cf6' : item.isActive ? '#e9d5ff' : '#e5e7eb'}`, backgroundColor: item.isActive ? '#fdfaff' : '#fafafa', borderRadius: 14, padding: '12px', boxShadow: isSelectedPlanningWish ? '0 0 0 2px rgba(139,92,246,0.14)' : 'none', transition: 'border-color 0.15s ease, box-shadow 0.15s ease' }}
+              >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <button
                     type="button"
@@ -685,6 +831,8 @@ export default function WishesPage() {
           })}
         </div>
       </Card>
+      </div>
+      </div>
       </div>
     </div>
   );
