@@ -14,12 +14,7 @@ import type { WishItem } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { detectAllTrips, type TripSegment } from '../utils/trips';
 import { calculateWishInternPlan } from '../utils/wishInternPlan';
-import {
-  calculateWishPlan,
-  POST_LIFE_CONSUMPTION_SHARE,
-  POST_LIFE_FLEXIBLE_SHARE,
-  POST_LIFE_WISH_SHARE,
-} from '../utils/wishes';
+import { calculateWishPlan } from '../utils/wishes';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 
@@ -85,7 +80,7 @@ export default function WishesPage() {
     ),
     [planningEndYear, todayYear],
   );
-  const { holidayDataByYear, holidayLoading, holidayWarning } = useHolidayYears(holidayYears);
+  const { holidayDataByYear } = useHolidayYears(holidayYears);
 
   const filteredRecords = useMemo(
     () => records.filter((record) => record.yearMonth >= twoYearsAgo),
@@ -329,16 +324,6 @@ export default function WishesPage() {
                 </div>
               </div>
             </div>
-            {internPlan.usesConsumptionTransfer && (
-              <div style={{ marginTop: 10, borderRadius: 10, padding: '8px 10px', backgroundColor: 'rgba(255,255,255,0.14)', fontSize: 11, lineHeight: 1.5 }}>
-                工作日全部实习后，再把消费 ¥{formatCurrency(internPlan.consumptionTransferredToWish)} 转入心愿罐；这笔钱只从消费流向心愿。
-              </div>
-            )}
-            <div style={{ marginTop: 10, fontSize: 11, lineHeight: 1.5, color: internPlan.minimumInternDays === null ? '#fde68a' : '#dcfce7' }}>
-              {holidayLoading ? '正在校准法定工作日…' : '实习只安排在工作日'}
-              {' · '}收入按实际到账日计入
-              {internPlan.excludedLivingDays > 0 ? ` · 心愿已扣除 ${internPlan.excludedLivingDays} 天出游的“活”` : ''}
-            </div>
           </>
         ) : (
           <>
@@ -346,33 +331,7 @@ export default function WishesPage() {
             <div style={{ fontSize: 12, lineHeight: 1.6, opacity: 0.82 }}>填入目标、已攒金额和 DDL，就会自动算出在能攒够的前提下最少需要实习几天。</div>
           </>
         )}
-        <div style={{ borderTop: '1px solid rgba(255,255,255,0.2)', marginTop: 14, paddingTop: 11, fontSize: 11, lineHeight: 1.55, opacity: 0.84 }}>
-          收入先抵生活和信用卡还款；结余通常分为理财 50%、心愿 {POST_LIFE_WISH_SHARE * 100}%、消费 {POST_LIFE_CONSUMPTION_SHARE * 100}%。只有工作日全实习仍不够时，才可把消费份额单向补给心愿。
-        </div>
       </section>
-
-      <Card title="计算口径" subtitle="优先少实习" collapsible defaultCollapsed>
-        <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.65 }}>
-          <div style={{ display: 'flex', gap: 8, padding: '4px 0' }}><span>①</span><span>居家、旅行安排保持不变；其余日期默认上学，只有法定工作日可以改为实习。</span></div>
-          <div style={{ display: 'flex', gap: 8, padding: '4px 0' }}><span>②</span><span>比较不新增实习和工作日全实习的税后到账收入，并计入对应场景生活费与已知还款。</span></div>
-          <div style={{ display: 'flex', gap: 8, padding: '4px 0' }}><span>③</span><span>先按心愿 {POST_LIFE_WISH_SHARE * 100}% 求最少实习日；只有全部实习仍不足，才把消费份额补给心愿，最多合计 {POST_LIFE_FLEXIBLE_SHARE * 100}%。</span></div>
-        </div>
-        <div style={{ borderTop: '1px solid #f1f3f4', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-          <span style={{ color: C.sub }}>单向分配</span>
-          <span style={{ color: C.purple, fontWeight: 700 }}>心愿 40% · 必要时消费补至 50%</span>
-        </div>
-        {(currentCreditDue > 0 || nextCreditDue > 0) && (
-          <div style={{ marginTop: 8, fontSize: 11, color: C.sub, backgroundColor: '#f8f9fa', borderRadius: 9, padding: '7px 9px', lineHeight: 1.55 }}>
-            已知还款：{currentDueMonth} ¥{formatCurrency(currentCreditDue)}
-            {nextCreditDue > 0 ? ` · ${nextDueMonth} ¥${formatCurrency(nextCreditDue)}` : ''}
-          </div>
-        )}
-        {holidayWarning && (
-          <div style={{ marginTop: 8, fontSize: 11, color: C.orange, backgroundColor: '#fff7ed', borderRadius: 9, padding: '7px 9px', lineHeight: 1.55 }}>
-            {holidayWarning}
-          </div>
-        )}
-      </Card>
 
       <Card title="心愿清单" subtitle={`${wishes.length} 个心愿`}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '0 0 12px', marginBottom: 12, borderBottom: '1px solid #f1f3f4', fontSize: 11 }}>
