@@ -22,6 +22,7 @@ import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../util
 import { tryEvalFormula } from '../utils/formula';
 import { dateLabel, resolveIncomeForMonth, type ResolvedIncomeItem } from '../utils/payroll';
 import { getCategoryCumulativeRateSummary, getCategoryProfit, type CategoryCumulativeRateSummary } from '../utils/investRecords';
+import { calculateCreditRepaymentPlan, LONG_BOND_REPAY_THRESHOLD } from '../utils/creditRepayment';
 import {
   FINANCE_SCREENSHOT_DRAFT_EVENT,
   screenshotDraftItemCount,
@@ -36,7 +37,6 @@ import {
 } from '../utils/dramDecision';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', sub: '#5f6368', orange: '#e8710a' };
-const LONG_BOND_REPAY_THRESHOLD = 10000; // 长债补仓与自动还债共用的固定阈值
 const INVEST_TARGET_KEYS: InvestKey[] = ['us', 'eu', 'asia', 'a', 'longBond', 'usBond', 'gold'];
 const USD_INVEST_KEYS: InvestKey[] = ['us', 'usBond'];
 const USD_VIRTUAL_ACCOUNT_KEYS = ['usdLivingBank', 'usdConsumptionBank', 'usdWishJar', 'investUsdBank'] as const;
@@ -531,19 +531,17 @@ export default function ReconcilePage() {
 
   // 信用卡实际待还（储蓄卡先抵本期，溢出抵下期）
   // 长债超过固定阈值的部分可赎回用于偿还信用卡本期待还（储蓄卡抵扣后仍欠的部分）
-  const longBondTotalForRepay = current.investHoldings.longBond ?? 0;
-  const longBondExcess = Math.max(longBondTotalForRepay - LONG_BOND_REPAY_THRESHOLD, 0);
-  const creditMonthlyAfterSavings = Math.max(
-    (current.accounts.creditMonthly ?? 0) - (current.accounts.savingsCard ?? 0),
-    0,
-  );
-  const longBondRepay = Math.min(longBondExcess, creditMonthlyAfterSavings);
-  const effectiveCreditMonthly = Math.max(creditMonthlyAfterSavings - longBondRepay, 0);
-  const effectiveCreditNext = Math.max(
-    (current.accounts.credit ?? 0)
-      - Math.max(current.accounts.savingsCard ?? 0, current.accounts.creditMonthly ?? 0),
-    0,
-  );
+  const {
+    longBondTotalForRepay,
+    longBondRepay,
+    effectiveCreditMonthly,
+    effectiveCreditNext,
+  } = calculateCreditRepaymentPlan({
+    creditMonthly: current.accounts.creditMonthly,
+    creditTotal: current.accounts.credit,
+    savingsCard: current.accounts.savingsCard,
+    longBond: current.investHoldings.longBond,
+  });
 
   // 已转金额（用户直接编辑）— 每次进入页面默认为 0
   const [confirmed, setConfirmed] = useState<Record<TransferKey, number>>(

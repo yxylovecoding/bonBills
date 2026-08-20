@@ -15,6 +15,7 @@ import { useHolidayYears } from '../utils/holidays';
 import { detectAllTrips, type TripSegment } from '../utils/trips';
 import { calculateWishInternPlan } from '../utils/wishInternPlan';
 import { calculateTravelWishEstimate, calculateWishPlan } from '../utils/wishes';
+import { calculateCreditRepaymentPlan } from '../utils/creditRepayment';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 
@@ -90,12 +91,15 @@ export default function WishesPage() {
     () => calcHistoryStats(filteredRecords, tagMap, confirmedExpenses, expenseItems, overrides, tripTags),
     [filteredRecords, tagMap, confirmedExpenses, expenseItems, overrides, tripTags],
   );
-  const savingsReserved = Math.max(current.accounts.savingsCard ?? 0, 0);
-  const currentCreditDue = Math.max((current.accounts.creditMonthly ?? 0) - savingsReserved, 0);
-  const nextCreditDue = Math.max(
-    (current.accounts.credit ?? 0) - Math.max(savingsReserved, current.accounts.creditMonthly ?? 0),
-    0,
-  );
+  const {
+    effectiveCreditMonthly: currentCreditDue,
+    effectiveCreditNext: nextCreditDue,
+  } = calculateCreditRepaymentPlan({
+    creditMonthly: current.accounts.creditMonthly,
+    creditTotal: current.accounts.credit,
+    savingsCard: current.accounts.savingsCard,
+    longBond: current.investHoldings.longBond,
+  });
   const configuredPayDay = Math.min(Math.max(Math.round(config.creditPayDate || 1), 1), 31);
   const daysThisMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
   const currentDueOffset = today.getDate() <= Math.min(configuredPayDay, daysThisMonth) ? 0 : 1;
