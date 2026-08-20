@@ -1,3 +1,5 @@
+import { roundToSitePrecision } from './numberInput';
+
 export const LONG_BOND_REPAY_THRESHOLD = 10000;
 
 export interface CreditRepaymentPlan {
@@ -5,6 +7,8 @@ export interface CreditRepaymentPlan {
   longBondExcess: number;
   creditMonthlyAfterSavings: number;
   longBondRepay: number;
+  longBondRepayNext: number;
+  longBondRepayTotal: number;
   effectiveCreditMonthly: number;
   effectiveCreditNext: number;
 }
@@ -23,16 +27,21 @@ export function calculateCreditRepaymentPlan(options: {
   const creditTotal = normalizedAmount(options.creditTotal);
   const savingsCard = normalizedAmount(options.savingsCard);
   const longBondTotalForRepay = normalizedAmount(options.longBond);
-  const longBondExcess = Math.max(longBondTotalForRepay - LONG_BOND_REPAY_THRESHOLD, 0);
-  const creditMonthlyAfterSavings = Math.max(creditMonthly - savingsCard, 0);
-  const longBondRepay = Math.min(longBondExcess, creditMonthlyAfterSavings);
+  const longBondExcess = roundToSitePrecision(Math.max(longBondTotalForRepay - LONG_BOND_REPAY_THRESHOLD, 0));
+  const creditMonthlyAfterSavings = roundToSitePrecision(Math.max(creditMonthly - savingsCard, 0));
+  const longBondRepay = roundToSitePrecision(Math.min(longBondExcess, creditMonthlyAfterSavings));
+  const creditNextAfterSavings = roundToSitePrecision(Math.max(creditTotal - Math.max(savingsCard, creditMonthly), 0));
+  const remainingLongBondExcess = roundToSitePrecision(Math.max(longBondExcess - longBondRepay, 0));
+  const longBondRepayNext = roundToSitePrecision(Math.min(remainingLongBondExcess, creditNextAfterSavings));
 
   return {
     longBondTotalForRepay,
     longBondExcess,
     creditMonthlyAfterSavings,
     longBondRepay,
-    effectiveCreditMonthly: Math.max(creditMonthlyAfterSavings - longBondRepay, 0),
-    effectiveCreditNext: Math.max(creditTotal - Math.max(savingsCard, creditMonthly), 0),
+    longBondRepayNext,
+    longBondRepayTotal: roundToSitePrecision(longBondRepay + longBondRepayNext),
+    effectiveCreditMonthly: roundToSitePrecision(Math.max(creditMonthlyAfterSavings - longBondRepay, 0)),
+    effectiveCreditNext: roundToSitePrecision(Math.max(creditNextAfterSavings - longBondRepayNext, 0)),
   };
 }

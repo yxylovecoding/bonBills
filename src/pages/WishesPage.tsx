@@ -95,6 +95,8 @@ export default function WishesPage() {
   const {
     effectiveCreditMonthly: currentCreditDue,
     effectiveCreditNext: nextCreditDue,
+    longBondRepay,
+    longBondRepayNext,
   } = calculateCreditRepaymentPlan({
     creditMonthly: current.accounts.creditMonthly,
     creditTotal: current.accounts.credit,
@@ -106,18 +108,23 @@ export default function WishesPage() {
   const currentDueOffset = today.getDate() <= Math.min(configuredPayDay, daysThisMonth) ? 0 : 1;
   const currentDueMonth = offsetYearMonth(today, currentDueOffset);
   const nextDueMonth = offsetYearMonth(today, currentDueOffset + 1);
+  const currentDueDate = dateInMonth(currentDueMonth, configuredPayDay);
+  const nextDueDate = dateInMonth(nextDueMonth, configuredPayDay);
   const repaymentsByMonth = useMemo(() => ({
     [currentDueMonth]: currentCreditDue,
     [nextDueMonth]: nextCreditDue,
   }), [currentCreditDue, currentDueMonth, nextCreditDue, nextDueMonth]);
   const planningRepaymentsByMonth = useMemo(() => {
     const result: Record<string, number> = {};
-    const currentDueDate = dateInMonth(currentDueMonth, configuredPayDay);
-    const nextDueDate = dateInMonth(nextDueMonth, configuredPayDay);
     if (currentDueDate >= todayKey && currentDueDate <= effectivePlanningDeadline) result[currentDueMonth] = currentCreditDue;
     if (nextDueDate >= todayKey && nextDueDate <= effectivePlanningDeadline) result[nextDueMonth] = nextCreditDue;
     return result;
-  }, [configuredPayDay, currentCreditDue, currentDueMonth, effectivePlanningDeadline, nextCreditDue, nextDueMonth, todayKey]);
+  }, [currentCreditDue, currentDueDate, currentDueMonth, effectivePlanningDeadline, nextCreditDue, nextDueDate, nextDueMonth, todayKey]);
+  const planningLongBondRepay = (
+    currentDueDate >= todayKey && currentDueDate <= effectivePlanningDeadline ? longBondRepay : 0
+  ) + (
+    nextDueDate >= todayKey && nextDueDate <= effectivePlanningDeadline ? longBondRepayNext : 0
+  );
   const plan = useMemo(
     () => calculateWishPlan(wishes, {
       today,
@@ -295,6 +302,7 @@ export default function WishesPage() {
                 <div style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>−¥{formatCurrency(internPlan.totalLivingExpense)}</div>
                 <div style={{ gridColumn: '1 / -1', marginTop: -3, textAlign: 'right', fontSize: 9, opacity: 0.68 }}>
                   “活” ¥{formatCurrency(internPlan.recommendedLifeExpense)} · 信用卡 ¥{formatCurrency(internPlan.repayment)}
+                  {planningLongBondRepay > 0.005 && <> · 长债已抵 ¥{formatCurrency(planningLongBondRepay)}</>}
                 </div>
                 <div style={{ opacity: 0.78 }}>结余</div>
                 <div style={{ textAlign: 'right', fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: internPlan.projectedSurplus >= 0 ? '#dcfce7' : '#fde68a' }}>
