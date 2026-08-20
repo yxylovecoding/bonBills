@@ -61,7 +61,8 @@ export interface WishItem {
   linkedTripStartDate?: string | null;
   plannedTravelDays?: number;
   travelTicketAmount?: number;
-  travelLodgingAmount?: number;
+  travelLodgingDailyAmount?: number;
+  travelLodgingAmount?: number; // 旧版酒店总价，仅用于兼容迁移
   isActive: boolean;
 }
 

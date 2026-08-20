@@ -11,6 +11,7 @@ export interface TravelWishEstimate {
   dailyLifeAmount: number;
   lifeAmount: number;
   ticketAmount: number;
+  lodgingDailyAmount: number;
   lodgingAmount: number;
   targetAmount: number;
 }
@@ -23,20 +24,22 @@ export function calculateTravelWishEstimate(
   days: number,
   dailyLifeAmount: number,
   ticketAmount?: number,
-  lodgingAmount?: number,
+  lodgingDailyAmount?: number,
 ): TravelWishEstimate {
   const normalizedDays = Number.isFinite(days) ? Math.max(Math.round(days), 0) : 0;
   const normalizedDailyLifeAmount = normalizedAmount(dailyLifeAmount);
   const normalizedTicketAmount = normalizedAmount(ticketAmount);
-  const normalizedLodgingAmount = normalizedAmount(lodgingAmount);
+  const normalizedLodgingDailyAmount = normalizedAmount(lodgingDailyAmount);
+  const lodgingAmount = normalizedDays * normalizedLodgingDailyAmount;
   const lifeAmount = normalizedDays * normalizedDailyLifeAmount;
   return {
     days: normalizedDays,
     dailyLifeAmount: normalizedDailyLifeAmount,
     lifeAmount,
     ticketAmount: normalizedTicketAmount,
-    lodgingAmount: normalizedLodgingAmount,
-    targetAmount: normalizedTicketAmount + normalizedLodgingAmount + lifeAmount,
+    lodgingDailyAmount: normalizedLodgingDailyAmount,
+    lodgingAmount,
+    targetAmount: normalizedTicketAmount + lodgingAmount + lifeAmount,
   };
 }
 

@@ -176,7 +176,7 @@ export default function WishesPage() {
     setSelectedInternDays(null);
     syncWishes(wishes.map((item) => item.id === id ? { ...item, ...patch } : item));
   };
-  type WishAmountField = 'targetAmount' | 'savedAmount' | 'travelTicketAmount' | 'travelLodgingAmount';
+  type WishAmountField = 'targetAmount' | 'savedAmount' | 'travelTicketAmount' | 'travelLodgingDailyAmount';
   const updateAmount = (id: string, field: WishAmountField, raw: string) => {
     const key = `${id}:${field}`;
     setAmountDrafts((prev) => ({ ...prev, [key]: raw }));
@@ -352,7 +352,7 @@ export default function WishesPage() {
             const targetKey = `${item.id}:targetAmount`;
             const savedKey = `${item.id}:savedAmount`;
             const ticketKey = `${item.id}:travelTicketAmount`;
-            const lodgingKey = `${item.id}:travelLodgingAmount`;
+            const lodgingKey = `${item.id}:travelLodgingDailyAmount`;
             const linkedTrip = item.linkedTripStartDate
               ? allTripSegments.find((trip) => trip.startDate === item.linkedTripStartDate)
               : undefined;
@@ -365,11 +365,16 @@ export default function WishesPage() {
                 ? '__manual__'
                 : '';
             const itemTravelDays = linkedTrip?.dates.length ?? Math.max(Math.round(item.plannedTravelDays ?? 0), 0);
+            const itemLodgingDailyAmount = Number.isFinite(item.travelLodgingDailyAmount)
+              ? Math.max(item.travelLodgingDailyAmount ?? 0, 0)
+              : itemTravelDays > 0
+                ? Math.max(item.travelLodgingAmount ?? 0, 0) / itemTravelDays
+                : 0;
             const travelEstimate = calculateTravelWishEstimate(
               itemTravelDays,
               stats.stateDailyAvg.travel,
               item.travelTicketAmount,
-              item.travelLodgingAmount,
+              itemLodgingDailyAmount,
             );
             const itemTravelLifeAmount = travelEstimate.lifeAmount;
             const itemTravelConsumptionAmount = itemTravelDays * Math.max(stats.stateConsumptionDailyAvg.travel, 0);
@@ -512,14 +517,14 @@ export default function WishesPage() {
                           </div>
                         </label>
                         <label>
-                          <span style={{ display: 'block', marginBottom: 3, fontSize: 9, color: C.sub }}>酒店</span>
+                          <span style={{ display: 'block', marginBottom: 3, fontSize: 9, color: C.sub }}>酒店/天</span>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 3, borderRadius: 7, backgroundColor: '#fff', padding: '5px 6px' }}>
                             <span style={{ fontSize: 10, color: C.sub }}>¥</span>
                             <AmountInput
-                              aria-label={`${item.name} 酒店价格`}
-                              value={amountDrafts[lodgingKey] ?? (item.travelLodgingAmount ? String(item.travelLodgingAmount) : '')}
-                              onChange={(raw) => updateAmount(item.id, 'travelLodgingAmount', raw)}
-                              onBlur={() => finishAmountEdit(item.id, 'travelLodgingAmount')}
+                              aria-label={`${item.name} 酒店日均价格`}
+                              value={amountDrafts[lodgingKey] ?? (itemLodgingDailyAmount ? String(itemLodgingDailyAmount) : '')}
+                              onChange={(raw) => updateAmount(item.id, 'travelLodgingDailyAmount', raw)}
+                              onBlur={() => finishAmountEdit(item.id, 'travelLodgingDailyAmount')}
                               placeholder="0"
                               style={{ width: '100%', minWidth: 0, border: 'none', outline: 'none', backgroundColor: 'transparent', textAlign: 'right', fontSize: 11, fontWeight: 700, color: C.purple }}
                             />
