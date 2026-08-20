@@ -30,6 +30,18 @@ export interface TripSegment {
   dates: string[];   // 连续日期数组
 }
 
+export function detectAllTrips(
+  tagMap: Record<string, TagKind>,
+  tripSplits: Record<string, true> = {},
+): TripSegment[] {
+  const travelDates = Object.entries(tagMap)
+    .filter(([, tag]) => tag === 'travel')
+    .map(([date]) => date)
+    .sort();
+  if (travelDates.length === 0) return [];
+  return buildSegments(travelDates, new Set(Object.keys(tripSplits)));
+}
+
 function pad2(n: number): string { return String(n).padStart(2, '0'); }
 function addDays(date: string, delta: number): string {
   const d = new Date(date + 'T00:00:00');
@@ -64,14 +76,7 @@ export function detectTrips(
   yearMonth: string,
   tripSplits: Record<string, true> = {},
 ): TripSegment[] {
-  const travelDates = Object.entries(tagMap)
-    .filter(([, tag]) => tag === 'travel')
-    .map(([date]) => date)
-    .sort();
-  if (travelDates.length === 0) return [];
-
-  const splitSet = new Set(Object.keys(tripSplits));
-  const segments = buildSegments(travelDates, splitSet);
+  const segments = detectAllTrips(tagMap, tripSplits);
   return segments.filter((s) =>
     s.dates.some((d) => d.startsWith(yearMonth)),
   );

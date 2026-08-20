@@ -58,6 +58,8 @@ export interface WishItem {
   targetAmount: number;
   savedAmount: number;
   deadline?: string | null;
+  linkedTripStartDate?: string | null;
+  plannedTravelDays?: number;
   isActive: boolean;
 }
 

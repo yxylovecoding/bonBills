@@ -12,6 +12,7 @@ import { useSnapshotStore } from '../stores/snapshotStore';
 import { useTripStore } from '../stores/tripStore';
 import type { WishItem } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
+import { detectAllTrips, type TripSegment } from '../utils/trips';
 import { calculateWishInternPlan } from '../utils/wishInternPlan';
 import { calculateWishPlan, POST_LIFE_FLEXIBLE_SHARE, POST_LIFE_WISH_SHARE } from '../utils/wishes';
 
@@ -33,6 +34,12 @@ function dateInMonth(value: string, requestedDay: number): string {
   return `${value}-${String(day).padStart(2, '0')}`;
 }
 
+function tripOptionLabel(trip: TripSegment, tag?: string): string {
+  const start = `${Number(trip.startDate.slice(5, 7))}/${Number(trip.startDate.slice(8, 10))}`;
+  const end = `${Number(trip.endDate.slice(5, 7))}/${Number(trip.endDate.slice(8, 10))}`;
+  return `${start}${trip.startDate === trip.endDate ? '' : `–${end}`} · ${trip.dates.length}天${tag ? ` · ${tag}` : ''}`;
+}
+
 export default function WishesPage() {
   const { config, setConfig } = useConfigStore();
   const { current } = useSnapshotStore();
@@ -40,7 +47,7 @@ export default function WishesPage() {
   const { tagMap, confirmedExpenses } = useCalendarStore();
   const { expenseItems } = useBillDetailStore();
   const { overrides } = useExpenseScopeOverrideStore();
-  const { tripTags } = useTripStore();
+  const { tripTags, tripSplits } = useTripStore();
   const [amountDrafts, setAmountDrafts] = useState<Record<string, string>>({});
   const [planningDeadline, setPlanningDeadline] = useState('');
   const today = new Date();
@@ -48,6 +55,15 @@ export default function WishesPage() {
   const todayKey = `${todayYear}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const twoYearsAgo = `${todayYear - 1}-01`;
   const wishes = config.wishes ?? [];
+  const allTripSegments = useMemo(() => detectAllTrips(tagMap, tripSplits), [tagMap, tripSplits]);
+  const availableTripSegments = useMemo(
+    () => allTripSegments.filter((trip) => trip.endDate >= todayKey),
+    [allTripSegments, todayKey],
+  );
+  const tripDatesByStart = useMemo(
+    () => Object.fromEntries(allTripSegments.map((trip) => [trip.startDate, trip.dates])),
+    [allTripSegments],
+  );
   const defaultPlanningDeadline = useMemo(
     () => wishes
       .filter((wish) => wish.isActive && wish.deadline && wish.deadline >= todayKey && wish.targetAmount > wish.savedAmount)
@@ -117,10 +133,11 @@ export default function WishesPage() {
       stateDailyAvg: stats.stateDailyAvg,
       repaymentsByMonth: planningRepaymentsByMonth,
       holidayDataByYear,
+      tripDatesByStart,
     }),
     // todayKey 每日变化一次，避免 Date 实例导致无意义的重复计算。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [config.incomeItems, effectivePlanningDeadline, holidayDataByYear, planningRepaymentsByMonth, stats.stateDailyAvg, tagMap, todayKey, wishes],
+    [config.incomeItems, effectivePlanningDeadline, holidayDataByYear, planningRepaymentsByMonth, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart, wishes],
   );
   const registeredSavings = wishes.reduce((sum, item) => sum + Math.max(item.savedAmount, 0), 0);
   const wishJarBalance = Math.max(current.accounts.wishJar ?? 0, 0);
@@ -140,6 +157,9 @@ export default function WishesPage() {
   const removeWish = (id: string) => syncWishes(wishes.filter((item) => item.id !== id));
   const updateWish = <K extends keyof WishItem>(id: string, field: K, value: WishItem[K]) => {
     syncWishes(wishes.map((item) => item.id === id ? { ...item, [field]: value } : item));
+  };
+  const updateWishFields = (id: string, patch: Partial<WishItem>) => {
+    syncWishes(wishes.map((item) => item.id === id ? { ...item, ...patch } : item));
   };
   const updateAmount = (id: string, field: 'targetAmount' | 'savedAmount', raw: string) => {
     const key = `${id}:${field}`;
@@ -227,6 +247,7 @@ export default function WishesPage() {
             <div style={{ marginTop: 10, fontSize: 11, lineHeight: 1.5, color: internPlan.minimumInternDays === null ? '#fde68a' : '#dcfce7' }}>
               {holidayLoading ? '正在校准法定工作日…' : '实习只安排在工作日'}
               {' · '}收入按实际到账日计入
+              {internPlan.excludedLivingDays > 0 ? ` · 已剔除 ${internPlan.excludedLivingDays} 天出游的“活”` : ''}
             </div>
           </>
         ) : (
@@ -285,6 +306,17 @@ export default function WishesPage() {
             const progress = item.targetAmount > 0 ? Math.min(item.savedAmount / item.targetAmount, 1) : 0;
             const targetKey = `${item.id}:targetAmount`;
             const savedKey = `${item.id}:savedAmount`;
+            const linkedTrip = item.linkedTripStartDate
+              ? allTripSegments.find((trip) => trip.startDate === item.linkedTripStartDate)
+              : undefined;
+            const itemTripOptions = linkedTrip && !availableTripSegments.some((trip) => trip.startDate === linkedTrip.startDate)
+              ? [linkedTrip, ...availableTripSegments]
+              : availableTripSegments;
+            const travelSelection = linkedTrip
+              ? linkedTrip.startDate
+              : (item.plannedTravelDays ?? 0) > 0
+                ? '__manual__'
+                : '';
             return (
               <div key={item.id} style={{ border: `1px solid ${item.isActive ? '#e9d5ff' : '#e5e7eb'}`, backgroundColor: item.isActive ? '#fdfaff' : '#fafafa', borderRadius: 14, padding: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -349,6 +381,63 @@ export default function WishesPage() {
                     )}
                   </div>
                 </label>
+
+                <div style={{ marginTop: 9, borderRadius: 10, border: '1px solid #ede9fe', backgroundColor: '#faf7ff', padding: '8px 9px' }}>
+                  <label style={{ display: 'block' }}>
+                    <span style={{ display: 'block', fontSize: 10, color: C.sub, marginBottom: 4 }}>关联出游（可选）</span>
+                    <select
+                      aria-label={`${item.name} 关联出游`}
+                      value={travelSelection}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        if (value === '__manual__') {
+                          updateWishFields(item.id, {
+                            linkedTripStartDate: null,
+                            plannedTravelDays: Math.max(Math.round(item.plannedTravelDays ?? 0), 1),
+                          });
+                        } else if (value) {
+                          updateWishFields(item.id, { linkedTripStartDate: value, plannedTravelDays: 0 });
+                        } else {
+                          updateWishFields(item.id, { linkedTripStartDate: null, plannedTravelDays: 0 });
+                        }
+                      }}
+                      style={{ width: '100%', minWidth: 0, border: '1px solid #ddd6fe', borderRadius: 8, backgroundColor: '#fff', padding: '6px 8px', outline: 'none', fontSize: 11, color: '#202124' }}
+                    >
+                      <option value="">不关联出游</option>
+                      {itemTripOptions.map((trip) => (
+                        <option key={trip.startDate} value={trip.startDate}>
+                          {tripOptionLabel(trip, tripTags[trip.startDate])}
+                        </option>
+                      ))}
+                      <option value="__manual__">未排进日历，按天数计算</option>
+                    </select>
+                  </label>
+                  {travelSelection === '__manual__' && (
+                    <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 7, fontSize: 11, color: C.sub }}>
+                      <span>准备出去几天</span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          min={1}
+                          max={365}
+                          aria-label={`${item.name} 出游天数`}
+                          value={Math.max(Math.round(item.plannedTravelDays ?? 1), 1)}
+                          onChange={(event) => updateWish(item.id, 'plannedTravelDays', Math.min(Math.max(Math.round(Number(event.target.value) || 1), 1), 365))}
+                          style={{ width: 52, border: 'none', borderBottom: '1px solid #c4b5fd', outline: 'none', backgroundColor: 'transparent', textAlign: 'right', color: C.purple, fontSize: 12, fontWeight: 700 }}
+                        />
+                        天
+                      </span>
+                    </label>
+                  )}
+                  <div style={{ marginTop: 5, fontSize: 10, color: '#8b5cf6', lineHeight: 1.45 }}>
+                    {linkedTrip
+                      ? `按这段“游”的 ${linkedTrip.dates.length} 天计算，这些天的“活”不再计入心愿规划。`
+                      : travelSelection === '__manual__'
+                        ? '按填写天数扣除对应天数的“活”，避免在心愿里重复攒。'
+                        : '旅行类心愿可关联日历中的一段“游”。'}
+                  </div>
+                </div>
 
                 <div style={{ height: 6, borderRadius: 999, backgroundColor: '#ede9fe', overflow: 'hidden', marginTop: 12 }}>
                   <div style={{ width: `${progress * 100}%`, height: '100%', borderRadius: 999, backgroundColor: progress >= 1 ? C.green : C.purple, transition: 'width 0.2s' }} />

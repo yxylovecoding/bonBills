@@ -36,6 +36,8 @@ export interface WishInternPlan {
   projectedWishSaving: number;
   consumptionTransferredToWish: number;
   usesConsumptionTransfer: boolean;
+  excludedLivingDays: number;
+  excludedLifeExpense: number;
   shortfall: number;
 }
 
@@ -48,6 +50,7 @@ export interface WishInternPlanOptions {
   stateDailyAvg: Record<TagKind, number>;
   repaymentsByMonth: Record<string, number>;
   holidayDataByYear: HolidayDataByYear;
+  tripDatesByStart?: Record<string, string[]>;
 }
 
 interface PayrollCandidateGroup {
@@ -144,6 +147,41 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
     if (!fixedTag && isWorkingDate(date, options.holidayDataByYear)) flexibleWorkingDates.push(date);
   }
 
+  const includedWishes = options.wishes.filter((wish) => {
+    if (!wish.isActive || !wish.deadline || wish.deadline > deadline) return false;
+    const target = Number.isFinite(wish.targetAmount) ? Math.max(wish.targetAmount, 0) : 0;
+    const saved = Number.isFinite(wish.savedAmount) ? Math.max(wish.savedAmount, 0) : 0;
+    return target > saved;
+  });
+  const linkedTravelDates = new Set<string>();
+  let requestedManualTravelDays = 0;
+  for (const wish of includedWishes) {
+    const linkedDates = wish.linkedTripStartDate
+      ? options.tripDatesByStart?.[wish.linkedTripStartDate]
+      : undefined;
+    if (linkedDates && linkedDates.length > 0) {
+      for (const date of linkedDates) {
+        if (date >= startDate && date <= deadline) linkedTravelDates.add(date);
+      }
+      continue;
+    }
+    const manualDays = Number.isFinite(wish.plannedTravelDays)
+      ? Math.max(Math.round(wish.plannedTravelDays ?? 0), 0)
+      : 0;
+    requestedManualTravelDays += manualDays;
+  }
+  const manualTravelDayCapacity = dates.filter(
+    (date) => !linkedTravelDates.has(date) && baselineTagMap[date] === 'school',
+  ).length;
+  const manualTravelDays = Math.min(requestedManualTravelDays, manualTravelDayCapacity);
+  const linkedLifeExpense = [...linkedTravelDates].reduce((sum, date) => {
+    const tag = baselineTagMap[date] ?? 'travel';
+    return sum + normalizedDailyAverage(options.stateDailyAvg[tag]);
+  }, 0);
+  const manualLifeExpense = manualTravelDays * normalizedDailyAverage(options.stateDailyAvg.school);
+  const excludedLifeExpense = Math.min(linkedLifeExpense + manualLifeExpense, baselineLifeExpense);
+  baselineLifeExpense = Math.max(baselineLifeExpense - excludedLifeExpense, 0);
+
   const activeInternIncome = options.incomeItems.filter(
     (item) => item.isActive && item.dailyRate !== undefined && item.tagKind === 'intern',
   );
@@ -202,8 +240,7 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
     const amount = options.repaymentsByMonth[month.yearMonth];
     return sum + (Number.isFinite(amount) ? Math.max(amount, 0) : 0);
   }, 0);
-  const wishAmount = options.wishes.reduce((sum, wish) => {
-    if (!wish.isActive || !wish.deadline || wish.deadline > deadline) return sum;
+  const wishAmount = includedWishes.reduce((sum, wish) => {
     const target = Number.isFinite(wish.targetAmount) ? Math.max(wish.targetAmount, 0) : 0;
     const saved = Number.isFinite(wish.savedAmount) ? Math.max(wish.savedAmount, 0) : 0;
     return sum + Math.max(target - saved, 0);
@@ -301,6 +338,8 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
     projectedWishSaving,
     consumptionTransferredToWish,
     usesConsumptionTransfer,
+    excludedLivingDays: linkedTravelDates.size + manualTravelDays,
+    excludedLifeExpense,
     shortfall,
   };
 }
