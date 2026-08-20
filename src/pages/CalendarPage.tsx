@@ -3624,6 +3624,10 @@ export default function CalendarPage() {
 
           {/* 月历 */}
           <Card>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginBottom: 5, fontSize: 9, color: C.sub }}>
+              <span><span style={{ marginRight: 3, borderRadius: 4, padding: '1px 3px', backgroundColor: '#fee2e2', color: '#dc2626', fontWeight: 700 }}>休</span>法定节假日</span>
+              <span><span style={{ marginRight: 3, borderRadius: 4, padding: '1px 3px', backgroundColor: '#ffedd5', color: '#c2410c', fontWeight: 700 }}>班</span>调休上班</span>
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, textAlign: 'center', fontSize: 11, marginBottom: 4, fontWeight: 500 }}>
               {WEEK_HEADERS.map((w, i) => <div key={w} style={{ color: (i === 5 || i === 6) ? C.weekend : C.sub }}>{w}</div>)}
             </div>
@@ -3633,6 +3637,11 @@ export default function CalendarPage() {
                 const tag = tagMap[cell.key];
                 const isToday    = cell.key === today;
                 const weekend    = isWeekend(cell.key);
+                const holiday = holidayDataByYear[year]?.[cell.key];
+                const isStatutoryHoliday = holiday?.isOffDay === true;
+                // 接口也包含“小年”等普通工作日纪念日；只有周末被指定上班才属于调休。
+                const isAdjustedWorkday = holiday?.isOffDay === false && weekend;
+                const holidayMarker = isStatutoryHoliday ? '休' : isAdjustedWorkday ? '班' : null;
                 const isPayrollCutoff = showPayrollCutoffMarkers && cell.key === payrollCutoffDate;
                 const isRangeStart = cell.key === rangeStart;
                 const isSelectedDay = cell.key === selectedDay;
@@ -3648,6 +3657,20 @@ export default function CalendarPage() {
                 else if (inPreview) borderStyle = `1.5px dashed ${C.blue}`;
                 const connect = tripConnect[cell.key];
                 const travelColor = tagMeta.travel.color;
+                const backgroundColor = displayMeta
+                  ? `${displayMeta.color}20`
+                  : isAdjustedWorkday
+                    ? '#fff7ed'
+                    : (isStatutoryHoliday || weekend)
+                      ? '#fff0f0'
+                      : '#f8f9fa';
+                const textColor = displayMeta
+                  ? displayMeta.color
+                  : isAdjustedWorkday
+                    ? C.orange
+                    : (isStatutoryHoliday || weekend)
+                      ? C.weekend
+                      : '#202124';
                 const radiusStyle: React.CSSProperties = connect
                   ? {
                       borderTopLeftRadius: connect.left ? 0 : 10,
@@ -3660,14 +3683,25 @@ export default function CalendarPage() {
                   <button key={cell.key}
                     onClick={() => handleCellClick(cell.key)}
                     onMouseEnter={() => { if (selectMode === 'range' && rangeStart) setRangeHover(cell.key); }}
-                    style={{ aspectRatio: '1', fontSize: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: borderStyle, backgroundColor: displayMeta ? `${displayMeta.color}20` : weekend ? '#fff0f0' : '#f8f9fa', color: displayMeta ? displayMeta.color : weekend ? C.weekend : '#202124', cursor: 'pointer', fontWeight: 500, transition: 'all 0.1s', outline: 'none', position: 'relative', ...radiusStyle }}
+                    aria-label={`${cell.key}${holidayMarker ? `，${holiday?.name ?? '法定节假日'}，${holidayMarker === '休' ? '休假' : '调休上班'}` : ''}`}
+                    title={holidayMarker ? `${holiday?.name ?? '法定节假日'} · ${holidayMarker === '休' ? '休假' : '调休上班'}` : undefined}
+                    style={{ aspectRatio: '1', fontSize: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: borderStyle, backgroundColor, color: textColor, cursor: 'pointer', fontWeight: 500, transition: 'all 0.1s', outline: 'none', position: 'relative', ...radiusStyle }}
                   >
                     {connect?.right && (
                       <span style={{ position: 'absolute', right: -5, top: 0, bottom: 0, width: 5, backgroundColor: `${travelColor}20`, pointerEvents: 'none', zIndex: 1 }} />
                     )}
                     {cell.day}
                     {displayMeta && <span style={{ fontSize: 8, marginTop: 1 }}>{displayMeta.icon}</span>}
-                    {isPayrollCutoff && <span style={{ position: 'absolute', top: 3, right: 4, fontSize: 9, fontWeight: 700, color: C.blue }}>截</span>}
+                    {(isPayrollCutoff || holidayMarker) && (
+                      <span style={{ position: 'absolute', top: 2, right: 3, display: 'inline-flex', alignItems: 'center', gap: 1, pointerEvents: 'none', zIndex: 2 }}>
+                        {isPayrollCutoff && <span style={{ fontSize: 8, fontWeight: 700, color: C.blue }}>截</span>}
+                        {holidayMarker && (
+                          <span style={{ borderRadius: 4, padding: '1px 2px', backgroundColor: holidayMarker === '休' ? '#fee2e2' : '#ffedd5', color: holidayMarker === '休' ? '#dc2626' : '#c2410c', fontSize: 8, lineHeight: 1.1, fontWeight: 800 }}>
+                            {holidayMarker}
+                          </span>
+                        )}
+                      </span>
+                    )}
                     {hasReviewed && <span style={{ position: 'absolute', top: 3, left: 4, width: 5, height: 5, borderRadius: '50%', backgroundColor: isZeroConfirmed ? C.green : C.orange }} />}
                   </button>
                 );
