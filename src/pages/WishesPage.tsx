@@ -273,7 +273,7 @@ export default function WishesPage() {
                 style={{ width: '100%', margin: '9px 0 4px', accentColor: '#fff', cursor: minimumSelectableInternDays < internPlan.availableInternDays ? 'pointer' : 'default' }}
               />
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 9, opacity: 0.72 }}>
-                <span>{internPlan.minimumInternDays === null ? '拉满仍有缺口' : `满足心愿 ${minimumSelectableInternDays} 天`}</span>
+                <span>{internPlan.minimumInternDays === null ? `拉满仍缺 ¥${formatCurrency(internPlan.shortfall)}` : `满足心愿 ${minimumSelectableInternDays} 天`}</span>
                 <span>法定工作日上限 {internPlan.availableInternDays} 天</span>
               </div>
             </div>
