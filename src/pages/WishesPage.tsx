@@ -323,6 +323,11 @@ export default function WishesPage() {
                   <div style={{ marginTop: 2, fontSize: 11, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedInvestmentSaving)}</div>
                 </div>
               </div>
+              {internPlan.consumptionTransferredToWish > 0.005 && (
+                <div style={{ marginTop: 7, textAlign: 'right', fontSize: 10, fontWeight: 700, fontVariantNumeric: 'tabular-nums', opacity: 0.84 }}>
+                  消费 → 心愿&nbsp; ¥{formatCurrency(internPlan.consumptionTransferredToWish)}
+                </div>
+              )}
             </div>
           </>
         ) : (
