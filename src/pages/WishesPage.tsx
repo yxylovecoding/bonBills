@@ -51,6 +51,7 @@ export default function WishesPage() {
   const { overrides } = useExpenseScopeOverrideStore();
   const { tripTags, tripSplits } = useTripStore();
   const [amountDrafts, setAmountDrafts] = useState<Record<string, string>>({});
+  const [budgetEstimateWishId, setBudgetEstimateWishId] = useState<string | null>(null);
   const [planningDeadline, setPlanningDeadline] = useState('');
   const [selectedInternDays, setSelectedInternDays] = useState<number | null>(null);
   const today = new Date();
@@ -174,6 +175,7 @@ export default function WishesPage() {
   };
   const removeWish = (id: string) => {
     setSelectedInternDays(null);
+    setBudgetEstimateWishId((currentId) => currentId === id ? null : currentId);
     syncWishes(wishes.filter((item) => item.id !== id));
   };
   const updateWish = <K extends keyof WishItem>(id: string, field: K, value: WishItem[K]) => {
@@ -389,6 +391,8 @@ export default function WishesPage() {
             const itemTravelConsumptionAmount = itemTravelDays * Math.max(stats.stateConsumptionDailyAvg.travel, 0);
             const itemWishAmountExcludingLife = Math.max(item.remainingAmount - itemTravelLifeAmount, 0);
             const roundedTravelTargetAmount = roundToSitePrecision(travelEstimate.targetAmount);
+            const budgetEstimateVisible = budgetEstimateWishId === item.id
+              || (item.targetAmount <= 0 && itemTravelDays > 0);
             return (
               <div key={item.id} style={{ border: `1px solid ${item.isActive ? '#e9d5ff' : '#e5e7eb'}`, backgroundColor: item.isActive ? '#fdfaff' : '#fafafa', borderRadius: 14, padding: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -410,12 +414,15 @@ export default function WishesPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9, marginTop: 12 }}>
                   <label style={{ display: 'block' }}>
                     <span style={{ display: 'block', fontSize: 10, color: C.sub, marginBottom: 4 }}>目标金额</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, border: '1px solid #e5e7eb', borderRadius: 9, backgroundColor: '#fff', padding: '6px 8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, border: `1px solid ${budgetEstimateWishId === item.id ? '#c4b5fd' : '#e5e7eb'}`, borderRadius: 9, backgroundColor: '#fff', padding: '6px 8px', boxShadow: budgetEstimateWishId === item.id ? '0 0 0 2px #ede9fe' : 'none' }}>
                       <span style={{ fontSize: 11, color: C.sub }}>¥</span>
                       <AmountInput
                         aria-label="目标金额"
+                        aria-expanded={budgetEstimateVisible}
+                        aria-controls={`budget-estimate-${item.id}`}
                         value={amountDrafts[targetKey] ?? (item.targetAmount ? String(item.targetAmount) : '')}
                         onChange={(raw) => updateAmount(item.id, 'targetAmount', raw)}
+                        onFocus={() => setBudgetEstimateWishId(item.id)}
                         onBlur={() => finishAmountEdit(item.id, 'targetAmount')}
                         placeholder="0"
                         style={{ width: '100%', minWidth: 0, border: 'none', outline: 'none', background: 'transparent', textAlign: 'right', fontSize: 12, fontWeight: 700, color: C.purple }}
@@ -509,8 +516,25 @@ export default function WishesPage() {
                         ? '按填写天数扣除对应天数的“活”，避免在心愿里重复攒。'
                         : '旅行类心愿可关联日历中的一段“游”。'}
                   </div>
-                  {item.targetAmount <= 0 && itemTravelDays > 0 && (
-                    <div style={{ marginTop: 8, borderTop: '1px dashed #ddd6fe', paddingTop: 8 }}>
+                  {budgetEstimateVisible && itemTravelDays <= 0 && (
+                    <div id={`budget-estimate-${item.id}`} style={{ marginTop: 8, borderTop: '1px dashed #ddd6fe', paddingTop: 8, fontSize: 10, color: C.purple, lineHeight: 1.5 }}>
+                      先关联一段“游”，或选择“未排进日历，按天数计算”，我才能按机票、酒店和这些天的“活”预估预算。
+                    </div>
+                  )}
+                  {budgetEstimateVisible && itemTravelDays > 0 && (
+                    <div id={`budget-estimate-${item.id}`} style={{ marginTop: 8, borderTop: '1px dashed #ddd6fe', paddingTop: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: C.purple }}>预算预估</span>
+                        {item.targetAmount > 0 && budgetEstimateWishId === item.id && (
+                          <button
+                            type="button"
+                            onClick={() => setBudgetEstimateWishId(null)}
+                            style={{ border: 'none', background: 'transparent', color: C.sub, padding: 0, fontSize: 9, cursor: 'pointer' }}
+                          >
+                            收起
+                          </button>
+                        )}
+                      </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7 }}>
                         <label>
                           <span style={{ display: 'block', marginBottom: 3, fontSize: 9, color: C.sub }}>机票</span>
@@ -567,8 +591,8 @@ export default function WishesPage() {
                         <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.orange }}>¥{formatCurrency(itemTravelConsumptionAmount)}</div>
                       </div>
                       <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
-                        <div style={{ fontSize: 9, color: C.sub }}>{item.targetAmount > 0 ? '去“活”后需攒' : '估算目标'}</div>
-                        <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.purple }}>¥{formatCurrency(item.targetAmount > 0 ? itemWishAmountExcludingLife : roundedTravelTargetAmount)}</div>
+                        <div style={{ fontSize: 9, color: C.sub }}>{budgetEstimateVisible ? '估算目标' : '去“活”后需攒'}</div>
+                        <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.purple }}>¥{formatCurrency(budgetEstimateVisible ? roundedTravelTargetAmount : itemWishAmountExcludingLife)}</div>
                       </div>
                     </div>
                   )}
