@@ -235,7 +235,7 @@ export default function WishesPage() {
               <div style={{ fontSize: 11, opacity: 0.86, marginTop: 5, lineHeight: 1.55 }}>
                 <div>
                   {internPlan.excludedLivingDays} 天：“活” ¥{formatCurrency(plannedTravelLifeAmount)}
-                  {' · '}“生活－活” ¥{formatCurrency(plannedTravelConsumptionAmount)}
+                  {' · '}“消费” ¥{formatCurrency(plannedTravelConsumptionAmount)}
                 </div>
                 <div>
                   心愿目标含“活” ¥{formatCurrency(internPlan.wishAmountIncludingLife)}
@@ -462,7 +462,7 @@ export default function WishesPage() {
                         <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.blue }}>¥{formatCurrency(itemTravelLifeAmount)}</div>
                       </div>
                       <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
-                        <div style={{ fontSize: 9, color: C.sub }}>“生活－活”</div>
+                        <div style={{ fontSize: 9, color: C.sub }}>“消费”</div>
                         <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.orange }}>¥{formatCurrency(itemTravelConsumptionAmount)}</div>
                       </div>
                       <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
