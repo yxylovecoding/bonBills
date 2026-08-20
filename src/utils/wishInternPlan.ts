@@ -40,6 +40,7 @@ export interface WishInternPlan {
   availableInternDays: number;
   scheduledInternDays: number;
   minimumInternDays: number | null;
+  selectedInternDays: number;
   additionalInternDays: number;
   reducibleInternDays: number;
   recommendedDates: string[];
@@ -62,6 +63,7 @@ export interface WishInternPlanOptions {
   repaymentsByMonth: Record<string, number>;
   holidayDataByYear: HolidayDataByYear;
   tripDatesByStart?: Record<string, string[]>;
+  selectedInternDays?: number | null;
 }
 
 interface PayrollCandidateGroup {
@@ -255,7 +257,7 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
   let recommendedCoreSurplus = baselineCoreSurplus;
   let recommendedDates: string[] = [];
 
-  while (recommendedCoreSurplus + 1e-7 < requiredCoreSurplus) {
+  const selectNextPaidDate = (requirePositiveGain: boolean): boolean => {
     let bestGroup: PayrollCandidateGroup | null = null;
     let bestGain = Number.NEGATIVE_INFINITY;
     for (const group of groups) {
@@ -266,10 +268,15 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
         bestGroup = group;
       }
     }
-    if (!bestGroup || bestGain <= 0) break;
+    if (!bestGroup || (requirePositiveGain && bestGain <= 0)) return false;
     recommendedCoreSurplus += bestGain;
     recommendedDates.push(bestGroup.dates[bestGroup.chosen]);
     bestGroup.chosen += 1;
+    return true;
+  };
+
+  while (recommendedCoreSurplus + 1e-7 < requiredCoreSurplus) {
+    if (!selectNextPaidDate(true)) break;
   }
 
   let minimumInternDays: number | null = recommendedCoreSurplus + 1e-7 >= requiredCoreSurplus
@@ -279,7 +286,27 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
 
   if (minimumInternDays === null) {
     for (const group of groups) group.chosen = group.dates.length;
-    recommendedDates = groups.flatMap((group) => group.dates);
+    // 常规心愿份额仍不足时，按用户定义把所有“非家非游”的中国法定工作日拉满。
+    recommendedDates = [...flexibleWorkingDates];
+  } else {
+    const requestedInternDays = Number.isFinite(options.selectedInternDays)
+      ? Math.round(options.selectedInternDays ?? minimumInternDays)
+      : minimumInternDays;
+    const selectedInternDays = Math.min(
+      Math.max(requestedInternDays, minimumInternDays),
+      flexibleWorkingDates.length,
+    );
+    while (recommendedDates.length < selectedInternDays && selectNextPaidDate(false)) {
+      // 优先补入能在截止日前到账、边际收益更高的实习日。
+    }
+    if (recommendedDates.length < selectedInternDays) {
+      const selectedDates = new Set(recommendedDates);
+      for (const date of flexibleWorkingDates) {
+        if (selectedDates.has(date)) continue;
+        recommendedDates.push(date);
+        if (recommendedDates.length >= selectedInternDays) break;
+      }
+    }
   }
 
   const recommendedLifeExpense = baselineLifeExpense + recommendedDates.length * expenseDeltaPerInternDay;
@@ -308,11 +335,8 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
   const shortfall = Math.max(wishAmount - projectedWishSaving, 0);
   if (minimumInternDays === null && consumptionTransferredToWish > 0) usesConsumptionTransfer = true;
   if (minimumInternDays === null && shortfall <= 1e-7) minimumInternDays = recommendedDates.length;
-  const scheduledInternDays = groups.reduce(
-    (sum, group) => sum + group.dates.filter((date) => options.tagMap[date] === 'intern').length,
-    0,
-  );
-  const targetInternDays = minimumInternDays ?? recommendedDates.length;
+  const scheduledInternDays = flexibleWorkingDates.filter((date) => options.tagMap[date] === 'intern').length;
+  const targetInternDays = minimumInternDays ?? flexibleWorkingDates.length;
   const additionalInternDays = Math.max(targetInternDays - scheduledInternDays, 0);
   const reducibleInternDays = minimumInternDays === null
     ? 0
@@ -320,9 +344,7 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
   const monthPlans = months.map((month) => ({
     yearMonth: month.yearMonth,
     internDays: recommendedDates.filter((date) => date.startsWith(`${month.yearMonth}-`)).length,
-    availableInternDays: flexibleWorkingDates.filter(
-      (date) => assignedDates.has(date) && date.startsWith(`${month.yearMonth}-`),
-    ).length,
+    availableInternDays: flexibleWorkingDates.filter((date) => date.startsWith(`${month.yearMonth}-`)).length,
   })).filter((month) => month.availableInternDays > 0 || month.internDays > 0);
 
   // 保持日期顺序，方便页面直接展示可执行安排。
@@ -345,9 +367,10 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
     projectedConsumption,
     projectedInvestmentSaving,
     projectedTotalSaving,
-    availableInternDays: groups.reduce((sum, group) => sum + group.dates.length, 0),
+    availableInternDays: flexibleWorkingDates.length,
     scheduledInternDays,
     minimumInternDays,
+    selectedInternDays: recommendedDates.length,
     additionalInternDays,
     reducibleInternDays,
     recommendedDates,

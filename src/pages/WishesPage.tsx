@@ -55,6 +55,7 @@ export default function WishesPage() {
   const { tripTags, tripSplits } = useTripStore();
   const [amountDrafts, setAmountDrafts] = useState<Record<string, string>>({});
   const [planningDeadline, setPlanningDeadline] = useState('');
+  const [selectedInternDays, setSelectedInternDays] = useState<number | null>(null);
   const today = new Date();
   const todayYear = today.getFullYear();
   const todayKey = `${todayYear}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -139,33 +140,43 @@ export default function WishesPage() {
       repaymentsByMonth: planningRepaymentsByMonth,
       holidayDataByYear,
       tripDatesByStart,
+      selectedInternDays,
     }),
     // todayKey 每日变化一次，避免 Date 实例导致无意义的重复计算。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [config.incomeItems, effectivePlanningDeadline, holidayDataByYear, planningRepaymentsByMonth, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart, wishes],
+    [config.incomeItems, effectivePlanningDeadline, holidayDataByYear, planningRepaymentsByMonth, selectedInternDays, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart, wishes],
   );
+  const minimumSelectableInternDays = internPlan.minimumInternDays ?? internPlan.availableInternDays;
   const plannedTravelLifeAmount = internPlan.excludedLivingDays * Math.max(stats.stateDailyAvg.travel, 0);
   const plannedTravelConsumptionAmount = internPlan.excludedLivingDays * Math.max(stats.stateConsumptionDailyAvg.travel, 0);
   const registeredSavings = wishes.reduce((sum, item) => sum + Math.max(item.savedAmount, 0), 0);
   const wishJarBalance = Math.max(current.accounts.wishJar ?? 0, 0);
 
   const syncWishes = (items: WishItem[]) => setConfig({ wishes: items });
-  const addWish = () => syncWishes([
-    ...wishes,
-    {
-      id: `wish_${Date.now()}`,
-      name: '新心愿',
-      targetAmount: 0,
-      savedAmount: 0,
-      deadline: null,
-      isActive: true,
-    },
-  ]);
-  const removeWish = (id: string) => syncWishes(wishes.filter((item) => item.id !== id));
+  const addWish = () => {
+    setSelectedInternDays(null);
+    syncWishes([
+      ...wishes,
+      {
+        id: `wish_${Date.now()}`,
+        name: '新心愿',
+        targetAmount: 0,
+        savedAmount: 0,
+        deadline: null,
+        isActive: true,
+      },
+    ]);
+  };
+  const removeWish = (id: string) => {
+    setSelectedInternDays(null);
+    syncWishes(wishes.filter((item) => item.id !== id));
+  };
   const updateWish = <K extends keyof WishItem>(id: string, field: K, value: WishItem[K]) => {
+    if (field !== 'name') setSelectedInternDays(null);
     syncWishes(wishes.map((item) => item.id === id ? { ...item, [field]: value } : item));
   };
   const updateWishFields = (id: string, patch: Partial<WishItem>) => {
+    setSelectedInternDays(null);
     syncWishes(wishes.map((item) => item.id === id ? { ...item, ...patch } : item));
   };
   const updateAmount = (id: string, field: 'targetAmount' | 'savedAmount', raw: string) => {
@@ -209,7 +220,10 @@ export default function WishesPage() {
             aria-label="心愿规划截止日期"
             min={todayKey}
             value={effectivePlanningDeadline}
-            onChange={(event) => setPlanningDeadline(event.target.value)}
+            onChange={(event) => {
+              setPlanningDeadline(event.target.value);
+              setSelectedInternDays(null);
+            }}
             style={{ minWidth: 132, border: '1px solid rgba(255,255,255,0.38)', borderRadius: 9, outline: 'none', backgroundColor: 'rgba(255,255,255,0.16)', color: '#fff', padding: '6px 8px', fontSize: 12, fontWeight: 700, colorScheme: 'dark' }}
           />
         </div>
@@ -220,7 +234,9 @@ export default function WishesPage() {
                 ? '消费可用部分也补入后仍无法按期攒够'
                 : internPlan.usesConsumptionTransfer
                   ? '工作日全部实习，并从消费单向补入心愿'
-                  : '按期攒够的最少实习方案'}
+                  : internPlan.selectedInternDays > minimumSelectableInternDays
+                    ? `当前比最低方案多实习 ${internPlan.selectedInternDays - minimumSelectableInternDays} 天`
+                    : '按期攒够的最少实习方案'}
             </div>
             <div style={{ fontSize: 30, lineHeight: 1.15, fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: -0.5 }}>
               {internPlan.minimumInternDays === null
@@ -232,9 +248,9 @@ export default function WishesPage() {
                     : '当前实习天数刚好'}
             </div>
             <div style={{ fontSize: 11, opacity: 0.82, marginTop: 6 }}>
-              当前已排 {internPlan.scheduledInternDays} 天能在截止前到账的实习
-              {' · '}按期至少 {internPlan.minimumInternDays ?? internPlan.availableInternDays} 天
-              {' · '}共 {internPlan.availableInternDays} 个截止前可到账工作日
+              当前日历已排 {internPlan.scheduledInternDays} 天实习
+              {' · '}按期至少 {minimumSelectableInternDays} 天
+              {' · '}最多 {internPlan.availableInternDays} 个非家非游法定工作日
             </div>
             {internPlan.excludedLivingDays > 0 && (
               <div style={{ fontSize: 11, opacity: 0.86, marginTop: 5, lineHeight: 1.55 }}>
@@ -258,9 +274,31 @@ export default function WishesPage() {
                 <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>{internPlan.reducibleInternDays} 天</div>
               </div>
             </div>
+            <div style={{ marginTop: 10, borderRadius: 12, padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
+                <span style={{ fontSize: 11, fontWeight: 700 }}>实习天数</span>
+                <span style={{ fontSize: 16, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{internPlan.selectedInternDays} 天</span>
+              </div>
+              <input
+                type="range"
+                aria-label="规划实习天数"
+                aria-valuetext={`${internPlan.selectedInternDays} 天`}
+                min={minimumSelectableInternDays}
+                max={internPlan.availableInternDays}
+                step={1}
+                value={internPlan.selectedInternDays}
+                disabled={minimumSelectableInternDays >= internPlan.availableInternDays}
+                onChange={(event) => setSelectedInternDays(Number(event.target.value))}
+                style={{ width: '100%', margin: '9px 0 4px', accentColor: '#fff', cursor: minimumSelectableInternDays < internPlan.availableInternDays ? 'pointer' : 'default' }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 9, opacity: 0.72 }}>
+                <span>{internPlan.minimumInternDays === null ? '拉满仍有缺口' : `满足心愿 ${minimumSelectableInternDays} 天`}</span>
+                <span>法定工作日上限 {internPlan.availableInternDays} 天</span>
+              </div>
+            </div>
             <div style={{ marginTop: 10, borderRadius: 12, padding: '11px 12px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
-                <span style={{ fontSize: 11, opacity: 0.8 }}>到截止日期理论可攒</span>
+                <span style={{ fontSize: 11, opacity: 0.8 }}>按 {internPlan.selectedInternDays} 天方案理论可攒</span>
                 <span style={{ fontSize: 21, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedTotalSaving)}</span>
               </div>
               <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.2)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px 12px', fontSize: 11 }}>
