@@ -6,6 +6,40 @@ export const POST_LIFE_WISH_SHARE = POST_LIFE_FLEXIBLE_SHARE * FLEXIBLE_WISH_SHA
 export const POST_LIFE_CONSUMPTION_SHARE = 0.1;
 export const POST_LIFE_INVESTMENT_SHARE = 0.5;
 
+export interface TravelWishEstimate {
+  days: number;
+  dailyLifeAmount: number;
+  lifeAmount: number;
+  ticketAmount: number;
+  lodgingAmount: number;
+  targetAmount: number;
+}
+
+function normalizedAmount(value: number | undefined): number {
+  return Number.isFinite(value) ? Math.max(value ?? 0, 0) : 0;
+}
+
+export function calculateTravelWishEstimate(
+  days: number,
+  dailyLifeAmount: number,
+  ticketAmount?: number,
+  lodgingAmount?: number,
+): TravelWishEstimate {
+  const normalizedDays = Number.isFinite(days) ? Math.max(Math.round(days), 0) : 0;
+  const normalizedDailyLifeAmount = normalizedAmount(dailyLifeAmount);
+  const normalizedTicketAmount = normalizedAmount(ticketAmount);
+  const normalizedLodgingAmount = normalizedAmount(lodgingAmount);
+  const lifeAmount = normalizedDays * normalizedDailyLifeAmount;
+  return {
+    days: normalizedDays,
+    dailyLifeAmount: normalizedDailyLifeAmount,
+    lifeAmount,
+    ticketAmount: normalizedTicketAmount,
+    lodgingAmount: normalizedLodgingAmount,
+    targetAmount: normalizedTicketAmount + normalizedLodgingAmount + lifeAmount,
+  };
+}
+
 export type WishDeadlineState = 'none' | 'scheduled' | 'overdue' | 'completed';
 
 export interface WishPlanItem extends WishItem {

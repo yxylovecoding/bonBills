@@ -14,7 +14,7 @@ import type { WishItem } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { detectAllTrips, type TripSegment } from '../utils/trips';
 import { calculateWishInternPlan } from '../utils/wishInternPlan';
-import { calculateWishPlan } from '../utils/wishes';
+import { calculateTravelWishEstimate, calculateWishPlan } from '../utils/wishes';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 
@@ -172,12 +172,13 @@ export default function WishesPage() {
     setSelectedInternDays(null);
     syncWishes(wishes.map((item) => item.id === id ? { ...item, ...patch } : item));
   };
-  const updateAmount = (id: string, field: 'targetAmount' | 'savedAmount', raw: string) => {
+  type WishAmountField = 'targetAmount' | 'savedAmount' | 'travelTicketAmount' | 'travelLodgingAmount';
+  const updateAmount = (id: string, field: WishAmountField, raw: string) => {
     const key = `${id}:${field}`;
     setAmountDrafts((prev) => ({ ...prev, [key]: raw }));
     updateWish(id, field, sanitizeAmount(raw));
   };
-  const finishAmountEdit = (id: string, field: 'targetAmount' | 'savedAmount') => {
+  const finishAmountEdit = (id: string, field: WishAmountField) => {
     const key = `${id}:${field}`;
     setAmountDrafts((prev) => {
       const next = { ...prev };
@@ -346,6 +347,8 @@ export default function WishesPage() {
             const progress = item.targetAmount > 0 ? Math.min(item.savedAmount / item.targetAmount, 1) : 0;
             const targetKey = `${item.id}:targetAmount`;
             const savedKey = `${item.id}:savedAmount`;
+            const ticketKey = `${item.id}:travelTicketAmount`;
+            const lodgingKey = `${item.id}:travelLodgingAmount`;
             const linkedTrip = item.linkedTripStartDate
               ? allTripSegments.find((trip) => trip.startDate === item.linkedTripStartDate)
               : undefined;
@@ -358,7 +361,13 @@ export default function WishesPage() {
                 ? '__manual__'
                 : '';
             const itemTravelDays = linkedTrip?.dates.length ?? Math.max(Math.round(item.plannedTravelDays ?? 0), 0);
-            const itemTravelLifeAmount = itemTravelDays * Math.max(stats.stateDailyAvg.travel, 0);
+            const travelEstimate = calculateTravelWishEstimate(
+              itemTravelDays,
+              stats.stateDailyAvg.travel,
+              item.travelTicketAmount,
+              item.travelLodgingAmount,
+            );
+            const itemTravelLifeAmount = travelEstimate.lifeAmount;
             const itemTravelConsumptionAmount = itemTravelDays * Math.max(stats.stateConsumptionDailyAvg.travel, 0);
             const itemWishAmountExcludingLife = Math.max(item.remainingAmount - itemTravelLifeAmount, 0);
             return (
@@ -481,6 +490,53 @@ export default function WishesPage() {
                         ? '按填写天数扣除对应天数的“活”，避免在心愿里重复攒。'
                         : '旅行类心愿可关联日历中的一段“游”。'}
                   </div>
+                  {item.targetAmount <= 0 && itemTravelDays > 0 && (
+                    <div style={{ marginTop: 8, borderTop: '1px dashed #ddd6fe', paddingTop: 8 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7 }}>
+                        <label>
+                          <span style={{ display: 'block', marginBottom: 3, fontSize: 9, color: C.sub }}>机票</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 3, borderRadius: 7, backgroundColor: '#fff', padding: '5px 6px' }}>
+                            <span style={{ fontSize: 10, color: C.sub }}>¥</span>
+                            <AmountInput
+                              aria-label={`${item.name} 机票价格`}
+                              value={amountDrafts[ticketKey] ?? (item.travelTicketAmount ? String(item.travelTicketAmount) : '')}
+                              onChange={(raw) => updateAmount(item.id, 'travelTicketAmount', raw)}
+                              onBlur={() => finishAmountEdit(item.id, 'travelTicketAmount')}
+                              placeholder="0"
+                              style={{ width: '100%', minWidth: 0, border: 'none', outline: 'none', backgroundColor: 'transparent', textAlign: 'right', fontSize: 11, fontWeight: 700, color: C.purple }}
+                            />
+                          </div>
+                        </label>
+                        <label>
+                          <span style={{ display: 'block', marginBottom: 3, fontSize: 9, color: C.sub }}>酒店</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 3, borderRadius: 7, backgroundColor: '#fff', padding: '5px 6px' }}>
+                            <span style={{ fontSize: 10, color: C.sub }}>¥</span>
+                            <AmountInput
+                              aria-label={`${item.name} 酒店价格`}
+                              value={amountDrafts[lodgingKey] ?? (item.travelLodgingAmount ? String(item.travelLodgingAmount) : '')}
+                              onChange={(raw) => updateAmount(item.id, 'travelLodgingAmount', raw)}
+                              onBlur={() => finishAmountEdit(item.id, 'travelLodgingAmount')}
+                              placeholder="0"
+                              style={{ width: '100%', minWidth: 0, border: 'none', outline: 'none', backgroundColor: 'transparent', textAlign: 'right', fontSize: 11, fontWeight: 700, color: C.purple }}
+                            />
+                          </div>
+                        </label>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 7 }}>
+                        <span style={{ minWidth: 0, fontSize: 9, color: C.sub, lineHeight: 1.35 }}>
+                          吃饭、小交通等“活”：{travelEstimate.days} 天 × ¥{formatCurrency(travelEstimate.dailyLifeAmount)}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={travelEstimate.targetAmount <= 0}
+                          onClick={() => updateWish(item.id, 'targetAmount', travelEstimate.targetAmount)}
+                          style={{ flexShrink: 0, border: 'none', borderRadius: 7, backgroundColor: travelEstimate.targetAmount > 0 ? C.purple : '#e5e7eb', color: travelEstimate.targetAmount > 0 ? '#fff' : '#9ca3af', padding: '5px 7px', fontSize: 10, fontWeight: 700, cursor: travelEstimate.targetAmount > 0 ? 'pointer' : 'default' }}
+                        >
+                          采用 ¥{formatCurrency(travelEstimate.targetAmount)}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   {itemTravelDays > 0 && (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 5, marginTop: 7 }}>
                       <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
@@ -492,8 +548,8 @@ export default function WishesPage() {
                         <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.orange }}>¥{formatCurrency(itemTravelConsumptionAmount)}</div>
                       </div>
                       <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
-                        <div style={{ fontSize: 9, color: C.sub }}>去“活”后需攒</div>
-                        <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.purple }}>¥{formatCurrency(itemWishAmountExcludingLife)}</div>
+                        <div style={{ fontSize: 9, color: C.sub }}>{item.targetAmount > 0 ? '去“活”后需攒' : '估算目标'}</div>
+                        <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.purple }}>¥{formatCurrency(item.targetAmount > 0 ? itemWishAmountExcludingLife : travelEstimate.targetAmount)}</div>
                       </div>
                     </div>
                   )}
@@ -515,7 +571,7 @@ export default function WishesPage() {
                   {item.isActive && item.deadlineState === 'scheduled' && item.remainingAmount > 0 && (
                     `还剩 ${item.monthsRemaining} 个月 · 截止前还需攒 ¥${formatCurrency(item.remainingAmount)}`
                   )}
-                  {item.isActive && item.deadlineState === 'scheduled' && item.targetAmount <= 0 && '填入目标金额后开始计算'}
+                  {item.isActive && item.deadlineState === 'scheduled' && item.targetAmount <= 0 && (itemTravelDays > 0 ? '填写机酒价格并采用估算后开始计算' : '填入目标金额后开始计算')}
                 </div>
               </div>
             );
