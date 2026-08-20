@@ -11,11 +11,16 @@ import { useExpenseScopeOverrideStore } from '../stores/expenseScopeOverrideStor
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { useSnapshotStore } from '../stores/snapshotStore';
 import { useTripStore } from '../stores/tripStore';
-import type { WishItem } from '../models/types';
+import type { WishExtraExpenseItem, WishItem } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { detectAllTrips, type TripSegment } from '../utils/trips';
 import { calculateWishInternPlan } from '../utils/wishInternPlan';
-import { calculateTravelWishEstimate, calculateWishPlan } from '../utils/wishes';
+import {
+  calculateTravelWishEstimate,
+  calculateWishPlan,
+  resolveWishExtraExpenseItems,
+  totalWishExtraExpenseAmount,
+} from '../utils/wishes';
 import { calculateCreditRepaymentPlan } from '../utils/creditRepayment';
 import { roundToSitePrecision } from '../utils/numberInput';
 import { buildWishTimelineEntries } from '../utils/wishTimeline';
@@ -307,7 +312,7 @@ export default function WishesPage() {
     setSelectedSegmentDays({});
     syncWishes(wishes.map((item) => item.id === id ? { ...item, ...patch } : item));
   };
-  type WishAmountField = 'targetAmount' | 'savedAmount' | 'travelTicketAmount' | 'travelLodgingDailyAmount' | 'travelExtraExpenseAmount';
+  type WishAmountField = 'targetAmount' | 'savedAmount' | 'travelTicketAmount' | 'travelLodgingDailyAmount';
   const updateAmount = (id: string, field: WishAmountField, raw: string) => {
     const key = `${id}:${field}`;
     setAmountDrafts((prev) => ({ ...prev, [key]: raw }));
@@ -320,6 +325,33 @@ export default function WishesPage() {
       delete next[key];
       return next;
     });
+  };
+  const setWishExtraExpenses = (wishId: string, items: WishExtraExpenseItem[]) => {
+    updateWishFields(wishId, {
+      travelExtraExpenseItems: items,
+      travelExtraExpenseAmount: 0,
+    });
+  };
+  const addWishExtraExpense = (wishId: string, items: WishExtraExpenseItem[]) => {
+    setWishExtraExpenses(wishId, [
+      ...items,
+      {
+        id: `extra_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        name: '',
+        amount: 0,
+      },
+    ]);
+  };
+  const updateWishExtraExpense = (
+    wishId: string,
+    items: WishExtraExpenseItem[],
+    expenseId: string,
+    patch: Partial<Pick<WishExtraExpenseItem, 'name' | 'amount'>>,
+  ) => {
+    setWishExtraExpenses(
+      wishId,
+      items.map((expense) => expense.id === expenseId ? { ...expense, ...patch } : expense),
+    );
   };
   const allInternDaysApplied = availableSelectableInternDays > 0
     && scheduledIntervalInternDays >= availableSelectableInternDays;
@@ -572,7 +604,6 @@ export default function WishesPage() {
             const savedKey = `${item.id}:savedAmount`;
             const ticketKey = `${item.id}:travelTicketAmount`;
             const lodgingKey = `${item.id}:travelLodgingDailyAmount`;
-            const extraExpenseKey = `${item.id}:travelExtraExpenseAmount`;
             const linkedTrip = item.linkedTripStartDate
               ? allTripSegments.find((trip) => trip.startDate === item.linkedTripStartDate)
               : undefined;
@@ -590,12 +621,14 @@ export default function WishesPage() {
               : itemTravelDays > 0
                 ? Math.max(item.travelLodgingAmount ?? 0, 0) / itemTravelDays
                 : 0;
+            const itemExtraExpenses = resolveWishExtraExpenseItems(item);
+            const itemExtraExpenseAmount = totalWishExtraExpenseAmount(itemExtraExpenses);
             const travelEstimate = calculateTravelWishEstimate(
               itemTravelDays,
               stats.stateDailyAvg.travel,
               item.travelTicketAmount,
               itemLodgingDailyAmount,
-              item.travelExtraExpenseAmount,
+              itemExtraExpenseAmount,
             );
             const itemTravelLifeAmount = travelEstimate.lifeAmount;
             const itemTravelConsumptionAmount = itemTravelDays * Math.max(stats.stateConsumptionDailyAvg.travel, 0);
@@ -786,20 +819,70 @@ export default function WishesPage() {
                             />
                           </div>
                         </label>
-                        <label style={{ gridColumn: '1 / -1' }}>
-                          <span style={{ display: 'block', marginBottom: 3, fontSize: 9, color: C.sub }}>额外消费（计入心愿）</span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 3, borderRadius: 7, backgroundColor: '#fff', padding: '5px 6px' }}>
-                            <span style={{ fontSize: 10, color: C.sub }}>¥</span>
-                            <AmountInput
-                              aria-label={`${item.name} 额外消费金额`}
-                              value={amountDrafts[extraExpenseKey] ?? (item.travelExtraExpenseAmount ? String(item.travelExtraExpenseAmount) : '')}
-                              onChange={(raw) => updateAmount(item.id, 'travelExtraExpenseAmount', raw)}
-                              onBlur={() => finishAmountEdit(item.id, 'travelExtraExpenseAmount')}
-                              placeholder="电影、冲浪等合计"
-                              style={{ width: '100%', minWidth: 0, border: 'none', outline: 'none', backgroundColor: 'transparent', textAlign: 'right', fontSize: 11, fontWeight: 700, color: C.purple }}
-                            />
+                        <div style={{ gridColumn: '1 / -1' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                            <span style={{ fontSize: 9, color: C.sub }}>额外消费（计入心愿）</span>
+                            <button
+                              type="button"
+                              onClick={() => addWishExtraExpense(item.id, itemExtraExpenses)}
+                              style={{ border: 'none', backgroundColor: 'transparent', color: C.purple, padding: 0, fontSize: 9, fontWeight: 700, cursor: 'pointer' }}
+                            >
+                              + 添加一笔
+                            </button>
                           </div>
-                        </label>
+                          {itemExtraExpenses.length === 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => addWishExtraExpense(item.id, itemExtraExpenses)}
+                              style={{ width: '100%', border: '1px dashed #ddd6fe', borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.55)', color: '#8b5cf6', padding: '6px 8px', fontSize: 9, cursor: 'pointer' }}
+                            >
+                              添加电影票、冲浪等消费
+                            </button>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                              {itemExtraExpenses.map((expense, expenseIndex) => {
+                                const expenseAmountKey = `${item.id}:extraExpense:${expense.id}:amount`;
+                                return (
+                                  <div key={expense.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 92px 18px', alignItems: 'center', gap: 5 }}>
+                                    <input
+                                      aria-label={`${item.name} 第${expenseIndex + 1}笔额外消费名称`}
+                                      value={expense.name}
+                                      onChange={(event) => updateWishExtraExpense(item.id, itemExtraExpenses, expense.id, { name: event.target.value })}
+                                      placeholder="电影票 / 冲浪"
+                                      style={{ minWidth: 0, border: 'none', borderRadius: 7, outline: 'none', backgroundColor: '#fff', padding: '6px 7px', fontSize: 10, color: '#202124' }}
+                                    />
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 2, borderRadius: 7, backgroundColor: '#fff', padding: '5px 6px' }}>
+                                      <span style={{ fontSize: 9, color: C.sub }}>¥</span>
+                                      <AmountInput
+                                        aria-label={`${item.name} 第${expenseIndex + 1}笔额外消费金额`}
+                                        value={amountDrafts[expenseAmountKey] ?? (expense.amount ? String(expense.amount) : '')}
+                                        onChange={(raw) => {
+                                          setAmountDrafts((current) => ({ ...current, [expenseAmountKey]: raw }));
+                                          updateWishExtraExpense(item.id, itemExtraExpenses, expense.id, { amount: sanitizeAmount(raw) });
+                                        }}
+                                        onBlur={() => setAmountDrafts((current) => {
+                                          const next = { ...current };
+                                          delete next[expenseAmountKey];
+                                          return next;
+                                        })}
+                                        placeholder="0"
+                                        style={{ width: '100%', minWidth: 0, border: 'none', outline: 'none', backgroundColor: 'transparent', textAlign: 'right', fontSize: 10, fontWeight: 700, color: C.purple }}
+                                      />
+                                    </div>
+                                    <button
+                                      type="button"
+                                      aria-label={`删除${expense.name || `第${expenseIndex + 1}笔额外消费`}`}
+                                      onClick={() => setWishExtraExpenses(item.id, itemExtraExpenses.filter((candidate) => candidate.id !== expense.id))}
+                                      style={{ border: 'none', backgroundColor: 'transparent', color: '#9ca3af', padding: 0, fontSize: 16, lineHeight: 1, cursor: 'pointer' }}
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 7 }}>
                         <span style={{ minWidth: 0, fontSize: 9, color: C.sub, lineHeight: 1.35 }}>
@@ -827,7 +910,7 @@ export default function WishesPage() {
                         <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.orange }}>¥{formatCurrency(itemTravelConsumptionAmount)}</div>
                       </div>
                       <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
-                        <div style={{ fontSize: 9, color: C.sub }}>额外消费 · 心愿</div>
+                        <div style={{ fontSize: 9, color: C.sub }}>额外消费 · {itemExtraExpenses.length}笔</div>
                         <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.purple }}>¥{formatCurrency(travelEstimate.extraExpenseAmount)}</div>
                       </div>
                       <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>

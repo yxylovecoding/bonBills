@@ -52,6 +52,12 @@ export interface MajorFireWish {
   isActive: boolean;
 }
 
+export interface WishExtraExpenseItem {
+  id: string;
+  name: string;
+  amount: number;
+}
+
 export interface WishItem {
   id: string;
   name: string;
@@ -62,7 +68,8 @@ export interface WishItem {
   plannedTravelDays?: number;
   travelTicketAmount?: number;
   travelLodgingDailyAmount?: number;
-  travelExtraExpenseAmount?: number;
+  travelExtraExpenseItems?: WishExtraExpenseItem[];
+  travelExtraExpenseAmount?: number; // 旧版额外消费合计，仅用于兼容迁移
   travelLodgingAmount?: number; // 旧版酒店总价，仅用于兼容迁移
   isActive: boolean;
 }

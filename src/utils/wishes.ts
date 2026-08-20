@@ -1,4 +1,4 @@
-import type { TagKind, WishItem } from '../models/types';
+import type { TagKind, WishExtraExpenseItem, WishItem } from '../models/types';
 
 export const POST_LIFE_FLEXIBLE_SHARE = 0.5;
 export const FLEXIBLE_WISH_SHARE = 0.8;
@@ -19,6 +19,26 @@ export interface TravelWishEstimate {
 
 function normalizedAmount(value: number | undefined): number {
   return Number.isFinite(value) ? Math.max(value ?? 0, 0) : 0;
+}
+
+export function resolveWishExtraExpenseItems(
+  wish: Pick<WishItem, 'id' | 'travelExtraExpenseItems' | 'travelExtraExpenseAmount'>,
+): WishExtraExpenseItem[] {
+  if (Array.isArray(wish.travelExtraExpenseItems)) {
+    return wish.travelExtraExpenseItems.map((item, index) => ({
+      id: item.id || `extra_${wish.id}_${index}`,
+      name: typeof item.name === 'string' ? item.name : '',
+      amount: normalizedAmount(item.amount),
+    }));
+  }
+  const legacyAmount = normalizedAmount(wish.travelExtraExpenseAmount);
+  return legacyAmount > 0
+    ? [{ id: `legacy_extra_${wish.id}`, name: '其他消费', amount: legacyAmount }]
+    : [];
+}
+
+export function totalWishExtraExpenseAmount(items: WishExtraExpenseItem[]): number {
+  return items.reduce((sum, item) => sum + normalizedAmount(item.amount), 0);
 }
 
 export function calculateTravelWishEstimate(
