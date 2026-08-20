@@ -307,7 +307,7 @@ export default function WishesPage() {
     setSelectedSegmentDays({});
     syncWishes(wishes.map((item) => item.id === id ? { ...item, ...patch } : item));
   };
-  type WishAmountField = 'targetAmount' | 'savedAmount' | 'travelTicketAmount' | 'travelLodgingDailyAmount';
+  type WishAmountField = 'targetAmount' | 'savedAmount' | 'travelTicketAmount' | 'travelLodgingDailyAmount' | 'travelExtraExpenseAmount';
   const updateAmount = (id: string, field: WishAmountField, raw: string) => {
     const key = `${id}:${field}`;
     setAmountDrafts((prev) => ({ ...prev, [key]: raw }));
@@ -562,6 +562,7 @@ export default function WishesPage() {
             const savedKey = `${item.id}:savedAmount`;
             const ticketKey = `${item.id}:travelTicketAmount`;
             const lodgingKey = `${item.id}:travelLodgingDailyAmount`;
+            const extraExpenseKey = `${item.id}:travelExtraExpenseAmount`;
             const linkedTrip = item.linkedTripStartDate
               ? allTripSegments.find((trip) => trip.startDate === item.linkedTripStartDate)
               : undefined;
@@ -584,6 +585,7 @@ export default function WishesPage() {
               stats.stateDailyAvg.travel,
               item.travelTicketAmount,
               itemLodgingDailyAmount,
+              item.travelExtraExpenseAmount,
             );
             const itemTravelLifeAmount = travelEstimate.lifeAmount;
             const itemTravelConsumptionAmount = itemTravelDays * Math.max(stats.stateConsumptionDailyAvg.travel, 0);
@@ -774,6 +776,20 @@ export default function WishesPage() {
                             />
                           </div>
                         </label>
+                        <label style={{ gridColumn: '1 / -1' }}>
+                          <span style={{ display: 'block', marginBottom: 3, fontSize: 9, color: C.sub }}>额外消费（计入心愿）</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 3, borderRadius: 7, backgroundColor: '#fff', padding: '5px 6px' }}>
+                            <span style={{ fontSize: 10, color: C.sub }}>¥</span>
+                            <AmountInput
+                              aria-label={`${item.name} 额外消费金额`}
+                              value={amountDrafts[extraExpenseKey] ?? (item.travelExtraExpenseAmount ? String(item.travelExtraExpenseAmount) : '')}
+                              onChange={(raw) => updateAmount(item.id, 'travelExtraExpenseAmount', raw)}
+                              onBlur={() => finishAmountEdit(item.id, 'travelExtraExpenseAmount')}
+                              placeholder="电影、冲浪等合计"
+                              style={{ width: '100%', minWidth: 0, border: 'none', outline: 'none', backgroundColor: 'transparent', textAlign: 'right', fontSize: 11, fontWeight: 700, color: C.purple }}
+                            />
+                          </div>
+                        </label>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 7 }}>
                         <span style={{ minWidth: 0, fontSize: 9, color: C.sub, lineHeight: 1.35 }}>
@@ -791,14 +807,18 @@ export default function WishesPage() {
                     </div>
                   )}
                   {itemTravelDays > 0 && (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 5, marginTop: 7 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 5, marginTop: 7 }}>
                       <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
                         <div style={{ fontSize: 9, color: C.sub }}>“活”</div>
                         <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.blue }}>¥{formatCurrency(itemTravelLifeAmount)}</div>
                       </div>
                       <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
-                        <div style={{ fontSize: 9, color: C.sub }}>“消费”</div>
+                        <div style={{ fontSize: 9, color: C.sub }}>日常“消费”</div>
                         <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.orange }}>¥{formatCurrency(itemTravelConsumptionAmount)}</div>
+                      </div>
+                      <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 9, color: C.sub }}>额外消费 · 心愿</div>
+                        <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.purple }}>¥{formatCurrency(travelEstimate.extraExpenseAmount)}</div>
                       </div>
                       <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
                         <div style={{ fontSize: 9, color: C.sub }}>{budgetEstimateVisible ? '估算目标' : '去“活”后需攒'}</div>

@@ -62,6 +62,7 @@ export interface WishItem {
   plannedTravelDays?: number;
   travelTicketAmount?: number;
   travelLodgingDailyAmount?: number;
+  travelExtraExpenseAmount?: number;
   travelLodgingAmount?: number; // 旧版酒店总价，仅用于兼容迁移
   isActive: boolean;
 }
