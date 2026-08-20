@@ -13,7 +13,7 @@ import { useTripStore } from '../stores/tripStore';
 import type { WishItem } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { calculateWishInternPlan } from '../utils/wishInternPlan';
-import { calculateWishPlan, FLEXIBLE_WISH_SHARE, POST_LIFE_FLEXIBLE_SHARE, POST_LIFE_WISH_SHARE } from '../utils/wishes';
+import { calculateWishPlan, POST_LIFE_FLEXIBLE_SHARE, POST_LIFE_WISH_SHARE } from '../utils/wishes';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 
@@ -189,34 +189,41 @@ export default function WishesPage() {
         {internPlan.wishAmount > 0 ? (
           <>
             <div style={{ fontSize: 12, opacity: 0.82, marginBottom: 5 }}>
-              {internPlan.minimumInternDays === null ? '全部工作日实习仍无法按期攒够' : '按期攒够 · 最少需要'}
+              {internPlan.minimumInternDays === null
+                ? '消费可用部分也补入后仍无法按期攒够'
+                : internPlan.usesConsumptionTransfer
+                  ? '工作日全部实习，并从消费单向补入心愿'
+                  : '按期攒够的最少实习方案'}
             </div>
             <div style={{ fontSize: 30, lineHeight: 1.15, fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: -0.5 }}>
               {internPlan.minimumInternDays === null
                 ? `还差 ¥${formatCurrency(internPlan.shortfall)}`
-                : `${internPlan.minimumInternDays} 个实习日`}
+                : internPlan.additionalInternDays > 0
+                  ? `最少再实习 ${internPlan.additionalInternDays} 天`
+                  : internPlan.reducibleInternDays > 0
+                    ? `最多可少实习 ${internPlan.reducibleInternDays} 天`
+                    : '当前实习天数刚好'}
             </div>
             <div style={{ fontSize: 11, opacity: 0.82, marginTop: 6 }}>
-              共 {internPlan.availableInternDays} 个截止前可到账的工作日可选，其余时间按上学估算
+              当前已排 {internPlan.scheduledInternDays} 天能在截止前到账的实习
+              {' · '}按期至少 {internPlan.minimumInternDays ?? internPlan.availableInternDays} 天
+              {' · '}共 {internPlan.availableInternDays} 个截止前可到账工作日
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 14 }}>
               <div style={{ borderRadius: 12, padding: '9px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
-                <div style={{ fontSize: 10, opacity: 0.76 }}>不新增实习可赚</div>
-                <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>¥{formatCurrency(internPlan.minimumIncome)}</div>
+                <div style={{ fontSize: 10, opacity: 0.76 }}>最少还需增加</div>
+                <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>{internPlan.additionalInternDays} 天</div>
               </div>
               <div style={{ borderRadius: 12, padding: '9px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
-                <div style={{ fontSize: 10, opacity: 0.76 }}>工作日全实习可赚</div>
-                <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>¥{formatCurrency(internPlan.maximumIncome)}</div>
-              </div>
-              <div style={{ borderRadius: 12, padding: '9px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
-                <div style={{ fontSize: 10, opacity: 0.76 }}>最少方案需赚</div>
-                <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>¥{formatCurrency(internPlan.requiredIncome)}</div>
-              </div>
-              <div style={{ borderRadius: 12, padding: '9px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
-                <div style={{ fontSize: 10, opacity: 0.76 }}>心愿还需攒</div>
-                <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>¥{formatCurrency(internPlan.wishAmount)}</div>
+                <div style={{ fontSize: 10, opacity: 0.76 }}>最多可以减少</div>
+                <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>{internPlan.reducibleInternDays} 天</div>
               </div>
             </div>
+            {internPlan.usesConsumptionTransfer && (
+              <div style={{ marginTop: 10, borderRadius: 10, padding: '8px 10px', backgroundColor: 'rgba(255,255,255,0.14)', fontSize: 11, lineHeight: 1.5 }}>
+                工作日全部实习后，再把消费 ¥{formatCurrency(internPlan.consumptionTransferredToWish)} 转入心愿罐；这笔钱只从消费流向心愿。
+              </div>
+            )}
             <div style={{ marginTop: 10, fontSize: 11, lineHeight: 1.5, color: internPlan.minimumInternDays === null ? '#fde68a' : '#dcfce7' }}>
               {holidayLoading ? '正在校准法定工作日…' : '实习只安排在工作日'}
               {' · '}收入按实际到账日计入
@@ -229,7 +236,7 @@ export default function WishesPage() {
           </>
         )}
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.2)', marginTop: 14, paddingTop: 11, fontSize: 11, lineHeight: 1.55, opacity: 0.84 }}>
-          收入先抵当月日历生活和还款；余额的 {POST_LIFE_FLEXIBLE_SHARE * 100}% 给消费＋心愿，其中 {FLEXIBLE_WISH_SHARE * 100}% 给心愿，所以每多攒 ¥1 心愿需多赚 ¥{(1 / POST_LIFE_WISH_SHARE).toFixed(1)}。
+          收入先抵生活和还款；通常余额的 {POST_LIFE_WISH_SHARE * 100}% 进入心愿。只有工作日全实习仍不够时，才可把消费份额单向补给心愿，心愿不会回流消费。
         </div>
       </section>
 
@@ -237,11 +244,11 @@ export default function WishesPage() {
         <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.65 }}>
           <div style={{ display: 'flex', gap: 8, padding: '4px 0' }}><span>①</span><span>居家、旅行安排保持不变；其余日期默认上学，只有法定工作日可以改为实习。</span></div>
           <div style={{ display: 'flex', gap: 8, padding: '4px 0' }}><span>②</span><span>比较不新增实习和工作日全实习的税后到账收入，并计入对应场景生活费与已知还款。</span></div>
-          <div style={{ display: 'flex', gap: 8, padding: '4px 0' }}><span>③</span><span>从对攒钱最有效的发薪周期开始安排，刚好达到心愿目标后停止增加实习日。</span></div>
+          <div style={{ display: 'flex', gap: 8, padding: '4px 0' }}><span>③</span><span>先按心愿 {POST_LIFE_WISH_SHARE * 100}% 求最少实习日；只有全部实习仍不足，才把消费份额补给心愿，最多合计 {POST_LIFE_FLEXIBLE_SHARE * 100}%。</span></div>
         </div>
         <div style={{ borderTop: '1px solid #f1f3f4', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-          <span style={{ color: C.sub }}>心愿实际分配率</span>
-          <span style={{ color: C.purple, fontWeight: 700 }}>50% × 80% = 40%</span>
+          <span style={{ color: C.sub }}>单向分配</span>
+          <span style={{ color: C.purple, fontWeight: 700 }}>心愿 40% · 必要时消费补至 50%</span>
         </div>
         {(currentCreditDue > 0 || nextCreditDue > 0) && (
           <div style={{ marginTop: 8, fontSize: 11, color: C.sub, backgroundColor: '#f8f9fa', borderRadius: 9, padding: '7px 9px', lineHeight: 1.55 }}>
@@ -255,35 +262,6 @@ export default function WishesPage() {
           </div>
         )}
       </Card>
-
-      {internPlan.wishAmount > 0 && (
-        <Card title="最少实习安排" subtitle="其余工作日上学">
-          {internPlan.minimumInternDays === 0 && (
-            <div style={{ color: C.green, backgroundColor: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 10, fontSize: 12, lineHeight: 1.5, padding: '9px 10px' }}>
-              不需要新增实习，按当前固定收入和已有待到账收入即可攒够。
-            </div>
-          )}
-          {internPlan.minimumInternDays === null && (
-            <div style={{ color: C.red, backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, fontSize: 12, lineHeight: 1.5, padding: '9px 10px', marginBottom: 8 }}>
-              截止前可到账的工作日全部实习仍差 ¥{formatCurrency(internPlan.shortfall)}，需要推迟截止日期、降低目标或增加其他收入。
-            </div>
-          )}
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {internPlan.months.map((month, index) => (
-              <div key={month.yearMonth} style={{ padding: '9px 0', borderTop: index > 0 ? '1px solid #f1f3f4' : 'none', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
-                <span style={{ fontSize: 12, fontWeight: 700 }}>{month.yearMonth}</span>
-                <div style={{ textAlign: 'right' }}>
-                  <span style={{ fontSize: 14, fontWeight: 800, color: month.internDays > 0 ? C.purple : C.green, fontVariantNumeric: 'tabular-nums' }}>{month.internDays} 天实习</span>
-                  <span style={{ display: 'block', fontSize: 10, color: C.sub, marginTop: 2 }}>可选 {month.availableInternDays} 个工作日</span>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div style={{ marginTop: 9, fontSize: 10, color: '#9aa0a6', lineHeight: 1.5 }}>
-            实习日优先安排在税后增收更高、且能在截止日前到账的发薪周期；具体日期可在“月”页面标记。
-          </div>
-        </Card>
-      )}
 
       <Card title="心愿清单" subtitle={`${wishes.length} 个心愿`}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '0 0 12px', marginBottom: 12, borderBottom: '1px solid #f1f3f4', fontSize: 11 }}>

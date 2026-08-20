@@ -8,7 +8,7 @@ import {
   resolveIncomeForMonth,
 } from './payroll';
 import { calculateIncomeTax } from './tax';
-import { POST_LIFE_WISH_SHARE } from './wishes';
+import { POST_LIFE_FLEXIBLE_SHARE, POST_LIFE_WISH_SHARE } from './wishes';
 
 export interface WishInternMonthPlan {
   yearMonth: string;
@@ -27,10 +27,15 @@ export interface WishInternPlan {
   recommendedLifeExpense: number;
   repayment: number;
   availableInternDays: number;
+  scheduledInternDays: number;
   minimumInternDays: number | null;
+  additionalInternDays: number;
+  reducibleInternDays: number;
   recommendedDates: string[];
   months: WishInternMonthPlan[];
   projectedWishSaving: number;
+  consumptionTransferredToWish: number;
+  usesConsumptionTransfer: boolean;
   shortfall: number;
 }
 
@@ -208,7 +213,7 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
   const requiredCoreSurplus = wishAmount / POST_LIFE_WISH_SHARE;
   const baselineCoreSurplus = minimumIncome - baselineLifeExpense - repayment;
   let recommendedCoreSurplus = baselineCoreSurplus;
-  const recommendedDates: string[] = [];
+  let recommendedDates: string[] = [];
 
   while (recommendedCoreSurplus + 1e-7 < requiredCoreSurplus) {
     let bestGroup: PayrollCandidateGroup | null = null;
@@ -227,19 +232,44 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
     bestGroup.chosen += 1;
   }
 
-  const minimumInternDays = recommendedCoreSurplus + 1e-7 >= requiredCoreSurplus
+  let minimumInternDays: number | null = recommendedCoreSurplus + 1e-7 >= requiredCoreSurplus
     ? recommendedDates.length
     : null;
+  let usesConsumptionTransfer = false;
+
+  if (minimumInternDays === null) {
+    for (const group of groups) group.chosen = group.dates.length;
+    recommendedDates = groups.flatMap((group) => group.dates);
+  }
+
   const recommendedLifeExpense = baselineLifeExpense + recommendedDates.length * expenseDeltaPerInternDay;
   const recommendedIncome = minimumIncome + groups.reduce(
     (sum, group) => sum + group.marginalIncome.slice(0, group.chosen).reduce((groupSum, amount) => groupSum + amount, 0),
     0,
   );
-  const projectedWishSaving = Math.max(
+  recommendedCoreSurplus = recommendedIncome - recommendedLifeExpense - repayment;
+  const normalWishSaving = Math.max(
     (recommendedIncome - recommendedLifeExpense - repayment) * POST_LIFE_WISH_SHARE,
     0,
   );
+  const normalWishShortfall = Math.max(wishAmount - normalWishSaving, 0);
+  const consumptionPool = minimumInternDays === null
+    ? Math.max(recommendedCoreSurplus * (POST_LIFE_FLEXIBLE_SHARE - POST_LIFE_WISH_SHARE), 0)
+    : 0;
+  const consumptionTransferredToWish = Math.min(normalWishShortfall, consumptionPool);
+  const projectedWishSaving = normalWishSaving + consumptionTransferredToWish;
   const shortfall = Math.max(wishAmount - projectedWishSaving, 0);
+  if (minimumInternDays === null && consumptionTransferredToWish > 0) usesConsumptionTransfer = true;
+  if (minimumInternDays === null && shortfall <= 1e-7) minimumInternDays = recommendedDates.length;
+  const scheduledInternDays = groups.reduce(
+    (sum, group) => sum + group.dates.filter((date) => options.tagMap[date] === 'intern').length,
+    0,
+  );
+  const targetInternDays = minimumInternDays ?? recommendedDates.length;
+  const additionalInternDays = Math.max(targetInternDays - scheduledInternDays, 0);
+  const reducibleInternDays = minimumInternDays === null
+    ? 0
+    : Math.max(scheduledInternDays - minimumInternDays, 0);
   const monthPlans = months.map((month) => ({
     yearMonth: month.yearMonth,
     internDays: recommendedDates.filter((date) => date.startsWith(`${month.yearMonth}-`)).length,
@@ -262,10 +292,15 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
     recommendedLifeExpense,
     repayment,
     availableInternDays: groups.reduce((sum, group) => sum + group.dates.length, 0),
+    scheduledInternDays,
     minimumInternDays,
+    additionalInternDays,
+    reducibleInternDays,
     recommendedDates,
     months: monthPlans,
     projectedWishSaving,
+    consumptionTransferredToWish,
+    usesConsumptionTransfer,
     shortfall,
   };
 }
