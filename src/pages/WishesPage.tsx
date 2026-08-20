@@ -344,6 +344,16 @@ export default function WishesPage() {
       const containerRect = container.getBoundingClientRect();
       const anchor = containerRect.top + 24;
       const cards = container.querySelectorAll<HTMLElement>('[data-wish-id]');
+      const reachedBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= 8;
+      if (reachedBottom) {
+        for (let index = cards.length - 1; index >= 0; index -= 1) {
+          const wishId = cards[index].dataset.wishId;
+          if (!wishId || !selectableWishIds.has(wishId)) continue;
+          setActiveWishId(wishId);
+          wishScrollFrameRef.current = null;
+          return;
+        }
+      }
       let closestWishId: string | null = null;
       let closestDistance = Number.POSITIVE_INFINITY;
       for (const card of cards) {
