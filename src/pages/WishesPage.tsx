@@ -142,8 +142,6 @@ export default function WishesPage() {
     [config.incomeItems, effectivePlanningDeadline, holidayDataByYear, planningRepaymentsByMonth, selectedInternDays, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart, wishes],
   );
   const minimumSelectableInternDays = internPlan.minimumInternDays ?? internPlan.availableInternDays;
-  const plannedTravelLifeAmount = internPlan.excludedLivingDays * Math.max(stats.stateDailyAvg.travel, 0);
-  const plannedTravelConsumptionAmount = internPlan.excludedLivingDays * Math.max(stats.stateConsumptionDailyAvg.travel, 0);
   const registeredSavings = wishes.reduce((sum, item) => sum + Math.max(item.savedAmount, 0), 0);
   const wishJarBalance = Math.max(current.accounts.wishJar ?? 0, 0);
 
@@ -247,18 +245,6 @@ export default function WishesPage() {
               {' · '}按期至少 {minimumSelectableInternDays} 天
               {' · '}最多 {internPlan.availableInternDays} 个非家非游法定工作日
             </div>
-            {internPlan.excludedLivingDays > 0 && (
-              <div style={{ fontSize: 11, opacity: 0.86, marginTop: 5, lineHeight: 1.55 }}>
-                <div>
-                  {internPlan.excludedLivingDays} 天：“活” ¥{formatCurrency(plannedTravelLifeAmount)}
-                  {' · '}“消费” ¥{formatCurrency(plannedTravelConsumptionAmount)}
-                </div>
-                <div>
-                  心愿目标含“活” ¥{formatCurrency(internPlan.wishAmountIncludingLife)}
-                  {' · '}去除“活”后需攒 ¥{formatCurrency(internPlan.wishAmount)}
-                </div>
-              </div>
-            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 14 }}>
               <div style={{ borderRadius: 12, padding: '9px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
                 <div style={{ fontSize: 10, opacity: 0.76 }}>最少还需增加</div>
