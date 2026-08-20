@@ -69,6 +69,183 @@ input[type='number'] { -moz-appearance: textfield; }
   display: none;
 }
 
+.wishes-page-shell {
+  position: relative;
+  width: 100%;
+  max-width: 448px;
+  margin: 0 auto;
+}
+
+.wishes-page-content {
+  min-width: 0;
+}
+
+.wish-timeline {
+  position: fixed;
+  top: 12px;
+  left: 1px;
+  display: flex;
+  flex-direction: column;
+  width: 18px;
+  height: calc(100vh - 104px);
+  min-height: 260px;
+  color: #9ca3af;
+}
+
+.wish-timeline-range {
+  display: none;
+}
+
+.wish-timeline-scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 0;
+  scrollbar-width: none;
+}
+
+.wish-timeline-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.wish-timeline-axis {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background: linear-gradient(180deg, rgba(124, 58, 237, 0.12), rgba(124, 58, 237, 0.38), rgba(124, 58, 237, 0.12));
+}
+
+.wish-timeline-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding-left: 4px;
+}
+
+.wish-timeline-row--month {
+  margin-top: 2px;
+}
+
+.wish-timeline-month {
+  display: none;
+}
+
+.wish-timeline-tooth {
+  display: block;
+  max-width: 11px;
+  min-width: 1px;
+  min-height: 1px;
+  border: none;
+  border-radius: 0 999px 999px 0;
+  padding: 0;
+  opacity: 0.72;
+  cursor: crosshair;
+  transition: opacity 0.12s ease, filter 0.12s ease;
+}
+
+.wish-timeline-tooth:hover,
+.wish-timeline-tooth:focus-visible {
+  opacity: 1;
+  filter: saturate(1.25);
+  outline: none;
+}
+
+.wish-timeline-tooltip {
+  position: fixed;
+  z-index: 1000;
+  width: max-content;
+  max-width: min(230px, calc(100vw - 32px));
+  transform: translateY(-50%);
+  border: 1px solid rgba(124, 58, 237, 0.16);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.97);
+  padding: 7px 9px;
+  box-shadow: 0 6px 22px rgba(31, 41, 55, 0.16);
+  pointer-events: none;
+  color: #202124;
+}
+
+.wish-timeline-tooltip-date {
+  color: #6b7280;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.wish-timeline-tooltip-detail {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.wish-timeline-tooltip-detail span {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.wish-timeline-tooltip-amount {
+  margin-top: 2px;
+  color: #7c3aed;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (min-width: 640px) {
+  .wish-timeline {
+    left: calc(50% - 314px);
+    width: 78px;
+  }
+
+  .wish-timeline-range {
+    display: block;
+    padding-left: 18px;
+    font-size: 8px;
+    line-height: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .wish-timeline-scroll {
+    padding: 4px 0;
+  }
+
+  .wish-timeline-axis {
+    left: 16px;
+  }
+
+  .wish-timeline-row {
+    padding-left: 17px;
+  }
+
+  .wish-timeline-row--month {
+    margin-top: 4px;
+  }
+
+  .wish-timeline-month {
+    position: absolute;
+    right: 64px;
+    display: block;
+    width: 18px;
+    text-align: right;
+    color: #9ca3af;
+    font-size: 7px;
+    line-height: 1;
+  }
+
+  .wish-timeline-tooth {
+    max-width: 57px;
+  }
+}
+
 @media (min-width: 960px) {
   .calendar-page-shell--split {
     max-width: 912px;

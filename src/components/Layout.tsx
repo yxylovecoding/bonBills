@@ -7,6 +7,7 @@ import SyncIndicator from './SyncIndicator';
 export default function Layout() {
   const location = useLocation();
   const isCalendarPage = location.pathname === '/calendar';
+  const isWishesPage = location.pathname === '/wishes';
   return (
     <div
       style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', color: '#202124' }}
@@ -16,7 +17,7 @@ export default function Layout() {
       <BillDropImporter />
       <div
         style={{
-          maxWidth: isCalendarPage ? 944 : 480,
+          maxWidth: isCalendarPage ? 944 : isWishesPage ? 590 : 480,
           width: '100%',
           margin: '0 auto',
           minHeight: '100vh',

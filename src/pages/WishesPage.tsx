@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import AmountInput from '../components/AmountInput';
 import Card from '../components/Card';
 import { formatCurrency } from '../components/CurrencyDisplay';
+import WishTimeline from '../components/WishTimeline';
 import { calcHistoryStats } from '../calculations/history';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useCalendarStore } from '../stores/calendarStore';
@@ -17,6 +18,7 @@ import { calculateWishInternPlan } from '../utils/wishInternPlan';
 import { calculateTravelWishEstimate, calculateWishPlan } from '../utils/wishes';
 import { calculateCreditRepaymentPlan } from '../utils/creditRepayment';
 import { roundToSitePrecision } from '../utils/numberInput';
+import { buildWishTimelineEntries } from '../utils/wishTimeline';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 
@@ -40,6 +42,13 @@ function tripOptionLabel(trip: TripSegment, tag?: string): string {
   const start = `${Number(trip.startDate.slice(5, 7))}/${Number(trip.startDate.slice(8, 10))}`;
   const end = `${Number(trip.endDate.slice(5, 7))}/${Number(trip.endDate.slice(8, 10))}`;
   return `${start}${trip.startDate === trip.endDate ? '' : `–${end}`} · ${trip.dates.length}天${tag ? ` · ${tag}` : ''}`;
+}
+
+function offsetDateKey(value: string, days: number): string {
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  date.setDate(date.getDate() + days);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 export default function WishesPage() {
@@ -155,6 +164,28 @@ export default function WishesPage() {
     [config.incomeItems, effectivePlanningDeadline, holidayDataByYear, planningRepaymentsByMonth, selectedInternDays, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart, wishes],
   );
   const minimumSelectableInternDays = internPlan.minimumInternDays ?? internPlan.availableInternDays;
+  const timelineEndDate = useMemo(() => {
+    let latest = effectivePlanningDeadline > offsetDateKey(todayKey, 30)
+      ? effectivePlanningDeadline
+      : offsetDateKey(todayKey, 30);
+    for (const trip of availableTripSegments) {
+      if (trip.endDate > latest) latest = trip.endDate;
+    }
+    return latest;
+  }, [availableTripSegments, effectivePlanningDeadline, todayKey]);
+  const timelineEntries = useMemo(
+    () => buildWishTimelineEntries({
+      startDate: todayKey,
+      endDate: timelineEndDate,
+      tagMap,
+      stateDailyAvg: stats.stateDailyAvg,
+      recommendedInternDates: internPlan.recommendedDates,
+      wishes,
+      trips: allTripSegments,
+      tripTags,
+    }),
+    [allTripSegments, internPlan.recommendedDates, stats.stateDailyAvg, tagMap, timelineEndDate, todayKey, tripTags, wishes],
+  );
   const registeredSavings = wishes.reduce((sum, item) => sum + Math.max(item.savedAmount, 0), 0);
   const wishJarBalance = Math.max(current.accounts.wishJar ?? 0, 0);
 
@@ -202,7 +233,9 @@ export default function WishesPage() {
   };
 
   return (
-    <div>
+    <div className="wishes-page-shell">
+      <WishTimeline entries={timelineEntries} />
+      <div className="wishes-page-content">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, marginBottom: 16 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 2px' }}>心愿</h1>
@@ -621,6 +654,7 @@ export default function WishesPage() {
           })}
         </div>
       </Card>
+      </div>
     </div>
   );
 }
