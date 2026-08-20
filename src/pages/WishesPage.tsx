@@ -139,6 +139,8 @@ export default function WishesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [config.incomeItems, effectivePlanningDeadline, holidayDataByYear, planningRepaymentsByMonth, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart, wishes],
   );
+  const plannedTravelLifeAmount = internPlan.excludedLivingDays * Math.max(stats.stateDailyAvg.travel, 0);
+  const plannedTravelConsumptionAmount = internPlan.excludedLivingDays * Math.max(stats.stateConsumptionDailyAvg.travel, 0);
   const registeredSavings = wishes.reduce((sum, item) => sum + Math.max(item.savedAmount, 0), 0);
   const wishJarBalance = Math.max(current.accounts.wishJar ?? 0, 0);
 
@@ -206,7 +208,7 @@ export default function WishesPage() {
             style={{ minWidth: 132, border: '1px solid rgba(255,255,255,0.38)', borderRadius: 9, outline: 'none', backgroundColor: 'rgba(255,255,255,0.16)', color: '#fff', padding: '6px 8px', fontSize: 12, fontWeight: 700, colorScheme: 'dark' }}
           />
         </div>
-        {internPlan.wishAmount > 0 ? (
+        {internPlan.wishAmountIncludingLife > 0 ? (
           <>
             <div style={{ fontSize: 12, opacity: 0.82, marginBottom: 5 }}>
               {internPlan.minimumInternDays === null
@@ -229,6 +231,18 @@ export default function WishesPage() {
               {' · '}按期至少 {internPlan.minimumInternDays ?? internPlan.availableInternDays} 天
               {' · '}共 {internPlan.availableInternDays} 个截止前可到账工作日
             </div>
+            {internPlan.excludedLivingDays > 0 && (
+              <div style={{ fontSize: 11, opacity: 0.86, marginTop: 5, lineHeight: 1.55 }}>
+                <div>
+                  {internPlan.excludedLivingDays} 天：“活” ¥{formatCurrency(plannedTravelLifeAmount)}
+                  {' · '}“生活－活” ¥{formatCurrency(plannedTravelConsumptionAmount)}
+                </div>
+                <div>
+                  心愿目标含“活” ¥{formatCurrency(internPlan.wishAmountIncludingLife)}
+                  {' · '}去除“活”后需攒 ¥{formatCurrency(internPlan.wishAmount)}
+                </div>
+              </div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 14 }}>
               <div style={{ borderRadius: 12, padding: '9px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
                 <div style={{ fontSize: 10, opacity: 0.76 }}>最少还需增加</div>
@@ -247,7 +261,7 @@ export default function WishesPage() {
             <div style={{ marginTop: 10, fontSize: 11, lineHeight: 1.5, color: internPlan.minimumInternDays === null ? '#fde68a' : '#dcfce7' }}>
               {holidayLoading ? '正在校准法定工作日…' : '实习只安排在工作日'}
               {' · '}收入按实际到账日计入
-              {internPlan.excludedLivingDays > 0 ? ` · 已剔除 ${internPlan.excludedLivingDays} 天出游的“活”` : ''}
+              {internPlan.excludedLivingDays > 0 ? ` · 心愿已扣除 ${internPlan.excludedLivingDays} 天出游的“活”` : ''}
             </div>
           </>
         ) : (
@@ -317,6 +331,10 @@ export default function WishesPage() {
               : (item.plannedTravelDays ?? 0) > 0
                 ? '__manual__'
                 : '';
+            const itemTravelDays = linkedTrip?.dates.length ?? Math.max(Math.round(item.plannedTravelDays ?? 0), 0);
+            const itemTravelLifeAmount = itemTravelDays * Math.max(stats.stateDailyAvg.travel, 0);
+            const itemTravelConsumptionAmount = itemTravelDays * Math.max(stats.stateConsumptionDailyAvg.travel, 0);
+            const itemWishAmountExcludingLife = Math.max(item.remainingAmount - itemTravelLifeAmount, 0);
             return (
               <div key={item.id} style={{ border: `1px solid ${item.isActive ? '#e9d5ff' : '#e5e7eb'}`, backgroundColor: item.isActive ? '#fdfaff' : '#fafafa', borderRadius: 14, padding: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -432,11 +450,27 @@ export default function WishesPage() {
                   )}
                   <div style={{ marginTop: 5, fontSize: 10, color: '#8b5cf6', lineHeight: 1.45 }}>
                     {linkedTrip
-                      ? `按这段“游”的 ${linkedTrip.dates.length} 天计算，这些天的“活”不再计入心愿规划。`
+                      ? `按这段“游”的 ${linkedTrip.dates.length} 天计算，从目标金额中扣除这些天的“活”。`
                       : travelSelection === '__manual__'
                         ? '按填写天数扣除对应天数的“活”，避免在心愿里重复攒。'
                         : '旅行类心愿可关联日历中的一段“游”。'}
                   </div>
+                  {itemTravelDays > 0 && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 5, marginTop: 7 }}>
+                      <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 9, color: C.sub }}>“活”</div>
+                        <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.blue }}>¥{formatCurrency(itemTravelLifeAmount)}</div>
+                      </div>
+                      <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 9, color: C.sub }}>“生活－活”</div>
+                        <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.orange }}>¥{formatCurrency(itemTravelConsumptionAmount)}</div>
+                      </div>
+                      <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 9, color: C.sub }}>去“活”后需攒</div>
+                        <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.purple }}>¥{formatCurrency(itemWishAmountExcludingLife)}</div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ height: 6, borderRadius: 999, backgroundColor: '#ede9fe', overflow: 'hidden', marginTop: 12 }}>

@@ -19,6 +19,7 @@ export interface WishInternMonthPlan {
 export interface WishInternPlan {
   startDate: string;
   deadline: string;
+  wishAmountIncludingLife: number;
   wishAmount: number;
   minimumIncome: number;
   maximumIncome: number;
@@ -160,9 +161,7 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
       ? options.tripDatesByStart?.[wish.linkedTripStartDate]
       : undefined;
     if (linkedDates && linkedDates.length > 0) {
-      for (const date of linkedDates) {
-        if (date >= startDate && date <= deadline) linkedTravelDates.add(date);
-      }
+      for (const date of linkedDates) linkedTravelDates.add(date);
       continue;
     }
     const manualDays = Number.isFinite(wish.plannedTravelDays)
@@ -170,17 +169,9 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
       : 0;
     requestedManualTravelDays += manualDays;
   }
-  const manualTravelDayCapacity = dates.filter(
-    (date) => !linkedTravelDates.has(date) && baselineTagMap[date] === 'school',
-  ).length;
-  const manualTravelDays = Math.min(requestedManualTravelDays, manualTravelDayCapacity);
-  const linkedLifeExpense = [...linkedTravelDates].reduce((sum, date) => {
-    const tag = baselineTagMap[date] ?? 'travel';
-    return sum + normalizedDailyAverage(options.stateDailyAvg[tag]);
-  }, 0);
-  const manualLifeExpense = manualTravelDays * normalizedDailyAverage(options.stateDailyAvg.school);
-  const excludedLifeExpense = Math.min(linkedLifeExpense + manualLifeExpense, baselineLifeExpense);
-  baselineLifeExpense = Math.max(baselineLifeExpense - excludedLifeExpense, 0);
+  const manualTravelDays = requestedManualTravelDays;
+  const travelLifeDaily = normalizedDailyAverage(options.stateDailyAvg.travel);
+  const requestedExcludedLifeExpense = (linkedTravelDates.size + manualTravelDays) * travelLifeDaily;
 
   const activeInternIncome = options.incomeItems.filter(
     (item) => item.isActive && item.dailyRate !== undefined && item.tagKind === 'intern',
@@ -240,11 +231,13 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
     const amount = options.repaymentsByMonth[month.yearMonth];
     return sum + (Number.isFinite(amount) ? Math.max(amount, 0) : 0);
   }, 0);
-  const wishAmount = includedWishes.reduce((sum, wish) => {
+  const wishAmountIncludingLife = includedWishes.reduce((sum, wish) => {
     const target = Number.isFinite(wish.targetAmount) ? Math.max(wish.targetAmount, 0) : 0;
     const saved = Number.isFinite(wish.savedAmount) ? Math.max(wish.savedAmount, 0) : 0;
     return sum + Math.max(target - saved, 0);
   }, 0);
+  const excludedLifeExpense = Math.min(requestedExcludedLifeExpense, wishAmountIncludingLife);
+  const wishAmount = Math.max(wishAmountIncludingLife - excludedLifeExpense, 0);
   const expenseDeltaPerInternDay = normalizedDailyAverage(options.stateDailyAvg.intern)
     - normalizedDailyAverage(options.stateDailyAvg.school);
   const requiredCoreSurplus = wishAmount / POST_LIFE_WISH_SHARE;
@@ -321,6 +314,7 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
   return {
     startDate,
     deadline,
+    wishAmountIncludingLife,
     wishAmount,
     minimumIncome,
     maximumIncome,
