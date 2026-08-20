@@ -1519,7 +1519,7 @@ function UsdProfitModal({
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = (await response.json()) as UsdRateResponse;
       if (!Number.isFinite(data.rate) || data.rate <= 0) throw new Error('invalid USD rate');
-      setRate(data.rate.toFixed(4));
+      setRate(data.rate.toFixed(2));
       setRateFetchState('ok');
     } catch {
       setRateFetchState('error');

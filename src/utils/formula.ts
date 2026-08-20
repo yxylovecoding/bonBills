@@ -1,3 +1,5 @@
+import { roundToSitePrecision } from './numberInput';
+
 const WHITELIST = /^[0-9+\-*/().\s]+$/;
 const HAS_OPERATOR = /[+\-*/()]/;
 
@@ -14,7 +16,7 @@ export function tryEvalFormula(raw: string): string | null {
     const fn = new Function(`"use strict"; return (${s});`);
     const result = fn();
     if (typeof result !== 'number' || !isFinite(result)) return null;
-    return String(Math.round(result * 100) / 100);
+    return String(roundToSitePrecision(result));
   } catch {
     return null;
   }

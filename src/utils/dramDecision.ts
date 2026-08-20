@@ -191,7 +191,7 @@ export function buildDramDecision({
     return {
       kind: 'clear',
       headline: '清仓 DRAM',
-      detail: `触发${clearReasons.join('、')}，卖出全部 ${config.shares.toFixed(4)} 股，资金转 SPY 或现金。`,
+      detail: `触发${clearReasons.join('、')}，卖出全部 ${config.shares.toFixed(2)} 股，资金转 SPY 或现金。`,
       latestDate,
       latestPrice,
       costProfitRate,
@@ -243,7 +243,7 @@ export function buildDramDecision({
     return {
       kind: 'trim',
       headline: '减到 20%',
-      detail: `DRAM 已超过美股 ${Math.round(config.hardLimit * 100)}% 硬上限，卖出约 ${sellToTargetShares.toFixed(4)} 股，降回 ${Math.round(config.targetWeight * 100)}%。`,
+      detail: `DRAM 已超过美股 ${Math.round(config.hardLimit * 100)}% 硬上限，卖出约 ${sellToTargetShares.toFixed(2)} 股，降回 ${Math.round(config.targetWeight * 100)}%。`,
       latestDate,
       latestPrice,
       costProfitRate,
@@ -271,7 +271,7 @@ export function buildDramDecision({
       kind: overTarget ? 'trim' : 'pause',
       headline: overTarget ? '停买并减仓' : '暂停买入',
       detail: overTarget
-        ? `已跌破 MA5，卖出约 ${sellToTargetShares.toFixed(4)} 股，把 DRAM 压回 ${Math.round(config.targetWeight * 100)}%；核心仓不清。`
+        ? `已跌破 MA5，卖出约 ${sellToTargetShares.toFixed(2)} 股，把 DRAM 压回 ${Math.round(config.targetWeight * 100)}%；核心仓不清。`
         : '已跌破 MA5，只暂停买入；未触发 MA20/回撤清仓条件，核心仓继续留着。',
       latestDate,
       latestPrice,

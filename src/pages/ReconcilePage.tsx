@@ -1898,8 +1898,8 @@ export default function ReconcilePage() {
     if (dramDecision.sellShares > 0) {
       return {
         kind: 'sell' as const,
-        button: `减仓约 ¥${fmtInt(dramDecision.sellCny)} · ${dramDecision.sellShares.toFixed(4)}股`,
-        detail: `${dramDecision.detail} 本次执行：卖出约 ${dramDecision.sellShares.toFixed(4)} 股，约 ¥${fmtInt(dramDecision.sellCny)}。`,
+        button: `减仓约 ¥${fmtInt(dramDecision.sellCny)} · ${dramDecision.sellShares.toFixed(2)}股`,
+        detail: `${dramDecision.detail} 本次执行：卖出约 ${dramDecision.sellShares.toFixed(2)} 股，约 ¥${fmtInt(dramDecision.sellCny)}。`,
         buyCny: 0,
         buyShares: 0,
         usRemaining,
@@ -1911,9 +1911,9 @@ export default function ReconcilePage() {
       const buyShares = sharesFromCny(buyCny);
       return {
         kind: buyCny > 0 ? 'buy' as const : 'wait' as const,
-        button: buyCny > 0 ? `加仓约 ¥${fmtInt(buyCny)} · ${buyShares.toFixed(4)}股` : '本次美股投入不足，暂不加',
+        button: buyCny > 0 ? `加仓约 ¥${fmtInt(buyCny)} · ${buyShares.toFixed(2)}股` : '本次美股投入不足，暂不加',
         detail: buyCny > 0
-          ? `本次美股还需投入 ¥${fmtInt(usRemaining)}，DRAM 目标剩余额度 ¥${fmtInt(dramDecision.buyCapacityCny)}；本次买入 DRAM 约 ¥${fmtInt(buyCny)}，约 ${buyShares.toFixed(4)} 股，其余给 SPY。`
+          ? `本次美股还需投入 ¥${fmtInt(usRemaining)}，DRAM 目标剩余额度 ¥${fmtInt(dramDecision.buyCapacityCny)}；本次买入 DRAM 约 ¥${fmtInt(buyCny)}，约 ${buyShares.toFixed(2)} 股，其余给 SPY。`
           : `DRAM 仍有目标剩余额度 ¥${fmtInt(dramDecision.buyCapacityCny)}，但本次美股还需投入 ¥${fmtInt(usRemaining)}，这次不加 DRAM。`,
         buyCny,
         buyShares,
@@ -2000,12 +2000,12 @@ export default function ReconcilePage() {
             <div>{dramActionPlan?.detail ?? dramDecision.detail}</div>
             {dramDecision.sellShares > 0 && (
               <div style={{ marginTop: 5, color: C.orange, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                建议卖出 {dramDecision.sellShares.toFixed(4)} 股 · 约 ¥{fmtInt(dramDecision.sellCny)}
+                建议卖出 {dramDecision.sellShares.toFixed(2)} 股 · 约 ¥{fmtInt(dramDecision.sellCny)}
               </div>
             )}
             {dramActionPlan && dramActionPlan.buyCny > 0 && (
               <div style={{ marginTop: 5, color: C.green, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                建议买入 {dramActionPlan.buyShares.toFixed(4)} 股 · 约 ¥{fmtInt(dramActionPlan.buyCny)}
+                建议买入 {dramActionPlan.buyShares.toFixed(2)} 股 · 约 ¥{fmtInt(dramActionPlan.buyCny)}
               </div>
             )}
           </div>
@@ -2127,7 +2127,7 @@ export default function ReconcilePage() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: C.sub, backgroundColor: '#f8f9fa', borderRadius: 8, padding: '6px 10px' }}>
             <span>美元汇率</span>
             <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
-              {latestUsdRate !== null ? `$1 ≈ ¥${latestUsdRate.toFixed(4)} · ${usdRateLabel}` : usdRateLabel}
+              {latestUsdRate !== null ? `$1 ≈ ¥${latestUsdRate.toFixed(2)} · ${usdRateLabel}` : usdRateLabel}
             </span>
           </div>
 

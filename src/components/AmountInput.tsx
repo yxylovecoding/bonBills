@@ -1,7 +1,11 @@
 import { forwardRef } from 'react';
 import type { InputHTMLAttributes } from 'react';
 import { tryEvalFormula } from '../utils/formula';
-import { normalizeDecimalPunctuation } from '../utils/numberInput';
+import {
+  normalizeDecimalPunctuation,
+  normalizeSitePrecisionForDisplay,
+  SITE_DECIMAL_PLACES,
+} from '../utils/numberInput';
 
 export interface AmountInputProps
   extends Omit<InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value' | 'type'> {
@@ -14,7 +18,10 @@ const sanitizeAmount = (raw: string): string | null => {
   if (normalized === '') return '';
   if (!/^[\d+\-*/(). ]*$/.test(normalized)) return null;
   const tokens = normalized.split(/[+\-*/() ]/);
-  if (tokens.some((t) => (t.match(/\./g) || []).length > 1)) return null;
+  if (tokens.some((t) => {
+    if ((t.match(/\./g) || []).length > 1) return true;
+    return (t.split('.')[1]?.length ?? 0) > SITE_DECIMAL_PLACES;
+  })) return null;
   return normalized;
 };
 
@@ -29,7 +36,7 @@ const AmountInput = forwardRef<HTMLInputElement, AmountInputProps>(
         ref={ref}
         type="text"
         inputMode={inputMode ?? 'decimal'}
-        value={value}
+        value={normalizeSitePrecisionForDisplay(value)}
         onChange={(e) => {
           const next = sanitizeAmount(e.target.value);
           if (next === null) return;

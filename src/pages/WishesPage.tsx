@@ -16,6 +16,7 @@ import { detectAllTrips, type TripSegment } from '../utils/trips';
 import { calculateWishInternPlan } from '../utils/wishInternPlan';
 import { calculateTravelWishEstimate, calculateWishPlan } from '../utils/wishes';
 import { calculateCreditRepaymentPlan } from '../utils/creditRepayment';
+import { roundToSitePrecision } from '../utils/numberInput';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 
@@ -379,6 +380,7 @@ export default function WishesPage() {
             const itemTravelLifeAmount = travelEstimate.lifeAmount;
             const itemTravelConsumptionAmount = itemTravelDays * Math.max(stats.stateConsumptionDailyAvg.travel, 0);
             const itemWishAmountExcludingLife = Math.max(item.remainingAmount - itemTravelLifeAmount, 0);
+            const roundedTravelTargetAmount = roundToSitePrecision(travelEstimate.targetAmount);
             return (
               <div key={item.id} style={{ border: `1px solid ${item.isActive ? '#e9d5ff' : '#e5e7eb'}`, backgroundColor: item.isActive ? '#fdfaff' : '#fafafa', borderRadius: 14, padding: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -537,11 +539,11 @@ export default function WishesPage() {
                         </span>
                         <button
                           type="button"
-                          disabled={travelEstimate.targetAmount <= 0}
-                          onClick={() => updateWish(item.id, 'targetAmount', travelEstimate.targetAmount)}
-                          style={{ flexShrink: 0, border: 'none', borderRadius: 7, backgroundColor: travelEstimate.targetAmount > 0 ? C.purple : '#e5e7eb', color: travelEstimate.targetAmount > 0 ? '#fff' : '#9ca3af', padding: '5px 7px', fontSize: 10, fontWeight: 700, cursor: travelEstimate.targetAmount > 0 ? 'pointer' : 'default' }}
+                          disabled={roundedTravelTargetAmount <= 0}
+                          onClick={() => updateWish(item.id, 'targetAmount', roundedTravelTargetAmount)}
+                          style={{ flexShrink: 0, border: 'none', borderRadius: 7, backgroundColor: roundedTravelTargetAmount > 0 ? C.purple : '#e5e7eb', color: roundedTravelTargetAmount > 0 ? '#fff' : '#9ca3af', padding: '5px 7px', fontSize: 10, fontWeight: 700, cursor: roundedTravelTargetAmount > 0 ? 'pointer' : 'default' }}
                         >
-                          采用 ¥{formatCurrency(travelEstimate.targetAmount)}
+                          采用 ¥{formatCurrency(roundedTravelTargetAmount)}
                         </button>
                       </div>
                     </div>
@@ -558,7 +560,7 @@ export default function WishesPage() {
                       </div>
                       <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
                         <div style={{ fontSize: 9, color: C.sub }}>{item.targetAmount > 0 ? '去“活”后需攒' : '估算目标'}</div>
-                        <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.purple }}>¥{formatCurrency(item.targetAmount > 0 ? itemWishAmountExcludingLife : travelEstimate.targetAmount)}</div>
+                        <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.purple }}>¥{formatCurrency(item.targetAmount > 0 ? itemWishAmountExcludingLife : roundedTravelTargetAmount)}</div>
                       </div>
                     </div>
                   )}
