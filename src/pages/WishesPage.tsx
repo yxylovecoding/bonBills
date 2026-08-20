@@ -11,6 +11,8 @@ import { useMonthlyStore } from '../stores/monthlyStore';
 import { useSnapshotStore } from '../stores/snapshotStore';
 import { useTripStore } from '../stores/tripStore';
 import type { WishItem } from '../models/types';
+import { useHolidayYears } from '../utils/holidays';
+import { calculateWishInternPlan } from '../utils/wishInternPlan';
 import { calculateWishPlan, FLEXIBLE_WISH_SHARE, POST_LIFE_FLEXIBLE_SHARE, POST_LIFE_WISH_SHARE } from '../utils/wishes';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
@@ -25,9 +27,10 @@ function offsetYearMonth(date: Date, offset: number): string {
   return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}`;
 }
 
-function monthLabel(value: string, currentYearMonth: string): string {
+function dateInMonth(value: string, requestedDay: number): string {
   const [year, month] = value.split('-').map(Number);
-  return value === currentYearMonth ? `${month}月 · 本月余` : `${year}年${month}月`;
+  const day = Math.min(requestedDay, new Date(year, month, 0).getDate());
+  return `${value}-${String(day).padStart(2, '0')}`;
 }
 
 export default function WishesPage() {
@@ -39,12 +42,28 @@ export default function WishesPage() {
   const { overrides } = useExpenseScopeOverrideStore();
   const { tripTags } = useTripStore();
   const [amountDrafts, setAmountDrafts] = useState<Record<string, string>>({});
-  const [showAllForecast, setShowAllForecast] = useState(false);
+  const [planningDeadline, setPlanningDeadline] = useState('');
   const today = new Date();
-  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  const currentYearMonth = todayKey.slice(0, 7);
-  const twoYearsAgo = `${today.getFullYear() - 1}-01`;
+  const todayYear = today.getFullYear();
+  const todayKey = `${todayYear}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const twoYearsAgo = `${todayYear - 1}-01`;
   const wishes = config.wishes ?? [];
+  const defaultPlanningDeadline = useMemo(
+    () => wishes
+      .filter((wish) => wish.isActive && wish.deadline && wish.deadline >= todayKey && wish.targetAmount > wish.savedAmount)
+      .reduce((latest, wish) => wish.deadline && wish.deadline > latest ? wish.deadline : latest, todayKey),
+    [todayKey, wishes],
+  );
+  const effectivePlanningDeadline = planningDeadline >= todayKey ? planningDeadline : defaultPlanningDeadline;
+  const planningEndYear = Math.max(Number(effectivePlanningDeadline.slice(0, 4)) || todayYear, todayYear);
+  const holidayYears = useMemo(
+    () => Array.from(
+      { length: Math.min(planningEndYear - todayYear + 1, 20) },
+      (_, index) => todayYear + index,
+    ),
+    [planningEndYear, todayYear],
+  );
+  const { holidayDataByYear, holidayLoading, holidayWarning } = useHolidayYears(holidayYears);
 
   const filteredRecords = useMemo(
     () => records.filter((record) => record.yearMonth >= twoYearsAgo),
@@ -69,6 +88,14 @@ export default function WishesPage() {
     [currentDueMonth]: currentCreditDue,
     [nextDueMonth]: nextCreditDue,
   }), [currentCreditDue, currentDueMonth, nextCreditDue, nextDueMonth]);
+  const planningRepaymentsByMonth = useMemo(() => {
+    const result: Record<string, number> = {};
+    const currentDueDate = dateInMonth(currentDueMonth, configuredPayDay);
+    const nextDueDate = dateInMonth(nextDueMonth, configuredPayDay);
+    if (currentDueDate >= todayKey && currentDueDate <= effectivePlanningDeadline) result[currentDueMonth] = currentCreditDue;
+    if (nextDueDate >= todayKey && nextDueDate <= effectivePlanningDeadline) result[nextDueMonth] = nextCreditDue;
+    return result;
+  }, [configuredPayDay, currentCreditDue, currentDueMonth, effectivePlanningDeadline, nextCreditDue, nextDueMonth, todayKey]);
   const plan = useMemo(
     () => calculateWishPlan(wishes, {
       today,
@@ -80,12 +107,23 @@ export default function WishesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [wishes, tagMap, stats.stateDailyAvg, repaymentsByMonth, todayKey],
   );
+  const internPlan = useMemo(
+    () => calculateWishInternPlan({
+      today,
+      deadline: effectivePlanningDeadline,
+      wishes,
+      incomeItems: config.incomeItems,
+      tagMap,
+      stateDailyAvg: stats.stateDailyAvg,
+      repaymentsByMonth: planningRepaymentsByMonth,
+      holidayDataByYear,
+    }),
+    // todayKey 每日变化一次，避免 Date 实例导致无意义的重复计算。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [config.incomeItems, effectivePlanningDeadline, holidayDataByYear, planningRepaymentsByMonth, stats.stateDailyAvg, tagMap, todayKey, wishes],
+  );
   const registeredSavings = wishes.reduce((sum, item) => sum + Math.max(item.savedAmount, 0), 0);
   const wishJarBalance = Math.max(current.accounts.wishJar ?? 0, 0);
-  const totalTaggedDays = plan.months.reduce((sum, month) => sum + month.taggedDays, 0);
-  const totalAvailableDays = plan.months.reduce((sum, month) => sum + month.availableDays, 0);
-  const incompleteCalendarMonths = plan.months.filter((month) => month.taggedDays < month.availableDays);
-  const visibleForecastMonths = showAllForecast ? plan.months : plan.months.slice(0, 12);
 
   const syncWishes = (items: WishItem[]) => setConfig({ wishes: items });
   const addWish = () => syncWishes([
@@ -134,31 +172,60 @@ export default function WishesPage() {
       </div>
 
       <section style={{ background: 'linear-gradient(145deg, #6d28d9 0%, #8b5cf6 58%, #a78bfa 100%)', color: '#fff', borderRadius: 18, padding: '20px', marginBottom: 12, boxShadow: '0 8px 24px rgba(109,40,217,0.2)' }}>
-        {plan.activeDeadlineCount > 0 ? (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+          <div>
+            <div style={{ fontSize: 10, opacity: 0.72 }}>从今天开始规划</div>
+            <div style={{ fontSize: 12, fontWeight: 700, marginTop: 2 }}>{todayKey} 至</div>
+          </div>
+          <input
+            type="date"
+            aria-label="心愿规划截止日期"
+            min={todayKey}
+            value={effectivePlanningDeadline}
+            onChange={(event) => setPlanningDeadline(event.target.value)}
+            style={{ minWidth: 132, border: '1px solid rgba(255,255,255,0.38)', borderRadius: 9, outline: 'none', backgroundColor: 'rgba(255,255,255,0.16)', color: '#fff', padding: '6px 8px', fontSize: 12, fontWeight: 700, colorScheme: 'dark' }}
+          />
+        </div>
+        {internPlan.wishAmount > 0 ? (
           <>
-            <div style={{ fontSize: 12, opacity: 0.82, marginBottom: 5 }}>从本月起 · 平均每月需赚</div>
+            <div style={{ fontSize: 12, opacity: 0.82, marginBottom: 5 }}>
+              {internPlan.minimumInternDays === null ? '全部工作日实习仍无法按期攒够' : '按期攒够 · 最少需要'}
+            </div>
             <div style={{ fontSize: 30, lineHeight: 1.15, fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: -0.5 }}>
-              ¥{formatCurrency(plan.averageRequiredMonthlyNetIncome)}
+              {internPlan.minimumInternDays === null
+                ? `还差 ¥${formatCurrency(internPlan.shortfall)}`
+                : `${internPlan.minimumInternDays} 个实习日`}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 16 }}>
+            <div style={{ fontSize: 11, opacity: 0.82, marginTop: 6 }}>
+              共 {internPlan.availableInternDays} 个截止前可到账的工作日可选，其余时间按上学估算
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 14 }}>
               <div style={{ borderRadius: 12, padding: '9px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
-                <div style={{ fontSize: 10, opacity: 0.76 }}>预测区间</div>
-                <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>{plan.months.length} 个月</div>
+                <div style={{ fontSize: 10, opacity: 0.76 }}>不新增实习可赚</div>
+                <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>¥{formatCurrency(internPlan.minimumIncome)}</div>
               </div>
               <div style={{ borderRadius: 12, padding: '9px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
-                <div style={{ fontSize: 10, opacity: 0.76 }}>平均每月攒心愿</div>
-                <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>¥{formatCurrency(plan.averageMonthlyWishAmount)}</div>
+                <div style={{ fontSize: 10, opacity: 0.76 }}>工作日全实习可赚</div>
+                <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>¥{formatCurrency(internPlan.maximumIncome)}</div>
+              </div>
+              <div style={{ borderRadius: 12, padding: '9px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
+                <div style={{ fontSize: 10, opacity: 0.76 }}>最少方案需赚</div>
+                <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>¥{formatCurrency(internPlan.requiredIncome)}</div>
+              </div>
+              <div style={{ borderRadius: 12, padding: '9px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
+                <div style={{ fontSize: 10, opacity: 0.76 }}>心愿还需攒</div>
+                <div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>¥{formatCurrency(internPlan.wishAmount)}</div>
               </div>
             </div>
-            <div style={{ marginTop: 10, fontSize: 11, lineHeight: 1.5, color: incompleteCalendarMonths.length > 0 ? '#fde68a' : '#dcfce7' }}>
-              日历已标记 {totalTaggedDays}/{totalAvailableDays} 天
-              {incompleteCalendarMonths.length > 0 ? ` · ${incompleteCalendarMonths.length} 个月仍有空白日期` : ' · 已完整计入生活安排'}
+            <div style={{ marginTop: 10, fontSize: 11, lineHeight: 1.5, color: internPlan.minimumInternDays === null ? '#fde68a' : '#dcfce7' }}>
+              {holidayLoading ? '正在校准法定工作日…' : '实习只安排在工作日'}
+              {' · '}收入按实际到账日计入
             </div>
           </>
         ) : (
           <>
             <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 5 }}>给心愿一个截止日期</div>
-            <div style={{ fontSize: 12, lineHeight: 1.6, opacity: 0.82 }}>填入目标、已攒金额和 DDL，就会自动算出接下来每月要攒、要赚多少。</div>
+            <div style={{ fontSize: 12, lineHeight: 1.6, opacity: 0.82 }}>填入目标、已攒金额和 DDL，就会自动算出在能攒够的前提下最少需要实习几天。</div>
           </>
         )}
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.2)', marginTop: 14, paddingTop: 11, fontSize: 11, lineHeight: 1.55, opacity: 0.84 }}>
@@ -166,11 +233,11 @@ export default function WishesPage() {
         </div>
       </section>
 
-      <Card title="计算口径" subtitle="日历逐月计算" collapsible defaultCollapsed>
+      <Card title="计算口径" subtitle="优先少实习" collapsible defaultCollapsed>
         <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.65 }}>
-          <div style={{ display: 'flex', gap: 8, padding: '4px 0' }}><span>①</span><span>从今天起，按日历每天的工作、在校、居家、旅行标记乘以对应生活日均。</span></div>
-          <div style={{ display: 'flex', gap: 8, padding: '4px 0' }}><span>②</span><span>计入当前对账已知的本期和下期还款，储蓄卡已预留金额优先抵扣。</span></div>
-          <div style={{ display: 'flex', gap: 8, padding: '4px 0' }}><span>③</span><span>每个心愿的剩余金额，从本月到 DDL 月平均分摊。</span></div>
+          <div style={{ display: 'flex', gap: 8, padding: '4px 0' }}><span>①</span><span>居家、旅行安排保持不变；其余日期默认上学，只有法定工作日可以改为实习。</span></div>
+          <div style={{ display: 'flex', gap: 8, padding: '4px 0' }}><span>②</span><span>比较不新增实习和工作日全实习的税后到账收入，并计入对应场景生活费与已知还款。</span></div>
+          <div style={{ display: 'flex', gap: 8, padding: '4px 0' }}><span>③</span><span>从对攒钱最有效的发薪周期开始安排，刚好达到心愿目标后停止增加实习日。</span></div>
         </div>
         <div style={{ borderTop: '1px solid #f1f3f4', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
           <span style={{ color: C.sub }}>心愿实际分配率</span>
@@ -182,45 +249,38 @@ export default function WishesPage() {
             {nextCreditDue > 0 ? ` · ${nextDueMonth} ¥${formatCurrency(nextCreditDue)}` : ''}
           </div>
         )}
+        {holidayWarning && (
+          <div style={{ marginTop: 8, fontSize: 11, color: C.orange, backgroundColor: '#fff7ed', borderRadius: 9, padding: '7px 9px', lineHeight: 1.55 }}>
+            {holidayWarning}
+          </div>
+        )}
       </Card>
 
-      {plan.months.length > 0 && (
-        <Card title="逐月收入目标" subtitle="生活＋还款＋心愿">
-          {incompleteCalendarMonths.length > 0 && (
-            <div style={{ color: C.orange, backgroundColor: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, fontSize: 11, lineHeight: 1.5, padding: '7px 9px', marginBottom: 10 }}>
-              未标记的日期暂不计生活费；继续在日历补齐安排后，这里的金额会自动更新。
+      {internPlan.wishAmount > 0 && (
+        <Card title="最少实习安排" subtitle="其余工作日上学">
+          {internPlan.minimumInternDays === 0 && (
+            <div style={{ color: C.green, backgroundColor: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 10, fontSize: 12, lineHeight: 1.5, padding: '9px 10px' }}>
+              不需要新增实习，按当前固定收入和已有待到账收入即可攒够。
+            </div>
+          )}
+          {internPlan.minimumInternDays === null && (
+            <div style={{ color: C.red, backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, fontSize: 12, lineHeight: 1.5, padding: '9px 10px', marginBottom: 8 }}>
+              截止前可到账的工作日全部实习仍差 ¥{formatCurrency(internPlan.shortfall)}，需要推迟截止日期、降低目标或增加其他收入。
             </div>
           )}
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {visibleForecastMonths.map((month, index) => {
-              const incomplete = month.taggedDays < month.availableDays;
-              return (
-                <div key={month.yearMonth} style={{ padding: '10px 0', borderTop: index > 0 ? '1px solid #f1f3f4' : 'none' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
-                    <span style={{ fontSize: 13, fontWeight: 700 }}>{monthLabel(month.yearMonth, currentYearMonth)}</span>
-                    <span style={{ fontSize: 15, fontWeight: 800, color: C.purple, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(month.requiredNetIncome)}</span>
-                  </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 9px', marginTop: 4, fontSize: 10, color: C.sub, lineHeight: 1.45 }}>
-                    <span>生活 ¥{formatCurrency(month.lifeExpense)}</span>
-                    {month.repayment > 0 && <span>还款 ¥{formatCurrency(month.repayment)}</span>}
-                    <span>心愿 ¥{formatCurrency(month.wishAmount)}</span>
-                    <span style={{ color: incomplete ? C.orange : C.green }}>日历 {month.taggedDays}/{month.availableDays} 天</span>
-                  </div>
+            {internPlan.months.map((month, index) => (
+              <div key={month.yearMonth} style={{ padding: '9px 0', borderTop: index > 0 ? '1px solid #f1f3f4' : 'none', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
+                <span style={{ fontSize: 12, fontWeight: 700 }}>{month.yearMonth}</span>
+                <div style={{ textAlign: 'right' }}>
+                  <span style={{ fontSize: 14, fontWeight: 800, color: month.internDays > 0 ? C.purple : C.green, fontVariantNumeric: 'tabular-nums' }}>{month.internDays} 天实习</span>
+                  <span style={{ display: 'block', fontSize: 10, color: C.sub, marginTop: 2 }}>可选 {month.availableInternDays} 个工作日</span>
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
-          {plan.months.length > 12 && (
-            <button
-              type="button"
-              onClick={() => setShowAllForecast((value) => !value)}
-              style={{ width: '100%', border: 'none', borderRadius: 10, backgroundColor: '#f5f3ff', color: C.purple, fontSize: 11, fontWeight: 700, padding: '8px 10px', cursor: 'pointer', marginTop: 4 }}
-            >
-              {showAllForecast ? '收起远期月份' : `查看全部 ${plan.months.length} 个月`}
-            </button>
-          )}
           <div style={{ marginTop: 9, fontSize: 10, color: '#9aa0a6', lineHeight: 1.5 }}>
-            还款仅展示当前对账已经知道的本期与下期，后续月份会随新账单自动更新。
+            实习日优先安排在税后增收更高、且能在截止日前到账的发薪周期；具体日期可在“月”页面标记。
           </div>
         </Card>
       )}
@@ -321,12 +381,12 @@ export default function WishesPage() {
                 </div>
 
                 <div style={{ marginTop: 10, borderRadius: 10, padding: '8px 9px', backgroundColor: item.deadlineState === 'overdue' ? '#fef2f2' : item.deadlineState === 'completed' ? '#ecfdf5' : '#f5f3ff', color: item.deadlineState === 'overdue' ? C.red : item.deadlineState === 'completed' ? C.green : C.purple, fontSize: 11, fontWeight: 700, lineHeight: 1.5 }}>
-                  {!item.isActive && '已暂停，不计入月收入目标'}
+                  {!item.isActive && '已暂停，不计入最少实习规划'}
                   {item.isActive && item.deadlineState === 'completed' && '✓ 心愿已经攒满'}
                   {item.isActive && item.deadlineState === 'none' && (item.remainingAmount > 0 ? '无 DDL，按自己的节奏慢慢攒' : '填入目标金额后开始计算')}
-                  {item.isActive && item.deadlineState === 'overdue' && `已超期 · 本月需补 ¥${formatCurrency(item.monthlyWishAmount)}`}
+                  {item.isActive && item.deadlineState === 'overdue' && `已超期 · 还需补 ¥${formatCurrency(item.remainingAmount)}`}
                   {item.isActive && item.deadlineState === 'scheduled' && item.remainingAmount > 0 && (
-                    `还剩 ${item.monthsRemaining} 个月 · 每月攒 ¥${formatCurrency(item.monthlyWishAmount)}`
+                    `还剩 ${item.monthsRemaining} 个月 · 截止前还需攒 ¥${formatCurrency(item.remainingAmount)}`
                   )}
                   {item.isActive && item.deadlineState === 'scheduled' && item.targetAmount <= 0 && '填入目标金额后开始计算'}
                 </div>
