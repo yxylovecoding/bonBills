@@ -3,6 +3,8 @@ import type { TagKind, WishItem } from '../models/types';
 export const POST_LIFE_FLEXIBLE_SHARE = 0.5;
 export const FLEXIBLE_WISH_SHARE = 0.8;
 export const POST_LIFE_WISH_SHARE = POST_LIFE_FLEXIBLE_SHARE * FLEXIBLE_WISH_SHARE;
+export const POST_LIFE_CONSUMPTION_SHARE = 0.1;
+export const POST_LIFE_INVESTMENT_SHARE = 0.5;
 
 export type WishDeadlineState = 'none' | 'scheduled' | 'overdue' | 'completed';
 

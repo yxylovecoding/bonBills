@@ -14,7 +14,12 @@ import type { WishItem } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { detectAllTrips, type TripSegment } from '../utils/trips';
 import { calculateWishInternPlan } from '../utils/wishInternPlan';
-import { calculateWishPlan, POST_LIFE_FLEXIBLE_SHARE, POST_LIFE_WISH_SHARE } from '../utils/wishes';
+import {
+  calculateWishPlan,
+  POST_LIFE_CONSUMPTION_SHARE,
+  POST_LIFE_FLEXIBLE_SHARE,
+  POST_LIFE_WISH_SHARE,
+} from '../utils/wishes';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 
@@ -253,6 +258,39 @@ export default function WishesPage() {
                 <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>{internPlan.reducibleInternDays} 天</div>
               </div>
             </div>
+            <div style={{ marginTop: 10, borderRadius: 12, padding: '11px 12px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+                <span style={{ fontSize: 11, opacity: 0.8 }}>到截止日期理论可攒</span>
+                <span style={{ fontSize: 21, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedTotalSaving)}</span>
+              </div>
+              <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.2)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px 12px', fontSize: 11 }}>
+                <div style={{ opacity: 0.78 }}>收入</div>
+                <div style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.recommendedIncome)}</div>
+                <div style={{ opacity: 0.78 }}>生活开支（含信用卡）</div>
+                <div style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>−¥{formatCurrency(internPlan.totalLivingExpense)}</div>
+                <div style={{ gridColumn: '1 / -1', marginTop: -3, textAlign: 'right', fontSize: 9, opacity: 0.68 }}>
+                  “活” ¥{formatCurrency(internPlan.recommendedLifeExpense)} · 信用卡 ¥{formatCurrency(internPlan.repayment)}
+                </div>
+                <div style={{ opacity: 0.78 }}>结余</div>
+                <div style={{ textAlign: 'right', fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: internPlan.projectedSurplus >= 0 ? '#dcfce7' : '#fde68a' }}>
+                  {internPlan.projectedSurplus >= 0 ? '' : '−'}¥{formatCurrency(Math.abs(internPlan.projectedSurplus))}
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 5, marginTop: 9 }}>
+                <div style={{ borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.12)', padding: '7px 5px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 9, opacity: 0.72 }}>消费</div>
+                  <div style={{ marginTop: 2, fontSize: 11, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedConsumption)}</div>
+                </div>
+                <div style={{ borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.12)', padding: '7px 5px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 9, opacity: 0.72 }}>心愿</div>
+                  <div style={{ marginTop: 2, fontSize: 11, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedWishSaving)}</div>
+                </div>
+                <div style={{ borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.12)', padding: '7px 5px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 9, opacity: 0.72 }}>放进理财</div>
+                  <div style={{ marginTop: 2, fontSize: 11, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedInvestmentSaving)}</div>
+                </div>
+              </div>
+            </div>
             {internPlan.usesConsumptionTransfer && (
               <div style={{ marginTop: 10, borderRadius: 10, padding: '8px 10px', backgroundColor: 'rgba(255,255,255,0.14)', fontSize: 11, lineHeight: 1.5 }}>
                 工作日全部实习后，再把消费 ¥{formatCurrency(internPlan.consumptionTransferredToWish)} 转入心愿罐；这笔钱只从消费流向心愿。
@@ -271,7 +309,7 @@ export default function WishesPage() {
           </>
         )}
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.2)', marginTop: 14, paddingTop: 11, fontSize: 11, lineHeight: 1.55, opacity: 0.84 }}>
-          收入先抵生活和还款；通常余额的 {POST_LIFE_WISH_SHARE * 100}% 进入心愿。只有工作日全实习仍不够时，才可把消费份额单向补给心愿，心愿不会回流消费。
+          收入先抵生活和信用卡还款；结余通常分为理财 50%、心愿 {POST_LIFE_WISH_SHARE * 100}%、消费 {POST_LIFE_CONSUMPTION_SHARE * 100}%。只有工作日全实习仍不够时，才可把消费份额单向补给心愿。
         </div>
       </section>
 

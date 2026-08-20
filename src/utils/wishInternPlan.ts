@@ -8,7 +8,11 @@ import {
   resolveIncomeForMonth,
 } from './payroll';
 import { calculateIncomeTax } from './tax';
-import { POST_LIFE_FLEXIBLE_SHARE, POST_LIFE_WISH_SHARE } from './wishes';
+import {
+  POST_LIFE_CONSUMPTION_SHARE,
+  POST_LIFE_INVESTMENT_SHARE,
+  POST_LIFE_WISH_SHARE,
+} from './wishes';
 
 export interface WishInternMonthPlan {
   yearMonth: string;
@@ -23,10 +27,16 @@ export interface WishInternPlan {
   wishAmount: number;
   minimumIncome: number;
   maximumIncome: number;
+  recommendedIncome: number;
   requiredIncome: number;
   baselineLifeExpense: number;
   recommendedLifeExpense: number;
   repayment: number;
+  totalLivingExpense: number;
+  projectedSurplus: number;
+  projectedConsumption: number;
+  projectedInvestmentSaving: number;
+  projectedTotalSaving: number;
   availableInternDays: number;
   scheduledInternDays: number;
   minimumInternDays: number | null;
@@ -278,16 +288,23 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
     0,
   );
   recommendedCoreSurplus = recommendedIncome - recommendedLifeExpense - repayment;
+  const positiveRecommendedSurplus = Math.max(recommendedCoreSurplus, 0);
   const normalWishSaving = Math.max(
-    (recommendedIncome - recommendedLifeExpense - repayment) * POST_LIFE_WISH_SHARE,
+    positiveRecommendedSurplus * POST_LIFE_WISH_SHARE,
     0,
   );
   const normalWishShortfall = Math.max(wishAmount - normalWishSaving, 0);
   const consumptionPool = minimumInternDays === null
-    ? Math.max(recommendedCoreSurplus * (POST_LIFE_FLEXIBLE_SHARE - POST_LIFE_WISH_SHARE), 0)
+    ? Math.max(recommendedCoreSurplus * POST_LIFE_CONSUMPTION_SHARE, 0)
     : 0;
   const consumptionTransferredToWish = Math.min(normalWishShortfall, consumptionPool);
   const projectedWishSaving = normalWishSaving + consumptionTransferredToWish;
+  const projectedConsumption = Math.max(
+    positiveRecommendedSurplus * POST_LIFE_CONSUMPTION_SHARE - consumptionTransferredToWish,
+    0,
+  );
+  const projectedInvestmentSaving = positiveRecommendedSurplus * POST_LIFE_INVESTMENT_SHARE;
+  const projectedTotalSaving = projectedWishSaving + projectedInvestmentSaving;
   const shortfall = Math.max(wishAmount - projectedWishSaving, 0);
   if (minimumInternDays === null && consumptionTransferredToWish > 0) usesConsumptionTransfer = true;
   if (minimumInternDays === null && shortfall <= 1e-7) minimumInternDays = recommendedDates.length;
@@ -318,10 +335,16 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
     wishAmount,
     minimumIncome,
     maximumIncome,
+    recommendedIncome,
     requiredIncome: recommendedLifeExpense + repayment + requiredCoreSurplus,
     baselineLifeExpense,
     recommendedLifeExpense,
     repayment,
+    totalLivingExpense: recommendedLifeExpense + repayment,
+    projectedSurplus: recommendedCoreSurplus,
+    projectedConsumption,
+    projectedInvestmentSaving,
+    projectedTotalSaving,
     availableInternDays: groups.reduce((sum, group) => sum + group.dates.length, 0),
     scheduledInternDays,
     minimumInternDays,
