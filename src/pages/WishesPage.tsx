@@ -103,11 +103,31 @@ export default function WishesPage() {
   const [selectedSegmentDays, setSelectedSegmentDays] = useState<Record<string, number>>({});
   const wishListScrollRef = useRef<HTMLDivElement>(null);
   const wishScrollFrameRef = useRef<number | null>(null);
+  const observedLinkedTripStartsRef = useRef(new Map<string, string | null>());
   const today = new Date();
   const todayYear = today.getFullYear();
   const todayKey = `${todayYear}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const twoYearsAgo = `${todayYear - 1}-01`;
   const wishes = config.wishes ?? [];
+  useEffect(() => {
+    const currentWishIds = new Set(wishes.map((wish) => wish.id));
+    let changed = false;
+    const normalizedWishes = wishes.map((wish) => {
+      const linkedTripStart = wish.linkedTripStartDate ?? null;
+      const hadPreviousValue = observedLinkedTripStartsRef.current.has(wish.id);
+      const previousLinkedTripStart = observedLinkedTripStartsRef.current.get(wish.id) ?? null;
+      observedLinkedTripStartsRef.current.set(wish.id, linkedTripStart);
+      const newlyLinked = linkedTripStart !== null
+        && (!hadPreviousValue || previousLinkedTripStart !== linkedTripStart);
+      if (!newlyLinked || wish.deadline) return wish;
+      changed = true;
+      return { ...wish, deadline: offsetDateKey(linkedTripStart, -1) };
+    });
+    for (const wishId of observedLinkedTripStartsRef.current.keys()) {
+      if (!currentWishIds.has(wishId)) observedLinkedTripStartsRef.current.delete(wishId);
+    }
+    if (changed) setConfig({ wishes: normalizedWishes });
+  }, [setConfig, wishes]);
   const allTripSegments = useMemo(() => detectAllTrips(tagMap, tripSplits), [tagMap, tripSplits]);
   const availableTripSegments = useMemo(
     () => allTripSegments.filter((trip) => trip.endDate >= todayKey),
@@ -874,7 +894,16 @@ export default function WishesPage() {
                             plannedTravelDays: Math.max(Math.round(item.plannedTravelDays ?? 0), 1),
                           });
                         } else if (value) {
-                          updateWishFields(item.id, { linkedTripStartDate: value, plannedTravelDays: 0 });
+                          const previousDefaultDeadline = linkedTrip
+                            ? offsetDateKey(linkedTrip.startDate, -1)
+                            : null;
+                          const shouldUseDefaultDeadline = !item.deadline
+                            || item.deadline === previousDefaultDeadline;
+                          updateWishFields(item.id, {
+                            linkedTripStartDate: value,
+                            plannedTravelDays: 0,
+                            ...(shouldUseDefaultDeadline ? { deadline: offsetDateKey(value, -1) } : {}),
+                          });
                         } else {
                           updateWishFields(item.id, { linkedTripStartDate: null, plannedTravelDays: 0 });
                         }
