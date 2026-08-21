@@ -11,7 +11,7 @@ import { useExpenseScopeOverrideStore } from '../stores/expenseScopeOverrideStor
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { useSnapshotStore } from '../stores/snapshotStore';
 import { useTripStore } from '../stores/tripStore';
-import type { WishExtraExpenseItem, WishItem } from '../models/types';
+import type { TagKind, WishExtraExpenseItem, WishItem } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { detectAllTrips, type TripSegment } from '../utils/trips';
 import { calculateWishInternPlan } from '../utils/wishInternPlan';
@@ -31,6 +31,12 @@ import {
 } from '../utils/wishMilestonePlan';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
+const LIFE_EXPENSE_TOOLTIP_ORDER: Array<{ kind: TagKind; label: string }> = [
+  { kind: 'home', label: '家' },
+  { kind: 'travel', label: '游' },
+  { kind: 'intern', label: '班' },
+  { kind: 'school', label: '学' },
+];
 
 function sanitizeAmount(raw: string): number {
   const parsed = Number(raw);
@@ -228,6 +234,16 @@ export default function WishesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [config.incomeItems, effectivePlanningDeadline, holidayDataByYear, planningRepaymentsByMonth, selectedCumulativeInternDays, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart, wishes],
   );
+  const lifeExpenseTooltip = LIFE_EXPENSE_TOOLTIP_ORDER.map(({ kind, label }) => {
+    const item = internPlan.lifeExpenseBreakdown[kind];
+    return `${label} ${item.days}天 × ¥${formatCurrency(item.dailyAverage)}/天 = ¥${formatCurrency(item.amount)}`;
+  }).join('\n');
+  const creditRepaymentTooltip = [
+    `信用卡总待还 ¥${formatCurrency(Math.max(current.accounts.credit ?? 0, 0))}`,
+    `本期待还 ¥${formatCurrency(Math.max(current.accounts.creditMonthly ?? 0, 0))}`,
+    `长债偿还 ¥${formatCurrency(planningLongBondRepay)}`,
+    `规划现金还款 ¥${formatCurrency(internPlan.repayment)}`,
+  ].join('\n');
   const minimumSelectableInternDays = activeSegment
     ? activeSegment.minimumInternDateKeys.length
     : internPlan.minimumInternDays ?? internPlan.availableInternDays;
@@ -545,7 +561,13 @@ export default function WishesPage() {
                 <div style={{ opacity: 0.78 }}>生活开支（含信用卡）</div>
                 <div style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>−¥{formatCurrency(internPlan.totalLivingExpense)}</div>
                 <div style={{ gridColumn: '1 / -1', marginTop: -2, textAlign: 'right', fontSize: 8, opacity: 0.68 }}>
-                  “活” ¥{formatCurrency(internPlan.recommendedLifeExpense)} · 信用卡 ¥{formatCurrency(internPlan.repayment)}
+                  <span title={lifeExpenseTooltip} tabIndex={0} style={{ cursor: 'help', borderBottom: '1px dotted rgba(255,255,255,0.58)' }}>
+                    “活” ¥{formatCurrency(internPlan.recommendedLifeExpense)}
+                  </span>
+                  {' · '}
+                  <span title={creditRepaymentTooltip} tabIndex={0} style={{ cursor: 'help', borderBottom: '1px dotted rgba(255,255,255,0.58)' }}>
+                    信用卡 ¥{formatCurrency(internPlan.repayment)}
+                  </span>
                   {planningLongBondRepay > 0.005 && <> · 长债已抵 ¥{formatCurrency(planningLongBondRepay)}</>}
                 </div>
                 <div style={{ opacity: 0.78 }}>结余</div>

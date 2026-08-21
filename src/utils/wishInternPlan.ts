@@ -20,6 +20,14 @@ export interface WishInternMonthPlan {
   availableInternDays: number;
 }
 
+export interface WishLifeExpenseBreakdownItem {
+  days: number;
+  dailyAverage: number;
+  amount: number;
+}
+
+export type WishLifeExpenseBreakdown = Record<TagKind, WishLifeExpenseBreakdownItem>;
+
 export interface WishInternPlan {
   startDate: string;
   deadline: string;
@@ -31,6 +39,7 @@ export interface WishInternPlan {
   requiredIncome: number;
   baselineLifeExpense: number;
   recommendedLifeExpense: number;
+  lifeExpenseBreakdown: WishLifeExpenseBreakdown;
   repayment: number;
   totalLivingExpense: number;
   projectedSurplus: number;
@@ -313,7 +322,22 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
     }
   }
 
-  const recommendedLifeExpense = baselineLifeExpense + recommendedDates.length * expenseDeltaPerInternDay;
+  const selectedInternDateSet = new Set(recommendedDates);
+  const lifeExpenseBreakdown: WishLifeExpenseBreakdown = {
+    home: { days: 0, dailyAverage: normalizedDailyAverage(options.stateDailyAvg.home), amount: 0 },
+    travel: { days: 0, dailyAverage: normalizedDailyAverage(options.stateDailyAvg.travel), amount: 0 },
+    intern: { days: 0, dailyAverage: normalizedDailyAverage(options.stateDailyAvg.intern), amount: 0 },
+    school: { days: 0, dailyAverage: normalizedDailyAverage(options.stateDailyAvg.school), amount: 0 },
+  };
+  for (const date of dates) {
+    const tagKind: TagKind = selectedInternDateSet.has(date) ? 'intern' : baselineTagMap[date];
+    lifeExpenseBreakdown[tagKind].days += 1;
+  }
+  for (const item of Object.values(lifeExpenseBreakdown)) {
+    item.amount = item.days * item.dailyAverage;
+  }
+  const recommendedLifeExpense = Object.values(lifeExpenseBreakdown)
+    .reduce((sum, item) => sum + item.amount, 0);
   const recommendedIncome = minimumIncome + groups.reduce(
     (sum, group) => sum + group.marginalIncome.slice(0, group.chosen).reduce((groupSum, amount) => groupSum + amount, 0),
     0,
@@ -365,6 +389,7 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
     requiredIncome: recommendedLifeExpense + repayment + requiredCoreSurplus,
     baselineLifeExpense,
     recommendedLifeExpense,
+    lifeExpenseBreakdown,
     repayment,
     totalLivingExpense: recommendedLifeExpense + repayment,
     projectedSurplus: recommendedCoreSurplus,
