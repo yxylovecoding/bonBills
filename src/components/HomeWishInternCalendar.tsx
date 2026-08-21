@@ -106,7 +106,7 @@ export default function HomeWishInternCalendar({
           <h2>日历</h2>
           <span>
             {year}年{month}月
-            {isFullPowerMonth ? ' · 火力全开' : monthInternDays > 0 ? ` · 本月最少${monthInternDays}天` : ''}
+            {isFullPowerMonth ? ' · 全勤' : monthInternDays > 0 ? ` · 本月最少${monthInternDays}天` : ''}
           </span>
         </div>
         <div className="home-wish-calendar-actions">
@@ -130,11 +130,11 @@ export default function HomeWishInternCalendar({
       </div>
 
       {monthAssignments.length > 0 ? (
-        <div className="home-wish-calendar-counts" aria-label={isFullPowerMonth ? '本月火力全开心愿' : '本月各心愿最少实习天数'}>
+        <div className="home-wish-calendar-counts" aria-label={isFullPowerMonth ? '本月全勤心愿' : '本月各心愿最少实习天数'}>
           {monthAssignments.map((assignment) => (
             <span
               key={`${assignment.deadline}-${assignment.label}`}
-              title={isFullPowerMonth ? `${assignment.label} · 火力全开` : `${assignment.label} · 本月最少实习${assignment.count}天`}
+              title={isFullPowerMonth ? `${assignment.label} · 全勤` : `${assignment.label} · 本月最少实习${assignment.count}天`}
             >
               <i style={{ backgroundColor: assignment.color }} />
               <b>{assignment.label}</b>

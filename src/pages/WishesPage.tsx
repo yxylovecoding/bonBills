@@ -331,6 +331,16 @@ export default function WishesPage() {
     : internPlan.scheduledInternDays;
   const intervalAdditionalInternDays = Math.max(minimumSelectableInternDays - scheduledIntervalInternDays, 0);
   const intervalReducibleInternDays = Math.max(scheduledIntervalInternDays - minimumSelectableInternDays, 0);
+  const compactAttendanceTotal = Math.min(availableSelectableInternDays, 9);
+  const compactAttendanceDays = availableSelectableInternDays <= 0 || selectedIntervalInternDays <= 0
+    ? 0
+    : selectedIntervalInternDays >= availableSelectableInternDays
+      ? compactAttendanceTotal
+      : Math.min(
+        Math.max(Math.round(selectedIntervalInternDays / availableSelectableInternDays * compactAttendanceTotal), 1),
+        compactAttendanceTotal - 1,
+      );
+  const attendanceLabel = `${compactAttendanceDays}/${compactAttendanceTotal}勤`;
   const selectedSegmentLabel = activeSegment?.wishNames.join('、') || selectedPlanningWish?.name || '当前心愿';
   const selectedIntervalStartDate = activeSegment?.intervalStartDate ?? todayKey;
   const minimumPlanningMonth = selectedIntervalStartDate.slice(0, 7);
@@ -590,7 +600,10 @@ export default function WishesPage() {
   const planningFinancialSummary = (
     <div className="wish-planning-financial-summary" style={{ marginTop: 8, borderRadius: 10, padding: '8px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
-        <span style={{ fontSize: 10, opacity: 0.8 }}>截至 {effectivePlanningDeadline} · 累计 {internPlan.selectedInternDays} 天</span>
+        <span style={{ fontSize: 10, opacity: 0.8 }}>
+          截至 {effectivePlanningDeadline} · 累计 {internPlan.selectedInternDays} 天
+          <span className="wish-mobile-attendance">{attendanceLabel}</span>
+        </span>
         <span style={{ fontSize: 19, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedTotalSaving)}</span>
       </div>
       <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.2)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 10px', fontSize: 10 }}>
@@ -678,11 +691,11 @@ export default function WishesPage() {
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
               <div style={{ flex: 1, minWidth: 0, fontSize: 24, lineHeight: 1.15, fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: -0.4 }}>
                 {internPlan.usesConsumptionTransfer
-                  ? `全部实习，从消费补${formatCurrency(internPlan.consumptionTransferredToWish)}元${internPlan.shortfall > 0.005 ? `，仍差${formatCurrency(internPlan.shortfall)}元` : ''}`
+                  ? `全勤，从消费补${formatCurrency(internPlan.consumptionTransferredToWish)}元${internPlan.shortfall > 0.005 ? `，仍差${formatCurrency(internPlan.shortfall)}元` : ''}`
                   : internPlan.minimumInternDays === null
-                    ? `本段全部实习仍差 ¥${formatCurrency(internPlan.shortfall)}`
+                    ? `本段全勤仍差 ¥${formatCurrency(internPlan.shortfall)}`
                     : minimumSelectableInternDays >= availableSelectableInternDays && availableSelectableInternDays > 0
-                      ? '本段全部实习'
+                      ? '本段全勤'
                       : intervalAdditionalInternDays > 0
                         ? `本段最少再实习 ${intervalAdditionalInternDays} 天`
                         : intervalReducibleInternDays > 0
@@ -690,6 +703,9 @@ export default function WishesPage() {
                           : `本段安排 ${selectedIntervalInternDays} 天实习`}
               </div>
               {planningHeadingAside}
+            </div>
+            <div style={{ marginTop: 4, fontSize: 11, fontWeight: 750, opacity: 0.86, fontVariantNumeric: 'tabular-nums' }}>
+              {attendanceLabel}
             </div>
             {internPlan.usesConsumptionTransfer || internPlan.minimumInternDays === null ? (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7, marginTop: 10 }}>

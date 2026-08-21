@@ -105,6 +105,14 @@ input[type='number'] { -moz-appearance: textfield; }
   margin-top: 0 !important;
 }
 
+.wish-mobile-attendance {
+  display: block;
+  margin-top: 2px;
+  font-weight: 800;
+  opacity: 0.9;
+  font-variant-numeric: tabular-nums;
+}
+
 .wish-compact-calendar {
   display: none;
   margin-bottom: 12px;
@@ -668,6 +676,10 @@ input[type='number'] { -moz-appearance: textfield; }
   }
 
   .wish-mobile-financial-summary {
+    display: none;
+  }
+
+  .wish-mobile-attendance {
     display: none;
   }
 }
