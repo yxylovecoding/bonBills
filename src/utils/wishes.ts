@@ -21,6 +21,10 @@ function normalizedAmount(value: number | undefined): number {
   return Number.isFinite(value) ? Math.max(value ?? 0, 0) : 0;
 }
 
+function normalizedSignedAmount(value: number | undefined): number {
+  return Number.isFinite(value) ? (value ?? 0) : 0;
+}
+
 export function resolveWishExtraExpenseItems(
   wish: Pick<WishItem, 'id' | 'travelExtraExpenseItems' | 'travelExtraExpenseAmount'>,
 ): WishExtraExpenseItem[] {
@@ -28,17 +32,17 @@ export function resolveWishExtraExpenseItems(
     return wish.travelExtraExpenseItems.map((item, index) => ({
       id: item.id || `extra_${wish.id}_${index}`,
       name: typeof item.name === 'string' ? item.name : '',
-      amount: normalizedAmount(item.amount),
+      amount: normalizedSignedAmount(item.amount),
     }));
   }
-  const legacyAmount = normalizedAmount(wish.travelExtraExpenseAmount);
-  return legacyAmount > 0
+  const legacyAmount = normalizedSignedAmount(wish.travelExtraExpenseAmount);
+  return legacyAmount !== 0
     ? [{ id: `legacy_extra_${wish.id}`, name: '其他消费', amount: legacyAmount }]
     : [];
 }
 
 export function totalWishExtraExpenseAmount(items: WishExtraExpenseItem[]): number {
-  return items.reduce((sum, item) => sum + normalizedAmount(item.amount), 0);
+  return items.reduce((sum, item) => sum + normalizedSignedAmount(item.amount), 0);
 }
 
 export function calculateTravelWishEstimate(
@@ -52,7 +56,7 @@ export function calculateTravelWishEstimate(
   const normalizedDailyLifeAmount = normalizedAmount(dailyLifeAmount);
   const normalizedTicketAmount = normalizedAmount(ticketAmount);
   const normalizedLodgingDailyAmount = normalizedAmount(lodgingDailyAmount);
-  const normalizedExtraExpenseAmount = normalizedAmount(extraExpenseAmount);
+  const normalizedExtraExpenseAmount = normalizedSignedAmount(extraExpenseAmount);
   const lodgingAmount = normalizedDays * normalizedLodgingDailyAmount;
   const lifeAmount = normalizedDays * normalizedDailyLifeAmount;
   return {
@@ -63,7 +67,7 @@ export function calculateTravelWishEstimate(
     lodgingDailyAmount: normalizedLodgingDailyAmount,
     lodgingAmount,
     extraExpenseAmount: normalizedExtraExpenseAmount,
-    targetAmount: normalizedTicketAmount + lodgingAmount + normalizedExtraExpenseAmount + lifeAmount,
+    targetAmount: Math.max(normalizedTicketAmount + lodgingAmount + normalizedExtraExpenseAmount + lifeAmount, 0),
   };
 }
 

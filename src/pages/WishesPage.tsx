@@ -37,6 +37,15 @@ function sanitizeAmount(raw: string): number {
   return Number.isFinite(parsed) ? Math.max(parsed, 0) : 0;
 }
 
+function sanitizeSignedAmount(raw: string): number {
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatSignedWishCurrency(value: number): string {
+  return `${value < 0 ? '-' : ''}¥${formatCurrency(value)}`;
+}
+
 function offsetYearMonth(date: Date, offset: number): string {
   const target = new Date(date.getFullYear(), date.getMonth() + offset, 1);
   return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}`;
@@ -858,7 +867,7 @@ export default function WishesPage() {
                                         value={amountDrafts[expenseAmountKey] ?? (expense.amount ? String(expense.amount) : '')}
                                         onChange={(raw) => {
                                           setAmountDrafts((current) => ({ ...current, [expenseAmountKey]: raw }));
-                                          updateWishExtraExpense(item.id, itemExtraExpenses, expense.id, { amount: sanitizeAmount(raw) });
+                                          updateWishExtraExpense(item.id, itemExtraExpenses, expense.id, { amount: sanitizeSignedAmount(raw) });
                                         }}
                                         onBlur={() => setAmountDrafts((current) => {
                                           const next = { ...current };
@@ -911,7 +920,7 @@ export default function WishesPage() {
                       </div>
                       <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
                         <div style={{ fontSize: 9, color: C.sub }}>额外消费 · {itemExtraExpenses.length}笔</div>
-                        <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.purple }}>¥{formatCurrency(travelEstimate.extraExpenseAmount)}</div>
+                        <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.purple }}>{formatSignedWishCurrency(travelEstimate.extraExpenseAmount)}</div>
                       </div>
                       <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
                         <div style={{ fontSize: 9, color: C.sub }}>{budgetEstimateVisible ? '估算目标' : '去“活”后需攒'}</div>
