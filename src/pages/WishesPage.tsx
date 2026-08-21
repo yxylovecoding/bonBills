@@ -677,25 +677,28 @@ export default function WishesPage() {
                       <span style={{ fontSize: 16, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{selectedIntervalInternDays} 天</span>
                     </span>
                   </div>
-                  <input
-                    type="range"
-                    aria-label="规划实习天数"
-                    aria-valuetext={`${selectedIntervalInternDays} 天`}
-                    min={selectedIntervalInternDays === 0 ? 0 : minimumSelectableInternDays}
-                    max={availableSelectableInternDays}
-                    step={1}
-                    value={selectedIntervalInternDays}
-                    disabled={minimumSelectableInternDays >= availableSelectableInternDays}
-                    onChange={(event) => {
-                      const value = Number(event.target.value);
-                      setSelectedInternDays(value === 0 ? 0 : Math.max(value, minimumSelectableInternDays));
-                    }}
-                    style={{ width: '100%', margin: '6px 0 2px', accentColor: '#fff', cursor: minimumSelectableInternDays < availableSelectableInternDays ? 'pointer' : 'default' }}
-                  />
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 9, opacity: 0.72 }}>
-                    <span>{selectedIntervalInternDays === 0 ? `当前不实习 · 满足心愿需 ${minimumSelectableInternDays} 天` : `满足心愿 ${minimumSelectableInternDays} 天`}</span>
-                    <span>本段工作日上限 {availableSelectableInternDays} 天</span>
-                  </div>
+                  {minimumSelectableInternDays < availableSelectableInternDays ? (
+                    <>
+                      <input
+                        type="range"
+                        aria-label="规划实习天数"
+                        aria-valuetext={`${selectedIntervalInternDays} 天`}
+                        min={selectedIntervalInternDays === 0 ? 0 : minimumSelectableInternDays}
+                        max={availableSelectableInternDays}
+                        step={1}
+                        value={selectedIntervalInternDays}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          setSelectedInternDays(value === 0 ? 0 : Math.max(value, minimumSelectableInternDays));
+                        }}
+                        style={{ width: '100%', margin: '6px 0 2px', accentColor: '#fff', cursor: 'pointer' }}
+                      />
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 9, opacity: 0.72 }}>
+                        <span>{selectedIntervalInternDays === 0 ? `当前不实习 · 满足心愿需 ${minimumSelectableInternDays} 天` : `满足心愿 ${minimumSelectableInternDays} 天`}</span>
+                        <span>本段工作日上限 {availableSelectableInternDays} 天</span>
+                      </div>
+                    </>
+                  ) : null}
                 </div>
               </>
             )}
