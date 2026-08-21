@@ -125,6 +125,11 @@ export default function WishesPage() {
   const effectivePlanningDeadline = selectedWishDeadline
     ?? (planningDeadline >= todayKey ? planningDeadline : defaultPlanningDeadline);
   const daysUntilPlanningDeadline = Math.max(daysUntilDate(effectivePlanningDeadline, today), 0);
+  const activeTimelineTrip = selectedPlanningWish?.linkedTripStartDate
+    ? allTripSegments.find((trip) => trip.startDate === selectedPlanningWish.linkedTripStartDate)
+    : undefined;
+  const activeTimelineStartDate = activeTimelineTrip?.startDate ?? effectivePlanningDeadline;
+  const activeTimelineEndDate = activeTimelineTrip?.endDate ?? effectivePlanningDeadline;
   const furthestPlanningDeadline = planningDeadline >= todayKey && planningDeadline > defaultPlanningDeadline
     ? planningDeadline
     : defaultPlanningDeadline;
@@ -469,7 +474,12 @@ export default function WishesPage() {
 
   return (
     <div className="wishes-page-shell">
-      <WishTimeline entries={timelineEntries} activeDate={effectivePlanningDeadline} />
+      <WishTimeline
+        entries={timelineEntries}
+        activeStartDate={activeTimelineStartDate}
+        activeEndDate={activeTimelineEndDate}
+        activeRangeLabel={activeTimelineTrip ? '当前心愿关联行程' : '当前心愿截止日'}
+      />
       <div className="wishes-page-content">
       <div className="wishes-page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, marginBottom: 16 }}>
         <div>

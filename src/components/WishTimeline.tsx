@@ -4,7 +4,9 @@ import type { WishTimelineEntry } from '../utils/wishTimeline';
 
 interface WishTimelineProps {
   entries: WishTimelineEntry[];
-  activeDate: string;
+  activeStartDate: string;
+  activeEndDate: string;
+  activeRangeLabel: string;
 }
 
 interface TimelineTooltip {
@@ -32,20 +34,22 @@ function fullDateLabel(value: string): string {
 
 interface TimelineTeethProps {
   entries: WishTimelineEntry[];
-  activeDate: string;
+  activeStartDate: string;
+  activeEndDate: string;
+  activeRangeLabel: string;
   maximumAmount: number;
   onHide: () => void;
   onShow: (entry: WishTimelineEntry, element: HTMLElement) => void;
 }
 
-const TimelineTeeth = memo(function TimelineTeeth({ entries, activeDate, maximumAmount, onHide, onShow }: TimelineTeethProps) {
+const TimelineTeeth = memo(function TimelineTeeth({ entries, activeStartDate, activeEndDate, activeRangeLabel, maximumAmount, onHide, onShow }: TimelineTeethProps) {
   return entries.map((entry, index) => {
     const ratio = maximumAmount > 0 ? Math.sqrt(entry.amount / maximumAmount) : 0;
     const toothLength = 9 + Math.round(ratio * 48);
     const toothThickness = 1 + Math.round(ratio * 4);
     const startsMonth = index === 0 || entry.date.slice(0, 7) !== entries[index - 1].date.slice(0, 7);
-    const isActive = entry.date === activeDate;
-    const accessibleLabel = `${fullDateLabel(entry.date)}，${entry.itinerary}，预计 ${formatCurrency(entry.amount)} 元`;
+    const isActive = entry.date >= activeStartDate && entry.date <= activeEndDate;
+    const accessibleLabel = `${fullDateLabel(entry.date)}，${entry.itinerary}，预计 ${formatCurrency(entry.amount)} 元${isActive ? `，${activeRangeLabel}` : ''}`;
     return (
       <div
         key={entry.date}
@@ -57,7 +61,7 @@ const TimelineTeeth = memo(function TimelineTeeth({ entries, activeDate, maximum
           type="button"
           className={`wish-timeline-tooth${isActive ? ' wish-timeline-tooth--active' : ''}`}
           aria-label={accessibleLabel}
-          aria-current={isActive ? 'date' : undefined}
+          data-highlighted={isActive ? 'true' : undefined}
           data-timeline-date={entry.date}
           onMouseEnter={(event) => onShow(entry, event.currentTarget)}
           onMouseLeave={onHide}
@@ -74,7 +78,7 @@ const TimelineTeeth = memo(function TimelineTeeth({ entries, activeDate, maximum
   });
 });
 
-export default function WishTimeline({ entries, activeDate }: WishTimelineProps) {
+export default function WishTimeline({ entries, activeStartDate, activeEndDate, activeRangeLabel }: WishTimelineProps) {
   const [tooltip, setTooltip] = useState<TimelineTooltip | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const maximumAmount = useMemo(() => {
@@ -94,7 +98,10 @@ export default function WishTimeline({ entries, activeDate }: WishTimelineProps)
     const container = scrollRef.current;
     if (!container) return;
     const activeTooth = Array.from(container.querySelectorAll<HTMLElement>('[data-timeline-date]'))
-      .find((element) => element.dataset.timelineDate === activeDate);
+      .find((element) => {
+        const date = element.dataset.timelineDate ?? '';
+        return date >= activeStartDate && date <= activeEndDate;
+      });
     const row = activeTooth?.parentElement;
     if (!row) return;
     const margin = 8;
@@ -105,7 +112,7 @@ export default function WishTimeline({ entries, activeDate }: WishTimelineProps)
     } else if (rowBottom > container.scrollTop + container.clientHeight - margin) {
       container.scrollTop = rowBottom - container.clientHeight + margin;
     }
-  }, [activeDate, entries]);
+  }, [activeEndDate, activeStartDate, entries]);
 
   if (entries.length === 0) return null;
 
@@ -116,7 +123,9 @@ export default function WishTimeline({ entries, activeDate }: WishTimelineProps)
         <div className="wish-timeline-axis" aria-hidden="true" />
         <TimelineTeeth
           entries={entries}
-          activeDate={activeDate}
+          activeStartDate={activeStartDate}
+          activeEndDate={activeEndDate}
+          activeRangeLabel={activeRangeLabel}
           maximumAmount={maximumAmount}
           onHide={hideTooltip}
           onShow={showTooltip}
