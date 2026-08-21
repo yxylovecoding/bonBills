@@ -446,6 +446,8 @@ export default function WishesPage() {
   };
   const allInternDaysApplied = availableSelectableInternDays > 0
     && scheduledIntervalInternDays >= availableSelectableInternDays;
+  const noInternDaysApplied = availableSelectableInternDays > 0
+    && scheduledIntervalInternDays === 0;
   const applyAllInternDays = () => {
     const dates = activeSegment?.availableInternDateKeys ?? internPlan.availableInternDateKeys;
     if (dates.length === 0) return;
@@ -455,6 +457,18 @@ export default function WishesPage() {
         ...current,
         [activeSegment.deadline]: activeSegment.availableInternDateKeys.length,
       }));
+    }
+  };
+  const applyNoInternDays = () => {
+    const dates = activeSegment?.availableInternDateKeys ?? internPlan.availableInternDateKeys;
+    if (dates.length === 0) return;
+    setTags(dates, 'school');
+    if (activeSegment) {
+      setSelectedSegmentDays((current) => {
+        const next = { ...current };
+        delete next[activeSegment.deadline];
+        return next;
+      });
     }
   };
   const setSelectedInternDays = (days: number) => {
@@ -607,19 +621,30 @@ export default function WishesPage() {
               {planningHeadingAside}
             </div>
             {internPlan.usesConsumptionTransfer || internPlan.minimumInternDays === null ? (
-              <button
-                type="button"
-                aria-label="把规划范围内所有非家非游的中国法定工作日设为实习"
-                disabled={allInternDaysApplied || availableSelectableInternDays === 0}
-                onClick={applyAllInternDays}
-                style={{ width: '100%', marginTop: 10, border: '1px solid rgba(255,255,255,0.5)', borderRadius: 9, backgroundColor: allInternDaysApplied ? 'rgba(255,255,255,0.12)' : '#fff', color: allInternDaysApplied ? 'rgba(255,255,255,0.68)' : C.purple, padding: '7px 10px', fontSize: 11, fontWeight: 800, cursor: allInternDaysApplied || availableSelectableInternDays === 0 ? 'default' : 'pointer' }}
-              >
-                {availableSelectableInternDays === 0
-                  ? '没有可改的工作日'
-                  : allInternDaysApplied
-                    ? '日历已全部实习'
-                    : `本段一键全部实习 · ${availableSelectableInternDays} 天`}
-              </button>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7, marginTop: 10 }}>
+                <button
+                  type="button"
+                  aria-label="把规划范围内所有非家非游的中国法定工作日设为实习"
+                  disabled={allInternDaysApplied || availableSelectableInternDays === 0}
+                  onClick={applyAllInternDays}
+                  style={{ minWidth: 0, border: '1px solid rgba(255,255,255,0.5)', borderRadius: 9, backgroundColor: allInternDaysApplied ? 'rgba(255,255,255,0.12)' : '#fff', color: allInternDaysApplied ? 'rgba(255,255,255,0.68)' : C.purple, padding: '7px 8px', fontSize: 10, fontWeight: 800, cursor: allInternDaysApplied || availableSelectableInternDays === 0 ? 'default' : 'pointer' }}
+                >
+                  {availableSelectableInternDays === 0
+                    ? '没有可改的工作日'
+                    : allInternDaysApplied
+                      ? '日历已全部实习'
+                      : `一键全部实习 · ${availableSelectableInternDays} 天`}
+                </button>
+                <button
+                  type="button"
+                  aria-label="把规划范围内所有非家非游的中国法定工作日设为不实习"
+                  disabled={noInternDaysApplied || availableSelectableInternDays === 0}
+                  onClick={applyNoInternDays}
+                  style={{ minWidth: 0, border: '1px solid rgba(255,255,255,0.5)', borderRadius: 9, backgroundColor: noInternDaysApplied ? 'rgba(255,255,255,0.12)' : '#fff', color: noInternDaysApplied ? 'rgba(255,255,255,0.68)' : C.purple, padding: '7px 8px', fontSize: 10, fontWeight: 800, cursor: noInternDaysApplied || availableSelectableInternDays === 0 ? 'default' : 'pointer' }}
+                >
+                  {noInternDaysApplied ? '已全部不实习' : '一键全部不实习'}
+                </button>
+              </div>
             ) : (
               <>
                 <div style={{ fontSize: 10, opacity: 0.82, marginTop: 4 }}>
@@ -630,7 +655,7 @@ export default function WishesPage() {
                 <div style={{ marginTop: 8, borderRadius: 10, padding: '8px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
                     <span style={{ fontSize: 11, fontWeight: 700 }}>实习天数</span>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 5 }}>
                       <button
                         type="button"
                         aria-label="把规划范围内所有非家非游的中国法定工作日设为实习"
@@ -639,6 +664,15 @@ export default function WishesPage() {
                         style={{ border: '1px solid rgba(255,255,255,0.42)', borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', padding: '4px 7px', fontSize: 9, fontWeight: 700, cursor: allInternDaysApplied || availableSelectableInternDays === 0 ? 'default' : 'pointer', opacity: allInternDaysApplied ? 0.55 : 1 }}
                       >
                         {availableSelectableInternDays === 0 ? '无可改工作日' : allInternDaysApplied ? '已全部实习' : '本段全部实习'}
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="把规划范围内所有非家非游的中国法定工作日设为不实习"
+                        disabled={noInternDaysApplied || availableSelectableInternDays === 0}
+                        onClick={applyNoInternDays}
+                        style={{ border: '1px solid rgba(255,255,255,0.42)', borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', padding: '4px 7px', fontSize: 9, fontWeight: 700, cursor: noInternDaysApplied || availableSelectableInternDays === 0 ? 'default' : 'pointer', opacity: noInternDaysApplied ? 0.55 : 1 }}
+                      >
+                        {noInternDaysApplied ? '已全部不实习' : '本段全部不实习'}
                       </button>
                       <span style={{ fontSize: 16, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{selectedIntervalInternDays} 天</span>
                     </span>
