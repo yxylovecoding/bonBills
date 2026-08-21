@@ -817,7 +817,6 @@ export default function WishesPage() {
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {orderedPlanItems.map((item) => {
-            const progress = item.targetAmount > 0 ? Math.min(item.savedAmount / item.targetAmount, 1) : 0;
             const targetKey = `${item.id}:targetAmount`;
             const savedKey = `${item.id}:savedAmount`;
             const ticketKey = `${item.id}:travelTicketAmount`;
@@ -867,6 +866,14 @@ export default function WishesPage() {
             const actualWishSavingAmount = roundToSitePrecision(
               Math.max(item.targetAmount - itemAdjustedTravelLifeAmount, 0),
             );
+            const remainingActualWishSavingAmount = roundToSitePrecision(
+              Math.max(actualWishSavingAmount - Math.max(item.savedAmount, 0), 0),
+            );
+            const progress = actualWishSavingAmount > 0
+              ? Math.min(Math.max(item.savedAmount, 0) / actualWishSavingAmount, 1)
+              : item.targetAmount > 0 ? 1 : 0;
+            const actualWishSavingCompleted = item.targetAmount > 0
+              && remainingActualWishSavingAmount <= 0;
             const budgetEstimateVisible = budgetEstimateWishId === item.id;
             const isSelectedPlanningWish = selectedPlanningWish?.id === item.id;
             return (
@@ -898,14 +905,7 @@ export default function WishesPage() {
                   <button type="button" aria-label="删除心愿" onClick={() => removeWish(item.id)} style={{ border: 'none', background: 'transparent', color: '#9aa0a6', fontSize: 18, padding: '0 2px', cursor: 'pointer', lineHeight: 1 }}>×</button>
                 </div>
 
-                {itemTravelDays > 0 && item.targetAmount > 0 ? (
-                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginTop: 12, borderRadius: 9, backgroundColor: '#f3e8ff', padding: '7px 9px', color: C.purple }}>
-                    <span style={{ minWidth: 0, fontSize: 10, fontWeight: 700 }}>去掉修正后“活”，实际心愿需攒</span>
-                    <strong style={{ flexShrink: 0, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(actualWishSavingAmount)}</strong>
-                  </div>
-                ) : null}
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9, marginTop: itemTravelDays > 0 && item.targetAmount > 0 ? 7 : 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9, marginTop: 12 }}>
                   <label style={{ display: 'block' }}>
                     <span style={{ display: 'block', fontSize: 10, color: C.sub, marginBottom: 4 }}>目标金额</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, border: `1px solid ${budgetEstimateWishId === item.id ? '#c4b5fd' : '#e5e7eb'}`, borderRadius: 9, backgroundColor: '#fff', padding: '6px 8px', boxShadow: budgetEstimateWishId === item.id ? '0 0 0 2px #ede9fe' : 'none' }}>
@@ -1181,16 +1181,16 @@ export default function WishesPage() {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 6, fontSize: 10, color: C.sub }}>
                   <span>{item.targetAmount > 0 ? `完成 ${(progress * 100).toFixed(0)}%` : '等待填写目标'}</span>
-                  {item.targetAmount > 0 && <span>还差 ¥{formatCurrency(item.remainingAmount)}</span>}
+                  {item.targetAmount > 0 && <span>还差 ¥{formatCurrency(remainingActualWishSavingAmount)}</span>}
                 </div>
 
-                <div style={{ marginTop: 10, borderRadius: 10, padding: '8px 9px', backgroundColor: item.deadlineState === 'overdue' ? '#fef2f2' : item.deadlineState === 'completed' ? '#ecfdf5' : '#f5f3ff', color: item.deadlineState === 'overdue' ? C.red : item.deadlineState === 'completed' ? C.green : C.purple, fontSize: 11, fontWeight: 700, lineHeight: 1.5 }}>
+                <div style={{ marginTop: 10, borderRadius: 10, padding: '8px 9px', backgroundColor: item.deadlineState === 'overdue' && !actualWishSavingCompleted ? '#fef2f2' : actualWishSavingCompleted ? '#ecfdf5' : '#f5f3ff', color: item.deadlineState === 'overdue' && !actualWishSavingCompleted ? C.red : actualWishSavingCompleted ? C.green : C.purple, fontSize: 11, fontWeight: 700, lineHeight: 1.5 }}>
                   {!item.isActive && '已暂停，不计入最少实习规划'}
-                  {item.isActive && item.deadlineState === 'completed' && '✓ 心愿已经攒满'}
-                  {item.isActive && item.deadlineState === 'none' && (item.remainingAmount > 0 ? '无 DDL，按自己的节奏慢慢攒' : '填入目标金额后开始计算')}
-                  {item.isActive && item.deadlineState === 'overdue' && `已超期 · 还需补 ¥${formatCurrency(item.remainingAmount)}`}
-                  {item.isActive && item.deadlineState === 'scheduled' && item.remainingAmount > 0 && (
-                    `还剩 ${item.monthsRemaining} 个月 · 截止前还需攒 ¥${formatCurrency(item.remainingAmount)}`
+                  {item.isActive && actualWishSavingCompleted && '✓ 心愿已经攒满'}
+                  {item.isActive && !actualWishSavingCompleted && item.deadlineState === 'none' && (remainingActualWishSavingAmount > 0 ? '无 DDL，按自己的节奏慢慢攒' : '填入目标金额后开始计算')}
+                  {item.isActive && !actualWishSavingCompleted && item.deadlineState === 'overdue' && `已超期 · 还需补 ¥${formatCurrency(remainingActualWishSavingAmount)}`}
+                  {item.isActive && !actualWishSavingCompleted && item.deadlineState === 'scheduled' && remainingActualWishSavingAmount > 0 && (
+                    `还剩 ${item.monthsRemaining} 个月 · 截止前还需攒 ¥${formatCurrency(remainingActualWishSavingAmount)}`
                   )}
                   {item.isActive && item.deadlineState === 'scheduled' && item.targetAmount <= 0 && (itemTravelDays > 0 ? '填写机酒价格并采用估算后开始计算' : '填入目标金额后开始计算')}
                 </div>
