@@ -2,6 +2,10 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { AppConfig } from '../models/types';
 
+export const DEFAULT_WISH_DEADLINE_MILESTONES = [
+  { id: 'milestone_graduation', name: '毕业前', date: '2028-06-20' },
+];
+
 export const DEFAULT_CONFIG: AppConfig = {
   birthDate: '2002-12-29',
   retireAge: 55,
@@ -32,6 +36,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   majorFireWishes: [],
   wishes: [],
   wishInternSavingRecords: [],
+  wishDeadlineMilestones: DEFAULT_WISH_DEADLINE_MILESTONES,
   majorExpenseThreshold: 500,
   dramDecision: {
     symbol: 'DRAM',

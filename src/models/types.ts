@@ -83,6 +83,12 @@ export interface WishInternSavingRecord {
   confirmed: boolean;
 }
 
+export interface WishDeadlineMilestone {
+  id: string;
+  name: string;
+  date: string;
+}
+
 export interface DramDecisionConfig {
   symbol: string;
   shares: number;
@@ -137,6 +143,7 @@ export interface AppConfig {
   majorFireWishes?: MajorFireWish[];
   wishes?: WishItem[];
   wishInternSavingRecords?: WishInternSavingRecord[];
+  wishDeadlineMilestones?: WishDeadlineMilestone[];
   majorExpenseThreshold: number; // 大额支出筛选门槛，默认 500
   dramDecision?: DramDecisionConfig;
 }

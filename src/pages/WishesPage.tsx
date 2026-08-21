@@ -7,13 +7,13 @@ import WishCompactCalendar from '../components/WishCompactCalendar';
 import { calcHistoryStats } from '../calculations/history';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useCalendarStore } from '../stores/calendarStore';
-import { useConfigStore } from '../stores/configStore';
+import { DEFAULT_WISH_DEADLINE_MILESTONES, useConfigStore } from '../stores/configStore';
 import { useExpenseScopeOverrideStore } from '../stores/expenseScopeOverrideStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { useSnapshotStore } from '../stores/snapshotStore';
 import { useTripStore } from '../stores/tripStore';
 import { usePrefsStore } from '../stores/prefsStore';
-import type { TagKind, WishExtraExpenseItem, WishItem } from '../models/types';
+import type { TagKind, WishDeadlineMilestone, WishExtraExpenseItem, WishItem } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { detectAllTrips, type TripSegment } from '../utils/trips';
 import { calculateWishInternPlan } from '../utils/wishInternPlan';
@@ -127,6 +127,7 @@ export default function WishesPage() {
   const [visiblePlanningMonth, setVisiblePlanningMonth] = useState('');
   const [pendingWishNameFocusId, setPendingWishNameFocusId] = useState<string | null>(null);
   const [selectedSegmentDays, setSelectedSegmentDays] = useState<Record<string, number>>({});
+  const [deadlineSettingsOpen, setDeadlineSettingsOpen] = useState(false);
   const wishListScrollRef = useRef<HTMLDivElement>(null);
   const wishScrollFrameRef = useRef<number | null>(null);
   const today = new Date();
@@ -134,6 +135,7 @@ export default function WishesPage() {
   const todayKey = `${todayYear}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const twoYearsAgo = `${todayYear - 1}-01`;
   const wishes = config.wishes ?? [];
+  const deadlineMilestones = config.wishDeadlineMilestones ?? DEFAULT_WISH_DEADLINE_MILESTONES;
   const wishInternSavingRecords = config.wishInternSavingRecords ?? [];
   const pendingInternSavingsByWish = useMemo(
     () => pendingWishInternSavingsByWish(wishInternSavingRecords, todayKey),
@@ -417,6 +419,21 @@ export default function WishesPage() {
   const wishJarBalance = Math.max(current.accounts.wishJar ?? 0, 0);
 
   const syncWishes = (items: WishItem[]) => setConfig({ wishes: items });
+  const syncDeadlineMilestones = (items: WishDeadlineMilestone[]) => setConfig({ wishDeadlineMilestones: items });
+  const addDeadlineMilestone = () => syncDeadlineMilestones([
+    ...deadlineMilestones,
+    { id: `milestone_${Date.now()}`, name: '新节点', date: '' },
+  ]);
+  const updateDeadlineMilestone = <K extends keyof WishDeadlineMilestone>(
+    id: string,
+    field: K,
+    value: WishDeadlineMilestone[K],
+  ) => syncDeadlineMilestones(deadlineMilestones.map((item) => (
+    item.id === id ? { ...item, [field]: value } : item
+  )));
+  const removeDeadlineMilestone = (id: string) => syncDeadlineMilestones(
+    deadlineMilestones.filter((item) => item.id !== id),
+  );
   const addWish = () => {
     const id = `wish_${Date.now()}`;
     setSelectedSegmentDays({});
@@ -713,14 +730,54 @@ export default function WishesPage() {
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 2px' }}>心愿</h1>
           <p style={{ fontSize: 13, color: C.sub, margin: 0 }}>把想要的，变成每个月做得到的</p>
         </div>
-        <button
-          type="button"
-          onClick={addWish}
-          style={{ border: 'none', borderRadius: 999, backgroundColor: C.purple, color: '#fff', fontSize: 12, fontWeight: 700, padding: '7px 12px', cursor: 'pointer', boxShadow: '0 2px 8px rgba(124,58,237,0.24)' }}
-        >
-          + 添加心愿
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <button
+            type="button"
+            aria-expanded={deadlineSettingsOpen}
+            onClick={() => setDeadlineSettingsOpen((open) => !open)}
+            style={{ border: '1px solid #ddd6fe', borderRadius: 999, backgroundColor: deadlineSettingsOpen ? '#ede9fe' : '#fff', color: C.purple, fontSize: 12, fontWeight: 700, padding: '7px 11px', cursor: 'pointer' }}
+          >
+            ⚙ 时间节点
+          </button>
+          <button
+            type="button"
+            onClick={addWish}
+            style={{ border: 'none', borderRadius: 999, backgroundColor: C.purple, color: '#fff', fontSize: 12, fontWeight: 700, padding: '7px 12px', cursor: 'pointer', boxShadow: '0 2px 8px rgba(124,58,237,0.24)' }}
+          >
+            + 添加心愿
+          </button>
+        </div>
       </div>
+
+      {deadlineSettingsOpen ? (
+        <section aria-label="时间节点设置" style={{ border: '1px solid #ddd6fe', borderRadius: 13, backgroundColor: '#faf7ff', padding: '10px', margin: '-5px 0 12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: deadlineMilestones.length > 0 ? 7 : 0 }}>
+            <strong style={{ color: '#4c1d95', fontSize: 12 }}>时间节点</strong>
+            <button type="button" onClick={addDeadlineMilestone} style={{ border: 'none', background: 'transparent', color: C.purple, padding: '2px 4px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>+ 添加节点</button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {deadlineMilestones.map((milestone) => (
+              <div key={milestone.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(90px, 1fr) minmax(138px, 1fr) auto', alignItems: 'center', gap: 6 }}>
+                <input
+                  aria-label="节点名称"
+                  value={milestone.name}
+                  onChange={(event) => updateDeadlineMilestone(milestone.id, 'name', event.target.value)}
+                  placeholder="节点名称"
+                  style={{ minWidth: 0, border: '1px solid #ddd6fe', borderRadius: 8, backgroundColor: '#fff', padding: '6px 8px', outline: 'none', color: '#202124', fontSize: 12 }}
+                />
+                <input
+                  type="date"
+                  aria-label={`${milestone.name || '时间节点'}日期`}
+                  value={milestone.date}
+                  onChange={(event) => updateDeadlineMilestone(milestone.id, 'date', event.target.value)}
+                  style={{ minWidth: 0, border: '1px solid #ddd6fe', borderRadius: 8, backgroundColor: '#fff', padding: '5px 8px', outline: 'none', color: milestone.date ? '#202124' : C.sub, fontSize: 12 }}
+                />
+                <button type="button" aria-label={`删除${milestone.name || '时间节点'}`} onClick={() => removeDeadlineMilestone(milestone.id)} style={{ border: 'none', background: 'transparent', color: '#9aa0a6', padding: '2px 4px', fontSize: 18, cursor: 'pointer', lineHeight: 1 }}>×</button>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <div className="wishes-planning-grid">
       <div className="wish-planning-column">
@@ -1011,9 +1068,25 @@ export default function WishesPage() {
                 </div>
 
                 {linkedTripDefaultDeadline ? null : (
-                  <label style={{ display: 'block', marginTop: 9 }}>
+                  <div style={{ display: 'block', marginTop: 9 }}>
                     <span style={{ display: 'block', fontSize: 10, color: C.sub, marginBottom: 4 }}>截止日期（可选）</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {deadlineMilestones.some((milestone) => milestone.name.trim() && milestone.date) ? (
+                        <select
+                          aria-label={`${item.name}截止时间节点`}
+                          value={deadlineMilestones.find((milestone) => milestone.date === item.deadline)?.id ?? ''}
+                          onChange={(event) => {
+                            const milestone = deadlineMilestones.find((candidate) => candidate.id === event.target.value);
+                            if (milestone?.date) updateWish(item.id, 'deadline', milestone.date);
+                          }}
+                          style={{ minWidth: 86, maxWidth: 116, border: '1px solid #ddd6fe', borderRadius: 9, backgroundColor: '#faf7ff', padding: '6px 7px', outline: 'none', fontSize: 11, color: C.purple }}
+                        >
+                          <option value="">时间节点</option>
+                          {deadlineMilestones.filter((milestone) => milestone.name.trim() && milestone.date).map((milestone) => (
+                            <option key={milestone.id} value={milestone.id}>{milestone.name}</option>
+                          ))}
+                        </select>
+                      ) : null}
                       <input
                         type="date"
                         aria-label="心愿截止日期"
@@ -1025,7 +1098,7 @@ export default function WishesPage() {
                         <button type="button" onClick={() => updateWish(item.id, 'deadline', null)} style={{ border: 'none', borderRadius: 8, padding: '7px 9px', backgroundColor: '#f3f4f6', color: C.sub, fontSize: 11, cursor: 'pointer' }}>清除</button>
                       )}
                     </div>
-                  </label>
+                  </div>
                 )}
 
                 <div style={{ marginTop: 9, borderRadius: 10, border: '1px solid #ede9fe', backgroundColor: '#faf7ff', padding: '8px 9px' }}>
