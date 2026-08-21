@@ -727,11 +727,6 @@ export default function WishesPage() {
               </div>
             ) : (
               <>
-                <div style={{ fontSize: 10, opacity: 0.82, marginTop: 4 }}>
-                  本段日历已排 {scheduledIntervalInternDays} 天实习
-                  {' · '}至少 {minimumSelectableInternDays} 天
-                  {' · '}最多 {availableSelectableInternDays} 个非家非游法定工作日
-                </div>
                 <div style={{ marginTop: 8, borderRadius: 10, padding: '8px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
                     <span style={{ fontSize: 11, fontWeight: 700 }}>实习天数</span>
