@@ -68,7 +68,11 @@ export interface WishInternPlan {
   recommendedDates: string[];
   months: WishInternMonthPlan[];
   projectedWishSaving: number;
+  projectedWishBalance: number;
+  spentWishAmount: number;
+  spentWishNames: string[];
   consumptionTransferredToWish: number;
+  consumptionTransferWishNames: string[];
   usesConsumptionTransfer: boolean;
   excludedLivingDays: number;
   excludedLifeExpense: number;
@@ -203,16 +207,20 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
   }
 
   const includedWishes = options.wishes.filter((wish) => {
-    if (!wish.isActive || !wish.deadline || wish.deadline > deadline) return false;
+    if (!wish.isActive || !wish.deadline || wish.deadline < startDate || wish.deadline > deadline) return false;
     const target = Number.isFinite(wish.targetAmount) ? Math.max(wish.targetAmount, 0) : 0;
     const saved = Number.isFinite(wish.savedAmount) ? Math.max(wish.savedAmount, 0) : 0;
     return target > saved;
-  });
+  }).sort((first, second) => (
+    (first.deadline ?? '').localeCompare(second.deadline ?? '') || first.id.localeCompare(second.id)
+  ));
   const linkedTravelDates = new Set<string>();
   const travelLifeDaily = normalizedDailyAverage(options.stateDailyAvg.travel);
   let requestedManualTravelDays = 0;
-  let requestedExcludedLifeExpense = 0;
-  for (const wish of includedWishes) {
+  const wishFundingRequirements = includedWishes.map((wish) => {
+    const target = Number.isFinite(wish.targetAmount) ? Math.max(wish.targetAmount, 0) : 0;
+    const saved = Number.isFinite(wish.savedAmount) ? Math.max(wish.savedAmount, 0) : 0;
+    const amountIncludingLife = Math.max(target - saved, 0);
     const lifeCorrectionAmount = Number.isFinite(wish.travelLifeCorrectionAmount)
       ? Math.max(wish.travelLifeCorrectionAmount ?? 0, 0)
       : 0;
@@ -221,21 +229,32 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
       : undefined;
     if (linkedDates && linkedDates.length > 0) {
       for (const date of linkedDates) linkedTravelDates.add(date);
-      requestedExcludedLifeExpense += Math.max(
+      const excludedLifeExpense = Math.min(Math.max(
         linkedDates.length * travelLifeDaily - lifeCorrectionAmount,
         0,
-      );
-      continue;
+      ), amountIncludingLife);
+      return {
+        wish,
+        amountIncludingLife,
+        excludedLifeExpense,
+        amount: Math.max(amountIncludingLife - excludedLifeExpense, 0),
+      };
     }
     const manualDays = Number.isFinite(wish.plannedTravelDays)
       ? Math.max(Math.round(wish.plannedTravelDays ?? 0), 0)
       : 0;
     requestedManualTravelDays += manualDays;
-    requestedExcludedLifeExpense += Math.max(
+    const excludedLifeExpense = Math.min(Math.max(
       manualDays * travelLifeDaily - lifeCorrectionAmount,
       0,
-    );
-  }
+    ), amountIncludingLife);
+    return {
+      wish,
+      amountIncludingLife,
+      excludedLifeExpense,
+      amount: Math.max(amountIncludingLife - excludedLifeExpense, 0),
+    };
+  });
   const manualTravelDays = requestedManualTravelDays;
 
   const activeInternIncome = options.incomeItems.filter(
@@ -298,13 +317,18 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
     const amount = options.repaymentsByMonth[month.yearMonth];
     return sum + (Number.isFinite(amount) ? Math.max(amount, 0) : 0);
   }, 0);
-  const wishAmountIncludingLife = includedWishes.reduce((sum, wish) => {
-    const target = Number.isFinite(wish.targetAmount) ? Math.max(wish.targetAmount, 0) : 0;
-    const saved = Number.isFinite(wish.savedAmount) ? Math.max(wish.savedAmount, 0) : 0;
-    return sum + Math.max(target - saved, 0);
-  }, 0);
-  const excludedLifeExpense = Math.min(requestedExcludedLifeExpense, wishAmountIncludingLife);
-  const wishAmount = Math.max(wishAmountIncludingLife - excludedLifeExpense, 0);
+  const wishAmountIncludingLife = wishFundingRequirements.reduce(
+    (sum, requirement) => sum + requirement.amountIncludingLife,
+    0,
+  );
+  const excludedLifeExpense = wishFundingRequirements.reduce(
+    (sum, requirement) => sum + requirement.excludedLifeExpense,
+    0,
+  );
+  const wishAmount = wishFundingRequirements.reduce(
+    (sum, requirement) => sum + requirement.amount,
+    0,
+  );
   const expenseDeltaPerInternDay = normalizedDailyAverage(options.stateDailyAvg.intern)
     - normalizedDailyAverage(options.stateDailyAvg.school);
   const requiredCoreSurplus = wishAmount / POST_LIFE_WISH_SHARE;
@@ -426,12 +450,34 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
     : 0;
   const consumptionTransferredToWish = Math.min(normalWishShortfall, consumptionPool);
   const projectedWishSaving = normalWishSaving + consumptionTransferredToWish;
+  const spentWishRequirements = wishFundingRequirements.filter(
+    ({ wish }) => Boolean(wish.deadline && wish.deadline < deadline),
+  );
+  const spentWishAmount = spentWishRequirements.reduce(
+    (sum, requirement) => sum + requirement.amount,
+    0,
+  );
+  const spentWishNames = [...new Set(spentWishRequirements.map(({ wish }) => wish.name.trim()).filter(Boolean))];
+  const projectedWishBalance = Math.max(projectedWishSaving - spentWishAmount, 0);
+  let normalWishSavingRemaining = normalWishSaving;
+  let consumptionTransferRemaining = consumptionTransferredToWish;
+  const consumptionTransferWishNames: string[] = [];
+  for (const { wish, amount } of wishFundingRequirements) {
+    const normalCovered = Math.min(normalWishSavingRemaining, amount);
+    normalWishSavingRemaining -= normalCovered;
+    const uncovered = amount - normalCovered;
+    if (uncovered <= 0 || consumptionTransferRemaining <= 0) continue;
+    const transferred = Math.min(uncovered, consumptionTransferRemaining);
+    consumptionTransferRemaining -= transferred;
+    const name = wish.name.trim();
+    if (name && !consumptionTransferWishNames.includes(name)) consumptionTransferWishNames.push(name);
+  }
   const projectedConsumption = Math.max(
     positiveRecommendedSurplus * POST_LIFE_CONSUMPTION_SHARE - consumptionTransferredToWish,
     0,
   );
   const projectedInvestmentSaving = positiveRecommendedSurplus * POST_LIFE_INVESTMENT_SHARE;
-  const projectedTotalSaving = projectedWishSaving + projectedInvestmentSaving;
+  const projectedTotalSaving = projectedWishBalance + projectedInvestmentSaving;
   const shortfall = Math.max(wishAmount - projectedWishSaving, 0);
   if (minimumInternDays === null && consumptionTransferredToWish > 0) usesConsumptionTransfer = true;
   if (minimumInternDays === null && shortfall <= 1e-7) minimumInternDays = recommendedDates.length;
@@ -479,7 +525,11 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
     recommendedDates,
     months: monthPlans,
     projectedWishSaving,
+    projectedWishBalance,
+    spentWishAmount,
+    spentWishNames,
     consumptionTransferredToWish,
+    consumptionTransferWishNames,
     usesConsumptionTransfer,
     excludedLivingDays: linkedTravelDates.size + manualTravelDays,
     excludedLifeExpense,

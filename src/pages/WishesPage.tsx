@@ -617,10 +617,20 @@ export default function WishesPage() {
         <div style={{ borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.12)', padding: '5px 4px', textAlign: 'center' }}>
           <div style={{ fontSize: 9, opacity: 0.72 }}>消费</div>
           <div style={{ marginTop: 1, fontSize: 10, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedConsumption)}</div>
+          {internPlan.consumptionTransferredToWish > 0.005 && internPlan.consumptionTransferWishNames.length > 0 ? (
+            <div style={{ marginTop: 2, fontSize: 8, lineHeight: 1.3, opacity: 0.7, overflowWrap: 'anywhere' }}>
+              （−¥{formatCurrency(internPlan.consumptionTransferredToWish)} {internPlan.consumptionTransferWishNames.join('、')}）
+            </div>
+          ) : null}
         </div>
         <div style={{ borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.12)', padding: '5px 4px', textAlign: 'center' }}>
           <div style={{ fontSize: 9, opacity: 0.72 }}>心愿</div>
-          <div style={{ marginTop: 1, fontSize: 10, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedWishSaving)}</div>
+          <div style={{ marginTop: 1, fontSize: 10, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedWishBalance)}</div>
+          {internPlan.spentWishAmount > 0.005 && internPlan.spentWishNames.length > 0 ? (
+            <div style={{ marginTop: 2, fontSize: 8, lineHeight: 1.3, opacity: 0.7, overflowWrap: 'anywhere' }}>
+              （−¥{formatCurrency(internPlan.spentWishAmount)} {internPlan.spentWishNames.join('、')}）
+            </div>
+          ) : null}
         </div>
         <div style={{ borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.12)', padding: '5px 4px', textAlign: 'center' }}>
           <div style={{ fontSize: 9, opacity: 0.72 }}>放进理财</div>
