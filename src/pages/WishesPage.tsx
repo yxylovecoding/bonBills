@@ -103,29 +103,21 @@ export default function WishesPage() {
   const [selectedSegmentDays, setSelectedSegmentDays] = useState<Record<string, number>>({});
   const wishListScrollRef = useRef<HTMLDivElement>(null);
   const wishScrollFrameRef = useRef<number | null>(null);
-  const observedLinkedTripStartsRef = useRef(new Map<string, string | null>());
   const today = new Date();
   const todayYear = today.getFullYear();
   const todayKey = `${todayYear}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const twoYearsAgo = `${todayYear - 1}-01`;
   const wishes = config.wishes ?? [];
   useEffect(() => {
-    const currentWishIds = new Set(wishes.map((wish) => wish.id));
     let changed = false;
     const normalizedWishes = wishes.map((wish) => {
       const linkedTripStart = wish.linkedTripStartDate ?? null;
-      const hadPreviousValue = observedLinkedTripStartsRef.current.has(wish.id);
-      const previousLinkedTripStart = observedLinkedTripStartsRef.current.get(wish.id) ?? null;
-      observedLinkedTripStartsRef.current.set(wish.id, linkedTripStart);
-      const newlyLinked = linkedTripStart !== null
-        && (!hadPreviousValue || previousLinkedTripStart !== linkedTripStart);
-      if (!newlyLinked || wish.deadline) return wish;
+      if (!linkedTripStart) return wish;
+      const defaultDeadline = offsetDateKey(linkedTripStart, -1);
+      if (wish.deadline === defaultDeadline) return wish;
       changed = true;
-      return { ...wish, deadline: offsetDateKey(linkedTripStart, -1) };
+      return { ...wish, deadline: defaultDeadline };
     });
-    for (const wishId of observedLinkedTripStartsRef.current.keys()) {
-      if (!currentWishIds.has(wishId)) observedLinkedTripStartsRef.current.delete(wishId);
-    }
     if (changed) setConfig({ wishes: normalizedWishes });
   }, [setConfig, wishes]);
   const allTripSegments = useMemo(() => detectAllTrips(tagMap, tripSplits), [tagMap, tripSplits]);
@@ -810,8 +802,6 @@ export default function WishesPage() {
             const linkedTripDefaultDeadline = item.linkedTripStartDate
               ? offsetDateKey(item.linkedTripStartDate, -1)
               : null;
-            const usesLinkedTripDefaultDeadline = linkedTripDefaultDeadline !== null
-              && item.deadline === linkedTripDefaultDeadline;
             const itemTripOptions = linkedTrip && !availableTripSegments.some((trip) => trip.startDate === linkedTrip.startDate)
               ? [linkedTrip, ...availableTripSegments]
               : availableTripSegments;
@@ -903,7 +893,7 @@ export default function WishesPage() {
                   </label>
                 </div>
 
-                {usesLinkedTripDefaultDeadline ? null : (
+                {linkedTripDefaultDeadline ? null : (
                   <label style={{ display: 'block', marginTop: 9 }}>
                     <span style={{ display: 'block', fontSize: 10, color: C.sub, marginBottom: 4 }}>截止日期（可选）</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -935,13 +925,10 @@ export default function WishesPage() {
                             plannedTravelDays: Math.max(Math.round(item.plannedTravelDays ?? 0), 1),
                           });
                         } else if (value) {
-                          const previousDefaultDeadline = linkedTripDefaultDeadline;
-                          const shouldUseDefaultDeadline = !item.deadline
-                            || item.deadline === previousDefaultDeadline;
                           updateWishFields(item.id, {
                             linkedTripStartDate: value,
                             plannedTravelDays: 0,
-                            ...(shouldUseDefaultDeadline ? { deadline: offsetDateKey(value, -1) } : {}),
+                            deadline: offsetDateKey(value, -1),
                           });
                         } else {
                           updateWishFields(item.id, { linkedTripStartDate: null, plannedTravelDays: 0 });
