@@ -340,8 +340,6 @@ export default function WishesPage() {
   const scheduledIntervalInternDays = activeSegment
     ? activeSegment.availableInternDateKeys.filter((date) => tagMap[date] === 'intern').length
     : internPlan.scheduledInternDays;
-  const intervalAdditionalInternDays = Math.max(minimumSelectableInternDays - scheduledIntervalInternDays, 0);
-  const intervalReducibleInternDays = Math.max(scheduledIntervalInternDays - minimumSelectableInternDays, 0);
   const compactAttendanceTotal = Math.min(availableSelectableInternDays, 9);
   const compactAttendanceDays = availableSelectableInternDays <= 0 || selectedIntervalInternDays <= 0
     ? 0
@@ -696,31 +694,11 @@ export default function WishesPage() {
       <section className="wish-planning-panel" style={{ background: 'linear-gradient(145deg, #6d28d9 0%, #8b5cf6 58%, #a78bfa 100%)', color: '#fff', borderRadius: 16, padding: '16px', marginBottom: 12, boxShadow: '0 8px 24px rgba(109,40,217,0.2)' }}>
         {internPlan.wishAmountIncludingLife > 0 ? (
           <>
-            {!internPlan.usesConsumptionTransfer
-              && internPlan.minimumInternDays !== null
-              && selectedIntervalInternDays > minimumSelectableInternDays ? (
-              <div style={{ fontSize: 11, opacity: 0.82, marginBottom: 4 }}>
-                本段比最低方案多实习 {selectedIntervalInternDays - minimumSelectableInternDays} 天
-              </div>
-            ) : null}
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
               <div style={{ flex: 1, minWidth: 0, fontSize: 24, lineHeight: 1.15, fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: -0.4 }}>
-                {internPlan.usesConsumptionTransfer
-                  ? `全勤，从消费补${formatCurrency(internPlan.consumptionTransferredToWish)}元${internPlan.shortfall > 0.005 ? `，仍差${formatCurrency(internPlan.shortfall)}元` : ''}`
-                  : internPlan.minimumInternDays === null
-                    ? `本段全勤仍差 ¥${formatCurrency(internPlan.shortfall)}`
-                    : minimumSelectableInternDays >= availableSelectableInternDays && availableSelectableInternDays > 0
-                      ? '本段全勤'
-                      : intervalAdditionalInternDays > 0
-                        ? `本段最少再实习 ${intervalAdditionalInternDays} 天`
-                        : intervalReducibleInternDays > 0
-                          ? `本段最多可少实习 ${intervalReducibleInternDays} 天`
-                          : `本段安排 ${selectedIntervalInternDays} 天实习`}
+                {internPlan.shortfall > 0.005 ? '全勤也不够！' : attendanceLabel}
               </div>
               {planningHeadingAside}
-            </div>
-            <div style={{ marginTop: 4, fontSize: 11, fontWeight: 750, opacity: 0.86, fontVariantNumeric: 'tabular-nums' }}>
-              {attendanceLabel}
             </div>
             {internPlan.usesConsumptionTransfer || internPlan.minimumInternDays === null ? (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7, marginTop: 10 }}>
