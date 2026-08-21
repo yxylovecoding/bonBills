@@ -1009,16 +1009,9 @@ export default function WishesPage() {
                       </span>
                     </label>
                   )}
-                  <div style={{ marginTop: 5, fontSize: 10, color: '#8b5cf6', lineHeight: 1.45 }}>
-                    {linkedTrip
-                      ? `按这段“游”的 ${linkedTrip.dates.length} 天计算，从目标金额中扣除这些天的“活”。`
-                      : travelSelection === '__manual__'
-                        ? '按填写天数扣除对应天数的“活”，避免在心愿里重复攒。'
-                        : '旅行类心愿可关联日历中的一段“游”。'}
-                  </div>
                   {budgetEstimateVisible && itemTravelDays <= 0 && (
                     <div id={`budget-estimate-${item.id}`} style={{ marginTop: 8, borderTop: '1px dashed #ddd6fe', paddingTop: 8, fontSize: 10, color: C.purple, lineHeight: 1.5 }}>
-                      先关联一段“游”，或选择“未排进日历，按天数计算”，我才能按机票、酒店和这些天的“活”预估预算。
+                      请先关联出游或填写出游天数
                     </div>
                   )}
                   {budgetEstimateVisible && itemTravelDays > 0 && (
