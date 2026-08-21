@@ -88,7 +88,9 @@ export default function WishesPage() {
   const [budgetEstimateWishId, setBudgetEstimateWishId] = useState<string | null>(null);
   const [planningDeadline, setPlanningDeadline] = useState('');
   const [activeWishId, setActiveWishId] = useState<string | null>(null);
+  const [pendingWishNameFocusId, setPendingWishNameFocusId] = useState<string | null>(null);
   const [selectedSegmentDays, setSelectedSegmentDays] = useState<Record<string, number>>({});
+  const wishListScrollRef = useRef<HTMLDivElement>(null);
   const wishScrollFrameRef = useRef<number | null>(null);
   const today = new Date();
   const todayYear = today.getFullYear();
@@ -326,11 +328,13 @@ export default function WishesPage() {
 
   const syncWishes = (items: WishItem[]) => setConfig({ wishes: items });
   const addWish = () => {
+    const id = `wish_${Date.now()}`;
     setSelectedSegmentDays({});
+    setPendingWishNameFocusId(id);
     syncWishes([
       ...wishes,
       {
-        id: `wish_${Date.now()}`,
+        id,
         name: '新心愿',
         targetAmount: 0,
         savedAmount: 0,
@@ -447,6 +451,19 @@ export default function WishesPage() {
   useEffect(() => () => {
     if (wishScrollFrameRef.current !== null) cancelAnimationFrame(wishScrollFrameRef.current);
   }, []);
+
+  useEffect(() => {
+    if (!pendingWishNameFocusId) return;
+    const container = wishListScrollRef.current;
+    const card = Array.from(container?.querySelectorAll<HTMLElement>('[data-wish-id]') ?? [])
+      .find((element) => element.dataset.wishId === pendingWishNameFocusId);
+    const nameInput = card?.querySelector<HTMLInputElement>('input[aria-label="心愿名称"]');
+    if (!card || !nameInput) return;
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    nameInput.focus({ preventScroll: true });
+    nameInput.select();
+    setPendingWishNameFocusId(null);
+  }, [orderedPlanItems, pendingWishNameFocusId]);
 
   return (
     <div className="wishes-page-shell">
@@ -624,6 +641,7 @@ export default function WishesPage() {
       </section>
 
       <div
+        ref={wishListScrollRef}
         className="wish-list-scroll"
         onScroll={(event) => handleWishListScroll(event.currentTarget)}
       >
