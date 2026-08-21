@@ -518,6 +518,23 @@ export default function WishesPage() {
     </div>
   );
 
+  const planningHeadingAside = (
+    <div style={{ flexShrink: 0, display: 'flex', alignItems: 'flex-start', gap: 8, marginLeft: 'auto' }}>
+      <div style={{ width: 118, minWidth: 0, paddingTop: 1, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+        <div
+          title={`当前区间 · ${selectedSegmentLabel}`}
+          style={{ overflow: 'hidden', color: 'rgba(255,255,255,0.86)', fontSize: 12, fontWeight: 650, lineHeight: 1.25, textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+        >
+          当前区间 · {selectedSegmentLabel}
+        </div>
+        <div style={{ marginTop: 2, fontSize: 14, fontWeight: 800, lineHeight: 1.25, whiteSpace: 'nowrap' }}>
+          {selectedIntervalStartDate} 至
+        </div>
+      </div>
+      {planningDeadlineControl}
+    </div>
+  );
+
   return (
     <div className="wishes-page-shell">
       <WishTimeline
@@ -544,10 +561,6 @@ export default function WishesPage() {
       <div className="wishes-planning-grid">
       <div className="wish-planning-column">
       <section className="wish-planning-panel" style={{ background: 'linear-gradient(145deg, #6d28d9 0%, #8b5cf6 58%, #a78bfa 100%)', color: '#fff', borderRadius: 16, padding: '16px', marginBottom: 12, boxShadow: '0 8px 24px rgba(109,40,217,0.2)' }}>
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 10, opacity: 0.72 }}>当前区间 · {selectedSegmentLabel}</div>
-          <div style={{ fontSize: 12, fontWeight: 700, marginTop: 2 }}>{selectedIntervalStartDate} 至</div>
-        </div>
         {internPlan.wishAmountIncludingLife > 0 ? (
           <>
             {!internPlan.usesConsumptionTransfer
@@ -571,7 +584,7 @@ export default function WishesPage() {
                           ? `本段最多可少实习 ${intervalReducibleInternDays} 天`
                           : `本段安排 ${selectedIntervalInternDays} 天实习`}
               </div>
-              {planningDeadlineControl}
+              {planningHeadingAside}
             </div>
             {internPlan.usesConsumptionTransfer || internPlan.minimumInternDays === null ? (
               <button
@@ -674,7 +687,7 @@ export default function WishesPage() {
           <>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 4 }}>
               <div style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 800 }}>给心愿一个截止日期</div>
-              {planningDeadlineControl}
+              {planningHeadingAside}
             </div>
             <div style={{ fontSize: 11, lineHeight: 1.5, opacity: 0.82 }}>填入目标、已攒金额和 DDL，就会自动算出在能攒够的前提下最少需要实习几天。</div>
           </>
