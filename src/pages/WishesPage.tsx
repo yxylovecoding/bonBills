@@ -144,31 +144,40 @@ export default function WishesPage() {
   );
   const {
     effectiveCreditMonthly: currentCreditDue,
+    effectiveCreditNext: nextCreditDue,
     longBondRepay,
+    longBondRepayNext,
   } = calculateCreditRepaymentPlan({
     creditMonthly: current.accounts.creditMonthly,
+    creditTotal: current.accounts.credit,
     savingsCard: current.accounts.savingsCard,
     longBond: current.investHoldings.longBond,
   });
-  // 心愿现金流只计已经出账的本期待还；总待还里的未出账消费已由未来每日“活”覆盖，不能再当作下期账单重复扣除。
-  const configuredPayDay = Math.min(Math.max(Math.round(config.creditPayDate || 1), 1), 31);
+  // 以信用卡出账日为规划节点：本次还本期待还，下一个出账日还总待还中的剩余部分。
+  const configuredBillDay = Math.min(Math.max(Math.round(config.creditBillDate || config.creditPayDate || 1), 1), 31);
   const daysThisMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-  const currentDueOffset = today.getDate() <= Math.min(configuredPayDay, daysThisMonth) ? 0 : 1;
+  const currentDueOffset = today.getDate() <= Math.min(configuredBillDay, daysThisMonth) ? 0 : 1;
   const currentDueMonth = offsetYearMonth(today, currentDueOffset);
-  const currentDueDate = dateInMonth(currentDueMonth, configuredPayDay);
+  const nextDueMonth = offsetYearMonth(today, currentDueOffset + 1);
+  const currentDueDate = dateInMonth(currentDueMonth, configuredBillDay);
+  const nextDueDate = dateInMonth(nextDueMonth, configuredBillDay);
   const repaymentsByMonth = useMemo(() => ({
     [currentDueMonth]: currentCreditDue,
-  }), [currentCreditDue, currentDueMonth]);
+    [nextDueMonth]: nextCreditDue,
+  }), [currentCreditDue, currentDueMonth, nextCreditDue, nextDueMonth]);
   const repaymentDues = useMemo<WishRepaymentDue[]>(() => [
     { date: currentDueDate, yearMonth: currentDueMonth, amount: currentCreditDue },
-  ], [currentCreditDue, currentDueDate, currentDueMonth]);
+    { date: nextDueDate, yearMonth: nextDueMonth, amount: nextCreditDue },
+  ], [currentCreditDue, currentDueDate, currentDueMonth, nextCreditDue, nextDueDate, nextDueMonth]);
   const planningRepaymentsByMonth = useMemo(
     () => repaymentsThroughDeadline(repaymentDues, todayKey, effectivePlanningDeadline),
     [effectivePlanningDeadline, repaymentDues, todayKey],
   );
-  const planningLongBondRepay = currentDueDate >= todayKey && currentDueDate <= effectivePlanningDeadline
-    ? longBondRepay
-    : 0;
+  const planningLongBondRepay = (
+    currentDueDate >= todayKey && currentDueDate <= effectivePlanningDeadline ? longBondRepay : 0
+  ) + (
+    nextDueDate >= todayKey && nextDueDate <= effectivePlanningDeadline ? longBondRepayNext : 0
+  );
   const plan = useMemo(
     () => calculateWishPlan(wishes, {
       today,
@@ -241,7 +250,10 @@ export default function WishesPage() {
   const creditRepaymentTooltip = [
     `信用卡总待还 ¥${formatCurrency(Math.max(current.accounts.credit ?? 0, 0))}`,
     `本期待还 ¥${formatCurrency(Math.max(current.accounts.creditMonthly ?? 0, 0))}`,
-    `长债偿还 ¥${formatCurrency(planningLongBondRepay)}`,
+    `下期原待还 ¥${formatCurrency(Math.max((current.accounts.credit ?? 0) - Math.max(current.accounts.creditMonthly ?? 0, current.accounts.savingsCard ?? 0), 0))}`,
+    `长债偿还本期 ¥${formatCurrency(longBondRepay)}`,
+    `长债偿还下期 ¥${formatCurrency(longBondRepayNext)}`,
+    `下期现金还款 ¥${formatCurrency(nextCreditDue)}`,
     `规划现金还款 ¥${formatCurrency(internPlan.repayment)}`,
   ].join('\n');
   const minimumSelectableInternDays = activeSegment
