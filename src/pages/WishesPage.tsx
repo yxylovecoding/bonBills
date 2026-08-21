@@ -253,27 +253,23 @@ export default function WishesPage() {
     ? milestonePlan.segmentByWishId[selectedPlanningWish.id]
     : milestonePlan.segments[0];
   const scheduledPlanDates = useMemo(() => {
-    const selectedDates = new Set(milestonePlan.recommendedDates);
-    for (const segment of milestonePlan.segments) {
-      const minimum = segment.minimumInternDateKeys.length;
-      const requested = selectedSegmentDays[segment.deadline] ?? minimum;
-      if (requested === 0) {
-        for (const date of segment.availableInternDateKeys) selectedDates.delete(date);
-        continue;
-      }
-      const desired = Math.min(Math.max(Math.round(requested), minimum), segment.availableInternDateKeys.length);
-      let selectedInSegment = segment.minimumInternDateKeys.length;
-      for (const date of segment.availableInternDateKeys) {
-        if (selectedInSegment >= desired) break;
-        if (selectedDates.has(date)) continue;
-        selectedDates.add(date);
-        selectedInSegment += 1;
-      }
+    if (!activeSegment) return milestonePlan.recommendedDates;
+    const minimum = activeSegment.minimumInternDateKeys.length;
+    const requested = selectedSegmentDays[activeSegment.deadline] ?? minimum;
+    if (requested === 0) return [];
+    const desired = Math.min(
+      Math.max(Math.round(requested), minimum),
+      activeSegment.availableInternDateKeys.length,
+    );
+    const selectedDates = new Set(activeSegment.minimumInternDateKeys);
+    for (const date of activeSegment.availableInternDateKeys) {
+      if (selectedDates.size >= desired) break;
+      selectedDates.add(date);
     }
     return [...selectedDates].sort();
-  }, [milestonePlan, selectedSegmentDays]);
+  }, [activeSegment, milestonePlan.recommendedDates, selectedSegmentDays]);
   const selectedCumulativeInternDays = activeSegment
-    ? scheduledPlanDates.filter((date) => date <= activeSegment.deadline).length
+    ? scheduledPlanDates.length
     : null;
   const internPlan = useMemo(
     () => calculateWishInternPlan({

@@ -15,12 +15,21 @@ export interface WishMilestoneSegment {
   wishNames: string[];
   availableInternDateKeys: string[];
   minimumInternDateKeys: string[];
+  assignedInternDateKeys: string[];
   cumulativePlan: WishInternPlan;
+}
+
+export interface WishMilestoneAssignment {
+  deadline: string;
+  wishIds: string[];
+  wishNames: string[];
+  dateKeys: string[];
 }
 
 export interface WishMilestonePlan {
   segments: WishMilestoneSegment[];
   recommendedDates: string[];
+  assignments: WishMilestoneAssignment[];
   segmentByWishId: Record<string, WishMilestoneSegment>;
 }
 
@@ -37,13 +46,6 @@ export interface WishMilestonePlanOptions {
 
 function formatDateKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
-function addDays(value: string, days: number): string {
-  const [year, month, day] = value.split('-').map(Number);
-  const date = new Date(year, month - 1, day);
-  date.setDate(date.getDate() + days);
-  return formatDateKey(date);
 }
 
 export function repaymentsThroughDeadline(
@@ -85,39 +87,50 @@ export function calculateWishMilestonePlan(options: WishMilestonePlanOptions): W
     tripDatesByStart: options.tripDatesByStart,
   }));
 
-  const recommendedDateSet = new Set<string>();
-  for (const plan of cumulativePlans) {
-    for (const date of plan.recommendedDates) recommendedDateSet.add(date);
-  }
-  const recommendedDates = [...recommendedDateSet].sort();
-
   const segments: WishMilestoneSegment[] = [];
-  let intervalStartDate = todayKey;
+  const assignments: WishMilestoneAssignment[] = [];
+  const assignedDateSet = new Set<string>();
   for (let index = 0; index < deadlines.length; index += 1) {
     const deadline = deadlines[index];
     const cumulativePlan = cumulativePlans[index];
     const wishes = wishesByDeadline.get(deadline) ?? [];
+    const requiredCumulativeDays = cumulativePlan.recommendedDates.length;
+    const additionalRequiredDays = Math.max(requiredCumulativeDays - assignedDateSet.size, 0);
+    const assignedInternDateKeys: string[] = [];
+    const candidates = [
+      ...cumulativePlan.recommendedDates,
+      ...cumulativePlan.availableInternDateKeys,
+    ];
+    for (const date of candidates) {
+      if (assignedInternDateKeys.length >= additionalRequiredDays) break;
+      if (assignedDateSet.has(date)) continue;
+      assignedDateSet.add(date);
+      assignedInternDateKeys.push(date);
+    }
+    assignedInternDateKeys.sort();
+    const cumulativeRecommendedDates = [...assignedDateSet].sort();
+    const wishIds = wishes.map((wish) => wish.id);
+    const wishNames = wishes.map((wish) => wish.name.trim()).filter(Boolean);
     const segment: WishMilestoneSegment = {
       deadline,
-      intervalStartDate,
-      wishIds: wishes.map((wish) => wish.id),
-      wishNames: wishes.map((wish) => wish.name.trim()).filter(Boolean),
-      availableInternDateKeys: cumulativePlan.availableInternDateKeys.filter(
-        (date) => date >= intervalStartDate && date <= deadline,
-      ),
-      minimumInternDateKeys: recommendedDates.filter(
-        (date) => date >= intervalStartDate && date <= deadline,
-      ),
+      intervalStartDate: todayKey,
+      wishIds,
+      wishNames,
+      availableInternDateKeys: cumulativePlan.availableInternDateKeys,
+      minimumInternDateKeys: cumulativeRecommendedDates,
+      assignedInternDateKeys,
       cumulativePlan,
     };
     segments.push(segment);
-    intervalStartDate = addDays(deadline, 1);
+    assignments.push({ deadline, wishIds, wishNames, dateKeys: assignedInternDateKeys });
   }
+
+  const recommendedDates = [...assignedDateSet].sort();
 
   const segmentByWishId: Record<string, WishMilestoneSegment> = {};
   for (const segment of segments) {
     for (const wishId of segment.wishIds) segmentByWishId[wishId] = segment;
   }
 
-  return { segments, recommendedDates, segmentByWishId };
+  return { segments, recommendedDates, assignments, segmentByWishId };
 }
