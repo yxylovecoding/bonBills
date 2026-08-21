@@ -497,7 +497,7 @@ export default function WishesPage() {
   }, [orderedPlanItems, pendingWishNameFocusId]);
 
   const planningDeadlineControl = (
-    <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+    <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
       <input
         type="date"
         aria-label="心愿规划截止日期"
@@ -508,7 +508,7 @@ export default function WishesPage() {
           if (selectedPlanningWish) updateWish(selectedPlanningWish.id, 'deadline', value || null);
           else setPlanningDeadline(value);
         }}
-        style={{ minWidth: 124, border: '1px solid rgba(255,255,255,0.38)', borderRadius: 8, outline: 'none', backgroundColor: 'rgba(255,255,255,0.16)', color: '#fff', padding: '5px 7px', fontSize: 11, fontWeight: 700, colorScheme: 'dark' }}
+        style={{ minWidth: 120, border: '1px solid rgba(255,255,255,0.38)', borderRadius: 8, outline: 'none', backgroundColor: 'rgba(255,255,255,0.16)', color: '#fff', padding: '4px 7px', fontSize: 11, fontWeight: 700, colorScheme: 'dark' }}
       />
       <div style={{ paddingRight: 2, fontSize: 9, fontWeight: 600, opacity: 0.76, fontVariantNumeric: 'tabular-nums' }}>
         {daysUntilPlanningDeadline === 0
@@ -543,8 +543,8 @@ export default function WishesPage() {
 
       <div className="wishes-planning-grid">
       <div className="wish-planning-column">
-      <section className="wish-planning-panel" style={{ background: 'linear-gradient(145deg, #6d28d9 0%, #8b5cf6 58%, #a78bfa 100%)', color: '#fff', borderRadius: 16, padding: '16px', marginBottom: 12, boxShadow: '0 8px 24px rgba(109,40,217,0.2)' }}>
-        <div style={{ marginBottom: 8 }}>
+      <section className="wish-planning-panel" style={{ background: 'linear-gradient(145deg, #6d28d9 0%, #8b5cf6 58%, #a78bfa 100%)', color: '#fff', borderRadius: 16, padding: '12px', marginBottom: 6, boxShadow: '0 8px 24px rgba(109,40,217,0.2)' }}>
+        <div style={{ marginBottom: 4 }}>
           <div style={{ fontSize: 10, opacity: 0.72 }}>当前区间 · {selectedSegmentLabel}</div>
           <div style={{ fontSize: 12, fontWeight: 700, marginTop: 2 }}>{selectedIntervalStartDate} 至</div>
         </div>
@@ -557,8 +557,8 @@ export default function WishesPage() {
                 本段比最低方案多实习 {selectedIntervalInternDays - minimumSelectableInternDays} 天
               </div>
             ) : null}
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
-              <div style={{ flex: 1, minWidth: 0, fontSize: 24, lineHeight: 1.15, fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: -0.4 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+              <div style={{ flex: 1, minWidth: 0, fontSize: 22, lineHeight: 1.12, fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: -0.4 }}>
                 {internPlan.usesConsumptionTransfer
                   ? `全部实习，从消费补${formatCurrency(internPlan.consumptionTransferredToWish)}元${internPlan.shortfall > 0.005 ? `，仍差${formatCurrency(internPlan.shortfall)}元` : ''}`
                   : internPlan.minimumInternDays === null
@@ -589,12 +589,7 @@ export default function WishesPage() {
               </button>
             ) : (
               <>
-                <div style={{ fontSize: 10, opacity: 0.82, marginTop: 4 }}>
-                  本段日历已排 {scheduledIntervalInternDays} 天实习
-                  {' · '}至少 {minimumSelectableInternDays} 天
-                  {' · '}最多 {availableSelectableInternDays} 个非家非游法定工作日
-                </div>
-                <div style={{ marginTop: 8, borderRadius: 10, padding: '8px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
+                <div style={{ marginTop: 5, borderRadius: 10, padding: '6px 9px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
                     <span style={{ fontSize: 11, fontWeight: 700 }}>实习天数</span>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
@@ -620,21 +615,21 @@ export default function WishesPage() {
                     value={selectedIntervalInternDays}
                     disabled={minimumSelectableInternDays >= availableSelectableInternDays}
                     onChange={(event) => setSelectedInternDays(Number(event.target.value))}
-                    style={{ width: '100%', margin: '6px 0 2px', accentColor: '#fff', cursor: minimumSelectableInternDays < availableSelectableInternDays ? 'pointer' : 'default' }}
+                    style={{ width: '100%', margin: '3px 0 0', accentColor: '#fff', cursor: minimumSelectableInternDays < availableSelectableInternDays ? 'pointer' : 'default' }}
                   />
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 9, opacity: 0.72 }}>
-                    <span>满足心愿 {minimumSelectableInternDays} 天</span>
-                    <span>本段工作日上限 {availableSelectableInternDays} 天</span>
+                    <span>已排 {scheduledIntervalInternDays} 天 · 满足心愿 {minimumSelectableInternDays} 天</span>
+                    <span>工作日上限 {availableSelectableInternDays} 天</span>
                   </div>
                 </div>
               </>
             )}
-            <div style={{ marginTop: 8, borderRadius: 10, padding: '8px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
+            <div style={{ marginTop: 5, borderRadius: 10, padding: '6px 9px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
                 <span style={{ fontSize: 10, opacity: 0.8 }}>截至 {effectivePlanningDeadline} · 累计 {internPlan.selectedInternDays} 天</span>
                 <span style={{ fontSize: 19, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedTotalSaving)}</span>
               </div>
-              <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.2)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 10px', fontSize: 10 }}>
+              <div style={{ marginTop: 4, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.2)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px 10px', fontSize: 10 }}>
                 <div title={incomeTooltip} tabIndex={0} style={{ opacity: 0.78, cursor: 'help' }}>收入</div>
                 <div title={incomeTooltip} tabIndex={0} style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums', cursor: 'help', textDecoration: 'underline dotted', textUnderlineOffset: 2 }}>¥{formatCurrency(internPlan.recommendedIncome)}</div>
                 <div style={{ opacity: 0.78 }}>生活开支（含信用卡）</div>
@@ -654,16 +649,16 @@ export default function WishesPage() {
                   {internPlan.projectedSurplus >= 0 ? '' : '−'}¥{formatCurrency(Math.abs(internPlan.projectedSurplus))}
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 4, marginTop: 7 }}>
-                <div style={{ borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.12)', padding: '5px 4px', textAlign: 'center' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 4, marginTop: 4 }}>
+                <div style={{ borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.12)', padding: '3px 4px', textAlign: 'center' }}>
                   <div style={{ fontSize: 9, opacity: 0.72 }}>消费</div>
                   <div style={{ marginTop: 1, fontSize: 10, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedConsumption)}</div>
                 </div>
-                <div style={{ borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.12)', padding: '5px 4px', textAlign: 'center' }}>
+                <div style={{ borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.12)', padding: '3px 4px', textAlign: 'center' }}>
                   <div style={{ fontSize: 9, opacity: 0.72 }}>心愿</div>
                   <div style={{ marginTop: 1, fontSize: 10, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedWishSaving)}</div>
                 </div>
-                <div style={{ borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.12)', padding: '5px 4px', textAlign: 'center' }}>
+                <div style={{ borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.12)', padding: '3px 4px', textAlign: 'center' }}>
                   <div style={{ fontSize: 9, opacity: 0.72 }}>放进理财</div>
                   <div style={{ marginTop: 1, fontSize: 10, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedInvestmentSaving)}</div>
                 </div>
