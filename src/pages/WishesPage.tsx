@@ -773,6 +773,11 @@ export default function WishesPage() {
             const linkedTrip = item.linkedTripStartDate
               ? allTripSegments.find((trip) => trip.startDate === item.linkedTripStartDate)
               : undefined;
+            const linkedTripDefaultDeadline = item.linkedTripStartDate
+              ? offsetDateKey(item.linkedTripStartDate, -1)
+              : null;
+            const usesLinkedTripDefaultDeadline = linkedTripDefaultDeadline !== null
+              && item.deadline === linkedTripDefaultDeadline;
             const itemTripOptions = linkedTrip && !availableTripSegments.some((trip) => trip.startDate === linkedTrip.startDate)
               ? [linkedTrip, ...availableTripSegments]
               : availableTripSegments;
@@ -864,21 +869,23 @@ export default function WishesPage() {
                   </label>
                 </div>
 
-                <label style={{ display: 'block', marginTop: 9 }}>
-                  <span style={{ display: 'block', fontSize: 10, color: C.sub, marginBottom: 4 }}>截止日期（可选）</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <input
-                      type="date"
-                      aria-label="心愿截止日期"
-                      value={item.deadline ?? ''}
-                      onChange={(event) => updateWish(item.id, 'deadline', event.target.value || null)}
-                      style={{ flex: 1, minWidth: 0, border: '1px solid #e5e7eb', borderRadius: 9, backgroundColor: '#fff', padding: '6px 8px', outline: 'none', fontSize: 12, color: item.deadline ? '#202124' : C.sub }}
-                    />
-                    {item.deadline && (
-                      <button type="button" onClick={() => updateWish(item.id, 'deadline', null)} style={{ border: 'none', borderRadius: 8, padding: '7px 9px', backgroundColor: '#f3f4f6', color: C.sub, fontSize: 11, cursor: 'pointer' }}>清除</button>
-                    )}
-                  </div>
-                </label>
+                {usesLinkedTripDefaultDeadline ? null : (
+                  <label style={{ display: 'block', marginTop: 9 }}>
+                    <span style={{ display: 'block', fontSize: 10, color: C.sub, marginBottom: 4 }}>截止日期（可选）</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input
+                        type="date"
+                        aria-label="心愿截止日期"
+                        value={item.deadline ?? ''}
+                        onChange={(event) => updateWish(item.id, 'deadline', event.target.value || null)}
+                        style={{ flex: 1, minWidth: 0, border: '1px solid #e5e7eb', borderRadius: 9, backgroundColor: '#fff', padding: '6px 8px', outline: 'none', fontSize: 12, color: item.deadline ? '#202124' : C.sub }}
+                      />
+                      {item.deadline && (
+                        <button type="button" onClick={() => updateWish(item.id, 'deadline', null)} style={{ border: 'none', borderRadius: 8, padding: '7px 9px', backgroundColor: '#f3f4f6', color: C.sub, fontSize: 11, cursor: 'pointer' }}>清除</button>
+                      )}
+                    </div>
+                  </label>
+                )}
 
                 <div style={{ marginTop: 9, borderRadius: 10, border: '1px solid #ede9fe', backgroundColor: '#faf7ff', padding: '8px 9px' }}>
                   <label style={{ display: 'block' }}>
@@ -894,9 +901,7 @@ export default function WishesPage() {
                             plannedTravelDays: Math.max(Math.round(item.plannedTravelDays ?? 0), 1),
                           });
                         } else if (value) {
-                          const previousDefaultDeadline = linkedTrip
-                            ? offsetDateKey(linkedTrip.startDate, -1)
-                            : null;
+                          const previousDefaultDeadline = linkedTripDefaultDeadline;
                           const shouldUseDefaultDeadline = !item.deadline
                             || item.deadline === previousDefaultDeadline;
                           updateWishFields(item.id, {
