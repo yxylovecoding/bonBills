@@ -35,6 +35,10 @@ import {
   type DramDecisionKind,
   type MarketChartResponse,
 } from '../utils/dramDecision';
+import {
+  confirmPendingWishInternSavings,
+  pendingWishInternSavingRecords,
+} from '../utils/wishInternSavings';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', sub: '#5f6368', orange: '#e8710a' };
 const INVEST_TARGET_KEYS: InvestKey[] = ['us', 'eu', 'asia', 'a', 'longBond', 'usBond', 'gold'];
@@ -638,6 +642,40 @@ export default function ReconcilePage() {
 
   // 今天
   const today = new Date();
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const wishes = config.wishes ?? [];
+  const wishInternSavingRecords = config.wishInternSavingRecords ?? [];
+  const pendingWishInternGroups = useMemo(() => {
+    const wishById = new Map(wishes.map((wish) => [wish.id, wish]));
+    const groups = new Map<string, { wishId: string; name: string; amount: number; count: number }>();
+    for (const record of pendingWishInternSavingRecords(wishInternSavingRecords, todayKey)) {
+      const wish = wishById.get(record.wishId);
+      if (!wish) continue;
+      const group = groups.get(record.wishId) ?? {
+        wishId: record.wishId,
+        name: wish.name.trim() || record.theme,
+        amount: 0,
+        count: 0,
+      };
+      group.amount += record.amount;
+      group.count += 1;
+      groups.set(record.wishId, group);
+    }
+    return [...groups.values()].sort((first, second) => first.name.localeCompare(second.name, 'zh-CN'));
+  }, [todayKey, wishInternSavingRecords, wishes]);
+  const confirmWishInternSavings = (wishId: string) => {
+    const confirmation = confirmPendingWishInternSavings(
+      wishes,
+      wishInternSavingRecords,
+      wishId,
+      todayKey,
+    );
+    if (confirmation.confirmedAmount <= 0) return;
+    setConfig({
+      wishes: confirmation.wishes,
+      wishInternSavingRecords: confirmation.records,
+    });
+  };
   const showCreditMonthlyInput = isMonthStartMode;
   const currentYear = today.getFullYear();
   const currentMonth = today.getMonth();
@@ -2397,6 +2435,27 @@ export default function ReconcilePage() {
             💰 收入账户 <b>¥{fmtInt(current.accounts.incomeBank ?? 0)}</b>
           </div>
         )}
+
+        {pendingWishInternGroups.length > 0 ? (
+          <div style={{ border: '1px solid #fdba74', borderRadius: 10, backgroundColor: '#fff7ed', padding: '9px 11px', marginBottom: 12 }}>
+            <div style={{ color: C.orange, fontSize: 12, fontWeight: 700, marginBottom: 5 }}>心愿待确认</div>
+            {pendingWishInternGroups.map((group) => (
+              <div key={group.wishId} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto', alignItems: 'center', gap: 8, minHeight: 30 }}>
+                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#3c4043', fontSize: 12, fontWeight: 600 }}>{group.name}</span>
+                <span style={{ color: C.orange, fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                  待确认 ¥{formatCurrency(group.amount)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => confirmWishInternSavings(group.wishId)}
+                  style={{ border: '1px solid #fdba74', borderRadius: 999, backgroundColor: '#fff', color: C.orange, padding: '3px 9px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                >
+                  确认
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
 
         {/* 统一转账列表 */}
         {(() => {

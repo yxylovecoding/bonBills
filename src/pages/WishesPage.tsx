@@ -34,7 +34,7 @@ import {
 } from '../utils/wishMilestonePlan';
 import {
   applyPendingWishInternSavings,
-  pendingWishInternSavingRecords,
+  confirmPendingWishInternSavings,
   pendingWishInternSavingsByWish,
 } from '../utils/wishInternSavings';
 
@@ -135,10 +135,6 @@ export default function WishesPage() {
   const twoYearsAgo = `${todayYear - 1}-01`;
   const wishes = config.wishes ?? [];
   const wishInternSavingRecords = config.wishInternSavingRecords ?? [];
-  const pendingInternSavingRecords = useMemo(
-    () => pendingWishInternSavingRecords(wishInternSavingRecords, todayKey),
-    [todayKey, wishInternSavingRecords],
-  );
   const pendingInternSavingsByWish = useMemo(
     () => pendingWishInternSavingsByWish(wishInternSavingRecords, todayKey),
     [todayKey, wishInternSavingRecords],
@@ -452,10 +448,13 @@ export default function WishesPage() {
     syncWishes(wishes.map((item) => item.id === id ? { ...item, ...patch } : item));
   };
   const confirmPendingInternSavings = (wishId: string) => {
-    const recordsToConfirm = pendingInternSavingRecords.filter((record) => record.wishId === wishId);
-    const confirmedAmount = recordsToConfirm.reduce((sum, record) => sum + record.amount, 0);
-    if (confirmedAmount <= 0) return;
-    const confirmingDates = new Set(recordsToConfirm.map((record) => record.date));
+    const confirmation = confirmPendingWishInternSavings(
+      wishes,
+      wishInternSavingRecords,
+      wishId,
+      todayKey,
+    );
+    if (confirmation.confirmedAmount <= 0) return;
     setSelectedSegmentDays({});
     setAmountDrafts((currentDrafts) => {
       const nextDrafts = { ...currentDrafts };
@@ -463,14 +462,8 @@ export default function WishesPage() {
       return nextDrafts;
     });
     setConfig({
-      wishes: wishes.map((wish) => wish.id === wishId
-        ? { ...wish, savedAmount: roundToSitePrecision(wish.savedAmount + confirmedAmount) }
-        : wish),
-      wishInternSavingRecords: wishInternSavingRecords.map((record) => (
-        record.wishId === wishId && confirmingDates.has(record.date) && !record.confirmed
-          ? { ...record, confirmed: true }
-          : record
-      )),
+      wishes: confirmation.wishes,
+      wishInternSavingRecords: confirmation.records,
     });
   };
   type WishAmountField = 'targetAmount' | 'savedAmount' | 'travelTicketAmount' | 'travelLodgingDailyAmount' | 'travelLifeCorrectionAmount';

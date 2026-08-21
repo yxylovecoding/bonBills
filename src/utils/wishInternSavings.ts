@@ -36,3 +36,32 @@ export function applyPendingWishInternSavings(
     savedAmount: wish.savedAmount + (pendingByWish[wish.id] ?? 0),
   }));
 }
+
+export function confirmPendingWishInternSavings(
+  wishes: readonly WishItem[],
+  records: readonly WishInternSavingRecord[],
+  wishId: string,
+  today: string,
+): { confirmedAmount: number; wishes: WishItem[]; records: WishInternSavingRecord[] } {
+  if (!wishes.some((wish) => wish.id === wishId)) {
+    return { confirmedAmount: 0, wishes: [...wishes], records: [...records] };
+  }
+  const pendingRecords = pendingWishInternSavingRecords(records, today)
+    .filter((record) => record.wishId === wishId);
+  const confirmedAmount = Math.round(
+    pendingRecords.reduce((sum, record) => sum + record.amount, 0) * 100,
+  ) / 100;
+  if (confirmedAmount <= 0) {
+    return { confirmedAmount: 0, wishes: [...wishes], records: [...records] };
+  }
+  const pendingRecordSet = new Set(pendingRecords);
+  return {
+    confirmedAmount,
+    wishes: wishes.map((wish) => wish.id === wishId
+      ? { ...wish, savedAmount: Math.round((wish.savedAmount + confirmedAmount) * 100) / 100 }
+      : wish),
+    records: records.map((record) => pendingRecordSet.has(record)
+      ? { ...record, confirmed: true }
+      : record),
+  };
+}
