@@ -81,6 +81,17 @@ function offsetMonthKey(value: string, months: number): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
 
+function greatestCommonDivisor(first: number, second: number): number {
+  let left = Math.abs(Math.round(first));
+  let right = Math.abs(Math.round(second));
+  while (right > 0) {
+    const remainder = left % right;
+    left = right;
+    right = remainder;
+  }
+  return left || 1;
+}
+
 function planningDeadlineDistanceLabel(targetDate: string, fromDate: Date, days: number): string {
   if (days === 0) return '今天截止';
   if (days <= 365) return `距今 ${days.toLocaleString('zh-CN')} 天`;
@@ -340,7 +351,11 @@ export default function WishesPage() {
         Math.max(Math.round(selectedIntervalInternDays / availableSelectableInternDays * compactAttendanceTotal), 1),
         compactAttendanceTotal - 1,
       );
-  const attendanceLabel = `${compactAttendanceDays}/${compactAttendanceTotal}勤`;
+  const attendanceDivisor = greatestCommonDivisor(compactAttendanceDays, compactAttendanceTotal);
+  const attendanceLabel = availableSelectableInternDays > 0
+    && selectedIntervalInternDays >= availableSelectableInternDays
+    ? '全勤'
+    : `${compactAttendanceDays / attendanceDivisor}/${compactAttendanceTotal / attendanceDivisor}勤`;
   const selectedSegmentLabel = activeSegment?.wishNames.join('、') || selectedPlanningWish?.name || '当前心愿';
   const selectedIntervalStartDate = activeSegment?.intervalStartDate ?? todayKey;
   const minimumPlanningMonth = selectedIntervalStartDate.slice(0, 7);
