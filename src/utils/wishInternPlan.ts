@@ -209,23 +209,34 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
     return target > saved;
   });
   const linkedTravelDates = new Set<string>();
+  const travelLifeDaily = normalizedDailyAverage(options.stateDailyAvg.travel);
   let requestedManualTravelDays = 0;
+  let requestedExcludedLifeExpense = 0;
   for (const wish of includedWishes) {
+    const lifeCorrectionAmount = Number.isFinite(wish.travelLifeCorrectionAmount)
+      ? Math.max(wish.travelLifeCorrectionAmount ?? 0, 0)
+      : 0;
     const linkedDates = wish.linkedTripStartDate
       ? options.tripDatesByStart?.[wish.linkedTripStartDate]
       : undefined;
     if (linkedDates && linkedDates.length > 0) {
       for (const date of linkedDates) linkedTravelDates.add(date);
+      requestedExcludedLifeExpense += Math.max(
+        linkedDates.length * travelLifeDaily - lifeCorrectionAmount,
+        0,
+      );
       continue;
     }
     const manualDays = Number.isFinite(wish.plannedTravelDays)
       ? Math.max(Math.round(wish.plannedTravelDays ?? 0), 0)
       : 0;
     requestedManualTravelDays += manualDays;
+    requestedExcludedLifeExpense += Math.max(
+      manualDays * travelLifeDaily - lifeCorrectionAmount,
+      0,
+    );
   }
   const manualTravelDays = requestedManualTravelDays;
-  const travelLifeDaily = normalizedDailyAverage(options.stateDailyAvg.travel);
-  const requestedExcludedLifeExpense = (linkedTravelDates.size + manualTravelDays) * travelLifeDaily;
 
   const activeInternIncome = options.incomeItems.filter(
     (item) => item.isActive && item.dailyRate !== undefined && item.tagKind === 'intern',

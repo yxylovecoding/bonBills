@@ -418,7 +418,7 @@ export default function WishesPage() {
     setSelectedSegmentDays({});
     syncWishes(wishes.map((item) => item.id === id ? { ...item, ...patch } : item));
   };
-  type WishAmountField = 'targetAmount' | 'savedAmount' | 'travelTicketAmount' | 'travelLodgingDailyAmount';
+  type WishAmountField = 'targetAmount' | 'savedAmount' | 'travelTicketAmount' | 'travelLodgingDailyAmount' | 'travelLifeCorrectionAmount';
   const updateAmount = (id: string, field: WishAmountField, raw: string) => {
     const key = `${id}:${field}`;
     setAmountDrafts((prev) => ({ ...prev, [key]: raw }));
@@ -822,6 +822,7 @@ export default function WishesPage() {
             const savedKey = `${item.id}:savedAmount`;
             const ticketKey = `${item.id}:travelTicketAmount`;
             const lodgingKey = `${item.id}:travelLodgingDailyAmount`;
+            const lifeCorrectionKey = `${item.id}:travelLifeCorrectionAmount`;
             const linkedTrip = item.linkedTripStartDate
               ? allTripSegments.find((trip) => trip.startDate === item.linkedTripStartDate)
               : undefined;
@@ -852,8 +853,20 @@ export default function WishesPage() {
               itemExtraExpenseAmount,
             );
             const itemTravelLifeAmount = travelEstimate.lifeAmount;
+            const itemTravelLifeCorrectionAmount = Number.isFinite(item.travelLifeCorrectionAmount)
+              ? Math.min(Math.max(item.travelLifeCorrectionAmount ?? 0, 0), itemTravelLifeAmount)
+              : 0;
+            const itemAdjustedTravelLifeAmount = Math.max(
+              itemTravelLifeAmount - itemTravelLifeCorrectionAmount,
+              0,
+            );
             const itemTravelConsumptionAmount = itemTravelDays * Math.max(stats.stateConsumptionDailyAvg.travel, 0);
-            const roundedTravelTargetAmount = roundToSitePrecision(travelEstimate.targetAmount);
+            const roundedTravelTargetAmount = roundToSitePrecision(
+              Math.max(travelEstimate.targetAmount - itemTravelLifeCorrectionAmount, 0),
+            );
+            const actualWishSavingAmount = roundToSitePrecision(
+              Math.max(item.targetAmount - itemAdjustedTravelLifeAmount, 0),
+            );
             const budgetEstimateVisible = budgetEstimateWishId === item.id;
             const isSelectedPlanningWish = selectedPlanningWish?.id === item.id;
             return (
@@ -885,7 +898,14 @@ export default function WishesPage() {
                   <button type="button" aria-label="删除心愿" onClick={() => removeWish(item.id)} style={{ border: 'none', background: 'transparent', color: '#9aa0a6', fontSize: 18, padding: '0 2px', cursor: 'pointer', lineHeight: 1 }}>×</button>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9, marginTop: 12 }}>
+                {itemTravelDays > 0 && item.targetAmount > 0 ? (
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginTop: 12, borderRadius: 9, backgroundColor: '#f3e8ff', padding: '7px 9px', color: C.purple }}>
+                    <span style={{ minWidth: 0, fontSize: 10, fontWeight: 700 }}>去掉修正后“活”，实际心愿需攒</span>
+                    <strong style={{ flexShrink: 0, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(actualWishSavingAmount)}</strong>
+                  </div>
+                ) : null}
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9, marginTop: itemTravelDays > 0 && item.targetAmount > 0 ? 7 : 12 }}>
                   <label style={{ display: 'block' }}>
                     <span style={{ display: 'block', fontSize: 10, color: C.sub, marginBottom: 4 }}>目标金额</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, border: `1px solid ${budgetEstimateWishId === item.id ? '#c4b5fd' : '#e5e7eb'}`, borderRadius: 9, backgroundColor: '#fff', padding: '6px 8px', boxShadow: budgetEstimateWishId === item.id ? '0 0 0 2px #ede9fe' : 'none' }}>
@@ -1127,6 +1147,18 @@ export default function WishesPage() {
                       <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
                         <div style={{ fontSize: 9, color: C.sub }}>“活”</div>
                         <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.blue }}>¥{formatCurrency(itemTravelLifeAmount)}</div>
+                        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3, marginTop: 5, fontSize: 8, color: C.sub }}>
+                          <span>修正 −¥</span>
+                          <AmountInput
+                            aria-label={`${item.name} 活修正额`}
+                            value={amountDrafts[lifeCorrectionKey] ?? (item.travelLifeCorrectionAmount ? String(item.travelLifeCorrectionAmount) : '')}
+                            onChange={(raw) => updateAmount(item.id, 'travelLifeCorrectionAmount', raw)}
+                            onBlur={() => finishAmountEdit(item.id, 'travelLifeCorrectionAmount')}
+                            placeholder="0"
+                            style={{ width: 52, minWidth: 0, border: 'none', borderBottom: '1px solid #bfdbfe', outline: 'none', backgroundColor: 'transparent', textAlign: 'right', fontSize: 9, fontWeight: 700, color: C.blue }}
+                          />
+                        </label>
+                        <div style={{ marginTop: 4, fontSize: 8, color: C.sub }}>修正后 ¥{formatCurrency(itemAdjustedTravelLifeAmount)}</div>
                       </div>
                       <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
                         <div style={{ fontSize: 9, color: C.sub }}>日常“消费”</div>
