@@ -12,6 +12,7 @@ interface HomeWishInternCalendarProps {
   today: string;
   tagMap: Record<string, TagKind>;
   assignments: WishMilestoneAssignment[];
+  wishSummaryLabelsById: Record<string, string>;
   travelLabelsByDate: Record<string, string>;
   holidayDataByYear: HolidayDataByYear;
   onToggleWorkingDate: (date: string) => void;
@@ -26,8 +27,23 @@ function pad(value: number): string {
   return String(value).padStart(2, '0');
 }
 
+function stripMonthPrefix(value: string): string {
+  return value.replace(/^\d{2}\.\d{1,2}(?:\.\d{1,2})?\s*/, '').trim() || value;
+}
+
 function assignmentLabel(assignment: WishMilestoneAssignment, index: number): string {
-  return assignment.wishNames.join('、') || `心愿 ${index + 1}`;
+  return assignment.wishNames.map(stripMonthPrefix).join('、') || `心愿 ${index + 1}`;
+}
+
+function assignmentSummaryLabel(
+  assignment: WishMilestoneAssignment,
+  index: number,
+  wishSummaryLabelsById: Record<string, string>,
+): string {
+  const labels = assignment.wishIds
+    .map((wishId) => wishSummaryLabelsById[wishId])
+    .filter(Boolean);
+  return labels.join('、') || assignmentLabel(assignment, index);
 }
 
 export default function HomeWishInternCalendar({
@@ -37,6 +53,7 @@ export default function HomeWishInternCalendar({
   today,
   tagMap,
   assignments,
+  wishSummaryLabelsById,
   travelLabelsByDate,
   holidayDataByYear,
   onToggleWorkingDate,
@@ -68,10 +85,10 @@ export default function HomeWishInternCalendar({
   }, [assignments]);
   const monthAssignments = useMemo(() => assignments.map((assignment, index) => ({
     deadline: assignment.deadline,
-    label: assignmentLabel(assignment, index),
+    label: assignmentSummaryLabel(assignment, index, wishSummaryLabelsById),
     color: WISH_COLORS[index % WISH_COLORS.length],
     count: assignment.dateKeys.filter((date) => date.startsWith(`${visibleMonth}-`)).length,
-  })).filter((assignment) => assignment.count > 0), [assignments, visibleMonth]);
+  })).filter((assignment) => assignment.count > 0), [assignments, visibleMonth, wishSummaryLabelsById]);
   const monthInternDays = monthAssignments.reduce((sum, assignment) => sum + assignment.count, 0);
 
   return (

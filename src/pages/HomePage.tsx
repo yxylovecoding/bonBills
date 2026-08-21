@@ -39,7 +39,7 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '行程正名';
+const RELEASE_NOTE = '年月分层';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
@@ -263,7 +263,14 @@ export default function HomePage() {
     () => Object.fromEntries(allTripSegments.map((trip) => [trip.startDate, trip.dates])),
     [allTripSegments],
   );
-  const nextYearMonth = offsetMonthKey(currentYearMonth, 1);
+  const wishSummaryLabelsById = useMemo(() => Object.fromEntries(wishes.map((wish) => {
+    const date = wish.linkedTripStartDate || wish.deadline || '';
+    const compactName = wish.name.replace(/^\d{2}\.\d{1,2}(?:\.\d{1,2})?\s*/, '').trim() || wish.name;
+    const monthPrefix = date
+      ? `${date.slice(2, 4)}.${Number(date.slice(5, 7))}`
+      : '';
+    return [wish.id, `${monthPrefix}${compactName}`];
+  })), [wishes]);
   const travelLabelsByDate = useMemo(() => {
     const labels: Record<string, string> = {};
     const wishesByTripStart = new Map<string, string[]>();
@@ -278,15 +285,10 @@ export default function HomePage() {
       const rawTripLabel = tripTags[trip.startDate]?.trim() || tripNotes[trip.startDate]?.trim() || '';
       const rawLabel = wishLabel || rawTripLabel || '出游';
       const compactLabel = rawLabel.replace(/^\d{2}\.\d{1,2}(?:\.\d{1,2})?\s*/, '').trim() || rawLabel;
-      const tripYearMonth = trip.startDate.slice(0, 7);
-      const monthPrefix = tripYearMonth <= nextYearMonth
-        ? ''
-        : `${trip.startDate.slice(2, 4)}.${Number(trip.startDate.slice(5, 7))}`;
-      const label = `${monthPrefix}${compactLabel}`;
-      for (const date of trip.dates) labels[date] = label;
+      for (const date of trip.dates) labels[date] = compactLabel;
     }
     return labels;
-  }, [allTripSegments, nextYearMonth, tripNotes, tripTags, wishes]);
+  }, [allTripSegments, tripNotes, tripTags, wishes]);
   const {
     effectiveCreditMonthly: currentCreditDue,
     effectiveCreditNext: nextCreditDue,
@@ -1405,6 +1407,7 @@ export default function HomePage() {
         today={todayKey}
         tagMap={tagMap}
         assignments={wishMilestonePlan.assignments}
+        wishSummaryLabelsById={wishSummaryLabelsById}
         travelLabelsByDate={travelLabelsByDate}
         holidayDataByYear={holidayDataByYear}
         onToggleWorkingDate={toggleWishCalendarWorkingDate}
