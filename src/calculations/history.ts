@@ -1,4 +1,4 @@
-import type { MonthlyRecord, CurrentStats, TagKind } from '../models/types';
+import type { MonthlyRecord, CurrentStats, SharedLifeBreakdownItem, TagKind } from '../models/types';
 import type { BillExpenseMonth } from '../utils/importBill';
 import { assignExpenseIds } from '../utils/importBill';
 import { normalizeConfirmedSelection } from '../stores/calendarStore';
@@ -80,6 +80,7 @@ type MonthConfirmed = {
   localLifeBySubcategory: Record<TagKind, Record<string, Record<string, number>>>;
   sharedLifeByCategory: Record<string, number>;
   sharedLifeBySubcategory: Record<string, Record<string, number>>;
+  sharedLifeItems: SharedLifeBreakdownItem[];
 };
 
 function buildConfirmedAggregatesByMonth(
@@ -101,6 +102,7 @@ function buildConfirmedAggregatesByMonth(
       localLifeBySubcategory: zeroSubcategoryByTag(),
       sharedLifeByCategory: {},
       sharedLifeBySubcategory: {},
+      sharedLifeItems: [],
     };
     const monthItems = expenseItems[r.yearMonth];
     if (!monthItems || monthItems.length === 0) return out;
@@ -152,6 +154,15 @@ function buildConfirmedAggregatesByMonth(
             out.sharedLifeByCategory[cat] = (out.sharedLifeByCategory[cat] ?? 0) + item.amount;
             out.sharedLifeBySubcategory[cat] = out.sharedLifeBySubcategory[cat] ?? {};
             out.sharedLifeBySubcategory[cat][sub] = (out.sharedLifeBySubcategory[cat][sub] ?? 0) + item.amount;
+            out.sharedLifeItems.push({
+              id,
+              date: item.date,
+              category: cat,
+              subcategory: sub,
+              amount: item.amount,
+              tags: item.tags,
+              note: item.note,
+            });
           };
           if (ov === 'shared' && isPeriodicLife) {
             addShared();
@@ -277,6 +288,7 @@ export function calcHistoryStats(
   const totalConfConsDays:  ByTag = zeroByTag();
   const localLifeByCategory = zeroCategoryByTag();
   const localLifeBySubcategory = zeroSubcategoryByTag();
+  const sharedLifeItemsByCategory: Record<string, SharedLifeBreakdownItem[]> = {};
   let totalSharedLife = 0;
   for (const c of confirmed) {
     for (const k of TAG_KEYS) {
@@ -293,6 +305,9 @@ export function calcHistoryStats(
           localLifeBySubcategory[k][cat][sub] = (localLifeBySubcategory[k][cat][sub] ?? 0) + amount;
         }
       }
+    }
+    for (const item of c.sharedLifeItems) {
+      sharedLifeItemsByCategory[item.category] = [...(sharedLifeItemsByCategory[item.category] ?? []), item];
     }
     totalSharedLife += c.sharedLife;
   }
@@ -366,6 +381,8 @@ export function calcHistoryStats(
           category,
           amountTotal: byCatAmountTotal[category] ?? 0,
           dailyBase: vSum / baseWeightSum,
+          items: [...(sharedLifeItemsByCategory[category] ?? [])]
+            .sort((a, b) => b.date.localeCompare(a.date) || b.amount - a.amount),
           subcategories: Object.entries(bySubValueSum[category] ?? {})
             .map(([subcategory, subVSum]) => ({
               subcategory,

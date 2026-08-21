@@ -20,7 +20,7 @@ import { fetchBonCvFireProfile } from '../utils/bonCv';
 import { calcHistoryStats } from '../calculations/history';
 import { calcFire } from '../calculations/fire';
 import { tagMeta } from '../data/mockData';
-import type { FutureFireExpense, IncomeItem, MajorFireWish, TagKind, LocalLifeBreakdownRow, MonthlyRecord, SharedLifeBreakdownRow } from '../models/types';
+import type { FutureFireExpense, IncomeItem, MajorFireWish, TagKind, LocalLifeBreakdownRow, MonthlyRecord, SharedLifeBreakdownItem, SharedLifeBreakdownRow } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { dateLabel, daysUntilDate, resolveIncomeForMonth } from '../utils/payroll';
@@ -35,7 +35,7 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '消费分条目';
+const RELEASE_NOTE = '共享可追溯';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
@@ -72,6 +72,9 @@ interface CombinedLifeBreakdownRow {
   category: string;
   amountTotal: number;
   dailyBase: number;
+  sharedAmountTotal: number;
+  sharedDailyBase: number;
+  sharedItems: SharedLifeBreakdownItem[];
   subcategories: {
     subcategory: string;
     amountTotal: number;
@@ -89,10 +92,18 @@ function mergeSceneLifeBreakdown(
       category: row.category,
       amountTotal: 0,
       dailyBase: 0,
+      sharedAmountTotal: 0,
+      sharedDailyBase: 0,
+      sharedItems: [],
       subcategories: [],
     };
     category.amountTotal += row.amountTotal;
     category.dailyBase += row.dailyBase;
+    if ('items' in row) {
+      category.sharedAmountTotal += row.amountTotal;
+      category.sharedDailyBase += row.dailyBase;
+      category.sharedItems.push(...row.items);
+    }
     for (const sub of row.subcategories) {
       const existing = category.subcategories.find((item) => item.subcategory === sub.subcategory);
       if (existing) {
@@ -113,6 +124,19 @@ function mergeSceneLifeBreakdown(
       subcategories: row.subcategories.sort((a, b) => b.dailyBase - a.dailyBase),
     }))
     .sort((a, b) => b.dailyBase - a.dailyBase);
+}
+
+const SHARED_BILL_META_TAGS = new Set(['周期生活', '波动生活', '消费', '收入', '红', '黑']);
+
+function sharedBillDisplayName(item: SharedLifeBreakdownItem): string {
+  if (item.note.trim()) return item.note.trim();
+  const descriptiveTags = item.tags
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter((tag) => tag && !SHARED_BILL_META_TAGS.has(tag));
+  if (descriptiveTags.length > 0) return descriptiveTags.join(' · ');
+  if (item.subcategory && item.subcategory !== '未细分') return item.subcategory;
+  return item.category;
 }
 
 function FireDetailGroup({ title, children }: { title: string; children: ReactNode }) {
@@ -274,6 +298,7 @@ export default function HomePage() {
   const [bonCvStatus, setBonCvStatus] = useState<'idle' | 'loading' | 'connected' | 'stale' | 'unconfigured'>('idle');
   const [sceneExpanded, setSceneExpanded] = useState<Set<TagKind>>(new Set());
   const [sceneLocalOpenCategories, setSceneLocalOpenCategories] = useState<Set<string>>(new Set());
+  const [sceneSharedOpenCategories, setSceneSharedOpenCategories] = useState<Set<string>>(new Set());
   const futureFireExpenses = config.futureFireExpenses ?? [];
   const syncFutureFireExpenses = (items: FutureFireExpense[]) => setConfig({ futureFireExpenses: items });
   const majorFireWishes = config.majorFireWishes ?? [];
@@ -400,6 +425,14 @@ export default function HomePage() {
   };
   const toggleSceneLocalCategory = (categoryKey: string) => {
     setSceneLocalOpenCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(categoryKey)) next.delete(categoryKey);
+      else next.add(categoryKey);
+      return next;
+    });
+  };
+  const toggleSceneSharedCategory = (categoryKey: string) => {
+    setSceneSharedOpenCategories((prev) => {
       const next = new Set(prev);
       if (next.has(categoryKey)) next.delete(categoryKey);
       else next.add(categoryKey);
@@ -625,15 +658,18 @@ export default function HomePage() {
                             const categoryKey = `${r.tagKind}|${row.category}`;
                             const categoryOpen = sceneLocalOpenCategories.has(categoryKey);
                             const hasSubBreakdown = row.subcategories.length > 0;
+                            const sharedBillsOpen = sceneSharedOpenCategories.has(categoryKey);
+                            const hasCategoryDetails = hasSubBreakdown || row.sharedItems.length > 0;
                             return (
                               <div key={row.category}>
                                 <button
                                   type="button"
-                                  onClick={() => hasSubBreakdown && toggleSceneLocalCategory(categoryKey)}
-                                  style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, padding: '3px 0', color: '#3c4043', background: 'none', border: 'none', cursor: hasSubBreakdown ? 'pointer' : 'default' }}
+                                  aria-expanded={hasCategoryDetails ? categoryOpen : undefined}
+                                  onClick={() => hasCategoryDetails && toggleSceneLocalCategory(categoryKey)}
+                                  style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, padding: '3px 0', color: '#3c4043', background: 'none', border: 'none', cursor: hasCategoryDetails ? 'pointer' : 'default' }}
                                 >
                                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8, textAlign: 'left' }}>
-                                    {hasSubBreakdown && (
+                                    {hasCategoryDetails && (
                                       <span style={{ marginRight: 4, fontSize: 9, color: '#9aa0a6' }}>{categoryOpen ? '▼' : '▶'}</span>
                                     )}
                                     {row.category} <span style={{ color: '#9aa0a6' }}>· {pct.toFixed(1)}%</span>
@@ -653,6 +689,39 @@ export default function HomePage() {
                                         </div>
                                       );
                                     })}
+                                  </div>
+                                )}
+                                {categoryOpen && row.sharedItems.length > 0 && (
+                                  <div style={{ margin: '2px 0 4px 14px', border: '1px solid rgba(124,58,237,0.14)', borderRadius: 6, backgroundColor: 'rgba(255,255,255,0.62)', overflow: 'hidden' }}>
+                                    <button
+                                      type="button"
+                                      aria-expanded={sharedBillsOpen}
+                                      onClick={() => toggleSceneSharedCategory(categoryKey)}
+                                      style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, border: 'none', backgroundColor: 'transparent', padding: '4px 6px', color: '#6d28d9', fontSize: 9, cursor: 'pointer' }}
+                                    >
+                                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>
+                                        {sharedBillsOpen ? '▼' : '▶'} 共享均摊账单 · {row.sharedItems.length}笔
+                                      </span>
+                                      <span style={{ flexShrink: 0, fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>¥{row.sharedDailyBase.toFixed(2)}/天</span>
+                                    </button>
+                                    {sharedBillsOpen && (
+                                      <div style={{ borderTop: '1px dashed rgba(124,58,237,0.16)', padding: '2px 6px 4px' }}>
+                                        {row.sharedItems.map((item, itemIndex) => {
+                                          const displayName = sharedBillDisplayName(item);
+                                          return (
+                                            <div key={`${item.id}-${itemIndex}`} style={{ display: 'grid', gridTemplateColumns: '64px minmax(0, 1fr) auto', alignItems: 'center', gap: 5, padding: '2px 0', fontSize: 9, color: '#5f6368' }}>
+                                              <span style={{ color: '#9aa0a6', fontVariantNumeric: 'tabular-nums' }}>{item.date.slice(2)}</span>
+                                              <span title={displayName} style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</span>
+                                              <span style={{ color: '#3c4043', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>¥{formatCurrency(item.amount)}</span>
+                                            </div>
+                                          );
+                                        })}
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2, paddingTop: 3, borderTop: '1px solid rgba(124,58,237,0.1)', fontSize: 9, color: '#8b5cf6' }}>
+                                          <span>历史合计</span>
+                                          <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>¥{formatCurrency(row.sharedAmountTotal)}</span>
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                               </div>

@@ -237,12 +237,23 @@ export interface SharedLifeBreakdownRow {
   amountTotal: number;   // 历史累计金额（权重前）
   dailyBase: number;     // 加权后日均贡献
   subcategories: SharedLifeSubcategoryBreakdownRow[];
+  items: SharedLifeBreakdownItem[]; // 共享均摊的原始账单，可继续追溯
 }
 
 export interface SharedLifeSubcategoryBreakdownRow {
   subcategory: string;
   amountTotal: number;   // 历史累计金额（权重前）
   dailyBase: number;     // 加权后日均贡献
+}
+
+export interface SharedLifeBreakdownItem {
+  id: string;
+  date: string;
+  category: string;
+  subcategory: string;
+  amount: number;
+  tags: string;
+  note: string;
 }
 
 // ── LatestSnapshot (首页用) ───────────────────────────────────────
