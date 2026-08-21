@@ -85,6 +85,20 @@ function offsetMonthKey(value: string, months: number): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
 
+function planningDeadlineDistanceLabel(targetDate: string, fromDate: Date, days: number): string {
+  if (days === 0) return '今天截止';
+  if (days <= 365) return `距今 ${days.toLocaleString('zh-CN')} 天`;
+  const [targetYear, targetMonth, targetDay] = targetDate.split('-').map(Number);
+  let completeMonths = (targetYear - fromDate.getFullYear()) * 12
+    + targetMonth - (fromDate.getMonth() + 1);
+  if (targetDay < fromDate.getDate()) completeMonths -= 1;
+  const years = Math.floor(Math.max(completeMonths, 12) / 12);
+  const months = Math.max(completeMonths, 12) % 12;
+  return months === 0
+    ? `距今 ${years.toLocaleString('zh-CN')} 年`
+    : `距今 ${years.toLocaleString('zh-CN')} 年 ${months} 个月`;
+}
+
 export default function WishesPage() {
   const { config, setConfig } = useConfigStore();
   const { current } = useSnapshotStore();
@@ -545,9 +559,7 @@ export default function WishesPage() {
         style={{ minWidth: 124, border: '1px solid rgba(255,255,255,0.38)', borderRadius: 8, outline: 'none', backgroundColor: 'rgba(255,255,255,0.16)', color: '#fff', padding: '5px 7px', fontSize: 11, fontWeight: 700, colorScheme: 'dark' }}
       />
       <div style={{ paddingRight: 2, fontSize: 9, fontWeight: 600, opacity: 0.76, fontVariantNumeric: 'tabular-nums' }}>
-        {daysUntilPlanningDeadline === 0
-          ? '今天截止'
-          : `距今 ${daysUntilPlanningDeadline.toLocaleString('zh-CN')} 天`}
+        {planningDeadlineDistanceLabel(effectivePlanningDeadline, today, daysUntilPlanningDeadline)}
       </div>
     </div>
   );
