@@ -5,6 +5,7 @@ import { normalizeExpenseScopeOverrides, useExpenseScopeOverrideStore } from '..
 import { normalizeMonthlyRecords, useMonthlyStore } from '../stores/monthlyStore';
 import { DEFAULT_EXPENSE_SCOPE_HELP_TEXT, usePrefsStore } from '../stores/prefsStore';
 import { DEFAULT_SNAPSHOT, useSnapshotStore } from '../stores/snapshotStore';
+import { useTripStore } from '../stores/tripStore';
 import { useSyncStatus } from './syncStatus';
 
 const EXPENSE_SCOPE_SYNC_KEY = 'expense-scope-overrides';
@@ -14,6 +15,7 @@ const EMPTY_STATES: Record<string, Record<string, unknown>> = {
   'bill-details': { tagStats: {}, aggregates: {}, expenseItems: {}, incomeItems: {}, hasOverride: false },
   'monthly-records': { records: [] },
   'calendar-tags': { tagMap: {}, initializedFromRecords: false, confirmedExpenses: {} },
+  'trip-tags': { tripTags: {}, tripNotes: {}, tripSplits: {} },
   'account-snapshot': { current: DEFAULT_SNAPSHOT, history: [] },
   'app-config': { config: DEFAULT_CONFIG },
   [EXPENSE_SCOPE_SYNC_KEY]: { overrides: { categories: {}, subcategories: {}, notes: {}, tags: {} } },
@@ -62,6 +64,20 @@ const stores: StoreEntry[] = [
     serialize: () => {
       const s = useCalendarStore.getState();
       return { tagMap: s.tagMap, initializedFromRecords: s.initializedFromRecords, confirmedExpenses: s.confirmedExpenses };
+    },
+  },
+  {
+    key: 'trip-tags',
+    getState: () => useTripStore.getState(),
+    setState: (p) => useTripStore.setState({
+      tripTags: p.tripTags && typeof p.tripTags === 'object' ? p.tripTags as Record<string, string> : {},
+      tripNotes: p.tripNotes && typeof p.tripNotes === 'object' ? p.tripNotes as Record<string, string> : {},
+      tripSplits: p.tripSplits && typeof p.tripSplits === 'object' ? p.tripSplits as Record<string, true> : {},
+    }),
+    subscribe: (l) => useTripStore.subscribe(l),
+    serialize: () => {
+      const s = useTripStore.getState();
+      return { tripTags: s.tripTags, tripNotes: s.tripNotes, tripSplits: s.tripSplits };
     },
   },
   {
@@ -158,8 +174,12 @@ async function fetchServer(secret: string): Promise<Record<string, unknown> | nu
 }
 
 async function uploadAll(secret: string) {
+  await uploadStores(secret, stores);
+}
+
+async function uploadStores(secret: string, selectedStores: readonly StoreEntry[]) {
   const body: Record<string, unknown> = {};
-  for (const s of stores) body[s.key] = s.serialize();
+  for (const s of selectedStores) body[s.key] = s.serialize();
   const res = await fetch('/api/sync', {
     method: 'PUT',
     headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
@@ -246,12 +266,19 @@ export async function initSync() {
     if (serverData) {
       // 应用服务端数据到各 store
       syncingFromServer = true;
+      const storesMissingFromServer: StoreEntry[] = [];
       for (const s of stores) {
         const legacyVal = s.legacyKeys?.map((key) => serverData[key]).find((val) => val && typeof val === 'object');
         const val = serverData[s.key] ?? legacyVal;
         if (val && typeof val === 'object') {
           s.setState(val as Record<string, unknown>);
+        } else {
+          storesMissingFromServer.push(s);
         }
+      }
+      // 新增同步 Store 时，保留当前浏览器已有数据并立即补传到云端。
+      if (storesMissingFromServer.length > 0) {
+        await uploadStores(secret, storesMissingFromServer);
       }
       // 下一个 tick 再开订阅，避免刚 setState 触发回传
       setTimeout(() => {

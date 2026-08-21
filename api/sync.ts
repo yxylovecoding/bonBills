@@ -5,6 +5,7 @@ const STORE_KEYS = [
   'bill-details',
   'monthly-records',
   'calendar-tags',
+  'trip-tags',
   'account-snapshot',
   'app-config',
   'user-prefs',
