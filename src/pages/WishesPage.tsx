@@ -778,10 +778,8 @@ export default function WishesPage() {
             );
             const itemTravelLifeAmount = travelEstimate.lifeAmount;
             const itemTravelConsumptionAmount = itemTravelDays * Math.max(stats.stateConsumptionDailyAvg.travel, 0);
-            const itemWishAmountExcludingLife = Math.max(item.remainingAmount - itemTravelLifeAmount, 0);
             const roundedTravelTargetAmount = roundToSitePrecision(travelEstimate.targetAmount);
-            const budgetEstimateVisible = budgetEstimateWishId === item.id
-              || (item.targetAmount <= 0 && itemTravelDays > 0);
+            const budgetEstimateVisible = budgetEstimateWishId === item.id;
             const isSelectedPlanningWish = selectedPlanningWish?.id === item.id;
             return (
               <div
@@ -926,15 +924,13 @@ export default function WishesPage() {
                     <div id={`budget-estimate-${item.id}`} style={{ marginTop: 8, borderTop: '1px dashed #ddd6fe', paddingTop: 8 }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
                         <span style={{ fontSize: 10, fontWeight: 800, color: C.purple }}>预算预估</span>
-                        {item.targetAmount > 0 && budgetEstimateWishId === item.id && (
-                          <button
-                            type="button"
-                            onClick={() => setBudgetEstimateWishId(null)}
-                            style={{ border: 'none', background: 'transparent', color: C.sub, padding: 0, fontSize: 9, cursor: 'pointer' }}
-                          >
-                            收起
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => setBudgetEstimateWishId(null)}
+                          style={{ border: 'none', background: 'transparent', color: C.sub, padding: 0, fontSize: 9, cursor: 'pointer' }}
+                        >
+                          收起
+                        </button>
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7 }}>
                         <label>
@@ -1045,7 +1041,7 @@ export default function WishesPage() {
                       </div>
                     </div>
                   )}
-                  {itemTravelDays > 0 && (
+                  {budgetEstimateVisible && itemTravelDays > 0 && (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 5, marginTop: 7 }}>
                       <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
                         <div style={{ fontSize: 9, color: C.sub }}>“活”</div>
@@ -1060,8 +1056,8 @@ export default function WishesPage() {
                         <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.purple }}>{formatSignedWishCurrency(travelEstimate.extraExpenseAmount)}</div>
                       </div>
                       <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
-                        <div style={{ fontSize: 9, color: C.sub }}>{budgetEstimateVisible ? '估算目标' : '去“活”后需攒'}</div>
-                        <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.purple }}>¥{formatCurrency(budgetEstimateVisible ? roundedTravelTargetAmount : itemWishAmountExcludingLife)}</div>
+                        <div style={{ fontSize: 9, color: C.sub }}>估算目标</div>
+                        <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.purple }}>¥{formatCurrency(roundedTravelTargetAmount)}</div>
                       </div>
                     </div>
                   )}
