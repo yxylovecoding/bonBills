@@ -496,6 +496,28 @@ export default function WishesPage() {
     setPendingWishNameFocusId(null);
   }, [orderedPlanItems, pendingWishNameFocusId]);
 
+  const planningDeadlineControl = (
+    <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+      <input
+        type="date"
+        aria-label="心愿规划截止日期"
+        min={todayKey}
+        value={effectivePlanningDeadline}
+        onChange={(event) => {
+          const value = event.target.value;
+          if (selectedPlanningWish) updateWish(selectedPlanningWish.id, 'deadline', value || null);
+          else setPlanningDeadline(value);
+        }}
+        style={{ minWidth: 124, border: '1px solid rgba(255,255,255,0.38)', borderRadius: 8, outline: 'none', backgroundColor: 'rgba(255,255,255,0.16)', color: '#fff', padding: '5px 7px', fontSize: 11, fontWeight: 700, colorScheme: 'dark' }}
+      />
+      <div style={{ paddingRight: 2, fontSize: 9, fontWeight: 600, opacity: 0.76, fontVariantNumeric: 'tabular-nums' }}>
+        {daysUntilPlanningDeadline === 0
+          ? '今天截止'
+          : `距今 ${daysUntilPlanningDeadline.toLocaleString('zh-CN')} 天`}
+      </div>
+    </div>
+  );
+
   return (
     <div className="wishes-page-shell">
       <WishTimeline
@@ -522,52 +544,34 @@ export default function WishesPage() {
       <div className="wishes-planning-grid">
       <div className="wish-planning-column">
       <section className="wish-planning-panel" style={{ background: 'linear-gradient(145deg, #6d28d9 0%, #8b5cf6 58%, #a78bfa 100%)', color: '#fff', borderRadius: 16, padding: '16px', marginBottom: 12, boxShadow: '0 8px 24px rgba(109,40,217,0.2)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
-          <div>
-            <div style={{ fontSize: 10, opacity: 0.72 }}>当前区间 · {selectedSegmentLabel}</div>
-            <div style={{ fontSize: 12, fontWeight: 700, marginTop: 2 }}>{selectedIntervalStartDate} 至</div>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
-            <input
-              type="date"
-              aria-label="心愿规划截止日期"
-              min={todayKey}
-              value={effectivePlanningDeadline}
-              onChange={(event) => {
-                const value = event.target.value;
-                if (selectedPlanningWish) updateWish(selectedPlanningWish.id, 'deadline', value || null);
-                else setPlanningDeadline(value);
-              }}
-              style={{ minWidth: 124, border: '1px solid rgba(255,255,255,0.38)', borderRadius: 8, outline: 'none', backgroundColor: 'rgba(255,255,255,0.16)', color: '#fff', padding: '5px 7px', fontSize: 11, fontWeight: 700, colorScheme: 'dark' }}
-            />
-            <div style={{ paddingRight: 2, fontSize: 9, fontWeight: 600, opacity: 0.76, fontVariantNumeric: 'tabular-nums' }}>
-              {daysUntilPlanningDeadline === 0
-                ? '今天截止'
-                : `距今 ${daysUntilPlanningDeadline.toLocaleString('zh-CN')} 天`}
-            </div>
-          </div>
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 10, opacity: 0.72 }}>当前区间 · {selectedSegmentLabel}</div>
+          <div style={{ fontSize: 12, fontWeight: 700, marginTop: 2 }}>{selectedIntervalStartDate} 至</div>
         </div>
         {internPlan.wishAmountIncludingLife > 0 ? (
           <>
-            {!internPlan.usesConsumptionTransfer && internPlan.minimumInternDays !== null ? (
+            {!internPlan.usesConsumptionTransfer
+              && internPlan.minimumInternDays !== null
+              && selectedIntervalInternDays > minimumSelectableInternDays ? (
               <div style={{ fontSize: 11, opacity: 0.82, marginBottom: 4 }}>
-                {selectedIntervalInternDays > minimumSelectableInternDays
-                  ? `本段比最低方案多实习 ${selectedIntervalInternDays - minimumSelectableInternDays} 天`
-                  : '按全部心愿截止日分段安排'}
+                本段比最低方案多实习 {selectedIntervalInternDays - minimumSelectableInternDays} 天
               </div>
             ) : null}
-            <div style={{ fontSize: 24, lineHeight: 1.15, fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: -0.4 }}>
-              {internPlan.usesConsumptionTransfer
-                ? `全部实习，从消费补${formatCurrency(internPlan.consumptionTransferredToWish)}元${internPlan.shortfall > 0.005 ? `，仍差${formatCurrency(internPlan.shortfall)}元` : ''}`
-                : internPlan.minimumInternDays === null
-                  ? `本段全部实习仍差 ¥${formatCurrency(internPlan.shortfall)}`
-                  : minimumSelectableInternDays >= availableSelectableInternDays && availableSelectableInternDays > 0
-                    ? '本段全部实习'
-                    : intervalAdditionalInternDays > 0
-                      ? `本段最少再实习 ${intervalAdditionalInternDays} 天`
-                      : intervalReducibleInternDays > 0
-                        ? `本段最多可少实习 ${intervalReducibleInternDays} 天`
-                        : `本段安排 ${selectedIntervalInternDays} 天实习`}
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+              <div style={{ flex: 1, minWidth: 0, fontSize: 24, lineHeight: 1.15, fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: -0.4 }}>
+                {internPlan.usesConsumptionTransfer
+                  ? `全部实习，从消费补${formatCurrency(internPlan.consumptionTransferredToWish)}元${internPlan.shortfall > 0.005 ? `，仍差${formatCurrency(internPlan.shortfall)}元` : ''}`
+                  : internPlan.minimumInternDays === null
+                    ? `本段全部实习仍差 ¥${formatCurrency(internPlan.shortfall)}`
+                    : minimumSelectableInternDays >= availableSelectableInternDays && availableSelectableInternDays > 0
+                      ? '本段全部实习'
+                      : intervalAdditionalInternDays > 0
+                        ? `本段最少再实习 ${intervalAdditionalInternDays} 天`
+                        : intervalReducibleInternDays > 0
+                          ? `本段最多可少实习 ${intervalReducibleInternDays} 天`
+                          : `本段安排 ${selectedIntervalInternDays} 天实习`}
+              </div>
+              {planningDeadlineControl}
             </div>
             {internPlan.usesConsumptionTransfer || internPlan.minimumInternDays === null ? (
               <button
@@ -589,16 +593,6 @@ export default function WishesPage() {
                   本段日历已排 {scheduledIntervalInternDays} 天实习
                   {' · '}至少 {minimumSelectableInternDays} 天
                   {' · '}最多 {availableSelectableInternDays} 个非家非游法定工作日
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7, marginTop: 10 }}>
-                  <div style={{ borderRadius: 10, padding: '7px 9px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
-                    <div style={{ fontSize: 10, opacity: 0.76 }}>最少还需增加</div>
-                    <div style={{ fontSize: 16, fontWeight: 800, marginTop: 1 }}>{intervalAdditionalInternDays} 天</div>
-                  </div>
-                  <div style={{ borderRadius: 10, padding: '7px 9px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
-                    <div style={{ fontSize: 10, opacity: 0.76 }}>最多可以减少</div>
-                    <div style={{ fontSize: 16, fontWeight: 800, marginTop: 1 }}>{intervalReducibleInternDays} 天</div>
-                  </div>
                 </div>
                 <div style={{ marginTop: 8, borderRadius: 10, padding: '8px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
@@ -678,7 +672,10 @@ export default function WishesPage() {
           </>
         ) : (
           <>
-            <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 4 }}>给心愿一个截止日期</div>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 4 }}>
+              <div style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 800 }}>给心愿一个截止日期</div>
+              {planningDeadlineControl}
+            </div>
             <div style={{ fontSize: 11, lineHeight: 1.5, opacity: 0.82 }}>填入目标、已攒金额和 DDL，就会自动算出在能攒够的前提下最少需要实习几天。</div>
           </>
         )}
