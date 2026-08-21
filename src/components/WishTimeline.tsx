@@ -97,21 +97,33 @@ export default function WishTimeline({ entries, activeStartDate, activeEndDate, 
   useEffect(() => {
     const container = scrollRef.current;
     if (!container) return;
-    const activeTooth = Array.from(container.querySelectorAll<HTMLElement>('[data-timeline-date]'))
-      .find((element) => {
-        const date = element.dataset.timelineDate ?? '';
-        return date >= activeStartDate && date <= activeEndDate;
+    let frameId = 0;
+    const centerActiveRange = () => {
+      cancelAnimationFrame(frameId);
+      frameId = requestAnimationFrame(() => {
+        const activeTeeth = Array.from(container.querySelectorAll<HTMLElement>('[data-timeline-date]'))
+          .filter((element) => {
+            const date = element.dataset.timelineDate ?? '';
+            return date >= activeStartDate && date <= activeEndDate;
+          });
+        const firstRow = activeTeeth[0]?.parentElement;
+        const lastRow = activeTeeth[activeTeeth.length - 1]?.parentElement;
+        if (!firstRow || !lastRow) return;
+        const activeCenter = (
+          firstRow.offsetTop
+          + lastRow.offsetTop
+          + lastRow.offsetHeight
+        ) / 2;
+        container.scrollTop = activeCenter - container.clientHeight / 2;
       });
-    const row = activeTooth?.parentElement;
-    if (!row) return;
-    const margin = 8;
-    const rowTop = row.offsetTop;
-    const rowBottom = rowTop + row.offsetHeight;
-    if (rowTop < container.scrollTop + margin) {
-      container.scrollTop = Math.max(rowTop - margin, 0);
-    } else if (rowBottom > container.scrollTop + container.clientHeight - margin) {
-      container.scrollTop = rowBottom - container.clientHeight + margin;
-    }
+    };
+    centerActiveRange();
+    const resizeObserver = new ResizeObserver(centerActiveRange);
+    resizeObserver.observe(container);
+    return () => {
+      resizeObserver.disconnect();
+      cancelAnimationFrame(frameId);
+    };
   }, [activeEndDate, activeStartDate, entries]);
 
   if (entries.length === 0) return null;

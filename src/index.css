@@ -286,6 +286,14 @@ input[type='number'] { -moz-appearance: textfield; }
   display: none;
 }
 
+.wish-timeline-scroll::before,
+.wish-timeline-scroll::after {
+  display: block;
+  height: 50%;
+  content: '';
+  pointer-events: none;
+}
+
 .wish-timeline-axis {
   position: absolute;
   top: 0;
