@@ -32,6 +32,11 @@ import {
   repaymentsThroughDeadline,
   type WishRepaymentDue,
 } from '../utils/wishMilestonePlan';
+import {
+  applyPendingWishInternSavings,
+  pendingWishInternSavingRecords,
+  pendingWishInternSavingsByWish,
+} from '../utils/wishInternSavings';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const LIFE_EXPENSE_TOOLTIP_ORDER: Array<{ kind: TagKind; label: string }> = [
@@ -129,6 +134,19 @@ export default function WishesPage() {
   const todayKey = `${todayYear}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const twoYearsAgo = `${todayYear - 1}-01`;
   const wishes = config.wishes ?? [];
+  const wishInternSavingRecords = config.wishInternSavingRecords ?? [];
+  const pendingInternSavingRecords = useMemo(
+    () => pendingWishInternSavingRecords(wishInternSavingRecords, todayKey),
+    [todayKey, wishInternSavingRecords],
+  );
+  const pendingInternSavingsByWish = useMemo(
+    () => pendingWishInternSavingsByWish(wishInternSavingRecords, todayKey),
+    [todayKey, wishInternSavingRecords],
+  );
+  const planningWishes = useMemo(
+    () => applyPendingWishInternSavings(wishes, wishInternSavingRecords, todayKey),
+    [todayKey, wishInternSavingRecords, wishes],
+  );
   useEffect(() => {
     let changed = false;
     const normalizedWishes = wishes.map((wish) => {
@@ -151,17 +169,17 @@ export default function WishesPage() {
     [allTripSegments],
   );
   const defaultPlanningDeadline = useMemo(
-    () => wishes
+    () => planningWishes
       .filter((wish) => wish.isActive && wish.deadline && wish.deadline >= todayKey && wish.targetAmount > wish.savedAmount)
       .reduce((latest, wish) => wish.deadline && wish.deadline > latest ? wish.deadline : latest, todayKey),
-    [todayKey, wishes],
+    [planningWishes, todayKey],
   );
   const selectedPlanningWish = useMemo(() => {
-    const eligible = wishes
+    const eligible = planningWishes
       .filter((wish) => wish.isActive && wish.deadline && wish.deadline >= todayKey && wish.targetAmount > wish.savedAmount)
       .sort((a, b) => (a.deadline ?? '').localeCompare(b.deadline ?? '') || a.id.localeCompare(b.id));
     return eligible.find((wish) => wish.id === activeWishId) ?? eligible[0] ?? null;
-  }, [activeWishId, todayKey, wishes]);
+  }, [activeWishId, planningWishes, todayKey]);
   const selectedWishDeadline = selectedPlanningWish?.deadline && selectedPlanningWish.deadline >= todayKey
     ? selectedPlanningWish.deadline
     : null;
@@ -231,7 +249,7 @@ export default function WishesPage() {
     nextDueDate >= todayKey && nextDueDate <= effectivePlanningDeadline ? longBondRepayNext : 0
   );
   const plan = useMemo(
-    () => calculateWishPlan(wishes, {
+    () => calculateWishPlan(planningWishes, {
       today,
       tagMap,
       stateDailyAvg: stats.stateDailyAvg,
@@ -239,12 +257,12 @@ export default function WishesPage() {
     }),
     // todayKey 每日变化一次，避免 Date 实例导致无意义的重复计算。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [wishes, tagMap, stats.stateDailyAvg, repaymentsByMonth, todayKey],
+    [planningWishes, tagMap, stats.stateDailyAvg, repaymentsByMonth, todayKey],
   );
   const milestonePlan = useMemo(
     () => calculateWishMilestonePlan({
       today,
-      wishes,
+      wishes: planningWishes,
       incomeItems: config.incomeItems,
       tagMap,
       stateDailyAvg: stats.stateDailyAvg,
@@ -254,7 +272,7 @@ export default function WishesPage() {
     }),
     // todayKey 每日变化一次，避免 Date 实例导致无意义的重复计算。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [config.incomeItems, holidayDataByYear, repaymentDues, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart, wishes],
+    [config.incomeItems, holidayDataByYear, planningWishes, repaymentDues, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart],
   );
   const activeSegment = selectedPlanningWish
     ? milestonePlan.segmentByWishId[selectedPlanningWish.id]
@@ -282,7 +300,7 @@ export default function WishesPage() {
     () => calculateWishInternPlan({
       today,
       deadline: effectivePlanningDeadline,
-      wishes,
+      wishes: planningWishes,
       incomeItems: config.incomeItems,
       tagMap,
       stateDailyAvg: stats.stateDailyAvg,
@@ -293,7 +311,7 @@ export default function WishesPage() {
     }),
     // todayKey 每日变化一次，避免 Date 实例导致无意义的重复计算。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [config.incomeItems, effectivePlanningDeadline, holidayDataByYear, planningRepaymentsByMonth, selectedCumulativeInternDays, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart, wishes],
+    [config.incomeItems, effectivePlanningDeadline, holidayDataByYear, planningRepaymentsByMonth, planningWishes, selectedCumulativeInternDays, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart],
   );
   const lifeExpenseTooltip = LIFE_EXPENSE_TOOLTIP_ORDER.map(({ kind, label }) => {
     const item = internPlan.lifeExpenseBreakdown[kind];
@@ -432,6 +450,28 @@ export default function WishesPage() {
   const updateWishFields = (id: string, patch: Partial<WishItem>) => {
     setSelectedSegmentDays({});
     syncWishes(wishes.map((item) => item.id === id ? { ...item, ...patch } : item));
+  };
+  const confirmPendingInternSavings = (wishId: string) => {
+    const recordsToConfirm = pendingInternSavingRecords.filter((record) => record.wishId === wishId);
+    const confirmedAmount = recordsToConfirm.reduce((sum, record) => sum + record.amount, 0);
+    if (confirmedAmount <= 0) return;
+    const confirmingDates = new Set(recordsToConfirm.map((record) => record.date));
+    setSelectedSegmentDays({});
+    setAmountDrafts((currentDrafts) => {
+      const nextDrafts = { ...currentDrafts };
+      delete nextDrafts[`${wishId}:savedAmount`];
+      return nextDrafts;
+    });
+    setConfig({
+      wishes: wishes.map((wish) => wish.id === wishId
+        ? { ...wish, savedAmount: roundToSitePrecision(wish.savedAmount + confirmedAmount) }
+        : wish),
+      wishInternSavingRecords: wishInternSavingRecords.map((record) => (
+        record.wishId === wishId && confirmingDates.has(record.date) && !record.confirmed
+          ? { ...record, confirmed: true }
+          : record
+      )),
+    });
   };
   type WishAmountField = 'targetAmount' | 'savedAmount' | 'travelTicketAmount' | 'travelLodgingDailyAmount' | 'travelLifeCorrectionAmount';
   const updateAmount = (id: string, field: WishAmountField, raw: string) => {
@@ -843,6 +883,8 @@ export default function WishesPage() {
           {orderedPlanItems.map((item) => {
             const targetKey = `${item.id}:targetAmount`;
             const savedKey = `${item.id}:savedAmount`;
+            const confirmedSavedAmount = wishes.find((wish) => wish.id === item.id)?.savedAmount ?? 0;
+            const pendingInternSavingAmount = pendingInternSavingsByWish[item.id] ?? 0;
             const ticketKey = `${item.id}:travelTicketAmount`;
             const lodgingKey = `${item.id}:travelLodgingDailyAmount`;
             const lifeCorrectionKey = `${item.id}:travelLifeCorrectionAmount`;
@@ -930,7 +972,7 @@ export default function WishesPage() {
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9, marginTop: 12 }}>
-                  <label style={{ display: 'block' }}>
+                  <div style={{ display: 'block' }}>
                     <span style={{ display: 'block', fontSize: 10, color: C.sub, marginBottom: 4 }}>目标金额</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, border: `1px solid ${budgetEstimateWishId === item.id ? '#c4b5fd' : '#e5e7eb'}`, borderRadius: 9, backgroundColor: '#fff', padding: '6px 8px', boxShadow: budgetEstimateWishId === item.id ? '0 0 0 2px #ede9fe' : 'none' }}>
                       <span style={{ fontSize: 11, color: C.sub }}>¥</span>
@@ -946,21 +988,33 @@ export default function WishesPage() {
                         style={{ width: '100%', minWidth: 0, border: 'none', outline: 'none', background: 'transparent', textAlign: 'right', fontSize: 12, fontWeight: 700, color: C.purple }}
                       />
                     </div>
-                  </label>
-                  <label style={{ display: 'block' }}>
+                  </div>
+                  <div style={{ display: 'block' }}>
                     <span style={{ display: 'block', fontSize: 10, color: C.sub, marginBottom: 4 }}>已经攒下</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, border: '1px solid #e5e7eb', borderRadius: 9, backgroundColor: '#fff', padding: '6px 8px' }}>
                       <span style={{ fontSize: 11, color: C.sub }}>¥</span>
                       <AmountInput
                         aria-label="已攒金额"
-                        value={amountDrafts[savedKey] ?? (item.savedAmount ? String(item.savedAmount) : '')}
+                        value={amountDrafts[savedKey] ?? (confirmedSavedAmount ? String(confirmedSavedAmount) : '')}
                         onChange={(raw) => updateAmount(item.id, 'savedAmount', raw)}
                         onBlur={() => finishAmountEdit(item.id, 'savedAmount')}
                         placeholder="0"
                         style={{ width: '100%', minWidth: 0, border: 'none', outline: 'none', background: 'transparent', textAlign: 'right', fontSize: 12, fontWeight: 700, color: C.green }}
                       />
                     </div>
-                  </label>
+                    {pendingInternSavingAmount > 0 ? (
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6, marginTop: 4, fontSize: 10, color: C.orange }}>
+                        <span>待确认：¥{formatCurrency(pendingInternSavingAmount)}</span>
+                        <button
+                          type="button"
+                          onClick={() => confirmPendingInternSavings(item.id)}
+                          style={{ border: '1px solid #fdba74', borderRadius: 999, backgroundColor: '#fff7ed', color: C.orange, padding: '2px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}
+                        >
+                          确认
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
 
                 {linkedTripDefaultDeadline ? null : (

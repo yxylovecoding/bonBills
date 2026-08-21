@@ -31,6 +31,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   futureFireExpenses: [],
   majorFireWishes: [],
   wishes: [],
+  wishInternSavingRecords: [],
   majorExpenseThreshold: 500,
   dramDecision: {
     symbol: 'DRAM',

@@ -75,6 +75,14 @@ export interface WishItem {
   isActive: boolean;
 }
 
+export interface WishInternSavingRecord {
+  date: string;
+  wishId: string;
+  theme: string;
+  amount: number;
+  confirmed: boolean;
+}
+
 export interface DramDecisionConfig {
   symbol: string;
   shares: number;
@@ -128,6 +136,7 @@ export interface AppConfig {
   futureFireExpenses: FutureFireExpense[];
   majorFireWishes?: MajorFireWish[];
   wishes?: WishItem[];
+  wishInternSavingRecords?: WishInternSavingRecord[];
   majorExpenseThreshold: number; // 大额支出筛选门槛，默认 500
   dramDecision?: DramDecisionConfig;
 }

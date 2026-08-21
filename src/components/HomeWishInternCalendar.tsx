@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { tagMeta } from '../data/mockData';
-import type { TagKind } from '../models/types';
+import type { TagKind, WishInternSavingRecord } from '../models/types';
 import type { HolidayDataByYear } from '../utils/holidays';
 import { isWorkingDate } from '../utils/payroll';
 import type { WishMilestoneAssignment } from '../utils/wishMilestonePlan';
@@ -12,11 +12,12 @@ interface HomeWishInternCalendarProps {
   today: string;
   tagMap: Record<string, TagKind>;
   assignments: WishMilestoneAssignment[];
+  internSavingRecords: WishInternSavingRecord[];
   availableInternDates: readonly string[];
   wishSummaryLabelsById: Record<string, string>;
   travelLabelsByDate: Record<string, string>;
   holidayDataByYear: HolidayDataByYear;
-  onToggleWorkingDate: (date: string) => void;
+  onToggleWorkingDate: (date: string, assignment?: { wishId: string; theme: string }) => void;
   onPreviousMonth: () => void;
   onNextMonth: () => void;
 }
@@ -54,6 +55,7 @@ export default function HomeWishInternCalendar({
   today,
   tagMap,
   assignments,
+  internSavingRecords,
   availableInternDates,
   wishSummaryLabelsById,
   travelLabelsByDate,
@@ -77,14 +79,18 @@ export default function HomeWishInternCalendar({
     return result;
   }, [daysInMonth, firstWeekdayIndex, visibleMonth]);
   const assignmentByDate = useMemo(() => {
-    const result = new Map<string, { label: string; color: string }>();
+    const result = new Map<string, { label: string; color: string; wishId?: string }>();
     assignments.forEach((assignment, index) => {
       const label = assignmentLabel(assignment, index);
       const color = WISH_COLORS[index % WISH_COLORS.length];
-      for (const date of assignment.dateKeys) result.set(date, { label, color });
+      for (const date of assignment.dateKeys) result.set(date, { label, color, wishId: assignment.wishIds[0] });
     });
     return result;
   }, [assignments]);
+  const internThemeByDate = useMemo(
+    () => new Map(internSavingRecords.map((record) => [record.date, record.theme])),
+    [internSavingRecords],
+  );
   const monthAssignments = useMemo(() => assignments.map((assignment, index) => ({
     deadline: assignment.deadline,
     label: assignmentSummaryLabel(assignment, index, wishSummaryLabelsById),
@@ -167,7 +173,8 @@ export default function HomeWishInternCalendar({
           const displayTag: TagKind = tagMap[cell.key] ?? 'school';
           const meta = tagMeta[displayTag];
           const travelLabel = displayTag === 'travel' ? travelLabelsByDate[cell.key] : '';
-          const dateLabel = travelLabel || assignment?.label || '';
+          const savedInternTheme = displayTag === 'intern' ? internThemeByDate.get(cell.key) : '';
+          const dateLabel = travelLabel || savedInternTheme || assignment?.label || '';
           const dateLabelPrefix = travelLabel ? '行程' : '为了';
           const canToggleWorkingDate = displayTag !== 'home'
             && displayTag !== 'travel'
@@ -183,7 +190,10 @@ export default function HomeWishInternCalendar({
               aria-label={`${cell.key}，${meta.label}${dateLabel ? `，${dateLabelPrefix}${dateLabel}` : ''}${markerLabel}${canToggleWorkingDate ? `，点击切换为${displayTag === 'intern' ? '上学' : '实习'}` : ''}`}
               title={`${cell.key} · ${meta.label}${dateLabel ? ` · ${dateLabel}` : ''}${holidayMarker ? ` · ${holiday?.name ?? holidayMarker}` : ''}`}
               disabled={!canToggleWorkingDate}
-              onClick={() => onToggleWorkingDate(cell.key)}
+              onClick={() => onToggleWorkingDate(
+                cell.key,
+                assignment?.wishId ? { wishId: assignment.wishId, theme: assignment.label } : undefined,
+              )}
               style={{
                 color: meta.color,
                 backgroundColor: `${meta.color}18`,
@@ -196,7 +206,7 @@ export default function HomeWishInternCalendar({
             >
               <strong>{cell.day}</strong>
               <small>{meta.icon}</small>
-              {dateLabel ? <em style={{ color: travelLabel ? meta.color : assignment?.color }}>{dateLabel}</em> : null}
+              {dateLabel ? <em style={{ color: travelLabel ? meta.color : assignment?.color ?? '#7c3aed' }}>{dateLabel}</em> : null}
               {holidayMarker ? (
                 <b className={holidayMarker === '休' ? 'wish-holiday-off' : 'wish-holiday-work'}>{holidayMarker}</b>
               ) : null}
