@@ -12,6 +12,7 @@ interface HomeWishInternCalendarProps {
   today: string;
   tagMap: Record<string, TagKind>;
   assignments: WishMilestoneAssignment[];
+  availableInternDates: readonly string[];
   wishSummaryLabelsById: Record<string, string>;
   travelLabelsByDate: Record<string, string>;
   holidayDataByYear: HolidayDataByYear;
@@ -53,6 +54,7 @@ export default function HomeWishInternCalendar({
   today,
   tagMap,
   assignments,
+  availableInternDates,
   wishSummaryLabelsById,
   travelLabelsByDate,
   holidayDataByYear,
@@ -90,13 +92,22 @@ export default function HomeWishInternCalendar({
     count: assignment.dateKeys.filter((date) => date.startsWith(`${visibleMonth}-`)).length,
   })).filter((assignment) => assignment.count > 0), [assignments, visibleMonth, wishSummaryLabelsById]);
   const monthInternDays = monthAssignments.reduce((sum, assignment) => sum + assignment.count, 0);
+  const monthAvailableInternDays = useMemo(
+    () => availableInternDates.filter((date) => date.startsWith(`${visibleMonth}-`)).length,
+    [availableInternDates, visibleMonth],
+  );
+  const isFullPowerMonth = monthAvailableInternDays > 0
+    && monthInternDays >= monthAvailableInternDays;
 
   return (
     <section className="home-wish-calendar" aria-label={`${year}年${month}月日历`}>
       <div className="home-wish-calendar-header">
         <div>
           <h2>日历</h2>
-          <span>{year}年{month}月{monthInternDays > 0 ? ` · 本月最少${monthInternDays}天` : ''}</span>
+          <span>
+            {year}年{month}月
+            {isFullPowerMonth ? ' · 火力全开' : monthInternDays > 0 ? ` · 本月最少${monthInternDays}天` : ''}
+          </span>
         </div>
         <div className="home-wish-calendar-actions">
           <button
@@ -119,12 +130,15 @@ export default function HomeWishInternCalendar({
       </div>
 
       {monthAssignments.length > 0 ? (
-        <div className="home-wish-calendar-counts" aria-label="本月各心愿最少实习天数">
+        <div className="home-wish-calendar-counts" aria-label={isFullPowerMonth ? '本月火力全开心愿' : '本月各心愿最少实习天数'}>
           {monthAssignments.map((assignment) => (
-            <span key={`${assignment.deadline}-${assignment.label}`} title={`${assignment.label} · 本月最少实习${assignment.count}天`}>
+            <span
+              key={`${assignment.deadline}-${assignment.label}`}
+              title={isFullPowerMonth ? `${assignment.label} · 火力全开` : `${assignment.label} · 本月最少实习${assignment.count}天`}
+            >
               <i style={{ backgroundColor: assignment.color }} />
               <b>{assignment.label}</b>
-              最少{assignment.count}天
+              {isFullPowerMonth ? null : `最少${assignment.count}天`}
             </span>
           ))}
         </div>
