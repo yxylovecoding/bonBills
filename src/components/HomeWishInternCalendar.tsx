@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { tagMeta } from '../data/mockData';
 import type { TagKind } from '../models/types';
 import type { HolidayDataByYear } from '../utils/holidays';
+import { isWorkingDate } from '../utils/payroll';
 import type { WishMilestoneAssignment } from '../utils/wishMilestonePlan';
 
 interface HomeWishInternCalendarProps {
@@ -12,6 +13,7 @@ interface HomeWishInternCalendarProps {
   tagMap: Record<string, TagKind>;
   assignments: WishMilestoneAssignment[];
   holidayDataByYear: HolidayDataByYear;
+  onToggleWorkingDate: (date: string) => void;
   onPreviousMonth: () => void;
   onNextMonth: () => void;
 }
@@ -35,6 +37,7 @@ export default function HomeWishInternCalendar({
   tagMap,
   assignments,
   holidayDataByYear,
+  onToggleWorkingDate,
   onPreviousMonth,
   onNextMonth,
 }: HomeWishInternCalendarProps) {
@@ -66,7 +69,7 @@ export default function HomeWishInternCalendar({
     label: assignmentLabel(assignment, index),
     color: WISH_COLORS[index % WISH_COLORS.length],
     count: assignment.dateKeys.filter((date) => date.startsWith(`${visibleMonth}-`)).length,
-  })).filter((assignment) => assignment.count > 0), [assignments, visibleMonth]);
+  })), [assignments, visibleMonth]);
   const monthInternDays = monthAssignments.reduce((sum, assignment) => sum + assignment.count, 0);
 
   return (
@@ -74,7 +77,7 @@ export default function HomeWishInternCalendar({
       <div className="home-wish-calendar-header">
         <div>
           <h2>心愿实习</h2>
-          <span>{year}年{month}月 · {monthInternDays}天</span>
+          <span>{year}年{month}月 · 本月最少{monthInternDays}天</span>
         </div>
         <div className="home-wish-calendar-actions">
           <button
@@ -96,12 +99,12 @@ export default function HomeWishInternCalendar({
         </div>
       </div>
 
-      <div className="home-wish-calendar-counts" aria-label="本月各心愿实习天数">
+      <div className="home-wish-calendar-counts" aria-label="本月各心愿最少实习天数">
         {monthAssignments.length > 0 ? monthAssignments.map((assignment) => (
-          <span key={`${assignment.deadline}-${assignment.label}`} title={`${assignment.label} · ${assignment.count}天`}>
+          <span key={`${assignment.deadline}-${assignment.label}`} title={`${assignment.label} · 本月最少实习${assignment.count}天`}>
             <i style={{ backgroundColor: assignment.color }} />
             <b>{assignment.label}</b>
-            {assignment.count}天
+            最少{assignment.count}天
           </span>
         )) : <span className="home-wish-calendar-empty-state">本月 0 天</span>}
       </div>
@@ -126,17 +129,23 @@ export default function HomeWishInternCalendar({
           const isAdjustedWorkday = holiday?.isOffDay === false && weekend;
           const holidayMarker = isStatutoryHoliday ? '休' : isAdjustedWorkday ? '班' : null;
           const assignment = assignmentByDate.get(cell.key);
-          const displayTag: TagKind = assignment ? 'intern' : tagMap[cell.key] ?? 'school';
+          const displayTag: TagKind = tagMap[cell.key] ?? 'school';
           const meta = tagMeta[displayTag];
+          const canToggleWorkingDate = displayTag !== 'home'
+            && displayTag !== 'travel'
+            && isWorkingDate(cell.key, holidayDataByYear);
           const markerLabel = holidayMarker
             ? `，${holiday?.name ?? '法定节假日'}，${holidayMarker === '休' ? '休假' : '调休上班'}`
             : '';
           return (
-            <span
+            <button
+              type="button"
               key={cell.key}
               className="home-wish-calendar-day"
-              aria-label={`${cell.key}，${meta.label}${assignment ? `，为了${assignment.label}` : ''}${markerLabel}`}
+              aria-label={`${cell.key}，${meta.label}${assignment ? `，为了${assignment.label}` : ''}${markerLabel}${canToggleWorkingDate ? `，点击切换为${displayTag === 'intern' ? '上学' : '实习'}` : ''}`}
               title={`${cell.key} · ${meta.label}${assignment ? ` · ${assignment.label}` : ''}${holidayMarker ? ` · ${holiday?.name ?? holidayMarker}` : ''}`}
+              disabled={!canToggleWorkingDate}
+              onClick={() => onToggleWorkingDate(cell.key)}
               style={{
                 color: meta.color,
                 backgroundColor: `${meta.color}18`,
@@ -153,7 +162,7 @@ export default function HomeWishInternCalendar({
               {holidayMarker ? (
                 <b className={holidayMarker === '休' ? 'wish-holiday-off' : 'wish-holiday-work'}>{holidayMarker}</b>
               ) : null}
-            </span>
+            </button>
           );
         })}
       </div>

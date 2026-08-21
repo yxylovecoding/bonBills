@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -39,7 +39,7 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '心愿月历';
+const RELEASE_NOTE = '心愿切班';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
@@ -224,7 +224,7 @@ export default function HomePage() {
   const { current } = useSnapshotStore();
   const { config, setConfig } = useConfigStore();
   const { records } = useMonthlyStore();
-  const { tagMap, confirmedExpenses } = useCalendarStore();
+  const { tagMap, confirmedExpenses, setTag } = useCalendarStore();
   const { expenseItems } = useBillDetailStore();
   const { overrides: expenseScopeOverrides } = useExpenseScopeOverrideStore();
   const { tripTags, tripSplits } = useTripStore();
@@ -311,6 +311,11 @@ export default function HomePage() {
     : wishCalendarMonth > maximumWishCalendarMonth
       ? maximumWishCalendarMonth
       : wishCalendarMonth;
+  const toggleWishCalendarWorkingDate = useCallback((date: string) => {
+    const currentTag = tagMap[date];
+    if (currentTag === 'home' || currentTag === 'travel') return;
+    setTag(date, currentTag === 'intern' ? 'school' : 'intern');
+  }, [setTag, tagMap]);
 
   // 近一年校园卡日均
   const oneYearAgo = `${today.getFullYear() - 1}-${String(today.getMonth() + 1).padStart(2, '0')}`;
@@ -1378,6 +1383,7 @@ export default function HomePage() {
         tagMap={tagMap}
         assignments={wishMilestonePlan.assignments}
         holidayDataByYear={holidayDataByYear}
+        onToggleWorkingDate={toggleWishCalendarWorkingDate}
         onPreviousMonth={() => {
           if (visibleWishCalendarMonth > currentYearMonth) {
             setWishCalendarMonth(offsetMonthKey(visibleWishCalendarMonth, -1));
