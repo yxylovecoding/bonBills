@@ -24,6 +24,7 @@ import {
 import { calculateCreditRepaymentPlan } from '../utils/creditRepayment';
 import { roundToSitePrecision } from '../utils/numberInput';
 import { buildWishTimelineEntries } from '../utils/wishTimeline';
+import { daysUntilDate } from '../utils/payroll';
 import {
   calculateWishMilestonePlan,
   repaymentsThroughDeadline,
@@ -123,6 +124,7 @@ export default function WishesPage() {
     : null;
   const effectivePlanningDeadline = selectedWishDeadline
     ?? (planningDeadline >= todayKey ? planningDeadline : defaultPlanningDeadline);
+  const daysUntilPlanningDeadline = Math.max(daysUntilDate(effectivePlanningDeadline, today), 0);
   const furthestPlanningDeadline = planningDeadline >= todayKey && planningDeadline > defaultPlanningDeadline
     ? planningDeadline
     : defaultPlanningDeadline;
@@ -490,18 +492,25 @@ export default function WishesPage() {
             <div style={{ fontSize: 10, opacity: 0.72 }}>当前区间 · {selectedSegmentLabel}</div>
             <div style={{ fontSize: 12, fontWeight: 700, marginTop: 2 }}>{selectedIntervalStartDate} 至</div>
           </div>
-          <input
-            type="date"
-            aria-label="心愿规划截止日期"
-            min={todayKey}
-            value={effectivePlanningDeadline}
-            onChange={(event) => {
-              const value = event.target.value;
-              if (selectedPlanningWish) updateWish(selectedPlanningWish.id, 'deadline', value || null);
-              else setPlanningDeadline(value);
-            }}
-            style={{ minWidth: 124, border: '1px solid rgba(255,255,255,0.38)', borderRadius: 8, outline: 'none', backgroundColor: 'rgba(255,255,255,0.16)', color: '#fff', padding: '5px 7px', fontSize: 11, fontWeight: 700, colorScheme: 'dark' }}
-          />
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+            <input
+              type="date"
+              aria-label="心愿规划截止日期"
+              min={todayKey}
+              value={effectivePlanningDeadline}
+              onChange={(event) => {
+                const value = event.target.value;
+                if (selectedPlanningWish) updateWish(selectedPlanningWish.id, 'deadline', value || null);
+                else setPlanningDeadline(value);
+              }}
+              style={{ minWidth: 124, border: '1px solid rgba(255,255,255,0.38)', borderRadius: 8, outline: 'none', backgroundColor: 'rgba(255,255,255,0.16)', color: '#fff', padding: '5px 7px', fontSize: 11, fontWeight: 700, colorScheme: 'dark' }}
+            />
+            <div style={{ paddingRight: 2, fontSize: 9, fontWeight: 600, opacity: 0.76, fontVariantNumeric: 'tabular-nums' }}>
+              {daysUntilPlanningDeadline === 0
+                ? '今天截止'
+                : `距今 ${daysUntilPlanningDeadline.toLocaleString('zh-CN')} 天`}
+            </div>
+          </div>
         </div>
         {internPlan.wishAmountIncludingLife > 0 ? (
           <>
