@@ -69,15 +69,15 @@ export default function HomeWishInternCalendar({
     label: assignmentLabel(assignment, index),
     color: WISH_COLORS[index % WISH_COLORS.length],
     count: assignment.dateKeys.filter((date) => date.startsWith(`${visibleMonth}-`)).length,
-  })), [assignments, visibleMonth]);
+  })).filter((assignment) => assignment.count > 0), [assignments, visibleMonth]);
   const monthInternDays = monthAssignments.reduce((sum, assignment) => sum + assignment.count, 0);
 
   return (
-    <section className="home-wish-calendar" aria-label={`${year}年${month}月心愿实习日历`}>
+    <section className="home-wish-calendar" aria-label={`${year}年${month}月日历`}>
       <div className="home-wish-calendar-header">
         <div>
-          <h2>心愿实习</h2>
-          <span>{year}年{month}月 · 本月最少{monthInternDays}天</span>
+          <h2>日历</h2>
+          <span>{year}年{month}月{monthInternDays > 0 ? ` · 本月最少${monthInternDays}天` : ''}</span>
         </div>
         <div className="home-wish-calendar-actions">
           <button
@@ -99,15 +99,17 @@ export default function HomeWishInternCalendar({
         </div>
       </div>
 
-      <div className="home-wish-calendar-counts" aria-label="本月各心愿最少实习天数">
-        {monthAssignments.length > 0 ? monthAssignments.map((assignment) => (
-          <span key={`${assignment.deadline}-${assignment.label}`} title={`${assignment.label} · 本月最少实习${assignment.count}天`}>
-            <i style={{ backgroundColor: assignment.color }} />
-            <b>{assignment.label}</b>
-            最少{assignment.count}天
-          </span>
-        )) : <span className="home-wish-calendar-empty-state">本月 0 天</span>}
-      </div>
+      {monthAssignments.length > 0 ? (
+        <div className="home-wish-calendar-counts" aria-label="本月各心愿最少实习天数">
+          {monthAssignments.map((assignment) => (
+            <span key={`${assignment.deadline}-${assignment.label}`} title={`${assignment.label} · 本月最少实习${assignment.count}天`}>
+              <i style={{ backgroundColor: assignment.color }} />
+              <b>{assignment.label}</b>
+              最少{assignment.count}天
+            </span>
+          ))}
+        </div>
+      ) : null}
 
       <div className="home-wish-calendar-legend">
         <span><b className="wish-holiday-off">休</b>法定节假日</span>

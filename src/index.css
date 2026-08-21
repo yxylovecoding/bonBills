@@ -348,11 +348,6 @@ input[type='number'] { -moz-appearance: textfield; }
   white-space: nowrap;
 }
 
-.home-wish-calendar-counts .home-wish-calendar-empty-state {
-  background: #f8f9fa;
-  color: #9aa0a6;
-}
-
 .home-wish-calendar-legend {
   display: flex;
   justify-content: flex-end;
