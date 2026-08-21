@@ -128,6 +128,8 @@ function incomeInRange(
   for (const { year, month0 } of months) {
     for (const item of incomeItems) {
       if (!item.isActive) continue;
+      // 心愿规划中的实习日薪按实际实习日计入，不能再按工资到账日重复计算。
+      if (item.dailyRate !== undefined && item.tagKind === 'intern') continue;
       const resolved = resolveIncomeForMonth(item, year, month0, tagMap, holidayDataByYear);
       if (resolved.resolvedPayDate < startDate || resolved.resolvedPayDate > deadline) continue;
       total += resolved.resolvedAmount;
@@ -193,9 +195,10 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
   const assignedDates = new Set<string>();
 
   if (activeInternIncome.length > 0) {
-    for (const month of months) {
+    // 最后几个实习日可能属于下一个发薪周期；即使到账日晚于 DDL，收入也在实习发生日计入。
+    const payrollMonths = enumerateMonths(today, new Date(end.getFullYear(), end.getMonth() + 1, 1));
+    for (const month of payrollMonths) {
       const schedule = getPayrollScheduleForMonth(month.year, month.month0, options.holidayDataByYear);
-      if (schedule.payDate < startDate || schedule.payDate > deadline) continue;
       const previousYear = month.month0 === 0 ? month.year - 1 : month.year;
       const previousMonth0 = month.month0 === 0 ? 11 : month.month0 - 1;
       const previous = getPayrollScheduleForMonth(previousYear, previousMonth0, options.holidayDataByYear);
@@ -258,7 +261,7 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
   let recommendedCoreSurplus = baselineCoreSurplus;
   let recommendedDates: string[] = [];
 
-  const selectNextPaidDate = (requirePositiveGain: boolean): boolean => {
+  const selectNextInternDate = (requirePositiveGain: boolean): boolean => {
     let bestGroup: PayrollCandidateGroup | null = null;
     let bestGain = Number.NEGATIVE_INFINITY;
     for (const group of groups) {
@@ -277,7 +280,7 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
   };
 
   while (recommendedCoreSurplus + 1e-7 < requiredCoreSurplus) {
-    if (!selectNextPaidDate(true)) break;
+    if (!selectNextInternDate(true)) break;
   }
 
   let minimumInternDays: number | null = recommendedCoreSurplus + 1e-7 >= requiredCoreSurplus
@@ -297,8 +300,8 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
       Math.max(requestedInternDays, minimumInternDays),
       flexibleWorkingDates.length,
     );
-    while (recommendedDates.length < selectedInternDays && selectNextPaidDate(false)) {
-      // 优先补入能在截止日前到账、边际收益更高的实习日。
+    while (recommendedDates.length < selectedInternDays && selectNextInternDate(false)) {
+      // 优先补入扣税后边际收益更高的实习日。
     }
     if (recommendedDates.length < selectedInternDays) {
       const selectedDates = new Set(recommendedDates);
