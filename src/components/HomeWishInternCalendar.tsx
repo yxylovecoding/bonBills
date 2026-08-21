@@ -12,6 +12,7 @@ interface HomeWishInternCalendarProps {
   today: string;
   tagMap: Record<string, TagKind>;
   assignments: WishMilestoneAssignment[];
+  travelLabelsByDate: Record<string, string>;
   holidayDataByYear: HolidayDataByYear;
   onToggleWorkingDate: (date: string) => void;
   onPreviousMonth: () => void;
@@ -36,6 +37,7 @@ export default function HomeWishInternCalendar({
   today,
   tagMap,
   assignments,
+  travelLabelsByDate,
   holidayDataByYear,
   onToggleWorkingDate,
   onPreviousMonth,
@@ -133,6 +135,9 @@ export default function HomeWishInternCalendar({
           const assignment = assignmentByDate.get(cell.key);
           const displayTag: TagKind = tagMap[cell.key] ?? 'school';
           const meta = tagMeta[displayTag];
+          const travelLabel = displayTag === 'travel' ? travelLabelsByDate[cell.key] : '';
+          const dateLabel = travelLabel || assignment?.label || '';
+          const dateLabelPrefix = travelLabel ? '行程' : '为了';
           const canToggleWorkingDate = displayTag !== 'home'
             && displayTag !== 'travel'
             && isWorkingDate(cell.key, holidayDataByYear);
@@ -144,8 +149,8 @@ export default function HomeWishInternCalendar({
               type="button"
               key={cell.key}
               className="home-wish-calendar-day"
-              aria-label={`${cell.key}，${meta.label}${assignment ? `，为了${assignment.label}` : ''}${markerLabel}${canToggleWorkingDate ? `，点击切换为${displayTag === 'intern' ? '上学' : '实习'}` : ''}`}
-              title={`${cell.key} · ${meta.label}${assignment ? ` · ${assignment.label}` : ''}${holidayMarker ? ` · ${holiday?.name ?? holidayMarker}` : ''}`}
+              aria-label={`${cell.key}，${meta.label}${dateLabel ? `，${dateLabelPrefix}${dateLabel}` : ''}${markerLabel}${canToggleWorkingDate ? `，点击切换为${displayTag === 'intern' ? '上学' : '实习'}` : ''}`}
+              title={`${cell.key} · ${meta.label}${dateLabel ? ` · ${dateLabel}` : ''}${holidayMarker ? ` · ${holiday?.name ?? holidayMarker}` : ''}`}
               disabled={!canToggleWorkingDate}
               onClick={() => onToggleWorkingDate(cell.key)}
               style={{
@@ -160,7 +165,7 @@ export default function HomeWishInternCalendar({
             >
               <strong>{cell.day}</strong>
               <small>{meta.icon}</small>
-              {assignment ? <em style={{ color: assignment.color }}>{assignment.label}</em> : null}
+              {dateLabel ? <em style={{ color: travelLabel ? meta.color : assignment?.color }}>{dateLabel}</em> : null}
               {holidayMarker ? (
                 <b className={holidayMarker === '休' ? 'wish-holiday-off' : 'wish-holiday-work'}>{holidayMarker}</b>
               ) : null}
