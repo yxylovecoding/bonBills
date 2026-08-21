@@ -84,6 +84,173 @@ input[type='number'] { -moz-appearance: textfield; }
   display: block;
 }
 
+.wish-planning-column {
+  min-width: 0;
+}
+
+.wish-compact-calendar {
+  margin-bottom: 12px;
+  border: 1px solid rgba(124, 58, 237, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  padding: 9px 10px 10px;
+  box-shadow: 0 2px 10px rgba(31, 41, 55, 0.08);
+}
+
+.wish-compact-calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.wish-compact-calendar-title {
+  color: #202124;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.wish-compact-calendar-range {
+  margin-top: 1px;
+  color: #9ca3af;
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.wish-compact-calendar-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.wish-compact-calendar-actions button {
+  width: 24px;
+  height: 22px;
+  border: 1px solid #ddd6fe;
+  border-radius: 7px;
+  background: #f5f3ff;
+  padding: 0;
+  color: #7c3aed;
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.wish-compact-calendar-actions button:disabled {
+  border-color: #e5e7eb;
+  background: #f8f9fa;
+  color: #d1d5db;
+  cursor: default;
+}
+
+.wish-compact-calendar-legend {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 4px 0 3px;
+  color: #6b7280;
+  font-size: 7px;
+}
+
+.wish-compact-calendar-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.wish-holiday-off,
+.wish-holiday-work,
+.wish-payroll-cutoff {
+  border-radius: 3px;
+  padding: 0 2px;
+  font-size: 6px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.wish-holiday-off {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.wish-holiday-work {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.wish-payroll-cutoff {
+  color: #1a73e8;
+}
+
+.wish-compact-calendar-weekdays,
+.wish-compact-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 3px;
+}
+
+.wish-compact-calendar-weekdays {
+  margin-bottom: 3px;
+  color: #6b7280;
+  text-align: center;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.wish-calendar-weekend {
+  color: #ea4335;
+}
+
+.wish-compact-calendar-empty,
+.wish-compact-calendar-day {
+  height: 32px;
+}
+
+.wish-compact-calendar-day {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  transition: opacity 0.15s ease, box-shadow 0.15s ease;
+}
+
+.wish-compact-calendar-day small {
+  margin-top: 1px;
+  font-size: 7px;
+  line-height: 1;
+}
+
+.wish-compact-calendar-day em {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  display: inline-flex;
+  gap: 1px;
+  font-style: normal;
+}
+
+.wish-compact-calendar-confirmed {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #e8710a;
+}
+
+.wish-compact-calendar-confirmed--zero {
+  background: #0d9488;
+}
+
 .wish-list-scroll {
   min-width: 0;
 }
@@ -228,10 +395,31 @@ input[type='number'] { -moz-appearance: textfield; }
     justify-content: center;
   }
 
-  .wish-planning-panel {
+  .wish-planning-column {
     position: sticky;
     top: 16px;
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .wish-planning-panel {
+    position: static;
+    width: 100%;
+    zoom: 0.85;
+    padding: 12px !important;
     margin-bottom: 0 !important;
+  }
+
+  .wish-compact-calendar {
+    margin-bottom: 0;
+    padding: 7px 9px 8px;
+  }
+
+  .wish-compact-calendar-empty,
+  .wish-compact-calendar-day {
+    height: clamp(17px, 2.45vh, 24px);
   }
 
   .wish-list-scroll {

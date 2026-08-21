@@ -3,6 +3,7 @@ import AmountInput from '../components/AmountInput';
 import Card from '../components/Card';
 import { formatCurrency } from '../components/CurrencyDisplay';
 import WishTimeline from '../components/WishTimeline';
+import WishCompactCalendar from '../components/WishCompactCalendar';
 import { calcHistoryStats } from '../calculations/history';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useCalendarStore } from '../stores/calendarStore';
@@ -11,6 +12,7 @@ import { useExpenseScopeOverrideStore } from '../stores/expenseScopeOverrideStor
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { useSnapshotStore } from '../stores/snapshotStore';
 import { useTripStore } from '../stores/tripStore';
+import { usePrefsStore } from '../stores/prefsStore';
 import type { TagKind, WishExtraExpenseItem, WishItem } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { detectAllTrips, type TripSegment } from '../utils/trips';
@@ -77,6 +79,12 @@ function offsetDateKey(value: string, days: number): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
+function offsetMonthKey(value: string, months: number): string {
+  const [year, month] = value.split('-').map(Number);
+  const date = new Date(year, month - 1 + months, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
 export default function WishesPage() {
   const { config, setConfig } = useConfigStore();
   const { current } = useSnapshotStore();
@@ -85,10 +93,12 @@ export default function WishesPage() {
   const { expenseItems } = useBillDetailStore();
   const { overrides } = useExpenseScopeOverrideStore();
   const { tripTags, tripSplits } = useTripStore();
+  const showPayrollCutoffMarkers = usePrefsStore((state) => state.showPayrollCutoffMarkers);
   const [amountDrafts, setAmountDrafts] = useState<Record<string, string>>({});
   const [budgetEstimateWishId, setBudgetEstimateWishId] = useState<string | null>(null);
   const [planningDeadline, setPlanningDeadline] = useState('');
   const [activeWishId, setActiveWishId] = useState<string | null>(null);
+  const [visiblePlanningMonth, setVisiblePlanningMonth] = useState('');
   const [pendingWishNameFocusId, setPendingWishNameFocusId] = useState<string | null>(null);
   const [selectedSegmentDays, setSelectedSegmentDays] = useState<Record<string, number>>({});
   const wishListScrollRef = useRef<HTMLDivElement>(null);
@@ -296,6 +306,15 @@ export default function WishesPage() {
   const intervalReducibleInternDays = Math.max(scheduledIntervalInternDays - minimumSelectableInternDays, 0);
   const selectedSegmentLabel = activeSegment?.wishNames.join('、') || selectedPlanningWish?.name || '当前心愿';
   const selectedIntervalStartDate = activeSegment?.intervalStartDate ?? todayKey;
+  const minimumPlanningMonth = selectedIntervalStartDate.slice(0, 7);
+  const maximumPlanningMonth = effectivePlanningDeadline.slice(0, 7);
+  const planningCalendarMonth = !visiblePlanningMonth
+    ? maximumPlanningMonth
+    : visiblePlanningMonth < minimumPlanningMonth
+      ? minimumPlanningMonth
+      : visiblePlanningMonth > maximumPlanningMonth
+        ? maximumPlanningMonth
+        : visiblePlanningMonth;
   const timelineEndDate = useMemo(() => {
     let latest = furthestPlanningDeadline > offsetDateKey(todayKey, 30)
       ? furthestPlanningDeadline
@@ -460,6 +479,11 @@ export default function WishesPage() {
   }, []);
 
   useEffect(() => {
+    const deadlineMonth = effectivePlanningDeadline.slice(0, 7);
+    setVisiblePlanningMonth((current) => current === deadlineMonth ? current : deadlineMonth);
+  }, [effectivePlanningDeadline, selectedPlanningWish?.id]);
+
+  useEffect(() => {
     if (!pendingWishNameFocusId) return;
     const container = wishListScrollRef.current;
     const card = Array.from(container?.querySelectorAll<HTMLElement>('[data-wish-id]') ?? [])
@@ -496,6 +520,7 @@ export default function WishesPage() {
       </div>
 
       <div className="wishes-planning-grid">
+      <div className="wish-planning-column">
       <section className="wish-planning-panel" style={{ background: 'linear-gradient(145deg, #6d28d9 0%, #8b5cf6 58%, #a78bfa 100%)', color: '#fff', borderRadius: 16, padding: '16px', marginBottom: 12, boxShadow: '0 8px 24px rgba(109,40,217,0.2)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
           <div>
@@ -658,6 +683,33 @@ export default function WishesPage() {
           </>
         )}
       </section>
+
+      <WishCompactCalendar
+        visibleMonth={planningCalendarMonth}
+        minimumMonth={minimumPlanningMonth}
+        maximumMonth={maximumPlanningMonth}
+        intervalStartDate={selectedIntervalStartDate}
+        intervalEndDate={effectivePlanningDeadline}
+        highlightedStartDate={activeTimelineStartDate}
+        highlightedEndDate={activeTimelineEndDate}
+        today={todayKey}
+        tagMap={tagMap}
+        scheduledInternDates={scheduledPlanDates}
+        confirmedExpenses={confirmedExpenses}
+        holidayDataByYear={holidayDataByYear}
+        showPayrollCutoffMarkers={showPayrollCutoffMarkers}
+        onPreviousMonth={() => {
+          if (planningCalendarMonth > minimumPlanningMonth) {
+            setVisiblePlanningMonth(offsetMonthKey(planningCalendarMonth, -1));
+          }
+        }}
+        onNextMonth={() => {
+          if (planningCalendarMonth < maximumPlanningMonth) {
+            setVisiblePlanningMonth(offsetMonthKey(planningCalendarMonth, 1));
+          }
+        }}
+      />
+      </div>
 
       <div
         ref={wishListScrollRef}
