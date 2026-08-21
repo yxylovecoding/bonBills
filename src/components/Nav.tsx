@@ -36,9 +36,9 @@ const tabs = [
     to: '/wishes',
     label: '心愿',
     icon: (active: boolean) => (
-      <span style={{ fontSize: 24, lineHeight: 1, color: active ? '#7c3aed' : '#5f6368' }}>
-        {active ? '♥' : '♡'}
-      </span>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill={active ? '#f3e8ff' : 'none'} stroke={active ? '#7c3aed' : '#5f6368'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z" />
+      </svg>
     ),
   },
 ];
@@ -70,43 +70,48 @@ export default function Nav() {
           end={t.to === '/'}
           style={{ textDecoration: 'none', flex: 1 }}
         >
-          {({ isActive }) => (
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 2,
-                color: isActive ? '#1a73e8' : '#5f6368',
-                padding: '4px 0',
-              }}
-            >
-              {/* pill 背景 */}
+          {({ isActive }) => {
+            const isWishTab = t.to === '/wishes';
+            const activeColor = isWishTab ? '#7c3aed' : '#1a73e8';
+            const activeBackground = isWishTab ? '#f3e8ff' : '#e8f0fe';
+            return (
               <div
                 style={{
                   display: 'flex',
+                  flexDirection: 'column',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  width: 52,
-                  height: 28,
-                  borderRadius: 14,
-                  backgroundColor: isActive ? '#e8f0fe' : 'transparent',
-                  transition: 'background-color 0.2s',
+                  gap: 2,
+                  color: isActive ? activeColor : '#5f6368',
+                  padding: '4px 0',
                 }}
               >
-                {t.icon(isActive)}
+                {/* pill 背景 */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 52,
+                    height: 28,
+                    borderRadius: 14,
+                    backgroundColor: isActive ? activeBackground : 'transparent',
+                    transition: 'background-color 0.2s',
+                  }}
+                >
+                  {t.icon(isActive)}
+                </div>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: isActive ? 600 : 400,
+                    lineHeight: 1,
+                  }}
+                >
+                  {t.label}
+                </span>
               </div>
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: isActive ? 600 : 400,
-                  lineHeight: 1,
-                }}
-              >
-                {t.label}
-              </span>
-            </div>
-          )}
+            );
+          }}
         </NavLink>
       ))}
     </nav>
