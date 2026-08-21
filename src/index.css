@@ -90,6 +90,7 @@ input[type='number'] { -moz-appearance: textfield; }
 
 .wish-timeline {
   position: fixed;
+  z-index: 30;
   top: 12px;
   left: 1px;
   display: flex;
@@ -150,16 +151,22 @@ input[type='number'] { -moz-appearance: textfield; }
   border: none;
   border-radius: 0 999px 999px 0;
   padding: 0;
-  opacity: 0.72;
+  opacity: 0.3;
   cursor: crosshair;
   transition: opacity 0.12s ease, filter 0.12s ease;
 }
 
 .wish-timeline-tooth:hover,
 .wish-timeline-tooth:focus-visible {
-  opacity: 1;
+  opacity: 0.58;
   filter: saturate(1.25);
   outline: none;
+}
+
+.wish-timeline-tooth--active,
+.wish-timeline-tooth--active:hover,
+.wish-timeline-tooth--active:focus-visible {
+  opacity: 1;
 }
 
 .wish-timeline-tooltip {

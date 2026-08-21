@@ -1,9 +1,10 @@
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatCurrency } from './CurrencyDisplay';
 import type { WishTimelineEntry } from '../utils/wishTimeline';
 
 interface WishTimelineProps {
   entries: WishTimelineEntry[];
+  activeDate: string;
 }
 
 interface TimelineTooltip {
@@ -31,17 +32,19 @@ function fullDateLabel(value: string): string {
 
 interface TimelineTeethProps {
   entries: WishTimelineEntry[];
+  activeDate: string;
   maximumAmount: number;
   onHide: () => void;
   onShow: (entry: WishTimelineEntry, element: HTMLElement) => void;
 }
 
-const TimelineTeeth = memo(function TimelineTeeth({ entries, maximumAmount, onHide, onShow }: TimelineTeethProps) {
+const TimelineTeeth = memo(function TimelineTeeth({ entries, activeDate, maximumAmount, onHide, onShow }: TimelineTeethProps) {
   return entries.map((entry, index) => {
     const ratio = maximumAmount > 0 ? Math.sqrt(entry.amount / maximumAmount) : 0;
     const toothLength = 9 + Math.round(ratio * 48);
     const toothThickness = 1 + Math.round(ratio * 4);
     const startsMonth = index === 0 || entry.date.slice(0, 7) !== entries[index - 1].date.slice(0, 7);
+    const isActive = entry.date === activeDate;
     const accessibleLabel = `${fullDateLabel(entry.date)}，${entry.itinerary}，预计 ${formatCurrency(entry.amount)} 元`;
     return (
       <div
@@ -52,8 +55,10 @@ const TimelineTeeth = memo(function TimelineTeeth({ entries, maximumAmount, onHi
         {startsMonth ? <span className="wish-timeline-month">{Number(entry.date.slice(5, 7))}月</span> : null}
         <button
           type="button"
-          className="wish-timeline-tooth"
+          className={`wish-timeline-tooth${isActive ? ' wish-timeline-tooth--active' : ''}`}
           aria-label={accessibleLabel}
+          aria-current={isActive ? 'date' : undefined}
+          data-timeline-date={entry.date}
           onMouseEnter={(event) => onShow(entry, event.currentTarget)}
           onMouseLeave={onHide}
           onFocus={(event) => onShow(entry, event.currentTarget)}
@@ -69,8 +74,9 @@ const TimelineTeeth = memo(function TimelineTeeth({ entries, maximumAmount, onHi
   });
 });
 
-export default function WishTimeline({ entries }: WishTimelineProps) {
+export default function WishTimeline({ entries, activeDate }: WishTimelineProps) {
   const [tooltip, setTooltip] = useState<TimelineTooltip | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const maximumAmount = useMemo(() => {
     let result = 0;
     for (const entry of entries) result = Math.max(result, entry.amount);
@@ -84,15 +90,33 @@ export default function WishTimeline({ entries }: WishTimelineProps) {
   }, []);
   const hideTooltip = useCallback(() => setTooltip(null), []);
 
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const activeTooth = Array.from(container.querySelectorAll<HTMLElement>('[data-timeline-date]'))
+      .find((element) => element.dataset.timelineDate === activeDate);
+    const row = activeTooth?.parentElement;
+    if (!row) return;
+    const margin = 8;
+    const rowTop = row.offsetTop;
+    const rowBottom = rowTop + row.offsetHeight;
+    if (rowTop < container.scrollTop + margin) {
+      container.scrollTop = Math.max(rowTop - margin, 0);
+    } else if (rowBottom > container.scrollTop + container.clientHeight - margin) {
+      container.scrollTop = rowBottom - container.clientHeight + margin;
+    }
+  }, [activeDate, entries]);
+
   if (entries.length === 0) return null;
 
   return (
     <aside className="wish-timeline" aria-label="心愿规划时间轴">
       <div className="wish-timeline-range">{compactDateLabel(entries[0].date)}</div>
-      <div className="wish-timeline-scroll">
+      <div ref={scrollRef} className="wish-timeline-scroll">
         <div className="wish-timeline-axis" aria-hidden="true" />
         <TimelineTeeth
           entries={entries}
+          activeDate={activeDate}
           maximumAmount={maximumAmount}
           onHide={hideTooltip}
           onShow={showTooltip}

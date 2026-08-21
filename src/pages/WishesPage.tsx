@@ -450,7 +450,7 @@ export default function WishesPage() {
 
   return (
     <div className="wishes-page-shell">
-      <WishTimeline entries={timelineEntries} />
+      <WishTimeline entries={timelineEntries} activeDate={effectivePlanningDeadline} />
       <div className="wishes-page-content">
       <div className="wishes-page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, marginBottom: 16 }}>
         <div>
