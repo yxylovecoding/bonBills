@@ -387,8 +387,21 @@ input[type='number'] { -moz-appearance: textfield; }
     max-width: 912px;
   }
 
+  .wishes-page-content {
+    display: flex;
+    height: calc(100vh - 100px);
+    min-height: 0;
+    flex-direction: column;
+  }
+
+  .wishes-page-header {
+    flex: 0 0 auto;
+  }
+
   .wishes-planning-grid {
     display: grid;
+    min-height: 0;
+    flex: 1 1 0;
     grid-template-columns: repeat(2, minmax(0, 448px));
     gap: 16px;
     align-items: start;
@@ -399,6 +412,7 @@ input[type='number'] { -moz-appearance: textfield; }
     position: sticky;
     top: 16px;
     display: flex;
+    height: 100%;
     min-height: 0;
     flex-direction: column;
     gap: 8px;
@@ -413,17 +427,28 @@ input[type='number'] { -moz-appearance: textfield; }
   }
 
   .wish-compact-calendar {
+    display: flex;
+    min-height: 0;
+    flex: 1 1 0;
+    flex-direction: column;
     margin-bottom: 0;
     padding: 7px 9px 8px;
   }
 
+  .wish-compact-calendar-grid {
+    flex: 1 1 0;
+    grid-auto-rows: minmax(0, 1fr);
+  }
+
   .wish-compact-calendar-empty,
   .wish-compact-calendar-day {
-    height: clamp(17px, 2.45vh, 24px);
+    height: auto;
+    min-height: 17px;
   }
 
   .wish-list-scroll {
-    max-height: calc(100vh - 108px);
+    height: 100%;
+    max-height: none;
     overflow-y: auto;
     overscroll-behavior: contain;
     padding: 2px 4px 2px 2px;
