@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AmountInput from '../components/AmountInput';
 import Card from '../components/Card';
 import { formatCurrency } from '../components/CurrencyDisplay';
@@ -587,6 +587,49 @@ export default function WishesPage() {
     </div>
   );
 
+  const planningFinancialSummary = (
+    <div className="wish-planning-financial-summary" style={{ marginTop: 8, borderRadius: 10, padding: '8px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+        <span style={{ fontSize: 10, opacity: 0.8 }}>截至 {effectivePlanningDeadline} · 累计 {internPlan.selectedInternDays} 天</span>
+        <span style={{ fontSize: 19, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedTotalSaving)}</span>
+      </div>
+      <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.2)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 10px', fontSize: 10 }}>
+        <div title={incomeTooltip} tabIndex={0} style={{ opacity: 0.78, cursor: 'help' }}>收入</div>
+        <div title={incomeTooltip} tabIndex={0} style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums', cursor: 'help', textDecoration: 'underline dotted', textUnderlineOffset: 2 }}>¥{formatCurrency(internPlan.recommendedIncome)}</div>
+        <div style={{ opacity: 0.78 }}>生活开支（含信用卡）</div>
+        <div style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>−¥{formatCurrency(internPlan.totalLivingExpense)}</div>
+        <div style={{ gridColumn: '1 / -1', marginTop: -2, textAlign: 'right', fontSize: 8, opacity: 0.68 }}>
+          <span title={lifeExpenseTooltip} tabIndex={0} style={{ cursor: 'help', borderBottom: '1px dotted rgba(255,255,255,0.58)' }}>
+            “活” ¥{formatCurrency(internPlan.recommendedLifeExpense)}
+          </span>
+          {' · '}
+          <span title={creditRepaymentTooltip} tabIndex={0} style={{ cursor: 'help', borderBottom: '1px dotted rgba(255,255,255,0.58)' }}>
+            信用卡 ¥{formatCurrency(internPlan.repayment)}
+          </span>
+          {planningLongBondRepay > 0.005 && <> · 长债已抵 ¥{formatCurrency(planningLongBondRepay)}</>}
+        </div>
+        <div style={{ opacity: 0.78 }}>结余</div>
+        <div style={{ textAlign: 'right', fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: internPlan.projectedSurplus >= 0 ? '#dcfce7' : '#fde68a' }}>
+          {internPlan.projectedSurplus >= 0 ? '' : '−'}¥{formatCurrency(Math.abs(internPlan.projectedSurplus))}
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 4, marginTop: 7 }}>
+        <div style={{ borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.12)', padding: '5px 4px', textAlign: 'center' }}>
+          <div style={{ fontSize: 9, opacity: 0.72 }}>消费</div>
+          <div style={{ marginTop: 1, fontSize: 10, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedConsumption)}</div>
+        </div>
+        <div style={{ borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.12)', padding: '5px 4px', textAlign: 'center' }}>
+          <div style={{ fontSize: 9, opacity: 0.72 }}>心愿</div>
+          <div style={{ marginTop: 1, fontSize: 10, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedWishSaving)}</div>
+        </div>
+        <div style={{ borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.12)', padding: '5px 4px', textAlign: 'center' }}>
+          <div style={{ fontSize: 9, opacity: 0.72 }}>放进理财</div>
+          <div style={{ marginTop: 1, fontSize: 10, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedInvestmentSaving)}</div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="wishes-page-shell">
       <WishTimeline
@@ -720,46 +763,7 @@ export default function WishesPage() {
                 </div>
               </>
             )}
-            <div style={{ marginTop: 8, borderRadius: 10, padding: '8px 10px', backgroundColor: 'rgba(255,255,255,0.14)' }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
-                <span style={{ fontSize: 10, opacity: 0.8 }}>截至 {effectivePlanningDeadline} · 累计 {internPlan.selectedInternDays} 天</span>
-                <span style={{ fontSize: 19, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedTotalSaving)}</span>
-              </div>
-              <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.2)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 10px', fontSize: 10 }}>
-                <div title={incomeTooltip} tabIndex={0} style={{ opacity: 0.78, cursor: 'help' }}>收入</div>
-                <div title={incomeTooltip} tabIndex={0} style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums', cursor: 'help', textDecoration: 'underline dotted', textUnderlineOffset: 2 }}>¥{formatCurrency(internPlan.recommendedIncome)}</div>
-                <div style={{ opacity: 0.78 }}>生活开支（含信用卡）</div>
-                <div style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>−¥{formatCurrency(internPlan.totalLivingExpense)}</div>
-                <div style={{ gridColumn: '1 / -1', marginTop: -2, textAlign: 'right', fontSize: 8, opacity: 0.68 }}>
-                  <span title={lifeExpenseTooltip} tabIndex={0} style={{ cursor: 'help', borderBottom: '1px dotted rgba(255,255,255,0.58)' }}>
-                    “活” ¥{formatCurrency(internPlan.recommendedLifeExpense)}
-                  </span>
-                  {' · '}
-                  <span title={creditRepaymentTooltip} tabIndex={0} style={{ cursor: 'help', borderBottom: '1px dotted rgba(255,255,255,0.58)' }}>
-                    信用卡 ¥{formatCurrency(internPlan.repayment)}
-                  </span>
-                  {planningLongBondRepay > 0.005 && <> · 长债已抵 ¥{formatCurrency(planningLongBondRepay)}</>}
-                </div>
-                <div style={{ opacity: 0.78 }}>结余</div>
-                <div style={{ textAlign: 'right', fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: internPlan.projectedSurplus >= 0 ? '#dcfce7' : '#fde68a' }}>
-                  {internPlan.projectedSurplus >= 0 ? '' : '−'}¥{formatCurrency(Math.abs(internPlan.projectedSurplus))}
-                </div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 4, marginTop: 7 }}>
-                <div style={{ borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.12)', padding: '5px 4px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 9, opacity: 0.72 }}>消费</div>
-                  <div style={{ marginTop: 1, fontSize: 10, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedConsumption)}</div>
-                </div>
-                <div style={{ borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.12)', padding: '5px 4px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 9, opacity: 0.72 }}>心愿</div>
-                  <div style={{ marginTop: 1, fontSize: 10, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedWishSaving)}</div>
-                </div>
-                <div style={{ borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.12)', padding: '5px 4px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 9, opacity: 0.72 }}>放进理财</div>
-                  <div style={{ marginTop: 1, fontSize: 10, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedInvestmentSaving)}</div>
-                </div>
-              </div>
-            </div>
+            {planningFinancialSummary}
           </>
         ) : (
           <>
@@ -883,8 +887,8 @@ export default function WishesPage() {
             const budgetEstimateVisible = budgetEstimateWishId === item.id;
             const isSelectedPlanningWish = selectedPlanningWish?.id === item.id;
             return (
+              <Fragment key={item.id}>
               <div
-                key={item.id}
                 data-wish-id={item.id}
                 aria-current={isSelectedPlanningWish ? 'true' : undefined}
                 onClick={() => {
@@ -1187,6 +1191,12 @@ export default function WishesPage() {
                   {item.isActive && item.deadlineState === 'scheduled' && item.targetAmount <= 0 && (itemTravelDays > 0 ? '填写机酒价格并采用估算后开始计算' : '填入目标金额后开始计算')}
                 </div>
               </div>
+              {activeWishId === item.id && isSelectedPlanningWish && internPlan.wishAmountIncludingLife > 0 ? (
+                <section className="wish-mobile-financial-summary" aria-label={`${item.name} 收支规划`}>
+                  {planningFinancialSummary}
+                </section>
+              ) : null}
+              </Fragment>
             );
           })}
         </div>

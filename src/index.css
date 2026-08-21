@@ -88,6 +88,23 @@ input[type='number'] { -moz-appearance: textfield; }
   min-width: 0;
 }
 
+.wish-planning-panel {
+  display: none;
+}
+
+.wish-mobile-financial-summary {
+  display: block;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #6d28d9 0%, #8b5cf6 58%, #a78bfa 100%);
+  padding: 8px;
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(109, 40, 217, 0.18);
+}
+
+.wish-mobile-financial-summary .wish-planning-financial-summary {
+  margin-top: 0 !important;
+}
+
 .wish-compact-calendar {
   margin-bottom: 12px;
   border: 1px solid rgba(124, 58, 237, 0.12);
@@ -608,6 +625,7 @@ input[type='number'] { -moz-appearance: textfield; }
   }
 
   .wish-planning-panel {
+    display: block;
     position: static;
     width: 100%;
     zoom: 0.85;
@@ -646,6 +664,10 @@ input[type='number'] { -moz-appearance: textfield; }
 
   .wish-list-scroll > section {
     margin-bottom: 0 !important;
+  }
+
+  .wish-mobile-financial-summary {
+    display: none;
   }
 }
 
