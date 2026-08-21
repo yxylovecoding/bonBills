@@ -51,10 +51,6 @@ function sanitizeSignedAmount(raw: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function formatSignedWishCurrency(value: number): string {
-  return `${value < 0 ? '-' : ''}¥${formatCurrency(value)}`;
-}
-
 function offsetYearMonth(date: Date, offset: number): string {
   const target = new Date(date.getFullYear(), date.getMonth() + offset, 1);
   return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}`;
@@ -1167,14 +1163,6 @@ export default function WishesPage() {
                       <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
                         <div style={{ fontSize: 9, color: C.sub }}>日常“消费”</div>
                         <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.orange }}>¥{formatCurrency(itemTravelConsumptionAmount)}</div>
-                      </div>
-                      <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
-                        <div style={{ fontSize: 9, color: C.sub }}>额外消费 · {itemExtraExpenses.length}笔</div>
-                        <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.purple }}>{formatSignedWishCurrency(travelEstimate.extraExpenseAmount)}</div>
-                      </div>
-                      <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
-                        <div style={{ fontSize: 9, color: C.sub }}>估算目标</div>
-                        <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.purple }}>¥{formatCurrency(roundedTravelTargetAmount)}</div>
                       </div>
                     </div>
                   )}
