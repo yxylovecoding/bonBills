@@ -1153,19 +1153,20 @@ export default function WishesPage() {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 5, marginTop: 7 }}>
                       <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
                         <div style={{ fontSize: 9, color: C.sub }}>“活”</div>
-                        <div style={{ marginTop: 2, fontSize: 11, fontWeight: 700, color: C.blue }}>¥{formatCurrency(itemTravelLifeAmount)}</div>
-                        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3, marginTop: 5, fontSize: 8, color: C.sub }}>
-                          <span>修正 −¥</span>
+                        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3, marginTop: 4, color: C.blue, fontSize: 9, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                          <span>{formatCurrency(itemTravelLifeAmount)}</span>
+                          <span>−</span>
                           <AmountInput
                             aria-label={`${item.name} 活修正额`}
                             value={amountDrafts[lifeCorrectionKey] ?? (item.travelLifeCorrectionAmount ? String(item.travelLifeCorrectionAmount) : '')}
                             onChange={(raw) => updateAmount(item.id, 'travelLifeCorrectionAmount', raw)}
                             onBlur={() => finishAmountEdit(item.id, 'travelLifeCorrectionAmount')}
                             placeholder="0"
-                            style={{ width: 52, minWidth: 0, border: 'none', borderBottom: '1px solid #bfdbfe', outline: 'none', backgroundColor: 'transparent', textAlign: 'right', fontSize: 9, fontWeight: 700, color: C.blue }}
+                            style={{ width: 40, minWidth: 0, border: 'none', borderBottom: '1px solid #60a5fa', outline: 'none', backgroundColor: 'transparent', textAlign: 'center', fontSize: 9, fontWeight: 700, color: C.blue, padding: 0 }}
                           />
+                          <span>=</span>
+                          <span>{formatCurrency(itemAdjustedTravelLifeAmount)}</span>
                         </label>
-                        <div style={{ marginTop: 4, fontSize: 8, color: C.sub }}>修正后 ¥{formatCurrency(itemAdjustedTravelLifeAmount)}</div>
                       </div>
                       <div style={{ borderRadius: 7, backgroundColor: '#fff', padding: '6px 5px', textAlign: 'center' }}>
                         <div style={{ fontSize: 9, color: C.sub }}>日常“消费”</div>
