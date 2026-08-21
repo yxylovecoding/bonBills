@@ -243,6 +243,10 @@ export default function WishesPage() {
     for (const segment of milestonePlan.segments) {
       const minimum = segment.minimumInternDateKeys.length;
       const requested = selectedSegmentDays[segment.deadline] ?? minimum;
+      if (requested === 0) {
+        for (const date of segment.availableInternDateKeys) selectedDates.delete(date);
+        continue;
+      }
       const desired = Math.min(Math.max(Math.round(requested), minimum), segment.availableInternDateKeys.length);
       let selectedInSegment = segment.minimumInternDateKeys.length;
       for (const date of segment.availableInternDateKeys) {
@@ -305,11 +309,16 @@ export default function WishesPage() {
   const availableSelectableInternDays = activeSegment
     ? activeSegment.availableInternDateKeys.length
     : internPlan.availableInternDays;
+  const selectedIntervalDaysOverride = activeSegment
+    ? selectedSegmentDays[activeSegment.deadline]
+    : undefined;
   const selectedIntervalInternDays = activeSegment
-    ? Math.min(
-      Math.max(selectedSegmentDays[activeSegment.deadline] ?? minimumSelectableInternDays, minimumSelectableInternDays),
-      availableSelectableInternDays,
-    )
+    ? selectedIntervalDaysOverride === 0
+      ? 0
+      : Math.min(
+        Math.max(selectedIntervalDaysOverride ?? minimumSelectableInternDays, minimumSelectableInternDays),
+        availableSelectableInternDays,
+      )
     : internPlan.selectedInternDays;
   const scheduledIntervalInternDays = activeSegment
     ? activeSegment.availableInternDateKeys.filter((date) => tagMap[date] === 'intern').length
@@ -456,11 +465,10 @@ export default function WishesPage() {
     if (dates.length === 0) return;
     setTags(dates, 'school');
     if (activeSegment) {
-      setSelectedSegmentDays((current) => {
-        const next = { ...current };
-        delete next[activeSegment.deadline];
-        return next;
-      });
+      setSelectedSegmentDays((current) => ({
+        ...current,
+        [activeSegment.deadline]: 0,
+      }));
     }
   };
   const setSelectedInternDays = (days: number) => {
@@ -673,16 +681,19 @@ export default function WishesPage() {
                     type="range"
                     aria-label="规划实习天数"
                     aria-valuetext={`${selectedIntervalInternDays} 天`}
-                    min={minimumSelectableInternDays}
+                    min={selectedIntervalInternDays === 0 ? 0 : minimumSelectableInternDays}
                     max={availableSelectableInternDays}
                     step={1}
                     value={selectedIntervalInternDays}
                     disabled={minimumSelectableInternDays >= availableSelectableInternDays}
-                    onChange={(event) => setSelectedInternDays(Number(event.target.value))}
+                    onChange={(event) => {
+                      const value = Number(event.target.value);
+                      setSelectedInternDays(value === 0 ? 0 : Math.max(value, minimumSelectableInternDays));
+                    }}
                     style={{ width: '100%', margin: '6px 0 2px', accentColor: '#fff', cursor: minimumSelectableInternDays < availableSelectableInternDays ? 'pointer' : 'default' }}
                   />
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 9, opacity: 0.72 }}>
-                    <span>满足心愿 {minimumSelectableInternDays} 天</span>
+                    <span>{selectedIntervalInternDays === 0 ? `当前不实习 · 满足心愿需 ${minimumSelectableInternDays} 天` : `满足心愿 ${minimumSelectableInternDays} 天`}</span>
                     <span>本段工作日上限 {availableSelectableInternDays} 天</span>
                   </div>
                 </div>
