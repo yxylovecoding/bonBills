@@ -527,6 +527,20 @@ export default function WishesPage() {
   }, []);
 
   useEffect(() => {
+    if (!budgetEstimateWishId) return undefined;
+    const closeBudgetEstimateOnOutsidePointer = (event: PointerEvent) => {
+      if (!(event.target instanceof Node)) return;
+      const expandedCard = Array.from(
+        wishListScrollRef.current?.querySelectorAll<HTMLElement>('[data-wish-id]') ?? [],
+      ).find((element) => element.dataset.wishId === budgetEstimateWishId);
+      if (expandedCard?.contains(event.target)) return;
+      setBudgetEstimateWishId(null);
+    };
+    document.addEventListener('pointerdown', closeBudgetEstimateOnOutsidePointer);
+    return () => document.removeEventListener('pointerdown', closeBudgetEstimateOnOutsidePointer);
+  }, [budgetEstimateWishId]);
+
+  useEffect(() => {
     const deadlineMonth = effectivePlanningDeadline.slice(0, 7);
     setVisiblePlanningMonth((current) => current === deadlineMonth ? current : deadlineMonth);
   }, [effectivePlanningDeadline, selectedPlanningWish?.id]);
