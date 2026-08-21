@@ -28,6 +28,17 @@ export interface WishLifeExpenseBreakdownItem {
 
 export type WishLifeExpenseBreakdown = Record<TagKind, WishLifeExpenseBreakdownItem>;
 
+export interface WishIncomeBreakdownItem {
+  id: string;
+  name: string;
+  kind: 'fixed' | 'intern';
+  grossAmount: number;
+  taxAmount: number;
+  amount: number;
+  days?: number;
+  dailyRate?: number;
+}
+
 export interface WishInternPlan {
   startDate: string;
   deadline: string;
@@ -36,6 +47,7 @@ export interface WishInternPlan {
   minimumIncome: number;
   maximumIncome: number;
   recommendedIncome: number;
+  incomeBreakdown: WishIncomeBreakdownItem[];
   requiredIncome: number;
   baselineLifeExpense: number;
   recommendedLifeExpense: number;
@@ -78,6 +90,8 @@ export interface WishInternPlanOptions {
 
 interface PayrollCandidateGroup {
   id: string;
+  year: number;
+  month0: number;
   dates: string[];
   marginalIncome: number[];
   chosen: number;
@@ -132,8 +146,9 @@ function incomeInRange(
   holidayDataByYear: HolidayDataByYear,
   startDate: string,
   deadline: string,
-): number {
+): { total: number; items: WishIncomeBreakdownItem[] } {
   let total = 0;
+  const breakdownById = new Map<string, WishIncomeBreakdownItem>();
   for (const { year, month0 } of months) {
     for (const item of incomeItems) {
       if (!item.isActive) continue;
@@ -142,9 +157,24 @@ function incomeInRange(
       const resolved = resolveIncomeForMonth(item, year, month0, tagMap, holidayDataByYear);
       if (resolved.resolvedPayDate < startDate || resolved.resolvedPayDate > deadline) continue;
       total += resolved.resolvedAmount;
+      const detail = breakdownById.get(item.id) ?? {
+        id: item.id,
+        name: item.name,
+        kind: 'fixed' as const,
+        grossAmount: 0,
+        taxAmount: 0,
+        amount: 0,
+        days: item.dailyRate !== undefined ? 0 : undefined,
+        dailyRate: item.dailyRate,
+      };
+      detail.grossAmount += resolved.grossAmount;
+      detail.taxAmount += resolved.taxAmount;
+      detail.amount += resolved.resolvedAmount;
+      if (detail.days !== undefined) detail.days += resolved.resolvedDayCount ?? 0;
+      breakdownById.set(item.id, detail);
     }
   }
-  return total;
+  return { total, items: [...breakdownById.values()] };
 }
 
 function normalizedDailyAverage(value: number): number {
@@ -238,11 +268,11 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
           return sum + nextNet - previousNet;
         }, 0);
       });
-      groups.push({ id: month.yearMonth, dates: candidateDates, marginalIncome, chosen: 0 });
+      groups.push({ id: month.yearMonth, year: month.year, month0: month.month0, dates: candidateDates, marginalIncome, chosen: 0 });
     }
   }
 
-  const minimumIncome = incomeInRange(
+  const incomeInRangeResult = incomeInRange(
     options.incomeItems,
     months,
     baselineTagMap,
@@ -250,6 +280,7 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
     startDate,
     deadline,
   );
+  const minimumIncome = incomeInRangeResult.total;
   const allMarginalIncome = groups.flatMap((group) => group.marginalIncome);
   const maximumIncome = minimumIncome + allMarginalIncome.reduce((sum, amount) => sum + amount, 0);
   const repayment = months.reduce((sum, month) => {
@@ -338,10 +369,40 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
   }
   const recommendedLifeExpense = Object.values(lifeExpenseBreakdown)
     .reduce((sum, item) => sum + item.amount, 0);
-  const recommendedIncome = minimumIncome + groups.reduce(
-    (sum, group) => sum + group.marginalIncome.slice(0, group.chosen).reduce((groupSum, amount) => groupSum + amount, 0),
-    0,
-  );
+  const internIncomeBreakdown: WishIncomeBreakdownItem[] = activeInternIncome.map((item) => {
+    let days = 0;
+    let grossAmount = 0;
+    let amount = 0;
+    for (const group of groups) {
+      const chosenDays = group.dates.filter((date) => selectedInternDateSet.has(date)).length;
+      if (chosenDays === 0) continue;
+      const dailyRate = item.dailyRate ?? 0;
+      const baseCycle = getInternPayrollCycleForMonth(
+        item,
+        group.year,
+        group.month0,
+        baselineTagMap,
+        options.holidayDataByYear,
+      );
+      const previousNet = calculateIncomeTax(baseCycle.internDays * dailyRate, item.taxRuleText).netAmount;
+      const nextNet = calculateIncomeTax((baseCycle.internDays + chosenDays) * dailyRate, item.taxRuleText).netAmount;
+      days += chosenDays;
+      grossAmount += chosenDays * dailyRate;
+      amount += nextNet - previousNet;
+    }
+    return {
+      id: item.id,
+      name: item.name,
+      kind: 'intern' as const,
+      grossAmount,
+      taxAmount: Math.max(grossAmount - amount, 0),
+      amount,
+      days,
+      dailyRate: item.dailyRate,
+    };
+  }).filter((item) => item.days > 0 || item.amount !== 0);
+  const incomeBreakdown = [...incomeInRangeResult.items, ...internIncomeBreakdown];
+  const recommendedIncome = incomeBreakdown.reduce((sum, item) => sum + item.amount, 0);
   recommendedCoreSurplus = recommendedIncome - recommendedLifeExpense - repayment;
   const positiveRecommendedSurplus = Math.max(recommendedCoreSurplus, 0);
   const normalWishSaving = Math.max(
@@ -386,6 +447,7 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
     minimumIncome,
     maximumIncome,
     recommendedIncome,
+    incomeBreakdown,
     requiredIncome: recommendedLifeExpense + repayment + requiredCoreSurplus,
     baselineLifeExpense,
     recommendedLifeExpense,

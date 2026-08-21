@@ -247,6 +247,18 @@ export default function WishesPage() {
     const item = internPlan.lifeExpenseBreakdown[kind];
     return `${label} ${item.days}天 × ¥${formatCurrency(item.dailyAverage)}/天 = ¥${formatCurrency(item.amount)}`;
   }).join('\n');
+  const incomeTooltip = [
+    `收入合计 ¥${formatCurrency(internPlan.recommendedIncome)}`,
+    ...(internPlan.incomeBreakdown.length > 0
+      ? internPlan.incomeBreakdown.map((item) => {
+        const calculation = item.dailyRate !== undefined && item.days !== undefined
+          ? `${item.days}天 × ¥${formatCurrency(item.dailyRate)}/天`
+          : `税前 ¥${formatCurrency(item.grossAmount)}`;
+        const tax = item.taxAmount > 0.005 ? ` − 扣税 ¥${formatCurrency(item.taxAmount)}` : '';
+        return `${item.name}：${calculation}${tax} = ¥${formatCurrency(item.amount)}`;
+      })
+      : ['暂无计入收入']),
+  ].join('\n');
   const creditRepaymentTooltip = [
     `信用卡总待还 ¥${formatCurrency(Math.max(current.accounts.credit ?? 0, 0))}`,
     `本期待还 ¥${formatCurrency(Math.max(current.accounts.creditMonthly ?? 0, 0))}`,
@@ -568,8 +580,8 @@ export default function WishesPage() {
                 <span style={{ fontSize: 19, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedTotalSaving)}</span>
               </div>
               <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.2)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 10px', fontSize: 10 }}>
-                <div style={{ opacity: 0.78 }}>收入</div>
-                <div style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.recommendedIncome)}</div>
+                <div title={incomeTooltip} tabIndex={0} style={{ opacity: 0.78, cursor: 'help' }}>收入</div>
+                <div title={incomeTooltip} tabIndex={0} style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums', cursor: 'help', textDecoration: 'underline dotted', textUnderlineOffset: 2 }}>¥{formatCurrency(internPlan.recommendedIncome)}</div>
                 <div style={{ opacity: 0.78 }}>生活开支（含信用卡）</div>
                 <div style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>−¥{formatCurrency(internPlan.totalLivingExpense)}</div>
                 <div style={{ gridColumn: '1 / -1', marginTop: -2, textAlign: 'right', fontSize: 8, opacity: 0.68 }}>
