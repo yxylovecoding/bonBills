@@ -532,6 +532,7 @@ export default function ReconcilePage() {
   // 长债超过固定阈值的部分可赎回用于偿还信用卡本期待还（储蓄卡抵扣后仍欠的部分）
   const {
     longBondTotalForRepay,
+    longBondExcess,
     longBondRepay,
     effectiveCreditMonthly,
     effectiveCreditNext,
@@ -1428,14 +1429,15 @@ export default function ReconcilePage() {
 
   // 预算明细（收入按发薪日判断是否已发，日薪项显示计算方式）
 
-  // 信用卡本期待还条目：月初模式归入本月，月中模式归入月外。
+  // 信用卡按实际还款日归期；对账视图模式不改变应还月份。
+  const configuredCreditPayDay = Math.min(Math.max(Math.round(config.creditPayDate || 1), 1), 31);
+  const creditInThisMonth = todayDate <= configuredCreditPayDay;
   const creditMonthlyItem: BudgetDetailItem = {
     icon: '💳',
     label: '信用卡本期待还',
     amount: effectiveCreditMonthly,
-    note: `${config.creditPayDate}号还款${(current.accounts.savingsCard ?? 0) > 0 || longBondRepay > 0 ? ` · ¥${fmtInt(current.accounts.creditMonthly ?? 0)}${(current.accounts.savingsCard ?? 0) > 0 ? `-储蓄¥${fmtInt(current.accounts.savingsCard ?? 0)}` : ''}${longBondRepay > 0 ? `-长债¥${fmtInt(longBondRepay)}` : ''}` : ''}`,
+    note: `${configuredCreditPayDay}号还款${(current.accounts.savingsCard ?? 0) > 0 || longBondRepay > 0 ? ` · ¥${fmtInt(current.accounts.creditMonthly ?? 0)}${(current.accounts.savingsCard ?? 0) > 0 ? `-储蓄¥${fmtInt(current.accounts.savingsCard ?? 0)}` : ''}${longBondRepay > 0 ? `-长债¥${fmtInt(longBondRepay)}` : ''}` : ''}`,
   };
-  const creditInThisMonth = isMonthStartMode;
 
   const budgetDetails: Record<BudgetKey, { income: BudgetDetailItem[]; expense: BudgetDetailItem[] }> = {
     weekly: {
@@ -1485,8 +1487,13 @@ export default function ReconcilePage() {
         note: makeIncomeNote(item, 'next'),
       })),
       expense: [
-        ...(!creditInThisMonth ? [creditMonthlyItem] : []),
-        { icon: '💳', label: '信用卡下期', amount: effectiveCreditNext, note: (current.accounts.savingsCard ?? 0) > (current.accounts.creditMonthly ?? 0) ? '总待还-储蓄卡溢出-本期' : '总待还-本期待还' },
+        ...(creditInThisMonth
+          ? effectiveCreditNext > 0
+            ? [{ icon: '💳', label: '信用卡下期', amount: effectiveCreditNext, note: (current.accounts.savingsCard ?? 0) > (current.accounts.creditMonthly ?? 0) ? '总待还-储蓄卡溢出-本期' : '总待还-本期待还' }]
+            : []
+          : effectiveCreditMonthly > 0
+            ? [creditMonthlyItem]
+            : []),
         ...(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => {
           const days  = budget.stateDaysNextMonth[k];
           const dLife = stats.stateDailyAvg[k];
@@ -1535,7 +1542,6 @@ export default function ReconcilePage() {
   }
 
   const budgetRows: { key: BudgetKey; name: string; inc: number; exp: number }[] = [
-    { key: 'weekly',  name: '周内 (近7天)',  inc: sumDetailInc('weekly'),  exp: sumDetailExp('weekly') },
     { key: 'monthly', name: '月内 (本月余)', inc: sumDetailInc('monthly'), exp: sumDetailExp('monthly') },
     { key: 'beyond',  name: '月外 (跨月)',   inc: sumDetailInc('beyond'),  exp: sumDetailExp('beyond') },
   ];
@@ -2142,6 +2148,11 @@ export default function ReconcilePage() {
                 <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: 13, color: '#5f6368' }}>{label}</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    {key === 'savingsCard' ? (
+                      <span style={{ marginRight: 8, color: C.sub, fontSize: 11, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                        长债可还 ¥{fmtInt(longBondExcess)}
+                      </span>
+                    ) : null}
                     <span style={{ fontSize: 14, fontWeight: 600, color: '#c5221f' }}>¥</span>
                     <AmountInput
                       ref={(el) => { accountInputRefs.current[idx] = el; }}
