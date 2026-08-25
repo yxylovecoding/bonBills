@@ -158,9 +158,13 @@ export default function WishesPage() {
     if (changed) setConfig({ wishes: normalizedWishes });
   }, [setConfig, wishes]);
   const allTripSegments = useMemo(() => detectAllTrips(tagMap, tripSplits), [tagMap, tripSplits]);
-  const availableTripSegments = useMemo(
-    () => allTripSegments.filter((trip) => trip.endDate >= todayKey),
+  const futureTripSegments = useMemo(
+    () => allTripSegments.filter((trip) => trip.startDate >= todayKey),
     [allTripSegments, todayKey],
+  );
+  const linkedTripStartDates = useMemo(
+    () => new Set(wishes.map((wish) => wish.linkedTripStartDate).filter((date): date is string => !!date)),
+    [wishes],
   );
   const tripDatesByStart = useMemo(
     () => Object.fromEntries(allTripSegments.map((trip) => [trip.startDate, trip.dates])),
@@ -385,11 +389,11 @@ export default function WishesPage() {
     let latest = furthestPlanningDeadline > offsetDateKey(todayKey, 30)
       ? furthestPlanningDeadline
       : offsetDateKey(todayKey, 30);
-    for (const trip of availableTripSegments) {
+    for (const trip of futureTripSegments) {
       if (trip.endDate > latest) latest = trip.endDate;
     }
     return latest;
-  }, [availableTripSegments, furthestPlanningDeadline, todayKey]);
+  }, [futureTripSegments, furthestPlanningDeadline, todayKey]);
   const timelineEntries = useMemo(
     () => buildWishTimelineEntries({
       startDate: todayKey,
@@ -446,6 +450,7 @@ export default function WishesPage() {
         targetAmount: 0,
         savedAmount: 0,
         deadline: null,
+        plannedTravelDays: 1,
         isActive: true,
       },
     ]);
@@ -944,6 +949,9 @@ export default function WishesPage() {
             const linkedTripDefaultDeadline = item.linkedTripStartDate
               ? offsetDateKey(item.linkedTripStartDate, -1)
               : null;
+            const availableTripSegments = futureTripSegments.filter((trip) => (
+              trip.startDate === item.linkedTripStartDate || !linkedTripStartDates.has(trip.startDate)
+            ));
             const itemTripOptions = linkedTrip && !availableTripSegments.some((trip) => trip.startDate === linkedTrip.startDate)
               ? [linkedTrip, ...availableTripSegments]
               : availableTripSegments;
