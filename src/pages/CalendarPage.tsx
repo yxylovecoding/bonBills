@@ -9,7 +9,7 @@ import { fieldsNeedingRestore, importBillFileIntoStores, recordFromBillAggregate
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useExpenseScopeOverrideStore, resolveExpenseScope, subcategoryKey, type ExpenseScope, type OverrideValue, type OverrideDimension } from '../stores/expenseScopeOverrideStore';
 import { useTripStore } from '../stores/tripStore';
-import { detectTrips, detectTripGroups, extractCandidateTags, sumBillsByTag, flattenExpenseItems, isDailyTripTagFormat } from '../utils/trips';
+import { detectTrips, detectTripGroups, extractCandidateTags, sumBillsByTag, flattenExpenseItems, isDailyTripTagFormat, tagYearMonthPrefix } from '../utils/trips';
 import type { TripGroup } from '../utils/trips';
 import AmountInput from '../components/AmountInput';
 import { calcHistoryStats } from '../calculations/history';
@@ -1053,10 +1053,20 @@ function SettingsModal({
 }
 
 // ── MonthForm ─────────────────────────────────────────────────────
-// 仅 name / brand / unclassified 三类标签算大额支出维度；system / trip / quantity / ignore / person 都跳过
+// 仅 name / brand / unclassified 三类标签参与代表性支出维度。
 function isMajorExcludedTag(tag: string, tagCategory: Record<string, ManualTagCategory>): boolean {
   const c = classifyTag(tag, tagCategory);
   return c !== 'name' && c !== 'brand' && c !== 'unclassified';
+}
+
+// 大额支出中的出游标签只排除当前记录月份；未来或其他月份仍可展示。
+function isMajorExpenseExcludedTag(tag: string, tagCategory: Record<string, ManualTagCategory>, yearMonth: string): boolean {
+  const c = classifyTag(tag, tagCategory);
+  if (c === 'trip') {
+    const [year, month] = yearMonth.split('-');
+    return tagYearMonthPrefix(tag) === `${year.slice(-2)}.${Number(month)}`;
+  }
+  return isMajorExcludedTag(tag, tagCategory);
 }
 
 type MonthFormProps = {
@@ -1234,7 +1244,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     const threshold = config.majorExpenseThreshold ?? 500;
     const tagTotals = new Map<string, number>();
     for (const [tag, idxs] of tagIndices) {
-      if (isMajorExcludedTag(tag, tagCategory)) continue;
+      if (isMajorExpenseExcludedTag(tag, tagCategory, yearMonth)) continue;
       const total = [...idxs].reduce((s, i) => s + expenseItems[i].amount, 0);
       if (total >= threshold) tagTotals.set(tag, total);
     }
@@ -1265,7 +1275,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       return { type, name: tag, amount: Math.round(tagTotals.get(tag)! * 100) / 100 };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expenseItems, config.majorExpenseThreshold, tagCategory]);
+  }, [expenseItems, config.majorExpenseThreshold, tagCategory, yearMonth]);
 
   const buildProfitComponents = (): MonthlyRecord['investProfitComponents'] => {
     const out: NonNullable<MonthlyRecord['investProfitComponents']> = {};
@@ -3969,9 +3979,19 @@ function TripsSection({
                     aria-label={`${formatTripDateRange(t.startDate, t.endDate)} 出游备注`}
                     onFocus={() => onActivateTrip(t.startDate)}
                     onChange={(event) => onSetTripNote(t.startDate, event.target.value)}
+                    onInput={(event) => {
+                      const element = event.currentTarget;
+                      element.style.height = 'auto';
+                      element.style.height = `${element.scrollHeight}px`;
+                    }}
+                    ref={(element) => {
+                      if (!element) return;
+                      element.style.height = 'auto';
+                      element.style.height = `${element.scrollHeight}px`;
+                    }}
                     placeholder="备注（可选）"
                     rows={2}
-                    style={{ width: '100%', minHeight: 34, marginTop: 8, padding: '6px 8px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', color: '#202124', fontSize: 12, lineHeight: 1.4, resize: 'vertical', boxSizing: 'border-box' }}
+                    style={{ width: '100%', minHeight: 34, marginTop: 8, padding: '6px 8px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', color: '#202124', fontSize: 12, lineHeight: 1.4, resize: 'none', overflow: 'hidden', boxSizing: 'border-box' }}
                   />
                 </div>
               );
