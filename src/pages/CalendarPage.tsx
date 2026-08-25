@@ -286,11 +286,11 @@ function TagLogicStats({ items, initialTag }: { items: BillStatisticItem[]; init
   const rangeLabel = !startDate && !endDate
     ? `全部时间 · ${accountFilteredItems.length} 笔`
     : `${startDate || availableRange.earliest} 至 ${endDate || availableRange.latest} · ${accountFilteredItems.length} 笔`;
-  const amountLabel = expenseAmount > 0 && incomeAmount > 0
-    ? `支出 ¥${formatCurrency(expenseAmount)} · 收入 ¥${formatCurrency(incomeAmount)} · 结余 ${formatSignedCurrency(balanceAmount)}`
+  const amountLeadLabel = expenseAmount > 0 && incomeAmount > 0
+    ? `支出 ¥${formatCurrency(expenseAmount)} · 收入 ¥${formatCurrency(incomeAmount)}`
     : incomeAmount > 0
-      ? `收入 ¥${formatCurrency(incomeAmount)} · 结余 ${formatSignedCurrency(balanceAmount)}`
-      : `支出 ¥${formatCurrency(expenseAmount)} · 结余 ${formatSignedCurrency(balanceAmount)}`;
+      ? `收入 ¥${formatCurrency(incomeAmount)}`
+      : `支出 ¥${formatCurrency(expenseAmount)}`;
   const hasActiveFilter = logicParts.length > 0 || selectedAccounts.length > 0;
 
   const toggleAccount = (account: string) => {
@@ -575,7 +575,11 @@ function TagLogicStats({ items, initialTag }: { items: BillStatisticItem[]; init
               {expanded ? '▾' : '▸'} 按当前筛选匹配
             </span>
             <span style={{ minWidth: 0, fontSize: 13, fontWeight: 700, color: C.purple, fontVariantNumeric: 'tabular-nums', textAlign: 'right', lineHeight: 1.45 }}>
-              {amountLabel} · {matchedItems.length} 笔
+              {amountLeadLabel} ·{' '}
+              <span style={{ ...surplusHighlightStyle(balanceAmount), display: 'inline-block', margin: '0 2px' }}>
+                结余 {formatSignedCurrency(balanceAmount)}
+              </span>
+              {' '}· {matchedItems.length} 笔
             </span>
           </button>
           <div style={{ marginTop: 4, fontSize: 10, color: C.sub, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
