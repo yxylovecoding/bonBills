@@ -57,7 +57,7 @@ export function calculateTravelWishEstimate(
   const normalizedTicketAmount = normalizedAmount(ticketAmount);
   const normalizedLodgingDailyAmount = normalizedAmount(lodgingDailyAmount);
   const normalizedExtraExpenseAmount = normalizedSignedAmount(extraExpenseAmount);
-  const lodgingAmount = normalizedDays * normalizedLodgingDailyAmount;
+  const lodgingAmount = Math.max(normalizedDays - 1, 0) * normalizedLodgingDailyAmount;
   const lifeAmount = normalizedDays * normalizedDailyLifeAmount;
   return {
     days: normalizedDays,

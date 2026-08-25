@@ -964,7 +964,7 @@ export default function WishesPage() {
             const itemLodgingDailyAmount = Number.isFinite(item.travelLodgingDailyAmount)
               ? Math.max(item.travelLodgingDailyAmount ?? 0, 0)
               : itemTravelDays > 0
-                ? Math.max(item.travelLodgingAmount ?? 0, 0) / itemTravelDays
+                ? Math.max(item.travelLodgingAmount ?? 0, 0) / Math.max(itemTravelDays - 1, 1)
                 : 0;
             const itemExtraExpenses = resolveWishExtraExpenseItems(item);
             const itemExtraExpenseAmount = totalWishExtraExpenseAmount(itemExtraExpenses);
