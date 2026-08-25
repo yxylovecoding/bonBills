@@ -1410,59 +1410,82 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
     : investTotalForRate?.estimated
       ? `理财总额按 ${investTotalForRate.beforeMonth} / ${investTotalForRate.afterMonth} 均值估算`
       : undefined;
+  const lifeAmount = n(periodicLife) + n(volatileLife);
+  const lowerFields = [
+    {
+      label: '本月结余',
+      val: formatSignedCurrency(surplus),
+      bg: surplus >= 0 ? '#fce8e6' : '#e6f4ea',
+      fg: surplus >= 0 ? C.red : C.green,
+      kind: 'result' as const,
+    },
+    {
+      label: '总资产',
+      val: '',
+      bg: '#fffbeb',
+      fg: '#202124',
+      kind: 'manual' as const,
+    },
+    {
+      label: '资产增加',
+      val: assetChange !== null ? formatSignedCurrency(assetChange) : '—',
+      bg: assetChange !== null && assetChange >= 0 ? '#fce8e6' : '#e6f4ea',
+      fg: assetChange !== null && assetChange >= 0 ? C.red : C.green,
+      kind: 'result' as const,
+      hint: assetChange === null && totalAssetsValue !== undefined ? '上月未记录' : undefined,
+    },
+    { label: '总收入', val: income ? formatCurrency(n(income)) : '—', bg: '#f1f3f4', fg: '#3c4043', kind: 'auto' as const },
+    { label: '总支出', val: totalExpense ? formatCurrency(n(totalExpense)) : '—', bg: '#f1f3f4', fg: '#3c4043', kind: 'auto' as const },
+    { label: '校园卡支出', val: school ? formatCurrency(n(school)) : '—', bg: '#f1f3f4', fg: '#3c4043', kind: 'auto' as const },
+    {
+      label: '理财总额',
+      val: investTotalDisplay,
+      bg: '#f1f3f4',
+      fg: '#3c4043',
+      kind: investTotal > 0 ? (investTotalStoredOnly ? 'stored' as const : 'sum' as const) : (investTotalForRate?.estimated ? 'estimate' as const : 'sum' as const),
+      title: investTotalTitle,
+    },
+  ];
   return (
     <>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, minWidth: 100, backgroundColor: surplus >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
-          <div style={{ fontSize: 11, color: C.sub }}>本月结余</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: surplus >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>
-            {surplus >= 0 ? '+' : '-'}¥{formatCurrency(Math.abs(surplus))}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gridTemplateRows: 'repeat(2, minmax(50px, auto))', gap: 8, marginBottom: 8 }}>
+        <div style={{ gridColumn: '1', gridRow: '1 / 3', minWidth: 0, backgroundColor: '#e6f4ea', borderRadius: 10, padding: '10px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <div style={{ fontSize: 11, color: C.sub }}>生活</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: C.green, fontVariantNumeric: 'tabular-nums' }}>
+            {periodicLife || volatileLife ? `¥${formatCurrency(lifeAmount)}` : '—'}
           </div>
         </div>
-        <div style={{ flex: 1, minWidth: 100, backgroundColor: '#fffbeb', borderRadius: 10, padding: '10px 14px' }}>
-          <div style={{ fontSize: 11, color: C.sub }}>总资产（手填）</div>
-          <AmountInput
-            ref={(el) => { mainFieldRefs.current[1] = el; }}
-            aria-label="月末总资产"
-            value={totalAssets}
-            onChange={setTotalAssets}
-            placeholder="0.00"
-            style={{ width: '100%', border: 'none', borderBottom: '1.5px solid #fbbf24', borderRadius: 0, padding: '2px 0', fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', outline: 'none', backgroundColor: 'transparent', boxSizing: 'border-box', color: '#202124' }}
-          />
-        </div>
-        <div style={{ flex: 1, minWidth: 100, backgroundColor: assetChange !== null && assetChange >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
-          <div style={{ fontSize: 11, color: C.sub }}>资产增加</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: assetChange !== null && assetChange >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>
-            {assetChange !== null ? formatSignedCurrency(assetChange) : '—'}
+        <div style={{ gridColumn: '2', gridRow: '1', minWidth: 0, backgroundColor: '#f1f8f3', borderRadius: 10, padding: '7px 10px' }}>
+          <div style={{ fontSize: 10, color: C.sub }}>周期生活</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.green, fontVariantNumeric: 'tabular-nums', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {periodicLife ? formatCurrency(n(periodicLife)) : '—'}
           </div>
-          {assetChange === null && totalAssetsValue !== undefined && (
-            <div style={{ marginTop: 2, fontSize: 10, color: C.sub }}>上月未记录</div>
-          )}
         </div>
-        <div style={{ flex: 1, minWidth: 100, backgroundColor: savedAmount !== null && savedAmount >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
-          <div style={{ fontSize: 11, color: C.sub }}>实际存下</div>
+        <div style={{ gridColumn: '2', gridRow: '2', minWidth: 0, backgroundColor: '#f1f8f3', borderRadius: 10, padding: '7px 10px' }}>
+          <div style={{ fontSize: 10, color: C.sub }}>波动生活</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.green, fontVariantNumeric: 'tabular-nums', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {volatileLife ? formatCurrency(n(volatileLife)) : '—'}
+          </div>
+        </div>
+        <div style={{ gridColumn: '3', gridRow: '1 / 3', minWidth: 0, backgroundColor: '#f3e8ff', borderRadius: 10, padding: '10px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <div style={{ fontSize: 11, color: C.sub }}>消费</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: C.purple, fontVariantNumeric: 'tabular-nums' }}>
+            {consumption ? `¥${formatCurrency(n(consumption))}` : '—'}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginBottom: 16 }}>
+        <div style={{ minWidth: 0, backgroundColor: savedAmount !== null && savedAmount >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
+          <div style={{ fontSize: 11, color: C.sub }}>存下</div>
           <div style={{ fontSize: 16, fontWeight: 700, color: savedAmount !== null && savedAmount >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>
             {savedAmount !== null ? formatSignedCurrency(savedAmount) : '—'}
           </div>
-          <div style={{ marginTop: 2, fontSize: 10, color: C.sub }}>理财资产增加 − 理财收入</div>
-        </div>
-        <div style={{ flex: 1, minWidth: 100, backgroundColor: savingsRate !== null && savingsRate >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
-          <div style={{ fontSize: 11, color: C.sub }}>储蓄率</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: savingsRate !== null && savingsRate >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>
-            {savingsRate !== null ? `${(savingsRate * 100).toFixed(1)}%` : '—'}
+          <div style={{ marginTop: 5, fontSize: 10, fontWeight: 600, color: savingsRate !== null && savingsRate >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>
+            储蓄率 {savingsRate !== null ? `${(savingsRate * 100).toFixed(1)}%` : '—'}
           </div>
-          <div style={{ marginTop: 2, fontSize: 10, color: C.sub }}>实际存下 ÷ 收入</div>
         </div>
-        {investIncome !== null && (
-          <div style={{ flex: 1, minWidth: 100, backgroundColor: investIncome >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
-            <div style={{ fontSize: 11, color: C.sub }}>理财收入</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: investIncome >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>
-              {investIncome >= 0 ? '+' : ''}¥{formatCurrency(investIncome)}
-              {investMonthly !== null && <span style={{ fontSize: 11, marginLeft: 6, color: C.sub }}>{investTotalForRate?.estimated ? '月≈' : '月'} {(investMonthly * 100).toFixed(2)}% · 年化 {(investAnnual! * 100).toFixed(1)}%</span>}
-            </div>
-          </div>
-        )}
-        <div style={{ flex: 1, minWidth: 100, backgroundColor: '#fffbeb', borderRadius: 10, padding: '10px 14px' }}>
+        <div style={{ minWidth: 0, backgroundColor: '#fffbeb', borderRadius: 10, padding: '10px 14px' }}>
           <div style={{ fontSize: 11, color: C.sub }}>累计盈利</div>
           <AmountInput
             ref={(el) => { mainFieldRefs.current[0] = el; }}
@@ -1473,35 +1496,43 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setTimeout(() => breakdownRefs.current[0]?.focus(), 0); } }}
           />
         </div>
+        <div style={{ minWidth: 0, backgroundColor: investIncome !== null && investIncome >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
+          <div style={{ fontSize: 11, color: C.sub }}>理财收入</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: investIncome !== null && investIncome >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>
+            {investIncome !== null ? `${investIncome >= 0 ? '+' : ''}¥${formatCurrency(investIncome)}` : '—'}
+          </div>
+          <div style={{ marginTop: 5, fontSize: 10, fontWeight: 600, color: C.sub, fontVariantNumeric: 'tabular-nums' }}>
+            {investMonthly !== null ? `${investTotalForRate?.estimated ? '月≈' : '月'} ${(investMonthly * 100).toFixed(2)}% · 年化 ${(investAnnual! * 100).toFixed(1)}%` : '月 — · 年化 —'}
+          </div>
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-        {([
-          { label: '总收入',     val: income ? formatCurrency(n(income)) : '—',       kind: 'auto' as const },
-          { label: '总支出',     val: totalExpense ? formatCurrency(n(totalExpense)) : '—', kind: 'auto' as const },
-          { label: '周期生活',   val: periodicLife ? formatCurrency(n(periodicLife)) : '—', kind: 'auto' as const, theme: 'green' as const },
-          { label: '波动生活',   val: volatileLife ? formatCurrency(n(volatileLife)) : '—', kind: 'auto' as const, theme: 'green' as const },
-          { label: '消费（交行）', val: consumption ? formatCurrency(n(consumption)) : '—',  kind: 'auto' as const, theme: 'purple' as const },
-          { label: '校园卡支出', val: school ? formatCurrency(n(school)) : '—',       kind: 'auto' as const },
-          { label: '理财总额',   val: investTotalDisplay, kind: investTotal > 0 ? (investTotalStoredOnly ? 'stored' as const : 'sum' as const) : (investTotalForRate?.estimated ? 'estimate' as const : 'sum' as const), title: investTotalTitle },
-        ]).map(({ label, val, kind, theme, title }) => {
-          const bg = theme === 'green' ? '#e6f4ea' : theme === 'purple' ? '#f3e8ff' : '#f1f3f4';
-          const fg = theme === 'green' ? C.green : theme === 'purple' ? C.purple : '#3c4043';
-          return (
-            <div key={label}>
-              <div style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 4 }}>
-                {label}
-                {kind === 'auto' && <span style={{ fontSize: 10, color: C.sub }}>（账单自动）</span>}
-                {kind === 'sum' && <span style={{ fontSize: 10, color: C.sub }}>（持仓求和）</span>}
-                {kind === 'stored' && <span style={{ fontSize: 10, color: C.sub }}>（历史总额）</span>}
-                {kind === 'estimate' && <span style={{ fontSize: 10, color: C.orange }}>（前后估）</span>}
-              </div>
-              <div title={title} style={{ padding: '8px 10px', fontSize: 13, fontVariantNumeric: 'tabular-nums', borderRadius: 8, backgroundColor: bg, color: fg, minHeight: 20 }}>
-                {val}
-              </div>
+        {lowerFields.map(({ label, val, bg, fg, kind, hint, title }) => (
+          <div key={label}>
+            <div style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 4 }}>
+              {label}
+              {kind === 'auto' && <span style={{ fontSize: 10, color: C.sub }}>（账单自动）</span>}
+              {kind === 'manual' && <span style={{ fontSize: 10, color: C.sub }}>（手填）</span>}
+              {kind === 'sum' && <span style={{ fontSize: 10, color: C.sub }}>（持仓求和）</span>}
+              {kind === 'stored' && <span style={{ fontSize: 10, color: C.sub }}>（历史总额）</span>}
+              {kind === 'estimate' && <span style={{ fontSize: 10, color: C.orange }}>（前后估）</span>}
             </div>
-          );
-        })}
+            <div title={title} style={{ padding: kind === 'manual' ? '5px 10px' : '8px 10px', fontSize: 13, fontVariantNumeric: 'tabular-nums', borderRadius: 8, backgroundColor: bg, color: fg, minHeight: 20 }}>
+              {kind === 'manual' ? (
+                <AmountInput
+                  ref={(el) => { mainFieldRefs.current[1] = el; }}
+                  aria-label="月末总资产"
+                  value={totalAssets}
+                  onChange={setTotalAssets}
+                  placeholder="0.00"
+                  style={{ width: '100%', border: 'none', borderBottom: '1.5px solid #fbbf24', borderRadius: 0, padding: '2px 0', fontSize: 13, fontVariantNumeric: 'tabular-nums', outline: 'none', backgroundColor: 'transparent', boxSizing: 'border-box', color: '#202124' }}
+                />
+              ) : val}
+              {hint && <span style={{ marginLeft: 6, fontSize: 10, color: C.sub }}>{hint}</span>}
+            </div>
+          </div>
+        ))}
       </div>
 
       {(() => {
@@ -2526,7 +2557,7 @@ function MonthRow({
                 color: assetChange !== null ? (assetChange >= 0 ? C.red : C.green) : C.sub,
               },
               {
-                label: '实际存下',
+                label: '存下',
                 value: savedAmount !== null ? formatSignedCurrency(savedAmount) : '—',
                 color: savedAmount !== null ? (savedAmount >= 0 ? C.red : C.green) : C.sub,
               },
