@@ -42,6 +42,22 @@ import {
 import { compileTagLogic, formatTagReference } from '../utils/tagLogic';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', border: '#e0e0e0', weekend: '#ea4335', orange: '#e8710a' };
+function surplusHighlightStyle(value: number): React.CSSProperties {
+  const positive = value >= 0;
+  return {
+    justifySelf: 'end',
+    padding: '3px 7px',
+    borderRadius: 999,
+    backgroundColor: positive ? '#fce8e6' : '#e6f4ea',
+    boxShadow: `0 0 0 1px ${positive ? '#f6aea7' : '#a8dab5'}, 0 2px 8px ${positive ? 'rgba(234,67,53,0.18)' : 'rgba(13,148,136,0.18)'}`,
+    color: positive ? C.red : C.green,
+    fontSize: 13,
+    fontWeight: 700,
+    fontVariantNumeric: 'tabular-nums',
+    textAlign: 'right',
+    whiteSpace: 'nowrap',
+  };
+}
 const HOLIDAY_COLORS = {
   off: { color: '#dc2626', background: '#fee2e2', cellBackground: '#fff0f0' },
   work: { color: '#15803d', background: '#dcfce7', cellBackground: '#f0fdf4' },
@@ -2464,7 +2480,7 @@ function MonthRow({
         </span>
         <span style={{ fontSize: 13, color: C.red,   fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>+{formatCurrency(record.income)}</span>
         <span style={{ fontSize: 13, color: C.green,  fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>-{formatCurrency(record.totalExpense)}</span>
-        <span style={{ fontSize: 13, fontWeight: 600, color: surplus >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+        <span style={surplusHighlightStyle(surplus)}>
           {surplus >= 0 ? '+' : '-'}{formatCurrency(Math.abs(surplus))}
         </span>
         <span
@@ -2723,7 +2739,7 @@ function YearSection({
         <span style={{ fontSize: 14, fontWeight: 700, color: expanded ? C.blue : '#202124' }}>{year} {expanded ? '▼' : '▶'}</span>
         <span style={{ fontSize: 13, color: C.red,   fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>+{formatCurrency(totalIncome)}</span>
         <span style={{ fontSize: 13, color: C.green,  fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>-{formatCurrency(totalExpense)}</span>
-        <span style={{ fontSize: 13, fontWeight: 600, color: surplus >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+        <span style={surplusHighlightStyle(surplus)}>
           {surplus >= 0 ? '+' : '-'}{formatCurrency(Math.abs(surplus))}
         </span>
         <span
