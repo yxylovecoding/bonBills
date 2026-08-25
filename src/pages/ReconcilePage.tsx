@@ -534,6 +534,7 @@ export default function ReconcilePage() {
     longBondTotalForRepay,
     longBondExcess,
     longBondRepay,
+    longBondRepayNext,
     effectiveCreditMonthly,
     effectiveCreditNext,
   } = calculateCreditRepaymentPlan({
@@ -1432,11 +1433,50 @@ export default function ReconcilePage() {
   // 信用卡按实际还款日归期；对账视图模式不改变应还月份。
   const configuredCreditPayDay = Math.min(Math.max(Math.round(config.creditPayDate || 1), 1), 31);
   const creditInThisMonth = todayDate <= configuredCreditPayDay;
+  const creditMonthlyOriginal = Math.max(current.accounts.creditMonthly ?? 0, 0);
+  const creditNextOriginal = Math.max((current.accounts.credit ?? 0) - creditMonthlyOriginal, 0);
+  const savingsCardForCredit = Math.max(current.accounts.savingsCard ?? 0, 0);
+  const savingsAppliedMonthly = Math.min(savingsCardForCredit, creditMonthlyOriginal);
+  const savingsAppliedNext = Math.min(
+    Math.max(savingsCardForCredit - creditMonthlyOriginal, 0),
+    creditNextOriginal,
+  );
+  const creditDetailNote = (
+    dueLabel: string,
+    original: number,
+    savingsApplied: number,
+    longBondApplied: number,
+    remaining: number,
+  ) => `${dueLabel} · 原应还 ¥${fmtInt(original)} · 储蓄卡抵 ¥${fmtInt(savingsApplied)} · 长债抵 ¥${fmtInt(longBondApplied)} · 剩 ¥${fmtInt(remaining)}`;
   const creditMonthlyItem: BudgetDetailItem = {
     icon: '💳',
     label: '信用卡本期待还',
     amount: effectiveCreditMonthly,
-    note: `${configuredCreditPayDay}号还款${(current.accounts.savingsCard ?? 0) > 0 || longBondRepay > 0 ? ` · ¥${fmtInt(current.accounts.creditMonthly ?? 0)}${(current.accounts.savingsCard ?? 0) > 0 ? `-储蓄¥${fmtInt(current.accounts.savingsCard ?? 0)}` : ''}${longBondRepay > 0 ? `-长债¥${fmtInt(longBondRepay)}` : ''}` : ''}`,
+    note: creditDetailNote(
+      `${creditInThisMonth ? '' : '次月'}${configuredCreditPayDay}号还款`,
+      creditMonthlyOriginal,
+      savingsAppliedMonthly,
+      longBondRepay,
+      effectiveCreditMonthly,
+    ),
+  };
+  const creditNextItem: BudgetDetailItem = {
+    icon: '💳',
+    label: '信用卡下期',
+    amount: effectiveCreditNext,
+    note: creditDetailNote(
+      `次月${configuredCreditPayDay}号还款`,
+      creditNextOriginal,
+      savingsAppliedNext,
+      longBondRepayNext,
+      effectiveCreditNext,
+    ),
+  };
+  const settledCreditItem: BudgetDetailItem = {
+    icon: '✅',
+    label: '信用卡本月',
+    amount: 0,
+    note: `${configuredCreditPayDay}号已过 · 本月已还清`,
   };
 
   const budgetDetails: Record<BudgetKey, { income: BudgetDetailItem[]; expense: BudgetDetailItem[] }> = {
@@ -1470,7 +1510,7 @@ export default function ReconcilePage() {
         }),
       ],
       expense: [
-        ...(creditInThisMonth && effectiveCreditMonthly > 0 ? [creditMonthlyItem] : []),
+        creditInThisMonth ? creditMonthlyItem : settledCreditItem,
         ...(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => {
           const days  = budget.stateDaysLeft[k];
           const dLife = stats.stateDailyAvg[k];
@@ -1487,13 +1527,7 @@ export default function ReconcilePage() {
         note: makeIncomeNote(item, 'next'),
       })),
       expense: [
-        ...(creditInThisMonth
-          ? effectiveCreditNext > 0
-            ? [{ icon: '💳', label: '信用卡下期', amount: effectiveCreditNext, note: (current.accounts.savingsCard ?? 0) > (current.accounts.creditMonthly ?? 0) ? '总待还-储蓄卡溢出-本期' : '总待还-本期待还' }]
-            : []
-          : effectiveCreditMonthly > 0
-            ? [creditMonthlyItem]
-            : []),
+        creditInThisMonth ? creditNextItem : creditMonthlyItem,
         ...(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => {
           const days  = budget.stateDaysNextMonth[k];
           const dLife = stats.stateDailyAvg[k];
