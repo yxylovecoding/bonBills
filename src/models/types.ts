@@ -1,6 +1,7 @@
 import type { ExpenseScope } from '../stores/expenseScopeOverrideStore';
 
 export type TagKind = 'intern' | 'school' | 'home' | 'travel';
+export type FireExpenseScenario = TagKind | 'schoolTravel';
 
 // ── 理财持仓 ──────────────────────────────────────────────────────
 export interface InvestHoldings {
@@ -119,7 +120,7 @@ export interface AppConfig {
   safeWithdrawRate: number;   // 0.04
   investAnnualGrowthRate?: number; // FIRE 扣除通胀后的实际年化收益率，默认 0.04
   fireHousingFundRate?: number; // FIRE 杭州口径中的个人公积金比例（5%–12%）
-  fireExpenseTagKind?: TagKind; // FIRE 未来生活支出参照场景，待就业默认按工作/实习测算
+  fireExpenseTagKind?: FireExpenseScenario; // FIRE 未来生活支出参照场景，支持按近两年旅行占比混合在校与旅行
   fireSavingsAllocationRate?: number; // FIRE“分配”模式中，覆盖“活”后收入的存入比例
   fireTalentDegree?: 'none' | 'bachelor' | 'master' | 'doctor';
   fireProfileSource?: 'boncv' | 'manual';
