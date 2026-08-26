@@ -40,7 +40,7 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '数据重排';
+const RELEASE_NOTE = '分配校正';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -554,9 +554,9 @@ export default function HomePage() {
     ? stats.stateConsumptionDailyAvg[effectiveFireExpenseTagKind] * 365
     : stats.consumptionAvg * 12;
   const fireSavingsAllocationRate = Math.min(Math.max(config.fireSavingsAllocationRate ?? 0.5, MIN_FIRE_SAVINGS_ALLOCATION_RATE), 1);
-  const fireAnnualExpense = fireMode === 'all'
-    ? futureLifeAnnualExpense + futureConsumptionAnnualExpense
-    : futureLifeAnnualExpense;
+  const fireAnnualExpense = fireMode === 'life'
+    ? futureLifeAnnualExpense
+    : futureLifeAnnualExpense + futureConsumptionAnnualExpense;
   const fireExpenseAvg = fireAnnualExpense / 12;
   const fireStats = useMemo(() => ({ ...stats, totalExpenseAvg: fireExpenseAvg }), [stats, fireExpenseAvg]);
   const fire = useMemo(() => calcFire(
@@ -564,9 +564,13 @@ export default function HomePage() {
     fireStats,
     totalInvest,
     fireMode === 'allocation'
-      ? { postEssentialSavingsRate: fireSavingsAllocationRate, wishShare: 0.8 }
+      ? {
+        postEssentialSavingsRate: fireSavingsAllocationRate,
+        annualEssentialExpense: futureLifeAnnualExpense,
+        wishShare: 0.8,
+      }
       : undefined,
-  ), [config, fireMode, fireSavingsAllocationRate, fireStats, totalInvest]);
+  ), [config, fireMode, fireSavingsAllocationRate, fireStats, futureLifeAnnualExpense, totalInvest]);
   const expectedAnnualWageIncome = config.fireExpectedAnnualWageIncome ?? HANGZHOU_E_TALENT_WAGE_THRESHOLD;
   const expectsETalent = config.fireExpectedTalentClass !== 'none';
   const eTalentIncomeThresholdMet = expectedAnnualWageIncome >= HANGZHOU_E_TALENT_WAGE_THRESHOLD;
@@ -1095,7 +1099,7 @@ export default function HomePage() {
               {fireMode === 'allocation' && <StatRow indent label="心愿 · 80%" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.purple }}>{fmt万(fire.requiredAnnualWishAllocation)}</span>} />}
               {fireMode === 'allocation' && <StatRow indent label="消费 · 20%" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(fire.requiredAnnualConsumptionAllocation)}</span>} />}
               <StatRow label="未来固定支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(activeFutureFireMonthly * 12)}</span>} />
-              {fireMode === 'allocation' && <div style={{ marginTop: 4, color: C.sub, fontSize: 11, lineHeight: 1.5 }}>分配模式以历史“活”作为 FIRE 刚需；覆盖后按上方比例存入，其余沿用“建议转账”，按心愿 80%、消费 20% 拆分。</div>}
+              {fireMode === 'allocation' && <div style={{ marginTop: 4, color: C.sub, fontSize: 11, lineHeight: 1.5 }}>退休目标按“生活”；工作期覆盖“活”后按上方比例存入，其余按心愿 80%、消费 20% 拆分。</div>}
             </FireDetailGroup>
             <FireDetailGroup title="杭州未来情景">
               <StatRow label="BonCV 联动" value={(

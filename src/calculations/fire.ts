@@ -69,6 +69,8 @@ export interface FireResult {
 export interface FireCalculationOptions {
   /** 覆盖刚需支出后，剩余收入中用于储蓄的比例；默认 100%。 */
   postEssentialSavingsRate?: number;
+  /** 工作期每年需先覆盖的刚需；默认与退休目标使用同一支出口径。 */
+  annualEssentialExpense?: number;
   /** 弹性分配中进入心愿账户的比例；默认沿用“建议转账”的 80%。 */
   wishShare?: number;
 }
@@ -194,7 +196,12 @@ export function calcFire(
     : remainingTargetBeforeTalentSubsidy / targetYears;
   const requiredAnnualSavings = savingsFutureValueFactor > 0 ? remainingTarget / savingsFutureValueFactor : remainingTarget / targetYears;
   const monthlyNeeded = requiredAnnualSavings / 12;
-  const monthlySurplus = stats.monthlyIncomeAvg - stats.totalExpenseAvg;
+  const configuredAnnualEssentialExpense = options?.annualEssentialExpense;
+  const annualEssentialExpense = typeof configuredAnnualEssentialExpense === 'number'
+    && Number.isFinite(configuredAnnualEssentialExpense)
+    ? Math.max(configuredAnnualEssentialExpense, 0)
+    : annualExpense;
+  const monthlySurplus = stats.monthlyIncomeAvg - annualEssentialExpense / 12;
   const configuredSavingsRate = options?.postEssentialSavingsRate ?? 1;
   const postEssentialSavingsRate = Number.isFinite(configuredSavingsRate)
     ? Math.min(Math.max(configuredSavingsRate, 0.01), 1)
@@ -209,7 +216,7 @@ export function calcFire(
   const requiredAnnualFlexibleSpending = Math.max(requiredAnnualPostEssentialIncome - requiredAnnualSavings, 0);
   const requiredAnnualWishAllocation = requiredAnnualFlexibleSpending * wishShare;
   const requiredAnnualConsumptionAllocation = requiredAnnualFlexibleSpending - requiredAnnualWishAllocation;
-  const requiredAnnualNetIncome = annualExpense + requiredAnnualPostEssentialIncome;
+  const requiredAnnualNetIncome = annualEssentialExpense + requiredAnnualPostEssentialIncome;
   const housingFundRate = typeof config.fireHousingFundRate === 'number'
     && Number.isFinite(config.fireHousingFundRate)
     ? Math.min(Math.max(config.fireHousingFundRate, 0.05), 0.12)
