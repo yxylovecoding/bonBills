@@ -40,7 +40,7 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '步进复原';
+const RELEASE_NOTE = '十点步进';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -1077,7 +1077,7 @@ export default function HomePage() {
                 type="range"
                 min="10"
                 max="100"
-                step="5"
+                step="10"
                 value={Math.round(fireSavingsAllocationRate * 100)}
                 onChange={(e) => updateFireSavingsAllocationRate(e.target.value)}
                 aria-label="覆盖活后收入的存入比例"
