@@ -102,6 +102,20 @@ function formatSignedCurrency(value: number) {
   return `${value >= 0 ? '+' : '-'}¥${formatCurrency(Math.abs(value))}`;
 }
 
+function formatCompactAmount(value: number) {
+  const absoluteValue = Math.abs(value);
+  if (absoluteValue >= 10000) {
+    const valueInWan = Math.round(absoluteValue / 1000) / 10;
+    return `${valueInWan.toFixed(1)}w`;
+  }
+  if (absoluteValue >= 1000) return `${Math.round(absoluteValue / 1000)}k`;
+  return formatCurrency(absoluteValue);
+}
+
+function formatSignedCompactCurrency(value: number) {
+  return `${value >= 0 ? '+' : '-'}¥${formatCompactAmount(value)}`;
+}
+
 function formatCurrencyValue(value: number) {
   return `${value < 0 ? '-' : ''}¥${formatCurrency(value)}`;
 }
@@ -2561,16 +2575,16 @@ function MonthRow({
           {expenseMismatch && <span title={`三项之和 ${formatCurrency(expenseSum)} ≠ 总支出 ${formatCurrency(record.totalExpense)}`} style={{ marginLeft: 4, color: '#c5221f' }}>⚠️</span>}
           {hasAbnormalExpense && <span title={`异常支出：缺少核心标签 ${noTagExpenses.length} 笔，多个核心标签 ${multiTagExpenses.length} 笔`} style={{ marginLeft: 4, color: '#c5221f' }}>⚠️</span>}
         </span>
-        <span style={{ fontSize: 13, color: C.red,   fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>+{formatCurrency(record.income)}</span>
-        <span style={{ fontSize: 13, color: C.green,  fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>-{formatCurrency(record.totalExpense)}</span>
-        <span style={{ fontSize: 13, fontWeight: 600, color: surplus >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
-          {surplus >= 0 ? '+' : '-'}{formatCurrency(Math.abs(surplus))}
+        <span title={`¥${formatCurrency(record.income)}`} style={{ fontSize: 13, color: C.red,   fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>+{formatCompactAmount(record.income)}</span>
+        <span title={`¥${formatCurrency(record.totalExpense)}`} style={{ fontSize: 13, color: C.green,  fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>-{formatCompactAmount(record.totalExpense)}</span>
+        <span title={formatSignedCurrency(surplus)} style={{ fontSize: 13, fontWeight: 600, color: surplus >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+          {surplus >= 0 ? '+' : '-'}{formatCompactAmount(surplus)}
         </span>
         <span
           title={savedAmountTitle}
           style={{ fontSize: 12, fontWeight: 600, color: savedAmount !== null ? (savedAmount >= 0 ? C.red : C.green) : C.sub, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}
         >
-          {savedAmount !== null ? formatSignedCurrency(savedAmount) : '—'}
+          {savedAmount !== null ? formatSignedCompactCurrency(savedAmount) : '—'}
         </span>
         <span
           title={investTotalForRate?.estimated ? `理财总额按 ${investTotalForRate.beforeMonth} / ${investTotalForRate.afterMonth} 均值估算` : undefined}
@@ -2837,16 +2851,16 @@ function YearSection({
         }}
       >
         <span style={{ fontSize: 14, fontWeight: 700, color: expanded ? C.blue : '#202124' }}>{year} {expanded ? '▼' : '▶'}</span>
-        <span style={{ fontSize: 13, color: C.red,   fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>+{formatCurrency(totalIncome)}</span>
-        <span style={{ fontSize: 13, color: C.green,  fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>-{formatCurrency(totalExpense)}</span>
-        <span style={{ fontSize: 13, fontWeight: 600, color: surplus >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
-          {surplus >= 0 ? '+' : '-'}{formatCurrency(Math.abs(surplus))}
+        <span title={`¥${formatCurrency(totalIncome)}`} style={{ fontSize: 13, color: C.red,   fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>+{formatCompactAmount(totalIncome)}</span>
+        <span title={`¥${formatCurrency(totalExpense)}`} style={{ fontSize: 13, color: C.green,  fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>-{formatCompactAmount(totalExpense)}</span>
+        <span title={formatSignedCurrency(surplus)} style={{ fontSize: 13, fontWeight: 600, color: surplus >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+          {surplus >= 0 ? '+' : '-'}{formatCompactAmount(surplus)}
         </span>
         <span
           title="本年各月存下合计"
           style={{ fontSize: 12, fontWeight: 600, color: yearSavedAmount !== null ? (yearSavedAmount >= 0 ? C.red : C.green) : C.sub, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}
         >
-          {yearSavedAmount !== null ? formatSignedCurrency(yearSavedAmount) : '—'}
+          {yearSavedAmount !== null ? formatSignedCompactCurrency(yearSavedAmount) : '—'}
         </span>
         <span
           role="button"
@@ -2866,7 +2880,7 @@ function YearSection({
         >
           {yearProfitMode === 'rate'
             ? (yearRate !== null ? `${(yearRate * 100).toFixed(1)}%` : '—')
-            : (yearProfitAmount !== null ? formatSignedCurrency(yearProfitAmount) : '—')}
+            : (yearProfitAmount !== null ? formatSignedCompactCurrency(yearProfitAmount) : '—')}
         </span>
       </button>
       {expanded && (
