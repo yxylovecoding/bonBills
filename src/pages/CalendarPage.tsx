@@ -3222,6 +3222,16 @@ export default function CalendarPage() {
     }
     return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
   }, [records]);
+  const averageAnnualizedRate = useMemo(() => {
+    const monthlyRates = records.map((record) => {
+      const previousRecord = records.find((candidate) => candidate.yearMonth === prevYearMonth(record.yearMonth));
+      const investTotalForRate = getInvestTotalForRate(record.yearMonth, record.investTotal, records);
+      if (!previousRecord || investTotalForRate === null) return null;
+      return (record.accumulatedProfit - (previousRecord.accumulatedProfit ?? 0)) / investTotalForRate.value;
+    }).filter((rate): rate is number => rate !== null);
+    if (monthlyRates.length === 0) return null;
+    return (monthlyRates.reduce((sum, rate) => sum + rate, 0) / monthlyRates.length) * 12;
+  }, [records]);
   const allBillStatisticItems = useMemo<BillStatisticItem[]>(
     () => [
       ...Object.values(billExpenseItems).flat().map((item) => ({ ...item, transactionType: '支出' as const })),
@@ -3241,20 +3251,29 @@ export default function CalendarPage() {
   }, [records, year, _now]);
 
   const tableHeader = (
-    <div style={{ display: 'grid', gridTemplateColumns: HISTORY_GRID_COLUMNS, padding: '6px 10px', fontSize: 11, color: C.sub, fontWeight: 500, marginBottom: 4 }}>
-      <span>年/月</span>
-      <span style={{ textAlign: 'right' }}>收入</span>
-      <span style={{ textAlign: 'right' }}>支出</span>
-      <span style={{ textAlign: 'right' }}>结余</span>
-      <span style={{ textAlign: 'right' }}>存下</span>
-      <button
-        type="button"
-        onClick={toggleYearProfitMode}
-        title={yearProfitMode === 'rate' ? '点击切换为收益金额' : '点击切换为收益率'}
-        style={{ textAlign: 'right', color: C.sub, font: 'inherit', fontWeight: 500, border: 'none', background: 'transparent', padding: 0, cursor: 'pointer' }}
-      >
-        {yearProfitMode === 'rate' ? '收益率' : '收益'}
-      </button>
+    <div style={{ marginBottom: 4 }}>
+      {yearProfitMode === 'rate' && (
+        <div style={{ display: 'grid', gridTemplateColumns: HISTORY_GRID_COLUMNS, padding: '0 10px', fontSize: 10, fontWeight: 600, marginBottom: 2 }}>
+          <span style={{ gridColumn: 6, textAlign: 'right', color: averageAnnualizedRate !== null ? (averageAnnualizedRate >= 0 ? C.red : C.green) : C.sub, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+            平均年化 {averageAnnualizedRate !== null ? `${(averageAnnualizedRate * 100).toFixed(1)}%` : '—'}
+          </span>
+        </div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: HISTORY_GRID_COLUMNS, padding: '6px 10px', fontSize: 11, color: C.sub, fontWeight: 500 }}>
+        <span>年/月</span>
+        <span style={{ textAlign: 'right' }}>收入</span>
+        <span style={{ textAlign: 'right' }}>支出</span>
+        <span style={{ textAlign: 'right' }}>结余</span>
+        <span style={{ textAlign: 'right' }}>存下</span>
+        <button
+          type="button"
+          onClick={toggleYearProfitMode}
+          title={yearProfitMode === 'rate' ? '点击切换为收益金额' : '点击切换为收益率'}
+          style={{ textAlign: 'right', color: C.sub, font: 'inherit', fontWeight: 500, border: 'none', background: 'transparent', padding: 0, cursor: 'pointer' }}
+        >
+          {yearProfitMode === 'rate' ? '收益率' : '收益'}
+        </button>
+      </div>
     </div>
   );
 
