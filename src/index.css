@@ -57,6 +57,12 @@ input[type='number'] { -moz-appearance: textfield; }
   margin: 0 auto;
 }
 
+.home-page-shell {
+  width: 100%;
+  max-width: 448px;
+  margin: 0 auto;
+}
+
 .calendar-month-grid {
   display: block;
 }
@@ -456,6 +462,107 @@ input[type='number'] { -moz-appearance: textfield; }
   position: absolute;
   top: 2px;
   right: 2px;
+}
+
+@media (min-width: 768px) {
+  .home-wish-calendar {
+    width: min(680px, calc(100vw - 32px));
+    margin-left: 50%;
+    padding: 20px;
+    transform: translateX(-50%);
+  }
+
+  .home-wish-calendar-header h2 {
+    font-size: 18px;
+  }
+
+  .home-wish-calendar-header span {
+    margin-top: 3px;
+    font-size: 13px;
+  }
+
+  .home-wish-calendar-actions {
+    gap: 8px;
+  }
+
+  .home-wish-calendar-actions button {
+    width: 36px;
+    height: 34px;
+    border-radius: 10px;
+    font-size: 24px;
+  }
+
+  .home-wish-calendar-counts {
+    min-height: 34px;
+    gap: 8px;
+    margin: 14px 0 8px;
+  }
+
+  .home-wish-calendar-counts > span {
+    gap: 5px;
+    padding: 7px 10px;
+    font-size: 12px;
+  }
+
+  .home-wish-calendar-counts > span i {
+    width: 8px;
+    height: 8px;
+  }
+
+  .home-wish-calendar-counts > span b {
+    max-width: 180px;
+  }
+
+  .home-wish-calendar-legend {
+    gap: 14px;
+    margin-bottom: 10px;
+    font-size: 11px;
+  }
+
+  .home-wish-calendar-legend .wish-holiday-off,
+  .home-wish-calendar-legend .wish-holiday-work {
+    font-size: 9px;
+  }
+
+  .home-wish-calendar-weekdays,
+  .home-wish-calendar-grid {
+    gap: 6px;
+  }
+
+  .home-wish-calendar-weekdays {
+    margin-bottom: 6px;
+    font-size: 12px;
+  }
+
+  .home-wish-calendar-empty,
+  .home-wish-calendar-day {
+    height: 68px;
+  }
+
+  .home-wish-calendar-day {
+    border-radius: 12px;
+  }
+
+  .home-wish-calendar-day strong {
+    font-size: 14px;
+  }
+
+  .home-wish-calendar-day small {
+    margin-top: 3px;
+    font-size: 12px;
+  }
+
+  .home-wish-calendar-day em {
+    width: calc(100% - 10px);
+    margin-top: 4px;
+    font-size: 9px;
+  }
+
+  .home-wish-calendar-day > b {
+    top: 4px;
+    right: 4px;
+    font-size: 9px;
+  }
 }
 
 .wish-list-scroll {
