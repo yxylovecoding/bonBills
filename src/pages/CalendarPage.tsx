@@ -102,11 +102,31 @@ function formatSignedCurrency(value: number) {
   return `${value >= 0 ? '+' : '-'}¥${formatCurrency(Math.abs(value))}`;
 }
 
+function formatCurrencyValue(value: number) {
+  return `${value < 0 ? '-' : ''}¥${formatCurrency(value)}`;
+}
+
 function getAssetChangeTitle(currentTotalAssets?: number, previousTotalAssets?: number) {
   const formula = '资产增加 = 本月总资产 − 上月总资产';
   if (currentTotalAssets === undefined) return `${formula}；本月总资产未记录`;
   if (previousTotalAssets === undefined) return `${formula}；上月总资产未记录`;
-  return `${formula} = ¥${formatCurrency(currentTotalAssets)} − ¥${formatCurrency(previousTotalAssets)} = ${formatSignedCurrency(currentTotalAssets - previousTotalAssets)}`;
+  return `${formula} = ${formatCurrencyValue(currentTotalAssets)} − ${formatCurrencyValue(previousTotalAssets)} = ${formatSignedCurrency(currentTotalAssets - previousTotalAssets)}`;
+}
+
+function getSavedAmountTitle(
+  record: Pick<MonthlyRecord, 'income' | 'investTotal' | 'accumulatedProfit' | 'isBaseline'>,
+  previous?: Pick<MonthlyRecord, 'investTotal' | 'accumulatedProfit'>,
+) {
+  const formula = '存下 = (本月理财总额 − 上月理财总额) − (本月累计盈利 − 上月累计盈利)';
+  if (!previous) return `${formula}\n上月数据未记录`;
+  if (record.isBaseline) return `${formula}\n基准月不计算存下和储蓄率`;
+
+  const investmentAssetChange = record.investTotal - previous.investTotal;
+  const investmentIncome = record.accumulatedProfit - previous.accumulatedProfit;
+  const savedAmount = investmentAssetChange - investmentIncome;
+  const savedCalculation = `${formula}\n= (${formatCurrencyValue(record.investTotal)} − ${formatCurrencyValue(previous.investTotal)}) − (${formatCurrencyValue(record.accumulatedProfit)} − ${formatCurrencyValue(previous.accumulatedProfit)})\n= (${formatSignedCurrency(investmentAssetChange)}) − (${formatSignedCurrency(investmentIncome)}) = ${formatSignedCurrency(savedAmount)}`;
+  if (record.income <= 0) return `${savedCalculation}\n储蓄率 = 存下 ÷ 本月收入；本月收入需大于 0`;
+  return `${savedCalculation}\n储蓄率 = 存下 ÷ 本月收入 = ${formatSignedCurrency(savedAmount)} ÷ ${formatCurrencyValue(record.income)} = ${((savedAmount / record.income) * 100).toFixed(1)}%`;
 }
 
 function base64ToFile(base64: string, fileName: string, contentType?: string): File {
@@ -1229,6 +1249,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   };
   const savedAmount = getMonthlySavedAmount(savingsDraft, prevRecord);
   const savingsRate = getMonthlySavingsRate(savingsDraft, prevRecord);
+  const savedAmountTitle = getSavedAmountTitle(savingsDraft, prevRecord);
   const investMonthly = investIncome !== null && investTotalForRate !== null ? investIncome / investTotalForRate.value : null;
   const investAnnual = investMonthly !== null ? investMonthly * 12 : null;
   const getBreakdownMonthlyProfit = (k: keyof InvestHoldings) => {
@@ -1389,7 +1410,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     income, setIncome, totalExpense, setTotalExpense, periodicLife, setPeriodicLife,
     volatileLife, setVolatileLife, consumption, setConsumption, school, setSchool,
     totalAssets, setTotalAssets, totalAssetsValue, previousTotalAssets: prevRecord?.totalAssets,
-    assetChange, savedAmount, savingsRate,
+    assetChange, savedAmount, savingsRate, savedAmountTitle,
     accProfit, setAccProfit, investTotal, isBaseline, setIsBaseline,
     majorExpenses, majorExpensesNote, setMajorExpensesNote, breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
     pastBreakdownProfit, setPastBreakdownProfit, pastUsdComponents, setPastUsdComponents,
@@ -1410,7 +1431,7 @@ type MonthFormState = ReturnType<typeof useMonthForm>;
 function MonthDataSection({ state }: { state: MonthFormState }) {
   const {
     income, totalExpense, periodicLife, volatileLife, consumption, school,
-    totalAssets, setTotalAssets, totalAssetsValue, previousTotalAssets, assetChange, savedAmount, savingsRate,
+    totalAssets, setTotalAssets, totalAssetsValue, previousTotalAssets, assetChange, savedAmount, savingsRate, savedAmountTitle,
     accProfit, setAccProfit, investTotal,
     surplus, investIncome, investMonthly, investAnnual, investTotalForRate, investTotalStoredOnly, n,
     mainFieldRefs, breakdownRefs, labelStyle,
@@ -1492,7 +1513,7 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginBottom: 16 }}>
-        <div style={{ minWidth: 0, backgroundColor: savedAmount !== null && savedAmount >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
+        <div title={savedAmountTitle} style={{ minWidth: 0, backgroundColor: savedAmount !== null && savedAmount >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
           <div style={{ fontSize: 11, color: C.sub }}>存下</div>
           <div style={{ fontSize: 16, fontWeight: 700, color: savedAmount !== null && savedAmount >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>
             {savedAmount !== null ? formatSignedCurrency(savedAmount) : '—'}
@@ -2502,6 +2523,7 @@ function MonthRow({
   const assetChange = getMonthlyAssetChange(record, prev);
   const savedAmount = getMonthlySavedAmount(record, prev);
   const savingsRate = getMonthlySavingsRate(record, prev);
+  const savedAmountTitle = getSavedAmountTitle(record, prev);
   const expenseSum = record.periodicLife + record.volatileLife + record.consumption;
   const expenseDiff = Math.round((expenseSum - record.totalExpense) * 100) / 100;
   const expenseMismatch = Math.abs(expenseDiff) > 0.01;
@@ -2578,13 +2600,13 @@ function MonthRow({
                 label: '存下',
                 value: savedAmount !== null ? formatSignedCurrency(savedAmount) : '—',
                 color: savedAmount !== null ? (savedAmount >= 0 ? C.red : C.green) : C.sub,
-                title: undefined,
+                title: savedAmountTitle,
               },
               {
                 label: '储蓄率',
                 value: savingsRate !== null ? `${(savingsRate * 100).toFixed(1)}%` : '—',
                 color: savingsRate !== null ? (savingsRate >= 0 ? C.red : C.green) : C.sub,
-                title: undefined,
+                title: savedAmountTitle,
               },
             ]).map((item) => (
               <div key={item.label} title={item.title} style={{ minWidth: 0, padding: '8px 10px', borderRadius: 8, backgroundColor: '#fff' }}>
