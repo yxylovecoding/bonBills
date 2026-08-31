@@ -102,6 +102,13 @@ function formatSignedCurrency(value: number) {
   return `${value >= 0 ? '+' : '-'}¥${formatCurrency(Math.abs(value))}`;
 }
 
+function getAssetChangeTitle(currentTotalAssets?: number, previousTotalAssets?: number) {
+  const formula = '资产增加 = 本月总资产 − 上月总资产';
+  if (currentTotalAssets === undefined) return `${formula}；本月总资产未记录`;
+  if (previousTotalAssets === undefined) return `${formula}；上月总资产未记录`;
+  return `${formula} = ¥${formatCurrency(currentTotalAssets)} − ¥${formatCurrency(previousTotalAssets)} = ${formatSignedCurrency(currentTotalAssets - previousTotalAssets)}`;
+}
+
 function base64ToFile(base64: string, fileName: string, contentType?: string): File {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
@@ -1381,7 +1388,8 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   return {
     income, setIncome, totalExpense, setTotalExpense, periodicLife, setPeriodicLife,
     volatileLife, setVolatileLife, consumption, setConsumption, school, setSchool,
-    totalAssets, setTotalAssets, totalAssetsValue, assetChange, savedAmount, savingsRate,
+    totalAssets, setTotalAssets, totalAssetsValue, previousTotalAssets: prevRecord?.totalAssets,
+    assetChange, savedAmount, savingsRate,
     accProfit, setAccProfit, investTotal, isBaseline, setIsBaseline,
     majorExpenses, majorExpensesNote, setMajorExpensesNote, breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
     pastBreakdownProfit, setPastBreakdownProfit, pastUsdComponents, setPastUsdComponents,
@@ -1402,7 +1410,7 @@ type MonthFormState = ReturnType<typeof useMonthForm>;
 function MonthDataSection({ state }: { state: MonthFormState }) {
   const {
     income, totalExpense, periodicLife, volatileLife, consumption, school,
-    totalAssets, setTotalAssets, totalAssetsValue, assetChange, savedAmount, savingsRate,
+    totalAssets, setTotalAssets, totalAssetsValue, previousTotalAssets, assetChange, savedAmount, savingsRate,
     accProfit, setAccProfit, investTotal,
     surplus, investIncome, investMonthly, investAnnual, investTotalForRate, investTotalStoredOnly, n,
     mainFieldRefs, breakdownRefs, labelStyle,
@@ -1440,6 +1448,7 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
       fg: assetChange !== null && assetChange >= 0 ? C.red : C.green,
       kind: 'result' as const,
       hint: assetChange === null && totalAssetsValue !== undefined ? '上月未记录' : undefined,
+      title: getAssetChangeTitle(totalAssetsValue, previousTotalAssets),
     },
     { label: '总收入', val: income ? formatCurrency(n(income)) : '—', bg: '#f1f3f4', fg: '#3c4043', kind: 'auto' as const },
     { label: '总支出', val: totalExpense ? formatCurrency(n(totalExpense)) : '—', bg: '#f1f3f4', fg: '#3c4043', kind: 'auto' as const },
@@ -1516,7 +1525,7 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
         {lowerFields.map(({ label, val, bg, fg, kind, hint, title }) => (
-          <div key={label}>
+          <div key={label} title={title}>
             <div style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 4 }}>
               {label}
               {kind === 'auto' && <span style={{ fontSize: 10, color: C.sub }}>（账单自动）</span>}
@@ -1525,7 +1534,7 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
               {kind === 'stored' && <span style={{ fontSize: 10, color: C.sub }}>（历史总额）</span>}
               {kind === 'estimate' && <span style={{ fontSize: 10, color: C.orange }}>（前后估）</span>}
             </div>
-            <div title={title} style={{ padding: kind === 'manual' ? '5px 10px' : '8px 10px', fontSize: 13, fontVariantNumeric: 'tabular-nums', borderRadius: 8, backgroundColor: bg, color: fg, minHeight: 20 }}>
+            <div style={{ padding: kind === 'manual' ? '5px 10px' : '8px 10px', fontSize: 13, fontVariantNumeric: 'tabular-nums', borderRadius: 8, backgroundColor: bg, color: fg, minHeight: 20 }}>
               {kind === 'manual' ? (
                 <AmountInput
                   ref={(el) => { mainFieldRefs.current[1] = el; }}
@@ -2557,24 +2566,28 @@ function MonthRow({
                 label: '总资产',
                 value: record.totalAssets !== undefined ? `¥${formatCurrency(record.totalAssets)}` : '未记录',
                 color: record.totalAssets !== undefined ? '#202124' : C.sub,
+                title: undefined,
               },
               {
                 label: '资产增加',
                 value: assetChange !== null ? formatSignedCurrency(assetChange) : '—',
                 color: assetChange !== null ? (assetChange >= 0 ? C.red : C.green) : C.sub,
+                title: getAssetChangeTitle(record.totalAssets, prev?.totalAssets),
               },
               {
                 label: '存下',
                 value: savedAmount !== null ? formatSignedCurrency(savedAmount) : '—',
                 color: savedAmount !== null ? (savedAmount >= 0 ? C.red : C.green) : C.sub,
+                title: undefined,
               },
               {
                 label: '储蓄率',
                 value: savingsRate !== null ? `${(savingsRate * 100).toFixed(1)}%` : '—',
                 color: savingsRate !== null ? (savingsRate >= 0 ? C.red : C.green) : C.sub,
+                title: undefined,
               },
             ]).map((item) => (
-              <div key={item.label} style={{ minWidth: 0, padding: '8px 10px', borderRadius: 8, backgroundColor: '#fff' }}>
+              <div key={item.label} title={item.title} style={{ minWidth: 0, padding: '8px 10px', borderRadius: 8, backgroundColor: '#fff' }}>
                 <div style={{ fontSize: 10, color: C.sub, marginBottom: 3 }}>{item.label}</div>
                 <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 13, fontWeight: 600, color: item.color, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                   {item.value}
