@@ -1178,10 +1178,17 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   const mainFieldRefs = useRef<(HTMLInputElement | null)[]>([]);
   const breakdownRefs = useRef<(HTMLInputElement | null)[]>([]);
   const breakdownProfitRefs = useRef<(HTMLInputElement | null)[]>([]);
-  const copyHoldingsFromReconcile = () => {
+  const copyHoldingsAndProfits = () => {
     setBreakdown(
       Object.fromEntries(INVEST_KEYS.map((k) => [k, String(snapshotCurrent.investHoldings[k] ?? 0)])) as Partial<Record<keyof InvestHoldings, string>>,
     );
+    setBreakdownProfit(
+      Object.fromEntries(INVEST_KEYS.map((k) => [k, String(prevRecord?.investBreakdownProfit?.[k] ?? '')])) as Partial<Record<keyof InvestHoldings, string>>,
+    );
+    setUsdComponents(initUsdComponents(prevRecord?.investProfitComponents));
+    const previousUsdRate = prevRecord?.investProfitComponents?.us?.rate
+      ?? prevRecord?.investProfitComponents?.usBond?.rate;
+    setSharedUsdRate(previousUsdRate !== undefined ? String(previousUsdRate) : '');
   };
 
   const n = (v: string) => parseFloat(v) || 0;
@@ -1383,7 +1390,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     surplus, investIncome, investMonthly, investAnnual, investTotalForRate, investTotalStoredOnly, n,
     getBreakdownMonthlyProfit,
     mainFieldRefs, breakdownRefs, breakdownProfitRefs,
-    copyHoldingsFromReconcile,
+    copyHoldingsAndProfits,
     handleSave,
     fieldStyle, labelStyle,
     yearMonth,
@@ -1542,12 +1549,12 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
         const te = parseFloat(totalExpense) || 0;
         if (!periodicLife && !volatileLife && !consumption && !totalExpense) return null;
         const diff = Math.round((pe + vo + co - te) * 100) / 100;
-        const ok = Math.abs(diff) <= 0.01;
+        if (diff === 0) return null;
         return (
-          <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 10, fontSize: 12, backgroundColor: ok ? '#e6f4ea' : '#fce8e6', color: ok ? '#137333' : '#c5221f', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 10, fontSize: 12, backgroundColor: '#fce8e6', color: '#c5221f', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span>三项之和 − 总支出</span>
             <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
-              {ok ? '✓' : `${diff > 0 ? '+' : ''}${formatCurrency(diff)}`}
+              {diff > 0 ? '+' : ''}{formatCurrency(diff)}
             </span>
           </div>
         );
@@ -1670,7 +1677,7 @@ function UsdProfitModal({
 function HoldingsSection({ state }: { state: MonthFormState }) {
   const [monthlyProfitMode, setMonthlyProfitMode] = useState<'amount' | 'rate'>('amount');
   const {
-    showBreakdown, setShowBreakdown, copyHoldingsFromReconcile,
+    showBreakdown, setShowBreakdown, copyHoldingsAndProfits,
     breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
     pastBreakdownProfit, setPastBreakdownProfit,
     getBreakdownMonthlyProfit,
@@ -1702,11 +1709,11 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {showBreakdown && holdingsTab === 'now' && (
             <button
-              onClick={copyHoldingsFromReconcile}
+              onClick={copyHoldingsAndProfits}
               style={{ fontSize: 11, color: C.blue, border: `1px solid ${C.blue}`, borderRadius: 6, padding: '3px 8px', backgroundColor: '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }}
-              title="从对账页当前持仓复制到本月各品类持仓"
+              title="金额从对账页复制，收益从上个月复制"
             >
-              📋 从对账页复制
+              📋 复制
             </button>
           )}
           <button
