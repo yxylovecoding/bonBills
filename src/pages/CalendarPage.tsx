@@ -64,7 +64,7 @@ const HOLIDAY_COLORS = {
 } as const;
 const CN_MONTH = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
 const WEEK_HEADERS = ['一', '二', '三', '四', '五', '六', '日'];
-const HISTORY_GRID_COLUMNS = '64px 1fr 1fr 1fr 88px';
+const HISTORY_GRID_COLUMNS = '64px repeat(4, minmax(0, 1fr)) 88px';
 
 type UsdRateResponse = {
   rate: number;
@@ -2567,6 +2567,12 @@ function MonthRow({
           {surplus >= 0 ? '+' : '-'}{formatCurrency(Math.abs(surplus))}
         </span>
         <span
+          title={savedAmountTitle}
+          style={{ fontSize: 12, fontWeight: 600, color: savedAmount !== null ? (savedAmount >= 0 ? C.red : C.green) : C.sub, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}
+        >
+          {savedAmount !== null ? formatSignedCurrency(savedAmount) : '—'}
+        </span>
+        <span
           title={investTotalForRate?.estimated ? `理财总额按 ${investTotalForRate.beforeMonth} / ${investTotalForRate.afterMonth} 均值估算` : undefined}
           style={{ fontSize: 12, color: investMonthly !== null ? (investMonthly >= 0 ? C.red : C.green) : C.sub, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}
         >
@@ -2796,6 +2802,13 @@ function YearSection({
   const totalExpense = recs.reduce((s, r) => s + r.totalExpense, 0);
   const surplus = totalIncome - totalExpense;
   const hasMonths = `${year}-01` >= YEARLY_ONLY_BEFORE;
+  const monthlySavedAmounts = recs.map((r) => {
+    const prev = allRecords.find((x) => x.yearMonth === prevYearMonth(r.yearMonth));
+    return getMonthlySavedAmount(r, prev);
+  }).filter((value): value is number => value !== null);
+  const yearSavedAmount = monthlySavedAmounts.length > 0
+    ? monthlySavedAmounts.reduce((sum, value) => sum + value, 0)
+    : null;
 
   // 年度收益率：每月收益率（=本月收益/本月理财额）之和
   const monthlyProfits = recs.map(r => {
@@ -2828,6 +2841,12 @@ function YearSection({
         <span style={{ fontSize: 13, color: C.green,  fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>-{formatCurrency(totalExpense)}</span>
         <span style={{ fontSize: 13, fontWeight: 600, color: surplus >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
           {surplus >= 0 ? '+' : '-'}{formatCurrency(Math.abs(surplus))}
+        </span>
+        <span
+          title="本年各月存下合计"
+          style={{ fontSize: 12, fontWeight: 600, color: yearSavedAmount !== null ? (yearSavedAmount >= 0 ? C.red : C.green) : C.sub, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}
+        >
+          {yearSavedAmount !== null ? formatSignedCurrency(yearSavedAmount) : '—'}
         </span>
         <span
           role="button"
@@ -3227,6 +3246,7 @@ export default function CalendarPage() {
       <span style={{ textAlign: 'right' }}>收入</span>
       <span style={{ textAlign: 'right' }}>支出</span>
       <span style={{ textAlign: 'right' }}>结余</span>
+      <span style={{ textAlign: 'right' }}>存下</span>
       <button
         type="button"
         onClick={toggleYearProfitMode}
