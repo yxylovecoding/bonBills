@@ -17,6 +17,8 @@ type InvestInstrumentPickerProps = {
   quoteSource?: InvestQuoteSource;
   ariaLabel: string;
   hideName?: boolean;
+  autoFocusSymbol?: boolean;
+  onSymbolFocus?: () => void;
   onChange: (patch: { name?: string; symbol?: string; quoteSource?: InvestQuoteSource; quoteCurrency?: string }) => void;
 };
 
@@ -31,6 +33,8 @@ export default function InvestInstrumentPicker({
   quoteSource,
   ariaLabel,
   hideName = false,
+  autoFocusSymbol = false,
+  onSymbolFocus,
   onChange,
 }: InvestInstrumentPickerProps) {
   const listboxId = useId();
@@ -135,6 +139,7 @@ export default function InvestInstrumentPicker({
         style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', fontSize: 12, fontWeight: 800, backgroundColor: 'transparent' }}
       />}
       <input
+        autoFocus={autoFocusSymbol}
         aria-label={`${name || ariaLabel}行情代码`}
         aria-autocomplete="list"
         aria-controls={showMenu ? listboxId : undefined}
@@ -143,6 +148,7 @@ export default function InvestInstrumentPicker({
         placeholder="代码"
         title={quoteSource ? SOURCE_LABELS[quoteSource] : '输入后从候选项选择'}
         onFocus={(event) => {
+          onSymbolFocus?.();
           event.currentTarget.select();
           setQuery(symbol);
           setOpen(true);

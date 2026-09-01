@@ -692,9 +692,10 @@ const INVEST_POSITION_LABELS = Object.fromEntries(
 ) as Record<InvestKey, string>;
 const INVEST_POSITION_STATUS_META: Record<InvestPositionStatus, { label: string; color: string }> = {
   active: { label: '投入', color: C.blue },
-  paused: { label: '暂存', color: C.orange },
-  closed: { label: '清仓', color: C.green },
+  paused: { label: '暂存/清仓', color: C.orange },
+  closed: { label: '暂存/清仓', color: C.orange },
 };
+const INVEST_POSITION_TAB_STATUSES: InvestPositionStatus[] = ['active', 'paused'];
 
 type InvestPositionDraft = Omit<InvestPositionItem, 'shares' | 'costPrice' | 'historicalProfitCny' | 'marketValueCny' | 'holdingProfitCny'> & {
   shares: string;
@@ -738,7 +739,16 @@ function investPositionDraftGroupsFromItems(items: InvestPositionItems): InvestP
   for (const key of INVEST_POSITION_GROUP_KEYS) {
     groups[key] = (items[key] ?? []).map((item) => ({
       ...item,
-      shares: item.shares !== undefined ? String(item.shares) : '',
+      status: key === 'account'
+        ? 'closed'
+        : key === 'aggregate' || item.status === 'closed'
+          ? 'paused'
+          : item.status,
+      shares: item.shares !== undefined
+        ? String(item.shares)
+        : item.status === 'closed' && key !== 'account'
+          ? '0'
+          : '',
       costPrice: item.costPrice !== undefined ? String(item.costPrice) : '',
       historicalProfitCny: String(item.historicalProfitCny ?? 0),
       marketValueCny: item.marketValueCny !== undefined ? String(item.marketValueCny) : '',
@@ -773,7 +783,7 @@ function investPositionItemsFromDraftGroups(groups: InvestPositionDraftGroups): 
       historicalProfitCny: numberOrUndefined(draft.historicalProfitCny) ?? 0,
       marketValueCny: numberOrUndefined(draft.marketValueCny),
       holdingProfitCny: numberOrUndefined(draft.holdingProfitCny),
-      status: key === 'account' ? 'closed' : key === 'aggregate' ? 'paused' : draft.status,
+      status: key === 'account' ? 'closed' : key === 'aggregate' || draft.status === 'closed' ? 'paused' : draft.status,
     }));
   }
   return items;
@@ -796,7 +806,7 @@ function useInvestPositionMarkets(items: InvestPositionItems, enabled: boolean, 
     for (const categoryKey of INVEST_POSITION_KEYS) {
       for (const item of items[categoryKey] ?? []) {
         const symbol = item.symbol.trim().toUpperCase();
-        if (!symbol || item.status === 'closed') continue;
+        if (!symbol || (item.shares !== undefined && item.shares <= 0)) continue;
         // 裸六位代码可能是 A 股或公募基金，先要求用户从候选项确认数据源。
         if (!item.quoteSource && /^\d{6}$/.test(symbol)) continue;
         const source = item.quoteSource ?? 'yahoo';
@@ -1471,6 +1481,25 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     () => summarizeInvestPositionItems(positionItems, marketsBySymbol),
     [marketsBySymbol, positionItems],
   );
+  const previousPositionSummary = useMemo(
+    () => prevRecord?.investPositionItems
+      ? summarizeInvestPositionItems(prevRecord.investPositionItems)
+      : null,
+    [prevRecord?.investPositionItems],
+  );
+  const positionMonthlyProfitById = useMemo(() => {
+    const monthlyProfitById: Record<string, number | null> = {};
+    for (const groupKey of INVEST_POSITION_GROUP_KEYS) {
+      for (const item of positionItems[groupKey] ?? []) {
+        const currentMetric = positionSummary.metricsById[item.id];
+        const previousMetric = previousPositionSummary?.metricsById[item.id];
+        monthlyProfitById[item.id] = isBaseline || !currentMetric || !previousMetric
+          ? null
+          : roundCny(currentMetric.totalProfitCny - previousMetric.totalProfitCny);
+      }
+    }
+    return monthlyProfitById;
+  }, [isBaseline, positionItems, positionSummary, previousPositionSummary]);
   const positionItemsForSave = useMemo<InvestPositionItems>(() => {
     const next: InvestPositionItems = {};
     for (const key of INVEST_POSITION_GROUP_KEYS) {
@@ -1554,10 +1583,11 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   };
   const addPositionDraft = (groupKey: InvestPositionGroupKey, status: InvestPositionStatus) => {
     const nextStatus = groupKey === 'account' ? 'closed' : groupKey === 'aggregate' ? 'paused' : status;
+    const id = makeInvestPositionId();
     setPositionDraftGroups((previous) => ({
       ...previous,
       [groupKey]: [...previous[groupKey], {
-        id: makeInvestPositionId(),
+        id,
         name: groupKey === 'account' ? '新历史账户' : groupKey === 'aggregate' ? '新总账户' : '',
         symbol: '',
         status: nextStatus,
@@ -1568,6 +1598,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
         holdingProfitCny: '',
       }],
     }));
+    return id;
   };
   const removePositionDraft = (groupKey: InvestPositionGroupKey, id: string) => {
     setPositionDraftGroups((previous) => ({
@@ -1786,7 +1817,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     mainFieldRefs,
     positionDraftGroups, updatePositionDraft, addPositionDraft, removePositionDraft,
     splitPositionAccount,
-    positionSummary, positionQuotes, positionQuoteErrors, isCurrentRecordMonth,
+    positionSummary, positionMonthlyProfitById, positionQuotes, positionQuoteErrors, isCurrentRecordMonth,
     handleSave,
     fieldStyle, labelStyle,
     yearMonth,
@@ -1970,11 +2001,12 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
   const {
     positionDraftGroups, updatePositionDraft, addPositionDraft, removePositionDraft,
     splitPositionAccount,
-    positionSummary, positionQuotes, positionQuoteErrors, isCurrentRecordMonth,
+    positionSummary, positionMonthlyProfitById, positionQuotes, positionQuoteErrors, isCurrentRecordMonth,
     isBaseline, setIsBaseline,
   } = state;
   const [activeStatus, setActiveStatus] = useState<InvestPositionStatus>('active');
   const [expandedItemKey, setExpandedItemKey] = useState<string | null>(null);
+  const [autoFocusCodeItemKey, setAutoFocusCodeItemKey] = useState<string | null>(null);
   const [splitSource, setSplitSource] = useState<{ groupKey: InvestPositionGroupKey; id: string } | null>(null);
   useEffect(() => {
     if (!expandedItemKey) return;
@@ -1986,11 +2018,9 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
     document.addEventListener('pointerdown', handleOutsidePointerDown);
     return () => document.removeEventListener('pointerdown', handleOutsidePointerDown);
   }, [expandedItemKey]);
-  const visibleGroupKeys: InvestPositionGroupKey[] = activeStatus === 'closed'
-    ? ['account', ...INVEST_POSITION_KEYS]
-    : activeStatus === 'paused' && positionDraftGroups.aggregate.length > 0
-      ? [...INVEST_POSITION_KEYS, 'aggregate']
-      : INVEST_POSITION_KEYS;
+  const visibleGroupKeys: InvestPositionGroupKey[] = activeStatus === 'active'
+    ? INVEST_POSITION_KEYS
+    : ['account', ...INVEST_POSITION_KEYS, ...(positionDraftGroups.aggregate.length > 0 ? ['aggregate' as const] : [])];
   const signedAmount = (value: number) => `${value >= 0 ? '+' : '-'}¥${formatCurrency(value)}`;
 
   return (
@@ -2005,12 +2035,12 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
           <div style={{ fontSize: 14, fontWeight: 800, color: positionSummary.totalProfitCny >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>{signedAmount(positionSummary.totalProfitCny)}</div>
         </div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', border: '1px solid #dadce0', borderRadius: 8, overflow: 'hidden' }}>
-        {(Object.keys(INVEST_POSITION_STATUS_META) as InvestPositionStatus[]).map((status) => {
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', border: '1px solid #dadce0', borderRadius: 8, overflow: 'hidden' }}>
+        {INVEST_POSITION_TAB_STATUSES.map((status) => {
           const meta = INVEST_POSITION_STATUS_META[status];
           const selected = activeStatus === status;
           return (
-            <button key={status} type="button" aria-pressed={selected} onClick={() => setActiveStatus(status)} style={{ border: 'none', borderRight: status !== 'closed' ? '1px solid #dadce0' : 'none', padding: '7px 4px', backgroundColor: selected ? `${meta.color}18` : '#fff', color: selected ? meta.color : C.sub, fontSize: 12, fontWeight: selected ? 800 : 500, cursor: 'pointer' }}>
+            <button key={status} type="button" aria-pressed={selected} onClick={() => setActiveStatus(status)} style={{ border: 'none', borderRight: status === 'active' ? '1px solid #dadce0' : 'none', padding: '7px 4px', backgroundColor: selected ? `${meta.color}18` : '#fff', color: selected ? meta.color : C.sub, fontSize: 12, fontWeight: selected ? 800 : 500, cursor: 'pointer' }}>
               {meta.label}
             </button>
           );
@@ -2018,10 +2048,9 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
       </div>
 
       {visibleGroupKeys.map((groupKey) => {
-        const items = positionDraftGroups[groupKey].filter((item) => item.status === activeStatus);
+        const items = positionDraftGroups[groupKey].filter((item) => activeStatus === 'active' ? item.status === 'active' : item.status !== 'active');
         const groupLabel = groupKey === 'account' ? '历史账户' : groupKey === 'aggregate' ? '待归类账户' : investMeta[groupKey].label;
         const groupColor = groupKey === 'account' || groupKey === 'aggregate' ? C.sub : investMeta[groupKey].color;
-        if (items.length === 0 && activeStatus === 'closed' && groupKey !== 'account') return null;
         return (
           <div key={groupKey} style={{ border: '1px solid #e8eaed', borderRadius: 10, padding: '8px', backgroundColor: '#fff' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: items.length > 0 ? 7 : 0 }}>
@@ -2029,7 +2058,15 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                 <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: groupColor }} />
                 {groupLabel}
               </div>
-              {groupKey !== 'aggregate' && <button type="button" onClick={() => addPositionDraft(groupKey, activeStatus)} style={{ border: 'none', borderRadius: 7, backgroundColor: `${INVEST_POSITION_STATUS_META[activeStatus].color}16`, color: INVEST_POSITION_STATUS_META[activeStatus].color, padding: '4px 8px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>
+              {groupKey !== 'aggregate' && <button type="button" onClick={() => {
+                const id = addPositionDraft(groupKey, activeStatus);
+                if (groupKey !== 'account') {
+                  const itemKey = `${groupKey}:${id}`;
+                  setExpandedItemKey(itemKey);
+                  setAutoFocusCodeItemKey(itemKey);
+                  setSplitSource(null);
+                }
+              }} style={{ border: 'none', borderRadius: 7, backgroundColor: `${INVEST_POSITION_STATUS_META[activeStatus].color}16`, color: INVEST_POSITION_STATUS_META[activeStatus].color, padding: '4px 8px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>
                 + {groupKey === 'account' ? '账户' : '股票/基金'}
               </button>}
             </div>
@@ -2049,8 +2086,9 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
               const canChangeStatus = groupKey !== 'account' && groupKey !== 'aggregate';
               const itemKey = `${groupKey}:${item.id}`;
               const isExpanded = expandedItemKey === itemKey;
+              const monthlyProfit = positionMonthlyProfitById[item.id] ?? null;
               return (
-                <div key={item.id} data-invest-position-expanded={isExpanded ? 'true' : undefined} style={{ borderTop: '1px solid #f1f3f4', padding: '8px 0 2px' }}>
+                <div key={item.id} data-invest-position-key={itemKey} data-invest-position-expanded={isExpanded ? 'true' : undefined} style={{ borderTop: '1px solid #f1f3f4', padding: '8px 0 2px' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: isAggregateAccount ? '1fr 62px 26px' : canChangeStatus ? '1fr 34px 26px' : '1fr 26px', gap: 6, alignItems: 'center' }}>
                     <input
                       aria-label={`${groupLabel}名称`}
@@ -2080,9 +2118,10 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                         updatePositionDraft(groupKey, item.id, { status: event.target.value as InvestPositionStatus });
                       }} style={{ width: 34, height: 26, border: '1px solid #dadce0', borderRadius: 6, padding: '2px', appearance: 'none', WebkitAppearance: 'none', textAlign: 'center', fontSize: 11, color: C.sub, backgroundColor: '#fff', cursor: 'pointer' }}>
                         <option value="" disabled>→</option>
-                        {(Object.keys(INVEST_POSITION_STATUS_META) as InvestPositionStatus[])
-                          .filter((status) => status !== item.status)
-                          .map((status) => <option key={status} value={status}>{INVEST_POSITION_STATUS_META[status].label}</option>)}
+                        {(() => {
+                          const targetStatus: InvestPositionStatus = item.status === 'active' ? 'paused' : 'active';
+                          return <option value={targetStatus}>{INVEST_POSITION_STATUS_META[targetStatus].label}</option>;
+                        })()}
                       </select>
                     ) : null}
                     <button type="button" onClick={() => { if (window.confirm(`删除“${item.name}”？`)) { removePositionDraft(groupKey, item.id); setExpandedItemKey(null); } }} aria-label={`删除${item.name}`} style={{ width: 24, height: 24, border: 'none', borderRadius: 6, backgroundColor: '#fce8e6', color: C.red, cursor: 'pointer', fontWeight: 800 }}>×</button>
@@ -2090,15 +2129,17 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
 
                   {isExpanded && (
                     <div style={{ marginTop: 8 }}>
-                      <InvestInstrumentPicker
+                      {groupKey !== 'account' && <InvestInstrumentPicker
                         hideName
+                        autoFocusSymbol={autoFocusCodeItemKey === itemKey}
+                        onSymbolFocus={() => setAutoFocusCodeItemKey(null)}
                         name={item.name}
                         symbol={item.symbol}
                         quoteSource={item.quoteSource}
                         ariaLabel={groupLabel}
                         onChange={(patch) => updatePositionDraft(groupKey, item.id, patch)}
-                      />
-                      {activeStatus === 'closed' ? (
+                      />}
+                      {groupKey === 'account' ? (
                         <label style={{ display: 'grid', gridTemplateColumns: '1fr minmax(90px, 130px)', gap: 8, alignItems: 'center', marginTop: 8, fontSize: 10, color: C.sub }}>
                           <span>历史收益</span>
                           <AmountInput value={item.historicalProfitCny} onChange={(value) => updatePositionDraft(groupKey, item.id, { historicalProfitCny: value })} style={{ width: '100%', border: 'none', borderBottom: `1px solid ${C.green}`, outline: 'none', textAlign: 'right', color: C.green, fontSize: 12, fontWeight: 700, backgroundColor: 'transparent' }} />
@@ -2121,7 +2162,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                             <span>{item.quoteSource === 'eastmoney-fund' ? '净值' : '现价'}<br /><b style={{ color: metric?.live ? C.blue : C.sub }}>{priceDisplay ?? (needsSelection ? '请选择' : quoteFailed ? '失败' : symbol && isCurrentRecordMonth ? '获取中' : '—')}</b></span>
                             <span>市值<br /><b style={{ color: '#202124' }}>¥{formatCurrency(metric?.marketValueCny ?? 0)}</b></span>
                             <span>持有收益<br /><b style={{ color: (metric?.holdingProfitCny ?? 0) >= 0 ? C.red : C.green }}>{signedAmount(metric?.holdingProfitCny ?? 0)}</b></span>
-                            <span>总收益<br /><b style={{ color: (metric?.totalProfitCny ?? 0) >= 0 ? C.red : C.green }}>{signedAmount(metric?.totalProfitCny ?? 0)}</b></span>
+                            <span>累计收益<br /><b style={{ color: (metric?.totalProfitCny ?? 0) >= 0 ? C.red : C.green }}>{signedAmount(metric?.totalProfitCny ?? 0)}</b></span>
                           </div>
                           {quote?.regularMarketTime && <div style={{ marginTop: 4, textAlign: 'right', fontSize: 9, color: C.sub }}>{quote.regularMarketTime.slice(0, 10)}</div>}
                         </>
@@ -2129,6 +2170,13 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
                         <button type="button" onClick={() => setExpandedItemKey(null)} style={{ border: 'none', padding: 0, backgroundColor: 'transparent', color: C.sub, fontSize: 9, cursor: 'pointer' }}>收起</button>
                       </div>
+                    </div>
+                  )}
+                  {!isExpanded && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 5, marginTop: 5, padding: '5px 6px', borderRadius: 7, backgroundColor: '#f8f9fa', fontSize: 9, color: C.sub }}>
+                      <span>持有金额<br /><b style={{ color: '#202124' }}>¥{formatCurrency(metric?.marketValueCny ?? 0)}</b></span>
+                      <span>累计收益<br /><b style={{ color: (metric?.totalProfitCny ?? 0) >= 0 ? C.red : C.green }}>{signedAmount(metric?.totalProfitCny ?? 0)}</b></span>
+                      <span>本月收益<br /><b style={{ color: monthlyProfit === null ? C.sub : monthlyProfit >= 0 ? C.red : C.green }}>{monthlyProfit === null ? '—' : signedAmount(monthlyProfit)}</b></span>
                     </div>
                   )}
                   {splitOpen && isAggregateAccount && (
@@ -2152,7 +2200,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
         );
       })}
 
-      {activeStatus !== 'closed' && (
+      {activeStatus === 'active' && (
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.sub, marginTop: 2, cursor: 'pointer' }}>
           <input type="checkbox" checked={isBaseline} onChange={(e) => setIsBaseline(e.target.checked)} style={{ cursor: 'pointer' }} />
           基准月

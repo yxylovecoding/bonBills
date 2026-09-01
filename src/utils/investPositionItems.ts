@@ -78,6 +78,7 @@ export function calculateInvestPositionMetric(
   }
 
   const shares = Math.max(finiteOrZero(item.shares), 0);
+  const hasExplicitShares = item.shares !== undefined;
   const costPrice = Math.max(finiteOrZero(item.costPrice), 0);
   const hasLiveMarket = Boolean(
     market
@@ -87,10 +88,14 @@ export function calculateInvestPositionMetric(
     && market.fxRateToCny > 0,
   );
   const canCalculatePosition = hasLiveMarket && shares > 0;
-  const marketValueCny = canCalculatePosition
+  const marketValueCny = hasExplicitShares && shares === 0
+    ? 0
+    : canCalculatePosition
     ? roundMoney(shares * market!.price * market!.fxRateToCny)
     : roundMoney(Math.max(finiteOrZero(item.marketValueCny), 0));
-  const holdingProfitCny = canCalculatePosition && costPrice > 0
+  const holdingProfitCny = hasExplicitShares && shares === 0
+    ? 0
+    : canCalculatePosition && costPrice > 0
     ? roundMoney((market!.price - costPrice) * shares * market!.fxRateToCny)
     : roundMoney(finiteOrZero(item.holdingProfitCny));
 
