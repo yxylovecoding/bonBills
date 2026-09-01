@@ -16,6 +16,7 @@ type InvestInstrumentPickerProps = {
   symbol: string;
   quoteSource?: InvestQuoteSource;
   ariaLabel: string;
+  hideName?: boolean;
   onChange: (patch: { name?: string; symbol?: string; quoteSource?: InvestQuoteSource; quoteCurrency?: string }) => void;
 };
 
@@ -29,6 +30,7 @@ export default function InvestInstrumentPicker({
   symbol,
   quoteSource,
   ariaLabel,
+  hideName = false,
   onChange,
 }: InvestInstrumentPickerProps) {
   const listboxId = useId();
@@ -102,8 +104,8 @@ export default function InvestInstrumentPicker({
 
   const showMenu = open && Boolean(query.trim());
   return (
-    <div style={{ position: 'relative', minWidth: 0, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 72px', gap: 6 }}>
-      <input
+    <div style={{ position: 'relative', minWidth: 0, display: 'grid', gridTemplateColumns: hideName ? '1fr' : 'minmax(0, 1fr) 72px', gap: 6 }}>
+      {!hideName && <input
         aria-label={`${ariaLabel}名称`}
         aria-autocomplete="list"
         aria-controls={showMenu ? listboxId : undefined}
@@ -131,7 +133,7 @@ export default function InvestInstrumentPicker({
         onKeyDown={handleKeyDown}
         onBlur={() => window.setTimeout(() => setOpen(false), 120)}
         style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', fontSize: 12, fontWeight: 800, backgroundColor: 'transparent' }}
-      />
+      />}
       <input
         aria-label={`${name || ariaLabel}行情代码`}
         aria-autocomplete="list"

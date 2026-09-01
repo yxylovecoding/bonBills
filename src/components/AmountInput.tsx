@@ -11,22 +11,23 @@ export interface AmountInputProps
   extends Omit<InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value' | 'type'> {
   value: string;
   onChange: (value: string) => void;
+  decimalPlaces?: number;
 }
 
-const sanitizeAmount = (raw: string): string | null => {
+const sanitizeAmount = (raw: string, decimalPlaces: number): string | null => {
   const normalized = normalizeDecimalPunctuation(raw).replace(/（/g, '(').replace(/）/g, ')');
   if (normalized === '') return '';
   if (!/^[\d+\-*/(). ]*$/.test(normalized)) return null;
   const tokens = normalized.split(/[+\-*/() ]/);
   if (tokens.some((t) => {
     if ((t.match(/\./g) || []).length > 1) return true;
-    return (t.split('.')[1]?.length ?? 0) > SITE_DECIMAL_PLACES;
+    return (t.split('.')[1]?.length ?? 0) > decimalPlaces;
   })) return null;
   return normalized;
 };
 
 const AmountInput = forwardRef<HTMLInputElement, AmountInputProps>(
-  ({ value, onChange, onBlur, onKeyDown, onFocus, inputMode, ...rest }, ref) => {
+  ({ value, onChange, decimalPlaces = SITE_DECIMAL_PLACES, onBlur, onKeyDown, onFocus, inputMode, ...rest }, ref) => {
     const applyFormula = (raw: string) => {
       const evaluated = tryEvalFormula(raw);
       if (evaluated !== null && evaluated !== raw) onChange(evaluated);
@@ -36,9 +37,9 @@ const AmountInput = forwardRef<HTMLInputElement, AmountInputProps>(
         ref={ref}
         type="text"
         inputMode={inputMode ?? 'decimal'}
-        value={normalizeSitePrecisionForDisplay(value)}
+        value={normalizeSitePrecisionForDisplay(value, decimalPlaces)}
         onChange={(e) => {
-          const next = sanitizeAmount(e.target.value);
+          const next = sanitizeAmount(e.target.value, decimalPlaces);
           if (next === null) return;
           onChange(next);
         }}
