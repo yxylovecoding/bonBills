@@ -1976,6 +1976,16 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
   const [activeStatus, setActiveStatus] = useState<InvestPositionStatus>('active');
   const [expandedItemKey, setExpandedItemKey] = useState<string | null>(null);
   const [splitSource, setSplitSource] = useState<{ groupKey: InvestPositionGroupKey; id: string } | null>(null);
+  useEffect(() => {
+    if (!expandedItemKey) return;
+    const handleOutsidePointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Element && !event.target.closest('[data-invest-position-expanded="true"]')) {
+        setExpandedItemKey(null);
+      }
+    };
+    document.addEventListener('pointerdown', handleOutsidePointerDown);
+    return () => document.removeEventListener('pointerdown', handleOutsidePointerDown);
+  }, [expandedItemKey]);
   const visibleGroupKeys: InvestPositionGroupKey[] = activeStatus === 'closed'
     ? ['account', ...INVEST_POSITION_KEYS]
     : activeStatus === 'paused' && positionDraftGroups.aggregate.length > 0
@@ -2040,7 +2050,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
               const itemKey = `${groupKey}:${item.id}`;
               const isExpanded = expandedItemKey === itemKey;
               return (
-                <div key={item.id} style={{ borderTop: '1px solid #f1f3f4', padding: '8px 0 2px' }}>
+                <div key={item.id} data-invest-position-expanded={isExpanded ? 'true' : undefined} style={{ borderTop: '1px solid #f1f3f4', padding: '8px 0 2px' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: isAggregateAccount ? '1fr 62px 26px' : canChangeStatus ? '1fr 34px 26px' : '1fr 26px', gap: 6, alignItems: 'center' }}>
                     <input
                       aria-label={`${groupLabel}名称`}
