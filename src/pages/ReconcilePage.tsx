@@ -2365,6 +2365,7 @@ export default function ReconcilePage() {
           const livingExpenseTotal = detail.expense
             .filter((item) => item.label.endsWith('·生活'))
             .reduce((sum, item) => sum + item.amount, 0);
+          const livingExpenseStartIndex = detail.expense.findIndex((item) => item.label.endsWith('·生活'));
           return (
             <div key={row.key} style={{ marginBottom: 4 }}>
               <button
@@ -2406,8 +2407,14 @@ export default function ReconcilePage() {
                   {detail.expense.length > 0 && (
                     <div style={{ padding: '6px 14px 10px' }}>
                       <div style={{ fontSize: 11, fontWeight: 600, color: C.green, marginBottom: 6 }}>支出去向</div>
-                      {detail.expense.map((item) => (
-                        <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                      {detail.expense.map((item, itemIndex) => (
+                        <div key={item.label} style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          padding: itemIndex === livingExpenseStartIndex && itemIndex > 0 ? '10px 0 4px' : '4px 0',
+                          marginTop: itemIndex === livingExpenseStartIndex && itemIndex > 0 ? 5 : 0,
+                          borderTop: itemIndex === livingExpenseStartIndex && itemIndex > 0 ? '1px solid #dbe8fb' : 'none',
+                        }}>
                           <div><span style={{ fontSize: 13 }}>{item.icon} {item.label}</span>
                             {item.note && <span style={{ fontSize: 11, color: C.sub, marginLeft: 6 }}>{item.note}</span>}
                           </div>
