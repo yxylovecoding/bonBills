@@ -57,6 +57,56 @@ input[type='number'] { -moz-appearance: textfield; }
   margin: 0 auto;
 }
 
+.invest-position-group-title {
+  font-size: 12px;
+}
+
+.invest-position-group-monthly {
+  font-size: 9px;
+}
+
+.invest-position-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.invest-position-name {
+  grid-column: 1;
+  grid-row: 1;
+  font-size: 12px;
+}
+
+.invest-position-actions {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.invest-position-summary {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: grid;
+  gap: 5px;
+  margin-top: 5px;
+  padding: 5px 6px;
+  border-radius: 7px;
+  font-size: 9px;
+  min-width: 0;
+}
+
+.invest-position-summary > span {
+  min-width: 0;
+}
+
+.invest-position-summary b {
+  white-space: nowrap;
+}
+
 .home-page-shell {
   width: 100%;
   max-width: 448px;
@@ -838,6 +888,51 @@ input[type='number'] { -moz-appearance: textfield; }
 }
 
 @media (min-width: 960px) {
+  .invest-position-group-title {
+    font-size: 14px;
+  }
+
+  .invest-position-group-monthly {
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .invest-position-header--collapsed {
+    grid-template-columns: minmax(92px, 1.1fr) minmax(190px, 2fr) auto;
+    gap: 10px;
+  }
+
+  .invest-position-header--collapsed .invest-position-name {
+    grid-column: 1;
+    grid-row: 1;
+    font-size: 14px;
+  }
+
+  .invest-position-header--collapsed .invest-position-summary {
+    grid-column: 2;
+    grid-row: 1;
+    margin-top: 0;
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+
+  .invest-position-header--collapsed .invest-position-summary b {
+    font-size: 13px;
+  }
+
+  .invest-position-header--collapsed .invest-position-actions {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .invest-position-header--collapsed .invest-position-actions select {
+    font-size: 13px !important;
+  }
+
+  .invest-position-header--collapsed .invest-position-actions button {
+    font-size: 12px !important;
+  }
+
   .calendar-page-shell--split {
     max-width: 912px;
   }

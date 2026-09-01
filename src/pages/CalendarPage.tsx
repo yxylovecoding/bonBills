@@ -2183,13 +2183,13 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
         return (
           <div key={groupKey} style={{ border: '1px solid #e8eaed', borderRadius: 10, padding: '8px', backgroundColor: '#fff' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: items.length > 0 ? 7 : 0 }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 800 }}>
+              <div className="invest-position-group-heading" style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                <div className="invest-position-group-title" style={{ display: 'flex', alignItems: 'center', gap: 5, fontWeight: 800, whiteSpace: 'nowrap' }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: groupColor }} />
                   {groupLabel}
                 </div>
                 {items.length > 0 && groupKey !== 'account' && groupKey !== 'aggregate' && (
-                  <div style={{ marginTop: 2, paddingLeft: 13, fontSize: 9, color: groupMonthlyProfit === null ? C.sub : groupMonthlyProfit >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>
+                  <div className="invest-position-group-monthly" style={{ color: groupMonthlyProfit === null ? C.sub : groupMonthlyProfit >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                     本月 {groupMonthlyProfit === null ? '—' : signedAmount(groupMonthlyProfit)}
                   </div>
                 )}
@@ -2233,8 +2233,9 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
               const monthlyProfit = positionMonthlyProfitById[item.id] ?? null;
               return (
                 <div key={item.id} data-invest-position-key={itemKey} data-invest-position-expanded={isExpanded ? 'true' : undefined} style={{ borderTop: '1px solid #f1f3f4', padding: '8px 0 2px' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: isAggregateAccount ? '1fr 62px 26px' : canChangeStatus ? '1fr 34px 26px' : '1fr 26px', gap: 6, alignItems: 'center' }}>
+                  <div className={`invest-position-header${!isExpanded ? ' invest-position-header--collapsed' : ''}`}>
                     <input
+                      className="invest-position-name"
                       aria-label={`${groupLabel}名称`}
                       value={item.name}
                       readOnly={!isExpanded}
@@ -2247,28 +2248,37 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                       }}
                       onChange={(event) => updatePositionDraft(groupKey, item.id, { name: event.target.value })}
                       onKeyDown={(event) => { if (event.key === 'Escape') setExpandedItemKey(null); }}
-                      style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: isExpanded ? '1px solid #dadce0' : '1px solid transparent', outline: 'none', fontSize: 12, fontWeight: 800, backgroundColor: 'transparent', cursor: isExpanded ? 'text' : 'pointer' }}
+                      style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: isExpanded ? '1px solid #dadce0' : '1px solid transparent', outline: 'none', fontWeight: 800, backgroundColor: 'transparent', cursor: isExpanded ? 'text' : 'pointer' }}
                     />
-                    {isAggregateAccount ? (
-                      <button type="button" onClick={() => {
-                        setExpandedItemKey(null);
-                        setSplitSource(splitOpen ? null : { groupKey, id: item.id });
-                      }} style={{ height: 26, border: 'none', borderRadius: 6, backgroundColor: '#e8f0fe', color: C.blue, fontSize: 9, fontWeight: 800, cursor: 'pointer' }}>
-                        {splitOpen ? '收起' : '分出个股'}
-                      </button>
-                    ) : canChangeStatus ? (
-                      <select aria-label={`${item.name}移至其他状态`} title="切换状态" value="" onChange={(event) => {
-                        setExpandedItemKey(null);
-                        updatePositionDraft(groupKey, item.id, { status: event.target.value as InvestPositionStatus });
-                      }} style={{ width: 34, height: 26, border: '1px solid #dadce0', borderRadius: 6, padding: '2px', appearance: 'none', WebkitAppearance: 'none', textAlign: 'center', fontSize: 11, color: C.sub, backgroundColor: '#fff', cursor: 'pointer' }}>
-                        <option value="" disabled>→</option>
-                        {(() => {
-                          const targetStatus: InvestPositionStatus = item.status === 'active' ? 'paused' : 'active';
-                          return <option value={targetStatus}>{INVEST_POSITION_STATUS_META[targetStatus].label}</option>;
-                        })()}
-                      </select>
-                    ) : null}
-                    <button type="button" onClick={() => { if (window.confirm(`删除“${item.name}”？`)) { removePositionDraft(groupKey, item.id); setExpandedItemKey(null); } }} aria-label={`删除${item.name}`} style={{ width: 24, height: 24, border: 'none', borderRadius: 6, backgroundColor: '#fce8e6', color: C.red, cursor: 'pointer', fontWeight: 800 }}>×</button>
+                    {!isExpanded && (
+                      <div className="invest-position-summary" style={{ gridTemplateColumns: symbol ? 'repeat(3, minmax(0, 1fr))' : 'repeat(2, minmax(0, 1fr))', backgroundColor: '#f8f9fa', color: C.sub }}>
+                        <span>持有金额<br /><b style={{ color: '#202124' }}>{formatNativeCurrency(nativeMarketValue, positionCurrency || 'CNY')}</b></span>
+                        <span>累计收益<br /><b style={{ color: nativeTotalProfit >= 0 ? C.red : C.green }}>{formatNativeCurrency(nativeTotalProfit, profitCurrency, true)}</b></span>
+                        {symbol && <span>本月收益<br /><b style={{ color: monthlyProfit === null ? C.sub : monthlyProfit.value >= 0 ? C.red : C.green }}>{monthlyProfit === null ? '—' : formatNativeCurrency(monthlyProfit.value, monthlyProfit.currency, true)}</b></span>}
+                      </div>
+                    )}
+                    <div className="invest-position-actions">
+                      {isAggregateAccount ? (
+                        <button type="button" onClick={() => {
+                          setExpandedItemKey(null);
+                          setSplitSource(splitOpen ? null : { groupKey, id: item.id });
+                        }} style={{ height: 26, border: 'none', borderRadius: 6, backgroundColor: '#e8f0fe', color: C.blue, fontSize: 9, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                          {splitOpen ? '收起' : '分出个股'}
+                        </button>
+                      ) : canChangeStatus ? (
+                        <select aria-label={`${item.name}移至其他状态`} title="切换状态" value="" onChange={(event) => {
+                          setExpandedItemKey(null);
+                          updatePositionDraft(groupKey, item.id, { status: event.target.value as InvestPositionStatus });
+                        }} style={{ width: 34, height: 26, border: '1px solid #dadce0', borderRadius: 6, padding: '2px', appearance: 'none', WebkitAppearance: 'none', textAlign: 'center', fontSize: 11, color: C.sub, backgroundColor: '#fff', cursor: 'pointer' }}>
+                          <option value="" disabled>→</option>
+                          {(() => {
+                            const targetStatus: InvestPositionStatus = item.status === 'active' ? 'paused' : 'active';
+                            return <option value={targetStatus}>{INVEST_POSITION_STATUS_META[targetStatus].label}</option>;
+                          })()}
+                        </select>
+                      ) : null}
+                      <button type="button" onClick={() => { if (window.confirm(`删除“${item.name}”？`)) { removePositionDraft(groupKey, item.id); setExpandedItemKey(null); } }} aria-label={`删除${item.name}`} style={{ width: 24, height: 24, border: 'none', borderRadius: 6, backgroundColor: '#fce8e6', color: C.red, cursor: 'pointer', fontWeight: 800 }}>×</button>
+                    </div>
                   </div>
 
                   {isExpanded && (
@@ -2323,13 +2333,6 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
                         <button type="button" onClick={() => setExpandedItemKey(null)} style={{ border: 'none', padding: 0, backgroundColor: 'transparent', color: C.sub, fontSize: 9, cursor: 'pointer' }}>收起</button>
                       </div>
-                    </div>
-                  )}
-                  {!isExpanded && (
-                    <div style={{ display: 'grid', gridTemplateColumns: symbol ? 'repeat(3, minmax(0, 1fr))' : 'repeat(2, minmax(0, 1fr))', gap: 5, marginTop: 5, padding: '5px 6px', borderRadius: 7, backgroundColor: '#f8f9fa', fontSize: 9, color: C.sub }}>
-                      <span>持有金额<br /><b style={{ color: '#202124' }}>{formatNativeCurrency(nativeMarketValue, positionCurrency || 'CNY')}</b></span>
-                      <span>累计收益<br /><b style={{ color: nativeTotalProfit >= 0 ? C.red : C.green }}>{formatNativeCurrency(nativeTotalProfit, profitCurrency, true)}</b></span>
-                      {symbol && <span>本月收益<br /><b style={{ color: monthlyProfit === null ? C.sub : monthlyProfit.value >= 0 ? C.red : C.green }}>{monthlyProfit === null ? '—' : formatNativeCurrency(monthlyProfit.value, monthlyProfit.currency, true)}</b></span>}
                     </div>
                   )}
                   {splitOpen && isAggregateAccount && (
