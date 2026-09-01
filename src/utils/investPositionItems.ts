@@ -73,13 +73,14 @@ export function calculateInvestPositionMetric(
   const profitFxRateToCny = ['CNY', 'CNH'].includes(profitCurrency)
     ? 1
     : (market?.fxRateToCny ?? finiteOrZero(item.lastFxRateToCny)) || 1;
-  const historicalProfitCny = roundMoney(finiteOrZero(item.historicalProfitCny) * profitFxRateToCny);
+  // 兼容既有数据字段名：historicalProfitCny 实际保存的是用户手填的累计收益。
+  const cumulativeProfitCny = roundMoney(finiteOrZero(item.historicalProfitCny) * profitFxRateToCny);
   if (item.status === 'closed') {
     return {
       marketValueCny: 0,
       holdingProfitCny: 0,
-      historicalProfitCny,
-      totalProfitCny: historicalProfitCny,
+      historicalProfitCny: cumulativeProfitCny,
+      totalProfitCny: cumulativeProfitCny,
       profitCurrency,
       profitFxRateToCny,
       live: false,
@@ -107,12 +108,13 @@ export function calculateInvestPositionMetric(
     : canCalculatePosition && costPrice > 0
     ? roundMoney((market!.price - costPrice) * shares * market!.fxRateToCny)
     : roundMoney(finiteOrZero(item.holdingProfitCny));
+  const historicalProfitCny = roundMoney(cumulativeProfitCny - holdingProfitCny);
 
   return {
     marketValueCny,
     holdingProfitCny,
     historicalProfitCny,
-    totalProfitCny: roundMoney(holdingProfitCny + historicalProfitCny),
+    totalProfitCny: cumulativeProfitCny,
     profitCurrency,
     profitFxRateToCny,
     live: hasLiveMarket && market?.live !== false,
@@ -204,7 +206,7 @@ export function migrateLegacyInvestPositionItems(
         name: `原${labels[key]}汇总`,
         symbol: '',
         status: 'active',
-        historicalProfitCny: 0,
+        historicalProfitCny: holdingProfitCny,
         marketValueCny,
         holdingProfitCny,
       });

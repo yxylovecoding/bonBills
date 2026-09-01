@@ -1729,15 +1729,12 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       if (!source) return previous;
       const sourceMarketValue = source.status === 'closed' ? 0 : numberOrUndefined(source.marketValueCny) ?? 0;
       if (input.splitMarketValueCny > sourceMarketValue + 0.01) return previous;
-      const historicalProfitOriginal = roundCny(
-        input.splitTotalProfitOriginal - input.holdingProfitAtSplitCny / input.profitFxRateToCny,
-      );
       const sourceProfitCurrency = (source.historicalProfitCurrency || defaultInvestQuoteCurrency(input.sourceGroupKey) || 'CNY').toUpperCase();
       const sourceProfitFxRateToCny = ['CNY', 'CNH'].includes(sourceProfitCurrency)
         ? 1
         : source.lastFxRateToCny || input.profitFxRateToCny;
-      const historicalProfitFromSource = roundCny(
-        historicalProfitOriginal * input.profitFxRateToCny / sourceProfitFxRateToCny,
+      const totalProfitFromSource = roundCny(
+        input.splitTotalProfitOriginal * input.profitFxRateToCny / sourceProfitFxRateToCny,
       );
       const target: InvestPositionDraft = {
         id: makeInvestPositionId(),
@@ -1748,7 +1745,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
         status: source.status,
         shares: input.shares !== undefined ? String(input.shares) : '',
         costPrice: input.costPrice !== undefined ? String(input.costPrice) : '',
-        historicalProfitCny: String(historicalProfitOriginal),
+        historicalProfitCny: String(roundCny(input.splitTotalProfitOriginal)),
         historicalProfitCurrency: input.profitCurrency,
         marketValueCny: String(roundCny(input.splitMarketValueCny)),
         holdingProfitCny: String(roundCny(input.holdingProfitAtSplitCny)),
@@ -1758,7 +1755,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
         ...item,
         marketValueCny: String(roundCny(sourceMarketValue - input.splitMarketValueCny)),
         holdingProfitCny: String(roundCny((numberOrUndefined(item.holdingProfitCny) ?? 0) - input.holdingProfitAtSplitCny)),
-        historicalProfitCny: String(roundCny((numberOrUndefined(item.historicalProfitCny) ?? 0) - historicalProfitFromSource)),
+        historicalProfitCny: String(roundCny((numberOrUndefined(item.historicalProfitCny) ?? 0) - totalProfitFromSource)),
       } : item);
       return {
         ...previous,
@@ -2220,7 +2217,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
               const positionCurrency = (item.quoteCurrency || metric?.currency || defaultInvestQuoteCurrency(groupKey) || '').toUpperCase();
               const profitCurrency = (item.historicalProfitCurrency || positionCurrency || 'CNY').toUpperCase();
               const costPriceLabel = positionCurrency ? `成本价（${positionCurrency}）` : '成本价';
-              const historyProfitLabel = `历史收益${currencyMark(profitCurrency)}`;
+              const cumulativeProfitLabel = `累计收益${currencyMark(profitCurrency)}`;
               const nativeFxRate = metric?.profitFxRateToCny || 1;
               const nativeMarketValue = (metric?.marketValueCny ?? 0) / (metric?.fxRateToCny || nativeFxRate);
               const nativeHoldingProfit = (metric?.holdingProfitCny ?? 0) / nativeFxRate;
@@ -2298,7 +2295,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                       />}
                       {groupKey === 'account' ? (
                         <label style={{ display: 'grid', gridTemplateColumns: '1fr minmax(90px, 130px)', gap: 8, alignItems: 'center', marginTop: 8, fontSize: 10, color: C.sub }}>
-                          <span>历史收益</span>
+                          <span>累计收益</span>
                           <AmountInput value={item.historicalProfitCny} onChange={(value) => updatePositionDraft(groupKey, item.id, { historicalProfitCny: value })} style={{ width: '100%', border: 'none', borderBottom: `1px solid ${C.green}`, outline: 'none', textAlign: 'right', color: C.green, fontSize: 12, fontWeight: 700, backgroundColor: 'transparent' }} />
                         </label>
                       ) : (
@@ -2307,7 +2304,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                             {([
                               ['份额', 'shares'],
                               [costPriceLabel, 'costPrice'],
-                              [historyProfitLabel, 'historicalProfitCny'],
+                              [cumulativeProfitLabel, 'historicalProfitCny'],
                             ] as const).map(([label, field]) => (
                               <label key={field} style={{ minWidth: 0, fontSize: 10, color: C.sub }}>
                                 <span>{label}</span>
@@ -2445,7 +2442,6 @@ function PositionSplitPanel({
   const profitFxRateToCny = previewMetric?.profitFxRateToCny || source.lastFxRateToCny || 1;
   const holdingProfitAtSplitOriginal = holdingProfitAtSplit / profitFxRateToCny;
   const effectiveTotalProfitOriginal = numberOrUndefined(splitDraft.totalProfitCny) ?? holdingProfitAtSplitOriginal;
-  const historicalProfitAfterSplitOriginal = roundCny(effectiveTotalProfitOriginal - holdingProfitAtSplitOriginal);
   const amountTooLarge = effectiveMarketValue > sourceMarketValueCny + 0.01;
   const canSplit = Boolean(
     splitDraft.name.trim()
@@ -2484,20 +2480,20 @@ function PositionSplitPanel({
                     />
                   </label>
                   <label style={{ minWidth: 0, fontSize: 10, color: C.sub }}>
-                    <span>分出收益{currencyMark(profitCurrency)}</span>
+                    <span>分出累计收益{currencyMark(profitCurrency)}</span>
                     <AmountInput value={splitDraft.totalProfitCny} onChange={(value) => setSplitDraft({ ...splitDraft, totalProfitCny: value })} placeholder={String(roundCny(holdingProfitAtSplitOriginal))} style={{ width: '100%', border: 'none', borderBottom: `1px solid ${C.orange}`, outline: 'none', textAlign: 'right', fontSize: 11, fontWeight: 700, color: C.orange, backgroundColor: 'transparent', boxSizing: 'border-box' }} />
                   </label>
                 </div>}
                 {isClosedTarget && <div style={{ marginTop: 8 }}>
                   <label style={{ minWidth: 0, fontSize: 10, color: C.sub }}>
-                    <span>分出收益{currencyMark(profitCurrency)}</span>
+                    <span>分出累计收益{currencyMark(profitCurrency)}</span>
                     <AmountInput value={splitDraft.totalProfitCny} onChange={(value) => setSplitDraft({ ...splitDraft, totalProfitCny: value })} placeholder={String(roundCny(holdingProfitAtSplitOriginal))} style={{ width: '100%', border: 'none', borderBottom: `1px solid ${C.orange}`, outline: 'none', textAlign: 'right', fontSize: 11, fontWeight: 700, color: C.orange, backgroundColor: 'transparent', boxSizing: 'border-box' }} />
                   </label>
                 </div>}
                 {!isClosedTarget && splitDraft.symbol.trim() && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 5, marginTop: 8, padding: 6, borderRadius: 7, backgroundColor: '#fff', fontSize: 9, color: C.sub }}>
                   <span>{splitDraft.quoteSource === 'eastmoney-fund' ? '净值' : '现价'}<br /><b style={{ color: previewMetric?.live ? C.blue : C.sub }}>{previewMetric?.price !== undefined ? previewMetric.price.toFixed(splitDraft.quoteSource === 'eastmoney-fund' ? 4 : 2) : quoteFailed ? '失败' : splitDraft.symbol ? '获取中' : '—'}</b></span>
                   <span>持有收益<br /><b style={{ color: holdingProfitAtSplitOriginal >= 0 ? C.red : C.green }}>{signedProfit(holdingProfitAtSplitOriginal)}</b></span>
-                  <span>历史收益<br /><b style={{ color: historicalProfitAfterSplitOriginal >= 0 ? C.red : C.green }}>{signedProfit(historicalProfitAfterSplitOriginal)}</b></span>
+                  <span>累计收益<br /><b style={{ color: effectiveTotalProfitOriginal >= 0 ? C.red : C.green }}>{signedProfit(effectiveTotalProfitOriginal)}</b></span>
                 </div>}
                 {amountTooLarge && <div role="alert" style={{ marginTop: 6, fontSize: 10, color: C.red }}>分出金额超过账户金额</div>}
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 8 }}>
@@ -3251,8 +3247,6 @@ function MonthRow({
                       return cur > 0 || (record.investBreakdownPastProfit?.[k] ?? 0) !== 0 || (rawProfit !== undefined && rawProfit !== null && rawProfit !== 0);
                     }).map((k) => {
                       const cur    = record.investBreakdown![k] ?? 0;
-                      const rawProfit = record.investBreakdownProfit?.[k] ?? null;
-                      const pastTotal = record.investBreakdownPastProfit?.[k] ?? 0;
                       const profit = getCategoryProfit(record, k);
                       const prevProfit = getCategoryProfit(prev, k);
                       // 本月是基准月（未真正开始记录）时本月收益无法推算；基准月的次月仍可与基准月相减
@@ -3267,12 +3261,7 @@ function MonthRow({
                           </td>
                           <td style={{ padding: '4px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(cur)}</td>
                           <td style={{ padding: '4px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: profit !== null ? (profit >= 0 ? C.red : C.green) : C.sub }}>
-                            {profit !== null ? (
-                              <>
-                                <div>{profit >= 0 ? '+' : ''}{Math.round(profit)}</div>
-                                {pastTotal !== 0 && <div title={`持有收益 ${rawProfit ?? 0}，历史收益 ${pastTotal >= 0 ? '+' : ''}${Math.round(pastTotal)}`} style={{ fontSize: 10, lineHeight: 1.1, color: C.orange }}>历史</div>}
-                              </>
-                            ) : '—'}
+                            {profit !== null ? `${profit >= 0 ? '+' : ''}${Math.round(profit)}` : '—'}
                           </td>
                           <td style={{ padding: '4px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: monthlyProfit !== null ? (monthlyProfit >= 0 ? C.red : C.green) : C.sub }}>
                             {monthlyProfit !== null ? `${monthlyProfit >= 0 ? '+' : ''}${Math.round(monthlyProfit)}` : '—'}
