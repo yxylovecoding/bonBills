@@ -33,7 +33,7 @@ import { sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { getPayrollScheduleForMonth } from '../utils/payroll';
 import { getCategoryProfit, getInvestTotalForRate } from '../utils/investRecords';
 import { getMonthlyAssetChange, getMonthlySavedAmount, getMonthlySavingsRate } from '../utils/monthlyMetrics';
-import { getActiveSyncSecret } from '../utils/syncEngine';
+import { getActiveSyncSecret, triggerUpload } from '../utils/syncEngine';
 import {
   financeScreenshotImportMessage,
   importFinanceScreenshotFileIntoSnapshot,
@@ -1399,6 +1399,12 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     majorExpenses, majorExpensesNote, breakdown, breakdownProfit, usdComponents, sharedUsdRate,
     pastBreakdownProfit, pastUsdComponents,
   ]);
+  const criticalInvestmentSignature = useMemo(() => JSON.stringify({
+    isBaseline,
+    pastBreakdownProfit,
+    pastUsdComponents,
+  }), [isBaseline, pastBreakdownProfit, pastUsdComponents]);
+  const lastCriticalInvestmentSignatureRef = useRef(criticalInvestmentSignature);
 
   // 自动保存：任何字段变化都立即写回 store。
   // React StrictMode 在开发环境会重复执行 mount effect；用签名去重，避免空白新月份被写成 0。
@@ -1412,6 +1418,13 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     lastAutoSaveSignatureRef.current = autoSaveSignature;
     handleSave();
   }, [autoSaveSignature]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 基准月与 past 收益影响后续月份，变更后立即补一次云同步，避免刷新时被旧云数据覆盖。
+  useEffect(() => {
+    if (lastCriticalInvestmentSignatureRef.current === criticalInvestmentSignature) return;
+    lastCriticalInvestmentSignatureRef.current = criticalInvestmentSignature;
+    void triggerUpload();
+  }, [criticalInvestmentSignature]);
 
   const fieldStyle: React.CSSProperties = {
     width: '100%', border: '1.5px solid #fbbf24', borderRadius: 8,

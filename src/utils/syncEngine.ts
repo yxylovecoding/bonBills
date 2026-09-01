@@ -198,6 +198,8 @@ function debounce<T extends (...args: never[]) => void>(fn: T, ms: number) {
 
 let syncingFromServer = false; // 防止首次 setState 触发回传
 let activeSecret: string | null = null;
+let uploadInFlight: Promise<void> | null = null;
+let uploadQueued = false;
 
 export function getActiveSyncSecret(): string | null {
   if (activeSecret) return activeSecret;
@@ -210,35 +212,34 @@ export function getActiveSyncSecret(): string | null {
 
 export async function triggerUpload() {
   if (!activeSecret) return;
+  uploadQueued = true;
+  if (uploadInFlight) return uploadInFlight;
   const status = useSyncStatus.getState();
-  try {
-    status.setStatus('saving');
-    await uploadAll(activeSecret);
-    status.setStatus('saved');
-    setTimeout(() => {
-      if (useSyncStatus.getState().state === 'saved') useSyncStatus.getState().setStatus('idle');
-    }, 2000);
-  } catch (e) {
-    status.setStatus('error', e instanceof Error ? e.message : String(e));
-  }
-}
-
-function startSubscriptions(secret: string) {
-  const status = useSyncStatus.getState();
-  const debouncedUpload = debounce(async () => {
-    if (syncingFromServer) return;
+  uploadInFlight = (async () => {
     try {
       status.setStatus('saving');
-      await uploadAll(secret);
+      while (uploadQueued && activeSecret) {
+        uploadQueued = false;
+        await uploadAll(activeSecret);
+      }
       status.setStatus('saved');
       setTimeout(() => {
-        if (useSyncStatus.getState().state === 'saved') {
-          useSyncStatus.getState().setStatus('idle');
-        }
+        if (useSyncStatus.getState().state === 'saved') useSyncStatus.getState().setStatus('idle');
       }, 2000);
     } catch (e) {
       status.setStatus('error', e instanceof Error ? e.message : String(e));
+    } finally {
+      uploadInFlight = null;
+      if (uploadQueued) void triggerUpload();
     }
+  })();
+  return uploadInFlight;
+}
+
+function startSubscriptions() {
+  const debouncedUpload = debounce(() => {
+    if (syncingFromServer) return;
+    void triggerUpload();
   }, 2000);
 
   for (const s of stores) {
@@ -283,7 +284,7 @@ export async function initSync() {
       // 下一个 tick 再开订阅，避免刚 setState 触发回传
       setTimeout(() => {
         syncingFromServer = false;
-        startSubscriptions(secret);
+        startSubscriptions();
       }, 100);
       status.setStatus('saved', '已从云端同步');
       setTimeout(() => {
@@ -295,7 +296,7 @@ export async function initSync() {
       // 首次：上传当前 localStorage 数据到服务端
       status.setStatus('saving', '首次同步，上传本地数据');
       await uploadAll(secret);
-      startSubscriptions(secret);
+      startSubscriptions();
       status.setStatus('saved', '首次同步完成');
       setTimeout(() => {
         if (useSyncStatus.getState().state === 'saved') {

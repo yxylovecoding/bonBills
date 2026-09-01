@@ -36,6 +36,7 @@ export function recordFromBillAggregate(yearMonth: string, a: BillMonthlyAgg, pr
   const pick = (k: keyof BillMonthlyAgg, fallback: number) =>
     Math.abs(a[k] ?? 0) > 0.01 ? a[k] : fallback;
   return {
+    ...(prev ?? {}),
     yearMonth,
     income: pick('income', prev?.income ?? 0),
     totalExpense: pick('totalExpense', prev?.totalExpense ?? 0),
