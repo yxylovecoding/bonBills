@@ -18,6 +18,27 @@ export type InvestKey = keyof InvestHoldings;
 
 export interface InvestAllocTargets extends InvestHoldings {}
 
+export type InvestPositionStatus = 'active' | 'paused' | 'closed';
+
+export interface InvestPositionItem {
+  id: string;
+  name: string;
+  symbol: string;
+  status: InvestPositionStatus;
+  shares?: number;
+  costPrice?: number;
+  historicalProfitCny: number;
+  marketValueCny?: number;
+  holdingProfitCny?: number;
+  lastPrice?: number;
+  lastCurrency?: string;
+  lastFxRateToCny?: number;
+  quoteAt?: string;
+}
+
+export type InvestPositionGroupKey = InvestKey | 'account';
+export type InvestPositionItems = Partial<Record<InvestPositionGroupKey, InvestPositionItem[]>>;
+
 export interface UsStockHoldingItem {
   id: string;
   name: string;
@@ -199,6 +220,7 @@ export interface MonthlyRecord {
   investProfitComponents?: Partial<Record<'us' | 'usBond', { cny: number; rate: number; usd: number }>>;
   investBreakdownPastProfit?: Partial<InvestHoldings>; // 各品类 past 收益（已清仓，人民币，逐月继承）
   investPastProfitComponents?: Partial<Record<'us' | 'usBond', { cny: number; rate: number; usd: number }>>; // past 美元拆分
+  investPositionItems?: InvestPositionItems; // 投入/暂存/清仓的股票与基金明细
   isBaseline?: boolean;         // 基准月：虽有累计盈利但未真正开始记录，各品类「本月收益」不与之相减
   volatileLife: number;
   periodicLife: number;

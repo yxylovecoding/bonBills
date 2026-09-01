@@ -21,17 +21,33 @@ import {
   type ConfirmedExpenseSelection,
 } from '../stores/calendarStore';
 import { useConfigStore } from '../stores/configStore';
-import { useSnapshotStore } from '../stores/snapshotStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { usePossessionStore } from '../stores/possessionStore';
 import { classifyTag, type ManualTagCategory } from '../utils/tagCategory';
 import { usePrefsStore, REVIEWABLE_CATEGORIES, type ReviewableCategory } from '../stores/prefsStore';
 import { useDragSort } from '../hooks/useDragSort';
-import type { TagKind, MonthlyRecord, MajorExpense, InvestHoldings } from '../models/types';
+import type {
+  TagKind,
+  MonthlyRecord,
+  MajorExpense,
+  InvestHoldings,
+  InvestKey,
+  InvestPositionGroupKey,
+  InvestPositionItem,
+  InvestPositionItems,
+  InvestPositionStatus,
+} from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { getPayrollScheduleForMonth } from '../utils/payroll';
 import { getCategoryProfit, getInvestTotalForRate } from '../utils/investRecords';
+import {
+  INVEST_POSITION_GROUP_KEYS,
+  INVEST_POSITION_KEYS,
+  migrateLegacyInvestPositionItems,
+  summarizeInvestPositionItems,
+  type InvestMarketSnapshot,
+} from '../utils/investPositionItems';
 import { getMonthlyAssetChange, getMonthlySavedAmount, getMonthlySavingsRate } from '../utils/monthlyMetrics';
 import { getActiveSyncSecret, triggerUpload } from '../utils/syncEngine';
 import {
@@ -668,6 +684,185 @@ function TagLogicStats({ items, initialTag }: { items: BillStatisticItem[]; init
 // ── History helpers ───────────────────────────────────────────────
 const YEARLY_ONLY_BEFORE = '2023-01';
 const INVEST_KEYS = ['us', 'eu', 'asia', 'a', 'longBond', 'usBond', 'gold'] as const;
+const INVEST_POSITION_LABELS = Object.fromEntries(
+  INVEST_POSITION_KEYS.map((key) => [key, investMeta[key].label]),
+) as Record<InvestKey, string>;
+const INVEST_POSITION_STATUS_META: Record<InvestPositionStatus, { label: string; color: string }> = {
+  active: { label: '投入', color: C.blue },
+  paused: { label: '暂存', color: C.orange },
+  closed: { label: '清仓', color: C.green },
+};
+
+type InvestPositionDraft = Omit<InvestPositionItem, 'shares' | 'costPrice' | 'historicalProfitCny'> & {
+  shares: string;
+  costPrice: string;
+  historicalProfitCny: string;
+};
+type InvestPositionDraftGroups = Record<InvestPositionGroupKey, InvestPositionDraft[]>;
+type InvestmentQuoteResponse = {
+  symbol?: string;
+  currency?: string;
+  regularMarketPrice?: number | null;
+  regularMarketTime?: string | null;
+  bars?: Array<{ date: string; close?: number | null; adjClose?: number | null }>;
+};
+
+function emptyInvestPositionDraftGroups(): InvestPositionDraftGroups {
+  return INVEST_POSITION_GROUP_KEYS.reduce<InvestPositionDraftGroups>((groups, key) => {
+    groups[key] = [];
+    return groups;
+  }, {} as InvestPositionDraftGroups);
+}
+
+function investPositionDraftGroupsFromItems(items: InvestPositionItems): InvestPositionDraftGroups {
+  const groups = emptyInvestPositionDraftGroups();
+  for (const key of INVEST_POSITION_GROUP_KEYS) {
+    groups[key] = (items[key] ?? []).map((item) => ({
+      ...item,
+      shares: item.shares !== undefined ? String(item.shares) : '',
+      costPrice: item.costPrice !== undefined ? String(item.costPrice) : '',
+      historicalProfitCny: String(item.historicalProfitCny ?? 0),
+    }));
+  }
+  return groups;
+}
+
+function numberOrUndefined(value: string) {
+  if (!value.trim()) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function makeInvestPositionId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return `invest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function investPositionItemsFromDraftGroups(groups: InvestPositionDraftGroups): InvestPositionItems {
+  const items: InvestPositionItems = {};
+  for (const key of INVEST_POSITION_GROUP_KEYS) {
+    if (groups[key].length === 0) continue;
+    items[key] = groups[key].map((draft) => ({
+      ...draft,
+      symbol: draft.symbol.trim().toUpperCase(),
+      shares: numberOrUndefined(draft.shares),
+      costPrice: numberOrUndefined(draft.costPrice),
+      historicalProfitCny: numberOrUndefined(draft.historicalProfitCny) ?? 0,
+      status: key === 'account' ? 'closed' : draft.status,
+    }));
+  }
+  return items;
+}
+
+function latestQuotePrice(quote: InvestmentQuoteResponse | undefined) {
+  const regularMarketPrice = Number(quote?.regularMarketPrice);
+  if (Number.isFinite(regularMarketPrice) && regularMarketPrice > 0) return regularMarketPrice;
+  const bars = quote?.bars ?? [];
+  for (let index = bars.length - 1; index >= 0; index--) {
+    const price = Number(bars[index].adjClose ?? bars[index].close);
+    if (Number.isFinite(price) && price > 0) return price;
+  }
+  return null;
+}
+
+function useInvestPositionMarkets(items: InvestPositionItems, enabled: boolean, fallbackUsdRate: number | null) {
+  const symbols = useMemo(() => [...new Set(INVEST_POSITION_KEYS.flatMap((key) =>
+    (items[key] ?? [])
+      .filter((item) => item.status !== 'closed')
+      .map((item) => item.symbol.trim().toUpperCase())
+      .filter(Boolean),
+  ))], [items]);
+  const [quotes, setQuotes] = useState<Record<string, InvestmentQuoteResponse>>({});
+  const [quoteErrors, setQuoteErrors] = useState<Set<string>>(() => new Set());
+  const [usdRate, setUsdRate] = useState<number | null>(fallbackUsdRate);
+  const [otherFxRates, setOtherFxRates] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    if (!enabled || symbols.length === 0) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      const results = await Promise.allSettled(symbols.map(async (symbol) => {
+        const response = await fetch(`/api/market-chart?symbol=${encodeURIComponent(symbol)}&range=5d&interval=1d`, { signal: controller.signal });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return [symbol, await response.json() as InvestmentQuoteResponse] as const;
+      }));
+      if (controller.signal.aborted) return;
+      const errors = new Set<string>();
+      setQuotes((previous) => {
+        const next = { ...previous };
+        results.forEach((result, index) => {
+          if (result.status === 'fulfilled') next[result.value[0]] = result.value[1];
+          else errors.add(symbols[index]);
+        });
+        return next;
+      });
+      setQuoteErrors(errors);
+    }, 300);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [enabled, symbols.join('|')]);
+
+  useEffect(() => {
+    if (!enabled || !symbols.some((symbol) => (quotes[symbol]?.currency ?? '').toUpperCase() === 'USD')) return;
+    const controller = new AbortController();
+    fetch('/api/usd-rate', { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = await response.json() as UsdRateResponse;
+        if (Number.isFinite(payload.rate) && payload.rate > 0) setUsdRate(payload.rate);
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+      });
+    return () => controller.abort();
+  }, [enabled, symbols.map((symbol) => quotes[symbol]?.currency ?? '').join('|')]);
+
+  const otherCurrencies = useMemo(() => [...new Set(symbols.map((symbol) => (quotes[symbol]?.currency ?? '').toUpperCase())
+    .filter((currency) => currency && !['CNY', 'CNH', 'USD'].includes(currency)))], [quotes, symbols.join('|')]);
+  useEffect(() => {
+    if (!enabled || otherCurrencies.length === 0) return;
+    const controller = new AbortController();
+    Promise.allSettled(otherCurrencies.map(async (currency) => {
+      const pair = `${currency}CNY=X`;
+      const response = await fetch(`/api/market-chart?symbol=${encodeURIComponent(pair)}&range=5d&interval=1d`, { signal: controller.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const quote = await response.json() as InvestmentQuoteResponse;
+      const rate = latestQuotePrice(quote);
+      if (rate === null) throw new Error('missing fx rate');
+      return [currency, rate] as const;
+    })).then((results) => {
+      if (controller.signal.aborted) return;
+      setOtherFxRates((previous) => {
+        const next = { ...previous };
+        for (const result of results) if (result.status === 'fulfilled') next[result.value[0]] = result.value[1];
+        return next;
+      });
+    });
+    return () => controller.abort();
+  }, [enabled, otherCurrencies.join('|')]);
+
+  const marketsBySymbol = useMemo<Record<string, InvestMarketSnapshot | undefined>>(() => Object.fromEntries(symbols.map((symbol) => {
+    const quote = quotes[symbol];
+    const price = latestQuotePrice(quote);
+    const currency = (quote?.currency ?? '').toUpperCase();
+    const fxRateToCny = ['CNY', 'CNH'].includes(currency)
+      ? 1
+      : currency === 'USD'
+        ? usdRate
+        : otherFxRates[currency] ?? null;
+    if (price === null || fxRateToCny === null || !Number.isFinite(fxRateToCny) || fxRateToCny <= 0) return [symbol, undefined];
+    return [symbol, {
+      price,
+      currency,
+      fxRateToCny,
+      quoteAt: quote?.regularMarketTime ?? (quote?.bars?.length ? quote.bars[quote.bars.length - 1].date : undefined),
+    } satisfies InvestMarketSnapshot];
+  })), [otherFxRates, quotes, symbols.join('|'), usdRate]);
+
+  return { quotes, quoteErrors, marketsBySymbol };
+}
 const _NOW = new Date();
 
 function prevYearMonth(ym: string) {
@@ -1183,19 +1378,17 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   const internDays = tagCounts.intern > 0 ? tagCounts.intern : (existing?.internDays ?? 0);
 
   const [majorExpensesNote, setMajorExpensesNote] = useState<string>(existing?.majorExpensesNote ?? '');
-  const [breakdown, setBreakdown] = useState<Partial<Record<keyof InvestHoldings, string>>>(
+  const [breakdown] = useState<Partial<Record<keyof InvestHoldings, string>>>(
     () => Object.fromEntries(INVEST_KEYS.map((k) => [k, String(existing?.investBreakdown?.[k] ?? '')])) as Record<keyof InvestHoldings, string>
   );
-  const [breakdownProfit, setBreakdownProfit] = useState<Partial<Record<keyof InvestHoldings, string>>>(
+  const [breakdownProfit] = useState<Partial<Record<keyof InvestHoldings, string>>>(
     () => Object.fromEntries(INVEST_KEYS.map((k) => [k, String(existing?.investBreakdownProfit?.[k] ?? '')])) as Record<keyof InvestHoldings, string>
   );
   // past 收益：本月已存优先，否则继承上月（清仓收益持续累计，逐月带入作为默认起点）
-  const [pastBreakdownProfit, setPastBreakdownProfit] = useState<Partial<Record<keyof InvestHoldings, string>>>(() => {
+  const [pastBreakdownProfit] = useState<Partial<Record<keyof InvestHoldings, string>>>(() => {
     const src = existing?.investBreakdownPastProfit ?? prevRecord?.investBreakdownPastProfit;
     return Object.fromEntries(INVEST_KEYS.map((k) => [k, String(src?.[k] ?? '')])) as Record<keyof InvestHoldings, string>;
   });
-  const [showBreakdown, setShowBreakdown] = useState(true);
-  const [holdingsTab, setHoldingsTab] = useState<'now' | 'past'>('now');
   const initUsdComponents = (src: MonthlyRecord['investProfitComponents'] | undefined) => {
     const init: Partial<Record<'us' | 'usBond', { cny: string; rate: string; usd: string }>> = {};
     for (const k of ['us', 'usBond'] as const) {
@@ -1204,33 +1397,68 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     }
     return init;
   };
-  const [usdComponents, setUsdComponents] = useState(() => initUsdComponents(existing?.investProfitComponents));
-  const [pastUsdComponents, setPastUsdComponents] = useState(() =>
+  const [usdComponents] = useState(() => initUsdComponents(existing?.investProfitComponents));
+  const [pastUsdComponents] = useState(() =>
     initUsdComponents(existing?.investPastProfitComponents ?? prevRecord?.investPastProfitComponents),
   );
-  const [sharedUsdRate, setSharedUsdRate] = useState(() => {
+  const [sharedUsdRate] = useState(() => {
     const rate = existing?.investProfitComponents?.us?.rate ?? existing?.investProfitComponents?.usBond?.rate;
     return rate !== undefined ? String(rate) : '';
   });
-  const [usdModalTarget, setUsdModalTarget] = useState<{ key: 'us' | 'usBond'; tab: 'now' | 'past' } | null>(null);
-  const { current: snapshotCurrent } = useSnapshotStore();
+  const initialPositionItemsRef = useRef<InvestPositionItems | null>(null);
+  if (initialPositionItemsRef.current === null) {
+    const hasExistingInvestmentData = existing?.investPositionItems !== undefined
+      || INVEST_KEYS.some((key) => (existing?.investBreakdown?.[key] ?? 0) !== 0
+        || (existing?.investBreakdownProfit?.[key] ?? 0) !== 0
+        || (existing?.investBreakdownPastProfit?.[key] ?? 0) !== 0);
+    const sourceRecord = hasExistingInvestmentData
+      ? existing
+      : prevRecord?.investPositionItems !== undefined
+        ? { ...prevRecord, yearMonth, accumulatedProfit: existing?.accumulatedProfit ?? prevRecord.accumulatedProfit }
+        : existing;
+    initialPositionItemsRef.current = migrateLegacyInvestPositionItems(sourceRecord, INVEST_POSITION_LABELS);
+  }
+  const [positionDraftGroups, setPositionDraftGroups] = useState<InvestPositionDraftGroups>(() =>
+    investPositionDraftGroupsFromItems(initialPositionItemsRef.current ?? {}),
+  );
+  const positionItems = useMemo(() => investPositionItemsFromDraftGroups(positionDraftGroups), [positionDraftGroups]);
+  const hasPositionModel = existing?.investPositionItems !== undefined
+    || INVEST_POSITION_GROUP_KEYS.some((key) => positionDraftGroups[key].length > 0);
+  const isCurrentRecordMonth = yearMonth === `${_NOW.getFullYear()}-${String(_NOW.getMonth() + 1).padStart(2, '0')}`;
+  const fallbackUsdRate = Number(sharedUsdRate);
+  const { quotes: positionQuotes, quoteErrors: positionQuoteErrors, marketsBySymbol } = useInvestPositionMarkets(
+    positionItems,
+    isCurrentRecordMonth,
+    Number.isFinite(fallbackUsdRate) && fallbackUsdRate > 0 ? fallbackUsdRate : null,
+  );
+  const positionSummary = useMemo(
+    () => summarizeInvestPositionItems(positionItems, marketsBySymbol),
+    [marketsBySymbol, positionItems],
+  );
+  const positionItemsForSave = useMemo<InvestPositionItems>(() => {
+    const next: InvestPositionItems = {};
+    for (const key of INVEST_POSITION_GROUP_KEYS) {
+      const group = positionItems[key] ?? [];
+      if (group.length === 0) continue;
+      next[key] = group.map((item) => {
+        const metric = positionSummary.metricsById[item.id];
+        if (!metric) return item;
+        return {
+          ...item,
+          marketValueCny: metric.marketValueCny,
+          holdingProfitCny: metric.holdingProfitCny,
+          lastPrice: metric.price,
+          lastCurrency: metric.currency,
+          lastFxRateToCny: metric.fxRateToCny,
+          quoteAt: metric.quoteAt,
+        };
+      });
+    }
+    return next;
+  }, [positionItems, positionSummary]);
   const { config } = useConfigStore();
   const { tagCategory } = usePossessionStore();
   const mainFieldRefs = useRef<(HTMLInputElement | null)[]>([]);
-  const breakdownRefs = useRef<(HTMLInputElement | null)[]>([]);
-  const breakdownProfitRefs = useRef<(HTMLInputElement | null)[]>([]);
-  const copyHoldingsAndProfits = () => {
-    setBreakdown(
-      Object.fromEntries(INVEST_KEYS.map((k) => [k, String(snapshotCurrent.investHoldings[k] ?? 0)])) as Partial<Record<keyof InvestHoldings, string>>,
-    );
-    setBreakdownProfit(
-      Object.fromEntries(INVEST_KEYS.map((k) => [k, String(prevRecord?.investBreakdownProfit?.[k] ?? '')])) as Partial<Record<keyof InvestHoldings, string>>,
-    );
-    setUsdComponents(initUsdComponents(prevRecord?.investProfitComponents));
-    const previousUsdRate = prevRecord?.investProfitComponents?.us?.rate
-      ?? prevRecord?.investProfitComponents?.usBond?.rate;
-    setSharedUsdRate(previousUsdRate !== undefined ? String(previousUsdRate) : '');
-  };
 
   const n = (v: string) => parseFloat(v) || 0;
   const nOrNull = (v: string | undefined) => {
@@ -1245,8 +1473,12 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   };
   const breakdownInvestTotal = INVEST_KEYS.reduce((sum, k) => sum + (parseFloat(breakdown[k] ?? '') || 0), 0);
   const hasBreakdownAmount = INVEST_KEYS.some((k) => (parseFloat(breakdown[k] ?? '') || 0) > 0);
-  const investTotalStoredOnly = !hasBreakdownAmount && (existing?.investTotal ?? 0) > 0;
-  const investTotal = hasBreakdownAmount ? breakdownInvestTotal : (existing?.investTotal ?? 0);
+  const investTotalStoredOnly = !hasPositionModel && !hasBreakdownAmount && (existing?.investTotal ?? 0) > 0;
+  const investTotal = hasPositionModel
+    ? positionSummary.totalMarketValueCny
+    : hasBreakdownAmount
+      ? breakdownInvestTotal
+      : (existing?.investTotal ?? 0);
   const investTotalForRate = useMemo(
     () => getInvestTotalForRate(yearMonth, investTotal, allRecords),
     [yearMonth, investTotal, allRecords],
@@ -1254,11 +1486,12 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   const surplus = n(income) - n(totalExpense);
   const totalAssetsValue = nOrUndefined(totalAssets);
   const assetChange = getMonthlyAssetChange({ totalAssets: totalAssetsValue }, prevRecord);
-  const investIncome = prevRecord ? n(accProfit) - (prevRecord.accumulatedProfit ?? 0) : null;
+  const accumulatedProfitValue = hasPositionModel ? positionSummary.totalProfitCny : n(accProfit);
+  const investIncome = prevRecord ? accumulatedProfitValue - (prevRecord.accumulatedProfit ?? 0) : null;
   const savingsDraft = {
     income: n(income),
     investTotal,
-    accumulatedProfit: n(accProfit),
+    accumulatedProfit: accumulatedProfitValue,
     isBaseline,
   };
   const savedAmount = getMonthlySavedAmount(savingsDraft, prevRecord);
@@ -1270,11 +1503,58 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     if (!prevRecord) return null;
     // 本月是基准月（未真正开始记录）时本月收益无法推算；但基准月的次月仍可与基准月相减
     if (isBaseline) return null;
-    const now = nOrNull(breakdownProfit[k]);
-    const past = nOrNull(pastBreakdownProfit[k]);
+    const now = hasPositionModel ? positionSummary.holdingProfitByCategory[k] : nOrNull(breakdownProfit[k]);
+    const past = hasPositionModel ? positionSummary.historicalProfitByCategory[k] : nOrNull(pastBreakdownProfit[k]);
     const totalProfit = (now !== null || past !== null) ? (now ?? 0) + (past ?? 0) : null;
     const prevProfit = getCategoryProfit(prevRecord, k);
     return totalProfit !== null && prevProfit !== null ? totalProfit - prevProfit : null;
+  };
+
+  const updatePositionDraft = (groupKey: InvestPositionGroupKey, id: string, patch: Partial<InvestPositionDraft>) => {
+    setPositionDraftGroups((previous) => ({
+      ...previous,
+      [groupKey]: previous[groupKey].map((item) => item.id === id ? { ...item, ...patch } : item),
+    }));
+  };
+  const addPositionDraft = (groupKey: InvestPositionGroupKey, status: InvestPositionStatus) => {
+    const nextStatus = groupKey === 'account' ? 'closed' : status;
+    setPositionDraftGroups((previous) => ({
+      ...previous,
+      [groupKey]: [...previous[groupKey], {
+        id: makeInvestPositionId(),
+        name: groupKey === 'account' ? '新历史账户' : '新股票/基金',
+        symbol: '',
+        status: nextStatus,
+        shares: '',
+        costPrice: '',
+        historicalProfitCny: '0',
+      }],
+    }));
+  };
+  const removePositionDraft = (groupKey: InvestPositionGroupKey, id: string) => {
+    setPositionDraftGroups((previous) => ({
+      ...previous,
+      [groupKey]: previous[groupKey].filter((item) => item.id !== id),
+    }));
+  };
+  const transferPositionHistory = (
+    targetGroupKey: InvestPositionGroupKey,
+    targetId: string,
+    sourceGroupKey: InvestPositionGroupKey,
+    sourceId: string,
+    amount: number,
+  ) => {
+    if (!Number.isFinite(amount) || amount === 0 || (targetGroupKey === sourceGroupKey && targetId === sourceId)) return;
+    setPositionDraftGroups((previous) => {
+      const next = { ...previous };
+      next[sourceGroupKey] = previous[sourceGroupKey].map((item) => item.id === sourceId
+        ? { ...item, historicalProfitCny: String((numberOrUndefined(item.historicalProfitCny) ?? 0) - amount) }
+        : item);
+      next[targetGroupKey] = (targetGroupKey === sourceGroupKey ? next[targetGroupKey] : previous[targetGroupKey]).map((item) => item.id === targetId
+        ? { ...item, historicalProfitCny: String((numberOrUndefined(item.historicalProfitCny) ?? 0) + amount) }
+        : item);
+      return next;
+    });
   };
 
   const majorExpenses = useMemo<MajorExpense[]>(() => {
@@ -1353,11 +1633,17 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     return Object.keys(out).length ? out : undefined;
   };
   const handleSave = () => {
-    const bd = Object.fromEntries(INVEST_KEYS.map((k) => [k, parseFloat(breakdown[k] ?? '') || 0])) as unknown as InvestHoldings;
+    const bd = hasPositionModel
+      ? positionSummary.marketValueByCategory
+      : Object.fromEntries(INVEST_KEYS.map((k) => [k, parseFloat(breakdown[k] ?? '') || 0])) as unknown as InvestHoldings;
     const hasBreakdown = INVEST_KEYS.some((k) => (bd[k] || 0) > 0);
-    const bp = Object.fromEntries(INVEST_KEYS.map((k) => [k, parseFloat(breakdownProfit[k] ?? '') || 0])) as unknown as InvestHoldings;
+    const bp = hasPositionModel
+      ? positionSummary.holdingProfitByCategory
+      : Object.fromEntries(INVEST_KEYS.map((k) => [k, parseFloat(breakdownProfit[k] ?? '') || 0])) as unknown as InvestHoldings;
     const hasBreakdownProfit = INVEST_KEYS.some((k) => (bp[k] || 0) !== 0);
-    const pbp = Object.fromEntries(INVEST_KEYS.map((k) => [k, parseFloat(pastBreakdownProfit[k] ?? '') || 0])) as unknown as InvestHoldings;
+    const pbp = hasPositionModel
+      ? positionSummary.historicalProfitByCategory
+      : Object.fromEntries(INVEST_KEYS.map((k) => [k, parseFloat(pastBreakdownProfit[k] ?? '') || 0])) as unknown as InvestHoldings;
     const hasPastProfit = INVEST_KEYS.some((k) => (pbp[k] || 0) !== 0);
     const incomeNum       = n(income);
     const totalExpenseNum = n(totalExpense);
@@ -1377,12 +1663,13 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       periodicLife: periodicLifeNum, volatileLife: volatileLifeNum,
       consumption: consumptionNum, school: schoolNum,
       totalAssets: totalAssetsNum,
-      accumulatedProfit: n(accProfit), investTotal,
+      accumulatedProfit: accumulatedProfitValue, investTotal,
       investBreakdown: hasBreakdown ? bd : undefined,
       investBreakdownProfit: hasBreakdownProfit ? bp : undefined,
       investProfitComponents: buildProfitComponents(),
       investBreakdownPastProfit: hasPastProfit ? pbp : undefined,
       investPastProfitComponents: buildPastProfitComponents(),
+      investPositionItems: hasPositionModel ? positionItemsForSave : undefined,
       isBaseline: isBaseline || undefined,
       homeDays, travelDays, schoolDays, internDays,
       majorExpenses: majorExpenses.filter((e) => e.name.trim()),
@@ -1393,17 +1680,18 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   const autoSaveSignature = useMemo(() => JSON.stringify({
     income, totalExpense, periodicLife, volatileLife, consumption, school, totalAssets, accProfit, isBaseline,
     majorExpenses, majorExpensesNote, breakdown, breakdownProfit, usdComponents, sharedUsdRate,
-    pastBreakdownProfit, pastUsdComponents,
+    pastBreakdownProfit, pastUsdComponents, positionDraftGroups, positionItemsForSave,
   }), [
     income, totalExpense, periodicLife, volatileLife, consumption, school, totalAssets, accProfit, isBaseline,
     majorExpenses, majorExpensesNote, breakdown, breakdownProfit, usdComponents, sharedUsdRate,
-    pastBreakdownProfit, pastUsdComponents,
+    pastBreakdownProfit, pastUsdComponents, positionDraftGroups, positionItemsForSave,
   ]);
   const criticalInvestmentSignature = useMemo(() => JSON.stringify({
     isBaseline,
     pastBreakdownProfit,
     pastUsdComponents,
-  }), [isBaseline, pastBreakdownProfit, pastUsdComponents]);
+    positionDraftGroups,
+  }), [isBaseline, pastBreakdownProfit, pastUsdComponents, positionDraftGroups]);
   const lastCriticalInvestmentSignatureRef = useRef(criticalInvestmentSignature);
 
   // 自动保存：任何字段变化都立即写回 store。
@@ -1438,15 +1726,13 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     volatileLife, setVolatileLife, consumption, setConsumption, school, setSchool,
     totalAssets, setTotalAssets, totalAssetsValue, previousTotalAssets: prevRecord?.totalAssets,
     assetChange, savedAmount, savingsRate, savedAmountTitle,
-    accProfit, setAccProfit, investTotal, isBaseline, setIsBaseline,
-    majorExpenses, majorExpensesNote, setMajorExpensesNote, breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
-    pastBreakdownProfit, setPastBreakdownProfit, pastUsdComponents, setPastUsdComponents,
-    usdComponents, setUsdComponents, sharedUsdRate, setSharedUsdRate, usdModalTarget, setUsdModalTarget,
-    showBreakdown, setShowBreakdown, holdingsTab, setHoldingsTab,
+    accProfit, setAccProfit, accumulatedProfitValue, hasPositionModel, investTotal, isBaseline, setIsBaseline,
+    majorExpenses, majorExpensesNote, setMajorExpensesNote,
     surplus, investIncome, investMonthly, investAnnual, investTotalForRate, investTotalStoredOnly, n,
     getBreakdownMonthlyProfit,
-    mainFieldRefs, breakdownRefs, breakdownProfitRefs,
-    copyHoldingsAndProfits,
+    mainFieldRefs,
+    positionDraftGroups, updatePositionDraft, addPositionDraft, removePositionDraft, transferPositionHistory,
+    positionSummary, positionQuotes, positionQuoteErrors, isCurrentRecordMonth,
     handleSave,
     fieldStyle, labelStyle,
     yearMonth,
@@ -1459,9 +1745,9 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
   const {
     income, totalExpense, periodicLife, volatileLife, consumption, school,
     totalAssets, setTotalAssets, totalAssetsValue, previousTotalAssets, assetChange, savedAmount, savingsRate, savedAmountTitle,
-    accProfit, setAccProfit, investTotal,
+    accProfit, setAccProfit, accumulatedProfitValue, hasPositionModel, investTotal,
     surplus, investIncome, investMonthly, investAnnual, investTotalForRate, investTotalStoredOnly, n,
-    mainFieldRefs, breakdownRefs, labelStyle,
+    mainFieldRefs, labelStyle,
   } = state;
   const investTotalDisplay = investTotal > 0
     ? formatCurrency(investTotal)
@@ -1551,14 +1837,20 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
         </div>
         <div style={{ minWidth: 0, backgroundColor: '#fffbeb', borderRadius: 10, padding: '10px 14px' }}>
           <div style={{ fontSize: 11, color: C.sub }}>累计盈利</div>
-          <AmountInput
-            ref={(el) => { mainFieldRefs.current[0] = el; }}
-            value={accProfit}
-            onChange={setAccProfit}
-            placeholder="0.00"
-            style={{ width: '100%', border: 'none', borderBottom: '1.5px solid #fbbf24', borderRadius: 0, padding: '2px 0', fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', outline: 'none', backgroundColor: 'transparent', boxSizing: 'border-box', color: '#202124' }}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setTimeout(() => breakdownRefs.current[0]?.focus(), 0); } }}
-          />
+          {hasPositionModel ? (
+            <div style={{ padding: '2px 0', fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: accumulatedProfitValue >= 0 ? C.red : C.green }}>
+              {accumulatedProfitValue >= 0 ? '+' : '-'}¥{formatCurrency(accumulatedProfitValue)}
+            </div>
+          ) : (
+            <AmountInput
+              ref={(el) => { mainFieldRefs.current[0] = el; }}
+              value={accProfit}
+              onChange={setAccProfit}
+              placeholder="0.00"
+              style={{ width: '100%', border: 'none', borderBottom: '1.5px solid #fbbf24', borderRadius: 0, padding: '2px 0', fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', outline: 'none', backgroundColor: 'transparent', boxSizing: 'border-box', color: '#202124' }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setTimeout(() => mainFieldRefs.current[1]?.focus(), 0); } }}
+            />
+          )}
         </div>
         <div style={{ minWidth: 0, backgroundColor: investIncome !== null && investIncome >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
           <div style={{ fontSize: 11, color: C.sub }}>理财收入</div>
@@ -1620,341 +1912,150 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
   );
 }
 
-function UsdProfitModal({
-  investKey,
-  initial,
-  sharedRate,
-  onCancel,
-  onConfirm,
-}: {
-  investKey: 'us' | 'usBond';
-  initial?: { cny: string; rate: string; usd: string };
-  sharedRate: string;
-  onCancel: () => void;
-  onConfirm: (c: { cny: string; rate: string; usd: string }) => void;
-}) {
-  const [cny, setCny] = useState(initial?.cny ?? '');
-  const [rate, setRate] = useState(sharedRate || initial?.rate || '');
-  const [usd, setUsd] = useState(initial?.usd ?? '');
-  const [rateFetchState, setRateFetchState] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
-  const refs = useRef<(HTMLInputElement | null)[]>([]);
-  const total = (parseFloat(cny) || 0) + (parseFloat(rate) || 0) * (parseFloat(usd) || 0);
-  const totalRounded = Math.round(total * 100) / 100;
-  const focusNext = (i: number) => setTimeout(() => refs.current[i + 1]?.focus(), 0);
-  const importUsdRate = async () => {
-    setRateFetchState('loading');
-    try {
-      const response = await fetch('/api/usd-rate');
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = (await response.json()) as UsdRateResponse;
-      if (!Number.isFinite(data.rate) || data.rate <= 0) throw new Error('invalid USD rate');
-      setRate(data.rate.toFixed(2));
-      setRateFetchState('ok');
-    } catch {
-      setRateFetchState('error');
-    }
-  };
-  const inputStyle: React.CSSProperties = {
-    width: '100%', border: '1.5px solid #fbbf24', borderRadius: 8,
-    padding: '8px 10px', fontSize: 13, fontVariantNumeric: 'tabular-nums',
-    outline: 'none', backgroundColor: '#fffbeb', boxSizing: 'border-box',
-  };
-  return (
-    <div
-      onClick={onCancel}
-      style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{ width: '100%', maxWidth: 360, backgroundColor: '#fff', borderRadius: 12, padding: 16, boxShadow: '0 4px 24px rgba(0,0,0,0.18)' }}
-      >
-        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>{investMeta[investKey].label} now收益拆分</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {[
-            { label: '人民币收益 (¥)', val: cny, set: setCny },
-            { label: '美元汇率（美股/美债共用）', val: rate, set: setRate },
-            { label: '美元收益 ($)',   val: usd, set: setUsd },
-          ].map(({ label, val, set }, i, arr) => (
-            <div key={label}>
-              <div style={{ fontSize: 12, color: C.sub, marginBottom: 3 }}>{label}</div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <AmountInput
-                  ref={(el) => { refs.current[i] = el; }}
-                  value={val}
-                  onChange={set}
-                  placeholder="0"
-                  style={inputStyle}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      if (i < arr.length - 1) focusNext(i);
-                      else onConfirm({ cny, rate, usd });
-                    }
-                  }}
-                />
-                {i === 1 && (
-                  <button
-                    type="button"
-                    onClick={importUsdRate}
-                    disabled={rateFetchState === 'loading'}
-                    title="导入此时美元兑人民币汇率"
-                    style={{
-                      width: 58,
-                      flexShrink: 0,
-                      border: `1px solid ${rateFetchState === 'error' ? C.red : C.blue}`,
-                      borderRadius: 8,
-                      backgroundColor: rateFetchState === 'ok' ? '#e6f4ea' : '#fff',
-                      color: rateFetchState === 'error' ? C.red : rateFetchState === 'ok' ? C.green : C.blue,
-                      fontSize: 12,
-                      fontWeight: 700,
-                      padding: '8px 0',
-                      cursor: rateFetchState === 'loading' ? 'wait' : 'pointer',
-                    }}
-                  >
-                    {rateFetchState === 'loading' ? '导入中' : rateFetchState === 'ok' ? '已导入' : rateFetchState === 'error' ? '失败' : '导入'}
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-        <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, backgroundColor: '#f1f3f4', display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-          <span style={{ color: C.sub }}>now收益 = 人民币 + 汇率 × 美元</span>
-          <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: totalRounded >= 0 ? C.red : C.green }}>{totalRounded >= 0 ? '+' : ''}{formatCurrency(totalRounded)}</span>
-        </div>
-        <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button onClick={onCancel} style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', cursor: 'pointer', fontSize: 13 }}>取消</button>
-          <button onClick={() => onConfirm({ cny, rate, usd })} style={{ padding: '6px 14px', borderRadius: 8, border: 'none', backgroundColor: C.blue, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>确认</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function HoldingsSection({ state }: { state: MonthFormState }) {
-  const [monthlyProfitMode, setMonthlyProfitMode] = useState<'amount' | 'rate'>('amount');
   const {
-    showBreakdown, setShowBreakdown, copyHoldingsAndProfits,
-    breakdown, setBreakdown, breakdownProfit, setBreakdownProfit,
-    pastBreakdownProfit, setPastBreakdownProfit,
-    getBreakdownMonthlyProfit,
-    breakdownRefs, breakdownProfitRefs,
-    usdComponents, setUsdComponents, pastUsdComponents, setPastUsdComponents,
-    usdModalTarget, setUsdModalTarget,
-    sharedUsdRate, setSharedUsdRate,
-    holdingsTab, setHoldingsTab,
+    positionDraftGroups, updatePositionDraft, addPositionDraft, removePositionDraft, transferPositionHistory,
+    positionSummary, positionQuotes, positionQuoteErrors, isCurrentRecordMonth,
     isBaseline, setIsBaseline,
   } = state;
+  const [activeStatus, setActiveStatus] = useState<InvestPositionStatus>('active');
+  const [transferDraft, setTransferDraft] = useState<{
+    targetGroupKey: InvestPositionGroupKey;
+    targetId: string;
+    sourceToken: string;
+    amount: string;
+  } | null>(null);
+  const closedSources = INVEST_POSITION_GROUP_KEYS.flatMap((groupKey) =>
+    positionDraftGroups[groupKey]
+      .filter((item) => item.status === 'closed')
+      .map((item) => ({ groupKey, item })),
+  );
+  const visibleGroupKeys: InvestPositionGroupKey[] = activeStatus === 'closed'
+    ? ['account', ...INVEST_POSITION_KEYS]
+    : INVEST_POSITION_KEYS;
+  const signedAmount = (value: number) => `${value >= 0 ? '+' : '-'}¥${formatCurrency(value)}`;
+
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-        {showBreakdown ? (
-          <div style={{ display: 'inline-flex', border: `1px solid ${C.blue}`, borderRadius: 6, overflow: 'hidden' }}>
-            {(['now', 'past'] as const).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setHoldingsTab(tab)}
-                style={{ fontSize: 11, fontWeight: 600, padding: '3px 14px', border: 'none', cursor: 'pointer', backgroundColor: holdingsTab === tab ? (tab === 'past' ? C.orange : C.blue) : '#fff', color: holdingsTab === tab ? '#fff' : (tab === 'past' ? C.orange : C.blue) }}
-                title={tab === 'now' ? '当前持仓收益（每月独立录入）' : '已清仓收益（自动继承到下月）'}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-        ) : <span />}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {showBreakdown && holdingsTab === 'now' && (
-            <button
-              onClick={copyHoldingsAndProfits}
-              style={{ fontSize: 11, color: C.blue, border: `1px solid ${C.blue}`, borderRadius: 6, padding: '3px 8px', backgroundColor: '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }}
-              title="金额从对账页复制，收益从上个月复制"
-            >
-              📋 复制
-            </button>
-          )}
-          <button
-            onClick={() => setShowBreakdown((v) => !v)}
-            style={{ fontSize: 12, color: C.sub, background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px' }}
-            title={showBreakdown ? '收起' : '展开'}
-          >
-            {showBreakdown ? '▲' : '▼'}
-          </button>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <div style={{ borderRadius: 9, padding: '8px 10px', backgroundColor: '#f1f3f4' }}>
+          <div style={{ fontSize: 10, color: C.sub }}>持有市值</div>
+          <div style={{ fontSize: 14, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(positionSummary.totalMarketValueCny)}</div>
+        </div>
+        <div style={{ borderRadius: 9, padding: '8px 10px', backgroundColor: positionSummary.totalProfitCny >= 0 ? '#fce8e6' : '#e6f4ea' }}>
+          <div style={{ fontSize: 10, color: C.sub }}>累计收益</div>
+          <div style={{ fontSize: 14, fontWeight: 800, color: positionSummary.totalProfitCny >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>{signedAmount(positionSummary.totalProfitCny)}</div>
         </div>
       </div>
-      {showBreakdown && holdingsTab === 'now' && (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 6, tableLayout: 'fixed' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid #e8eaed' }}>
-              <th style={{ textAlign: 'left', padding: '4px 0', color: C.sub, fontWeight: 500, width: '25%' }}>品类</th>
-              <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '25%' }}>持仓金额</th>
-              <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '25%' }}>now收益</th>
-              <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '25%' }}>
-                <button
-                  type="button"
-                  onClick={() => setMonthlyProfitMode((mode) => mode === 'amount' ? 'rate' : 'amount')}
-                  title={monthlyProfitMode === 'amount' ? '点击切换为本月收益率' : '点击切换为本月收益'}
-                  aria-label={monthlyProfitMode === 'amount' ? '本月收益，点击切换为本月收益率' : '本月收益率，点击切换为本月收益'}
-                  style={{ padding: 0, border: 'none', borderBottom: `1px dashed ${C.sub}`, background: 'transparent', color: 'inherit', font: 'inherit', cursor: 'pointer' }}
-                >
-                  {monthlyProfitMode === 'amount' ? '本月收益' : '本月收益率'}
-                </button>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {INVEST_KEYS.map((k, i) => {
-              const monthlyProfit = getBreakdownMonthlyProfit(k);
-              const holdingAmount = parseFloat(breakdown[k] ?? '') || 0;
-              const monthlyProfitRate = monthlyProfit !== null && holdingAmount > 0
-                ? monthlyProfit / holdingAmount
-                : null;
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', border: '1px solid #dadce0', borderRadius: 8, overflow: 'hidden' }}>
+        {(Object.keys(INVEST_POSITION_STATUS_META) as InvestPositionStatus[]).map((status) => {
+          const meta = INVEST_POSITION_STATUS_META[status];
+          const selected = activeStatus === status;
+          return (
+            <button key={status} type="button" aria-pressed={selected} onClick={() => setActiveStatus(status)} style={{ border: 'none', borderRight: status !== 'closed' ? '1px solid #dadce0' : 'none', padding: '7px 4px', backgroundColor: selected ? `${meta.color}18` : '#fff', color: selected ? meta.color : C.sub, fontSize: 12, fontWeight: selected ? 800 : 500, cursor: 'pointer' }}>
+              {meta.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {visibleGroupKeys.map((groupKey) => {
+        const items = positionDraftGroups[groupKey].filter((item) => item.status === activeStatus);
+        const groupLabel = groupKey === 'account' ? '历史账户' : investMeta[groupKey].label;
+        const groupColor = groupKey === 'account' ? C.sub : investMeta[groupKey].color;
+        if (items.length === 0 && activeStatus === 'closed' && groupKey !== 'account') return null;
+        return (
+          <div key={groupKey} style={{ border: '1px solid #e8eaed', borderRadius: 10, padding: '8px', backgroundColor: '#fff' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: items.length > 0 ? 7 : 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 800 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: groupColor }} />
+                {groupLabel}
+              </div>
+              <button type="button" onClick={() => addPositionDraft(groupKey, activeStatus)} style={{ border: 'none', borderRadius: 7, backgroundColor: `${INVEST_POSITION_STATUS_META[activeStatus].color}16`, color: INVEST_POSITION_STATUS_META[activeStatus].color, padding: '4px 8px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>
+                + {groupKey === 'account' ? '账户' : '股票/基金'}
+              </button>
+            </div>
+
+            {items.map((item) => {
+              const metric = positionSummary.metricsById[item.id];
+              const symbol = item.symbol.trim().toUpperCase();
+              const quote = symbol ? positionQuotes[symbol] : undefined;
+              const quoteFailed = symbol ? positionQuoteErrors.has(symbol) : false;
+              const transferOpen = transferDraft?.targetId === item.id && transferDraft.targetGroupKey === groupKey;
               return (
-                <tr key={k} style={{ borderBottom: '1px solid #f1f3f4' }}>
-                  <td style={{ padding: '5px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', backgroundColor: investMeta[k].color, flexShrink: 0 }} />
-                    {investMeta[k].label}
-                  </td>
-                  <td style={{ padding: '4px 0', textAlign: 'right' }}>
-                    <AmountInput
-                      ref={(el) => { breakdownRefs.current[i] = el; }}
-                      value={breakdown[k] ?? ''} placeholder="0"
-                      onChange={(v) => setBreakdown((p) => ({ ...p, [k]: v }))}
-                      onKeyDown={(e) => {
-                        if (e.key !== 'Enter') return;
-                        e.preventDefault();
-                        if (i < INVEST_KEYS.length - 1) breakdownRefs.current[i + 1]?.focus();
-                        else breakdownProfitRefs.current[0]?.focus();
-                      }}
-                      style={{ width: '90%', border: 'none', borderBottom: '1px solid #fbbf24', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0' }}
-                    />
-                  </td>
-                  <td style={{ padding: '4px 0', textAlign: 'right' }}>
-                    {(k === 'us' || k === 'usBond') ? (
-                      <button
-                        type="button"
-                        onClick={() => setUsdModalTarget({ key: k, tab: 'now' })}
-                        style={{ width: '100%', border: 'none', borderBottom: `1px dashed ${C.blue}`, background: 'transparent', cursor: 'pointer', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0', color: C.blue }}
-                        title="点击拆分 now 为人民币 + 汇率 × 美元"
-                      >
-                        {breakdownProfit[k] && breakdownProfit[k] !== '0' && breakdownProfit[k] !== '' ? breakdownProfit[k] : '—'}
-                      </button>
-                    ) : (
-                      <AmountInput
-                        ref={(el) => { breakdownProfitRefs.current[i] = el; }}
-                        value={breakdownProfit[k] ?? ''} placeholder="0"
-                        onChange={(v) => setBreakdownProfit((p) => ({ ...p, [k]: v }))}
-                        onKeyDown={(e) => {
-                          if (e.key !== 'Enter') return;
-                          e.preventDefault();
-                          if (i < INVEST_KEYS.length - 1) breakdownProfitRefs.current[i + 1]?.focus();
-                          else e.currentTarget.blur();
-                        }}
-                        style={{ width: '100%', border: 'none', borderBottom: `1px solid ${C.blue}`, outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0', color: C.blue }}
-                      />
+                <div key={item.id} style={{ borderTop: '1px solid #f1f3f4', padding: '8px 0 2px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: groupKey === 'account' ? '1fr 26px' : activeStatus === 'closed' ? '1fr 72px 26px' : '1fr 72px 72px 26px', gap: 6, alignItems: 'center' }}>
+                    <input aria-label={`${groupLabel}名称`} value={item.name} onChange={(event) => updatePositionDraft(groupKey, item.id, { name: event.target.value })} style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', fontSize: 12, fontWeight: 800, backgroundColor: 'transparent' }} />
+                    {groupKey !== 'account' && activeStatus !== 'closed' && (
+                      <input aria-label={`${item.name}行情代码`} value={item.symbol} placeholder="代码" onChange={(event) => updatePositionDraft(groupKey, item.id, { symbol: event.target.value.toUpperCase() })} style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', fontSize: 11, fontWeight: 700, color: C.blue, textAlign: 'right', backgroundColor: 'transparent' }} />
                     )}
-                  </td>
-                  <td style={{ padding: '4px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: monthlyProfit !== null ? (monthlyProfit >= 0 ? C.red : C.green) : C.sub }}>
-                    {monthlyProfitMode === 'amount'
-                      ? (monthlyProfit !== null ? `${monthlyProfit >= 0 ? '+' : ''}${Math.round(monthlyProfit)}` : '—')
-                      : (monthlyProfitRate !== null ? `${monthlyProfitRate >= 0 ? '+' : ''}${(monthlyProfitRate * 100).toFixed(1)}%` : '—')}
-                  </td>
-                </tr>
+                    {groupKey !== 'account' && (
+                      <select aria-label={`${item.name}状态`} value={item.status} onChange={(event) => updatePositionDraft(groupKey, item.id, { status: event.target.value as InvestPositionStatus })} style={{ minWidth: 0, border: '1px solid #dadce0', borderRadius: 6, padding: '3px 2px', fontSize: 10, color: INVEST_POSITION_STATUS_META[item.status].color, backgroundColor: '#fff' }}>
+                        {(Object.keys(INVEST_POSITION_STATUS_META) as InvestPositionStatus[]).map((status) => <option key={status} value={status}>{INVEST_POSITION_STATUS_META[status].label}</option>)}
+                      </select>
+                    )}
+                    <button type="button" onClick={() => { if (window.confirm(`删除“${item.name}”？`)) removePositionDraft(groupKey, item.id); }} aria-label={`删除${item.name}`} style={{ width: 24, height: 24, border: 'none', borderRadius: 6, backgroundColor: '#fce8e6', color: C.red, cursor: 'pointer', fontWeight: 800 }}>×</button>
+                  </div>
+
+                  {activeStatus === 'closed' ? (
+                    <label style={{ display: 'grid', gridTemplateColumns: '1fr minmax(90px, 130px)', gap: 8, alignItems: 'center', marginTop: 8, fontSize: 10, color: C.sub }}>
+                      <span>历史收益</span>
+                      <AmountInput value={item.historicalProfitCny} onChange={(value) => updatePositionDraft(groupKey, item.id, { historicalProfitCny: value })} style={{ width: '100%', border: 'none', borderBottom: `1px solid ${C.green}`, outline: 'none', textAlign: 'right', color: C.green, fontSize: 12, fontWeight: 700, backgroundColor: 'transparent' }} />
+                    </label>
+                  ) : (
+                    <>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 7, marginTop: 8 }}>
+                        {([
+                          ['份额', 'shares'],
+                          ['成本价', 'costPrice'],
+                          ['历史收益¥', 'historicalProfitCny'],
+                        ] as const).map(([label, field]) => (
+                          <label key={field} style={{ minWidth: 0, fontSize: 10, color: C.sub }}>
+                            <span>{label}</span>
+                            <AmountInput value={item[field]} onChange={(value) => updatePositionDraft(groupKey, item.id, { [field]: value })} style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', textAlign: 'right', fontSize: 11, fontWeight: 700, color: field === 'historicalProfitCny' ? C.green : '#202124', backgroundColor: 'transparent', boxSizing: 'border-box' }} />
+                          </label>
+                        ))}
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 4, marginTop: 8, padding: '6px', borderRadius: 7, backgroundColor: '#f8f9fa', fontSize: 9, color: C.sub }}>
+                        <span>现价<br /><b style={{ color: metric?.live ? C.blue : C.sub }}>{metric?.price !== undefined ? `${metric.price.toFixed(2)} ${metric.currency ?? ''}` : quoteFailed ? '失败' : symbol && isCurrentRecordMonth ? '获取中' : '—'}</b></span>
+                        <span>市值<br /><b style={{ color: '#202124' }}>¥{formatCurrency(metric?.marketValueCny ?? 0)}</b></span>
+                        <span>持有收益<br /><b style={{ color: (metric?.holdingProfitCny ?? 0) >= 0 ? C.red : C.green }}>{signedAmount(metric?.holdingProfitCny ?? 0)}</b></span>
+                        <span>总收益<br /><b style={{ color: (metric?.totalProfitCny ?? 0) >= 0 ? C.red : C.green }}>{signedAmount(metric?.totalProfitCny ?? 0)}</b></span>
+                      </div>
+                      {closedSources.length > 0 && (
+                        <button type="button" onClick={() => setTransferDraft(transferOpen ? null : { targetGroupKey: groupKey, targetId: item.id, sourceToken: `${closedSources[0].groupKey}::${closedSources[0].item.id}`, amount: '' })} style={{ marginTop: 6, padding: 0, border: 'none', backgroundColor: 'transparent', color: C.blue, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>
+                          从清仓迁入历史收益
+                        </button>
+                      )}
+                      {transferOpen && transferDraft && (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 76px 42px', gap: 5, marginTop: 6 }}>
+                          <select aria-label="历史收益来源" value={transferDraft.sourceToken} onChange={(event) => setTransferDraft({ ...transferDraft, sourceToken: event.target.value })} style={{ minWidth: 0, border: '1px solid #dadce0', borderRadius: 6, fontSize: 10, backgroundColor: '#fff' }}>
+                            {closedSources.map(({ groupKey: sourceGroupKey, item: source }) => <option key={`${sourceGroupKey}::${source.id}`} value={`${sourceGroupKey}::${source.id}`}>{source.name}（{source.historicalProfitCny}）</option>)}
+                          </select>
+                          <AmountInput value={transferDraft.amount} onChange={(value) => setTransferDraft({ ...transferDraft, amount: value })} placeholder="±收益" aria-label="迁入的历史收益" style={{ width: '100%', border: '1px solid #dadce0', borderRadius: 6, fontSize: 10, textAlign: 'right', boxSizing: 'border-box' }} />
+                          <button type="button" onClick={() => {
+                            const [sourceGroupKey, sourceId] = transferDraft.sourceToken.split('::') as [InvestPositionGroupKey, string];
+                            transferPositionHistory(groupKey, item.id, sourceGroupKey, sourceId, Number(transferDraft.amount));
+                            setTransferDraft(null);
+                          }} style={{ border: 'none', borderRadius: 6, backgroundColor: C.blue, color: '#fff', fontSize: 10, fontWeight: 800, cursor: 'pointer' }}>迁入</button>
+                        </div>
+                      )}
+                      {quote?.regularMarketTime && <div style={{ marginTop: 4, textAlign: 'right', fontSize: 9, color: C.sub }}>{quote.regularMarketTime.slice(0, 10)}</div>}
+                    </>
+                  )}
+                </div>
               );
             })}
-          </tbody>
-        </table>
-      )}
-      {showBreakdown && holdingsTab === 'past' && (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 6, tableLayout: 'fixed' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid #e8eaed' }}>
-              <th style={{ textAlign: 'left', padding: '4px 0', color: C.sub, fontWeight: 500, width: '50%' }}>品类</th>
-              <th style={{ textAlign: 'right', padding: '4px 0', color: C.sub, fontWeight: 500, width: '50%' }}>past收益（已清仓）</th>
-            </tr>
-          </thead>
-          <tbody>
-            {INVEST_KEYS.map((k) => (
-              <tr key={k} style={{ borderBottom: '1px solid #f1f3f4' }}>
-                <td style={{ padding: '5px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', backgroundColor: investMeta[k].color, flexShrink: 0 }} />
-                  {investMeta[k].label}
-                </td>
-                <td style={{ padding: '4px 0', textAlign: 'right' }}>
-                  {(k === 'us' || k === 'usBond') ? (
-                    <button
-                      type="button"
-                      onClick={() => setUsdModalTarget({ key: k, tab: 'past' })}
-                      style={{ width: '100%', border: 'none', borderBottom: `1px dashed ${C.orange}`, background: 'transparent', cursor: 'pointer', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0', color: C.orange }}
-                      title="点击拆分 past 为人民币 + 汇率 × 美元"
-                    >
-                      {pastBreakdownProfit[k] && pastBreakdownProfit[k] !== '0' && pastBreakdownProfit[k] !== '' ? pastBreakdownProfit[k] : '—'}
-                    </button>
-                  ) : (
-                    <AmountInput
-                      value={pastBreakdownProfit[k] ?? ''} placeholder="0"
-                      onChange={(v) => setPastBreakdownProfit((p) => ({ ...p, [k]: v }))}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
-                      style={{ width: '100%', border: 'none', borderBottom: `1px solid ${C.orange}`, outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: '2px 0', color: C.orange }}
-                    />
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      {showBreakdown && holdingsTab === 'past' && (
-        <div style={{ marginTop: 8, fontSize: 11, color: C.sub, lineHeight: 1.5 }}>
-          past = 已清仓收益，自动继承到下个月作为默认；累计收益 = now + past。
-        </div>
-      )}
-      {showBreakdown && holdingsTab === 'now' && (
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.sub, marginTop: 8, cursor: 'pointer' }}>
+          </div>
+        );
+      })}
+
+      {activeStatus !== 'closed' && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.sub, marginTop: 2, cursor: 'pointer' }}>
           <input type="checkbox" checked={isBaseline} onChange={(e) => setIsBaseline(e.target.checked)} style={{ cursor: 'pointer' }} />
-          基准月（有累计盈利但未真正开始记录，仅本月「本月收益」不参与推算，次月可正常推算）
+          基准月
         </label>
       )}
-      {usdModalTarget && (() => {
-        const isNow = usdModalTarget.tab === 'now';
-        const comps = isNow ? usdComponents : pastUsdComponents;
-        const existingComp = comps[usdModalTarget.key];
-        const initialRate = isNow ? sharedUsdRate : (existingComp?.rate ?? sharedUsdRate);
-        return (
-          <UsdProfitModal
-            investKey={usdModalTarget.key}
-            initial={existingComp ? { cny: existingComp.cny, rate: initialRate, usd: existingComp.usd } : { cny: '', rate: initialRate, usd: '' }}
-            sharedRate={isNow ? sharedUsdRate : ''}
-            onCancel={() => setUsdModalTarget(null)}
-            onConfirm={(c) => {
-              const { key, tab } = usdModalTarget;
-              const rate = parseFloat(c.rate) || 0;
-              if (tab === 'now') {
-                setSharedUsdRate(c.rate);
-                const nextComponents = { ...usdComponents, [key]: c };
-                setUsdComponents(nextComponents);
-                setBreakdownProfit((p) => {
-                  const next = { ...p };
-                  for (const kk of ['us', 'usBond'] as const) {
-                    const item = nextComponents[kk];
-                    if (!item) continue;
-                    const cny = parseFloat(item.cny) || 0;
-                    const usd = parseFloat(item.usd) || 0;
-                    next[kk] = String(Math.round((cny + rate * usd) * 100) / 100);
-                  }
-                  return next;
-                });
-              } else {
-                setPastUsdComponents((prev) => ({ ...prev, [key]: c }));
-                const cny = parseFloat(c.cny) || 0;
-                const usd = parseFloat(c.usd) || 0;
-                setPastBreakdownProfit((p) => ({ ...p, [key]: String(Math.round((cny + rate * usd) * 100) / 100) }));
-              }
-              setUsdModalTarget(null);
-            }}
-          />
-        );
-      })()}
     </div>
   );
 }
@@ -2705,7 +2806,7 @@ function MonthRow({
                             {profit !== null ? (
                               <>
                                 <div>{profit >= 0 ? '+' : ''}{Math.round(profit)}</div>
-                                {pastTotal !== 0 && <div title={`now ${rawProfit ?? 0}，past ${pastTotal >= 0 ? '+' : ''}${Math.round(pastTotal)}`} style={{ fontSize: 10, lineHeight: 1.1, color: C.orange }}>past</div>}
+                                {pastTotal !== 0 && <div title={`持有收益 ${rawProfit ?? 0}，历史收益 ${pastTotal >= 0 ? '+' : ''}${Math.round(pastTotal)}`} style={{ fontSize: 10, lineHeight: 1.1, color: C.orange }}>历史</div>}
                               </>
                             ) : '—'}
                           </td>
