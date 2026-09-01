@@ -727,6 +727,10 @@ type InvestmentQuoteResponse = {
 };
 type InvestQuoteTarget = { key: string; symbol: string; source: InvestQuoteSource; currency?: string };
 
+function defaultInvestQuoteCurrency(groupKey: InvestPositionGroupKey) {
+  return groupKey === 'us' || groupKey === 'usBond' ? 'USD' : undefined;
+}
+
 function emptyInvestPositionDraftGroups(): InvestPositionDraftGroups {
   return INVEST_POSITION_GROUP_KEYS.reduce<InvestPositionDraftGroups>((groups, key) => {
     groups[key] = [];
@@ -811,7 +815,7 @@ function useInvestPositionMarkets(items: InvestPositionItems, enabled: boolean, 
         if (!item.quoteSource && /^\d{6}$/.test(symbol)) continue;
         const source = item.quoteSource ?? 'yahoo';
         const key = investPositionQuoteKey({ symbol, quoteSource: source });
-        targets.set(key, { key, symbol, source, currency: item.quoteCurrency });
+        targets.set(key, { key, symbol, source, currency: item.quoteCurrency || defaultInvestQuoteCurrency(categoryKey) });
       }
     }
     return [...targets.values()];
@@ -821,6 +825,9 @@ function useInvestPositionMarkets(items: InvestPositionItems, enabled: boolean, 
   const [quoteErrors, setQuoteErrors] = useState<Set<string>>(() => new Set());
   const [usdRate, setUsdRate] = useState<number | null>(fallbackUsdRate);
   const [otherFxRates, setOtherFxRates] = useState<Record<string, number>>({});
+  const resolvedCurrencySignature = quoteTargets.map((target) => (
+    quotes[target.key]?.currency || target.currency || ''
+  ).toUpperCase()).join('|');
 
   useEffect(() => {
     if (!enabled || quoteTargets.length === 0) return;
@@ -851,7 +858,7 @@ function useInvestPositionMarkets(items: InvestPositionItems, enabled: boolean, 
   }, [enabled, quoteTargetSignature]);
 
   useEffect(() => {
-    if (!enabled || !quoteTargets.some((target) => (quotes[target.key]?.currency ?? '').toUpperCase() === 'USD')) return;
+    if (!enabled || !quoteTargets.some((target) => (quotes[target.key]?.currency || target.currency || '').toUpperCase() === 'USD')) return;
     const controller = new AbortController();
     fetch('/api/usd-rate', { signal: controller.signal })
       .then(async (response) => {
@@ -863,9 +870,9 @@ function useInvestPositionMarkets(items: InvestPositionItems, enabled: boolean, 
         if (error instanceof DOMException && error.name === 'AbortError') return;
       });
     return () => controller.abort();
-  }, [enabled, quoteTargets.map((target) => quotes[target.key]?.currency ?? '').join('|')]);
+  }, [enabled, resolvedCurrencySignature]);
 
-  const otherCurrencies = useMemo(() => [...new Set(quoteTargets.map((target) => (quotes[target.key]?.currency ?? '').toUpperCase())
+  const otherCurrencies = useMemo(() => [...new Set(quoteTargets.map((target) => (quotes[target.key]?.currency || target.currency || '').toUpperCase())
     .filter((currency) => currency && !['CNY', 'CNH', 'USD'].includes(currency)))], [quotes, quoteTargetSignature]);
   useEffect(() => {
     if (!enabled || otherCurrencies.length === 0) return;
@@ -892,7 +899,7 @@ function useInvestPositionMarkets(items: InvestPositionItems, enabled: boolean, 
   const marketsBySymbol = useMemo<Record<string, InvestMarketSnapshot | undefined>>(() => Object.fromEntries(quoteTargets.map((target) => {
     const quote = quotes[target.key];
     const price = latestQuotePrice(quote);
-    const currency = (quote?.currency ?? '').toUpperCase();
+    const currency = (quote?.currency || target.currency || '').toUpperCase();
     const fxRateToCny = ['CNY', 'CNH'].includes(currency)
       ? 1
       : currency === 'USD'
@@ -2081,6 +2088,8 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
               const priceDisplay = metric?.price !== undefined
                 ? `${metric.price.toFixed(item.quoteSource === 'eastmoney-fund' ? 4 : 2)} ${metric.currency ?? ''}`
                 : null;
+              const positionCurrency = (item.quoteCurrency || metric?.currency || defaultInvestQuoteCurrency(groupKey) || '').toUpperCase();
+              const costPriceLabel = positionCurrency ? `成本价（${positionCurrency}）` : '成本价';
               const isAggregateAccount = symbol.length === 0;
               const splitOpen = splitSource?.id === item.id && splitSource.groupKey === groupKey;
               const canChangeStatus = groupKey !== 'account' && groupKey !== 'aggregate';
@@ -2149,12 +2158,12 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 7, marginTop: 8 }}>
                             {([
                               ['份额', 'shares'],
-                              ['成本价', 'costPrice'],
+                              [costPriceLabel, 'costPrice'],
                               ['历史收益¥', 'historicalProfitCny'],
                             ] as const).map(([label, field]) => (
                               <label key={field} style={{ minWidth: 0, fontSize: 10, color: C.sub }}>
                                 <span>{label}</span>
-                                <AmountInput decimalPlaces={field === 'costPrice' ? 4 : undefined} value={item[field]} onChange={(value) => updatePositionDraft(groupKey, item.id, { [field]: value })} style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', textAlign: 'right', fontSize: 11, fontWeight: 700, color: field === 'historicalProfitCny' ? C.green : '#202124', backgroundColor: 'transparent', boxSizing: 'border-box' }} />
+                                <AmountInput decimalPlaces={field === 'costPrice' || field === 'shares' ? 4 : undefined} value={item[field]} onChange={(value) => updatePositionDraft(groupKey, item.id, { [field]: value })} style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', textAlign: 'right', fontSize: 11, fontWeight: 700, color: field === 'historicalProfitCny' ? C.green : '#202124', backgroundColor: 'transparent', boxSizing: 'border-box' }} />
                               </label>
                             ))}
                           </div>
@@ -2272,6 +2281,8 @@ function PositionSplitPanel({
     [marketsBySymbol, previewItems],
   );
   const previewMetric = previewSummary.metricsById['aggregate-split-preview'];
+  const previewCurrency = (splitDraft.quoteCurrency || previewMetric?.currency || defaultInvestQuoteCurrency(previewGroupKey) || '').toUpperCase();
+  const splitCostPriceLabel = previewCurrency ? `成本价（${previewCurrency}）` : '成本价';
   const previewQuoteKey = investPositionQuoteKey(splitDraft);
   const quoteFailed = Boolean(previewQuoteKey && quoteErrors.has(previewQuoteKey));
   const isClosedTarget = source.status === 'closed';
@@ -2305,11 +2316,11 @@ function PositionSplitPanel({
                 {!isClosedTarget && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 7, marginTop: 8 }}>
                   {([
                     ['份额', 'shares'],
-                    ['成本价', 'costPrice'],
+                    [splitCostPriceLabel, 'costPrice'],
                   ] as const).map(([label, field]) => (
                     <label key={field} style={{ minWidth: 0, fontSize: 10, color: C.sub }}>
                       <span>{label}</span>
-                      <AmountInput decimalPlaces={field === 'costPrice' ? 4 : undefined} value={splitDraft[field]} onChange={(value) => setSplitDraft({ ...splitDraft, [field]: value })} style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', textAlign: 'right', fontSize: 11, fontWeight: 700, backgroundColor: 'transparent', boxSizing: 'border-box' }} />
+                      <AmountInput decimalPlaces={4} value={splitDraft[field]} onChange={(value) => setSplitDraft({ ...splitDraft, [field]: value })} style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', textAlign: 'right', fontSize: 11, fontWeight: 700, backgroundColor: 'transparent', boxSizing: 'border-box' }} />
                     </label>
                   ))}
                   <label style={{ minWidth: 0, fontSize: 10, color: C.sub }}>
