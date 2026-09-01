@@ -12,6 +12,7 @@ import { useTripStore } from '../stores/tripStore';
 import { detectTrips, detectTripGroups, extractCandidateTags, sumBillsByTag, flattenExpenseItems, isDailyTripTagFormat, tagYearMonthPrefix } from '../utils/trips';
 import type { TripGroup } from '../utils/trips';
 import AmountInput from '../components/AmountInput';
+import InvestInstrumentPicker from '../components/InvestInstrumentPicker';
 import { calcHistoryStats } from '../calculations/history';
 import { buildExpenseScopeStats, suggestScope, isInconsistent, type ExpenseScopeStatRow } from '../calculations/expenseScopeStats';
 import {
@@ -32,6 +33,7 @@ import type {
   MajorExpense,
   InvestHoldings,
   InvestKey,
+  InvestQuoteSource,
   InvestPositionGroupKey,
   InvestPositionItem,
   InvestPositionItems,
@@ -44,6 +46,7 @@ import { getCategoryProfit, getInvestTotalForRate } from '../utils/investRecords
 import {
   INVEST_POSITION_GROUP_KEYS,
   INVEST_POSITION_KEYS,
+  investPositionQuoteKey,
   migrateLegacyInvestPositionItems,
   summarizeInvestPositionItems,
   type InvestMarketSnapshot,
@@ -706,6 +709,7 @@ type InvestmentQuoteResponse = {
   regularMarketTime?: string | null;
   bars?: Array<{ date: string; close?: number | null; adjClose?: number | null }>;
 };
+type InvestQuoteTarget = { key: string; symbol: string; source: InvestQuoteSource; currency?: string };
 
 function emptyInvestPositionDraftGroups(): InvestPositionDraftGroups {
   return INVEST_POSITION_GROUP_KEYS.reduce<InvestPositionDraftGroups>((groups, key) => {
@@ -766,25 +770,36 @@ function latestQuotePrice(quote: InvestmentQuoteResponse | undefined) {
 }
 
 function useInvestPositionMarkets(items: InvestPositionItems, enabled: boolean, fallbackUsdRate: number | null) {
-  const symbols = useMemo(() => [...new Set(INVEST_POSITION_KEYS.flatMap((key) =>
-    (items[key] ?? [])
-      .filter((item) => item.status !== 'closed')
-      .map((item) => item.symbol.trim().toUpperCase())
-      .filter(Boolean),
-  ))], [items]);
+  const quoteTargets = useMemo(() => {
+    const targets = new Map<string, InvestQuoteTarget>();
+    for (const categoryKey of INVEST_POSITION_KEYS) {
+      for (const item of items[categoryKey] ?? []) {
+        const symbol = item.symbol.trim().toUpperCase();
+        if (!symbol || item.status === 'closed') continue;
+        // 裸六位代码可能是 A 股或公募基金，先要求用户从候选项确认数据源。
+        if (!item.quoteSource && /^\d{6}$/.test(symbol)) continue;
+        const source = item.quoteSource ?? 'yahoo';
+        const key = investPositionQuoteKey({ symbol, quoteSource: source });
+        targets.set(key, { key, symbol, source, currency: item.quoteCurrency });
+      }
+    }
+    return [...targets.values()];
+  }, [items]);
+  const quoteTargetSignature = quoteTargets.map((target) => `${target.key}:${target.currency ?? ''}`).join('|');
   const [quotes, setQuotes] = useState<Record<string, InvestmentQuoteResponse>>({});
   const [quoteErrors, setQuoteErrors] = useState<Set<string>>(() => new Set());
   const [usdRate, setUsdRate] = useState<number | null>(fallbackUsdRate);
   const [otherFxRates, setOtherFxRates] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    if (!enabled || symbols.length === 0) return;
+    if (!enabled || quoteTargets.length === 0) return;
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
-      const results = await Promise.allSettled(symbols.map(async (symbol) => {
-        const response = await fetch(`/api/market-chart?symbol=${encodeURIComponent(symbol)}&range=5d&interval=1d`, { signal: controller.signal });
+      const results = await Promise.allSettled(quoteTargets.map(async (target) => {
+        const currencyParam = target.currency ? `&currency=${encodeURIComponent(target.currency)}` : '';
+        const response = await fetch(`/api/market-chart?symbol=${encodeURIComponent(target.symbol)}&source=${encodeURIComponent(target.source)}${currencyParam}&range=5d&interval=1d`, { signal: controller.signal });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return [symbol, await response.json() as InvestmentQuoteResponse] as const;
+        return [target.key, await response.json() as InvestmentQuoteResponse] as const;
       }));
       if (controller.signal.aborted) return;
       const errors = new Set<string>();
@@ -792,7 +807,7 @@ function useInvestPositionMarkets(items: InvestPositionItems, enabled: boolean, 
         const next = { ...previous };
         results.forEach((result, index) => {
           if (result.status === 'fulfilled') next[result.value[0]] = result.value[1];
-          else errors.add(symbols[index]);
+          else errors.add(quoteTargets[index].key);
         });
         return next;
       });
@@ -802,10 +817,10 @@ function useInvestPositionMarkets(items: InvestPositionItems, enabled: boolean, 
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [enabled, symbols.join('|')]);
+  }, [enabled, quoteTargetSignature]);
 
   useEffect(() => {
-    if (!enabled || !symbols.some((symbol) => (quotes[symbol]?.currency ?? '').toUpperCase() === 'USD')) return;
+    if (!enabled || !quoteTargets.some((target) => (quotes[target.key]?.currency ?? '').toUpperCase() === 'USD')) return;
     const controller = new AbortController();
     fetch('/api/usd-rate', { signal: controller.signal })
       .then(async (response) => {
@@ -817,16 +832,16 @@ function useInvestPositionMarkets(items: InvestPositionItems, enabled: boolean, 
         if (error instanceof DOMException && error.name === 'AbortError') return;
       });
     return () => controller.abort();
-  }, [enabled, symbols.map((symbol) => quotes[symbol]?.currency ?? '').join('|')]);
+  }, [enabled, quoteTargets.map((target) => quotes[target.key]?.currency ?? '').join('|')]);
 
-  const otherCurrencies = useMemo(() => [...new Set(symbols.map((symbol) => (quotes[symbol]?.currency ?? '').toUpperCase())
-    .filter((currency) => currency && !['CNY', 'CNH', 'USD'].includes(currency)))], [quotes, symbols.join('|')]);
+  const otherCurrencies = useMemo(() => [...new Set(quoteTargets.map((target) => (quotes[target.key]?.currency ?? '').toUpperCase())
+    .filter((currency) => currency && !['CNY', 'CNH', 'USD'].includes(currency)))], [quotes, quoteTargetSignature]);
   useEffect(() => {
     if (!enabled || otherCurrencies.length === 0) return;
     const controller = new AbortController();
     Promise.allSettled(otherCurrencies.map(async (currency) => {
       const pair = `${currency}CNY=X`;
-      const response = await fetch(`/api/market-chart?symbol=${encodeURIComponent(pair)}&range=5d&interval=1d`, { signal: controller.signal });
+      const response = await fetch(`/api/market-chart?symbol=${encodeURIComponent(pair)}&source=yahoo&range=5d&interval=1d`, { signal: controller.signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const quote = await response.json() as InvestmentQuoteResponse;
       const rate = latestQuotePrice(quote);
@@ -843,8 +858,8 @@ function useInvestPositionMarkets(items: InvestPositionItems, enabled: boolean, 
     return () => controller.abort();
   }, [enabled, otherCurrencies.join('|')]);
 
-  const marketsBySymbol = useMemo<Record<string, InvestMarketSnapshot | undefined>>(() => Object.fromEntries(symbols.map((symbol) => {
-    const quote = quotes[symbol];
+  const marketsBySymbol = useMemo<Record<string, InvestMarketSnapshot | undefined>>(() => Object.fromEntries(quoteTargets.map((target) => {
+    const quote = quotes[target.key];
     const price = latestQuotePrice(quote);
     const currency = (quote?.currency ?? '').toUpperCase();
     const fxRateToCny = ['CNY', 'CNH'].includes(currency)
@@ -852,14 +867,14 @@ function useInvestPositionMarkets(items: InvestPositionItems, enabled: boolean, 
       : currency === 'USD'
         ? usdRate
         : otherFxRates[currency] ?? null;
-    if (price === null || fxRateToCny === null || !Number.isFinite(fxRateToCny) || fxRateToCny <= 0) return [symbol, undefined];
-    return [symbol, {
+    if (price === null || fxRateToCny === null || !Number.isFinite(fxRateToCny) || fxRateToCny <= 0) return [target.key, undefined];
+    return [target.key, {
       price,
       currency,
       fxRateToCny,
       quoteAt: quote?.regularMarketTime ?? (quote?.bars?.length ? quote.bars[quote.bars.length - 1].date : undefined),
     } satisfies InvestMarketSnapshot];
-  })), [otherFxRates, quotes, symbols.join('|'), usdRate]);
+  })), [otherFxRates, quotes, quoteTargetSignature, usdRate]);
 
   return { quotes, quoteErrors, marketsBySymbol };
 }
@@ -1522,7 +1537,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       ...previous,
       [groupKey]: [...previous[groupKey], {
         id: makeInvestPositionId(),
-        name: groupKey === 'account' ? '新历史账户' : '新股票/基金',
+        name: groupKey === 'account' ? '新历史账户' : '',
         symbol: '',
         status: nextStatus,
         shares: '',
@@ -1979,15 +1994,27 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
             {items.map((item) => {
               const metric = positionSummary.metricsById[item.id];
               const symbol = item.symbol.trim().toUpperCase();
-              const quote = symbol ? positionQuotes[symbol] : undefined;
-              const quoteFailed = symbol ? positionQuoteErrors.has(symbol) : false;
+              const quoteKey = investPositionQuoteKey(item);
+              const quote = symbol ? positionQuotes[quoteKey] : undefined;
+              const quoteFailed = symbol ? positionQuoteErrors.has(quoteKey) : false;
+              const needsSelection = Boolean(symbol && !item.quoteSource && /^\d{6}$/.test(symbol));
+              const priceDisplay = metric?.price !== undefined
+                ? `${metric.price.toFixed(item.quoteSource === 'eastmoney-fund' ? 4 : 2)} ${metric.currency ?? ''}`
+                : null;
               const transferOpen = transferDraft?.targetId === item.id && transferDraft.targetGroupKey === groupKey;
               return (
                 <div key={item.id} style={{ borderTop: '1px solid #f1f3f4', padding: '8px 0 2px' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: groupKey === 'account' ? '1fr 26px' : activeStatus === 'closed' ? '1fr 72px 26px' : '1fr 72px 72px 26px', gap: 6, alignItems: 'center' }}>
-                    <input aria-label={`${groupLabel}名称`} value={item.name} onChange={(event) => updatePositionDraft(groupKey, item.id, { name: event.target.value })} style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', fontSize: 12, fontWeight: 800, backgroundColor: 'transparent' }} />
-                    {groupKey !== 'account' && activeStatus !== 'closed' && (
-                      <input aria-label={`${item.name}行情代码`} value={item.symbol} placeholder="代码" onChange={(event) => updatePositionDraft(groupKey, item.id, { symbol: event.target.value.toUpperCase() })} style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', fontSize: 11, fontWeight: 700, color: C.blue, textAlign: 'right', backgroundColor: 'transparent' }} />
+                  <div style={{ display: 'grid', gridTemplateColumns: groupKey === 'account' ? '1fr 26px' : '1fr 72px 26px', gap: 6, alignItems: 'center' }}>
+                    {groupKey !== 'account' && activeStatus !== 'closed' ? (
+                      <InvestInstrumentPicker
+                        name={item.name}
+                        symbol={item.symbol}
+                        quoteSource={item.quoteSource}
+                        ariaLabel={groupLabel}
+                        onChange={(patch) => updatePositionDraft(groupKey, item.id, patch)}
+                      />
+                    ) : (
+                      <input aria-label={`${groupLabel}名称`} value={item.name} onChange={(event) => updatePositionDraft(groupKey, item.id, { name: event.target.value })} style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', fontSize: 12, fontWeight: 800, backgroundColor: 'transparent' }} />
                     )}
                     {groupKey !== 'account' && (
                       <select aria-label={`${item.name}状态`} value={item.status} onChange={(event) => updatePositionDraft(groupKey, item.id, { status: event.target.value as InvestPositionStatus })} style={{ minWidth: 0, border: '1px solid #dadce0', borderRadius: 6, padding: '3px 2px', fontSize: 10, color: INVEST_POSITION_STATUS_META[item.status].color, backgroundColor: '#fff' }}>
@@ -2017,7 +2044,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                         ))}
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 4, marginTop: 8, padding: '6px', borderRadius: 7, backgroundColor: '#f8f9fa', fontSize: 9, color: C.sub }}>
-                        <span>现价<br /><b style={{ color: metric?.live ? C.blue : C.sub }}>{metric?.price !== undefined ? `${metric.price.toFixed(2)} ${metric.currency ?? ''}` : quoteFailed ? '失败' : symbol && isCurrentRecordMonth ? '获取中' : '—'}</b></span>
+                        <span>现价<br /><b style={{ color: metric?.live ? C.blue : C.sub }}>{priceDisplay ?? (needsSelection ? '请选择' : quoteFailed ? '失败' : symbol && isCurrentRecordMonth ? '获取中' : '—')}</b></span>
                         <span>市值<br /><b style={{ color: '#202124' }}>¥{formatCurrency(metric?.marketValueCny ?? 0)}</b></span>
                         <span>持有收益<br /><b style={{ color: (metric?.holdingProfitCny ?? 0) >= 0 ? C.red : C.green }}>{signedAmount(metric?.holdingProfitCny ?? 0)}</b></span>
                         <span>总收益<br /><b style={{ color: (metric?.totalProfitCny ?? 0) >= 0 ? C.red : C.green }}>{signedAmount(metric?.totalProfitCny ?? 0)}</b></span>

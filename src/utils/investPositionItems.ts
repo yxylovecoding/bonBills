@@ -56,6 +56,10 @@ const finiteOrZero = (value: unknown) => {
 
 const roundMoney = (value: number) => Math.round(value * 100) / 100;
 
+export function investPositionQuoteKey(item: Pick<InvestPositionItem, 'symbol' | 'quoteSource'>) {
+  return `${item.quoteSource ?? 'yahoo'}:${item.symbol.trim().toUpperCase()}`;
+}
+
 export function calculateInvestPositionMetric(
   item: InvestPositionItem,
   market?: InvestMarketSnapshot,
@@ -73,18 +77,18 @@ export function calculateInvestPositionMetric(
 
   const shares = Math.max(finiteOrZero(item.shares), 0);
   const costPrice = Math.max(finiteOrZero(item.costPrice), 0);
-  const canUseMarket = Boolean(
+  const hasLiveMarket = Boolean(
     market
     && Number.isFinite(market.price)
     && market.price > 0
     && Number.isFinite(market.fxRateToCny)
-    && market.fxRateToCny > 0
-    && shares > 0,
+    && market.fxRateToCny > 0,
   );
-  const marketValueCny = canUseMarket
+  const canCalculatePosition = hasLiveMarket && shares > 0;
+  const marketValueCny = canCalculatePosition
     ? roundMoney(shares * market!.price * market!.fxRateToCny)
     : roundMoney(Math.max(finiteOrZero(item.marketValueCny), 0));
-  const holdingProfitCny = canUseMarket && costPrice > 0
+  const holdingProfitCny = canCalculatePosition && costPrice > 0
     ? roundMoney((market!.price - costPrice) * shares * market!.fxRateToCny)
     : roundMoney(finiteOrZero(item.holdingProfitCny));
 
@@ -93,11 +97,11 @@ export function calculateInvestPositionMetric(
     holdingProfitCny,
     historicalProfitCny,
     totalProfitCny: roundMoney(holdingProfitCny + historicalProfitCny),
-    live: canUseMarket,
-    price: canUseMarket ? market!.price : item.lastPrice,
-    currency: canUseMarket ? market!.currency : item.lastCurrency,
-    fxRateToCny: canUseMarket ? market!.fxRateToCny : item.lastFxRateToCny,
-    quoteAt: canUseMarket ? market!.quoteAt : item.quoteAt,
+    live: hasLiveMarket,
+    price: hasLiveMarket ? market!.price : item.lastPrice,
+    currency: hasLiveMarket ? market!.currency : item.lastCurrency,
+    fxRateToCny: hasLiveMarket ? market!.fxRateToCny : item.lastFxRateToCny,
+    quoteAt: hasLiveMarket ? market!.quoteAt : item.quoteAt,
   };
 }
 
@@ -112,7 +116,10 @@ export function summarizeInvestPositionItems(
 
   for (const key of INVEST_POSITION_KEYS) {
     for (const item of items[key] ?? []) {
-      const market = item.symbol ? marketsBySymbol[item.symbol.trim().toUpperCase()] : undefined;
+      const normalizedSymbol = item.symbol.trim().toUpperCase();
+      const market = item.symbol
+        ? marketsBySymbol[investPositionQuoteKey(item)] ?? marketsBySymbol[normalizedSymbol]
+        : undefined;
       const metric = calculateInvestPositionMetric(item, market);
       metricsById[item.id] = metric;
       marketValueByCategory[key] += metric.marketValueCny;

@@ -19,11 +19,14 @@ export type InvestKey = keyof InvestHoldings;
 export interface InvestAllocTargets extends InvestHoldings {}
 
 export type InvestPositionStatus = 'active' | 'paused' | 'closed';
+export type InvestQuoteSource = 'yahoo' | 'eastmoney-fund';
 
 export interface InvestPositionItem {
   id: string;
   name: string;
   symbol: string;
+  quoteSource?: InvestQuoteSource;
+  quoteCurrency?: string;
   status: InvestPositionStatus;
   shares?: number;
   costPrice?: number;
