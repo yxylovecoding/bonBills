@@ -14,6 +14,7 @@ export interface InvestMarketSnapshot {
   price: number;
   currency: string;
   fxRateToCny: number;
+  live?: boolean;
   quoteAt?: string;
 }
 
@@ -22,6 +23,8 @@ export interface InvestPositionMetric {
   holdingProfitCny: number;
   historicalProfitCny: number;
   totalProfitCny: number;
+  profitCurrency: string;
+  profitFxRateToCny: number;
   live: boolean;
   price?: number;
   currency?: string;
@@ -66,13 +69,19 @@ export function calculateInvestPositionMetric(
   item: InvestPositionItem,
   market?: InvestMarketSnapshot,
 ): InvestPositionMetric {
-  const historicalProfitCny = roundMoney(finiteOrZero(item.historicalProfitCny));
+  const profitCurrency = (item.historicalProfitCurrency || item.quoteCurrency || market?.currency || item.lastCurrency || 'CNY').toUpperCase();
+  const profitFxRateToCny = ['CNY', 'CNH'].includes(profitCurrency)
+    ? 1
+    : (market?.fxRateToCny ?? finiteOrZero(item.lastFxRateToCny)) || 1;
+  const historicalProfitCny = roundMoney(finiteOrZero(item.historicalProfitCny) * profitFxRateToCny);
   if (item.status === 'closed') {
     return {
       marketValueCny: 0,
       holdingProfitCny: 0,
       historicalProfitCny,
       totalProfitCny: historicalProfitCny,
+      profitCurrency,
+      profitFxRateToCny,
       live: false,
     };
   }
@@ -104,7 +113,9 @@ export function calculateInvestPositionMetric(
     holdingProfitCny,
     historicalProfitCny,
     totalProfitCny: roundMoney(holdingProfitCny + historicalProfitCny),
-    live: hasLiveMarket,
+    profitCurrency,
+    profitFxRateToCny,
+    live: hasLiveMarket && market?.live !== false,
     price: hasLiveMarket ? market!.price : item.lastPrice,
     currency: hasLiveMarket ? market!.currency : item.lastCurrency,
     fxRateToCny: hasLiveMarket ? market!.fxRateToCny : item.lastFxRateToCny,

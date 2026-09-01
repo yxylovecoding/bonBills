@@ -2362,6 +2362,9 @@ export default function ReconcilePage() {
           const isOpen = expandedBudget === row.key;
           const detail = budgetDetails[row.key];
           const balance = row.inc - row.exp;
+          const livingExpenseTotal = detail.expense
+            .filter((item) => item.label.endsWith('·生活'))
+            .reduce((sum, item) => sum + item.amount, 0);
           return (
             <div key={row.key} style={{ marginBottom: 4 }}>
               <button
@@ -2411,6 +2414,12 @@ export default function ReconcilePage() {
                           <span style={{ fontSize: 13, fontWeight: 500, color: C.green, fontVariantNumeric: 'tabular-nums' }}>-¥{formatCurrency(item.amount)}</span>
                         </div>
                       ))}
+                      {livingExpenseTotal > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5, paddingTop: 7, borderTop: '1px solid #dbe8fb', fontSize: 13, fontWeight: 700 }}>
+                          <span style={{ color: C.sub }}>生活总支出</span>
+                          <span style={{ color: C.green, fontVariantNumeric: 'tabular-nums' }}>-¥{formatCurrency(livingExpenseTotal)}</span>
+                        </div>
+                      )}
                     </div>
                   )}
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 14px', backgroundColor: balance >= 0 ? '#fce8e6' : '#e6f4ea', fontSize: 13, fontWeight: 600 }}>

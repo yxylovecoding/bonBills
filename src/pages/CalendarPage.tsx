@@ -6,6 +6,7 @@ import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
 import { tagMeta, investMeta } from '../data/mockData';
 import { aggregateExpenseItems, assignExpenseIds, type BillItem, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
 import { fieldsNeedingRestore, importBillFileIntoStores, recordFromBillAggregate } from '../utils/billImportActions';
+import { importInvestmentFileIntoStores } from '../utils/importInvestments';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useExpenseScopeOverrideStore, resolveExpenseScope, subcategoryKey, type ExpenseScope, type OverrideValue, type OverrideDimension } from '../stores/expenseScopeOverrideStore';
 import { useTripStore } from '../stores/tripStore';
@@ -91,10 +92,17 @@ type UsdRateResponse = {
   source?: string;
 };
 
-type BillAttachmentResponse = {
+type MailAttachmentPayload = {
+  kind?: 'bill' | 'investment';
   fileName: string;
   contentType?: string;
   base64: string;
+  subject?: string;
+  uid?: number;
+};
+
+type BillAttachmentResponse = MailAttachmentPayload & {
+  attachments?: MailAttachmentPayload[];
 };
 
 // ── Calendar helpers ──────────────────────────────────────────────
@@ -139,6 +147,18 @@ function formatCurrencyValue(value: number) {
   return `${value < 0 ? '-' : ''}¥${formatCurrency(value)}`;
 }
 
+function currencyMark(currency: string) {
+  const normalized = currency.toUpperCase();
+  if (normalized === 'USD') return '$';
+  if (normalized === 'CNY' || normalized === 'CNH') return '¥';
+  return `${normalized} `;
+}
+
+function formatNativeCurrency(value: number, currency: string, signed = false) {
+  const sign = value < 0 ? '-' : signed ? '+' : '';
+  return `${sign}${currencyMark(currency)}${formatCurrency(value)}`;
+}
+
 function getAssetChangeTitle(currentTotalAssets?: number, previousTotalAssets?: number) {
   const formula = '资产增加 = 本月总资产 − 上月总资产';
   if (currentTotalAssets === undefined) return `${formula}；本月总资产未记录`;
@@ -169,10 +189,15 @@ function base64ToFile(base64: string, fileName: string, contentType?: string): F
   return new File([bytes], fileName, { type: contentType || 'application/vnd.ms-excel' });
 }
 
-async function fetchLatestBillAttachment(): Promise<File> {
+async function fetchLatestMailAttachments(): Promise<Array<{ kind: 'bill' | 'investment'; file: File; subject?: string; uid?: number }>> {
   const secret = getActiveSyncSecret();
   if (!secret) throw new Error('缺少同步密码');
-  const res = await fetch('/api/latest-bill-attachment', {
+  const lastInvestmentMailUid = useMonthlyStore.getState().records.reduce(
+    (latest, record) => Math.max(latest, record.lastInvestmentMailUid ?? 0),
+    0,
+  );
+  const query = lastInvestmentMailUid > 0 ? `?sinceInvestmentUid=${lastInvestmentMailUid}` : '';
+  const res = await fetch(`/api/latest-bill-attachment${query}`, {
     headers: { Authorization: `Bearer ${secret}` },
   });
   if (!res.ok) {
@@ -180,7 +205,13 @@ async function fetchLatestBillAttachment(): Promise<File> {
     throw new Error(body?.error || `HTTP ${res.status}`);
   }
   const body = await res.json() as BillAttachmentResponse;
-  return base64ToFile(body.base64, body.fileName, body.contentType);
+  const attachments = body.attachments?.length ? body.attachments : [body];
+  return attachments.map((attachment) => ({
+    kind: attachment.kind === 'investment' ? 'investment' : 'bill',
+    file: base64ToFile(attachment.base64, attachment.fileName, attachment.contentType),
+    subject: attachment.subject,
+    uid: attachment.uid,
+  }));
 }
 
 // ── Bill tag detail helpers ───────────────────────────────────────
@@ -691,18 +722,19 @@ const INVEST_POSITION_LABELS = Object.fromEntries(
   INVEST_POSITION_KEYS.map((key) => [key, investMeta[key].label]),
 ) as Record<InvestKey, string>;
 const INVEST_POSITION_STATUS_META: Record<InvestPositionStatus, { label: string; color: string }> = {
-  active: { label: '投入', color: C.blue },
-  paused: { label: '暂存/清仓', color: C.orange },
-  closed: { label: '暂存/清仓', color: C.orange },
+  active: { label: 'now', color: C.blue },
+  paused: { label: 'past', color: C.orange },
+  closed: { label: 'past', color: C.orange },
 };
 const INVEST_POSITION_TAB_STATUSES: InvestPositionStatus[] = ['active', 'paused'];
 
-type InvestPositionDraft = Omit<InvestPositionItem, 'shares' | 'costPrice' | 'historicalProfitCny' | 'marketValueCny' | 'holdingProfitCny'> & {
+type InvestPositionDraft = Omit<InvestPositionItem, 'shares' | 'costPrice' | 'historicalProfitCny' | 'marketValueCny' | 'holdingProfitCny' | 'lastPrice'> & {
   shares: string;
   costPrice: string;
   historicalProfitCny: string;
   marketValueCny: string;
   holdingProfitCny: string;
+  lastPrice: string;
 };
 type InvestPositionDraftGroups = Record<InvestPositionGroupKey, InvestPositionDraft[]>;
 type PositionSplitInput = {
@@ -715,8 +747,10 @@ type PositionSplitInput = {
   shares?: number;
   costPrice?: number;
   splitMarketValueCny: number;
-  splitTotalProfitCny: number;
+  splitTotalProfitOriginal: number;
   holdingProfitAtSplitCny: number;
+  profitCurrency: string;
+  profitFxRateToCny: number;
 };
 type InvestmentQuoteResponse = {
   symbol?: string;
@@ -725,7 +759,8 @@ type InvestmentQuoteResponse = {
   regularMarketTime?: string | null;
   bars?: Array<{ date: string; close?: number | null; adjClose?: number | null }>;
 };
-type InvestQuoteTarget = { key: string; symbol: string; source: InvestQuoteSource; currency?: string };
+type InvestQuoteTarget = { key: string; symbol: string; source: InvestQuoteSource; currency?: string; fallbackPrice?: number };
+type PositionProfitDisplay = { value: number; currency: string };
 
 function defaultInvestQuoteCurrency(groupKey: InvestPositionGroupKey) {
   return groupKey === 'us' || groupKey === 'usBond' ? 'USD' : undefined;
@@ -755,8 +790,10 @@ function investPositionDraftGroupsFromItems(items: InvestPositionItems): InvestP
           : '',
       costPrice: item.costPrice !== undefined ? String(item.costPrice) : '',
       historicalProfitCny: String(item.historicalProfitCny ?? 0),
+      historicalProfitCurrency: item.historicalProfitCurrency || item.quoteCurrency || defaultInvestQuoteCurrency(key) || 'CNY',
       marketValueCny: item.marketValueCny !== undefined ? String(item.marketValueCny) : '',
       holdingProfitCny: item.holdingProfitCny !== undefined ? String(item.holdingProfitCny) : '',
+      lastPrice: item.lastPrice !== undefined ? String(item.lastPrice) : '',
     }));
   }
   return groups;
@@ -785,8 +822,10 @@ function investPositionItemsFromDraftGroups(groups: InvestPositionDraftGroups): 
       shares: numberOrUndefined(draft.shares),
       costPrice: numberOrUndefined(draft.costPrice),
       historicalProfitCny: numberOrUndefined(draft.historicalProfitCny) ?? 0,
+      historicalProfitCurrency: draft.historicalProfitCurrency || draft.quoteCurrency || defaultInvestQuoteCurrency(key) || 'CNY',
       marketValueCny: numberOrUndefined(draft.marketValueCny),
       holdingProfitCny: numberOrUndefined(draft.holdingProfitCny),
+      lastPrice: numberOrUndefined(draft.lastPrice),
       status: key === 'account' ? 'closed' : key === 'aggregate' || draft.status === 'closed' ? 'paused' : draft.status,
     }));
   }
@@ -810,17 +849,23 @@ function useInvestPositionMarkets(items: InvestPositionItems, enabled: boolean, 
     for (const categoryKey of INVEST_POSITION_KEYS) {
       for (const item of items[categoryKey] ?? []) {
         const symbol = item.symbol.trim().toUpperCase();
-        if (!symbol || (item.shares !== undefined && item.shares <= 0)) continue;
+        if (!symbol) continue;
         // 裸六位代码可能是 A 股或公募基金，先要求用户从候选项确认数据源。
         if (!item.quoteSource && /^\d{6}$/.test(symbol)) continue;
         const source = item.quoteSource ?? 'yahoo';
         const key = investPositionQuoteKey({ symbol, quoteSource: source });
-        targets.set(key, { key, symbol, source, currency: item.quoteCurrency || defaultInvestQuoteCurrency(categoryKey) });
+        targets.set(key, {
+          key,
+          symbol,
+          source,
+          currency: item.quoteCurrency || defaultInvestQuoteCurrency(categoryKey),
+          fallbackPrice: item.lastPrice,
+        });
       }
     }
     return [...targets.values()];
   }, [items]);
-  const quoteTargetSignature = quoteTargets.map((target) => `${target.key}:${target.currency ?? ''}`).join('|');
+  const quoteTargetSignature = quoteTargets.map((target) => `${target.key}:${target.currency ?? ''}:${target.fallbackPrice ?? ''}`).join('|');
   const [quotes, setQuotes] = useState<Record<string, InvestmentQuoteResponse>>({});
   const [quoteErrors, setQuoteErrors] = useState<Set<string>>(() => new Set());
   const [usdRate, setUsdRate] = useState<number | null>(fallbackUsdRate);
@@ -898,7 +943,9 @@ function useInvestPositionMarkets(items: InvestPositionItems, enabled: boolean, 
 
   const marketsBySymbol = useMemo<Record<string, InvestMarketSnapshot | undefined>>(() => Object.fromEntries(quoteTargets.map((target) => {
     const quote = quotes[target.key];
-    const price = latestQuotePrice(quote);
+    const livePrice = latestQuotePrice(quote);
+    const fallbackPrice = Number(target.fallbackPrice);
+    const price = livePrice ?? (Number.isFinite(fallbackPrice) && fallbackPrice > 0 ? fallbackPrice : null);
     const currency = (quote?.currency || target.currency || '').toUpperCase();
     const fxRateToCny = ['CNY', 'CNH'].includes(currency)
       ? 1
@@ -910,6 +957,7 @@ function useInvestPositionMarkets(items: InvestPositionItems, enabled: boolean, 
       price,
       currency,
       fxRateToCny,
+      live: livePrice !== null,
       quoteAt: quote?.regularMarketTime ?? (quote?.bars?.length ? quote.bars[quote.bars.length - 1].date : undefined),
     } satisfies InvestMarketSnapshot];
   })), [otherFxRates, quotes, quoteTargetSignature, usdRate]);
@@ -1437,7 +1485,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   const [breakdownProfit] = useState<Partial<Record<keyof InvestHoldings, string>>>(
     () => Object.fromEntries(INVEST_KEYS.map((k) => [k, String(existing?.investBreakdownProfit?.[k] ?? '')])) as Record<keyof InvestHoldings, string>
   );
-  // past 收益：本月已存优先，否则继承上月（清仓收益持续累计，逐月带入作为默认起点）
+  // past 收益：本月已存优先，否则继承上月，逐月带入作为默认起点。
   const [pastBreakdownProfit] = useState<Partial<Record<keyof InvestHoldings, string>>>(() => {
     const src = existing?.investBreakdownPastProfit ?? prevRecord?.investBreakdownPastProfit;
     return Object.fromEntries(INVEST_KEYS.map((k) => [k, String(src?.[k] ?? '')])) as Record<keyof InvestHoldings, string>;
@@ -1488,25 +1536,79 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     () => summarizeInvestPositionItems(positionItems, marketsBySymbol),
     [marketsBySymbol, positionItems],
   );
+  const previousMarketsBySymbol = useMemo(() => {
+    const markets: Record<string, InvestMarketSnapshot | undefined> = {};
+    for (const groupKey of INVEST_POSITION_KEYS) {
+      for (const item of prevRecord?.investPositionItems?.[groupKey] ?? []) {
+        const price = Number(item.lastPrice);
+        const currency = (item.lastCurrency || item.quoteCurrency || defaultInvestQuoteCurrency(groupKey) || '').toUpperCase();
+        const currentMarket = marketsBySymbol[investPositionQuoteKey(item)];
+        const fxRateToCny = ['CNY', 'CNH'].includes(currency)
+          ? 1
+          : Number(item.lastFxRateToCny) || currentMarket?.fxRateToCny || 0;
+        if (!item.symbol.trim() || !(price > 0) || !currency || !(fxRateToCny > 0)) continue;
+        markets[investPositionQuoteKey(item)] = {
+          price,
+          currency,
+          fxRateToCny,
+          live: false,
+          quoteAt: item.quoteAt,
+        };
+      }
+    }
+    return markets;
+  }, [marketsBySymbol, prevRecord?.investPositionItems]);
   const previousPositionSummary = useMemo(
     () => prevRecord?.investPositionItems
-      ? summarizeInvestPositionItems(prevRecord.investPositionItems)
+      ? summarizeInvestPositionItems(prevRecord.investPositionItems, previousMarketsBySymbol)
       : null,
-    [prevRecord?.investPositionItems],
+    [prevRecord?.investPositionItems, previousMarketsBySymbol],
   );
+  const previousPositionItemsByStableKey = useMemo(() => {
+    const itemsByKey = new Map<string, InvestPositionItem>();
+    for (const groupKey of INVEST_POSITION_GROUP_KEYS) {
+      for (const item of prevRecord?.investPositionItems?.[groupKey] ?? []) {
+        const symbol = item.symbol.trim().toUpperCase();
+        const stableKey = symbol
+          ? `${groupKey}:symbol:${investPositionQuoteKey(item)}`
+          : `${groupKey}:name:${item.name.trim().toLowerCase()}`;
+        itemsByKey.set(stableKey, item);
+      }
+    }
+    return itemsByKey;
+  }, [prevRecord?.investPositionItems]);
   const positionMonthlyProfitById = useMemo(() => {
-    const monthlyProfitById: Record<string, number | null> = {};
+    const monthlyProfitById: Record<string, PositionProfitDisplay | null> = {};
     for (const groupKey of INVEST_POSITION_GROUP_KEYS) {
       for (const item of positionItems[groupKey] ?? []) {
         const currentMetric = positionSummary.metricsById[item.id];
-        const previousMetric = previousPositionSummary?.metricsById[item.id];
-        monthlyProfitById[item.id] = isBaseline || !currentMetric || !previousMetric
-          ? null
-          : roundCny(currentMetric.totalProfitCny - previousMetric.totalProfitCny);
+        const symbol = item.symbol.trim().toUpperCase();
+        if (!symbol) {
+          monthlyProfitById[item.id] = null;
+          continue;
+        }
+        const stableKey = symbol
+          ? `${groupKey}:symbol:${investPositionQuoteKey(item)}`
+          : `${groupKey}:name:${item.name.trim().toLowerCase()}`;
+        const previousItem = (prevRecord?.investPositionItems?.[groupKey] ?? []).find((candidate) => candidate.id === item.id)
+          ?? previousPositionItemsByStableKey.get(stableKey);
+        const previousMetric = previousItem ? previousPositionSummary?.metricsById[previousItem.id] : undefined;
+        if (isBaseline || !currentMetric) {
+          monthlyProfitById[item.id] = null;
+          continue;
+        }
+        const currentOriginal = currentMetric.totalProfitCny / currentMetric.profitFxRateToCny;
+        const previousOriginal = previousMetric && previousMetric.profitCurrency === currentMetric.profitCurrency
+          ? previousMetric.totalProfitCny / previousMetric.profitFxRateToCny
+          : 0;
+        monthlyProfitById[item.id] = {
+          value: roundCny(currentOriginal - previousOriginal),
+          currency: currentMetric.profitCurrency,
+        };
       }
     }
     return monthlyProfitById;
-  }, [isBaseline, positionItems, positionSummary, previousPositionSummary]);
+  }, [isBaseline, positionItems, positionSummary, prevRecord?.investPositionItems, previousPositionItemsByStableKey, previousPositionSummary]);
   const positionItemsForSave = useMemo<InvestPositionItems>(() => {
     const next: InvestPositionItems = {};
     for (const key of INVEST_POSITION_GROUP_KEYS) {
@@ -1578,7 +1680,11 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     const now = hasPositionModel ? positionSummary.holdingProfitByCategory[k] : nOrNull(breakdownProfit[k]);
     const past = hasPositionModel ? positionSummary.historicalProfitByCategory[k] : nOrNull(pastBreakdownProfit[k]);
     const totalProfit = (now !== null || past !== null) ? (now ?? 0) + (past ?? 0) : null;
-    const prevProfit = getCategoryProfit(prevRecord, k);
+    const storedPreviousProfit = getCategoryProfit(prevRecord, k);
+    const previousPositionProfit = previousPositionSummary
+      ? previousPositionSummary.holdingProfitByCategory[k] + previousPositionSummary.historicalProfitByCategory[k]
+      : null;
+    const prevProfit = storedPreviousProfit ?? previousPositionProfit;
     return totalProfit !== null && prevProfit !== null ? totalProfit - prevProfit : null;
   };
 
@@ -1601,8 +1707,10 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
         shares: '',
         costPrice: '',
         historicalProfitCny: '0',
+        historicalProfitCurrency: defaultInvestQuoteCurrency(groupKey) || 'CNY',
         marketValueCny: '',
         holdingProfitCny: '',
+        lastPrice: '',
       }],
     }));
     return id;
@@ -1615,13 +1723,22 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   };
   const splitPositionAccount = (input: PositionSplitInput) => {
     if (!input.name.trim() || !Number.isFinite(input.splitMarketValueCny) || input.splitMarketValueCny < 0) return;
-    if (input.splitMarketValueCny === 0 && input.splitTotalProfitCny === 0) return;
+    if (input.splitMarketValueCny === 0 && input.splitTotalProfitOriginal === 0) return;
     setPositionDraftGroups((previous) => {
       const source = previous[input.sourceGroupKey].find((item) => item.id === input.sourceId);
       if (!source) return previous;
       const sourceMarketValue = source.status === 'closed' ? 0 : numberOrUndefined(source.marketValueCny) ?? 0;
       if (input.splitMarketValueCny > sourceMarketValue + 0.01) return previous;
-      const historicalProfitCny = roundCny(input.splitTotalProfitCny - input.holdingProfitAtSplitCny);
+      const historicalProfitOriginal = roundCny(
+        input.splitTotalProfitOriginal - input.holdingProfitAtSplitCny / input.profitFxRateToCny,
+      );
+      const sourceProfitCurrency = (source.historicalProfitCurrency || defaultInvestQuoteCurrency(input.sourceGroupKey) || 'CNY').toUpperCase();
+      const sourceProfitFxRateToCny = ['CNY', 'CNH'].includes(sourceProfitCurrency)
+        ? 1
+        : source.lastFxRateToCny || input.profitFxRateToCny;
+      const historicalProfitFromSource = roundCny(
+        historicalProfitOriginal * input.profitFxRateToCny / sourceProfitFxRateToCny,
+      );
       const target: InvestPositionDraft = {
         id: makeInvestPositionId(),
         name: input.name.trim(),
@@ -1631,15 +1748,17 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
         status: source.status,
         shares: input.shares !== undefined ? String(input.shares) : '',
         costPrice: input.costPrice !== undefined ? String(input.costPrice) : '',
-        historicalProfitCny: String(historicalProfitCny),
+        historicalProfitCny: String(historicalProfitOriginal),
+        historicalProfitCurrency: input.profitCurrency,
         marketValueCny: String(roundCny(input.splitMarketValueCny)),
         holdingProfitCny: String(roundCny(input.holdingProfitAtSplitCny)),
+        lastPrice: '',
       };
       const sourceItems = previous[input.sourceGroupKey].map((item) => item.id === input.sourceId ? {
         ...item,
         marketValueCny: String(roundCny(sourceMarketValue - input.splitMarketValueCny)),
         holdingProfitCny: String(roundCny((numberOrUndefined(item.holdingProfitCny) ?? 0) - input.holdingProfitAtSplitCny)),
-        historicalProfitCny: String(roundCny((numberOrUndefined(item.historicalProfitCny) ?? 0) - historicalProfitCny)),
+        historicalProfitCny: String(roundCny((numberOrUndefined(item.historicalProfitCny) ?? 0) - historicalProfitFromSource)),
       } : item);
       return {
         ...previous,
@@ -2058,12 +2177,22 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
         const items = positionDraftGroups[groupKey].filter((item) => activeStatus === 'active' ? item.status === 'active' : item.status !== 'active');
         const groupLabel = groupKey === 'account' ? '历史账户' : groupKey === 'aggregate' ? '待归类账户' : investMeta[groupKey].label;
         const groupColor = groupKey === 'account' || groupKey === 'aggregate' ? C.sub : investMeta[groupKey].color;
+        const groupMonthlyProfit = groupKey === 'account' || groupKey === 'aggregate'
+          ? null
+          : state.getBreakdownMonthlyProfit(groupKey);
         return (
           <div key={groupKey} style={{ border: '1px solid #e8eaed', borderRadius: 10, padding: '8px', backgroundColor: '#fff' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: items.length > 0 ? 7 : 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 800 }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: groupColor }} />
-                {groupLabel}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 800 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: groupColor }} />
+                  {groupLabel}
+                </div>
+                {items.length > 0 && groupKey !== 'account' && groupKey !== 'aggregate' && (
+                  <div style={{ marginTop: 2, paddingLeft: 13, fontSize: 9, color: groupMonthlyProfit === null ? C.sub : groupMonthlyProfit >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>
+                    本月 {groupMonthlyProfit === null ? '—' : signedAmount(groupMonthlyProfit)}
+                  </div>
+                )}
               </div>
               {groupKey !== 'aggregate' && <button type="button" onClick={() => {
                 const id = addPositionDraft(groupKey, activeStatus);
@@ -2089,7 +2218,13 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                 ? `${metric.price.toFixed(item.quoteSource === 'eastmoney-fund' ? 4 : 2)} ${metric.currency ?? ''}`
                 : null;
               const positionCurrency = (item.quoteCurrency || metric?.currency || defaultInvestQuoteCurrency(groupKey) || '').toUpperCase();
+              const profitCurrency = (item.historicalProfitCurrency || positionCurrency || 'CNY').toUpperCase();
               const costPriceLabel = positionCurrency ? `成本价（${positionCurrency}）` : '成本价';
+              const historyProfitLabel = `历史收益${currencyMark(profitCurrency)}`;
+              const nativeFxRate = metric?.profitFxRateToCny || 1;
+              const nativeMarketValue = (metric?.marketValueCny ?? 0) / (metric?.fxRateToCny || nativeFxRate);
+              const nativeHoldingProfit = (metric?.holdingProfitCny ?? 0) / nativeFxRate;
+              const nativeTotalProfit = (metric?.totalProfitCny ?? 0) / nativeFxRate;
               const isAggregateAccount = symbol.length === 0;
               const splitOpen = splitSource?.id === item.id && splitSource.groupKey === groupKey;
               const canChangeStatus = groupKey !== 'account' && groupKey !== 'aggregate';
@@ -2146,7 +2281,10 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                         symbol={item.symbol}
                         quoteSource={item.quoteSource}
                         ariaLabel={groupLabel}
-                        onChange={(patch) => updatePositionDraft(groupKey, item.id, patch)}
+                        onChange={(patch) => updatePositionDraft(groupKey, item.id, {
+                          ...patch,
+                          historicalProfitCurrency: patch.quoteCurrency || item.historicalProfitCurrency,
+                        })}
                       />}
                       {groupKey === 'account' ? (
                         <label style={{ display: 'grid', gridTemplateColumns: '1fr minmax(90px, 130px)', gap: 8, alignItems: 'center', marginTop: 8, fontSize: 10, color: C.sub }}>
@@ -2159,7 +2297,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                             {([
                               ['份额', 'shares'],
                               [costPriceLabel, 'costPrice'],
-                              ['历史收益¥', 'historicalProfitCny'],
+                              [historyProfitLabel, 'historicalProfitCny'],
                             ] as const).map(([label, field]) => (
                               <label key={field} style={{ minWidth: 0, fontSize: 10, color: C.sub }}>
                                 <span>{label}</span>
@@ -2167,11 +2305,17 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                               </label>
                             ))}
                           </div>
+                          {quoteFailed && (
+                            <label style={{ display: 'grid', gridTemplateColumns: '1fr minmax(90px, 130px)', gap: 8, alignItems: 'center', marginTop: 8, fontSize: 10, color: C.sub }}>
+                              <span>手填{item.quoteSource === 'eastmoney-fund' ? '净值' : '现价'}（{positionCurrency || 'CNY'}）</span>
+                              <AmountInput decimalPlaces={4} value={item.lastPrice} onChange={(value) => updatePositionDraft(groupKey, item.id, { lastPrice: value })} style={{ width: '100%', border: 'none', borderBottom: `1px solid ${C.orange}`, outline: 'none', textAlign: 'right', color: C.orange, fontSize: 11, fontWeight: 700, backgroundColor: 'transparent' }} />
+                            </label>
+                          )}
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 4, marginTop: 8, padding: '6px', borderRadius: 7, backgroundColor: '#f8f9fa', fontSize: 9, color: C.sub }}>
                             <span>{item.quoteSource === 'eastmoney-fund' ? '净值' : '现价'}<br /><b style={{ color: metric?.live ? C.blue : C.sub }}>{priceDisplay ?? (needsSelection ? '请选择' : quoteFailed ? '失败' : symbol && isCurrentRecordMonth ? '获取中' : '—')}</b></span>
-                            <span>市值<br /><b style={{ color: '#202124' }}>¥{formatCurrency(metric?.marketValueCny ?? 0)}</b></span>
-                            <span>持有收益<br /><b style={{ color: (metric?.holdingProfitCny ?? 0) >= 0 ? C.red : C.green }}>{signedAmount(metric?.holdingProfitCny ?? 0)}</b></span>
-                            <span>累计收益<br /><b style={{ color: (metric?.totalProfitCny ?? 0) >= 0 ? C.red : C.green }}>{signedAmount(metric?.totalProfitCny ?? 0)}</b></span>
+                            <span>市值<br /><b style={{ color: '#202124' }}>{formatNativeCurrency(nativeMarketValue, positionCurrency || 'CNY')}</b></span>
+                            <span>持有收益<br /><b style={{ color: nativeHoldingProfit >= 0 ? C.red : C.green }}>{formatNativeCurrency(nativeHoldingProfit, profitCurrency, true)}</b></span>
+                            <span>累计收益<br /><b style={{ color: nativeTotalProfit >= 0 ? C.red : C.green }}>{formatNativeCurrency(nativeTotalProfit, profitCurrency, true)}</b></span>
                           </div>
                           {quote?.regularMarketTime && <div style={{ marginTop: 4, textAlign: 'right', fontSize: 9, color: C.sub }}>{quote.regularMarketTime.slice(0, 10)}</div>}
                         </>
@@ -2182,10 +2326,10 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                     </div>
                   )}
                   {!isExpanded && (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 5, marginTop: 5, padding: '5px 6px', borderRadius: 7, backgroundColor: '#f8f9fa', fontSize: 9, color: C.sub }}>
-                      <span>持有金额<br /><b style={{ color: '#202124' }}>¥{formatCurrency(metric?.marketValueCny ?? 0)}</b></span>
-                      <span>累计收益<br /><b style={{ color: (metric?.totalProfitCny ?? 0) >= 0 ? C.red : C.green }}>{signedAmount(metric?.totalProfitCny ?? 0)}</b></span>
-                      <span>本月收益<br /><b style={{ color: monthlyProfit === null ? C.sub : monthlyProfit >= 0 ? C.red : C.green }}>{monthlyProfit === null ? '—' : signedAmount(monthlyProfit)}</b></span>
+                    <div style={{ display: 'grid', gridTemplateColumns: symbol ? 'repeat(3, minmax(0, 1fr))' : 'repeat(2, minmax(0, 1fr))', gap: 5, marginTop: 5, padding: '5px 6px', borderRadius: 7, backgroundColor: '#f8f9fa', fontSize: 9, color: C.sub }}>
+                      <span>持有金额<br /><b style={{ color: '#202124' }}>{formatNativeCurrency(nativeMarketValue, positionCurrency || 'CNY')}</b></span>
+                      <span>累计收益<br /><b style={{ color: nativeTotalProfit >= 0 ? C.red : C.green }}>{formatNativeCurrency(nativeTotalProfit, profitCurrency, true)}</b></span>
+                      {symbol && <span>本月收益<br /><b style={{ color: monthlyProfit === null ? C.sub : monthlyProfit.value >= 0 ? C.red : C.green }}>{monthlyProfit === null ? '—' : formatNativeCurrency(monthlyProfit.value, monthlyProfit.currency, true)}</b></span>}
                     </div>
                   )}
                   {splitOpen && isAggregateAccount && (
@@ -2294,15 +2438,18 @@ function PositionSplitPanel({
       ? previewMetric.marketValueCny
       : numberOrUndefined(splitDraft.manualMarketValueCny) ?? 0;
   const holdingProfitAtSplit = isClosedTarget ? 0 : previewMetric?.holdingProfitCny ?? 0;
-  const effectiveTotalProfit = numberOrUndefined(splitDraft.totalProfitCny) ?? holdingProfitAtSplit;
-  const historicalProfitAfterSplit = roundCny(effectiveTotalProfit - holdingProfitAtSplit);
+  const profitCurrency = (splitDraft.quoteCurrency || previewMetric?.profitCurrency || source.historicalProfitCurrency || defaultInvestQuoteCurrency(previewGroupKey) || 'CNY').toUpperCase();
+  const profitFxRateToCny = previewMetric?.profitFxRateToCny || source.lastFxRateToCny || 1;
+  const holdingProfitAtSplitOriginal = holdingProfitAtSplit / profitFxRateToCny;
+  const effectiveTotalProfitOriginal = numberOrUndefined(splitDraft.totalProfitCny) ?? holdingProfitAtSplitOriginal;
+  const historicalProfitAfterSplitOriginal = roundCny(effectiveTotalProfitOriginal - holdingProfitAtSplitOriginal);
   const amountTooLarge = effectiveMarketValue > sourceMarketValueCny + 0.01;
   const canSplit = Boolean(
     splitDraft.name.trim()
-    && (effectiveMarketValue > 0 || effectiveTotalProfit !== 0)
+    && (effectiveMarketValue > 0 || effectiveTotalProfitOriginal !== 0)
     && !amountTooLarge,
   );
-  const signedCurrency = (value: number) => `${value >= 0 ? '+' : '-'}¥${formatCurrency(value)}`;
+  const signedProfit = (value: number) => formatNativeCurrency(value, profitCurrency, true);
 
   return (
     <div style={{ marginTop: 8, padding: 8, borderRadius: 8, backgroundColor: '#f8f9fa' }}>
@@ -2334,20 +2481,20 @@ function PositionSplitPanel({
                     />
                   </label>
                   <label style={{ minWidth: 0, fontSize: 10, color: C.sub }}>
-                    <span>分出收益</span>
-                    <AmountInput value={splitDraft.totalProfitCny} onChange={(value) => setSplitDraft({ ...splitDraft, totalProfitCny: value })} placeholder={String(roundCny(holdingProfitAtSplit))} style={{ width: '100%', border: 'none', borderBottom: `1px solid ${C.orange}`, outline: 'none', textAlign: 'right', fontSize: 11, fontWeight: 700, color: C.orange, backgroundColor: 'transparent', boxSizing: 'border-box' }} />
+                    <span>分出收益{currencyMark(profitCurrency)}</span>
+                    <AmountInput value={splitDraft.totalProfitCny} onChange={(value) => setSplitDraft({ ...splitDraft, totalProfitCny: value })} placeholder={String(roundCny(holdingProfitAtSplitOriginal))} style={{ width: '100%', border: 'none', borderBottom: `1px solid ${C.orange}`, outline: 'none', textAlign: 'right', fontSize: 11, fontWeight: 700, color: C.orange, backgroundColor: 'transparent', boxSizing: 'border-box' }} />
                   </label>
                 </div>}
                 {isClosedTarget && <div style={{ marginTop: 8 }}>
                   <label style={{ minWidth: 0, fontSize: 10, color: C.sub }}>
-                    <span>分出收益</span>
-                    <AmountInput value={splitDraft.totalProfitCny} onChange={(value) => setSplitDraft({ ...splitDraft, totalProfitCny: value })} placeholder={String(roundCny(holdingProfitAtSplit))} style={{ width: '100%', border: 'none', borderBottom: `1px solid ${C.orange}`, outline: 'none', textAlign: 'right', fontSize: 11, fontWeight: 700, color: C.orange, backgroundColor: 'transparent', boxSizing: 'border-box' }} />
+                    <span>分出收益{currencyMark(profitCurrency)}</span>
+                    <AmountInput value={splitDraft.totalProfitCny} onChange={(value) => setSplitDraft({ ...splitDraft, totalProfitCny: value })} placeholder={String(roundCny(holdingProfitAtSplitOriginal))} style={{ width: '100%', border: 'none', borderBottom: `1px solid ${C.orange}`, outline: 'none', textAlign: 'right', fontSize: 11, fontWeight: 700, color: C.orange, backgroundColor: 'transparent', boxSizing: 'border-box' }} />
                   </label>
                 </div>}
                 {!isClosedTarget && splitDraft.symbol.trim() && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 5, marginTop: 8, padding: 6, borderRadius: 7, backgroundColor: '#fff', fontSize: 9, color: C.sub }}>
                   <span>{splitDraft.quoteSource === 'eastmoney-fund' ? '净值' : '现价'}<br /><b style={{ color: previewMetric?.live ? C.blue : C.sub }}>{previewMetric?.price !== undefined ? previewMetric.price.toFixed(splitDraft.quoteSource === 'eastmoney-fund' ? 4 : 2) : quoteFailed ? '失败' : splitDraft.symbol ? '获取中' : '—'}</b></span>
-                  <span>持有收益<br /><b style={{ color: holdingProfitAtSplit >= 0 ? C.red : C.green }}>{signedCurrency(holdingProfitAtSplit)}</b></span>
-                  <span>历史收益<br /><b style={{ color: historicalProfitAfterSplit >= 0 ? C.red : C.green }}>{signedCurrency(historicalProfitAfterSplit)}</b></span>
+                  <span>持有收益<br /><b style={{ color: holdingProfitAtSplitOriginal >= 0 ? C.red : C.green }}>{signedProfit(holdingProfitAtSplitOriginal)}</b></span>
+                  <span>历史收益<br /><b style={{ color: historicalProfitAfterSplitOriginal >= 0 ? C.red : C.green }}>{signedProfit(historicalProfitAfterSplitOriginal)}</b></span>
                 </div>}
                 {amountTooLarge && <div role="alert" style={{ marginTop: 6, fontSize: 10, color: C.red }}>分出金额超过账户金额</div>}
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 8 }}>
@@ -2363,8 +2510,10 @@ function PositionSplitPanel({
                       shares: numberOrUndefined(splitDraft.shares),
                       costPrice: numberOrUndefined(splitDraft.costPrice),
                       splitMarketValueCny: effectiveMarketValue,
-                      splitTotalProfitCny: effectiveTotalProfit,
+                      splitTotalProfitOriginal: effectiveTotalProfitOriginal,
                       holdingProfitAtSplitCny: holdingProfitAtSplit,
+                      profitCurrency,
+                      profitFxRateToCny,
                     });
                   }} style={{ border: 'none', borderRadius: 6, padding: '5px 9px', backgroundColor: canSplit ? C.blue : '#dadce0', color: '#fff', fontSize: 10, fontWeight: 800, cursor: canSplit ? 'pointer' : 'default' }}>确定</button>
                 </div>
@@ -3592,17 +3741,27 @@ export default function CalendarPage() {
   const [billImportMsg, setBillImportMsg] = useState<string>('');
   const [billImporting, setBillImporting] = useState(false);
   const billFileRef = useRef<HTMLInputElement>(null);
+  const importFileContent = async (file: File, kind: 'auto' | 'bill' | 'investment' = 'auto', mailUid?: number) => {
+    const isInvestment = kind === 'investment'
+      || (kind === 'auto' && /^理财/i.test(file.name) && /\.(xlsx?|csv)$/i.test(file.name));
+    if (isInvestment) {
+      const result = await importInvestmentFileIntoStores(file, { mailUid });
+      return result.importedTransactions > 0
+        ? `理财 ${result.importedTransactions} 笔 · ${result.updatedMonths} 个月 · ${result.fileName}`
+        : `理财无新增 · ${result.fileName}`;
+    }
+    if (isFinanceScreenshotFile(file)) {
+      const { result } = await importFinanceScreenshotFileIntoSnapshot(file);
+      return financeScreenshotImportMessage(result, file.name);
+    }
+    const result = await importBillFileIntoStores(file);
+    return `账单 ${result.updatedMonths} 个月${result.importedPossessions > 0 ? ` · ${result.importedPossessions} 个物品动作` : ''} · ${result.fileName}`;
+  };
   const importBillFromFile = async (file: File) => {
     setBillImporting(true);
     try {
-      if (isFinanceScreenshotFile(file)) {
-        setBillImportMsg('图片OCR中');
-        const { result } = await importFinanceScreenshotFileIntoSnapshot(file);
-        setBillImportMsg(financeScreenshotImportMessage(result, file.name));
-        return;
-      }
-      const result = await importBillFileIntoStores(file);
-      setBillImportMsg(`已导入 ${result.updatedMonths} 个月记录${result.importedPossessions > 0 ? ` · ${result.importedPossessions} 个物品动作` : ''} · ${result.fileName}`);
+      setBillImportMsg(isFinanceScreenshotFile(file) ? '图片OCR中' : '导入中');
+      setBillImportMsg(`已导入 · ${await importFileContent(file)}`);
     } catch (err) {
       setBillImportMsg(`导入失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -3613,15 +3772,19 @@ export default function CalendarPage() {
     setBillImporting(true);
     setBillImportMsg('邮箱查找中');
     try {
-      const file = await fetchLatestBillAttachment();
-      if (isFinanceScreenshotFile(file)) {
-        setBillImportMsg('邮箱图片OCR中');
-        const { result } = await importFinanceScreenshotFileIntoSnapshot(file);
-        setBillImportMsg(`邮箱${financeScreenshotImportMessage(result, file.name)}`);
-        return;
+      const attachments = await fetchLatestMailAttachments();
+      const imported: string[] = [];
+      const failed: string[] = [];
+      for (const attachment of attachments) {
+        setBillImportMsg(attachment.kind === 'investment' ? '邮箱理财导入中' : '邮箱账单导入中');
+        try {
+          imported.push(await importFileContent(attachment.file, attachment.kind, attachment.uid));
+        } catch (err) {
+          failed.push(`${attachment.file.name}：${err instanceof Error ? err.message : String(err)}`);
+        }
       }
-      const result = await importBillFileIntoStores(file);
-      setBillImportMsg(`邮箱已导入 ${result.updatedMonths} 个月记录${result.importedPossessions > 0 ? ` · ${result.importedPossessions} 个物品动作` : ''} · ${result.fileName}`);
+      if (imported.length === 0) throw new Error(failed.join('；') || '没有可导入附件');
+      setBillImportMsg(`邮箱已导入 · ${imported.join(' · ')}${failed.length ? ` · ${failed.join('；')}` : ''}`);
     } catch (err) {
       setBillImportMsg(`邮箱导入失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -3741,7 +3904,7 @@ export default function CalendarPage() {
               <button
                 onClick={importLatestBillFromMail}
                 disabled={billImporting}
-                title="从 163 邮箱导入最新账单或图片附件"
+                title="从邮箱导入最新账单、图片和理财附件"
                 style={{ fontSize: 11, lineHeight: 1, padding: '4px clamp(5px, 1.5vw, 7px)', borderRadius: 7, border: `1px solid ${C.border}`, backgroundColor: billImporting ? '#f1f3f4' : '#fff', color: billImporting ? '#9aa0a6' : C.sub, cursor: billImporting ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
               >
                 {billImporting ? '导入中' : '邮箱'}
@@ -3749,7 +3912,7 @@ export default function CalendarPage() {
               <button
                 onClick={() => billFileRef.current?.click()}
                 disabled={billImporting}
-                title="手动选择账单或图片文件"
+                title="手动选择账单、图片或理财文件"
                 style={{ fontSize: 11, lineHeight: 1, padding: '4px clamp(5px, 1.5vw, 7px)', borderRadius: 7, border: `1px solid ${C.border}`, backgroundColor: '#fff', color: billImporting ? '#9aa0a6' : C.sub, cursor: billImporting ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
               >
                 本地

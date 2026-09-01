@@ -133,11 +133,11 @@ export default defineConfig({
             url.searchParams.set('pageSize', '10');
             try {
               const upstream = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: `https://fundf10.eastmoney.com/jjjz_${symbol}.html`, Accept: 'application/json' } });
-              if (!upstream.ok) return sendJson(res, 502, { error: 'upstream error', status: upstream.status });
+              if (!upstream.ok) throw new Error(`primary fund NAV ${upstream.status}`);
               const payload = await upstream.json() as { Data?: { LSJZList?: Array<{ FSRQ?: string; DWJZ?: string }> }; ErrCode?: number };
               const navs = payload.Data?.LSJZList ?? [];
               const latest = navs.find((item) => Number.isFinite(Number(item.DWJZ)) && Number(item.DWJZ) > 0 && item.FSRQ);
-              if (payload.ErrCode !== 0 || !latest) return sendJson(res, 502, { error: 'invalid upstream payload' });
+              if (payload.ErrCode !== 0 || !latest) throw new Error('primary fund NAV unavailable');
               const bars = navs.flatMap((item) => {
                 const close = Number(item.DWJZ);
                 if (!item.FSRQ || !Number.isFinite(close) || close <= 0) return [];
@@ -151,9 +151,33 @@ export default defineConfig({
                 bars,
                 source: 'Eastmoney Fund NAV',
               });
-            } catch (error) {
-              const message = error instanceof Error ? error.message : 'unknown error';
-              return sendJson(res, 502, { error: 'fund nav fetch failed', message });
+            } catch (primaryError) {
+              try {
+                const fallback = await fetch(`https://fund.eastmoney.com/pingzhongdata/${symbol}.js?v=${Date.now()}`, {
+                  headers: { 'User-Agent': 'Mozilla/5.0', Referer: `https://fund.eastmoney.com/${symbol}.html`, Accept: 'text/javascript,*/*' },
+                });
+                if (!fallback.ok) throw new Error(`fallback ${fallback.status}`);
+                const script = await fallback.text();
+                const match = script.match(/Data_netWorthTrend\s*=\s*(\[[\s\S]*?\]);/);
+                if (!match) throw new Error('fallback NAV missing');
+                const trend = JSON.parse(match[1]) as Array<{ x?: number; y?: number }>;
+                const valid = trend.filter((item) => Number.isFinite(item.x) && Number.isFinite(item.y) && Number(item.y) > 0);
+                const latest = valid[valid.length - 1];
+                if (!latest) throw new Error('fallback NAV empty');
+                const bars = valid.slice(-10).map((item) => ({ date: new Date(Number(item.x)).toISOString().slice(0, 10), close: Number(item.y), adjClose: Number(item.y) }));
+                return sendJson(res, 200, {
+                  symbol,
+                  currency: fundCurrency,
+                  regularMarketPrice: Number(latest.y),
+                  regularMarketTime: new Date(Number(latest.x)).toISOString(),
+                  bars,
+                  source: 'Eastmoney Fund Trend',
+                });
+              } catch (fallbackError) {
+                const primaryMessage = primaryError instanceof Error ? primaryError.message : 'unknown error';
+                const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : 'unknown error';
+                return sendJson(res, 502, { error: 'fund nav fetch failed', message: `${primaryMessage}; ${fallbackMessage}` });
+              }
             }
           }
 

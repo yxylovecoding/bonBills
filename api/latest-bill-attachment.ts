@@ -7,6 +7,16 @@ type Attachment = {
   data: Buffer;
 };
 
+type MailAttachmentKind = 'bill' | 'investment';
+
+type FoundAttachment = {
+  kind: MailAttachmentKind;
+  attachment: Attachment;
+  uid: number;
+  subject: string;
+  date: string;
+};
+
 type HeaderValue = {
   value: string;
   params: Record<string, string>;
@@ -19,6 +29,7 @@ type ImapStatus = {
 
 const DEFAULT_ATTACHMENT_PATTERN = '^账单_\\d{10}\\.xlsx?$';
 const DEFAULT_IMAGE_ATTACHMENT_PATTERN = '\\.(png|jpe?g|webp|gif|bmp|tiff?)$';
+const DEFAULT_INVESTMENT_ATTACHMENT_PATTERN = '\\.(xlsx?|csv)$';
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function authOk(req: VercelRequest): boolean {
@@ -357,12 +368,7 @@ function messageMeta(raw: Buffer): { subject: string; date: string } {
   };
 }
 
-async function findLatestBillAttachment(): Promise<{
-  attachment: Attachment;
-  uid: number;
-  subject: string;
-  date: string;
-}> {
+async function findLatestMailAttachments(sinceInvestmentUid?: number): Promise<FoundAttachment[]> {
   const user = envValue('BILL_MAIL_USER', 'MAIL_163_USER', 'NETEASE_MAIL_USER');
   const pass = envValue('BILL_MAIL_PASS', 'MAIL_163_PASS', 'NETEASE_MAIL_PASS');
   if (!user || !pass) throw new Error('缺少 BILL_MAIL_USER 或 BILL_MAIL_PASS');
@@ -375,8 +381,11 @@ async function findLatestBillAttachment(): Promise<{
   const timeoutMs = Number(envValue('BILL_MAIL_TIMEOUT_MS') || 20000);
   const filePattern = new RegExp(envValue('BILL_ATTACHMENT_PATTERN') || DEFAULT_ATTACHMENT_PATTERN, 'i');
   const imagePattern = new RegExp(envValue('BILL_IMAGE_ATTACHMENT_PATTERN') || DEFAULT_IMAGE_ATTACHMENT_PATTERN, 'i');
+  const investmentPattern = new RegExp(envValue('INVESTMENT_ATTACHMENT_PATTERN') || DEFAULT_INVESTMENT_ATTACHMENT_PATTERN, 'i');
 
   const client = await ImapClient.connect(host, port, timeoutMs);
+  let bill: FoundAttachment | null = null;
+  const investments: FoundAttachment[] = [];
   try {
     await client.command(`LOGIN ${quoteImap(user)} ${quoteImap(pass)}`, '登录');
     await client.command('ID ("name" "monthlyBills" "version" "1.0.6" "vendor" "monthlyBills")', '发送客户端标识');
@@ -388,12 +397,21 @@ async function findLatestBillAttachment(): Promise<{
       const raw = extractFetchLiteral(fetched);
       if (!raw) continue;
       const attachments = collectAttachments(raw.toString('latin1'));
-      const attachment = attachments.find((item) => filePattern.test(item.fileName))
-        ?? attachments.find((item) => isImageAttachment(item, imagePattern));
-      if (attachment) {
-        const meta = messageMeta(raw);
-        return { attachment, uid, ...meta };
+      const meta = messageMeta(raw);
+      const needsInvestment = sinceInvestmentUid
+        ? uid > sinceInvestmentUid
+        : investments.length === 0;
+      if (needsInvestment && meta.subject.trim().startsWith('理财')) {
+        const attachment = attachments.find((item) => investmentPattern.test(item.fileName));
+        if (attachment) investments.push({ kind: 'investment', attachment, uid, ...meta });
       }
+      if (!bill) {
+        const attachment = attachments.find((item) => filePattern.test(item.fileName))
+          ?? attachments.find((item) => isImageAttachment(item, imagePattern));
+        if (attachment) bill = { kind: 'bill', attachment, uid, ...meta };
+      }
+      if (bill && !sinceInvestmentUid && investments.length > 0) break;
+      if (bill && sinceInvestmentUid && uid <= sinceInvestmentUid) break;
     }
   } finally {
     try {
@@ -404,7 +422,12 @@ async function findLatestBillAttachment(): Promise<{
     client.close();
   }
 
-  throw new Error('没有找到匹配的账单或图片附件');
+  const found = [
+    ...(bill ? [bill] : []),
+    ...investments.sort((a, b) => a.uid - b.uid),
+  ];
+  if (found.length === 0) throw new Error('没有找到匹配的账单、图片或理财附件');
+  return found;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -412,15 +435,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'method not allowed' });
 
   try {
-    const { attachment, uid, subject, date } = await findLatestBillAttachment();
+    const rawSinceUid = Array.isArray(req.query.sinceInvestmentUid)
+      ? req.query.sinceInvestmentUid[0]
+      : req.query.sinceInvestmentUid;
+    const parsedSinceUid = Number(rawSinceUid);
+    const attachments = await findLatestMailAttachments(
+      Number.isInteger(parsedSinceUid) && parsedSinceUid > 0 ? parsedSinceUid : undefined,
+    );
+    const primary = attachments.find((item) => item.kind === 'bill') ?? attachments[0];
     res.setHeader('Cache-Control', 'no-store');
     return res.status(200).json({
-      fileName: attachment.fileName,
-      contentType: attachment.contentType,
-      base64: attachment.data.toString('base64'),
-      uid,
-      subject,
-      date,
+      fileName: primary.attachment.fileName,
+      contentType: primary.attachment.contentType,
+      base64: primary.attachment.data.toString('base64'),
+      uid: primary.uid,
+      subject: primary.subject,
+      date: primary.date,
+      attachments: attachments.map(({ kind, attachment, uid, subject, date }) => ({
+        kind,
+        fileName: attachment.fileName,
+        contentType: attachment.contentType,
+        base64: attachment.data.toString('base64'),
+        uid,
+        subject,
+        date,
+      })),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

@@ -31,6 +31,7 @@ export interface InvestPositionItem {
   shares?: number;
   costPrice?: number;
   historicalProfitCny: number;
+  historicalProfitCurrency?: string;
   marketValueCny?: number;
   holdingProfitCny?: number;
   lastPrice?: number;
@@ -221,9 +222,11 @@ export interface MonthlyRecord {
   investBreakdown?: Partial<InvestHoldings>;       // 各品类持仓（月末）
   investBreakdownProfit?: Partial<InvestHoldings>; // 各品类 now 收益（当前持仓，月末）
   investProfitComponents?: Partial<Record<'us' | 'usBond', { cny: number; rate: number; usd: number }>>;
-  investBreakdownPastProfit?: Partial<InvestHoldings>; // 各品类 past 收益（已清仓，人民币，逐月继承）
+  investBreakdownPastProfit?: Partial<InvestHoldings>; // 各品类 past 收益（人民币，逐月继承）
   investPastProfitComponents?: Partial<Record<'us' | 'usBond', { cny: number; rate: number; usd: number }>>; // past 美元拆分
-  investPositionItems?: InvestPositionItems; // 投入/暂存/清仓的股票与基金明细
+  investPositionItems?: InvestPositionItems; // now / past 股票与基金明细
+  importedInvestmentTransactionIds?: string[];
+  lastInvestmentMailUid?: number;
   isBaseline?: boolean;         // 基准月：虽有累计盈利但未真正开始记录，各品类「本月收益」不与之相减
   volatileLife: number;
   periodicLife: number;
