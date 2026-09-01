@@ -8,7 +8,7 @@ import type {
 } from '../models/types';
 
 export const INVEST_POSITION_KEYS: InvestKey[] = ['us', 'eu', 'asia', 'a', 'longBond', 'usBond', 'gold'];
-export const INVEST_POSITION_GROUP_KEYS: InvestPositionGroupKey[] = [...INVEST_POSITION_KEYS, 'account'];
+export const INVEST_POSITION_GROUP_KEYS: InvestPositionGroupKey[] = [...INVEST_POSITION_KEYS, 'account', 'aggregate'];
 
 export interface InvestMarketSnapshot {
   price: number;
@@ -34,6 +34,8 @@ export interface InvestPositionSummary {
   holdingProfitByCategory: InvestHoldings;
   historicalProfitByCategory: InvestHoldings;
   accountHistoricalProfitCny: number;
+  aggregateMarketValueCny: number;
+  aggregateProfitCny: number;
   totalMarketValueCny: number;
   totalProfitCny: number;
   metricsById: Record<string, InvestPositionMetric>;
@@ -138,16 +140,29 @@ export function summarizeInvestPositionItems(
   }
   accountHistoricalProfitCny = roundMoney(accountHistoricalProfitCny);
 
+  let aggregateMarketValueCny = 0;
+  let aggregateProfitCny = 0;
+  for (const item of items.aggregate ?? []) {
+    const metric = calculateInvestPositionMetric({ ...item, status: 'paused' });
+    metricsById[item.id] = metric;
+    aggregateMarketValueCny += metric.marketValueCny;
+    aggregateProfitCny += metric.totalProfitCny;
+  }
+  aggregateMarketValueCny = roundMoney(aggregateMarketValueCny);
+  aggregateProfitCny = roundMoney(aggregateProfitCny);
+
   return {
     marketValueByCategory,
     holdingProfitByCategory,
     historicalProfitByCategory,
     accountHistoricalProfitCny,
-    totalMarketValueCny: roundMoney(INVEST_POSITION_KEYS.reduce((sum, key) => sum + marketValueByCategory[key], 0)),
+    aggregateMarketValueCny,
+    aggregateProfitCny,
+    totalMarketValueCny: roundMoney(INVEST_POSITION_KEYS.reduce((sum, key) => sum + marketValueByCategory[key], 0) + aggregateMarketValueCny),
     totalProfitCny: roundMoney(INVEST_POSITION_KEYS.reduce(
       (sum, key) => sum + holdingProfitByCategory[key] + historicalProfitByCategory[key],
       0,
-    ) + accountHistoricalProfitCny),
+    ) + accountHistoricalProfitCny + aggregateProfitCny),
     metricsById,
   };
 }

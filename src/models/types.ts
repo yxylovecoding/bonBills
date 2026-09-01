@@ -39,7 +39,7 @@ export interface InvestPositionItem {
   quoteAt?: string;
 }
 
-export type InvestPositionGroupKey = InvestKey | 'account';
+export type InvestPositionGroupKey = InvestKey | 'account' | 'aggregate';
 export type InvestPositionItems = Partial<Record<InvestPositionGroupKey, InvestPositionItem[]>>;
 
 export interface UsStockHoldingItem {
