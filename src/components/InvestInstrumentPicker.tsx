@@ -38,6 +38,7 @@ export default function InvestInstrumentPicker({
   const [failed, setFailed] = useState(false);
   const [results, setResults] = useState<MarketSearchResult[]>([]);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const hasMatchedInstrument = Boolean(symbol.trim() && quoteSource);
 
   useEffect(() => {
     const normalizedQuery = query.trim();
@@ -111,14 +112,21 @@ export default function InvestInstrumentPicker({
         placeholder="名称"
         onFocus={(event) => {
           event.currentTarget.select();
-          setQuery(name);
-          setOpen(true);
+          if (!hasMatchedInstrument) {
+            setQuery(name);
+            setOpen(true);
+          }
         }}
         onChange={(event) => {
           const value = event.target.value;
-          onChange({ name: value, quoteSource: undefined, quoteCurrency: undefined });
-          setQuery(value);
-          setOpen(true);
+          onChange({ name: value });
+          if (hasMatchedInstrument) {
+            setQuery('');
+            setOpen(false);
+          } else {
+            setQuery(value);
+            setOpen(true);
+          }
         }}
         onKeyDown={handleKeyDown}
         onBlur={() => window.setTimeout(() => setOpen(false), 120)}
