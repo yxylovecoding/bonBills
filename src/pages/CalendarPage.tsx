@@ -47,6 +47,7 @@ import { getCategoryProfit, getInvestTotalForRate } from '../utils/investRecords
 import {
   INVEST_POSITION_GROUP_KEYS,
   INVEST_POSITION_KEYS,
+  calculateInvestPositionMonthlyProfit,
   investPositionQuoteKey,
   migrateLegacyInvestPositionItems,
   summarizeInvestPositionItems,
@@ -760,8 +761,6 @@ type InvestmentQuoteResponse = {
   bars?: Array<{ date: string; close?: number | null; adjClose?: number | null }>;
 };
 type InvestQuoteTarget = { key: string; symbol: string; source: InvestQuoteSource; currency?: string; fallbackPrice?: number };
-type PositionProfitDisplay = { value: number; currency: string };
-
 function defaultInvestQuoteCurrency(groupKey: InvestPositionGroupKey) {
   return groupKey === 'us' || groupKey === 'usBond' ? 'USD' : undefined;
 }
@@ -969,6 +968,17 @@ const _NOW = new Date();
 function prevYearMonth(ym: string) {
   const [y, m] = ym.split('-').map(Number);
   return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+}
+
+function getRecordInvestMonthlyProfit(record: MonthlyRecord, previous?: MonthlyRecord) {
+  if (!previous || record.isBaseline) return null;
+  if (record.investPositionItems !== undefined) {
+    return calculateInvestPositionMonthlyProfit(
+      record.investPositionItems,
+      previous.investPositionItems,
+    ).totalCny;
+  }
+  return record.accumulatedProfit - (previous.accumulatedProfit ?? 0);
 }
 
 // ── 本地/共享分类规则弹窗 ────────────────────────────────────────
@@ -1558,57 +1568,17 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     }
     return markets;
   }, [marketsBySymbol, prevRecord?.investPositionItems]);
-  const previousPositionSummary = useMemo(
-    () => prevRecord?.investPositionItems
-      ? summarizeInvestPositionItems(prevRecord.investPositionItems, previousMarketsBySymbol)
-      : null,
-    [prevRecord?.investPositionItems, previousMarketsBySymbol],
+  const positionMonthlyProfit = useMemo(
+    () => calculateInvestPositionMonthlyProfit(
+      positionItems,
+      prevRecord?.investPositionItems,
+      marketsBySymbol,
+      previousMarketsBySymbol,
+      isBaseline,
+    ),
+    [isBaseline, marketsBySymbol, positionItems, prevRecord?.investPositionItems, previousMarketsBySymbol],
   );
-  const previousPositionItemsByStableKey = useMemo(() => {
-    const itemsByKey = new Map<string, InvestPositionItem>();
-    for (const groupKey of INVEST_POSITION_GROUP_KEYS) {
-      for (const item of prevRecord?.investPositionItems?.[groupKey] ?? []) {
-        const symbol = item.symbol.trim().toUpperCase();
-        const stableKey = symbol
-          ? `${groupKey}:symbol:${investPositionQuoteKey(item)}`
-          : `${groupKey}:name:${item.name.trim().toLowerCase()}`;
-        itemsByKey.set(stableKey, item);
-      }
-    }
-    return itemsByKey;
-  }, [prevRecord?.investPositionItems]);
-  const positionMonthlyProfitById = useMemo(() => {
-    const monthlyProfitById: Record<string, PositionProfitDisplay | null> = {};
-    for (const groupKey of INVEST_POSITION_GROUP_KEYS) {
-      for (const item of positionItems[groupKey] ?? []) {
-        const currentMetric = positionSummary.metricsById[item.id];
-        const symbol = item.symbol.trim().toUpperCase();
-        if (!symbol) {
-          monthlyProfitById[item.id] = null;
-          continue;
-        }
-        const stableKey = symbol
-          ? `${groupKey}:symbol:${investPositionQuoteKey(item)}`
-          : `${groupKey}:name:${item.name.trim().toLowerCase()}`;
-        const previousItem = (prevRecord?.investPositionItems?.[groupKey] ?? []).find((candidate) => candidate.id === item.id)
-          ?? previousPositionItemsByStableKey.get(stableKey);
-        const previousMetric = previousItem ? previousPositionSummary?.metricsById[previousItem.id] : undefined;
-        if (isBaseline || !currentMetric) {
-          monthlyProfitById[item.id] = null;
-          continue;
-        }
-        const currentOriginal = currentMetric.totalProfitCny / currentMetric.profitFxRateToCny;
-        const previousOriginal = previousMetric && previousMetric.profitCurrency === currentMetric.profitCurrency
-          ? previousMetric.totalProfitCny / previousMetric.profitFxRateToCny
-          : 0;
-        monthlyProfitById[item.id] = {
-          value: roundCny(currentOriginal - previousOriginal),
-          currency: currentMetric.profitCurrency,
-        };
-      }
-    }
-    return monthlyProfitById;
-  }, [isBaseline, positionItems, positionSummary, prevRecord?.investPositionItems, previousPositionItemsByStableKey, previousPositionSummary]);
+  const positionMonthlyProfitById = positionMonthlyProfit.byItemId;
   const positionItemsForSave = useMemo<InvestPositionItems>(() => {
     const next: InvestPositionItems = {};
     for (const key of INVEST_POSITION_GROUP_KEYS) {
@@ -1661,7 +1631,11 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   const totalAssetsValue = nOrUndefined(totalAssets);
   const assetChange = getMonthlyAssetChange({ totalAssets: totalAssetsValue }, prevRecord);
   const accumulatedProfitValue = hasPositionModel ? positionSummary.totalProfitCny : n(accProfit);
-  const investIncome = prevRecord ? accumulatedProfitValue - (prevRecord.accumulatedProfit ?? 0) : null;
+  const investIncome = hasPositionModel
+    ? positionMonthlyProfit.totalCny
+    : prevRecord
+      ? accumulatedProfitValue - (prevRecord.accumulatedProfit ?? 0)
+      : null;
   const savingsDraft = {
     income: n(income),
     investTotal,
@@ -1677,15 +1651,12 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     if (!prevRecord) return null;
     // 本月是基准月（未真正开始记录）时本月收益无法推算；但基准月的次月仍可与基准月相减
     if (isBaseline) return null;
-    const now = hasPositionModel ? positionSummary.holdingProfitByCategory[k] : nOrNull(breakdownProfit[k]);
-    const past = hasPositionModel ? positionSummary.historicalProfitByCategory[k] : nOrNull(pastBreakdownProfit[k]);
+    if (hasPositionModel) return positionMonthlyProfit.byCategory[k] ?? null;
+    const now = nOrNull(breakdownProfit[k]);
+    const past = nOrNull(pastBreakdownProfit[k]);
     const totalProfit = (now !== null || past !== null) ? (now ?? 0) + (past ?? 0) : null;
     const storedPreviousProfit = getCategoryProfit(prevRecord, k);
-    const previousPositionProfit = previousPositionSummary
-      ? previousPositionSummary.holdingProfitByCategory[k] + previousPositionSummary.historicalProfitByCategory[k]
-      : null;
-    const prevProfit = storedPreviousProfit ?? previousPositionProfit;
-    return totalProfit !== null && prevProfit !== null ? totalProfit - prevProfit : null;
+    return totalProfit !== null && storedPreviousProfit !== null ? totalProfit - storedPreviousProfit : null;
   };
 
   const updatePositionDraft = (groupKey: InvestPositionGroupKey, id: string, patch: Partial<InvestPositionDraft>) => {
@@ -2256,11 +2227,11 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                     )}
                     <div className="invest-position-actions">
                       {isAggregateAccount ? (
-                        <button type="button" onClick={() => {
+                        <button type="button" aria-label={splitOpen ? '收起分出个股' : '分出个股'} title={splitOpen ? '收起' : '分出个股'} aria-pressed={splitOpen} onClick={() => {
                           setExpandedItemKey(null);
                           setSplitSource(splitOpen ? null : { groupKey, id: item.id });
-                        }} style={{ height: 26, border: 'none', borderRadius: 6, backgroundColor: '#e8f0fe', color: C.blue, fontSize: 9, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                          {splitOpen ? '收起' : '分出个股'}
+                        }} style={{ width: 26, height: 26, border: 'none', borderRadius: 6, backgroundColor: '#e8f0fe', color: C.blue, fontSize: 15, fontWeight: 800, cursor: 'pointer' }}>
+                          ｜
                         </button>
                       ) : canChangeStatus ? (
                         <select aria-label={`${item.name}移至其他状态`} title="切换状态" value="" onChange={(event) => {
@@ -3115,7 +3086,18 @@ function MonthRow({
   const expenseSum = record.periodicLife + record.volatileLife + record.consumption;
   const expenseDiff = Math.round((expenseSum - record.totalExpense) * 100) / 100;
   const expenseMismatch = Math.abs(expenseDiff) > 0.01;
-  const investIncome = prev ? record.accumulatedProfit - (prev.accumulatedProfit ?? 0) : null;
+  const recordPositionMonthlyProfit = record.investPositionItems !== undefined
+    ? calculateInvestPositionMonthlyProfit(
+      record.investPositionItems,
+      prev?.investPositionItems,
+      {},
+      {},
+      Boolean(record.isBaseline),
+    )
+    : null;
+  const investIncome = recordPositionMonthlyProfit
+    ? recordPositionMonthlyProfit.totalCny
+    : getRecordInvestMonthlyProfit(record, prev);
   const investTotalForRate = getInvestTotalForRate(record.yearMonth, record.investTotal, allRecords);
   const investMonthly = investIncome !== null && investTotalForRate !== null ? investIncome / investTotalForRate.value : null;
 
@@ -3250,8 +3232,11 @@ function MonthRow({
                       const profit = getCategoryProfit(record, k);
                       const prevProfit = getCategoryProfit(prev, k);
                       // 本月是基准月（未真正开始记录）时本月收益无法推算；基准月的次月仍可与基准月相减
-                      const monthlyProfit = (record.isBaseline || profit === null || prevProfit === null)
-                        ? null : profit - prevProfit;
+                      const monthlyProfit = recordPositionMonthlyProfit
+                        ? recordPositionMonthlyProfit.byCategory[k] ?? null
+                        : (record.isBaseline || profit === null || prevProfit === null)
+                          ? null
+                          : profit - prevProfit;
                       const rate = (monthlyProfit !== null && cur > 0) ? monthlyProfit / cur : null;
                       return (
                         <tr key={k} style={{ borderBottom: '1px solid #f5f5f5' }}>
@@ -3394,13 +3379,14 @@ function YearSection({
   // 年度收益率：每月收益率（=本月收益/本月理财额）之和
   const monthlyProfits = recs.map(r => {
     const prev = allRecords.find(x => x.yearMonth === prevYearMonth(r.yearMonth));
-    return prev ? r.accumulatedProfit - (prev.accumulatedProfit ?? 0) : null;
+    return getRecordInvestMonthlyProfit(r, prev);
   }).filter((x): x is number => x !== null);
   const monthlyRates = recs.map(r => {
     const prev = allRecords.find(x => x.yearMonth === prevYearMonth(r.yearMonth));
     const investTotalForRate = getInvestTotalForRate(r.yearMonth, r.investTotal, allRecords);
-    if (!prev || investTotalForRate === null) return null;
-    return (r.accumulatedProfit - (prev.accumulatedProfit ?? 0)) / investTotalForRate.value;
+    const monthlyProfit = getRecordInvestMonthlyProfit(r, prev);
+    if (monthlyProfit === null || investTotalForRate === null) return null;
+    return monthlyProfit / investTotalForRate.value;
   }).filter((x): x is number => x !== null);
   const yearRate = monthlyRates.length > 0 ? monthlyRates.reduce((a, b) => a + b, 0) : null;
   const yearProfitAmount = monthlyProfits.length > 0 ? monthlyProfits.reduce((a, b) => a + b, 0) : null;

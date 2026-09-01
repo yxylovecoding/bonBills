@@ -44,6 +44,12 @@ export interface InvestPositionSummary {
   metricsById: Record<string, InvestPositionMetric>;
 }
 
+export interface InvestPositionMonthlyProfit {
+  totalCny: number | null;
+  byCategory: Partial<Record<InvestKey, number | null>>;
+  byItemId: Record<string, { value: number; currency: string } | null>;
+}
+
 const emptyHoldings = (): InvestHoldings => ({
   us: 0,
   eu: 0,
@@ -182,6 +188,76 @@ export function summarizeInvestPositionItems(
       0,
     ) + accountHistoricalProfitCny + aggregateProfitCny),
     metricsById,
+  };
+}
+
+export function calculateInvestPositionMonthlyProfit(
+  currentItems: InvestPositionItems,
+  previousItems: InvestPositionItems | undefined,
+  currentMarkets: Record<string, InvestMarketSnapshot | undefined> = {},
+  previousMarkets: Record<string, InvestMarketSnapshot | undefined> = {},
+  isBaseline = false,
+): InvestPositionMonthlyProfit {
+  const byCategory: InvestPositionMonthlyProfit['byCategory'] = {};
+  const byItemId: InvestPositionMonthlyProfit['byItemId'] = {};
+  const currentSummary = summarizeInvestPositionItems(currentItems, currentMarkets);
+  const previousSummary = previousItems
+    ? summarizeInvestPositionItems(previousItems, previousMarkets)
+    : null;
+  let totalCny = 0;
+  let hasComparableItem = false;
+
+  for (const groupKey of INVEST_POSITION_KEYS) {
+    const previousGroup = previousItems?.[groupKey] ?? [];
+    const previousById = new Map(previousGroup.map((item) => [item.id, item]));
+    const previousByStableKey = new Map<string, InvestPositionItem>();
+    for (const item of previousGroup) {
+      if (!item.symbol.trim()) continue;
+      previousByStableKey.set(investPositionQuoteKey(item), item);
+    }
+
+    let categoryCny = 0;
+    let hasComparableCategoryItem = false;
+    for (const item of currentItems[groupKey] ?? []) {
+      if (!item.symbol.trim()) {
+        byItemId[item.id] = null;
+        continue;
+      }
+      const quoteKey = investPositionQuoteKey(item);
+      const previousItemById = previousById.get(item.id);
+      const previousItemWithSameId = previousItemById && investPositionQuoteKey(previousItemById) === quoteKey
+        ? previousItemById
+        : undefined;
+      const previousItem = previousItemWithSameId ?? previousByStableKey.get(quoteKey);
+      const currentMetric = currentSummary.metricsById[item.id];
+      const previousMetric = previousItem ? previousSummary?.metricsById[previousItem.id] : undefined;
+      if (
+        isBaseline
+        || !currentMetric
+        || !previousMetric
+        || previousMetric.profitCurrency !== currentMetric.profitCurrency
+      ) {
+        byItemId[item.id] = null;
+        continue;
+      }
+
+      const currentOriginal = currentMetric.totalProfitCny / currentMetric.profitFxRateToCny;
+      const previousOriginal = previousMetric.totalProfitCny / previousMetric.profitFxRateToCny;
+      const value = roundMoney(currentOriginal - previousOriginal);
+      const valueCny = roundMoney(value * currentMetric.profitFxRateToCny);
+      byItemId[item.id] = { value, currency: currentMetric.profitCurrency };
+      categoryCny += valueCny;
+      totalCny += valueCny;
+      hasComparableCategoryItem = true;
+      hasComparableItem = true;
+    }
+    byCategory[groupKey] = hasComparableCategoryItem ? roundMoney(categoryCny) : null;
+  }
+
+  return {
+    totalCny: hasComparableItem ? roundMoney(totalCny) : null,
+    byCategory,
+    byItemId,
   };
 }
 
