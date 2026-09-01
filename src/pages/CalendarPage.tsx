@@ -707,8 +707,6 @@ type InvestPositionDraftGroups = Record<InvestPositionGroupKey, InvestPositionDr
 type PositionSplitInput = {
   sourceGroupKey: InvestPositionGroupKey;
   sourceId: string;
-  targetGroupKey: InvestKey;
-  targetStatus: InvestPositionStatus;
   name: string;
   symbol: string;
   quoteSource?: InvestQuoteSource;
@@ -1611,7 +1609,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
         symbol: input.symbol.trim().toUpperCase(),
         quoteSource: input.quoteSource,
         quoteCurrency: input.quoteCurrency,
-        status: input.targetStatus,
+        status: source.status,
         shares: input.shares !== undefined ? String(input.shares) : '',
         costPrice: input.costPrice !== undefined ? String(input.costPrice) : '',
         historicalProfitCny: String(historicalProfitCny),
@@ -1626,12 +1624,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       } : item);
       return {
         ...previous,
-        [input.sourceGroupKey]: input.sourceGroupKey === input.targetGroupKey
-          ? [...sourceItems, target]
-          : sourceItems,
-        ...(input.sourceGroupKey === input.targetGroupKey
-          ? {}
-          : { [input.targetGroupKey]: [...previous[input.targetGroupKey], target] }),
+        [input.sourceGroupKey]: [...sourceItems, target],
       };
     });
   };
@@ -2073,9 +2066,10 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
               const transferOpen = transferDraft?.targetId === item.id && transferDraft.targetGroupKey === groupKey;
               const isAggregateAccount = symbol.length === 0;
               const splitOpen = splitSource?.id === item.id && splitSource.groupKey === groupKey;
+              const canChangeStatus = groupKey !== 'account' && groupKey !== 'aggregate';
               return (
                 <div key={item.id} style={{ borderTop: '1px solid #f1f3f4', padding: '8px 0 2px' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: groupKey === 'account' ? '1fr 26px' : '1fr 72px 26px', gap: 6, alignItems: 'center' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: canChangeStatus ? '1fr 34px 26px' : '1fr 26px', gap: 6, alignItems: 'center' }}>
                     {groupKey !== 'account' && activeStatus !== 'closed' ? (
                       <InvestInstrumentPicker
                         name={item.name}
@@ -2087,9 +2081,12 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                     ) : (
                       <input aria-label={`${groupLabel}名称`} value={item.name} onChange={(event) => updatePositionDraft(groupKey, item.id, { name: event.target.value })} style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', fontSize: 12, fontWeight: 800, backgroundColor: 'transparent' }} />
                     )}
-                    {groupKey !== 'account' && (
-                      <select aria-label={`${item.name}状态`} value={item.status} onChange={(event) => updatePositionDraft(groupKey, item.id, { status: event.target.value as InvestPositionStatus })} style={{ minWidth: 0, border: '1px solid #dadce0', borderRadius: 6, padding: '3px 2px', fontSize: 10, color: INVEST_POSITION_STATUS_META[item.status].color, backgroundColor: '#fff' }}>
-                        {(Object.keys(INVEST_POSITION_STATUS_META) as InvestPositionStatus[]).map((status) => <option key={status} value={status}>{INVEST_POSITION_STATUS_META[status].label}</option>)}
+                    {canChangeStatus && (
+                      <select aria-label={`${item.name}移至其他状态`} title="切换状态" value="" onChange={(event) => updatePositionDraft(groupKey, item.id, { status: event.target.value as InvestPositionStatus })} style={{ width: 34, height: 26, border: '1px solid #dadce0', borderRadius: 6, padding: '2px', appearance: 'none', WebkitAppearance: 'none', textAlign: 'center', fontSize: 11, color: C.sub, backgroundColor: '#fff', cursor: 'pointer' }}>
+                        <option value="" disabled>→</option>
+                        {(Object.keys(INVEST_POSITION_STATUS_META) as InvestPositionStatus[])
+                          .filter((status) => status !== item.status)
+                          .map((status) => <option key={status} value={status}>{INVEST_POSITION_STATUS_META[status].label}</option>)}
                       </select>
                     )}
                     <button type="button" onClick={() => { if (window.confirm(`删除“${item.name}”？`)) removePositionDraft(groupKey, item.id); }} aria-label={`删除${item.name}`} style={{ width: 24, height: 24, border: 'none', borderRadius: 6, backgroundColor: '#fce8e6', color: C.red, cursor: 'pointer', fontWeight: 800 }}>×</button>
@@ -2120,7 +2117,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                         <span>持有收益<br /><b style={{ color: (metric?.holdingProfitCny ?? 0) >= 0 ? C.red : C.green }}>{signedAmount(metric?.holdingProfitCny ?? 0)}</b></span>
                         <span>总收益<br /><b style={{ color: (metric?.totalProfitCny ?? 0) >= 0 ? C.red : C.green }}>{signedAmount(metric?.totalProfitCny ?? 0)}</b></span>
                       </div>
-                      {closedSources.length > 0 && (
+                      {!isAggregateAccount && closedSources.length > 0 && (
                         <button type="button" onClick={() => setTransferDraft(transferOpen ? null : { targetGroupKey: groupKey, targetId: item.id, sourceToken: `${closedSources[0].groupKey}::${closedSources[0].item.id}`, amount: '' })} style={{ marginTop: 6, padding: 0, border: 'none', backgroundColor: 'transparent', color: C.blue, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>
                           从清仓迁入历史收益
                         </button>
@@ -2178,8 +2175,6 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
 }
 
 type PositionSplitDraft = {
-  targetGroupKey: InvestKey;
-  targetStatus: InvestPositionStatus;
   name: string;
   symbol: string;
   quoteSource?: InvestQuoteSource;
@@ -2208,8 +2203,6 @@ function PositionSplitPanel({
   onConfirm,
 }: PositionSplitPanelProps) {
   const [splitDraft, setSplitDraft] = useState<PositionSplitDraft>(() => ({
-    targetGroupKey: INVEST_POSITION_KEYS.includes(sourceGroupKey as InvestKey) ? sourceGroupKey as InvestKey : 'us',
-    targetStatus: source.status,
     name: '',
     symbol: '',
     shares: '',
@@ -2217,15 +2210,18 @@ function PositionSplitPanel({
     manualMarketValueCny: '',
     totalProfitCny: '',
   }));
+  const previewGroupKey = INVEST_POSITION_KEYS.includes(sourceGroupKey as InvestKey)
+    ? sourceGroupKey as InvestKey
+    : 'us';
   const previewItems = useMemo<InvestPositionItems>(() => {
     return {
-      [splitDraft.targetGroupKey]: [{
+      [previewGroupKey]: [{
         id: 'aggregate-split-preview',
         name: splitDraft.name,
         symbol: splitDraft.symbol,
         quoteSource: splitDraft.quoteSource,
         quoteCurrency: splitDraft.quoteCurrency,
-        status: splitDraft.targetStatus,
+        status: source.status,
         shares: numberOrUndefined(splitDraft.shares),
         costPrice: numberOrUndefined(splitDraft.costPrice),
         historicalProfitCny: 0,
@@ -2233,7 +2229,7 @@ function PositionSplitPanel({
         holdingProfitCny: 0,
       }],
     };
-  }, [splitDraft]);
+  }, [previewGroupKey, source.status, splitDraft]);
   const { quoteErrors, marketsBySymbol } = useInvestPositionMarkets(previewItems, isCurrentRecordMonth, null);
   const previewSummary = useMemo(
     () => summarizeInvestPositionItems(previewItems, marketsBySymbol),
@@ -2242,7 +2238,7 @@ function PositionSplitPanel({
   const previewMetric = previewSummary.metricsById['aggregate-split-preview'];
   const previewQuoteKey = investPositionQuoteKey(splitDraft);
   const quoteFailed = Boolean(previewQuoteKey && quoteErrors.has(previewQuoteKey));
-  const isClosedTarget = splitDraft.targetStatus === 'closed';
+  const isClosedTarget = source.status === 'closed';
   const shares = numberOrUndefined(splitDraft.shares);
   const hasLiveAmount = Boolean(!isClosedTarget && previewMetric?.live && shares && shares > 0);
   const effectiveMarketValue = isClosedTarget
@@ -2268,24 +2264,8 @@ function PositionSplitPanel({
                   symbol={splitDraft.symbol}
                   quoteSource={splitDraft.quoteSource}
                   ariaLabel="分出标的"
-                  onChange={(patch) => setSplitDraft((current) => current ? { ...current, ...patch } : current)}
+                  onChange={(patch) => setSplitDraft((current) => ({ ...current, ...patch }))}
                 />
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7, marginTop: 8 }}>
-                  <label style={{ fontSize: 10, color: C.sub }}>
-                    <span>目标品类</span>
-                    <select aria-label="目标品类" value={splitDraft.targetGroupKey} onChange={(event) => setSplitDraft({ ...splitDraft, targetGroupKey: event.target.value as InvestKey })} style={{ width: '100%', border: '1px solid #dadce0', borderRadius: 6, padding: '5px', fontSize: 11, backgroundColor: '#fff' }}>
-                      {INVEST_POSITION_KEYS.map((key) => <option key={key} value={key}>{investMeta[key].label}</option>)}
-                    </select>
-                  </label>
-                  <label style={{ fontSize: 10, color: C.sub }}>
-                    <span>目标状态</span>
-                    <select aria-label="目标状态" value={splitDraft.targetStatus} onChange={(event) => setSplitDraft({ ...splitDraft, targetStatus: event.target.value as InvestPositionStatus })} style={{ width: '100%', border: '1px solid #dadce0', borderRadius: 6, padding: '5px', fontSize: 11, backgroundColor: '#fff' }}>
-                      <option value="active">投入</option>
-                      <option value="paused">暂存</option>
-                      <option value="closed">清仓</option>
-                    </select>
-                  </label>
-                </div>
                 {!isClosedTarget && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 7, marginTop: 8 }}>
                   {([
                     ['份额', 'shares'],
@@ -2306,18 +2286,22 @@ function PositionSplitPanel({
                       style={{ width: '100%', border: 'none', borderBottom: `1px solid ${hasLiveAmount ? C.green : C.blue}`, outline: 'none', textAlign: 'right', fontSize: 11, fontWeight: 700, color: hasLiveAmount ? C.green : '#202124', backgroundColor: 'transparent', boxSizing: 'border-box' }}
                     />
                   </label>
-                </div>}
-                <div style={{ display: 'grid', gridTemplateColumns: isClosedTarget ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: 7, marginTop: 8 }}>
                   <label style={{ minWidth: 0, fontSize: 10, color: C.sub }}>
-                    <span>分出累计收益</span>
+                    <span>分出收益</span>
                     <AmountInput value={splitDraft.totalProfitCny} onChange={(value) => setSplitDraft({ ...splitDraft, totalProfitCny: value })} placeholder={String(roundCny(holdingProfitAtSplit))} style={{ width: '100%', border: 'none', borderBottom: `1px solid ${C.orange}`, outline: 'none', textAlign: 'right', fontSize: 11, fontWeight: 700, color: C.orange, backgroundColor: 'transparent', boxSizing: 'border-box' }} />
                   </label>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 5, marginTop: 8, padding: 6, borderRadius: 7, backgroundColor: '#fff', fontSize: 9, color: C.sub }}>
+                </div>}
+                {isClosedTarget && <div style={{ marginTop: 8 }}>
+                  <label style={{ minWidth: 0, fontSize: 10, color: C.sub }}>
+                    <span>分出收益</span>
+                    <AmountInput value={splitDraft.totalProfitCny} onChange={(value) => setSplitDraft({ ...splitDraft, totalProfitCny: value })} placeholder={String(roundCny(holdingProfitAtSplit))} style={{ width: '100%', border: 'none', borderBottom: `1px solid ${C.orange}`, outline: 'none', textAlign: 'right', fontSize: 11, fontWeight: 700, color: C.orange, backgroundColor: 'transparent', boxSizing: 'border-box' }} />
+                  </label>
+                </div>}
+                {!isClosedTarget && splitDraft.symbol.trim() && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 5, marginTop: 8, padding: 6, borderRadius: 7, backgroundColor: '#fff', fontSize: 9, color: C.sub }}>
                   <span>现价<br /><b style={{ color: previewMetric?.live ? C.blue : C.sub }}>{previewMetric?.price !== undefined ? previewMetric.price.toFixed(splitDraft.quoteSource === 'eastmoney-fund' ? 4 : 2) : quoteFailed ? '失败' : splitDraft.symbol ? '获取中' : '—'}</b></span>
                   <span>持有收益<br /><b style={{ color: holdingProfitAtSplit >= 0 ? C.red : C.green }}>{signedCurrency(holdingProfitAtSplit)}</b></span>
                   <span>历史收益<br /><b style={{ color: historicalProfitAfterSplit >= 0 ? C.red : C.green }}>{signedCurrency(historicalProfitAfterSplit)}</b></span>
-                </div>
+                </div>}
                 {amountTooLarge && <div role="alert" style={{ marginTop: 6, fontSize: 10, color: C.red }}>分出金额超过账户金额</div>}
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 8 }}>
                   <button type="button" onClick={onClose} style={{ border: '1px solid #dadce0', borderRadius: 6, padding: '5px 9px', backgroundColor: '#fff', color: C.sub, fontSize: 10, cursor: 'pointer' }}>取消</button>
@@ -2325,8 +2309,6 @@ function PositionSplitPanel({
                     onConfirm({
                       sourceGroupKey,
                       sourceId: source.id,
-                      targetGroupKey: splitDraft.targetGroupKey,
-                      targetStatus: splitDraft.targetStatus,
                       name: splitDraft.name,
                       symbol: splitDraft.symbol,
                       quoteSource: splitDraft.quoteSource,
@@ -2337,7 +2319,7 @@ function PositionSplitPanel({
                       splitTotalProfitCny: effectiveTotalProfit,
                       holdingProfitAtSplitCny: holdingProfitAtSplit,
                     });
-                  }} style={{ border: 'none', borderRadius: 6, padding: '5px 9px', backgroundColor: canSplit ? C.blue : '#dadce0', color: '#fff', fontSize: 10, fontWeight: 800, cursor: canSplit ? 'pointer' : 'default' }}>确认拆分</button>
+                  }} style={{ border: 'none', borderRadius: 6, padding: '5px 9px', backgroundColor: canSplit ? C.blue : '#dadce0', color: '#fff', fontSize: 10, fontWeight: 800, cursor: canSplit ? 'pointer' : 'default' }}>确定</button>
                 </div>
     </div>
   );
