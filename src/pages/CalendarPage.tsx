@@ -2253,6 +2253,10 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
         const groupMonthlyProfit = groupKey === 'account' || groupKey === 'aggregate'
           ? null
           : state.getBreakdownMonthlyProfit(groupKey);
+        const groupMarketValue = items.reduce(
+          (sum, item) => sum + (positionSummary.metricsById[item.id]?.marketValueCny ?? 0),
+          0,
+        );
         return (
           <div key={groupKey} style={{ border: '1px solid #e8eaed', borderRadius: 10, padding: '8px', backgroundColor: '#fff' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: groupExpanded && items.length > 0 ? 7 : 0 }}>
@@ -2275,8 +2279,11 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                   {groupLabel}
                 </div>
                 {items.length > 0 && groupKey !== 'account' && groupKey !== 'aggregate' && (
-                  <div className="invest-position-group-monthly" style={{ color: groupMonthlyProfit === null ? C.sub : groupMonthlyProfit >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                    本月 {groupMonthlyProfit === null ? '—' : signedAmount(groupMonthlyProfit)}
+                  <div className="invest-position-group-monthly" style={{ display: 'flex', alignItems: 'center', gap: 7, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                    <span style={{ color: C.sub }}>¥{formatCurrency(groupMarketValue)}</span>
+                    <span style={{ color: groupMonthlyProfit === null ? C.sub : groupMonthlyProfit >= 0 ? C.red : C.green }}>
+                      本月 {groupMonthlyProfit === null ? '—' : signedAmount(groupMonthlyProfit)}
+                    </span>
                   </div>
                 )}
               </div>
