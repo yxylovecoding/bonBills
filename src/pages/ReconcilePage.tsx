@@ -3075,13 +3075,9 @@ export default function ReconcilePage() {
                                         onBlur={(event) => patchCurrentInvestPosition(k, item.id, { name: event.target.value })}
                                         style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', color: '#202124', fontSize: 12, fontWeight: 800 }}
                                       />
-                                      <input
-                                        aria-label={`${item.name}代码`}
-                                        defaultValue={item.symbol}
-                                        onBlur={(event) => patchCurrentInvestPosition(k, item.id, { symbol: event.target.value.trim().toUpperCase() })}
-                                        placeholder="代码"
-                                        style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: '1px solid #e8eaed', outline: 'none', backgroundColor: 'transparent', color: C.blue, textAlign: 'right', fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}
-                                      />
+                                      <div aria-label={`${item.name}金额`} style={{ minWidth: 0, textAlign: 'right', color: '#202124', fontSize: 12, fontWeight: 800, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                                        ¥{formatCurrency(metric.marketValueCny)}
+                                      </div>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                         <button
                                           type="button"
@@ -3102,25 +3098,27 @@ export default function ReconcilePage() {
                                         </button>
                                       </div>
                                     </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '6px 10px', marginTop: 8 }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: item.symbol.trim() ? 'repeat(3, minmax(0, 1fr))' : 'repeat(2, minmax(0, 1fr))', gap: '6px 10px', marginTop: 8 }}>
+                                      {!item.symbol.trim() && (
                                       <label style={{ minWidth: 0, color: C.sub, fontSize: 9 }}>
-                                        金额¥
+                                        代码
                                         <input
                                           type="text"
-                                          inputMode="decimal"
-                                          defaultValue={metric.marketValueCny}
-                                          onBlur={(event) => patchCurrentInvestPosition(k, item.id, { marketValueCny: Math.max(parseAmountPart(event.target.value), 0) })}
-                                          style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', color: '#202124', textAlign: 'right', fontSize: 11, fontWeight: 700 }}
+                                          defaultValue={item.symbol}
+                                          onBlur={(event) => patchCurrentInvestPosition(k, item.id, { symbol: event.target.value.trim().toUpperCase() })}
+                                          placeholder="填写后隐藏"
+                                          style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', color: C.blue, textAlign: 'right', fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}
                                         />
                                       </label>
+                                      )}
                                       <label style={{ minWidth: 0, color: C.sub, fontSize: 9 }}>
-                                        历史收益¥
+                                        累计收益¥
                                         <input
                                           type="text"
                                           inputMode="decimal"
-                                          defaultValue={metric.historicalProfitCny}
-                                          onBlur={(event) => patchCurrentInvestPosition(k, item.id, { historicalProfitCny: parseAmountPart(event.target.value), historicalProfitCurrency: 'CNY', profitInputMode: 'historical' })}
-                                          style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', color: metric.historicalProfitCny > 0 ? C.red : metric.historicalProfitCny < 0 ? C.green : C.sub, textAlign: 'right', fontSize: 11, fontWeight: 700 }}
+                                          defaultValue={totalProfit}
+                                          onBlur={(event) => patchCurrentInvestPosition(k, item.id, { historicalProfitCny: roundMoney(parseAmountPart(event.target.value) - metric.holdingProfitCny), historicalProfitCurrency: 'CNY', profitInputMode: 'historical' })}
+                                          style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', color: totalProfit > 0 ? C.red : totalProfit < 0 ? C.green : C.sub, textAlign: 'right', fontSize: 11, fontWeight: 700 }}
                                         />
                                       </label>
                                       <label style={{ minWidth: 0, color: C.sub, fontSize: 9 }}>
@@ -3144,8 +3142,8 @@ export default function ReconcilePage() {
                                         />
                                       </label>
                                     </div>
-                                    <div style={{ marginTop: 6, textAlign: 'right', color: totalProfit > 0 ? C.red : totalProfit < 0 ? C.green : C.sub, fontSize: 10, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                                      累计 {totalProfit > 0 ? '+' : totalProfit < 0 ? '-' : ''}¥{formatCurrency(Math.abs(totalProfit))}
+                                    <div style={{ marginTop: 6, textAlign: 'right', color: metric.holdingProfitCny > 0 ? C.red : metric.holdingProfitCny < 0 ? C.green : C.sub, fontSize: 10, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                                      持有收益 {metric.holdingProfitCny > 0 ? '+' : metric.holdingProfitCny < 0 ? '-' : ''}¥{formatCurrency(Math.abs(metric.holdingProfitCny))}
                                     </div>
                                   </div>
                                 );

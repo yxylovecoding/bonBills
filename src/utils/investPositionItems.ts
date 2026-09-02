@@ -115,16 +115,34 @@ export function calculateInvestPositionMetric(
     && Number.isFinite(market.fxRateToCny)
     && market.fxRateToCny > 0,
   );
-  const canCalculatePosition = hasLiveMarket && shares > 0;
+  const storedCurrency = (item.lastCurrency || item.quoteCurrency || '').toUpperCase();
+  const storedFxRate = ['CNY', 'CNH'].includes(storedCurrency)
+    ? 1
+    : finiteOrZero(item.lastFxRateToCny);
+  const hasStoredMarket = Number.isFinite(item.lastPrice)
+    && finiteOrZero(item.lastPrice) > 0
+    && storedFxRate > 0;
+  const effectiveMarket = hasLiveMarket
+    ? market!
+    : hasStoredMarket
+      ? {
+          price: finiteOrZero(item.lastPrice),
+          currency: storedCurrency || profitCurrency,
+          fxRateToCny: storedFxRate,
+          live: false,
+          quoteAt: item.quoteAt,
+        }
+      : undefined;
+  const canCalculatePosition = Boolean(effectiveMarket) && shares > 0;
   const marketValueCny = hasExplicitShares && shares === 0
     ? 0
     : canCalculatePosition
-    ? roundMoney(shares * market!.price * market!.fxRateToCny)
+    ? roundMoney(shares * effectiveMarket!.price * effectiveMarket!.fxRateToCny)
     : roundMoney(Math.max(finiteOrZero(item.marketValueCny), 0));
   const holdingProfitCny = hasExplicitShares && shares === 0
     ? 0
     : canCalculatePosition && costPrice > 0
-    ? roundMoney((market!.price - costPrice) * shares * market!.fxRateToCny)
+    ? roundMoney((effectiveMarket!.price - costPrice) * shares * effectiveMarket!.fxRateToCny)
     : roundMoney(finiteOrZero(item.holdingProfitCny));
   // 旧数据保存的是累计收益；首次读取时减去当时的持有收益，还原成历史收益。
   const historicalProfitCny = item.profitInputMode === 'historical'
@@ -140,10 +158,10 @@ export function calculateInvestPositionMetric(
     profitCurrency,
     profitFxRateToCny,
     live: hasLiveMarket && market?.live !== false,
-    price: hasLiveMarket ? market!.price : item.lastPrice,
-    currency: hasLiveMarket ? market!.currency : item.lastCurrency,
-    fxRateToCny: hasLiveMarket ? market!.fxRateToCny : item.lastFxRateToCny,
-    quoteAt: hasLiveMarket ? market!.quoteAt : item.quoteAt,
+    price: effectiveMarket?.price,
+    currency: effectiveMarket?.currency,
+    fxRateToCny: effectiveMarket?.fxRateToCny,
+    quoteAt: effectiveMarket?.quoteAt,
   };
 }
 
