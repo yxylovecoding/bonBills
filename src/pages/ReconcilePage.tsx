@@ -16,13 +16,19 @@ import { calcBudget } from '../calculations/budget';
 import { calcHistoryStats } from '../calculations/history';
 import { calcRebalance } from '../calculations/rebalance';
 import { investMeta, tagMeta } from '../data/mockData';
-import type { AccountSnapshot, AppConfig, DailyTag, InvestAllocTargets, InvestHoldings, InvestKey, MonthlyRecord, TagKind, UsStockHoldingItem } from '../models/types';
+import type { AccountSnapshot, AppConfig, DailyTag, InvestAllocTargets, InvestHoldings, InvestKey, InvestPositionItem, InvestPositionItems, MonthlyRecord, TagKind, UsStockHoldingItem } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { tryEvalFormula } from '../utils/formula';
 import { dateLabel, resolveIncomeForMonth, type ResolvedIncomeItem } from '../utils/payroll';
 import { getCategoryCumulativeRateSummary, getCategoryProfit, type CategoryCumulativeRateSummary } from '../utils/investRecords';
-import { summarizeInvestPositionItems, syncInvestPositionCategoryAmounts } from '../utils/investPositionItems';
+import {
+  calculateInvestPositionMetric,
+  migrateLegacyInvestPositionItems,
+  summarizeInvestPositionItems,
+  syncInvestPositionCategoryAmounts,
+  syncInvestPositionItems,
+} from '../utils/investPositionItems';
 import { calculateCreditRepaymentPlan, LONG_BOND_REPAY_THRESHOLD } from '../utils/creditRepayment';
 import {
   FINANCE_SCREENSHOT_DRAFT_EVENT,
@@ -498,6 +504,47 @@ export default function ReconcilePage() {
     for (const key of INVEST_TARGET_KEYS) next[key] = roundMoney(Math.max(Number(breakdown?.[key]) || 0, 0));
     return next;
   }, [currentInvestRecord?.investBreakdown, currentPositionSummary]);
+  const currentInvestPositionItems = useMemo(
+    () => migrateLegacyInvestPositionItems(currentInvestRecord, INVEST_FIELD_LABELS),
+    [currentInvestRecord],
+  );
+
+  const updateCurrentInvestPositionGroup = (
+    key: InvestKey,
+    update: (items: InvestPositionItem[]) => InvestPositionItem[],
+  ) => {
+    if (!currentInvestRecord) {
+      window.alert('请先创建本月记录，再编辑理财明细。');
+      return;
+    }
+    const nextItems = Object.fromEntries(
+      Object.entries(currentInvestPositionItems).map(([groupKey, items]) => [
+        groupKey,
+        items?.map((item) => ({ ...item })),
+      ]),
+    ) as InvestPositionItems;
+    nextItems[key] = update(nextItems[key] ?? []);
+    upsert(syncInvestPositionItems(currentInvestRecord, nextItems));
+  };
+
+  const normalizePositionProfit = (item: InvestPositionItem): InvestPositionItem => {
+    if (item.profitInputMode === 'historical') return item;
+    const metric = calculateInvestPositionMetric(item);
+    return {
+      ...item,
+      historicalProfitCny: roundMoney(metric.historicalProfitCny / metric.profitFxRateToCny),
+      historicalProfitCurrency: metric.profitCurrency,
+      profitInputMode: 'historical',
+    };
+  };
+
+  const patchCurrentInvestPosition = (key: InvestKey, id: string, patch: Partial<InvestPositionItem>) =>
+    updateCurrentInvestPositionGroup(key, (items) => items.map((item) => (
+      item.id === id ? { ...normalizePositionProfit(item), ...patch } : item
+    )));
+
+  const removeCurrentInvestPosition = (key: InvestKey, id: string) =>
+    updateCurrentInvestPositionGroup(key, (items) => items.filter((item) => item.id !== id));
 
 
   // 账户余额本地编辑
@@ -901,7 +948,8 @@ export default function ReconcilePage() {
       };
     })
   );
-  const [usStockExpanded, setUsStockExpanded] = useState(false);
+  const [expandedPositionKey, setExpandedPositionKey] = useState<InvestKey | null>(null);
+  const [positionDetailStatus, setPositionDetailStatus] = useState<'now' | 'past'>('now');
   const [dramDecisionExpanded, setDramDecisionExpanded] = useState(false);
   const [localUsStockItems, setLocalUsStockItems] = useState<UsStockItemInput[]>(
     () => normalizeUsStockInputs(usStockInputsFromItems(effectiveUsStockItems)),
@@ -1009,7 +1057,8 @@ export default function ReconcilePage() {
       const inputs = usStockInputsFromItems(items);
       setLocalUsStockItems(inputs);
       updateUsStockHoldings(usStockInputsToItems(inputs));
-      setUsStockExpanded(true);
+      setExpandedPositionKey('us');
+      setPositionDetailStatus('now');
     }
 
     clearScreenshotDraft();
@@ -1028,7 +1077,8 @@ export default function ReconcilePage() {
     ]);
     setLocalUsStockItems(next);
     commitUsStockItems(next);
-    setUsStockExpanded(true);
+    setExpandedPositionKey('us');
+    setPositionDetailStatus('now');
   };
   const removeUsStockItem = (id: string) => {
     const next = normalizeUsStockInputs(localUsStockItems.filter((item) => item.id !== id));
@@ -2626,7 +2676,7 @@ export default function ReconcilePage() {
 
       {/* Step 3: 理财配置 & 再平衡 */}
       <div id="sec-invest">
-      <Card title="③ 理财配置 & 再平衡" subtitle="编辑持仓金额，可选择仅加仓或加减仓换仓">
+      <Card title="③ 理财配置 & 再平衡" subtitle="本月持仓同步，保留加仓与再平衡">
         {/* 本次投入 */}
         <div {...makeUsdSwipeHandlers('investUsdBank')} style={{ touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, border: '1.5px solid #fbbf24', borderRadius: 10, padding: '10px 12px', backgroundColor: '#fffbeb', marginBottom: 14 }}>
           {([
@@ -2837,6 +2887,7 @@ export default function ReconcilePage() {
               const profitRate = profitRateSummary?.rate ?? null;
               const cumulativeProfitSummary = currentBreakdownProfits[k] ?? null;
               const cumulativeProfit = cumulativeProfitSummary?.amount ?? null;
+              const positionExpanded = expandedPositionKey === k;
               const suggested = Math.round(rebalanceSuggested[k]);
               // 需加/需赎 = 建议 - 已加，赎回时为负数
               const localDone = parseFloat(localConfirmed[k]) || 0;
@@ -2884,19 +2935,17 @@ export default function ReconcilePage() {
                   </tr>
                 )}
                 <tr style={{ backgroundColor: groupTone.surface, borderBottom: `1px solid ${groupTone.border}` }}>
-                  <td style={{ padding: '8px 0', paddingRight: k === 'us' ? 34 : 0, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', position: 'relative' }}>
+                  <td style={{ padding: '8px 0', paddingRight: 34, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', position: 'relative' }}>
                     <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', backgroundColor: investMeta[k].color, marginRight: 4, verticalAlign: 'middle', flexShrink: 0 }} />
                     {investMeta[k].label}
-                    {k === 'us' && (
-                      <button
-                        type="button"
-                        onClick={() => setUsStockExpanded((prev) => !prev)}
-                        aria-label={usStockExpanded ? '收起美股明细' : '展开美股明细'}
-                        style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', border: 'none', borderRadius: 8, backgroundColor: '#eef4ff', color: C.blue, width: 32, height: 32, padding: 0, cursor: 'pointer', fontSize: 17, fontWeight: 900, lineHeight: 1 }}
-                      >
-                        {usStockExpanded ? '▾' : '▸'}
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => setExpandedPositionKey(positionExpanded ? null : k)}
+                      aria-label={positionExpanded ? `收起${investMeta[k].label}明细` : `展开${investMeta[k].label}明细`}
+                      style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', border: 'none', borderRadius: 8, backgroundColor: '#eef4ff', color: C.blue, width: 32, height: 32, padding: 0, cursor: 'pointer', fontSize: 17, fontWeight: 900, lineHeight: 1 }}
+                    >
+                      {positionExpanded ? '▾' : '▸'}
+                    </button>
                   </td>
                   <td style={{ padding: '4px 0', textAlign: 'right' }}>
                     <span style={{ fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124' }}>
@@ -2967,7 +3016,148 @@ export default function ReconcilePage() {
                     />
                   </td>
                 </tr>
-                {k === 'us' && usStockExpanded && (
+                {positionExpanded && (() => {
+                  const detailItems = (currentInvestPositionItems[k] ?? []).filter((item) => (
+                    positionDetailStatus === 'now' ? item.status === 'active' : item.status !== 'active'
+                  ));
+                  return (
+                    <tr style={{ backgroundColor: '#f8fbff', borderBottom: `1px solid ${groupTone.border}` }}>
+                      <td colSpan={5} style={{ padding: '8px 0 10px' }}>
+                        <div style={{ border: `1px solid ${groupTone.border}`, borderRadius: 10, padding: '8px 9px', backgroundColor: '#fff' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', border: '1px solid #dadce0', borderRadius: 8, overflow: 'hidden' }}>
+                              {(['now', 'past'] as const).map((status) => (
+                                <button
+                                  key={status}
+                                  type="button"
+                                  aria-pressed={positionDetailStatus === status}
+                                  onClick={() => setPositionDetailStatus(status)}
+                                  style={{ minWidth: 64, border: 'none', borderRight: status === 'now' ? '1px solid #dadce0' : 'none', padding: '5px 12px', backgroundColor: positionDetailStatus === status ? '#e8f0fe' : '#fff', color: positionDetailStatus === status ? C.blue : C.sub, fontSize: 11, fontWeight: 800, cursor: 'pointer' }}
+                                >
+                                  {status}
+                                </button>
+                              ))}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => updateCurrentInvestPositionGroup(k, (items) => [...items, {
+                                id: `reconcile-position:${curYM}:${k}:${Date.now()}`,
+                                name: '新项目',
+                                symbol: '',
+                                status: positionDetailStatus === 'now' ? 'active' : 'paused',
+                                historicalProfitCny: 0,
+                                historicalProfitCurrency: 'CNY',
+                                profitInputMode: 'historical',
+                                marketValueCny: 0,
+                                holdingProfitCny: 0,
+                              }])}
+                              style={{ border: 'none', borderRadius: 8, backgroundColor: '#e8f0fe', color: C.blue, padding: '6px 9px', fontSize: 11, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                            >
+                              + 项目
+                            </button>
+                          </div>
+                          {!currentInvestRecord ? (
+                            <div style={{ padding: '12px 0', textAlign: 'center', color: C.sub, fontSize: 11 }}>请先创建本月记录</div>
+                          ) : detailItems.length === 0 ? (
+                            <div style={{ padding: '12px 0', textAlign: 'center', color: C.sub, fontSize: 11 }}>暂无项目</div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                              {detailItems.map((item) => {
+                                const metric = calculateInvestPositionMetric(item);
+                                const totalProfit = metric.totalProfitCny;
+                                const optionalNumber = (raw: string) => raw.trim() === '' ? undefined : parseAmountPart(raw);
+                                return (
+                                  <div key={item.id} style={{ border: '1px solid #edf2fb', borderRadius: 9, padding: '7px 8px', backgroundColor: '#fbfdff' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(72px, 1fr) minmax(58px, 80px) auto', gap: 7, alignItems: 'center' }}>
+                                      <input
+                                        aria-label={`${investMeta[k].label}项目名称`}
+                                        defaultValue={item.name}
+                                        onBlur={(event) => patchCurrentInvestPosition(k, item.id, { name: event.target.value })}
+                                        style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', color: '#202124', fontSize: 12, fontWeight: 800 }}
+                                      />
+                                      <input
+                                        aria-label={`${item.name}代码`}
+                                        defaultValue={item.symbol}
+                                        onBlur={(event) => patchCurrentInvestPosition(k, item.id, { symbol: event.target.value.trim().toUpperCase() })}
+                                        placeholder="代码"
+                                        style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: '1px solid #e8eaed', outline: 'none', backgroundColor: 'transparent', color: C.blue, textAlign: 'right', fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}
+                                      />
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                        <button
+                                          type="button"
+                                          title={positionDetailStatus === 'now' ? '移至 past' : '移至 now'}
+                                          aria-label={`${item.name}${positionDetailStatus === 'now' ? '移至 past' : '移至 now'}`}
+                                          onClick={() => patchCurrentInvestPosition(k, item.id, { status: positionDetailStatus === 'now' ? 'paused' : 'active' })}
+                                          style={{ border: '1px solid #dadce0', borderRadius: 7, width: 27, height: 27, backgroundColor: '#fff', color: C.sub, cursor: 'pointer', fontSize: 13 }}
+                                        >
+                                          →
+                                        </button>
+                                        <button
+                                          type="button"
+                                          aria-label={`删除${item.name}`}
+                                          onClick={() => { if (window.confirm(`删除“${item.name}”？`)) removeCurrentInvestPosition(k, item.id); }}
+                                          style={{ border: 'none', borderRadius: 7, width: 27, height: 27, backgroundColor: '#fce8e6', color: C.red, cursor: 'pointer', fontSize: 14, fontWeight: 800 }}
+                                        >
+                                          ×
+                                        </button>
+                                      </div>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '6px 10px', marginTop: 8 }}>
+                                      <label style={{ minWidth: 0, color: C.sub, fontSize: 9 }}>
+                                        金额¥
+                                        <input
+                                          type="text"
+                                          inputMode="decimal"
+                                          defaultValue={metric.marketValueCny}
+                                          onBlur={(event) => patchCurrentInvestPosition(k, item.id, { marketValueCny: Math.max(parseAmountPart(event.target.value), 0) })}
+                                          style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', color: '#202124', textAlign: 'right', fontSize: 11, fontWeight: 700 }}
+                                        />
+                                      </label>
+                                      <label style={{ minWidth: 0, color: C.sub, fontSize: 9 }}>
+                                        历史收益¥
+                                        <input
+                                          type="text"
+                                          inputMode="decimal"
+                                          defaultValue={metric.historicalProfitCny}
+                                          onBlur={(event) => patchCurrentInvestPosition(k, item.id, { historicalProfitCny: parseAmountPart(event.target.value), historicalProfitCurrency: 'CNY', profitInputMode: 'historical' })}
+                                          style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', color: metric.historicalProfitCny > 0 ? C.red : metric.historicalProfitCny < 0 ? C.green : C.sub, textAlign: 'right', fontSize: 11, fontWeight: 700 }}
+                                        />
+                                      </label>
+                                      <label style={{ minWidth: 0, color: C.sub, fontSize: 9 }}>
+                                        份额
+                                        <input
+                                          type="text"
+                                          inputMode="decimal"
+                                          defaultValue={item.shares}
+                                          onBlur={(event) => patchCurrentInvestPosition(k, item.id, { shares: optionalNumber(event.target.value) })}
+                                          style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', color: C.sub, textAlign: 'right', fontSize: 11, fontWeight: 700 }}
+                                        />
+                                      </label>
+                                      <label style={{ minWidth: 0, color: C.sub, fontSize: 9 }}>
+                                        成本价
+                                        <input
+                                          type="text"
+                                          inputMode="decimal"
+                                          defaultValue={item.costPrice}
+                                          onBlur={(event) => patchCurrentInvestPosition(k, item.id, { costPrice: optionalNumber(event.target.value) })}
+                                          style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', color: C.sub, textAlign: 'right', fontSize: 11, fontWeight: 700 }}
+                                        />
+                                      </label>
+                                    </div>
+                                    <div style={{ marginTop: 6, textAlign: 'right', color: totalProfit > 0 ? C.red : totalProfit < 0 ? C.green : C.sub, fontSize: 10, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                                      累计 {totalProfit > 0 ? '+' : totalProfit < 0 ? '-' : ''}¥{formatCurrency(Math.abs(totalProfit))}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })()}
+                {false && (
                   <tr style={{ backgroundColor: '#f8fbff', borderBottom: '1px solid #e8f0fe' }}>
                     <td colSpan={5} style={{ padding: '8px 0 10px' }}>
                       <div style={{ border: '1px solid #d2e3fc', borderRadius: 10, padding: '8px 9px', backgroundColor: '#fff' }}>

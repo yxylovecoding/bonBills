@@ -207,6 +207,21 @@ export function summarizeInvestPositionItems(
   };
 }
 
+export function syncInvestPositionItems(
+  record: MonthlyRecord,
+  items: InvestPositionItems,
+): MonthlyRecord {
+  const summary = summarizeInvestPositionItems(items);
+  return {
+    ...record,
+    investPositionItems: items,
+    investBreakdown: summary.marketValueByCategory,
+    investBreakdownProfit: summary.holdingProfitByCategory,
+    investBreakdownPastProfit: summary.historicalProfitByCategory,
+    investTotal: summary.totalMarketValueCny,
+  };
+}
+
 export function syncInvestPositionCategoryAmounts(
   record: MonthlyRecord,
   amounts: Partial<InvestHoldings>,
@@ -284,15 +299,7 @@ export function syncInvestPositionCategoryAmounts(
     nextItems[key] = group;
   }
 
-  const summary = summarizeInvestPositionItems(nextItems);
-  return {
-    ...record,
-    investPositionItems: nextItems,
-    investBreakdown: summary.marketValueByCategory,
-    investBreakdownProfit: summary.holdingProfitByCategory,
-    investBreakdownPastProfit: summary.historicalProfitByCategory,
-    investTotal: summary.totalMarketValueCny,
-  };
+  return syncInvestPositionItems(record, nextItems);
 }
 
 export function calculateInvestPositionMonthlyProfit(
