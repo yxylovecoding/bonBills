@@ -2203,6 +2203,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
   const [activeStatus, setActiveStatus] = useState<InvestPositionStatus>('active');
   const [expandedGroupKeys, setExpandedGroupKeys] = useState<Set<string>>(() => new Set());
   const [expandedItemKey, setExpandedItemKey] = useState<string | null>(null);
+  const [cumulativeProfitInputs, setCumulativeProfitInputs] = useState<Record<string, string>>({});
   const [autoFocusCodeItemKey, setAutoFocusCodeItemKey] = useState<string | null>(null);
   const [splitSource, setSplitSource] = useState<{ groupKey: InvestPositionGroupKey; id: string } | null>(null);
   useEffect(() => {
@@ -2315,10 +2316,12 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
               const positionCurrency = (item.quoteCurrency || metric?.currency || defaultInvestQuoteCurrency(groupKey) || '').toUpperCase();
               const profitCurrency = isInvestPositionSummaryItem(item)
                 ? 'CNY'
-                : (item.historicalProfitCurrency || positionCurrency || 'CNY').toUpperCase();
+                : (positionCurrency || item.historicalProfitCurrency || 'CNY').toUpperCase();
               const costPriceLabel = positionCurrency ? `成本价（${positionCurrency}）` : '成本价';
-              const historicalProfitLabel = `历史收益${currencyMark(profitCurrency)}`;
-              const nativeFxRate = metric?.profitFxRateToCny || 1;
+              const cumulativeProfitLabel = `累计收益${currencyMark(profitCurrency)}`;
+              const nativeFxRate = ['CNY', 'CNH'].includes(profitCurrency)
+                ? 1
+                : (metric?.fxRateToCny || metric?.profitFxRateToCny || 1);
               const nativeMarketValue = (metric?.marketValueCny ?? 0) / (metric?.fxRateToCny || nativeFxRate);
               const nativeHoldingProfit = (metric?.holdingProfitCny ?? 0) / nativeFxRate;
               const nativeTotalProfit = (metric?.totalProfitCny ?? 0) / nativeFxRate;
@@ -2327,11 +2330,12 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
               const canChangeStatus = groupKey !== 'account' && groupKey !== 'aggregate';
               const itemKey = `${groupKey}:${item.id}`;
               const isExpanded = expandedItemKey === itemKey;
+              const cumulativeProfitInput = cumulativeProfitInputs[itemKey] ?? String(roundCny(nativeTotalProfit));
               const monthlyProfit = positionMonthlyProfitById[item.id] ?? null;
               const showMonthlyProfit = Boolean(symbol && numberOrUndefined(item.shares) !== 0);
-              const profitInputColor = Number(item.historicalProfitCny) > 0
+              const profitInputColor = Number(cumulativeProfitInput) > 0
                 ? C.red
-                : Number(item.historicalProfitCny) < 0
+                : Number(cumulativeProfitInput) < 0
                   ? C.green
                   : C.sub;
               return (
@@ -2414,11 +2418,37 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                             {([
                               ['份额', 'shares'],
                               [costPriceLabel, 'costPrice'],
-                              [historicalProfitLabel, 'historicalProfitCny'],
+                              [cumulativeProfitLabel, 'historicalProfitCny'],
                             ] as const).map(([label, field]) => (
                               <label key={field} style={{ minWidth: 0, fontSize: 10, color: C.sub }}>
                                 <span>{label}</span>
-                                <AmountInput decimalPlaces={field === 'costPrice' || field === 'shares' ? 4 : undefined} value={item[field]} onChange={(value) => updatePositionDraft(groupKey, item.id, { [field]: value })} style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', textAlign: 'right', fontSize: 11, fontWeight: 700, color: field === 'historicalProfitCny' ? profitInputColor : '#202124', backgroundColor: 'transparent', boxSizing: 'border-box' }} />
+                                <AmountInput
+                                  decimalPlaces={field === 'costPrice' || field === 'shares' ? 4 : undefined}
+                                  value={field === 'historicalProfitCny' ? cumulativeProfitInput : item[field]}
+                                  onChange={(value) => {
+                                    if (field !== 'historicalProfitCny') {
+                                      updatePositionDraft(groupKey, item.id, { [field]: value });
+                                      return;
+                                    }
+                                    setCumulativeProfitInputs((current) => ({ ...current, [itemKey]: value }));
+                                    const totalProfit = numberOrUndefined(value);
+                                    if (totalProfit === undefined) return;
+                                    updatePositionDraft(groupKey, item.id, {
+                                      historicalProfitCny: String(roundCny(totalProfit - nativeHoldingProfit)),
+                                      historicalProfitCurrency: profitCurrency,
+                                      profitInputMode: 'historical',
+                                    });
+                                  }}
+                                  onBlur={() => {
+                                    if (field !== 'historicalProfitCny') return;
+                                    setCumulativeProfitInputs((current) => {
+                                      const next = { ...current };
+                                      delete next[itemKey];
+                                      return next;
+                                    });
+                                  }}
+                                  style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', textAlign: 'right', fontSize: 11, fontWeight: 700, color: field === 'historicalProfitCny' ? profitInputColor : '#202124', backgroundColor: 'transparent', boxSizing: 'border-box' }}
+                                />
                               </label>
                             ))}
                           </div>
