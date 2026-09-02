@@ -47,6 +47,7 @@ export type InvestPositionItems = Partial<Record<InvestPositionGroupKey, InvestP
 export interface InvestmentTransactionRecord {
   id: string;
   date: string;
+  occurredAt?: string;
   side: 'buy' | 'sell';
   name: string;
   symbol: string;
@@ -199,6 +200,15 @@ export interface AppConfig {
 }
 
 // ── AccountSnapshot ────────────────────────────────────────────────
+export type AutoAccountBalanceKey = 'credit' | 'livingBank' | 'incomeBank' | 'investCnyBank' | 'investUsdBank';
+
+export interface AccountBalanceSyncCursor {
+  editedAt: string;
+  throughDate: string;
+  transactionIdsOnDate: string[];
+  syncedAt?: string;
+}
+
 export interface AccountSnapshot {
   date: string;
   reconcileType: 'first' | 'eleventh' | 'twentyFirst';
@@ -217,6 +227,7 @@ export interface AccountSnapshot {
     usdWishJar: number;          // 美元心愿虚拟账户（美元原币）
     investUsdBank: number;       // 美元理财账户（美元原币）
   };
+  accountBalanceSync?: Partial<Record<AutoAccountBalanceKey, AccountBalanceSyncCursor>>;
   investHoldings: InvestHoldings;
   usStockHoldings?: UsStockHoldingItem[]; // 美股内部明细，合计对应 investHoldings.us
   transfersDone: {
@@ -253,6 +264,7 @@ export interface MonthlyRecord {
   investmentTransactions?: InvestmentTransactionRecord[]; // 完整理财买卖台账，用于收益回推
   importedInvestmentTransactionIds?: string[];
   lastInvestmentMailUid?: number;
+  investmentEditedAt?: string; // 最近一次手动确认持仓/收益的时间，增量导入只接续此后交易
   isBaseline?: boolean;         // 旧版兼容字段，现已停用
   volatileLife: number;
   periodicLife: number;

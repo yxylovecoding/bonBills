@@ -44,6 +44,7 @@ function mergeMonthlyRecord(a: MonthlyRecord | undefined, b: MonthlyRecord): Mon
       ...(b.importedInvestmentTransactionIds ?? []),
     ])],
     lastInvestmentMailUid: Math.max(a.lastInvestmentMailUid ?? 0, b.lastInvestmentMailUid ?? 0) || undefined,
+    investmentEditedAt: b.investmentEditedAt ?? a.investmentEditedAt,
     majorExpenses: b.majorExpenses?.length ? b.majorExpenses : a.majorExpenses,
     majorExpensesNote: b.majorExpensesNote ?? a.majorExpensesNote,
   };

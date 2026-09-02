@@ -111,6 +111,29 @@ function normalizeTransactionDate(value: unknown) {
   return normalizeBillDate(String(value ?? ''));
 }
 
+function normalizeTransactionOccurredAt(value: unknown, date: string) {
+  if (value instanceof Date && Number.isFinite(value.getTime())) {
+    return `${date}T${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}:${String(value.getSeconds()).padStart(2, '0')}`;
+  }
+  const time = String(value ?? '').trim().match(/(?:T|\s)(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (!time) return date;
+  return `${date}T${String(Number(time[1])).padStart(2, '0')}:${time[2]}:${time[3] ?? '00'}`;
+}
+
+function localTimestamp(iso: string) {
+  const value = new Date(iso);
+  if (!Number.isFinite(value.getTime())) return iso.slice(0, 19);
+  const date = `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+  return `${date}T${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}:${String(value.getSeconds()).padStart(2, '0')}`;
+}
+
+function transactionIsAfterEdit(transaction: InvestmentTransaction, editedAt: string) {
+  const edit = localTimestamp(editedAt);
+  if (transaction.occurredAt?.includes('T')) return transaction.occurredAt > edit;
+  // 账表只有日期时保留同日的新流水，交易 ID 会负责防重。
+  return transaction.date >= edit.slice(0, 10);
+}
+
 export async function parseInvestmentFile(file: File): Promise<InvestmentTransaction[]> {
   const isCsv = /\.csv$/i.test(file.name) || file.type.toLowerCase().includes('csv');
   const workbook = isCsv
@@ -154,6 +177,7 @@ export async function parseInvestmentFile(file: File): Promise<InvestmentTransac
       transactions.push({
         id: `mail-invest:${stableHash(`${identity}|${occurrence}`)}`,
         date,
+        occurredAt: normalizeTransactionOccurredAt(rawDate, date),
         side,
         name: name || symbol,
         symbol,
@@ -238,8 +262,17 @@ function applyTransaction(items: InvestPositionItems, transaction: InvestmentTra
 }
 
 export async function importInvestmentFileIntoStores(file: File, options?: { mailUid?: number }) {
-  const transactions = await parseInvestmentFile(file);
-  if (transactions.length === 0) throw new Error('未识别到理财买入或卖出记录');
+  const parsedTransactions = await parseInvestmentFile(file);
+  if (parsedTransactions.length === 0) throw new Error('未识别到理财买入或卖出记录');
+  const editedAt = useMonthlyStore.getState().records.reduce<string | undefined>(
+    (latest, record) => record.investmentEditedAt && (!latest || record.investmentEditedAt > latest)
+      ? record.investmentEditedAt
+      : latest,
+    undefined,
+  );
+  const transactions = editedAt
+    ? parsedTransactions.filter((transaction) => transactionIsAfterEdit(transaction, editedAt))
+    : parsedTransactions;
   let importedTransactions = 0;
   const months = [...new Set(transactions.map((transaction) => transaction.date.slice(0, 7)))].sort();
   for (const yearMonth of months) {
@@ -270,6 +303,13 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
     }
     store.upsert(record);
   }
+  if (months.length === 0 && options?.mailUid) {
+    const store = useMonthlyStore.getState();
+    const latest = [...store.records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth))[0];
+    if (latest && options.mailUid > (latest.lastInvestmentMailUid ?? 0)) {
+      store.upsert({ ...latest, lastInvestmentMailUid: options.mailUid });
+    }
+  }
   await triggerUpload();
-  return { fileName: file.name, importedTransactions, updatedMonths: months.length };
+  return { fileName: file.name, importedTransactions, updatedMonths: months.length, editedAt };
 }

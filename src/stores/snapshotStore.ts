@@ -1,6 +1,14 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AccountSnapshot } from '../models/types';
+import type { AccountBalanceSyncCursor, AccountSnapshot, AutoAccountBalanceKey } from '../models/types';
+
+const AUTO_ACCOUNT_KEYS = new Set<AutoAccountBalanceKey>([
+  'credit', 'livingBank', 'incomeBank', 'investCnyBank', 'investUsdBank',
+]);
+
+function localDateKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
 
 export const DEFAULT_SNAPSHOT: AccountSnapshot = {
   date: '',
@@ -47,6 +55,10 @@ interface SnapshotStore {
   current: AccountSnapshot;
   history: AccountSnapshot[];
   updateAccounts: (accounts: Partial<AccountSnapshot['accounts']>) => void;
+  applyImportedAccounts: (
+    accounts: Partial<AccountSnapshot['accounts']>,
+    sync: Partial<Record<AutoAccountBalanceKey, AccountBalanceSyncCursor>>,
+  ) => void;
   updateTransfers: (transfers: Partial<AccountSnapshot['transfersDone']>) => void;
   updateHoldings: (holdings: Partial<AccountSnapshot['investHoldings']>) => void;
   updateUsStockHoldings: (items: AccountSnapshot['usStockHoldings']) => void;
@@ -61,7 +73,41 @@ export const useSnapshotStore = create<SnapshotStore>()(
       current: DEFAULT_SNAPSHOT,
       history: [],
       updateAccounts: (accounts) =>
-        set((s) => ({ current: { ...s.current, accounts: { ...s.current.accounts, ...accounts } } })),
+        set((s) => {
+          const now = new Date();
+          const editedAt = now.toISOString();
+          const today = localDateKey(now);
+          const nextSync = { ...(s.current.accountBalanceSync ?? {}) };
+          for (const [rawKey, value] of Object.entries(accounts)) {
+            const key = rawKey as keyof AccountSnapshot['accounts'];
+            if (!AUTO_ACCOUNT_KEYS.has(key as AutoAccountBalanceKey) || s.current.accounts[key] === value) continue;
+            const autoKey = key as AutoAccountBalanceKey;
+            const previous = nextSync[autoKey];
+            const throughDate = previous?.throughDate && previous.throughDate > today ? previous.throughDate : today;
+            nextSync[autoKey] = {
+              editedAt,
+              throughDate,
+              transactionIdsOnDate: previous?.throughDate === throughDate ? previous.transactionIdsOnDate : [],
+              syncedAt: previous?.syncedAt,
+            };
+          }
+          return {
+            current: {
+              ...s.current,
+              date: today,
+              accounts: { ...s.current.accounts, ...accounts },
+              accountBalanceSync: nextSync,
+            },
+          };
+        }),
+      applyImportedAccounts: (accounts, sync) =>
+        set((s) => ({
+          current: {
+            ...s.current,
+            accounts: { ...s.current.accounts, ...accounts },
+            accountBalanceSync: { ...(s.current.accountBalanceSync ?? {}), ...sync },
+          },
+        })),
       updateTransfers: (transfers) =>
         set((s) => ({ current: { ...s.current, transfersDone: { ...s.current.transfersDone, ...transfers } } })),
       updateHoldings: (holdings) =>

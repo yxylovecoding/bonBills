@@ -6,6 +6,7 @@ import { useMonthlyStore } from '../stores/monthlyStore';
 import { usePossessionStore } from '../stores/possessionStore';
 import { mergePossessionsFromBills } from './autoImportPossessions';
 import { parseBillFile, type BillMonthlyAgg } from './importBill';
+import { syncAccountBalancesFromBill } from './accountBalanceImport';
 import { triggerUpload } from './syncEngine';
 
 const BILL_CORE_FIELDS: readonly (keyof BillMonthlyAgg)[] = [
@@ -60,8 +61,9 @@ export function recordFromBillAggregate(yearMonth: string, a: BillMonthlyAgg, pr
 }
 
 export async function importBillFileIntoStores(file: File) {
-  const { tagStats, aggregates, expenseItems, incomeItems } = await parseBillFile(file);
+  const { tagStats, aggregates, expenseItems, incomeItems, accountTransactions } = await parseBillFile(file);
   useBillDetailStore.getState().updateFromImport(tagStats, expenseItems, incomeItems, aggregates);
+  const accountBalances = syncAccountBalancesFromBill(accountTransactions);
 
   const possessionStore = usePossessionStore.getState();
   const possessionImport = mergePossessionsFromBills({
@@ -93,5 +95,6 @@ export async function importBillFileIntoStores(file: File) {
     fileName: file.name,
     updatedMonths,
     importedPossessions: possessionImport.importedCount,
+    accountBalances,
   };
 }

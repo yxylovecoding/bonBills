@@ -23,6 +23,11 @@ export type BillTransactionItem = {
   tags: string;
   note: string;
 };
+export type BillAccountTransaction = BillTransactionItem & {
+  id: string;
+  occurredAt: string;
+  transactionType: '收入' | '支出';
+};
 export type BillExpenseItem = BillTransactionItem;
 export type BillIncomeItem = BillTransactionItem;
 export type BillExpenseMonth = BillExpenseItem[];
@@ -71,6 +76,7 @@ export type BillParseResult = {
   aggregates: Record<string, BillMonthlyAgg>;
   expenseItems: Record<string, BillExpenseMonth>;
   incomeItems: Record<string, BillIncomeMonth>;
+  accountTransactions: BillAccountTransaction[];
 };
 
 type BillColumnMap = {
@@ -188,6 +194,27 @@ export function normalizeBillDate(raw: string): string | null {
   return null;
 }
 
+function normalizeBillOccurredAt(raw: string): string | null {
+  const date = normalizeBillDate(raw);
+  if (!date) return null;
+  const time = raw.trim().match(/(?:T|\s)(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (!time) return date;
+  const hour = Number(time[1]);
+  const minute = Number(time[2]);
+  const second = Number(time[3] ?? 0);
+  if (hour > 23 || minute > 59 || second > 59) return date;
+  return `${date}T${pad2(hour)}:${pad2(minute)}:${pad2(second)}`;
+}
+
+function stableHash(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index++) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 export function normalizeBillYearMonth(raw: string): string | null {
   const value = raw.trim();
   const direct = value.match(/^(\d{4})[-/.年](\d{1,2})/);
@@ -233,6 +260,8 @@ export async function parseBillFile(file: File): Promise<BillParseResult> {
   const aggs: Record<string, BillMonthlyAgg> = {};
   const expenseItems: Record<string, BillExpenseMonth> = {};
   const incomeItems: Record<string, BillIncomeMonth> = {};
+  const accountTransactions: BillAccountTransaction[] = [];
+  const accountIdentityOccurrences = new Map<string, number>();
   const headerIdx = lines.findIndex((line) => line.trim());
   if (headerIdx < 0) throw new Error('账单内容为空');
   const columns = buildBillColumnMap(parseLine(lines[headerIdx]));
@@ -247,18 +276,15 @@ export async function parseBillFile(file: File): Promise<BillParseResult> {
     if (!line) continue;
     const cols = parseLine(line);
 
-    const other = cell(cols, columns.other).trim();
-    if (other.includes('不计入')) continue;
-
-    const date = normalizeBillDate(cell(cols, columns.date));
+    const rawDate = cell(cols, columns.date);
+    const date = normalizeBillDate(rawDate);
     if (!date) continue;
+    const occurredAt = normalizeBillOccurredAt(rawDate) ?? date;
     const yearMonth = date.slice(0, 7);
 
     const type = cell(cols, columns.type).trim();
     // 「金额」已是退款后的净额，退款列无需再扣
     const amount = parseAmount(cell(cols, columns.amount) || '0');
-    // 报销金额列非空 ⇒ 整行跳过（无论待报销 0.00 还是已报销正数，都不算自己实际支出）
-    if (cell(cols, columns.reimburseAmount).trim()) continue;
     if (amount === 0) continue;
     if (type !== '支出' && type !== '收入') continue;
 
@@ -268,6 +294,28 @@ export async function parseBillFile(file: File): Promise<BillParseResult> {
     const category = cell(cols, columns.category).trim();
     const subcategory = cell(cols, columns.subcategory).trim();
     const note = cell(cols, columns.note).trim();
+    const other = cell(cols, columns.other).trim();
+    const roundedAmount = Math.round(amount * 100) / 100;
+    const accountIdentity = [occurredAt, type, roundedAmount, account, category, subcategory, note, tagsRaw, other].join('|');
+    const occurrence = accountIdentityOccurrences.get(accountIdentity) ?? 0;
+    accountIdentityOccurrences.set(accountIdentity, occurrence + 1);
+    accountTransactions.push({
+      id: `bill-account:${stableHash(`${accountIdentity}|${occurrence}`)}`,
+      date,
+      occurredAt,
+      transactionType: type,
+      category,
+      subcategory,
+      amount: roundedAmount,
+      account,
+      tags: tagsRaw,
+      note,
+    });
+
+    // 不计入与报销记录仍影响真实账户余额，但不进入收支统计。
+    if (other.includes('不计入')) continue;
+    // 报销金额列非空 ⇒ 整行跳过（无论待报销 0.00 还是已报销正数，都不算自己实际支出）
+    if (cell(cols, columns.reimburseAmount).trim()) continue;
 
     const a = ensureAgg(yearMonth);
     if (type === '收入') {
@@ -275,7 +323,7 @@ export async function parseBillFile(file: File): Promise<BillParseResult> {
       if (!incomeItems[yearMonth]) incomeItems[yearMonth] = [];
       incomeItems[yearMonth].push({
         date, category, subcategory,
-        amount: Math.round(amount * 100) / 100,
+        amount: roundedAmount,
         account, tags: tagsRaw, note,
       });
       continue;
@@ -290,7 +338,7 @@ export async function parseBillFile(file: File): Promise<BillParseResult> {
     if (!expenseItems[yearMonth]) expenseItems[yearMonth] = [];
     expenseItems[yearMonth].push({
       date, category, subcategory,
-      amount: Math.round(amount * 100) / 100,
+      amount: roundedAmount,
       account, tags: tagsRaw, note,
     });
 
@@ -301,7 +349,7 @@ export async function parseBillFile(file: File): Promise<BillParseResult> {
       };
     }
     const m = months[yearMonth];
-    const item: BillItem = { date, category, subcategory, amount: Math.round(amount * 100) / 100, tags: tagsRaw, note };
+    const item: BillItem = { date, category, subcategory, amount: roundedAmount, tags: tagsRaw, note };
     if (tags.includes('吃好喝好')) {
       m.eatDrinkAmount += amount;
       m.eatDrinkCount += 1;
@@ -333,7 +381,7 @@ export async function parseBillFile(file: File): Promise<BillParseResult> {
     a.consumption = r2(a.consumption);
     a.school = r2(a.school);
   }
-  return { tagStats: months, aggregates: aggs, expenseItems, incomeItems };
+  return { tagStats: months, aggregates: aggs, expenseItems, incomeItems, accountTransactions };
 }
 
 // ── 导出为内置数据文件 ──────────────────────────────────────────────

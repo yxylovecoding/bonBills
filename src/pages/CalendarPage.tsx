@@ -1504,6 +1504,26 @@ function isMajorExpenseExcludedTag(tag: string, tagCategory: Record<string, Manu
   return isMajorExcludedTag(tag, tagCategory);
 }
 
+function editableInvestmentSignature(items: InvestPositionItems | undefined) {
+  return JSON.stringify(Object.entries(items ?? {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, group]) => [key, (group ?? []).map((item) => ({
+      id: item.id,
+      name: item.name,
+      symbol: item.symbol,
+      quoteSource: item.quoteSource,
+      quoteCurrency: item.quoteCurrency,
+      status: item.status,
+      shares: item.shares,
+      costPrice: item.costPrice,
+      historicalProfitCny: item.historicalProfitCny,
+      historicalProfitCurrency: item.historicalProfitCurrency,
+      profitInputMode: item.profitInputMode,
+      marketValueCny: item.symbol ? undefined : item.marketValueCny,
+      holdingProfitCny: item.symbol ? undefined : item.holdingProfitCny,
+    }))]));
+}
+
 type MonthFormProps = {
   yearMonth: string;
   existing?: MonthlyRecord;
@@ -1928,6 +1948,12 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     const consumptionNum  = n(consumption);
     const schoolNum       = n(school);
     const totalAssetsNum  = nOrUndefined(totalAssets);
+    const investmentInputsChanged = editableInvestmentSignature(positionItemsForSave)
+      !== editableInvestmentSignature(existing?.investPositionItems)
+      || (!hasPositionModel && n(accProfit) !== getManualAccumulatedProfit(existing));
+    const investmentEditedAt = investmentInputsChanged
+      ? new Date().toISOString()
+      : existing?.investmentEditedAt;
     // 记录本次写出的核心字段，便于 sync effect 识别 store 反弹（避免误复位 isFirstSave）
     ourLastWrittenRef.current = {
       income: incomeNum, totalExpense: totalExpenseNum,
@@ -1952,6 +1978,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       investmentTransactions: existing?.investmentTransactions,
       importedInvestmentTransactionIds: existing?.importedInvestmentTransactionIds,
       lastInvestmentMailUid: existing?.lastInvestmentMailUid,
+      investmentEditedAt,
       isBaseline: undefined,
       homeDays, travelDays, schoolDays, internDays,
       majorExpenses: majorExpenses.filter((e) => e.name.trim()),
@@ -3901,7 +3928,12 @@ export default function CalendarPage() {
       return financeScreenshotImportMessage(result, file.name);
     }
     const result = await importBillFileIntoStores(file);
-    return `账单 ${result.updatedMonths} 个月${result.importedPossessions > 0 ? ` · ${result.importedPossessions} 个物品动作` : ''} · ${result.fileName}`;
+    const balanceStatus = result.accountBalances.updatedKeys.length > 0
+      ? ` · 余额 ${result.accountBalances.updatedKeys.length} 项`
+      : result.accountBalances.initializedKeys.length > 0
+        ? ' · 余额已接续'
+        : '';
+    return `账单 ${result.updatedMonths} 个月${balanceStatus}${result.importedPossessions > 0 ? ` · ${result.importedPossessions} 个物品动作` : ''} · ${result.fileName}`;
   };
   const importBillFromFile = async (file: File) => {
     setBillImporting(true);
@@ -4504,7 +4536,7 @@ export default function CalendarPage() {
 
           {/* 月度数据 / 大额支出 / 各品类持仓 三张卡片 */}
           <MonthFormCards
-            key={yearMonth}
+            key={`${yearMonth}:${existingForYearMonth?.lastInvestmentMailUid ?? 0}:${existingForYearMonth?.importedInvestmentTransactionIds?.length ?? 0}`}
             yearMonth={yearMonth}
             existing={existingForYearMonth}
             prevRecord={prevForYearMonth}

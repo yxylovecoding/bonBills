@@ -85,7 +85,12 @@ export default function BillDropImporter() {
           return;
         }
         const result = await importBillFileIntoStores(file);
-        showMessage(`已导入 ${result.updatedMonths} 个月记录${result.importedPossessions > 0 ? ` · ${result.importedPossessions} 个物品动作` : ''} · ${result.fileName}`);
+        const balanceStatus = result.accountBalances.updatedKeys.length > 0
+          ? ` · 余额 ${result.accountBalances.updatedKeys.length} 项`
+          : result.accountBalances.initializedKeys.length > 0
+            ? ' · 余额已接续'
+            : '';
+        showMessage(`已导入 ${result.updatedMonths} 个月记录${balanceStatus}${result.importedPossessions > 0 ? ` · ${result.importedPossessions} 个物品动作` : ''} · ${result.fileName}`);
       } catch (err) {
         showMessage(`导入失败：${err instanceof Error ? err.message : String(err)}`, true);
       }

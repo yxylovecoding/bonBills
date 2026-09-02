@@ -393,9 +393,20 @@ type ReconcileUndoState = {
 const cloneAccountSnapshot = (snapshot: AccountSnapshot): AccountSnapshot => ({
   ...snapshot,
   accounts: { ...snapshot.accounts },
+  accountBalanceSync: snapshot.accountBalanceSync
+    ? Object.fromEntries(Object.entries(snapshot.accountBalanceSync).map(([key, cursor]) => [
+        key,
+        cursor ? { ...cursor, transactionIdsOnDate: [...cursor.transactionIdsOnDate] } : cursor,
+      ]))
+    : undefined,
   investHoldings: { ...snapshot.investHoldings },
   usStockHoldings: snapshot.usStockHoldings?.map((item) => ({ ...item })),
   transfersDone: { ...snapshot.transfersDone },
+});
+
+const markInvestmentEdited = (record: MonthlyRecord): MonthlyRecord => ({
+  ...record,
+  investmentEditedAt: new Date().toISOString(),
 });
 
 const cloneMonthlyRecord = (record: MonthlyRecord | undefined): MonthlyRecord | undefined => record
@@ -530,7 +541,7 @@ export default function ReconcilePage() {
       ]),
     ) as InvestPositionItems;
     nextItems[key] = update(nextItems[key] ?? []);
-    upsert(syncInvestPositionItems(currentInvestRecord, nextItems));
+    upsert(markInvestmentEdited(syncInvestPositionItems(currentInvestRecord, nextItems)));
   };
 
   const normalizePositionProfit = (item: InvestPositionItem): InvestPositionItem => {
@@ -569,6 +580,23 @@ export default function ReconcilePage() {
     usdWishJar:    String(current.accounts.usdWishJar ?? 0),
     investUsdBank: String(current.accounts.investUsdBank ?? 0),
   });
+  useEffect(() => {
+    setLocalAccounts({
+      credit: String(current.accounts.credit ?? 0),
+      creditMonthly: String(current.accounts.creditMonthly ?? 0),
+      savingsCard: String(current.accounts.savingsCard ?? 0),
+      campusCard: String(current.accounts.campusCard ?? 0),
+      livingBank: String(current.accounts.livingBank ?? 0),
+      consumptionBank: String(current.accounts.consumptionBank ?? 0),
+      wishJar: String(current.accounts.wishJar ?? 0),
+      incomeBank: String(current.accounts.incomeBank ?? 0),
+      investCnyBank: String(current.accounts.investCnyBank ?? 0),
+      usdLivingBank: String(current.accounts.usdLivingBank ?? 0),
+      usdConsumptionBank: String(current.accounts.usdConsumptionBank ?? 0),
+      usdWishJar: String(current.accounts.usdWishJar ?? 0),
+      investUsdBank: String(current.accounts.investUsdBank ?? 0),
+    });
+  }, [current.accounts]);
   const accountInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const swipeStartXRef = useRef<Partial<Record<UsdVirtualAccountKey, number>>>({});
   const revealConsumptionWishUsd = usePrefsStore((s) => s.revealConsumptionWishUsd);
@@ -1043,7 +1071,7 @@ export default function ReconcilePage() {
     }
     if (Object.keys(holdingPatch).length > 0) {
       const nextHoldings = { ...monthlyInvestHoldings, ...holdingPatch };
-      upsert(syncInvestPositionCategoryAmounts(currentInvestRecord!, nextHoldings));
+      upsert(markInvestmentEdited(syncInvestPositionCategoryAmounts(currentInvestRecord!, nextHoldings)));
       updateHoldings(nextHoldings);
     }
 
@@ -1366,7 +1394,7 @@ export default function ReconcilePage() {
     const newLongBond = roundMoney(monthlyInvestHoldings.longBond - amount);
     const newSavings = roundMoney((current.accounts.savingsCard ?? 0) + amount);
     const nextHoldings = { ...monthlyInvestHoldings, longBond: newLongBond };
-    upsert(syncInvestPositionCategoryAmounts(currentInvestRecord, nextHoldings));
+    upsert(markInvestmentEdited(syncInvestPositionCategoryAmounts(currentInvestRecord, nextHoldings)));
     updateHoldings(nextHoldings);
     updateAccounts({ savingsCard: newSavings });
     setLocalAccounts((p) => ({ ...p, savingsCard: String(newSavings) }));
@@ -1478,7 +1506,7 @@ export default function ReconcilePage() {
       newHoldings[k] = roundMoney(newHoldings[k] + holdingDelta);
     }
 
-    upsert(syncInvestPositionCategoryAmounts(currentInvestRecord, newHoldings));
+    upsert(markInvestmentEdited(syncInvestPositionCategoryAmounts(currentInvestRecord, newHoldings)));
     updateHoldings(newHoldings);
     updateAccounts(nextAccounts);
     setLocalHoldings(Object.fromEntries(investKeys.map((k) => [
@@ -2270,7 +2298,7 @@ export default function ReconcilePage() {
 
       {/* 账户余额 */}
       <div id="sec-accounts">
-      <Card title="账户余额" subtitle="填写各账户当前实际余额，回车跳下一项">
+      <Card title="账户余额" subtitle="账单自动更新，可直接校准">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: C.sub, backgroundColor: '#f8f9fa', borderRadius: 8, padding: '6px 10px' }}>
             <span>美元汇率</span>
