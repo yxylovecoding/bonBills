@@ -1,6 +1,6 @@
 import { kv } from '@vercel/kv';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { SYNC_STORE_KEYS, type SyncPayload } from './_syncKeys';
+import { SYNC_STORE_KEYS, type SyncPayload } from './_syncKeys.js';
 
 function authOk(req: VercelRequest): boolean {
   const secret = (process.env.SYNC_SECRET || '').trim();

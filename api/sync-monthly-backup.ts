@@ -6,8 +6,8 @@ import {
   MONTHLY_BACKUP_INDEX_KEY,
   MONTHLY_BACKUP_PREFIX,
   type MonthlyBackupIndexEntry,
-} from './_monthlyBackup';
-import { SYNC_STORE_KEYS, type SyncPayload } from './_syncKeys';
+} from './_monthlyBackup.js';
+import { SYNC_STORE_KEYS, type SyncPayload } from './_syncKeys.js';
 
 function authOk(req: VercelRequest) {
   const secret = (process.env.CRON_SECRET || '').trim();
