@@ -1631,10 +1631,14 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     () => summarizeInvestPositionItems(positionItems, marketsBySymbol),
     [marketsBySymbol, positionItems],
   );
+  const previousPositionItems = useMemo(
+    () => prevRecord ? migrateLegacyInvestPositionItems(prevRecord, INVEST_POSITION_LABELS) : undefined,
+    [prevRecord],
+  );
   const previousMarketsBySymbol = useMemo(() => {
     const markets: Record<string, InvestMarketSnapshot | undefined> = {};
     for (const groupKey of INVEST_POSITION_KEYS) {
-      for (const item of prevRecord?.investPositionItems?.[groupKey] ?? []) {
+      for (const item of previousPositionItems?.[groupKey] ?? []) {
         const price = Number(item.lastPrice);
         const currency = (item.lastCurrency || item.quoteCurrency || defaultInvestQuoteCurrency(groupKey) || '').toUpperCase();
         const currentMarket = marketsBySymbol[investPositionQuoteKey(item)];
@@ -1652,15 +1656,15 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       }
     }
     return markets;
-  }, [marketsBySymbol, prevRecord?.investPositionItems]);
+  }, [marketsBySymbol, previousPositionItems]);
   const positionMonthlyProfit = useMemo(
     () => calculateInvestPositionMonthlyProfit(
       positionItems,
-      prevRecord?.investPositionItems,
+      previousPositionItems,
       marketsBySymbol,
       previousMarketsBySymbol,
     ),
-    [marketsBySymbol, positionItems, prevRecord?.investPositionItems, previousMarketsBySymbol],
+    [marketsBySymbol, positionItems, previousMarketsBySymbol, previousPositionItems],
   );
   const positionMonthlyProfitById = positionMonthlyProfit.byItemId;
   const positionItemsForSave = useMemo<InvestPositionItems>(() => {
@@ -3173,10 +3177,13 @@ function MonthRow({
   const expenseSum = record.periodicLife + record.volatileLife + record.consumption;
   const expenseDiff = Math.round((expenseSum - record.totalExpense) * 100) / 100;
   const expenseMismatch = Math.abs(expenseDiff) > 0.01;
+  const previousPositionItems = prev
+    ? migrateLegacyInvestPositionItems(prev, INVEST_POSITION_LABELS)
+    : undefined;
   const recordPositionMonthlyProfit = record.investPositionItems !== undefined
     ? calculateInvestPositionMonthlyProfit(
       record.investPositionItems,
-      prev?.investPositionItems,
+      previousPositionItems,
       {},
       {},
     )
