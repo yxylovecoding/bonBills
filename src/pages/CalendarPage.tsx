@@ -43,7 +43,13 @@ import type {
 import { useHolidayYears } from '../utils/holidays';
 import { sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { getPayrollScheduleForMonth } from '../utils/payroll';
-import { getCategoryProfit, getInvestTotalForRate } from '../utils/investRecords';
+import {
+  applyInvestAutoSumStartMonth,
+  getCategoryProfit,
+  getInvestTotalForRate,
+  getManualAccumulatedProfit,
+  isInvestAccumulatedProfitAuto,
+} from '../utils/investRecords';
 import {
   INVEST_POSITION_GROUP_KEYS,
   INVEST_POSITION_KEYS,
@@ -168,13 +174,11 @@ function getAssetChangeTitle(currentTotalAssets?: number, previousTotalAssets?: 
 }
 
 function getSavedAmountTitle(
-  record: Pick<MonthlyRecord, 'income' | 'investTotal' | 'accumulatedProfit' | 'isBaseline'>,
+  record: Pick<MonthlyRecord, 'income' | 'investTotal' | 'accumulatedProfit'>,
   previous?: Pick<MonthlyRecord, 'investTotal' | 'accumulatedProfit'>,
 ) {
   const formula = '存下 = (本月理财总额 − 上月理财总额) − (本月累计盈利 − 上月累计盈利)';
   if (!previous) return `${formula}\n上月数据未记录`;
-  if (record.isBaseline) return `${formula}\n基准月不计算存下和储蓄率`;
-
   const investmentAssetChange = record.investTotal - previous.investTotal;
   const investmentIncome = record.accumulatedProfit - previous.accumulatedProfit;
   const savedAmount = investmentAssetChange - investmentIncome;
@@ -971,13 +975,7 @@ function prevYearMonth(ym: string) {
 }
 
 function getRecordInvestMonthlyProfit(record: MonthlyRecord, previous?: MonthlyRecord) {
-  if (!previous || record.isBaseline) return null;
-  if (record.investPositionItems !== undefined) {
-    return calculateInvestPositionMonthlyProfit(
-      record.investPositionItems,
-      previous.investPositionItems,
-    ).totalCny;
-  }
+  if (!previous) return null;
   return record.accumulatedProfit - (previous.accumulatedProfit ?? 0);
 }
 
@@ -1100,6 +1098,8 @@ function SettingsModal({
   onClose,
   thresholdInput,
   setThresholdInput,
+  autoSumStartMonthInput,
+  setAutoSumStartMonthInput,
   showPayrollCutoffMarkers,
   setShowPayrollCutoffMarkers,
   reviewableCategories,
@@ -1116,6 +1116,8 @@ function SettingsModal({
   onClose: () => void;
   thresholdInput: string;
   setThresholdInput: (v: string) => void;
+  autoSumStartMonthInput: string;
+  setAutoSumStartMonthInput: (v: string) => void;
   showPayrollCutoffMarkers: boolean;
   setShowPayrollCutoffMarkers: (v: boolean) => void;
   reviewableCategories: ReviewableCategory[];
@@ -1237,6 +1239,15 @@ function SettingsModal({
               if (next !== null) setThresholdInput(next);
             }}
               style={{ width: '100%', border: '1.5px solid #dadce0', borderRadius: 8, padding: '8px 10px', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 12, color: '#5f6368', marginBottom: 6 }}>累计盈利自动求和起始月</div>
+            <input
+              type="month"
+              value={autoSumStartMonthInput}
+              onChange={(event) => setAutoSumStartMonthInput(event.target.value)}
+              style={{ width: '100%', border: '1.5px solid #dadce0', borderRadius: 8, padding: '8px 10px', fontSize: 14, outline: 'none', boxSizing: 'border-box', backgroundColor: '#fff' }}
+            />
           </div>
           {/* 截标记开关 */}
           <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16, cursor: 'pointer' }}>
@@ -1434,9 +1445,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   const [consumption,  setConsumption]   = useState(String(existing?.consumption   ?? ''));
   const [school,       setSchool]        = useState(String(existing?.school        ?? ''));
   const [totalAssets,  setTotalAssets]   = useState(String(existing?.totalAssets   ?? ''));
-  const [accProfit,    setAccProfit]     = useState(String(existing?.accumulatedProfit ?? ''));
-  // 基准月：有累计盈利但未真正开始记录，本月/次月各品类「本月收益」不参与推算
-  const [isBaseline,   setIsBaseline]    = useState(existing?.isBaseline ?? false);
+  const [accProfit,    setAccProfit]     = useState(String(getManualAccumulatedProfit(existing) || ''));
 
   // 自动保存的跳过标志：声明在同步 effect 之前，便于同步时复位
   const isFirstSave = useRef(true);
@@ -1447,6 +1456,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     income: number; totalExpense: number; periodicLife: number;
     volatileLife: number; consumption: number; school: number;
     totalAssets?: number;
+    manualAccumulatedProfit: number;
   } | null>(null);
 
   useEffect(() => {
@@ -1459,7 +1469,8 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       && our.volatileLife  === (existing?.volatileLife  ?? 0)
       && our.consumption   === (existing?.consumption   ?? 0)
       && our.school        === (existing?.school        ?? 0)
-      && our.totalAssets   === existing?.totalAssets;
+      && our.totalAssets   === existing?.totalAssets
+      && our.manualAccumulatedProfit === getManualAccumulatedProfit(existing);
     // 自己保存后 store 反弹回来：state 已经是最新值，不要再 setState/复位 flag，
     // 否则用户连续输入会被下一次 sync 触发的 isFirstSave 复位吃掉
     if (isBounceback) return;
@@ -1470,6 +1481,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     setConsumption(String(existing?.consumption ?? ''));
     setSchool(String(existing?.school ?? ''));
     setTotalAssets(String(existing?.totalAssets ?? ''));
+    setAccProfit(String(getManualAccumulatedProfit(existing) || ''));
     // existing 由外部刷新（导入账单 upsert 等）时，跳过下一次由派生依赖触发的自动保存，
     // 避免在 setState 还未应用的闭包里读到空字符串把 store 清零
     isFirstSave.current = true;
@@ -1481,6 +1493,8 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     existing?.consumption,
     existing?.school,
     existing?.totalAssets,
+    existing?.accumulatedProfit,
+    existing?.manualAccumulatedProfit,
   ]);
 
   const homeDays   = tagCounts.home   > 0 ? tagCounts.home   : (existing?.homeDays   ?? 0);
@@ -1574,9 +1588,8 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       prevRecord?.investPositionItems,
       marketsBySymbol,
       previousMarketsBySymbol,
-      isBaseline,
     ),
-    [isBaseline, marketsBySymbol, positionItems, prevRecord?.investPositionItems, previousMarketsBySymbol],
+    [marketsBySymbol, positionItems, prevRecord?.investPositionItems, previousMarketsBySymbol],
   );
   const positionMonthlyProfitById = positionMonthlyProfit.byItemId;
   const positionItemsForSave = useMemo<InvestPositionItems>(() => {
@@ -1601,6 +1614,8 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     return next;
   }, [positionItems, positionSummary]);
   const { config } = useConfigStore();
+  const isAccumulatedProfitAuto = isInvestAccumulatedProfitAuto(yearMonth, config.investAutoSumStartMonth)
+    && hasPositionModel;
   const { tagCategory } = usePossessionStore();
   const mainFieldRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -1630,17 +1645,14 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   const surplus = n(income) - n(totalExpense);
   const totalAssetsValue = nOrUndefined(totalAssets);
   const assetChange = getMonthlyAssetChange({ totalAssets: totalAssetsValue }, prevRecord);
-  const accumulatedProfitValue = hasPositionModel ? positionSummary.totalProfitCny : n(accProfit);
-  const investIncome = hasPositionModel
-    ? positionMonthlyProfit.totalCny
-    : prevRecord
-      ? accumulatedProfitValue - (prevRecord.accumulatedProfit ?? 0)
-      : null;
+  const accumulatedProfitValue = isAccumulatedProfitAuto ? positionSummary.totalProfitCny : n(accProfit);
+  const investIncome = prevRecord
+    ? accumulatedProfitValue - (prevRecord.accumulatedProfit ?? 0)
+    : null;
   const savingsDraft = {
     income: n(income),
     investTotal,
     accumulatedProfit: accumulatedProfitValue,
-    isBaseline,
   };
   const savedAmount = getMonthlySavedAmount(savingsDraft, prevRecord);
   const savingsRate = getMonthlySavingsRate(savingsDraft, prevRecord);
@@ -1649,8 +1661,6 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   const investAnnual = investMonthly !== null ? investMonthly * 12 : null;
   const getBreakdownMonthlyProfit = (k: keyof InvestHoldings) => {
     if (!prevRecord) return null;
-    // 本月是基准月（未真正开始记录）时本月收益无法推算；但基准月的次月仍可与基准月相减
-    if (isBaseline) return null;
     if (hasPositionModel) return positionMonthlyProfit.byCategory[k] ?? null;
     const now = nOrNull(breakdownProfit[k]);
     const past = nOrNull(pastBreakdownProfit[k]);
@@ -1835,20 +1845,23 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       income: incomeNum, totalExpense: totalExpenseNum,
       periodicLife: periodicLifeNum, volatileLife: volatileLifeNum,
       consumption: consumptionNum, school: schoolNum, totalAssets: totalAssetsNum,
+      manualAccumulatedProfit: n(accProfit),
     };
     onSave({
       yearMonth, income: incomeNum, totalExpense: totalExpenseNum,
       periodicLife: periodicLifeNum, volatileLife: volatileLifeNum,
       consumption: consumptionNum, school: schoolNum,
       totalAssets: totalAssetsNum,
-      accumulatedProfit: accumulatedProfitValue, investTotal,
+      accumulatedProfit: accumulatedProfitValue,
+      manualAccumulatedProfit: n(accProfit),
+      investTotal,
       investBreakdown: hasBreakdown ? bd : undefined,
       investBreakdownProfit: hasBreakdownProfit ? bp : undefined,
       investProfitComponents: buildProfitComponents(),
       investBreakdownPastProfit: hasPastProfit ? pbp : undefined,
       investPastProfitComponents: buildPastProfitComponents(),
       investPositionItems: hasPositionModel ? positionItemsForSave : undefined,
-      isBaseline: isBaseline || undefined,
+      isBaseline: undefined,
       homeDays, travelDays, schoolDays, internDays,
       majorExpenses: majorExpenses.filter((e) => e.name.trim()),
       majorExpensesNote: majorExpensesNote.trim() || undefined,
@@ -1856,20 +1869,19 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   };
 
   const autoSaveSignature = useMemo(() => JSON.stringify({
-    income, totalExpense, periodicLife, volatileLife, consumption, school, totalAssets, accProfit, isBaseline,
+    income, totalExpense, periodicLife, volatileLife, consumption, school, totalAssets, accProfit, isAccumulatedProfitAuto,
     majorExpenses, majorExpensesNote, breakdown, breakdownProfit, usdComponents, sharedUsdRate,
     pastBreakdownProfit, pastUsdComponents, positionDraftGroups, positionItemsForSave,
   }), [
-    income, totalExpense, periodicLife, volatileLife, consumption, school, totalAssets, accProfit, isBaseline,
+    income, totalExpense, periodicLife, volatileLife, consumption, school, totalAssets, accProfit, isAccumulatedProfitAuto,
     majorExpenses, majorExpensesNote, breakdown, breakdownProfit, usdComponents, sharedUsdRate,
     pastBreakdownProfit, pastUsdComponents, positionDraftGroups, positionItemsForSave,
   ]);
   const criticalInvestmentSignature = useMemo(() => JSON.stringify({
-    isBaseline,
     pastBreakdownProfit,
     pastUsdComponents,
     positionDraftGroups,
-  }), [isBaseline, pastBreakdownProfit, pastUsdComponents, positionDraftGroups]);
+  }), [pastBreakdownProfit, pastUsdComponents, positionDraftGroups]);
   const lastCriticalInvestmentSignatureRef = useRef(criticalInvestmentSignature);
 
   // 自动保存：任何字段变化都立即写回 store。
@@ -1885,7 +1897,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     handleSave();
   }, [autoSaveSignature]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 基准月与 past 收益影响后续月份，变更后立即补一次云同步，避免刷新时被旧云数据覆盖。
+  // past 收益影响后续月份，变更后立即补一次云同步，避免刷新时被旧云数据覆盖。
   useEffect(() => {
     if (lastCriticalInvestmentSignatureRef.current === criticalInvestmentSignature) return;
     lastCriticalInvestmentSignatureRef.current = criticalInvestmentSignature;
@@ -1904,7 +1916,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     volatileLife, setVolatileLife, consumption, setConsumption, school, setSchool,
     totalAssets, setTotalAssets, totalAssetsValue, previousTotalAssets: prevRecord?.totalAssets,
     assetChange, savedAmount, savingsRate, savedAmountTitle,
-    accProfit, setAccProfit, accumulatedProfitValue, hasPositionModel, investTotal, isBaseline, setIsBaseline,
+    accProfit, setAccProfit, accumulatedProfitValue, isAccumulatedProfitAuto, hasPositionModel, investTotal,
     majorExpenses, majorExpensesNote, setMajorExpensesNote,
     surplus, investIncome, investMonthly, investAnnual, investTotalForRate, investTotalStoredOnly, n,
     getBreakdownMonthlyProfit,
@@ -1924,7 +1936,7 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
   const {
     income, totalExpense, periodicLife, volatileLife, consumption, school,
     totalAssets, setTotalAssets, totalAssetsValue, previousTotalAssets, assetChange, savedAmount, savingsRate, savedAmountTitle,
-    accProfit, setAccProfit, accumulatedProfitValue, hasPositionModel, investTotal,
+    accProfit, setAccProfit, accumulatedProfitValue, isAccumulatedProfitAuto, investTotal,
     surplus, investIncome, investMonthly, investAnnual, investTotalForRate, investTotalStoredOnly, n,
     mainFieldRefs, labelStyle,
   } = state;
@@ -2016,7 +2028,7 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
         </div>
         <div style={{ minWidth: 0, backgroundColor: '#fffbeb', borderRadius: 10, padding: '10px 14px' }}>
           <div style={{ fontSize: 11, color: C.sub }}>累计盈利</div>
-          {hasPositionModel ? (
+          {isAccumulatedProfitAuto ? (
             <div style={{ padding: '2px 0', fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: accumulatedProfitValue >= 0 ? C.red : C.green }}>
               {accumulatedProfitValue >= 0 ? '+' : '-'}¥{formatCurrency(accumulatedProfitValue)}
             </div>
@@ -2096,7 +2108,6 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
     positionDraftGroups, updatePositionDraft, addPositionDraft, removePositionDraft,
     splitPositionAccount,
     positionSummary, positionMonthlyProfitById, positionQuotes, positionQuoteErrors, isCurrentRecordMonth,
-    isBaseline, setIsBaseline,
   } = state;
   const [activeStatus, setActiveStatus] = useState<InvestPositionStatus>('active');
   const [expandedItemKey, setExpandedItemKey] = useState<string | null>(null);
@@ -2324,12 +2335,6 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
         );
       })}
 
-      {activeStatus === 'active' && (
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.sub, marginTop: 2, cursor: 'pointer' }}>
-          <input type="checkbox" checked={isBaseline} onChange={(e) => setIsBaseline(e.target.checked)} style={{ cursor: 'pointer' }} />
-          基准月
-        </label>
-      )}
     </div>
   );
 }
@@ -3092,12 +3097,9 @@ function MonthRow({
       prev?.investPositionItems,
       {},
       {},
-      Boolean(record.isBaseline),
     )
     : null;
-  const investIncome = recordPositionMonthlyProfit
-    ? recordPositionMonthlyProfit.totalCny
-    : getRecordInvestMonthlyProfit(record, prev);
+  const investIncome = getRecordInvestMonthlyProfit(record, prev);
   const investTotalForRate = getInvestTotalForRate(record.yearMonth, record.investTotal, allRecords);
   const investMonthly = investIncome !== null && investTotalForRate !== null ? investIncome / investTotalForRate.value : null;
 
@@ -3231,10 +3233,9 @@ function MonthRow({
                       const cur    = record.investBreakdown![k] ?? 0;
                       const profit = getCategoryProfit(record, k);
                       const prevProfit = getCategoryProfit(prev, k);
-                      // 本月是基准月（未真正开始记录）时本月收益无法推算；基准月的次月仍可与基准月相减
                       const monthlyProfit = recordPositionMonthlyProfit
                         ? recordPositionMonthlyProfit.byCategory[k] ?? null
-                        : (record.isBaseline || profit === null || prevProfit === null)
+                        : (profit === null || prevProfit === null)
                           ? null
                           : profit - prevProfit;
                       const rate = (monthlyProfit !== null && cur > 0) ? monthlyProfit / cur : null;
@@ -3715,6 +3716,7 @@ export default function CalendarPage() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [thresholdInput, setThresholdInput] = useState(String(config.majorExpenseThreshold ?? 500));
+  const [autoSumStartMonthInput, setAutoSumStartMonthInput] = useState(config.investAutoSumStartMonth ?? '');
   const [expandedTag, setExpandedTag] = useState<null | 'eat' | 'red' | 'black'>(null);
   const [billImportMsg, setBillImportMsg] = useState<string>('');
   const [billImporting, setBillImporting] = useState(false);
@@ -3915,6 +3917,7 @@ export default function CalendarPage() {
             </div>
             <button onClick={() => {
               setThresholdInput(String(config.majorExpenseThreshold ?? 500));
+              setAutoSumStartMonthInput(config.investAutoSumStartMonth ?? '');
               setSettingsOpen(true);
             }}
               style={{ fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', padding: '4px clamp(2px, 1.5vw, 6px)', color: C.sub, lineHeight: 1, flexShrink: 0 }}>
@@ -3939,13 +3942,27 @@ export default function CalendarPage() {
           onClose={() => setSettingsOpen(false)}
           thresholdInput={thresholdInput}
           setThresholdInput={setThresholdInput}
+          autoSumStartMonthInput={autoSumStartMonthInput}
+          setAutoSumStartMonthInput={setAutoSumStartMonthInput}
           showPayrollCutoffMarkers={showPayrollCutoffMarkers}
           setShowPayrollCutoffMarkers={setShowPayrollCutoffMarkers}
           reviewableCategories={reviewableCategories}
           setReviewableCategories={setReviewableCategories}
           expenseScopeHelpText={expenseScopeHelpText}
           setExpenseScopeHelpText={setExpenseScopeHelpText}
-          onSave={() => { setConfig({ majorExpenseThreshold: parseFloat(thresholdInput) || 500 }); setSettingsOpen(false); }}
+          onSave={() => {
+            const investAutoSumStartMonth = /^\d{4}-\d{2}$/.test(autoSumStartMonthInput)
+              ? autoSumStartMonthInput
+              : undefined;
+            useMonthlyStore.setState({
+              records: applyInvestAutoSumStartMonth(records, investAutoSumStartMonth),
+            });
+            setConfig({
+              majorExpenseThreshold: parseFloat(thresholdInput) || 500,
+              investAutoSumStartMonth,
+            });
+            setSettingsOpen(false);
+          }}
           tagMap={tagMap}
           confirmedExpenses={confirmedExpenses}
           expenseItems={billExpenseItems}

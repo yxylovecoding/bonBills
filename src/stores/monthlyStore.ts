@@ -43,7 +43,16 @@ export function normalizeMonthlyRecords(input: unknown): MonthlyRecord[] {
     if (!record || typeof record !== 'object') continue;
     const ym = normalizeBillYearMonth((record as MonthlyRecord).yearMonth);
     if (!ym) continue;
-    const normalized = { ...(record as MonthlyRecord), yearMonth: ym };
+    const source = record as MonthlyRecord;
+    const normalized = {
+      ...source,
+      yearMonth: ym,
+      manualAccumulatedProfit: typeof source.manualAccumulatedProfit === 'number'
+        && Number.isFinite(source.manualAccumulatedProfit)
+        ? source.manualAccumulatedProfit
+        : source.accumulatedProfit,
+      isBaseline: undefined,
+    };
     byMonth.set(ym, mergeMonthlyRecord(byMonth.get(ym), normalized));
   }
   return [...byMonth.values()].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth));
@@ -75,7 +84,7 @@ export const useMonthlyStore = create<MonthlyStore>()(
     }),
     {
       name: 'monthly-records',
-      version: 1,
+      version: 2,
       migrate: (persistedState) => {
         if (!persistedState || typeof persistedState !== 'object') return persistedState;
         const persisted = persistedState as Partial<MonthlyStore>;

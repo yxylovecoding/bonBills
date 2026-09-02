@@ -38,6 +38,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   wishInternSavingRecords: [],
   wishDeadlineMilestones: DEFAULT_WISH_DEADLINE_MILESTONES,
   majorExpenseThreshold: 500,
+  investAutoSumStartMonth: undefined,
   dramDecision: {
     symbol: 'DRAM',
     shares: 2.8255,

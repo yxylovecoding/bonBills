@@ -1,10 +1,42 @@
 import type { InvestKey, MonthlyRecord } from '../models/types';
+import { summarizeInvestPositionItems } from './investPositionItems';
 
 export interface InvestTotalForRate {
   value: number;
   estimated: boolean;
   beforeMonth?: string;
   afterMonth?: string;
+}
+
+export function getManualAccumulatedProfit(record: MonthlyRecord | undefined): number {
+  if (!record) return 0;
+  return typeof record.manualAccumulatedProfit === 'number'
+    && Number.isFinite(record.manualAccumulatedProfit)
+    ? record.manualAccumulatedProfit
+    : record.accumulatedProfit;
+}
+
+export function isInvestAccumulatedProfitAuto(yearMonth: string, startMonth?: string): boolean {
+  return Boolean(startMonth && /^\d{4}-\d{2}$/.test(startMonth) && yearMonth >= startMonth);
+}
+
+export function applyInvestAutoSumStartMonth(
+  records: MonthlyRecord[],
+  startMonth?: string,
+): MonthlyRecord[] {
+  return records.map((record) => {
+    const manualAccumulatedProfit = getManualAccumulatedProfit(record);
+    const shouldAutoSum = isInvestAccumulatedProfitAuto(record.yearMonth, startMonth)
+      && record.investPositionItems !== undefined;
+    return {
+      ...record,
+      accumulatedProfit: shouldAutoSum
+        ? summarizeInvestPositionItems(record.investPositionItems ?? {}).totalProfitCny
+        : manualAccumulatedProfit,
+      manualAccumulatedProfit,
+      isBaseline: undefined,
+    };
+  });
 }
 
 export function getInvestTotalForRate(
@@ -70,7 +102,6 @@ export function getCategoryCumulativeRateSummary(
   let startYearMonth = '';
   const sortedRecords = [...recordsByMonth.values()].sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
   for (const record of sortedRecords) {
-    if (record.isBaseline) continue;
     const previousRecord = recordsByMonth.get(previousYearMonth(record.yearMonth));
     if (!previousRecord) continue;
 

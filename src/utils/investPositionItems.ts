@@ -196,7 +196,6 @@ export function calculateInvestPositionMonthlyProfit(
   previousItems: InvestPositionItems | undefined,
   currentMarkets: Record<string, InvestMarketSnapshot | undefined> = {},
   previousMarkets: Record<string, InvestMarketSnapshot | undefined> = {},
-  isBaseline = false,
 ): InvestPositionMonthlyProfit {
   const byCategory: InvestPositionMonthlyProfit['byCategory'] = {};
   const byItemId: InvestPositionMonthlyProfit['byItemId'] = {};
@@ -232,8 +231,7 @@ export function calculateInvestPositionMonthlyProfit(
       const currentMetric = currentSummary.metricsById[item.id];
       const previousMetric = previousItem ? previousSummary?.metricsById[previousItem.id] : undefined;
       if (
-        isBaseline
-        || !currentMetric
+        !currentMetric
         || !previousMetric
         || previousMetric.profitCurrency !== currentMetric.profitCurrency
       ) {

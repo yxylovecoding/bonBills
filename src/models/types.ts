@@ -171,6 +171,7 @@ export interface AppConfig {
   wishInternSavingRecords?: WishInternSavingRecord[];
   wishDeadlineMilestones?: WishDeadlineMilestone[];
   majorExpenseThreshold: number; // 大额支出筛选门槛，默认 500
+  investAutoSumStartMonth?: string; // 从该月起累计盈利由理财条目自动求和；此前保留手填值
   dramDecision?: DramDecisionConfig;
 }
 
@@ -218,6 +219,7 @@ export interface MonthlyRecord {
   totalExpense: number;
   totalAssets?: number;        // 月末总资产（手动录入）
   accumulatedProfit: number;   // 截止本月的累计盈利
+  manualAccumulatedProfit?: number; // 手填累计盈利备份，自动求和月份也不覆盖
   investTotal: number;          // 本月理财总额
   investBreakdown?: Partial<InvestHoldings>;       // 各品类持仓（月末）
   investBreakdownProfit?: Partial<InvestHoldings>; // 各品类 now 收益（当前持仓，月末）
@@ -227,7 +229,7 @@ export interface MonthlyRecord {
   investPositionItems?: InvestPositionItems; // now / past 股票与基金明细
   importedInvestmentTransactionIds?: string[];
   lastInvestmentMailUid?: number;
-  isBaseline?: boolean;         // 基准月：虽有累计盈利但未真正开始记录，各品类「本月收益」不与之相减
+  isBaseline?: boolean;         // 旧版兼容字段，现已停用
   volatileLife: number;
   periodicLife: number;
   consumption: number;

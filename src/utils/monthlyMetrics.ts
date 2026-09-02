@@ -3,7 +3,7 @@ import type { MonthlyRecord } from '../models/types';
 type MonthlyCashFlow = Pick<MonthlyRecord, 'income'>;
 type MonthlyAssets = Pick<MonthlyRecord, 'totalAssets'>;
 type MonthlyInvestmentAssets = Pick<MonthlyRecord, 'investTotal'>;
-type MonthlyInvestment = Pick<MonthlyRecord, 'accumulatedProfit' | 'isBaseline'>;
+type MonthlyInvestment = Pick<MonthlyRecord, 'accumulatedProfit'>;
 type MonthlySavings = MonthlyCashFlow & MonthlyInvestmentAssets & MonthlyInvestment;
 
 export function getMonthlyAssetChange(
@@ -18,7 +18,7 @@ export function getMonthlyInvestmentIncome(
   record: MonthlyInvestment,
   previous?: MonthlyInvestment,
 ): number | null {
-  if (!previous || record.isBaseline) return null;
+  if (!previous) return null;
   return record.accumulatedProfit - previous.accumulatedProfit;
 }
 
