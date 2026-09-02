@@ -75,6 +75,12 @@ export function isInvestPositionSummaryItem(item: Pick<InvestPositionItem, 'symb
   return item.symbol.trim().length === 0;
 }
 
+function investPositionComparisonKey(item: Pick<InvestPositionItem, 'name' | 'symbol' | 'quoteSource'>) {
+  return isInvestPositionSummaryItem(item)
+    ? `summary:${item.name.trim().toLowerCase()}`
+    : `instrument:${investPositionQuoteKey(item)}`;
+}
+
 export function calculateInvestPositionMetric(
   item: InvestPositionItem,
   market?: InvestMarketSnapshot,
@@ -210,30 +216,26 @@ export function calculateInvestPositionMonthlyProfit(
     ? summarizeInvestPositionItems(previousItems, previousMarkets)
     : null;
   let totalCny = 0;
-  let hasComparableItem = false;
+  let hasComparableCategory = false;
 
   for (const groupKey of INVEST_POSITION_KEYS) {
     const previousGroup = previousItems?.[groupKey] ?? [];
     const previousById = new Map(previousGroup.map((item) => [item.id, item]));
     const previousByStableKey = new Map<string, InvestPositionItem>();
     for (const item of previousGroup) {
-      if (!item.symbol.trim()) continue;
-      previousByStableKey.set(investPositionQuoteKey(item), item);
+      previousByStableKey.set(investPositionComparisonKey(item), item);
     }
 
-    let categoryCny = 0;
-    let hasComparableCategoryItem = false;
     for (const item of currentItems[groupKey] ?? []) {
-      if (!item.symbol.trim()) {
-        byItemId[item.id] = null;
-        continue;
-      }
-      const quoteKey = investPositionQuoteKey(item);
+      const comparisonKey = investPositionComparisonKey(item);
       const previousItemById = previousById.get(item.id);
-      const previousItemWithSameId = previousItemById && investPositionQuoteKey(previousItemById) === quoteKey
+      const previousItemWithSameId = previousItemById && (
+        isInvestPositionSummaryItem(item) && isInvestPositionSummaryItem(previousItemById)
+        || investPositionComparisonKey(previousItemById) === comparisonKey
+      )
         ? previousItemById
         : undefined;
-      const previousItem = previousItemWithSameId ?? previousByStableKey.get(quoteKey);
+      const previousItem = previousItemWithSameId ?? previousByStableKey.get(comparisonKey);
       const currentMetric = currentSummary.metricsById[item.id];
       const previousMetric = previousItem ? previousSummary?.metricsById[previousItem.id] : undefined;
       if (
@@ -248,18 +250,28 @@ export function calculateInvestPositionMonthlyProfit(
       const currentOriginal = currentMetric.totalProfitCny / currentMetric.profitFxRateToCny;
       const previousOriginal = previousMetric.totalProfitCny / previousMetric.profitFxRateToCny;
       const value = roundMoney(currentOriginal - previousOriginal);
-      const valueCny = roundMoney(value * currentMetric.profitFxRateToCny);
       byItemId[item.id] = { value, currency: currentMetric.profitCurrency };
-      categoryCny += valueCny;
-      totalCny += valueCny;
-      hasComparableCategoryItem = true;
-      hasComparableItem = true;
     }
-    byCategory[groupKey] = hasComparableCategoryItem ? roundMoney(categoryCny) : null;
+
+    const hasCategoryData = (currentItems[groupKey]?.length ?? 0) > 0
+      || (previousItems?.[groupKey]?.length ?? 0) > 0;
+    if (previousSummary && hasCategoryData) {
+      // 品类本月收益按整个类目的累计收益差计算，包含 now 与 past。
+      const currentCategoryProfit = currentSummary.holdingProfitByCategory[groupKey]
+        + currentSummary.historicalProfitByCategory[groupKey];
+      const previousCategoryProfit = previousSummary.holdingProfitByCategory[groupKey]
+        + previousSummary.historicalProfitByCategory[groupKey];
+      const categoryCny = roundMoney(currentCategoryProfit - previousCategoryProfit);
+      byCategory[groupKey] = categoryCny;
+      totalCny += categoryCny;
+      hasComparableCategory = true;
+    } else {
+      byCategory[groupKey] = null;
+    }
   }
 
   return {
-    totalCny: hasComparableItem ? roundMoney(totalCny) : null,
+    totalCny: hasComparableCategory ? roundMoney(totalCny) : null,
     byCategory,
     byItemId,
   };

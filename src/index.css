@@ -87,6 +87,26 @@ input[type='number'] { -moz-appearance: textfield; }
   gap: 6px;
 }
 
+.invest-position-header--with-code {
+  grid-template-columns: minmax(0, 1fr) minmax(64px, 72px) auto;
+}
+
+.invest-position-header--with-code .invest-position-actions {
+  grid-column: 3;
+}
+
+.invest-position-code {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+}
+
+.invest-position-code [role='listbox'] {
+  right: 0 !important;
+  left: auto !important;
+  width: min(280px, calc(100vw - 32px));
+}
+
 .invest-position-summary {
   grid-column: 1 / -1;
   grid-row: 2;

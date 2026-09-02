@@ -2290,7 +2290,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
               const monthlyProfit = positionMonthlyProfitById[item.id] ?? null;
               return (
                 <div key={item.id} data-invest-position-key={itemKey} data-invest-position-expanded={isExpanded ? 'true' : undefined} style={{ borderTop: '1px solid #f1f3f4', padding: '8px 0 2px' }}>
-                  <div className={`invest-position-header${!isExpanded ? ' invest-position-header--collapsed' : ''}`}>
+                  <div className={`invest-position-header${!isExpanded ? ' invest-position-header--collapsed' : groupKey !== 'account' ? ' invest-position-header--with-code' : ''}`}>
                     <input
                       className="invest-position-name"
                       aria-label={`${groupLabel}名称`}
@@ -2307,6 +2307,23 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                       onKeyDown={(event) => { if (event.key === 'Escape') setExpandedItemKey(null); }}
                       style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: isExpanded ? '1px solid #dadce0' : '1px solid transparent', outline: 'none', fontWeight: 800, backgroundColor: 'transparent', cursor: isExpanded ? 'text' : 'pointer' }}
                     />
+                    {isExpanded && groupKey !== 'account' && (
+                      <div className="invest-position-code">
+                        <InvestInstrumentPicker
+                          hideName
+                          autoFocusSymbol={autoFocusCodeItemKey === itemKey}
+                          onSymbolFocus={() => setAutoFocusCodeItemKey(null)}
+                          name={item.name}
+                          symbol={item.symbol}
+                          quoteSource={item.quoteSource}
+                          ariaLabel={groupLabel}
+                          onChange={(patch) => updatePositionDraft(groupKey, item.id, {
+                            ...patch,
+                            historicalProfitCurrency: patch.quoteCurrency || item.historicalProfitCurrency,
+                          })}
+                        />
+                      </div>
+                    )}
                     {!isExpanded && (
                       <div className="invest-position-summary" style={{ gridTemplateColumns: symbol ? 'repeat(3, minmax(0, 1fr))' : 'repeat(2, minmax(0, 1fr))', backgroundColor: '#f8f9fa', color: C.sub }}>
                         <span>持有金额<br /><b style={{ color: '#202124' }}>{formatNativeCurrency(nativeMarketValue, positionCurrency || 'CNY')}</b></span>
@@ -2340,19 +2357,6 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
 
                   {isExpanded && (
                     <div style={{ marginTop: 8 }}>
-                      {groupKey !== 'account' && <InvestInstrumentPicker
-                        hideName
-                        autoFocusSymbol={autoFocusCodeItemKey === itemKey}
-                        onSymbolFocus={() => setAutoFocusCodeItemKey(null)}
-                        name={item.name}
-                        symbol={item.symbol}
-                        quoteSource={item.quoteSource}
-                        ariaLabel={groupLabel}
-                        onChange={(patch) => updatePositionDraft(groupKey, item.id, {
-                          ...patch,
-                          historicalProfitCurrency: patch.quoteCurrency || item.historicalProfitCurrency,
-                        })}
-                      />}
                       {groupKey === 'account' ? (
                         <label style={{ display: 'grid', gridTemplateColumns: '1fr minmax(90px, 130px)', gap: 8, alignItems: 'center', marginTop: 8, fontSize: 10, color: C.sub }}>
                           <span>累计收益</span>
