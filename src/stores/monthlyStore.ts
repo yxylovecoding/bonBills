@@ -2,6 +2,12 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { MonthlyRecord } from '../models/types';
 import { normalizeBillYearMonth } from '../utils/importBill';
+import {
+  createInvestmentRolloverRecord,
+  hasInvestmentEndingState,
+  hasSameInvestmentEnding,
+  propagateInvestmentInheritance,
+} from '../utils/investmentRollover';
 
 const INITIAL_RECORDS: MonthlyRecord[] = [];
 
@@ -12,9 +18,17 @@ interface DayCounts {
   travelDays: number;
 }
 
+export type InvestmentMutationSource = 'manual' | 'import' | 'rollover';
+
+export interface MonthlyUpsertOptions {
+  investmentSource?: InvestmentMutationSource;
+}
+
 interface MonthlyStore {
   records: MonthlyRecord[];
-  upsert: (record: MonthlyRecord) => void;
+  upsert: (record: MonthlyRecord, options?: MonthlyUpsertOptions) => void;
+  upsertMany: (records: MonthlyRecord[], options?: MonthlyUpsertOptions) => void;
+  ensureInvestmentMonth: (yearMonth: string) => boolean;
   updateDayCounts: (yearMonth: string, counts: DayCounts) => void;
   getByYearMonth: (ym: string) => MonthlyRecord | undefined;
 }
@@ -50,6 +64,23 @@ function mergeMonthlyRecord(a: MonthlyRecord | undefined, b: MonthlyRecord): Mon
   };
 }
 
+function mergeAndPropagateMonthlyRecords(
+  current: MonthlyRecord[],
+  incoming: MonthlyRecord[],
+  options?: MonthlyUpsertOptions,
+) {
+  const byMonth = new Map(current.map((record) => [record.yearMonth, record]));
+  const changedMonths = new Set<string>();
+  for (const rawRecord of incoming) {
+    const record = options?.investmentSource === 'manual'
+      ? { ...rawRecord, investmentRolledOverFrom: undefined }
+      : rawRecord;
+    byMonth.set(record.yearMonth, mergeMonthlyRecord(byMonth.get(record.yearMonth), record));
+    changedMonths.add(record.yearMonth);
+  }
+  return propagateInvestmentInheritance([...byMonth.values()], changedMonths);
+}
+
 export function normalizeMonthlyRecords(input: unknown): MonthlyRecord[] {
   if (!Array.isArray(input)) return [];
   const byMonth = new Map<string, MonthlyRecord>();
@@ -58,6 +89,9 @@ export function normalizeMonthlyRecords(input: unknown): MonthlyRecord[] {
     const ym = normalizeBillYearMonth((record as MonthlyRecord).yearMonth);
     if (!ym) continue;
     const source = record as MonthlyRecord;
+    const rolledOverFrom = typeof source.investmentRolledOverFrom === 'string'
+      ? normalizeBillYearMonth(source.investmentRolledOverFrom)
+      : null;
     const normalized = {
       ...source,
       yearMonth: ym,
@@ -65,6 +99,11 @@ export function normalizeMonthlyRecords(input: unknown): MonthlyRecord[] {
         && Number.isFinite(source.manualAccumulatedProfit)
         ? source.manualAccumulatedProfit
         : source.accumulatedProfit,
+      investmentRolledOverFrom: rolledOverFrom && rolledOverFrom < ym ? rolledOverFrom : undefined,
+      investmentInheritanceRevision: typeof source.investmentInheritanceRevision === 'number'
+        && Number.isFinite(source.investmentInheritanceRevision)
+        ? Math.max(0, Math.floor(source.investmentInheritanceRevision))
+        : undefined,
       isBaseline: undefined,
     };
     byMonth.set(ym, mergeMonthlyRecord(byMonth.get(ym), normalized));
@@ -76,16 +115,41 @@ export const useMonthlyStore = create<MonthlyStore>()(
   persist(
     (set, get) => ({
       records: INITIAL_RECORDS,
-      upsert: (record) =>
+      upsert: (record, options) =>
+        set((s) => ({ records: mergeAndPropagateMonthlyRecords(s.records, [record], options) })),
+      upsertMany: (records, options) => {
+        if (records.length === 0) return;
+        set((s) => ({ records: mergeAndPropagateMonthlyRecords(s.records, records, options) }));
+      },
+      ensureInvestmentMonth: (yearMonth) => {
+        let changed = false;
         set((s) => {
-          const idx = s.records.findIndex((r) => r.yearMonth === record.yearMonth);
-          if (idx >= 0) {
-            const next = [...s.records];
-            next[idx] = mergeMonthlyRecord(next[idx], record);
-            return { records: next };
+          const existing = s.records.find((record) => record.yearMonth === yearMonth);
+          const previous = [...s.records]
+            .filter((record) => record.yearMonth < yearMonth && hasInvestmentEndingState(record))
+            .sort((left, right) => right.yearMonth.localeCompare(left.yearMonth))[0];
+          let records = s.records;
+          const existingCanJoinPrevious = Boolean(
+            previous
+            && existing
+            && !existing.investmentRolledOverFrom
+            && (existing.investmentTransactions?.length ?? 0) === 0
+            && hasSameInvestmentEnding(existing, previous),
+          );
+          if (previous && (!existing || !hasInvestmentEndingState(existing) || existingCanJoinPrevious)) {
+            const rollover = createInvestmentRolloverRecord(previous, yearMonth, existing);
+            records = mergeAndPropagateMonthlyRecords(records, [rollover], { investmentSource: 'rollover' });
+            changed = true;
           }
-          return { records: [record, ...s.records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth)) };
-        }),
+          const inheritedParents = records
+            .map((record) => record.investmentRolledOverFrom)
+            .filter((month): month is string => Boolean(month));
+          const reconciled = propagateInvestmentInheritance(records, inheritedParents);
+          if (reconciled.some((record, index) => record !== records[index])) changed = true;
+          return changed ? { records: reconciled } : s;
+        });
+        return changed;
+      },
       updateDayCounts: (yearMonth, counts) =>
         set((s) => {
           const idx = s.records.findIndex((r) => r.yearMonth === yearMonth);
@@ -98,7 +162,7 @@ export const useMonthlyStore = create<MonthlyStore>()(
     }),
     {
       name: 'monthly-records',
-      version: 2,
+      version: 3,
       migrate: (persistedState) => {
         if (!persistedState || typeof persistedState !== 'object') return persistedState;
         const persisted = persistedState as Partial<MonthlyStore>;

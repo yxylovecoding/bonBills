@@ -24,7 +24,7 @@ import {
   type ConfirmedExpenseSelection,
 } from '../stores/calendarStore';
 import { useConfigStore } from '../stores/configStore';
-import { useMonthlyStore } from '../stores/monthlyStore';
+import { useMonthlyStore, type InvestmentMutationSource } from '../stores/monthlyStore';
 import { usePossessionStore } from '../stores/possessionStore';
 import { classifyTag, type ManualTagCategory } from '../utils/tagCategory';
 import { usePrefsStore, REVIEWABLE_CATEGORIES, type ReviewableCategory } from '../stores/prefsStore';
@@ -1531,7 +1531,7 @@ type MonthFormProps = {
   allRecords: MonthlyRecord[];
   tagCounts: Record<TagKind, number>;
   expenseItems?: BillExpenseMonth;
-  onSave: (r: MonthlyRecord) => void;
+  onSave: (r: MonthlyRecord, investmentSource?: InvestmentMutationSource) => void;
 };
 
 function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, expenseItems, onSave }: MonthFormProps) {
@@ -1979,11 +1979,13 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       importedInvestmentTransactionIds: existing?.importedInvestmentTransactionIds,
       lastInvestmentMailUid: existing?.lastInvestmentMailUid,
       investmentEditedAt,
+      investmentRolledOverFrom: investmentInputsChanged ? undefined : existing?.investmentRolledOverFrom,
+      investmentInheritanceRevision: existing?.investmentInheritanceRevision,
       isBaseline: undefined,
       homeDays, travelDays, schoolDays, internDays,
       majorExpenses: majorExpenses.filter((e) => e.name.trim()),
       majorExpensesNote: majorExpensesNote.trim() || undefined,
-    });
+    }, investmentInputsChanged ? 'manual' : undefined);
   };
 
   const autoSaveSignature = useMemo(() => JSON.stringify({
@@ -4061,7 +4063,9 @@ export default function CalendarPage() {
       manualAccumulatedProfit: isAuto
         ? currentRecord.manualAccumulatedProfit
         : updatedSummary.totalProfitCny,
-    });
+      investmentEditedAt: new Date().toISOString(),
+      investmentRolledOverFrom: undefined,
+    }, { investmentSource: 'manual' });
     void triggerUpload();
     return `已推算 ${Object.keys(result.profitsByItemId).length} 个条目 · ${result.transactionCount} 笔变动`;
   };
@@ -4536,14 +4540,14 @@ export default function CalendarPage() {
 
           {/* 月度数据 / 大额支出 / 各品类持仓 三张卡片 */}
           <MonthFormCards
-            key={`${yearMonth}:${existingForYearMonth?.lastInvestmentMailUid ?? 0}:${existingForYearMonth?.importedInvestmentTransactionIds?.length ?? 0}`}
+            key={`${yearMonth}:${existingForYearMonth?.lastInvestmentMailUid ?? 0}:${existingForYearMonth?.importedInvestmentTransactionIds?.length ?? 0}:${existingForYearMonth?.investmentInheritanceRevision ?? 0}`}
             yearMonth={yearMonth}
             existing={existingForYearMonth}
             prevRecord={prevForYearMonth}
             allRecords={records}
             tagCounts={countByTag(yearMonth)}
             expenseItems={billExpenseItems[yearMonth]}
-            onSave={(r) => upsert(r)}
+            onSave={(r, investmentSource) => upsert(r, { investmentSource })}
             subtitle={existingForYearMonth ? '已有数据，可修改' : '尚未录入'}
           />
 

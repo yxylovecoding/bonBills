@@ -445,6 +445,25 @@ export function migrateLegacyInvestPositionItems(
     categorizedProfit += holdingProfitCny + historicalProfitCny;
   }
 
+  const categorizedMarketValue = INVEST_POSITION_KEYS.reduce(
+    (sum, key) => sum + finiteOrZero(record?.investBreakdown?.[key]),
+    0,
+  );
+  const uncategorizedMarketValue = roundMoney(finiteOrZero(record?.investTotal) - categorizedMarketValue);
+  if (uncategorizedMarketValue > 0.005) {
+    items.aggregate = [{
+      id: `legacy-${record?.yearMonth ?? 'month'}-aggregate`,
+      name: '原理财总额',
+      symbol: '',
+      status: 'paused',
+      historicalProfitCny: 0,
+      historicalProfitCurrency: 'CNY',
+      profitInputMode: 'historical',
+      marketValueCny: uncategorizedMarketValue,
+      holdingProfitCny: 0,
+    }];
+  }
+
   const uncategorizedProfit = roundMoney(finiteOrZero(record?.accumulatedProfit) - categorizedProfit);
   if (uncategorizedProfit !== 0) {
     items.account = [{

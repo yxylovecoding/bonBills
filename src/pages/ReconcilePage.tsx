@@ -412,6 +412,7 @@ const cloneAccountSnapshot = (snapshot: AccountSnapshot): AccountSnapshot => ({
 const markInvestmentEdited = (record: MonthlyRecord): MonthlyRecord => ({
   ...record,
   investmentEditedAt: new Date().toISOString(),
+  investmentRolledOverFrom: undefined,
 });
 
 const cloneMonthlyRecord = (record: MonthlyRecord | undefined): MonthlyRecord | undefined => record
@@ -546,7 +547,7 @@ export default function ReconcilePage() {
       ]),
     ) as InvestPositionItems;
     nextItems[key] = update(nextItems[key] ?? []);
-    upsert(markInvestmentEdited(syncInvestPositionItems(currentInvestRecord, nextItems)));
+    upsert(markInvestmentEdited(syncInvestPositionItems(currentInvestRecord, nextItems)), { investmentSource: 'manual' });
   };
 
   const normalizePositionProfit = (item: InvestPositionItem): InvestPositionItem => {
@@ -1123,7 +1124,7 @@ export default function ReconcilePage() {
     }
     if (Object.keys(holdingPatch).length > 0) {
       const nextHoldings = { ...monthlyInvestHoldings, ...holdingPatch };
-      upsert(markInvestmentEdited(syncInvestPositionCategoryAmounts(currentInvestRecord!, nextHoldings)));
+      upsert(markInvestmentEdited(syncInvestPositionCategoryAmounts(currentInvestRecord!, nextHoldings)), { investmentSource: 'manual' });
       updateHoldings(nextHoldings);
     }
 
@@ -1446,7 +1447,7 @@ export default function ReconcilePage() {
     const newLongBond = roundMoney(monthlyInvestHoldings.longBond - amount);
     const newSavings = roundMoney((current.accounts.savingsCard ?? 0) + amount);
     const nextHoldings = { ...monthlyInvestHoldings, longBond: newLongBond };
-    upsert(markInvestmentEdited(syncInvestPositionCategoryAmounts(currentInvestRecord, nextHoldings)));
+    upsert(markInvestmentEdited(syncInvestPositionCategoryAmounts(currentInvestRecord, nextHoldings)), { investmentSource: 'manual' });
     updateHoldings(nextHoldings);
     updateAccounts({ savingsCard: newSavings });
     setLocalAccounts((p) => ({ ...p, savingsCard: String(newSavings) }));
@@ -1558,7 +1559,7 @@ export default function ReconcilePage() {
       newHoldings[k] = roundMoney(newHoldings[k] + holdingDelta);
     }
 
-    upsert(markInvestmentEdited(syncInvestPositionCategoryAmounts(currentInvestRecord, newHoldings)));
+    upsert(markInvestmentEdited(syncInvestPositionCategoryAmounts(currentInvestRecord, newHoldings)), { investmentSource: 'manual' });
     updateHoldings(newHoldings);
     updateAccounts(nextAccounts);
     setLocalHoldings(Object.fromEntries(investKeys.map((k) => [

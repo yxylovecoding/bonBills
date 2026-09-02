@@ -1,11 +1,12 @@
 {
   "name": "monthlybills",
   "private": true,
-  "version": "1.0.6",
+  "version": "1.0.7",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test": "vitest run",
     "preview": "vite preview",
     "schwab:login": "node scripts/schwab.mjs login",
     "schwab:refresh": "node scripts/schwab.mjs refresh",
@@ -29,6 +30,7 @@
     "tailwindcss": "^3.4.13",
     "typescript": "^5.6.2",
     "vite": "^5.4.8",
+    "vitest": "^3.2.7",
     "xlsx": "^0.18.5"
   }
 }

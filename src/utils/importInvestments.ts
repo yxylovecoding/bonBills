@@ -1,14 +1,21 @@
 import * as XLSX from 'xlsx';
 import type {
   InvestKey,
-  InvestPositionItem,
-  InvestPositionItems,
   InvestQuoteSource,
   InvestmentTransactionRecord,
   MonthlyRecord,
 } from '../models/types';
 import { useMonthlyStore } from '../stores/monthlyStore';
+import { syncInvestPositionItems } from './investPositionItems';
 import { normalizeBillDate } from './importBill';
+import {
+  applyInvestmentTransaction,
+  cloneInvestPositionItems,
+  createInvestmentRolloverRecord,
+  emptyMonthlyRecord,
+  hasInvestmentEndingState,
+  investmentPositionItemsForRecord,
+} from './investmentRollover';
 import { triggerUpload } from './syncEngine';
 
 type InvestmentSide = 'buy' | 'sell';
@@ -17,13 +24,13 @@ export type InvestmentTransaction = InvestmentTransactionRecord;
 
 const HEADER_ALIASES = {
   transactionId: ['流水号', '交易流水号', '业务流水号', '订单号', '成交编号', '委托编号'],
-  date: ['日期', '交易日期', '成交日期', '发生日期', '时间'],
+  date: ['日期', '交易日期', '成交日期', '发生日期', '操作日期', '确认日期', '时间'],
   side: ['操作', '交易类型', '业务名称', '买卖方向', '交易', '类型'],
-  name: ['名称', '证券名称', '基金名称', '股票名称', '产品名称', '标的名称'],
-  symbol: ['代码', '证券代码', '基金代码', '股票代码', '产品代码', '标的代码'],
+  name: ['名称', '证券名称', '基金名称', '股票名称', '产品名称', '标的名称', '理财账户'],
+  symbol: ['代码', '证券代码', '基金代码', '股票代码', '产品代码', '标的代码', '理财代码'],
   shares: ['份额', '数量', '成交数量', '发生份额', '成交份额', '交易份额'],
   price: ['成交价', '成交价格', '净值', '价格', '单位净值'],
-  amount: ['金额', '成交金额', '发生金额', '交易金额'],
+  amount: ['金额', '成交金额', '发生金额', '交易金额', '总金额'],
   fee: ['手续费', '费用', '交易费用', '佣金'],
   currency: ['币种', '货币', '交易币种'],
   category: ['品类', '类别', '市场', '资产类别', '投资类型'],
@@ -78,7 +85,7 @@ function normalizeInstrumentSymbol(raw: string, category: string, name: string, 
 function inferGroupKey(category: string, symbol: string, name: string, currency: string): InvestKey {
   const text = `${category} ${name}`.toLowerCase();
   if (/黄金|gold/.test(text)) return 'gold';
-  if (/美债|美国债|us\s*bond/.test(text)) return 'usBond';
+  if (/美债|美国债|美公债|美国公债|us\s*(?:bond|treasury)/.test(text) || /^(tlt|ief|shy)$/i.test(symbol)) return 'usBond';
   if (/长债|长期债|国债|债券/.test(text)) return 'longBond';
   if (/欧股|欧洲|europe/.test(text)) return 'eu';
   if (/亚股|港股|日股|日本|香港|asia/.test(text) || /\.hk$/i.test(symbol)) return 'asia';
@@ -127,7 +134,7 @@ function localTimestamp(iso: string) {
   return `${date}T${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}:${String(value.getSeconds()).padStart(2, '0')}`;
 }
 
-function transactionIsAfterEdit(transaction: InvestmentTransaction, editedAt: string) {
+export function transactionIsAfterEdit(transaction: InvestmentTransaction, editedAt: string) {
   const edit = localTimestamp(editedAt);
   if (transaction.occurredAt?.includes('T')) return transaction.occurredAt > edit;
   // 账表只有日期时保留同日的新流水，交易 ID 会负责防重。
@@ -193,74 +200,6 @@ export async function parseInvestmentFile(file: File): Promise<InvestmentTransac
   return transactions.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
 }
 
-function emptyMonthlyRecord(yearMonth: string): MonthlyRecord {
-  return {
-    yearMonth,
-    income: 0,
-    totalExpense: 0,
-    accumulatedProfit: 0,
-    investTotal: 0,
-    volatileLife: 0,
-    periodicLife: 0,
-    consumption: 0,
-    school: 0,
-    homeDays: 0,
-    travelDays: 0,
-    majorExpenses: [],
-  };
-}
-
-function clonePositionItems(items: InvestPositionItems | undefined): InvestPositionItems {
-  const next: InvestPositionItems = {};
-  for (const [key, group] of Object.entries(items ?? {})) {
-    next[key as keyof InvestPositionItems] = group?.map((item) => ({ ...item }));
-  }
-  return next;
-}
-
-function sameInstrument(item: InvestPositionItem, transaction: InvestmentTransaction) {
-  if (transaction.symbol) return item.symbol.trim().toUpperCase() === transaction.symbol;
-  return item.name.trim().toLowerCase() === transaction.name.trim().toLowerCase();
-}
-
-function round(value: number, decimalPlaces: number) {
-  const factor = 10 ** decimalPlaces;
-  return Math.round(value * factor) / factor;
-}
-
-function applyTransaction(items: InvestPositionItems, transaction: InvestmentTransaction) {
-  const group = [...(items[transaction.groupKey] ?? [])];
-  const existingIndex = group.findIndex((item) => sameInstrument(item, transaction));
-  const existing = existingIndex >= 0 ? group[existingIndex] : undefined;
-  const currentShares = Math.max(existing?.shares ?? 0, 0);
-  const currentCost = Math.max(existing?.costPrice ?? 0, 0);
-  const currentHistory = Number(existing?.historicalProfitCny) || 0;
-  const nextShares = transaction.side === 'buy'
-    ? currentShares + transaction.shares
-    : Math.max(currentShares - transaction.shares, 0);
-  const nextCost = transaction.side === 'buy'
-    ? (currentShares * currentCost + transaction.shares * transaction.price + transaction.fee) / Math.max(nextShares, transaction.shares)
-    : currentCost;
-  const nextItem: InvestPositionItem = {
-    ...(existing ?? {}),
-    id: existing?.id ?? `mail-position:${stableHash(`${transaction.groupKey}:${transaction.symbol || transaction.name}`)}`,
-    name: existing?.name || transaction.name,
-    symbol: transaction.symbol,
-    quoteSource: existing?.quoteSource ?? transaction.quoteSource,
-    quoteCurrency: existing?.quoteCurrency ?? transaction.currency,
-    status: nextShares > 0.0000001 ? 'active' : 'paused',
-    shares: round(nextShares, 4),
-    costPrice: round(nextCost, 4),
-    // 导入交易只更新份额和成本，不擅自覆盖用户的收益基准。
-    historicalProfitCny: round(currentHistory, 2),
-    historicalProfitCurrency: existing?.historicalProfitCurrency ?? transaction.currency,
-    profitInputMode: existing?.profitInputMode ?? (existing ? undefined : 'historical'),
-  };
-  if (existingIndex >= 0) group[existingIndex] = nextItem;
-  else group.push(nextItem);
-  items[transaction.groupKey] = group;
-}
-
 export async function importInvestmentFileIntoStores(file: File, options?: { mailUid?: number }) {
   const parsedTransactions = await parseInvestmentFile(file);
   if (parsedTransactions.length === 0) throw new Error('未识别到理财买入或卖出记录');
@@ -274,15 +213,23 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
     ? parsedTransactions.filter((transaction) => transactionIsAfterEdit(transaction, editedAt))
     : parsedTransactions;
   let importedTransactions = 0;
+  const pendingRecords: MonthlyRecord[] = [];
+  const workingRecords = new Map(
+    useMonthlyStore.getState().records.map((record) => [record.yearMonth, record]),
+  );
   const months = [...new Set(transactions.map((transaction) => transaction.date.slice(0, 7)))].sort();
   for (const yearMonth of months) {
-    const store = useMonthlyStore.getState();
-    const existing = store.records.find((record) => record.yearMonth === yearMonth);
-    const previous = [...store.records]
-      .filter((record) => record.yearMonth < yearMonth)
+    const existing = workingRecords.get(yearMonth);
+    const previous = [...workingRecords.values()]
+      .filter((record) => record.yearMonth < yearMonth && hasInvestmentEndingState(record))
       .sort((a, b) => b.yearMonth.localeCompare(a.yearMonth))[0];
-    const record = { ...(existing ?? emptyMonthlyRecord(yearMonth)) };
-    const items = clonePositionItems(record.investPositionItems ?? previous?.investPositionItems);
+    const base = existing && hasInvestmentEndingState(existing)
+      ? existing
+      : previous
+        ? createInvestmentRolloverRecord(previous, yearMonth, existing)
+        : existing ?? emptyMonthlyRecord(yearMonth);
+    let record = { ...base };
+    const items = cloneInvestPositionItems(investmentPositionItemsForRecord(record));
     const importedIds = new Set(record.importedInvestmentTransactionIds ?? []);
     const transactionLedger = new Map(
       (record.investmentTransactions ?? []).map((transaction) => [transaction.id, transaction]),
@@ -290,24 +237,26 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
     for (const transaction of transactions.filter((item) => item.date.startsWith(yearMonth))) {
       transactionLedger.set(transaction.id, transaction);
       if (importedIds.has(transaction.id)) continue;
-      applyTransaction(items, transaction);
+      applyInvestmentTransaction(items, transaction);
       importedIds.add(transaction.id);
       importedTransactions += 1;
     }
-    record.investPositionItems = items;
+    record = syncInvestPositionItems(record, items);
     record.investmentTransactions = [...transactionLedger.values()]
       .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
     record.importedInvestmentTransactionIds = [...importedIds];
     if (options?.mailUid && options.mailUid > (record.lastInvestmentMailUid ?? 0)) {
       record.lastInvestmentMailUid = options.mailUid;
     }
-    store.upsert(record);
+    workingRecords.set(yearMonth, record);
+    pendingRecords.push(record);
   }
+  const store = useMonthlyStore.getState();
+  store.upsertMany(pendingRecords, { investmentSource: 'import' });
   if (months.length === 0 && options?.mailUid) {
-    const store = useMonthlyStore.getState();
-    const latest = [...store.records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth))[0];
+    const latest = [...useMonthlyStore.getState().records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth))[0];
     if (latest && options.mailUid > (latest.lastInvestmentMailUid ?? 0)) {
-      store.upsert({ ...latest, lastInvestmentMailUid: options.mailUid });
+      useMonthlyStore.getState().upsert({ ...latest, lastInvestmentMailUid: options.mailUid });
     }
   }
   await triggerUpload();
