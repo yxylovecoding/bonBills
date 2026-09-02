@@ -116,6 +116,12 @@ const fmtUsd = (value: number) => {
 const fmtDollar = (value: number) => `$${value >= 100 ? Math.round(value).toLocaleString('zh-CN') : value.toFixed(2)}`;
 const fmtPct = (value: number | null, digits = 1) => value === null ? '—' : `${(value * 100).toFixed(digits)}%`;
 const roundMoney = (value: number) => Math.round(value * 100) / 100;
+const currencyMark = (currency: string) => {
+  const normalized = currency.toUpperCase();
+  if (normalized === 'USD') return '$';
+  if (normalized === 'CNY' || normalized === 'CNH') return '¥';
+  return `${normalized} `;
+};
 const latestMarketBar = (chart: MarketChartResponse | null | undefined) => {
   const bars = chart?.bars?.filter((bar) => Number.isFinite(Number(bar.adjClose ?? bar.close))) ?? [];
   return bars.length > 0 ? bars[bars.length - 1] : null;
@@ -3064,7 +3070,17 @@ export default function ReconcilePage() {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
                               {detailItems.map((item) => {
                                 const metric = calculateInvestPositionMetric(item);
-                                const totalProfit = metric.totalProfitCny;
+                                const itemCurrency = item.symbol.trim()
+                                  ? (item.quoteCurrency || item.lastCurrency || (k === 'us' || k === 'usBond' ? 'USD' : metric.profitCurrency) || 'CNY').toUpperCase()
+                                  : 'CNY';
+                                const itemFxRate = ['CNY', 'CNH'].includes(itemCurrency)
+                                  ? 1
+                                  : (metric.fxRateToCny || item.lastFxRateToCny || (itemCurrency === 'USD' ? latestUsdRate : null) || metric.profitFxRateToCny || 1);
+                                const itemMarketValue = metric.marketValueCny / itemFxRate;
+                                const itemHoldingProfit = metric.holdingProfitCny / itemFxRate;
+                                const itemHistoricalProfit = metric.historicalProfitCny / itemFxRate;
+                                const totalProfit = itemHistoricalProfit + itemHoldingProfit;
+                                const itemCurrencyMark = currencyMark(itemCurrency);
                                 const optionalNumber = (raw: string) => raw.trim() === '' ? undefined : parseAmountPart(raw);
                                 return (
                                   <div key={item.id} style={{ border: '1px solid #edf2fb', borderRadius: 9, padding: '7px 8px', backgroundColor: '#fbfdff' }}>
@@ -3076,7 +3092,7 @@ export default function ReconcilePage() {
                                         style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', color: '#202124', fontSize: 12, fontWeight: 800 }}
                                       />
                                       <div aria-label={`${item.name}金额`} style={{ minWidth: 0, textAlign: 'right', color: '#202124', fontSize: 12, fontWeight: 800, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                                        ¥{formatCurrency(metric.marketValueCny)}
+                                        {itemCurrencyMark}{formatCurrency(itemMarketValue)}
                                       </div>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                         <button
@@ -3112,12 +3128,12 @@ export default function ReconcilePage() {
                                       </label>
                                       )}
                                       <label style={{ minWidth: 0, color: C.sub, fontSize: 9 }}>
-                                        累计收益¥
+                                        累计收益{itemCurrencyMark}
                                         <input
                                           type="text"
                                           inputMode="decimal"
                                           defaultValue={totalProfit}
-                                          onBlur={(event) => patchCurrentInvestPosition(k, item.id, { historicalProfitCny: roundMoney(parseAmountPart(event.target.value) - metric.holdingProfitCny), historicalProfitCurrency: 'CNY', profitInputMode: 'historical' })}
+                                          onBlur={(event) => patchCurrentInvestPosition(k, item.id, { historicalProfitCny: roundMoney(parseAmountPart(event.target.value) - itemHoldingProfit), historicalProfitCurrency: itemCurrency, profitInputMode: 'historical' })}
                                           style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', color: totalProfit > 0 ? C.red : totalProfit < 0 ? C.green : C.sub, textAlign: 'right', fontSize: 11, fontWeight: 700 }}
                                         />
                                       </label>
@@ -3132,7 +3148,7 @@ export default function ReconcilePage() {
                                         />
                                       </label>
                                       <label style={{ minWidth: 0, color: C.sub, fontSize: 9 }}>
-                                        成本价
+                                        成本价{itemCurrencyMark}
                                         <input
                                           type="text"
                                           inputMode="decimal"
@@ -3142,8 +3158,8 @@ export default function ReconcilePage() {
                                         />
                                       </label>
                                     </div>
-                                    <div style={{ marginTop: 6, textAlign: 'right', color: metric.holdingProfitCny > 0 ? C.red : metric.holdingProfitCny < 0 ? C.green : C.sub, fontSize: 10, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                                      持有收益 {metric.holdingProfitCny > 0 ? '+' : metric.holdingProfitCny < 0 ? '-' : ''}¥{formatCurrency(Math.abs(metric.holdingProfitCny))}
+                                    <div style={{ marginTop: 6, textAlign: 'right', color: itemHoldingProfit > 0 ? C.red : itemHoldingProfit < 0 ? C.green : C.sub, fontSize: 10, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                                      持有收益 {itemHoldingProfit > 0 ? '+' : itemHoldingProfit < 0 ? '-' : ''}{itemCurrencyMark}{formatCurrency(Math.abs(itemHoldingProfit))}
                                     </div>
                                   </div>
                                 );
