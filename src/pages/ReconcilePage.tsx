@@ -3224,7 +3224,7 @@ export default function ReconcilePage() {
                                         <input
                                           type="text"
                                           inputMode="decimal"
-                                          defaultValue={totalProfit}
+                                          defaultValue={totalProfit.toFixed(2)}
                                           onBlur={(event) => patchCurrentInvestPosition(k, item.id, { historicalProfitCny: roundMoney(parseAmountPart(event.target.value) - itemHoldingProfit), historicalProfitCurrency: itemCurrency, profitInputMode: 'historical' })}
                                           style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', color: totalProfit > 0 ? C.red : totalProfit < 0 ? C.green : C.sub, textAlign: 'right', fontSize: 11, fontWeight: 700 }}
                                         />
