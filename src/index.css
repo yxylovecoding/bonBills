@@ -908,6 +908,10 @@ input[type='number'] { -moz-appearance: textfield; }
 }
 
 @media (min-width: 960px) {
+  .calendar-page-shell {
+    max-width: 760px;
+  }
+
   .invest-position-group-title {
     font-size: 14px;
   }
@@ -958,6 +962,10 @@ input[type='number'] { -moz-appearance: textfield; }
   }
 
   .calendar-page-header {
+    width: 100%;
+  }
+
+  .calendar-page-shell--split .calendar-page-header {
     width: 448px;
   }
 

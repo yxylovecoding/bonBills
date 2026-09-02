@@ -227,9 +227,10 @@ function applyTransaction(items: InvestPositionItems, transaction: InvestmentTra
     status: nextShares > 0.0000001 ? 'active' : 'paused',
     shares: round(nextShares, 4),
     costPrice: round(nextCost, 4),
-    // 这里保存的是用户手填的累计收益。导入交易只更新份额和成本，不能擅自覆盖它。
+    // 导入交易只更新份额和成本，不擅自覆盖用户的收益基准。
     historicalProfitCny: round(currentHistory, 2),
     historicalProfitCurrency: existing?.historicalProfitCurrency ?? transaction.currency,
+    profitInputMode: existing?.profitInputMode ?? (existing ? undefined : 'historical'),
   };
   if (existingIndex >= 0) group[existingIndex] = nextItem;
   else group.push(nextItem);

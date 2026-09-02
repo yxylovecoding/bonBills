@@ -66,6 +66,7 @@ const finiteOrZero = (value: unknown) => {
 };
 
 const roundMoney = (value: number) => Math.round(value * 100) / 100;
+const roundShares = (value: number) => Math.round(value * 10000) / 10000;
 
 export function investPositionQuoteKey(item: Pick<InvestPositionItem, 'symbol' | 'quoteSource'>) {
   return `${item.quoteSource ?? 'yahoo'}:${item.symbol.trim().toUpperCase()}`;
@@ -91,14 +92,13 @@ export function calculateInvestPositionMetric(
   const profitFxRateToCny = ['CNY', 'CNH'].includes(profitCurrency)
     ? 1
     : (market?.fxRateToCny ?? finiteOrZero(item.lastFxRateToCny)) || 1;
-  // 兼容既有数据字段名：historicalProfitCny 实际保存的是用户手填的累计收益。
-  const cumulativeProfitCny = roundMoney(finiteOrZero(item.historicalProfitCny) * profitFxRateToCny);
+  const storedProfitCny = roundMoney(finiteOrZero(item.historicalProfitCny) * profitFxRateToCny);
   if (item.status === 'closed') {
     return {
       marketValueCny: 0,
       holdingProfitCny: 0,
-      historicalProfitCny: cumulativeProfitCny,
-      totalProfitCny: cumulativeProfitCny,
+      historicalProfitCny: storedProfitCny,
+      totalProfitCny: storedProfitCny,
       profitCurrency,
       profitFxRateToCny,
       live: false,
@@ -126,13 +126,17 @@ export function calculateInvestPositionMetric(
     : canCalculatePosition && costPrice > 0
     ? roundMoney((market!.price - costPrice) * shares * market!.fxRateToCny)
     : roundMoney(finiteOrZero(item.holdingProfitCny));
-  const historicalProfitCny = roundMoney(cumulativeProfitCny - holdingProfitCny);
+  // 旧数据保存的是累计收益；首次读取时减去当时的持有收益，还原成历史收益。
+  const historicalProfitCny = item.profitInputMode === 'historical'
+    ? storedProfitCny
+    : roundMoney(storedProfitCny - finiteOrZero(item.holdingProfitCny));
+  const totalProfitCny = roundMoney(historicalProfitCny + holdingProfitCny);
 
   return {
     marketValueCny,
     holdingProfitCny,
     historicalProfitCny,
-    totalProfitCny: cumulativeProfitCny,
+    totalProfitCny,
     profitCurrency,
     profitFxRateToCny,
     live: hasLiveMarket && market?.live !== false,
@@ -203,6 +207,94 @@ export function summarizeInvestPositionItems(
   };
 }
 
+export function syncInvestPositionCategoryAmounts(
+  record: MonthlyRecord,
+  amounts: Partial<InvestHoldings>,
+): MonthlyRecord {
+  const fallbackBreakdown = { ...(record.investBreakdown ?? {}) };
+  if (record.investPositionItems === undefined) {
+    for (const key of INVEST_POSITION_KEYS) {
+      const amount = amounts[key];
+      if (amount !== undefined && Number.isFinite(amount)) fallbackBreakdown[key] = roundMoney(Math.max(amount, 0));
+    }
+    return {
+      ...record,
+      investBreakdown: fallbackBreakdown,
+      investTotal: roundMoney(INVEST_POSITION_KEYS.reduce((sum, key) => sum + finiteOrZero(fallbackBreakdown[key]), 0)),
+    };
+  }
+
+  const nextItems: InvestPositionItems = Object.fromEntries(
+    Object.entries(record.investPositionItems).map(([key, items]) => [
+      key,
+      items?.map((item) => ({ ...item })),
+    ]),
+  );
+
+  for (const key of INVEST_POSITION_KEYS) {
+    const requestedAmount = amounts[key];
+    if (requestedAmount === undefined || !Number.isFinite(requestedAmount)) continue;
+    const targetAmount = roundMoney(Math.max(requestedAmount, 0));
+    const currentSummary = summarizeInvestPositionItems(nextItems);
+    const currentAmount = currentSummary.marketValueByCategory[key];
+    const delta = roundMoney(targetAmount - currentAmount);
+    if (Math.abs(delta) < 0.01) continue;
+
+    const group = [...(nextItems[key] ?? [])];
+    if (delta > 0) {
+      const adjustmentId = `reconcile-adjustment:${record.yearMonth}:${key}`;
+      const adjustmentIndex = group.findIndex((item) => item.id === adjustmentId);
+      const adjustment = adjustmentIndex >= 0 ? group[adjustmentIndex] : undefined;
+      const nextAdjustment: InvestPositionItem = {
+        ...(adjustment ?? {}),
+        id: adjustmentId,
+        name: '对账加仓',
+        symbol: '',
+        status: 'active',
+        historicalProfitCny: adjustment?.historicalProfitCny ?? 0,
+        historicalProfitCurrency: 'CNY',
+        profitInputMode: 'historical',
+        marketValueCny: roundMoney(finiteOrZero(adjustment?.marketValueCny) + delta),
+        holdingProfitCny: finiteOrZero(adjustment?.holdingProfitCny),
+      };
+      if (adjustmentIndex >= 0) group[adjustmentIndex] = nextAdjustment;
+      else group.push(nextAdjustment);
+    } else if (currentAmount > 0) {
+      const keepRatio = Math.max(0, Math.min(targetAmount / currentAmount, 1));
+      for (let index = 0; index < group.length; index += 1) {
+        const item = group[index];
+        if (item.status === 'closed') continue;
+        const metric = calculateInvestPositionMetric(item);
+        const realizedHoldingProfitCny = metric.holdingProfitCny * (1 - keepRatio);
+        const nextShares = item.shares === undefined ? undefined : roundShares(Math.max(item.shares, 0) * keepRatio);
+        group[index] = {
+          ...item,
+          status: nextShares === 0 ? 'paused' : item.status,
+          shares: nextShares,
+          marketValueCny: roundMoney(metric.marketValueCny * keepRatio),
+          holdingProfitCny: roundMoney(metric.holdingProfitCny * keepRatio),
+          historicalProfitCny: roundMoney(
+            (metric.historicalProfitCny + realizedHoldingProfitCny) / metric.profitFxRateToCny,
+          ),
+          historicalProfitCurrency: metric.profitCurrency,
+          profitInputMode: 'historical',
+        };
+      }
+    }
+    nextItems[key] = group;
+  }
+
+  const summary = summarizeInvestPositionItems(nextItems);
+  return {
+    ...record,
+    investPositionItems: nextItems,
+    investBreakdown: summary.marketValueByCategory,
+    investBreakdownProfit: summary.holdingProfitByCategory,
+    investBreakdownPastProfit: summary.historicalProfitByCategory,
+    investTotal: summary.totalMarketValueCny,
+  };
+}
+
 export function calculateInvestPositionMonthlyProfit(
   currentItems: InvestPositionItems,
   previousItems: InvestPositionItems | undefined,
@@ -227,6 +319,10 @@ export function calculateInvestPositionMonthlyProfit(
     }
 
     for (const item of currentItems[groupKey] ?? []) {
+      if (item.shares !== undefined && finiteOrZero(item.shares) === 0) {
+        byItemId[item.id] = null;
+        continue;
+      }
       const comparisonKey = investPositionComparisonKey(item);
       const previousItemById = previousById.get(item.id);
       const previousItemWithSameId = previousItemById && (
@@ -298,8 +394,9 @@ export function migrateLegacyInvestPositionItems(
         name: `原${labels[key]}汇总`,
         symbol: '',
         status: 'active',
-        historicalProfitCny: holdingProfitCny,
+        historicalProfitCny: 0,
         historicalProfitCurrency: 'CNY',
+        profitInputMode: 'historical',
         marketValueCny,
         holdingProfitCny,
       });
@@ -312,6 +409,7 @@ export function migrateLegacyInvestPositionItems(
         status: 'closed',
         historicalProfitCny,
         historicalProfitCurrency: 'CNY',
+        profitInputMode: 'historical',
       });
     }
     if (categoryItems.length > 0) items[key] = categoryItems;
@@ -327,6 +425,7 @@ export function migrateLegacyInvestPositionItems(
       status: 'closed',
       historicalProfitCny: uncategorizedProfit,
       historicalProfitCurrency: 'CNY',
+      profitInputMode: 'historical',
     }];
   }
   return items;

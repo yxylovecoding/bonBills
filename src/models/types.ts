@@ -32,6 +32,7 @@ export interface InvestPositionItem {
   costPrice?: number;
   historicalProfitCny: number;
   historicalProfitCurrency?: string;
+  profitInputMode?: 'cumulative' | 'historical';
   marketValueCny?: number;
   holdingProfitCny?: number;
   lastPrice?: number;

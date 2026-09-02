@@ -16,12 +16,13 @@ import { calcBudget } from '../calculations/budget';
 import { calcHistoryStats } from '../calculations/history';
 import { calcRebalance } from '../calculations/rebalance';
 import { investMeta, tagMeta } from '../data/mockData';
-import type { AccountSnapshot, AppConfig, DailyTag, InvestAllocTargets, InvestKey, TagKind, UsStockHoldingItem } from '../models/types';
+import type { AccountSnapshot, AppConfig, DailyTag, InvestAllocTargets, InvestHoldings, InvestKey, MonthlyRecord, TagKind, UsStockHoldingItem } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { tryEvalFormula } from '../utils/formula';
 import { dateLabel, resolveIncomeForMonth, type ResolvedIncomeItem } from '../utils/payroll';
 import { getCategoryCumulativeRateSummary, getCategoryProfit, type CategoryCumulativeRateSummary } from '../utils/investRecords';
+import { summarizeInvestPositionItems, syncInvestPositionCategoryAmounts } from '../utils/investPositionItems';
 import { calculateCreditRepaymentPlan, LONG_BOND_REPAY_THRESHOLD } from '../utils/creditRepayment';
 import {
   FINANCE_SCREENSHOT_DRAFT_EVENT,
@@ -40,6 +41,9 @@ const INVEST_TARGET_KEYS: InvestKey[] = ['us', 'eu', 'asia', 'a', 'longBond', 'u
 const USD_INVEST_KEYS: InvestKey[] = ['us', 'usBond'];
 const USD_VIRTUAL_ACCOUNT_KEYS = ['usdLivingBank', 'usdConsumptionBank', 'usdWishJar', 'investUsdBank'] as const;
 const EMPTY_US_STOCK_ITEMS: UsStockHoldingItem[] = [];
+const emptyInvestHoldings = (): InvestHoldings => Object.fromEntries(
+  INVEST_TARGET_KEYS.map((key) => [key, 0]),
+) as unknown as InvestHoldings;
 type UsdVirtualAccountKey = typeof USD_VIRTUAL_ACCOUNT_KEYS[number];
 const USD_REPLACE_BUCKETS: {
   usdKey: UsdVirtualAccountKey;
@@ -354,6 +358,7 @@ type ReconcileMode = 'monthStart' | 'monthMiddle';
 
 type ReconcileUndoState = {
   current: AccountSnapshot;
+  monthlyRecord?: MonthlyRecord;
   config: Pick<AppConfig, 'investAllocTargets' | 'dramDecision'>;
   revealConsumptionWishUsd: boolean;
   localAccounts: Record<keyof AccountSnapshot['accounts'], string>;
@@ -381,9 +386,31 @@ const cloneAccountSnapshot = (snapshot: AccountSnapshot): AccountSnapshot => ({
   transfersDone: { ...snapshot.transfersDone },
 });
 
+const cloneMonthlyRecord = (record: MonthlyRecord | undefined): MonthlyRecord | undefined => record
+  ? {
+      ...record,
+      investBreakdown: record.investBreakdown ? { ...record.investBreakdown } : undefined,
+      investBreakdownProfit: record.investBreakdownProfit ? { ...record.investBreakdownProfit } : undefined,
+      investProfitComponents: record.investProfitComponents
+        ? Object.fromEntries(Object.entries(record.investProfitComponents).map(([key, value]) => [key, value ? { ...value } : value]))
+        : undefined,
+      investBreakdownPastProfit: record.investBreakdownPastProfit ? { ...record.investBreakdownPastProfit } : undefined,
+      investPastProfitComponents: record.investPastProfitComponents
+        ? Object.fromEntries(Object.entries(record.investPastProfitComponents).map(([key, value]) => [key, value ? { ...value } : value]))
+        : undefined,
+      investPositionItems: record.investPositionItems
+        ? Object.fromEntries(Object.entries(record.investPositionItems).map(([key, items]) => [key, items?.map((item) => ({ ...item }))]))
+        : undefined,
+      investmentTransactions: record.investmentTransactions?.map((transaction) => ({ ...transaction })),
+      importedInvestmentTransactionIds: record.importedInvestmentTransactionIds ? [...record.importedInvestmentTransactionIds] : undefined,
+      majorExpenses: record.majorExpenses?.map((expense) => ({ ...expense })),
+    }
+  : undefined;
+
 const cloneReconcileUndoState = (state: ReconcileUndoState): ReconcileUndoState => ({
   ...state,
   current: cloneAccountSnapshot(state.current),
+  monthlyRecord: cloneMonthlyRecord(state.monthlyRecord),
   config: {
     investAllocTargets: { ...state.config.investAllocTargets },
     dramDecision: state.config.dramDecision ? { ...state.config.dramDecision } : undefined,
@@ -412,6 +439,7 @@ const reconcileUndoFingerprint = (state: ReconcileUndoState) => {
   };
   return JSON.stringify({
     config: state.config,
+    monthlyRecord: state.monthlyRecord,
     revealConsumptionWishUsd: state.revealConsumptionWishUsd,
     localAccounts: visibleAccounts,
     revealedUsdAccounts: [...state.revealedUsdAccounts].sort(),
@@ -441,11 +469,35 @@ const defaultReconcileMode = (date: Date): ReconcileMode => (date.getDate() >= 1
 export default function ReconcilePage() {
   const { current, updateAccounts, updateTransfers, updateHoldings, updateUsStockHoldings, restoreCurrent } = useSnapshotStore();
   const { config, setConfig } = useConfigStore();
-  const { records } = useMonthlyStore();
+  const { records, upsert } = useMonthlyStore();
   const { tagMap, confirmedExpenses } = useCalendarStore();
   const { expenseItems } = useBillDetailStore();
   const { overrides: expenseScopeOverrides } = useExpenseScopeOverrideStore();
   const { tripTags } = useTripStore();
+
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth();
+  const nextMonthDate = new Date(currentYear, currentMonth + 1, 1);
+  const nextYear = nextMonthDate.getFullYear();
+  const nextMonth = nextMonthDate.getMonth();
+  const curYM = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
+  const currentInvestRecord = useMemo(
+    () => records.find((record) => record.yearMonth === curYM),
+    [curYM, records],
+  );
+  const currentPositionSummary = useMemo(
+    () => currentInvestRecord?.investPositionItems === undefined
+      ? null
+      : summarizeInvestPositionItems(currentInvestRecord.investPositionItems),
+    [currentInvestRecord],
+  );
+  const monthlyInvestHoldings = useMemo(() => {
+    const breakdown = currentPositionSummary?.marketValueByCategory ?? currentInvestRecord?.investBreakdown;
+    const next = emptyInvestHoldings();
+    for (const key of INVEST_TARGET_KEYS) next[key] = roundMoney(Math.max(Number(breakdown?.[key]) || 0, 0));
+    return next;
+  }, [currentInvestRecord?.investBreakdown, currentPositionSummary]);
 
 
   // 账户余额本地编辑
@@ -541,7 +593,7 @@ export default function ReconcilePage() {
     creditMonthly: current.accounts.creditMonthly,
     creditTotal: current.accounts.credit,
     savingsCard: current.accounts.savingsCard,
-    longBond: current.investHoldings.longBond,
+    longBond: monthlyInvestHoldings.longBond,
   });
 
   // 已转金额（用户直接编辑）— 每次进入页面默认为 0
@@ -620,31 +672,20 @@ export default function ReconcilePage() {
 
   // 理财持仓本地编辑
   const [localHoldings, setLocalHoldings] = useState<Record<InvestKey, string>>(
-    () => Object.fromEntries((Object.keys(current.investHoldings) as InvestKey[]).map((k) => [
+    () => Object.fromEntries(INVEST_TARGET_KEYS.map((k) => [
       k,
-      String(current.investHoldings[k]),
+      String(monthlyInvestHoldings[k]),
     ])) as Record<InvestKey, string>
   );
-  const holdingInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const transferInputRefs = useRef<(HTMLInputElement | null)[]>([]);
-  const syncHolding = (k: InvestKey) => {
-    const nextHolding = parseAmountPart(localHoldings[k]);
-    updateHoldings({ ...current.investHoldings, [k]: nextHolding });
-    if (k === 'us') {
-      const nextInputs = normalizeUsStockInputs(localUsStockItems, { usTotalCny: nextHolding });
-      setLocalUsStockItems(nextInputs);
-      updateUsStockHoldings(usStockInputsToItems(nextInputs));
-    }
-  };
+  useEffect(() => {
+    setLocalHoldings(Object.fromEntries(INVEST_TARGET_KEYS.map((key) => [
+      key,
+      String(monthlyInvestHoldings[key]),
+    ])) as Record<InvestKey, string>);
+  }, [monthlyInvestHoldings]);
 
-  // 今天
-  const today = new Date();
   const showCreditMonthlyInput = isMonthStartMode;
-  const currentYear = today.getFullYear();
-  const currentMonth = today.getMonth();
-  const nextMonthDate = new Date(currentYear, currentMonth + 1, 1);
-  const nextYear = nextMonthDate.getFullYear();
-  const nextMonth = nextMonthDate.getMonth();
   const { holidayDataByYear, holidayWarning } = useHolidayYears([currentYear - 1, currentYear, nextYear]);
 
   // 历史均值（只取近两年）
@@ -660,7 +701,6 @@ export default function ReconcilePage() {
     [tagMap],
   );
 
-  const curYM = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
   const currentResolvedIncomeItems = useMemo(
     () => config.incomeItems.map((item) => resolveIncomeForMonth(item, currentYear, currentMonth, tagMap, holidayDataByYear)),
     [config.incomeItems, currentYear, currentMonth, tagMap, holidayDataByYear],
@@ -696,10 +736,10 @@ export default function ReconcilePage() {
 
   // 理财再平衡建议（算法值）
   const effectiveInvestHoldings = useMemo(() => ({
-    ...current.investHoldings,
-    longBond: Math.max(0, current.investHoldings.longBond - longBondRepay),
-  }), [current.investHoldings, longBondRepay]);
-  const investKeys = Object.keys(current.investHoldings) as InvestKey[];
+    ...monthlyInvestHoldings,
+    longBond: Math.max(0, monthlyInvestHoldings.longBond - longBondRepay),
+  }), [monthlyInvestHoldings, longBondRepay]);
+  const investKeys = INVEST_TARGET_KEYS;
   const investAllocTargets = useMemo(
     () => investKeys.some((k) => (config.investAllocTargets[k] ?? 0) > 0)
       ? config.investAllocTargets
@@ -712,15 +752,15 @@ export default function ReconcilePage() {
     ) as Record<InvestKey, CategoryCumulativeRateSummary | null>,
     [records],
   );
-  const latestBreakdownProfits = useMemo(() => {
-    const sortedRecords = [...records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth));
-    return Object.fromEntries(INVEST_TARGET_KEYS.map((key) => {
-      const record = sortedRecords.find((item) => getCategoryProfit(item, key) !== null);
-      return [key, record
-        ? { amount: getCategoryProfit(record, key)!, yearMonth: record.yearMonth }
-        : null];
-    })) as Record<InvestKey, { amount: number; yearMonth: string } | null>;
-  }, [records]);
+  const currentBreakdownProfits = useMemo(() => Object.fromEntries(
+    INVEST_TARGET_KEYS.map((key) => {
+      const summaryAmount = currentPositionSummary && (currentInvestRecord?.investPositionItems?.[key]?.length ?? 0) > 0
+        ? currentPositionSummary.holdingProfitByCategory[key] + currentPositionSummary.historicalProfitByCategory[key]
+        : null;
+      const amount = summaryAmount ?? getCategoryProfit(currentInvestRecord, key);
+      return [key, amount === null ? null : { amount, yearMonth: curYM }];
+    }),
+  ) as Record<InvestKey, { amount: number; yearMonth: string } | null>, [curYM, currentInvestRecord, currentPositionSummary]);
   const fallbackUsdRate = useMemo(
     () => [...records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth))
       .map((r) => r.investProfitComponents?.us?.rate ?? r.investProfitComponents?.usBond?.rate)
@@ -812,9 +852,9 @@ export default function ReconcilePage() {
       chart: dramChart,
       config: dramConfig,
       usdRate: latestUsdRate,
-      usStockValueCny: current.investHoldings.us ?? 0,
+      usStockValueCny: monthlyInvestHoldings.us,
     }) : null,
-    [current.investHoldings.us, dramChart, dramConfig, latestUsdRate],
+    [dramChart, dramConfig, latestUsdRate, monthlyInvestHoldings.us],
   );
   const effectiveUsStockItems = useMemo<UsStockHoldingItem[]>(() => {
     if (storedUsStockItems.length > 0) return storedUsStockItems;
@@ -832,10 +872,10 @@ export default function ReconcilePage() {
         id: 'sp500',
         name: '标普',
         symbol: 'SPY',
-        amountCny: roundMoney(Math.max((current.investHoldings.us ?? 0) - dramCostValue, 0)),
+        amountCny: roundMoney(Math.max(monthlyInvestHoldings.us - dramCostValue, 0)),
       },
     ];
-  }, [current.investHoldings.us, dramConfig, latestUsdRate, storedUsStockItems]);
+  }, [dramConfig, latestUsdRate, monthlyInvestHoldings.us, storedUsStockItems]);
   const autoFillUsStockAmount = (item: UsStockItemInput) => {
     if (isSpyUsStockInput(item)) return item;
     const amountCny = usStockCostAmountCny(item, latestUsdRate);
@@ -844,7 +884,7 @@ export default function ReconcilePage() {
   const normalizeUsStockInputs = (inputs: UsStockItemInput[], options?: { autoAmount?: boolean; usTotalCny?: number }) => {
     const shouldAutoAmount = options?.autoAmount !== false;
     const amountInputs = shouldAutoAmount ? inputs.map(autoFillUsStockAmount) : inputs;
-    return syncSpyUsStockAmount(amountInputs, options?.usTotalCny ?? (current.investHoldings.us ?? 0));
+    return syncSpyUsStockAmount(amountInputs, options?.usTotalCny ?? monthlyInvestHoldings.us);
   };
   const usStockInputsToItems = (inputs: UsStockItemInput[]) => (
     inputs.map((item, index) => {
@@ -868,7 +908,7 @@ export default function ReconcilePage() {
   );
   useEffect(() => {
     setLocalUsStockItems(normalizeUsStockInputs(usStockInputsFromItems(effectiveUsStockItems)));
-  }, [current.investHoldings.us, effectiveUsStockItems, latestUsdRate]);
+  }, [effectiveUsStockItems, latestUsdRate, monthlyInvestHoldings.us]);
   const usStockSymbols = useMemo(
     () => [...new Set(localUsStockItems.map((item) => item.symbol.trim().toUpperCase()).filter(Boolean))],
     [localUsStockItems],
@@ -922,6 +962,12 @@ export default function ReconcilePage() {
   };
   const applyScreenshotDraft = () => {
     if (!screenshotDraft) return;
+    const hasInvestmentAmounts = Object.values(screenshotDraft.investHoldings)
+      .some((value) => value !== null && Number.isFinite(value));
+    if (hasInvestmentAmounts && !currentInvestRecord) {
+      setScreenshotImportMsg('请先创建本月记录，再同步理财数据');
+      return;
+    }
     const accountPatch: Partial<AccountSnapshot['accounts']> = {};
     for (const [key, value] of Object.entries(screenshotDraft.accounts) as [keyof AccountSnapshot['accounts'], number | null][]) {
       if (value !== null && Number.isFinite(value)) accountPatch[key] = roundMoney(value);
@@ -942,14 +988,9 @@ export default function ReconcilePage() {
       if (value !== null && Number.isFinite(value)) holdingPatch[key] = roundMoney(value);
     }
     if (Object.keys(holdingPatch).length > 0) {
-      updateHoldings({ ...current.investHoldings, ...holdingPatch });
-      setLocalHoldings((prev) => {
-        const next = { ...prev };
-        for (const [key, value] of Object.entries(holdingPatch) as [InvestKey, number][]) {
-          next[key] = String(value);
-        }
-        return next;
-      });
+      const nextHoldings = { ...monthlyInvestHoldings, ...holdingPatch };
+      upsert(syncInvestPositionCategoryAmounts(currentInvestRecord!, nextHoldings));
+      updateHoldings(nextHoldings);
     }
 
     if (screenshotDraft.usStockHoldings.length > 0) {
@@ -995,7 +1036,7 @@ export default function ReconcilePage() {
     commitUsStockItems(next);
   };
   const usStockDetailTotal = localUsStockItems.reduce((sum, item) => sum + Math.max(0, parseAmountPart(item.amountCny)), 0);
-  const usStockDetailGap = roundMoney(usStockDetailTotal - (current.investHoldings.us ?? 0));
+  const usStockDetailGap = roundMoney(usStockDetailTotal - monthlyInvestHoldings.us);
   const commitInvestUsdCnyInput = (rawCny = investUsdCnyInput) => {
     if (latestUsdRate === null) {
       syncAccounts();
@@ -1262,15 +1303,24 @@ export default function ReconcilePage() {
   const handleRedeemLongBond = () => {
     const amount = roundMoney(longBondRepay);
     if (amount <= 0) return;
-    const newLongBond = roundMoney((current.investHoldings.longBond ?? 0) - amount);
+    if (!currentInvestRecord) {
+      window.alert('请先创建本月记录，再执行长债赎回。');
+      return;
+    }
+    const newLongBond = roundMoney(monthlyInvestHoldings.longBond - amount);
     const newSavings = roundMoney((current.accounts.savingsCard ?? 0) + amount);
-    updateHoldings({ ...current.investHoldings, longBond: newLongBond });
-    setLocalHoldings((p) => ({ ...p, longBond: String(newLongBond) }));
+    const nextHoldings = { ...monthlyInvestHoldings, longBond: newLongBond };
+    upsert(syncInvestPositionCategoryAmounts(currentInvestRecord, nextHoldings));
+    updateHoldings(nextHoldings);
     updateAccounts({ savingsCard: newSavings });
     setLocalAccounts((p) => ({ ...p, savingsCard: String(newSavings) }));
   };
 
   const handleExecuteRebalance = () => {
+    if (!currentInvestRecord) {
+      window.alert('请先创建本月记录，再执行加仓。');
+      return;
+    }
     const entries = investKeys.map((k) => [k, parseFloat(localConfirmed[k]) || 0] as const);
     const hasUsdExecution = entries.some(([k, amount]) => USD_INVEST_KEYS.includes(k) && amount !== 0);
     if (hasUsdExecution && latestUsdRate === null) {
@@ -1278,7 +1328,7 @@ export default function ReconcilePage() {
       return;
     }
 
-    const newHoldings = { ...current.investHoldings };
+    const newHoldings = { ...monthlyInvestHoldings };
     const nextAccounts: AccountSnapshot['accounts'] = {
       credit: current.accounts.credit ?? 0,
       creditMonthly: current.accounts.creditMonthly ?? 0,
@@ -1372,6 +1422,7 @@ export default function ReconcilePage() {
       newHoldings[k] = roundMoney(newHoldings[k] + holdingDelta);
     }
 
+    upsert(syncInvestPositionCategoryAmounts(currentInvestRecord, newHoldings));
     updateHoldings(newHoldings);
     updateAccounts(nextAccounts);
     setLocalHoldings(Object.fromEntries(investKeys.map((k) => [
@@ -1606,6 +1657,7 @@ export default function ReconcilePage() {
   const previousUndoFingerprintRef = useRef<string | null>(null);
   const latestUndoState = useMemo<ReconcileUndoState>(() => ({
     current: cloneAccountSnapshot(current),
+    monthlyRecord: cloneMonthlyRecord(currentInvestRecord),
     config: {
       investAllocTargets: { ...config.investAllocTargets },
       dramDecision: config.dramDecision ? { ...config.dramDecision } : undefined,
@@ -1631,7 +1683,7 @@ export default function ReconcilePage() {
     localFundingLeg: { ...localFundingLeg },
   }), [
     allowRebalanceSell, config.dramDecision, config.investAllocTargets, confirmed, consumptionWishOpen,
-    current, dramConfigInputs, groupedTargetInputs, investUsdCnyInput, investUsdInputMode,
+    current, currentInvestRecord, dramConfigInputs, groupedTargetInputs, investUsdCnyInput, investUsdInputMode,
     localAccounts, localConfirmed, localFundingLeg, localHoldings, localTransferred, localUsStockItems,
     reconcileMode, revealConsumptionWishUsd, revealedUsdAccounts,
   ]);
@@ -1685,6 +1737,7 @@ export default function ReconcilePage() {
       pendingUndoTimerRef.current = null;
     }
     restoreCurrent(cloneAccountSnapshot(previous.state.current));
+    if (previous.state.monthlyRecord) upsert(cloneMonthlyRecord(previous.state.monthlyRecord)!);
     setConfig({
       investAllocTargets: { ...previous.state.config.investAllocTargets },
       dramDecision: previous.state.config.dramDecision ? { ...previous.state.config.dramDecision } : undefined,
@@ -2619,7 +2672,7 @@ export default function ReconcilePage() {
                           onChange={(v) => setLocalAccounts((p) => ({ ...p, [usdKey]: normalizeAmountInput(v) }))}
                           onFocus={(e) => e.target.select()}
                           onBlur={() => syncAccounts()}
-                          onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); holdingInputRefs.current[0]?.focus(); } }}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); rebalanceInputRefs.current[0]?.focus(); } }}
                           style={{ width: 68, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
                         />
                       </div>
@@ -2642,7 +2695,7 @@ export default function ReconcilePage() {
                             onChange={(v) => setInvestUsdCnyInput(normalizeAmountInput(v))}
                             onFocus={(e) => e.target.select()}
                             onBlur={() => commitInvestUsdCnyInput()}
-                            onKeyDown={(e) => { if (e.key === 'Enter') { commitInvestUsdCnyInput(); holdingInputRefs.current[0]?.focus(); } }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { commitInvestUsdCnyInput(); rebalanceInputRefs.current[0]?.focus(); } }}
                             style={{ width: 74, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
                           />
                         ) : (
@@ -2782,7 +2835,7 @@ export default function ReconcilePage() {
               const groupTargetDirection = groupRatio !== null && groupRatio > groupTargetRatio ? '偏高' : '偏低';
               const profitRateSummary = cumulativeBreakdownRates[k] ?? null;
               const profitRate = profitRateSummary?.rate ?? null;
-              const cumulativeProfitSummary = latestBreakdownProfits[k] ?? null;
+              const cumulativeProfitSummary = currentBreakdownProfits[k] ?? null;
               const cumulativeProfit = cumulativeProfitSummary?.amount ?? null;
               const suggested = Math.round(rebalanceSuggested[k]);
               // 需加/需赎 = 建议 - 已加，赎回时为负数
@@ -2846,17 +2899,9 @@ export default function ReconcilePage() {
                     )}
                   </td>
                   <td style={{ padding: '4px 0', textAlign: 'right' }}>
-                    <AmountInput
-                      ref={(el) => { holdingInputRefs.current[i] = el; }}
-                      value={localHoldings[k]}
-                      onChange={(v) => setLocalHoldings((p) => ({ ...p, [k]: normalizeAmountInput(v) }))}
-                      onFocus={(e) => e.target.select()}
-                      onBlur={() => syncHolding(k)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') { syncHolding(k); holdingInputRefs.current[i + 1]?.focus(); }
-                      }}
-                      style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124', textAlign: 'right' }}
-                    />
+                    <span style={{ fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124' }}>
+                      {formatCurrency(monthlyInvestHoldings[k])}
+                    </span>
                     {k === 'longBond' && longBondRepay > 0 && (
                       <div title={`已扣除信用卡还款 ¥${fmtInt(longBondRepay)}`} style={{ marginTop: 2, color: C.sub, fontSize: 9, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                         配置净额 ¥{fmtInt(effectiveInvestHoldings.longBond)}
@@ -2930,7 +2975,7 @@ export default function ReconcilePage() {
                           <div>
                             <div style={{ fontSize: 12, fontWeight: 800, color: '#202124' }}>美股明细</div>
                             <div style={{ fontSize: 10, color: Math.abs(usStockDetailGap) >= 1 ? C.orange : C.sub, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
-                              合计 ¥{fmtInt(usStockDetailTotal)} · 美股 ¥{fmtInt(current.investHoldings.us ?? 0)}
+                              合计 ¥{fmtInt(usStockDetailTotal)} · 美股 ¥{fmtInt(monthlyInvestHoldings.us)}
                               {Math.abs(usStockDetailGap) >= 1 ? ` · 差额 ${usStockDetailGap > 0 ? '+' : ''}¥${fmtInt(usStockDetailGap)}` : ''}
                             </div>
                           </div>
@@ -2945,7 +2990,7 @@ export default function ReconcilePage() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
                           {localUsStockItems.map((item) => {
                             const amount = Math.max(0, parseAmountPart(item.amountCny));
-                            const weight = (current.investHoldings.us ?? 0) > 0 ? amount / (current.investHoldings.us ?? 0) : null;
+                            const weight = monthlyInvestHoldings.us > 0 ? amount / monthlyInvestHoldings.us : null;
                             const symbol = item.symbol.trim().toUpperCase();
                             const isSpyItem = isSpyUsStockInput(item);
                             const isDramItem = symbol === 'DRAM' || item.name.trim().toUpperCase() === 'DRAM';
