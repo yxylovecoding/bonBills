@@ -32,10 +32,15 @@ import {
 import { calculateCreditRepaymentPlan, LONG_BOND_REPAY_THRESHOLD } from '../utils/creditRepayment';
 import {
   FINANCE_SCREENSHOT_DRAFT_EVENT,
+  isFinanceScreenshotFile,
+  parseFinanceScreenshot,
   screenshotDraftItemCount,
   type FinanceScreenshotDraftEventDetail,
   type ScreenshotParseResult,
 } from '../utils/financeScreenshotOcr';
+import { importBillFileIntoStores } from '../utils/billImportActions';
+import { importInvestmentFileIntoStores } from '../utils/importInvestments';
+import { fetchLatestMailAttachments } from '../utils/mailAttachments';
 import {
   buildDramDecision,
   normalizeDramDecisionConfig,
@@ -706,6 +711,7 @@ export default function ReconcilePage() {
   const [usdRateError, setUsdRateError] = useState(false);
   const [usdRebalanceCells, setUsdRebalanceCells] = useState<Set<InvestKey>>(() => new Set());
   const [screenshotImportMsg, setScreenshotImportMsg] = useState('');
+  const [mailImporting, setMailImporting] = useState(false);
   const [screenshotDraft, setScreenshotDraft] = useState<ScreenshotParseResult | null>(null);
   const [screenshotPreview, setScreenshotPreview] = useState<{ url: string; fileName: string } | null>(null);
   const screenshotPreviewUrlRef = useRef<string | null>(null);
@@ -720,6 +726,16 @@ export default function ReconcilePage() {
     }
     setScreenshotPreview(null);
     setScreenshotDraft(null);
+  };
+
+  const showScreenshotDraft = (draft: ScreenshotParseResult, file: File) => {
+    if (screenshotPreviewUrlRef.current) URL.revokeObjectURL(screenshotPreviewUrlRef.current);
+    const url = URL.createObjectURL(file);
+    screenshotPreviewUrlRef.current = url;
+    setScreenshotPreview({ url, fileName: file.name });
+    setScreenshotDraft(draft);
+    const kind = draft.mode === 'investments' ? '理财' : draft.mode === 'accounts' ? '资产' : '图片';
+    return `已识别${kind} ${screenshotDraftItemCount(draft)} 项 · ${file.name}`;
   };
 
   useEffect(() => {
@@ -748,6 +764,42 @@ export default function ReconcilePage() {
       if (screenshotPreviewUrlRef.current) URL.revokeObjectURL(screenshotPreviewUrlRef.current);
     };
   }, []);
+
+  const importLatestFromMail = async () => {
+    setMailImporting(true);
+    setScreenshotImportMsg('邮箱查找中');
+    try {
+      const attachments = await fetchLatestMailAttachments();
+      const imported: string[] = [];
+      const failed: string[] = [];
+      for (const attachment of attachments) {
+        try {
+          if (isFinanceScreenshotFile(attachment.file)) {
+            setScreenshotImportMsg('邮箱图片识别中');
+            imported.push(showScreenshotDraft(await parseFinanceScreenshot(attachment.file), attachment.file));
+          } else if (attachment.kind === 'investment') {
+            setScreenshotImportMsg('邮箱理财导入中');
+            const result = await importInvestmentFileIntoStores(attachment.file, { mailUid: attachment.uid });
+            imported.push(result.importedTransactions > 0
+              ? `理财 ${result.importedTransactions} 笔 · ${result.updatedMonths} 个月`
+              : '理财无新增');
+          } else {
+            setScreenshotImportMsg('邮箱账单导入中');
+            const result = await importBillFileIntoStores(attachment.file);
+            imported.push(`账单 ${result.updatedMonths} 个月`);
+          }
+        } catch (error) {
+          failed.push(`${attachment.file.name}：${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      if (imported.length === 0) throw new Error(failed.join('；') || '没有可导入附件');
+      setScreenshotImportMsg(`邮箱已导入 · ${imported.join(' · ')}${failed.length ? ` · ${failed.join('；')}` : ''}`);
+    } catch (error) {
+      setScreenshotImportMsg(`邮箱导入失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setMailImporting(false);
+    }
+  };
 
   const [allowRebalanceSell, setAllowRebalanceSell] = useState(false);
 
@@ -2227,15 +2279,26 @@ export default function ReconcilePage() {
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>对账 / 转账</h1>
           {screenshotImportMsg && <div style={{ marginTop: 4, fontSize: 11, lineHeight: 1.35, color: C.sub, overflowWrap: 'anywhere' }}>{screenshotImportMsg}</div>}
         </div>
-        <button
-          onClick={() => {
-            setGroupedTargetInputs(groupedTargetInputFromConfig(effectiveInvestTargets(config.investAllocTargets)));
-            setSettingsOpen(true);
-          }}
-          style={{ fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', color: C.sub, lineHeight: 1 }}
-        >
-          ⚙️
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+          <button
+            type="button"
+            onClick={importLatestFromMail}
+            disabled={mailImporting}
+            title="从邮箱导入最新账单、图片和理财附件"
+            style={{ fontSize: 11, lineHeight: 1, padding: '4px 7px', borderRadius: 7, border: '1px solid #e0e0e0', backgroundColor: mailImporting ? '#f1f3f4' : '#fff', color: mailImporting ? '#9aa0a6' : C.sub, cursor: mailImporting ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
+          >
+            {mailImporting ? '导入中' : '邮箱'}
+          </button>
+          <button
+            onClick={() => {
+              setGroupedTargetInputs(groupedTargetInputFromConfig(effectiveInvestTargets(config.investAllocTargets)));
+              setSettingsOpen(true);
+            }}
+            style={{ fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', color: C.sub, lineHeight: 1 }}
+          >
+            ⚙️
+          </button>
+        </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13, color: C.sub, margin: '0 0 16px' }}>
         <span>今天 {today.getFullYear()}-{String(today.getMonth()+1).padStart(2,'0')}-{String(today.getDate()).padStart(2,'0')}，对账模式</span>
