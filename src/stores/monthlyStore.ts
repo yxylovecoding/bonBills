@@ -21,16 +21,29 @@ interface MonthlyStore {
 
 function mergeMonthlyRecord(a: MonthlyRecord | undefined, b: MonthlyRecord): MonthlyRecord {
   if (!a) return b;
+  const transactionLedger = new Map(
+    [...(a.investmentTransactions ?? []), ...(b.investmentTransactions ?? [])]
+      .map((transaction) => [transaction.id, transaction]),
+  );
   return {
     ...a,
     ...b,
-    accumulatedProfit: b.accumulatedProfit || a.accumulatedProfit,
-    investTotal: b.investTotal || a.investTotal,
+    accumulatedProfit: b.accumulatedProfit,
+    investTotal: b.investTotal,
     investBreakdown: b.investBreakdown ?? a.investBreakdown,
     investBreakdownProfit: b.investBreakdownProfit ?? a.investBreakdownProfit,
     investProfitComponents: b.investProfitComponents ?? a.investProfitComponents,
     investBreakdownPastProfit: b.investBreakdownPastProfit ?? a.investBreakdownPastProfit,
     investPastProfitComponents: b.investPastProfitComponents ?? a.investPastProfitComponents,
+    investPositionItems: b.investPositionItems ?? a.investPositionItems,
+    investmentTransactions: transactionLedger.size > 0
+      ? [...transactionLedger.values()].sort((left, right) => left.date.localeCompare(right.date) || left.id.localeCompare(right.id))
+      : undefined,
+    importedInvestmentTransactionIds: [...new Set([
+      ...(a.importedInvestmentTransactionIds ?? []),
+      ...(b.importedInvestmentTransactionIds ?? []),
+    ])],
+    lastInvestmentMailUid: Math.max(a.lastInvestmentMailUid ?? 0, b.lastInvestmentMailUid ?? 0) || undefined,
     majorExpenses: b.majorExpenses?.length ? b.majorExpenses : a.majorExpenses,
     majorExpensesNote: b.majorExpensesNote ?? a.majorExpensesNote,
   };
@@ -67,7 +80,7 @@ export const useMonthlyStore = create<MonthlyStore>()(
           const idx = s.records.findIndex((r) => r.yearMonth === record.yearMonth);
           if (idx >= 0) {
             const next = [...s.records];
-            next[idx] = record;
+            next[idx] = mergeMonthlyRecord(next[idx], record);
             return { records: next };
           }
           return { records: [record, ...s.records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth)) };

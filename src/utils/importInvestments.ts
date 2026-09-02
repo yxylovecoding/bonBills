@@ -4,6 +4,7 @@ import type {
   InvestPositionItem,
   InvestPositionItems,
   InvestQuoteSource,
+  InvestmentTransactionRecord,
   MonthlyRecord,
 } from '../models/types';
 import { useMonthlyStore } from '../stores/monthlyStore';
@@ -12,19 +13,7 @@ import { triggerUpload } from './syncEngine';
 
 type InvestmentSide = 'buy' | 'sell';
 
-export type InvestmentTransaction = {
-  id: string;
-  date: string;
-  side: InvestmentSide;
-  name: string;
-  symbol: string;
-  groupKey: InvestKey;
-  shares: number;
-  price: number;
-  fee: number;
-  currency: string;
-  quoteSource?: InvestQuoteSource;
-};
+export type InvestmentTransaction = InvestmentTransactionRecord;
 
 const HEADER_ALIASES = {
   transactionId: ['流水号', '交易流水号', '业务流水号', '订单号', '成交编号', '委托编号'],
@@ -228,9 +217,6 @@ function applyTransaction(items: InvestPositionItems, transaction: InvestmentTra
   const nextCost = transaction.side === 'buy'
     ? (currentShares * currentCost + transaction.shares * transaction.price + transaction.fee) / Math.max(nextShares, transaction.shares)
     : currentCost;
-  const realizedProfit = transaction.side === 'sell'
-    ? (transaction.price - currentCost) * Math.min(transaction.shares, currentShares) - transaction.fee
-    : 0;
   const nextItem: InvestPositionItem = {
     ...(existing ?? {}),
     id: existing?.id ?? `mail-position:${stableHash(`${transaction.groupKey}:${transaction.symbol || transaction.name}`)}`,
@@ -241,7 +227,8 @@ function applyTransaction(items: InvestPositionItems, transaction: InvestmentTra
     status: nextShares > 0.0000001 ? 'active' : 'paused',
     shares: round(nextShares, 4),
     costPrice: round(nextCost, 4),
-    historicalProfitCny: round(currentHistory + realizedProfit, 2),
+    // 这里保存的是用户手填的累计收益。导入交易只更新份额和成本，不能擅自覆盖它。
+    historicalProfitCny: round(currentHistory, 2),
     historicalProfitCurrency: existing?.historicalProfitCurrency ?? transaction.currency,
   };
   if (existingIndex >= 0) group[existingIndex] = nextItem;
@@ -263,13 +250,19 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
     const record = { ...(existing ?? emptyMonthlyRecord(yearMonth)) };
     const items = clonePositionItems(record.investPositionItems ?? previous?.investPositionItems);
     const importedIds = new Set(record.importedInvestmentTransactionIds ?? []);
+    const transactionLedger = new Map(
+      (record.investmentTransactions ?? []).map((transaction) => [transaction.id, transaction]),
+    );
     for (const transaction of transactions.filter((item) => item.date.startsWith(yearMonth))) {
+      transactionLedger.set(transaction.id, transaction);
       if (importedIds.has(transaction.id)) continue;
       applyTransaction(items, transaction);
       importedIds.add(transaction.id);
       importedTransactions += 1;
     }
     record.investPositionItems = items;
+    record.investmentTransactions = [...transactionLedger.values()]
+      .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
     record.importedInvestmentTransactionIds = [...importedIds];
     if (options?.mailUid && options.mailUid > (record.lastInvestmentMailUid ?? 0)) {
       record.lastInvestmentMailUid = options.mailUid;

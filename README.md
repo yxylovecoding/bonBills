@@ -22,6 +22,7 @@ npm run build     # 生产构建
 
 ```bash
 SYNC_SECRET=访问应用时 ?key= 使用的同步密钥
+CRON_SECRET=Vercel 定时任务鉴权密钥（每月云端快照）
 BILL_MAIL_USER=你的163邮箱
 BILL_MAIL_PASS=163客户端授权码
 ```

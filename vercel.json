@@ -1,4 +1,7 @@
 {
+  "crons": [
+    { "path": "/api/sync-monthly-backup", "schedule": "10 0 1 * *" }
+  ],
   "rewrites": [
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]

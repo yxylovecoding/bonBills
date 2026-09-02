@@ -4,6 +4,7 @@ import { DEFAULT_CONFIG, useConfigStore } from '../stores/configStore';
 import { normalizeExpenseScopeOverrides, useExpenseScopeOverrideStore } from '../stores/expenseScopeOverrideStore';
 import { normalizeMonthlyRecords, useMonthlyStore } from '../stores/monthlyStore';
 import { DEFAULT_EXPENSE_SCOPE_HELP_TEXT, usePrefsStore } from '../stores/prefsStore';
+import { usePossessionStore } from '../stores/possessionStore';
 import { DEFAULT_SNAPSHOT, useSnapshotStore } from '../stores/snapshotStore';
 import { useTripStore } from '../stores/tripStore';
 import { useSyncStatus } from './syncStatus';
@@ -18,6 +19,7 @@ const EMPTY_STATES: Record<string, Record<string, unknown>> = {
   'trip-tags': { tripTags: {}, tripNotes: {}, tripSplits: {} },
   'account-snapshot': { current: DEFAULT_SNAPSHOT, history: [] },
   'app-config': { config: DEFAULT_CONFIG },
+  'possessions': { items: [], ignoredBillItemIds: [], tagCategory: {} },
   [EXPENSE_SCOPE_SYNC_KEY]: { overrides: { categories: {}, subcategories: {}, notes: {}, tags: {} } },
   // user-prefs 保留 UI 偏好，不清空
 };
@@ -136,6 +138,36 @@ const stores: StoreEntry[] = [
         showPayrollCutoffMarkers: s.showPayrollCutoffMarkers,
         reviewableCategories: s.reviewableCategories,
         expenseScopeHelpText: s.expenseScopeHelpText,
+        revealConsumptionWishUsd: s.revealConsumptionWishUsd,
+      };
+    },
+  },
+  {
+    key: 'possessions',
+    getState: () => usePossessionStore.getState(),
+    setState: (p) => {
+      const current = usePossessionStore.getState();
+      usePossessionStore.setState({
+        items: Array.isArray(p.items) ? p.items as typeof current.items : current.items,
+        ignoredBillItemIds: Array.isArray(p.ignoredBillItemIds)
+          ? p.ignoredBillItemIds.map(String)
+          : current.ignoredBillItemIds,
+        tagCategory: p.tagCategory && typeof p.tagCategory === 'object'
+          ? p.tagCategory as typeof current.tagCategory
+          : current.tagCategory,
+        categoryConfig: p.categoryConfig && typeof p.categoryConfig === 'object'
+          ? p.categoryConfig as typeof current.categoryConfig
+          : current.categoryConfig,
+      });
+    },
+    subscribe: (l) => usePossessionStore.subscribe(l),
+    serialize: () => {
+      const s = usePossessionStore.getState();
+      return {
+        items: s.items,
+        ignoredBillItemIds: s.ignoredBillItemIds,
+        tagCategory: s.tagCategory,
+        categoryConfig: s.categoryConfig,
       };
     },
   },

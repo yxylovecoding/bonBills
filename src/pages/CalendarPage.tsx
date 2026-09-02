@@ -7,6 +7,7 @@ import { tagMeta, investMeta } from '../data/mockData';
 import { aggregateExpenseItems, assignExpenseIds, type BillItem, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
 import { fieldsNeedingRestore, importBillFileIntoStores, recordFromBillAggregate } from '../utils/billImportActions';
 import { importInvestmentFileIntoStores } from '../utils/importInvestments';
+import { inferInvestmentProfitFromTransactions } from '../utils/investTransactionProfit';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useExpenseScopeOverrideStore, resolveExpenseScope, subcategoryKey, type ExpenseScope, type OverrideValue, type OverrideDimension } from '../stores/expenseScopeOverrideStore';
 import { useTripStore } from '../stores/tripStore';
@@ -1560,6 +1561,16 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     () => summarizeInvestPositionItems(positionItems, marketsBySymbol),
     [marketsBySymbol, positionItems],
   );
+  const inferredInvestmentProfit = useMemo(
+    () => inferInvestmentProfitFromTransactions(
+      positionItems,
+      positionSummary,
+      allRecords.flatMap((record) => record.investmentTransactions ?? []),
+      `${yearMonth}-31`,
+      Number.isFinite(fallbackUsdRate) && fallbackUsdRate > 0 ? { USD: fallbackUsdRate } : {},
+    ),
+    [allRecords, fallbackUsdRate, positionItems, positionSummary, yearMonth],
+  );
   const previousMarketsBySymbol = useMemo(() => {
     const markets: Record<string, InvestMarketSnapshot | undefined> = {};
     for (const groupKey of INVEST_POSITION_KEYS) {
@@ -1861,6 +1872,9 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       investBreakdownPastProfit: hasPastProfit ? pbp : undefined,
       investPastProfitComponents: buildPastProfitComponents(),
       investPositionItems: hasPositionModel ? positionItemsForSave : undefined,
+      investmentTransactions: existing?.investmentTransactions,
+      importedInvestmentTransactionIds: existing?.importedInvestmentTransactionIds,
+      lastInvestmentMailUid: existing?.lastInvestmentMailUid,
       isBaseline: undefined,
       homeDays, travelDays, schoolDays, internDays,
       majorExpenses: majorExpenses.filter((e) => e.name.trim()),
@@ -1924,6 +1938,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     positionDraftGroups, updatePositionDraft, addPositionDraft, removePositionDraft,
     splitPositionAccount,
     positionSummary, positionMonthlyProfitById, positionQuotes, positionQuoteErrors, isCurrentRecordMonth,
+    inferredInvestmentProfit,
     handleSave,
     fieldStyle, labelStyle,
     yearMonth,
@@ -1936,7 +1951,7 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
   const {
     income, totalExpense, periodicLife, volatileLife, consumption, school,
     totalAssets, setTotalAssets, totalAssetsValue, previousTotalAssets, assetChange, savedAmount, savingsRate, savedAmountTitle,
-    accProfit, setAccProfit, accumulatedProfitValue, isAccumulatedProfitAuto, investTotal,
+    accProfit, setAccProfit, accumulatedProfitValue, isAccumulatedProfitAuto, investTotal, inferredInvestmentProfit,
     surplus, investIncome, investMonthly, investAnnual, investTotalForRate, investTotalStoredOnly, n,
     mainFieldRefs, labelStyle,
   } = state;
@@ -2027,7 +2042,37 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
           </div>
         </div>
         <div style={{ minWidth: 0, backgroundColor: '#fffbeb', borderRadius: 10, padding: '10px 14px' }}>
-          <div style={{ fontSize: 11, color: C.sub }}>累计盈利</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+            <div style={{ fontSize: 11, color: C.sub }}>累计盈利</div>
+            {!isAccumulatedProfitAuto && (
+              <button
+                type="button"
+                title={inferredInvestmentProfit.transactionCount === 0
+                  ? '请重新导入历史理财 Excel 以补齐交易台账'
+                  : inferredInvestmentProfit.totalProfitCny === null
+                    ? `交易与持仓不一致：${inferredInvestmentProfit.mismatchedItems.join('、')}`
+                    : `按 ${inferredInvestmentProfit.transactionCount} 笔交易推算`}
+                onClick={() => {
+                  if (inferredInvestmentProfit.transactionCount === 0) {
+                    window.alert('请先重新导入历史理财 Excel，补齐交易台账后再推算。');
+                    return;
+                  }
+                  if (inferredInvestmentProfit.totalProfitCny === null) {
+                    window.alert(`交易与持仓还不能完全对上：${inferredInvestmentProfit.mismatchedItems.join('、')}`);
+                    return;
+                  }
+                  setAccProfit(String(inferredInvestmentProfit.totalProfitCny));
+                }}
+                style={{
+                  border: 'none', background: 'transparent', padding: 0, fontSize: 10,
+                  fontWeight: 700, color: inferredInvestmentProfit.totalProfitCny === null ? '#bdc1c6' : C.blue,
+                  cursor: 'pointer', whiteSpace: 'nowrap',
+                }}
+              >
+                交易推算
+              </button>
+            )}
+          </div>
           {isAccumulatedProfitAuto ? (
             <div style={{ padding: '2px 0', fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: accumulatedProfitValue >= 0 ? C.red : C.green }}>
               {accumulatedProfitValue >= 0 ? '+' : '-'}¥{formatCurrency(accumulatedProfitValue)}

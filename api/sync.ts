@@ -1,20 +1,6 @@
 import { kv } from '@vercel/kv';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-
-const STORE_KEYS = [
-  'bill-details',
-  'monthly-records',
-  'calendar-tags',
-  'trip-tags',
-  'account-snapshot',
-  'app-config',
-  'user-prefs',
-  'expense-scope-overrides',
-  'life-period-overrides',
-] as const;
-
-type StoreKey = typeof STORE_KEYS[number];
-type SyncPayload = Partial<Record<StoreKey, unknown>>;
+import { SYNC_STORE_KEYS, type SyncPayload } from './_syncKeys';
 
 function authOk(req: VercelRequest): boolean {
   const secret = (process.env.SYNC_SECRET || '').trim();
@@ -30,10 +16,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (req.method === 'GET') {
-    const values = await Promise.all(STORE_KEYS.map((k) => kv.get(k)));
+    const values = await Promise.all(SYNC_STORE_KEYS.map((k) => kv.get(k)));
     const result: SyncPayload = {};
     let hasAny = false;
-    STORE_KEYS.forEach((k, i) => {
+    SYNC_STORE_KEYS.forEach((k, i) => {
       if (values[i] !== null && values[i] !== undefined) {
         result[k] = values[i];
         hasAny = true;
@@ -51,7 +37,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'invalid body' });
     }
     await Promise.all(
-      STORE_KEYS.filter((k) => k in body).map((k) => kv.set(k, body[k])),
+      SYNC_STORE_KEYS.filter((k) => k in body).map((k) => kv.set(k, body[k])),
     );
     return res.status(200).json({ ok: true });
   }

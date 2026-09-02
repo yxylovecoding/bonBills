@@ -43,6 +43,20 @@ export interface InvestPositionItem {
 export type InvestPositionGroupKey = InvestKey | 'account' | 'aggregate';
 export type InvestPositionItems = Partial<Record<InvestPositionGroupKey, InvestPositionItem[]>>;
 
+export interface InvestmentTransactionRecord {
+  id: string;
+  date: string;
+  side: 'buy' | 'sell';
+  name: string;
+  symbol: string;
+  groupKey: InvestKey;
+  shares: number;
+  price: number;
+  fee: number;
+  currency: string;
+  quoteSource?: InvestQuoteSource;
+}
+
 export interface UsStockHoldingItem {
   id: string;
   name: string;
@@ -227,6 +241,7 @@ export interface MonthlyRecord {
   investBreakdownPastProfit?: Partial<InvestHoldings>; // 各品类 past 收益（人民币，逐月继承）
   investPastProfitComponents?: Partial<Record<'us' | 'usBond', { cny: number; rate: number; usd: number }>>; // past 美元拆分
   investPositionItems?: InvestPositionItems; // now / past 股票与基金明细
+  investmentTransactions?: InvestmentTransactionRecord[]; // 完整理财买卖台账，用于收益回推
   importedInvestmentTransactionIds?: string[];
   lastInvestmentMailUid?: number;
   isBaseline?: boolean;         // 旧版兼容字段，现已停用
