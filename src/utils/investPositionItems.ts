@@ -71,11 +71,17 @@ export function investPositionQuoteKey(item: Pick<InvestPositionItem, 'symbol' |
   return `${item.quoteSource ?? 'yahoo'}:${item.symbol.trim().toUpperCase()}`;
 }
 
+export function isInvestPositionSummaryItem(item: Pick<InvestPositionItem, 'symbol'>) {
+  return item.symbol.trim().length === 0;
+}
+
 export function calculateInvestPositionMetric(
   item: InvestPositionItem,
   market?: InvestMarketSnapshot,
 ): InvestPositionMetric {
-  const profitCurrency = (item.historicalProfitCurrency || item.quoteCurrency || market?.currency || item.lastCurrency || 'CNY').toUpperCase();
+  const profitCurrency = isInvestPositionSummaryItem(item)
+    ? 'CNY'
+    : (item.historicalProfitCurrency || item.quoteCurrency || market?.currency || item.lastCurrency || 'CNY').toUpperCase();
   const profitFxRateToCny = ['CNY', 'CNH'].includes(profitCurrency)
     ? 1
     : (market?.fxRateToCny ?? finiteOrZero(item.lastFxRateToCny)) || 1;
@@ -281,6 +287,7 @@ export function migrateLegacyInvestPositionItems(
         symbol: '',
         status: 'active',
         historicalProfitCny: holdingProfitCny,
+        historicalProfitCurrency: 'CNY',
         marketValueCny,
         holdingProfitCny,
       });
@@ -292,6 +299,7 @@ export function migrateLegacyInvestPositionItems(
         symbol: '',
         status: 'closed',
         historicalProfitCny,
+        historicalProfitCurrency: 'CNY',
       });
     }
     if (categoryItems.length > 0) items[key] = categoryItems;
@@ -306,6 +314,7 @@ export function migrateLegacyInvestPositionItems(
       symbol: '',
       status: 'closed',
       historicalProfitCny: uncategorizedProfit,
+      historicalProfitCurrency: 'CNY',
     }];
   }
   return items;

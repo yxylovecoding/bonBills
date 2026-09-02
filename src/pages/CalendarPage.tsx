@@ -7,7 +7,7 @@ import { tagMeta, investMeta } from '../data/mockData';
 import { aggregateExpenseItems, assignExpenseIds, type BillItem, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
 import { fieldsNeedingRestore, importBillFileIntoStores, recordFromBillAggregate } from '../utils/billImportActions';
 import { importInvestmentFileIntoStores } from '../utils/importInvestments';
-import { inferInvestmentProfitFromTransactions } from '../utils/investTransactionProfit';
+import { inferInvestmentProfitFromBaseline } from '../utils/investTransactionProfit';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useExpenseScopeOverrideStore, resolveExpenseScope, subcategoryKey, type ExpenseScope, type OverrideValue, type OverrideDimension } from '../stores/expenseScopeOverrideStore';
 import { useTripStore } from '../stores/tripStore';
@@ -36,6 +36,7 @@ import type {
   InvestHoldings,
   InvestKey,
   InvestQuoteSource,
+  InvestmentProfitBaseline,
   InvestPositionGroupKey,
   InvestPositionItem,
   InvestPositionItems,
@@ -55,6 +56,7 @@ import {
   INVEST_POSITION_GROUP_KEYS,
   INVEST_POSITION_KEYS,
   calculateInvestPositionMonthlyProfit,
+  isInvestPositionSummaryItem,
   investPositionQuoteKey,
   migrateLegacyInvestPositionItems,
   summarizeInvestPositionItems,
@@ -165,6 +167,12 @@ function currencyMark(currency: string) {
 function formatNativeCurrency(value: number, currency: string, signed = false) {
   const sign = value < 0 ? '-' : signed ? '+' : '';
   return `${sign}${currencyMark(currency)}${formatCurrency(value)}`;
+}
+
+function cloneInvestPositionItems(items: InvestPositionItems): InvestPositionItems {
+  return Object.fromEntries(
+    Object.entries(items).map(([key, group]) => [key, group?.map((item) => ({ ...item }))]),
+  ) as InvestPositionItems;
 }
 
 function getAssetChangeTitle(currentTotalAssets?: number, previousTotalAssets?: number) {
@@ -794,7 +802,9 @@ function investPositionDraftGroupsFromItems(items: InvestPositionItems): InvestP
           : '',
       costPrice: item.costPrice !== undefined ? String(item.costPrice) : '',
       historicalProfitCny: String(item.historicalProfitCny ?? 0),
-      historicalProfitCurrency: item.historicalProfitCurrency || item.quoteCurrency || defaultInvestQuoteCurrency(key) || 'CNY',
+      historicalProfitCurrency: isInvestPositionSummaryItem(item)
+        ? 'CNY'
+        : item.historicalProfitCurrency || item.quoteCurrency || defaultInvestQuoteCurrency(key) || 'CNY',
       marketValueCny: item.marketValueCny !== undefined ? String(item.marketValueCny) : '',
       holdingProfitCny: item.holdingProfitCny !== undefined ? String(item.holdingProfitCny) : '',
       lastPrice: item.lastPrice !== undefined ? String(item.lastPrice) : '',
@@ -826,7 +836,9 @@ function investPositionItemsFromDraftGroups(groups: InvestPositionDraftGroups): 
       shares: numberOrUndefined(draft.shares),
       costPrice: numberOrUndefined(draft.costPrice),
       historicalProfitCny: numberOrUndefined(draft.historicalProfitCny) ?? 0,
-      historicalProfitCurrency: draft.historicalProfitCurrency || draft.quoteCurrency || defaultInvestQuoteCurrency(key) || 'CNY',
+      historicalProfitCurrency: isInvestPositionSummaryItem(draft)
+        ? 'CNY'
+        : draft.historicalProfitCurrency || draft.quoteCurrency || defaultInvestQuoteCurrency(key) || 'CNY',
       marketValueCny: numberOrUndefined(draft.marketValueCny),
       holdingProfitCny: numberOrUndefined(draft.holdingProfitCny),
       lastPrice: numberOrUndefined(draft.lastPrice),
@@ -1101,6 +1113,11 @@ function SettingsModal({
   setThresholdInput,
   autoSumStartMonthInput,
   setAutoSumStartMonthInput,
+  selectedYearMonth,
+  today,
+  investmentProfitBaseline,
+  onSetInvestmentProfitBaseline,
+  onInferInvestmentProfit,
   showPayrollCutoffMarkers,
   setShowPayrollCutoffMarkers,
   reviewableCategories,
@@ -1119,6 +1136,11 @@ function SettingsModal({
   setThresholdInput: (v: string) => void;
   autoSumStartMonthInput: string;
   setAutoSumStartMonthInput: (v: string) => void;
+  selectedYearMonth: string;
+  today: string;
+  investmentProfitBaseline?: InvestmentProfitBaseline;
+  onSetInvestmentProfitBaseline: (date: string) => string;
+  onInferInvestmentProfit: () => string;
   showPayrollCutoffMarkers: boolean;
   setShowPayrollCutoffMarkers: (v: boolean) => void;
   reviewableCategories: ReviewableCategory[];
@@ -1136,6 +1158,8 @@ function SettingsModal({
   const [expandedRowKey, setExpandedRowKey] = useState<string | null>(null);
   const [expandedCategoryKey, setExpandedCategoryKey] = useState<string | null>(null);
   const [expenseScopeHelpDraft, setExpenseScopeHelpDraft] = useState(expenseScopeHelpText);
+  const [investmentBaselineDate, setInvestmentBaselineDate] = useState(investmentProfitBaseline?.date ?? today);
+  const [investmentInferenceMessage, setInvestmentInferenceMessage] = useState('');
   const stats = useMemo(
     () => buildExpenseScopeStats(tagMap, confirmedExpenses, expenseItems, reviewableCategories),
     [tagMap, confirmedExpenses, expenseItems, reviewableCategories],
@@ -1249,6 +1273,52 @@ function SettingsModal({
               onChange={(event) => setAutoSumStartMonthInput(event.target.value)}
               style={{ width: '100%', border: '1.5px solid #dadce0', borderRadius: 8, padding: '8px 10px', fontSize: 14, outline: 'none', boxSizing: 'border-box', backgroundColor: '#fff' }}
             />
+          </div>
+          <div style={{ borderTop: '1px solid #f1f3f4', paddingTop: 14, marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#202124' }}>收益推算</div>
+              <div style={{ fontSize: 10, color: investmentProfitBaseline ? C.green : '#9aa0a6' }}>
+                {investmentProfitBaseline ? `基准 ${investmentProfitBaseline.date}` : '未设基准'}
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 6, marginBottom: 6 }}>
+              <input
+                type="date"
+                value={investmentBaselineDate}
+                max={today}
+                onChange={(event) => setInvestmentBaselineDate(event.target.value)}
+                style={{ minWidth: 0, border: '1.5px solid #dadce0', borderRadius: 8, padding: '7px 9px', fontSize: 12, outline: 'none', backgroundColor: '#fff' }}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    setInvestmentInferenceMessage(onSetInvestmentProfitBaseline(investmentBaselineDate));
+                  } catch (error) {
+                    setInvestmentInferenceMessage(error instanceof Error ? error.message : String(error));
+                  }
+                }}
+                style={{ border: 'none', borderRadius: 8, padding: '7px 10px', backgroundColor: '#e8f0fe', color: C.blue, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+              >
+                设为基准
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  setInvestmentInferenceMessage(onInferInvestmentProfit());
+                } catch (error) {
+                  setInvestmentInferenceMessage(error instanceof Error ? error.message : String(error));
+                }
+              }}
+              style={{ width: '100%', border: 'none', borderRadius: 8, padding: '8px 10px', backgroundColor: C.blue, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+            >
+              推算 {selectedYearMonth}
+            </button>
+            {investmentInferenceMessage && (
+              <div role="status" style={{ marginTop: 6, fontSize: 10, color: C.sub }}>{investmentInferenceMessage}</div>
+            )}
           </div>
           {/* 截标记开关 */}
           <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16, cursor: 'pointer' }}>
@@ -1561,16 +1631,6 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     () => summarizeInvestPositionItems(positionItems, marketsBySymbol),
     [marketsBySymbol, positionItems],
   );
-  const inferredInvestmentProfit = useMemo(
-    () => inferInvestmentProfitFromTransactions(
-      positionItems,
-      positionSummary,
-      allRecords.flatMap((record) => record.investmentTransactions ?? []),
-      `${yearMonth}-31`,
-      Number.isFinite(fallbackUsdRate) && fallbackUsdRate > 0 ? { USD: fallbackUsdRate } : {},
-    ),
-    [allRecords, fallbackUsdRate, positionItems, positionSummary, yearMonth],
-  );
   const previousMarketsBySymbol = useMemo(() => {
     const markets: Record<string, InvestMarketSnapshot | undefined> = {};
     for (const groupKey of INVEST_POSITION_KEYS) {
@@ -1699,7 +1759,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
         shares: '',
         costPrice: '',
         historicalProfitCny: '0',
-        historicalProfitCurrency: defaultInvestQuoteCurrency(groupKey) || 'CNY',
+        historicalProfitCurrency: 'CNY',
         marketValueCny: '',
         holdingProfitCny: '',
         lastPrice: '',
@@ -1721,7 +1781,9 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       if (!source) return previous;
       const sourceMarketValue = source.status === 'closed' ? 0 : numberOrUndefined(source.marketValueCny) ?? 0;
       if (input.splitMarketValueCny > sourceMarketValue + 0.01) return previous;
-      const sourceProfitCurrency = (source.historicalProfitCurrency || defaultInvestQuoteCurrency(input.sourceGroupKey) || 'CNY').toUpperCase();
+      const sourceProfitCurrency = isInvestPositionSummaryItem(source)
+        ? 'CNY'
+        : (source.historicalProfitCurrency || defaultInvestQuoteCurrency(input.sourceGroupKey) || 'CNY').toUpperCase();
       const sourceProfitFxRateToCny = ['CNY', 'CNH'].includes(sourceProfitCurrency)
         ? 1
         : source.lastFxRateToCny || input.profitFxRateToCny;
@@ -1938,7 +2000,6 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     positionDraftGroups, updatePositionDraft, addPositionDraft, removePositionDraft,
     splitPositionAccount,
     positionSummary, positionMonthlyProfitById, positionQuotes, positionQuoteErrors, isCurrentRecordMonth,
-    inferredInvestmentProfit,
     handleSave,
     fieldStyle, labelStyle,
     yearMonth,
@@ -1951,7 +2012,7 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
   const {
     income, totalExpense, periodicLife, volatileLife, consumption, school,
     totalAssets, setTotalAssets, totalAssetsValue, previousTotalAssets, assetChange, savedAmount, savingsRate, savedAmountTitle,
-    accProfit, setAccProfit, accumulatedProfitValue, isAccumulatedProfitAuto, investTotal, inferredInvestmentProfit,
+    accProfit, setAccProfit, accumulatedProfitValue, isAccumulatedProfitAuto, investTotal,
     surplus, investIncome, investMonthly, investAnnual, investTotalForRate, investTotalStoredOnly, n,
     mainFieldRefs, labelStyle,
   } = state;
@@ -2042,37 +2103,7 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
           </div>
         </div>
         <div style={{ minWidth: 0, backgroundColor: '#fffbeb', borderRadius: 10, padding: '10px 14px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-            <div style={{ fontSize: 11, color: C.sub }}>累计盈利</div>
-            {!isAccumulatedProfitAuto && (
-              <button
-                type="button"
-                title={inferredInvestmentProfit.transactionCount === 0
-                  ? '请重新导入历史理财 Excel 以补齐交易台账'
-                  : inferredInvestmentProfit.totalProfitCny === null
-                    ? `交易与持仓不一致：${inferredInvestmentProfit.mismatchedItems.join('、')}`
-                    : `按 ${inferredInvestmentProfit.transactionCount} 笔交易推算`}
-                onClick={() => {
-                  if (inferredInvestmentProfit.transactionCount === 0) {
-                    window.alert('请先重新导入历史理财 Excel，补齐交易台账后再推算。');
-                    return;
-                  }
-                  if (inferredInvestmentProfit.totalProfitCny === null) {
-                    window.alert(`交易与持仓还不能完全对上：${inferredInvestmentProfit.mismatchedItems.join('、')}`);
-                    return;
-                  }
-                  setAccProfit(String(inferredInvestmentProfit.totalProfitCny));
-                }}
-                style={{
-                  border: 'none', background: 'transparent', padding: 0, fontSize: 10,
-                  fontWeight: 700, color: inferredInvestmentProfit.totalProfitCny === null ? '#bdc1c6' : C.blue,
-                  cursor: 'pointer', whiteSpace: 'nowrap',
-                }}
-              >
-                交易推算
-              </button>
-            )}
-          </div>
+          <div style={{ fontSize: 11, color: C.sub }}>累计盈利</div>
           {isAccumulatedProfitAuto ? (
             <div style={{ padding: '2px 0', fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: accumulatedProfitValue >= 0 ? C.red : C.green }}>
               {accumulatedProfitValue >= 0 ? '+' : '-'}¥{formatCurrency(accumulatedProfitValue)}
@@ -2242,7 +2273,9 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                 ? `${metric.price.toFixed(item.quoteSource === 'eastmoney-fund' ? 4 : 2)} ${metric.currency ?? ''}`
                 : null;
               const positionCurrency = (item.quoteCurrency || metric?.currency || defaultInvestQuoteCurrency(groupKey) || '').toUpperCase();
-              const profitCurrency = (item.historicalProfitCurrency || positionCurrency || 'CNY').toUpperCase();
+              const profitCurrency = isInvestPositionSummaryItem(item)
+                ? 'CNY'
+                : (item.historicalProfitCurrency || positionCurrency || 'CNY').toUpperCase();
               const costPriceLabel = positionCurrency ? `成本价（${positionCurrency}）` : '成本价';
               const cumulativeProfitLabel = `累计收益${currencyMark(profitCurrency)}`;
               const nativeFxRate = metric?.profitFxRateToCny || 1;
@@ -3836,6 +3869,77 @@ export default function CalendarPage() {
   // ── History computed ──
   // 当前日历所在月的数据（月视图用）
   const existingForYearMonth = records.find((r) => r.yearMonth === yearMonth);
+  const setInvestmentProfitBaseline = (date: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date.slice(0, 7) !== yearMonth) {
+      throw new Error(`请选择 ${yearMonth} 内的日期`);
+    }
+    if (date > today) throw new Error('基准日期不能晚于今天');
+    const currentRecord = useMonthlyStore.getState().getByYearMonth(yearMonth);
+    const positionItems = currentRecord?.investPositionItems;
+    const itemCount = INVEST_POSITION_GROUP_KEYS.reduce((sum, key) => sum + (positionItems?.[key]?.length ?? 0), 0);
+    if (!currentRecord || !positionItems || itemCount === 0) throw new Error('请先填写本月理财明细');
+    setConfig({
+      investmentProfitBaseline: {
+        date,
+        yearMonth,
+        createdAt: new Date().toISOString(),
+        positionItems: cloneInvestPositionItems(positionItems),
+      },
+    });
+    void triggerUpload();
+    return `已保存 ${itemCount} 个条目`;
+  };
+  const inferSelectedMonthInvestmentProfit = () => {
+    const baseline = useConfigStore.getState().config.investmentProfitBaseline;
+    if (!baseline) throw new Error('请先设置推算基准');
+    if (baseline.yearMonth > yearMonth) throw new Error('当前月份早于推算基准');
+    const monthlyStore = useMonthlyStore.getState();
+    const currentRecord = monthlyStore.getByYearMonth(yearMonth);
+    if (!currentRecord?.investPositionItems) throw new Error('本月没有理财明细');
+    const currentSummary = summarizeInvestPositionItems(currentRecord.investPositionItems);
+    const throughDate = yearMonth === today.slice(0, 7)
+      ? today
+      : `${yearMonth}-${String(new Date(Number(yearMonth.slice(0, 4)), Number(yearMonth.slice(5, 7)), 0).getDate()).padStart(2, '0')}`;
+    const result = inferInvestmentProfitFromBaseline(
+      baseline,
+      currentRecord.investPositionItems,
+      currentSummary,
+      monthlyStore.records.flatMap((record) => record.investmentTransactions ?? []),
+      throughDate,
+    );
+    if (result.totalProfitCny === null) {
+      throw new Error(`持仓与变动未对上：${result.mismatchedItems.join('、')}`);
+    }
+    const updatedItems: InvestPositionItems = {};
+    for (const groupKey of INVEST_POSITION_GROUP_KEYS) {
+      const group = currentRecord.investPositionItems[groupKey];
+      if (!group) continue;
+      updatedItems[groupKey] = group.map((item) => {
+        const inferred = result.profitsByItemId[item.id];
+        return inferred ? {
+          ...item,
+          historicalProfitCny: inferred.value,
+          historicalProfitCurrency: inferred.currency,
+        } : item;
+      });
+    }
+    const updatedSummary = summarizeInvestPositionItems(updatedItems);
+    const isAuto = isInvestAccumulatedProfitAuto(yearMonth, useConfigStore.getState().config.investAutoSumStartMonth);
+    monthlyStore.upsert({
+      ...currentRecord,
+      investPositionItems: updatedItems,
+      investTotal: updatedSummary.totalMarketValueCny,
+      investBreakdown: updatedSummary.marketValueByCategory,
+      investBreakdownProfit: updatedSummary.holdingProfitByCategory,
+      investBreakdownPastProfit: updatedSummary.historicalProfitByCategory,
+      accumulatedProfit: updatedSummary.totalProfitCny,
+      manualAccumulatedProfit: isAuto
+        ? currentRecord.manualAccumulatedProfit
+        : updatedSummary.totalProfitCny,
+    });
+    void triggerUpload();
+    return `已推算 ${Object.keys(result.profitsByItemId).length} 个条目 · ${result.transactionCount} 笔变动`;
+  };
   const derivedExpenseForYearMonth = useMemo(
     () => aggregateExpenseItems(billExpenseItems[yearMonth] ?? []),
     [billExpenseItems, yearMonth],
@@ -3989,6 +4093,11 @@ export default function CalendarPage() {
           setThresholdInput={setThresholdInput}
           autoSumStartMonthInput={autoSumStartMonthInput}
           setAutoSumStartMonthInput={setAutoSumStartMonthInput}
+          selectedYearMonth={yearMonth}
+          today={today}
+          investmentProfitBaseline={config.investmentProfitBaseline}
+          onSetInvestmentProfitBaseline={setInvestmentProfitBaseline}
+          onInferInvestmentProfit={inferSelectedMonthInvestmentProfit}
           showPayrollCutoffMarkers={showPayrollCutoffMarkers}
           setShowPayrollCutoffMarkers={setShowPayrollCutoffMarkers}
           reviewableCategories={reviewableCategories}

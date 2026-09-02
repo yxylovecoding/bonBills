@@ -57,6 +57,13 @@ export interface InvestmentTransactionRecord {
   quoteSource?: InvestQuoteSource;
 }
 
+export interface InvestmentProfitBaseline {
+  date: string;
+  yearMonth: string;
+  createdAt: string;
+  positionItems: InvestPositionItems;
+}
+
 export interface UsStockHoldingItem {
   id: string;
   name: string;
@@ -186,6 +193,7 @@ export interface AppConfig {
   wishDeadlineMilestones?: WishDeadlineMilestone[];
   majorExpenseThreshold: number; // 大额支出筛选门槛，默认 500
   investAutoSumStartMonth?: string; // 从该月起累计盈利由理财条目自动求和；此前保留手填值
+  investmentProfitBaseline?: InvestmentProfitBaseline; // 从一次确认过的持仓与累计收益继续推算
   dramDecision?: DramDecisionConfig;
 }
 
