@@ -344,7 +344,13 @@ export function calculateInvestPositionMonthlyProfit(
     }
 
     for (const item of currentItems[groupKey] ?? []) {
-      if (item.shares !== undefined && finiteOrZero(item.shares) === 0) {
+      const currentMetric = currentSummary.metricsById[item.id];
+      if (
+        item.status === 'closed'
+        || (item.shares !== undefined && finiteOrZero(item.shares) === 0)
+        || !currentMetric
+        || currentMetric.marketValueCny <= 0
+      ) {
         byItemId[item.id] = null;
         continue;
       }
@@ -357,11 +363,9 @@ export function calculateInvestPositionMonthlyProfit(
         ? previousItemById
         : undefined;
       const previousItem = previousItemWithSameId ?? previousByStableKey.get(comparisonKey);
-      const currentMetric = currentSummary.metricsById[item.id];
       const previousMetric = previousItem ? previousSummary?.metricsById[previousItem.id] : undefined;
       if (
-        !currentMetric
-        || !previousMetric
+        !previousMetric
         || previousMetric.profitCurrency !== currentMetric.profitCurrency
       ) {
         byItemId[item.id] = null;

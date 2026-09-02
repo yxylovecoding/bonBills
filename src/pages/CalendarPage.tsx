@@ -2332,7 +2332,12 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
               const isExpanded = expandedItemKey === itemKey;
               const cumulativeProfitInput = cumulativeProfitInputs[itemKey] ?? String(roundCny(nativeTotalProfit));
               const monthlyProfit = positionMonthlyProfitById[item.id] ?? null;
-              const showMonthlyProfit = Boolean(symbol && numberOrUndefined(item.shares) !== 0);
+              const showMonthlyProfit = Boolean(
+                symbol
+                && item.status !== 'closed'
+                && numberOrUndefined(item.shares) !== 0
+                && (metric?.marketValueCny ?? 0) > 0,
+              );
               const profitInputColor = Number(cumulativeProfitInput) > 0
                 ? C.red
                 : Number(cumulativeProfitInput) < 0
