@@ -251,18 +251,39 @@ describe('理财导出表导入', () => {
 
     const normalized = normalizeMonthlyRecords([base])[0];
 
-    expect(normalized.investPositionItems?.us?.[0].id).toBe('us-fund');
+    expect(normalized.investPositionItems?.us ?? []).toHaveLength(0);
     expect(normalized.investPositionItems?.eu?.[0].id).toBe('eu-fund');
     expect(normalized.investPositionItems?.asia?.[0].id).toBe('asia-fund');
     expect(normalized.investPositionItems?.longBond?.[0].id).toBe('bond-fund');
     expect(normalized.investPositionItems?.gold?.[0].id).toBe('gold-fund');
-    expect(normalized.investPositionItems?.a?.map((item) => item.id)).toEqual(['cn-fund']);
-    expect(normalized.investmentTransactions?.[0].groupKey).toBe('us');
+    expect(normalized.investPositionItems?.a?.map((item) => item.id)).toEqual(['us-fund', 'cn-fund']);
+    expect(normalized.investmentTransactions?.[0].groupKey).toBe('a');
+  });
+
+  it('把已被迁到美股的008163恢复到A股并保留原名', () => {
+    const base = septemberRecord();
+    base.investmentCategoryRepairVersion = 1;
+    base.investPositionItems = {
+      us: [{
+        ...tltPosition(),
+        id: 'red-low-vol',
+        name: '红利低波A',
+        symbol: '008163',
+        quoteSource: 'eastmoney-fund',
+        quoteCurrency: 'CNY',
+      }],
+    };
+
+    const normalized = normalizeMonthlyRecords([base])[0];
+
+    expect(normalized.investPositionItems?.a?.[0]).toMatchObject({ id: 'red-low-vol', name: '红利低波A', symbol: '008163' });
+    expect(normalized.investPositionItems?.us ?? []).toHaveLength(0);
+    expect(normalized.investmentCategoryRepairVersion).toBe(2);
   });
 
   it('品类修复完成后不再按名称移动已有持仓', () => {
     const base = septemberRecord();
-    base.investmentCategoryRepairVersion = 1;
+    base.investmentCategoryRepairVersion = 2;
     base.investPositionItems = {
       a: [{
         ...tltPosition(),
