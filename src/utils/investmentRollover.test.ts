@@ -342,6 +342,13 @@ describe('增量账单账户余额连续计算', () => {
 
     expect(result.appliedTransactions).toBe(2);
     expect(useSnapshotStore.getState().current.accounts.livingBank).toBe(110);
+    expect(useSnapshotStore.getState().current.accountBalanceUpdatedAt).toBeTruthy();
     expect(useSnapshotStore.getState().current.accountBalanceSync?.livingBank?.throughDate).toBe('2026-09-01');
+  });
+
+  it('手动修改任一账户余额都会刷新账户时间', () => {
+    useSnapshotStore.getState().updateAccounts({ campusCard: 20 });
+
+    expect(useSnapshotStore.getState().current.accountBalanceUpdatedAt).toBeTruthy();
   });
 });

@@ -44,7 +44,7 @@ import { importBillFileIntoStores } from '../utils/billImportActions';
 import { formatInvestmentImportSummary, importInvestmentFileIntoStores } from '../utils/importInvestments';
 import { pendingInvestmentAmounts } from '../utils/investmentRollover';
 import { fetchLatestMailAttachments } from '../utils/mailAttachments';
-import { billImportCutoff, investmentImportCutoff } from '../utils/importCutoffs';
+import { accountBalanceUpdatedAt, investmentImportCutoff } from '../utils/importCutoffs';
 import {
   confirmFinanceImport,
   prepareFinanceImport,
@@ -2227,7 +2227,7 @@ export default function ReconcilePage() {
           </button>
           <ImportCutoffHint
             investment={investmentImportCutoff(records)}
-            bill={billImportCutoff(current)}
+            account={accountBalanceUpdatedAt(current)}
           />
           <button
             onClick={() => {

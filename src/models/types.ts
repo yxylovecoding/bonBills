@@ -250,6 +250,7 @@ export interface AccountSnapshot {
     usdWishJar: number;          // 美元心愿虚拟账户（美元原币）
     investUsdBank: number;       // 美元理财账户（美元原币）
   };
+  accountBalanceUpdatedAt?: string; // 最近一次手动修改或账单导入后的账户余额更新时间
   accountBalanceSync?: Partial<Record<AutoAccountBalanceKey, AccountBalanceSyncCursor>>;
   investHoldings: InvestHoldings;
   usStockHoldings?: UsStockHoldingItem[]; // 美股内部明细，合计对应 investHoldings.us

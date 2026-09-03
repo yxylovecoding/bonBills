@@ -78,6 +78,9 @@ export const useSnapshotStore = create<SnapshotStore>()(
           const editedAt = now.toISOString();
           const today = localDateKey(now);
           const nextSync = { ...(s.current.accountBalanceSync ?? {}) };
+          const accountsChanged = Object.entries(accounts).some(([rawKey, value]) => (
+            s.current.accounts[rawKey as keyof AccountSnapshot['accounts']] !== value
+          ));
           for (const [rawKey, value] of Object.entries(accounts)) {
             const key = rawKey as keyof AccountSnapshot['accounts'];
             if (!AUTO_ACCOUNT_KEYS.has(key as AutoAccountBalanceKey) || s.current.accounts[key] === value) continue;
@@ -96,6 +99,7 @@ export const useSnapshotStore = create<SnapshotStore>()(
               ...s.current,
               date: today,
               accounts: { ...s.current.accounts, ...accounts },
+              accountBalanceUpdatedAt: accountsChanged ? editedAt : s.current.accountBalanceUpdatedAt,
               accountBalanceSync: nextSync,
             },
           };
@@ -105,6 +109,7 @@ export const useSnapshotStore = create<SnapshotStore>()(
           current: {
             ...s.current,
             accounts: { ...s.current.accounts, ...accounts },
+            accountBalanceUpdatedAt: new Date().toISOString(),
             accountBalanceSync: { ...(s.current.accountBalanceSync ?? {}), ...sync },
           },
         })),

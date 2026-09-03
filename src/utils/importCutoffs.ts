@@ -9,12 +9,16 @@ export function investmentImportCutoff(records: MonthlyRecord[]) {
   );
 }
 
-export function billImportCutoff(snapshot: AccountSnapshot) {
+export function accountBalanceUpdatedAt(snapshot: AccountSnapshot) {
+  if (snapshot.accountBalanceUpdatedAt) return snapshot.accountBalanceUpdatedAt;
   const cursors = Object.values(snapshot.accountBalanceSync ?? {}).filter(
     (cursor): cursor is NonNullable<typeof cursor> => Boolean(cursor?.editedAt),
   );
   return cursors.reduce<string | undefined>(
-    (earliest, cursor) => !earliest || cursor.editedAt < earliest ? cursor.editedAt : earliest,
+    (latest, cursor) => {
+      const updatedAt = cursor.syncedAt ?? cursor.editedAt;
+      return !latest || updatedAt > latest ? updatedAt : latest;
+    },
     undefined,
   );
 }

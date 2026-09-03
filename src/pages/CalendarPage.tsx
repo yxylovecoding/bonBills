@@ -75,7 +75,7 @@ import {
 } from '../utils/financeScreenshotOcr';
 import { compileTagLogic, formatTagReference } from '../utils/tagLogic';
 import { fetchLatestMailAttachments } from '../utils/mailAttachments';
-import { billImportCutoff, investmentImportCutoff } from '../utils/importCutoffs';
+import { accountBalanceUpdatedAt, investmentImportCutoff } from '../utils/importCutoffs';
 import {
   confirmFinanceImport,
   prepareFinanceImport,
@@ -4197,7 +4197,7 @@ export default function CalendarPage() {
               </button>
               <ImportCutoffHint
                 investment={investmentImportCutoff(records)}
-                bill={billImportCutoff(importSnapshot)}
+                account={accountBalanceUpdatedAt(importSnapshot)}
               />
               <button
                 onClick={() => billFileRef.current?.click()}
