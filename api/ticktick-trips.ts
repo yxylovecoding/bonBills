@@ -123,14 +123,7 @@ async function connect(req: VercelRequest) {
   };
   await kv.set(TICKTICK_CONNECTION_KEY, connection);
   if (!sameTemplate) await kv.set<TickTickTripSyncState>(TICKTICK_SYNC_STATE_KEY, { instances: {} });
-  try {
-    return await runSync();
-  } catch (error) {
-    return {
-      busy: false as const,
-      syncError: error instanceof Error ? error.message : String(error),
-    };
-  }
+  return { busy: false as const };
 }
 
 async function status() {
@@ -165,7 +158,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ok: true,
         connected: true,
         ...result,
-        ...('syncError' in result ? { error: result.syncError } : {}),
       });
     }
     if (req.method === 'POST') {

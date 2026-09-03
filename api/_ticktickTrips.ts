@@ -1,5 +1,4 @@
 import { createCipheriv, createDecipheriv, createHash, createSecretKey, randomBytes, type KeyObject } from 'node:crypto';
-import { buildTickTickTripSources, type TickTickTripSource } from '../src/utils/tickTickTrips.js';
 
 export const TICKTICK_CONNECTION_KEY = 'ticktick:connection:v1';
 export const TICKTICK_SYNC_STATE_KEY = 'ticktick:trip-sync:v1';
@@ -8,6 +7,17 @@ export const TICKTICK_PROJECT_NAME = '玩';
 export const TICKTICK_TEMPLATE_TITLE = '出门todo';
 export const TICKTICK_ANCHOR_TITLE = '出门当天';
 export const TICKTICK_API_BASE_URL = 'https://api.ticktick.com/open/v1';
+
+const TRIP_TAG_PREFIX = /^\d{2}\.\d{1,2}(?:\.\d{1,2})?\s*/;
+
+export interface TickTickTripSource {
+  key: string;
+  startDate: string;
+  endDate: string;
+  dates: string[];
+  name: string;
+  note: string;
+}
 
 export interface EncryptedSecret {
   iv: string;
@@ -318,12 +328,51 @@ export function buildTripSourcesFromSyncState(calendarState: unknown, tripState:
   const calendar = calendarState && typeof calendarState === 'object' ? calendarState as Record<string, unknown> : {};
   const trip = tripState && typeof tripState === 'object' ? tripState as Record<string, unknown> : {};
   const tagMap = calendar.tagMap && typeof calendar.tagMap === 'object'
-    ? calendar.tagMap as Parameters<typeof buildTickTickTripSources>[0]
+    ? calendar.tagMap as Record<string, unknown>
     : {};
   const tripTags = trip.tripTags && typeof trip.tripTags === 'object' ? trip.tripTags as Record<string, string> : {};
   const tripNotes = trip.tripNotes && typeof trip.tripNotes === 'object' ? trip.tripNotes as Record<string, string> : {};
   const tripSplits = trip.tripSplits && typeof trip.tripSplits === 'object' ? trip.tripSplits as Record<string, true> : {};
-  return buildTickTickTripSources(tagMap, tripTags, tripNotes, tripSplits);
+  const travelDates = Object.entries(tagMap)
+    .filter(([, tag]) => tag === 'travel')
+    .map(([date]) => date)
+    .sort();
+  const splitDates = new Set(Object.keys(tripSplits));
+  const segments: string[][] = [];
+  let current: string[] = [];
+  for (const date of travelDates) {
+    const previous = current.at(-1);
+    const previousDay = previous ? new Date(`${previous}T00:00:00Z`) : null;
+    if (previousDay) previousDay.setUTCDate(previousDay.getUTCDate() + 1);
+    const contiguous = previousDay?.toISOString().slice(0, 10) === date;
+    if (!previous || (contiguous && !splitDates.has(date))) {
+      current.push(date);
+      continue;
+    }
+    segments.push(current);
+    current = [date];
+  }
+  if (current.length > 0) segments.push(current);
+
+  const formatShortDate = (date: string) => {
+    const [, month, day] = date.split('-');
+    return `${Number(month)}月${Number(day)}日`;
+  };
+  return segments.map((dates) => {
+    const startDate = dates[0];
+    const endDate = dates.at(-1)!;
+    const normalizedName = tripTags[startDate]?.trim().replace(TRIP_TAG_PREFIX, '').trim();
+    return {
+      key: startDate,
+      startDate,
+      endDate,
+      dates,
+      name: normalizedName || (startDate === endDate
+        ? formatShortDate(startDate)
+        : `${formatShortDate(startDate)}–${formatShortDate(endDate)}`),
+      note: tripNotes[startDate]?.trim() ?? '',
+    };
+  });
 }
 
 function templateDepth(task: TickTickTask, byId: Map<string, TickTickTask>): number {

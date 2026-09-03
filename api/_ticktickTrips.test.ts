@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildTripSourcesFromSyncState,
   decryptTickTickToken,
   discoverTickTickTemplate,
   encryptTickTickToken,
@@ -103,6 +104,31 @@ const futureTrip = {
 };
 
 describe('TickTick 出游同步', () => {
+  it('在服务端独立生成连续、切分及命名后的行程', () => {
+    expect(buildTripSourcesFromSyncState(
+      { tagMap: {
+        '2026-09-10': 'travel',
+        '2026-09-11': 'travel',
+        '2026-09-12': 'travel',
+        '2026-09-13': 'home',
+      } },
+      {
+        tripTags: { '2026-09-10': '26.9.10 东京', '2026-09-12': '' },
+        tripNotes: { '2026-09-10': ' 带护照 ' },
+        tripSplits: { '2026-09-12': true },
+      },
+    )).toEqual([
+      {
+        key: '2026-09-10', startDate: '2026-09-10', endDate: '2026-09-11',
+        dates: ['2026-09-10', '2026-09-11'], name: '东京', note: '带护照',
+      },
+      {
+        key: '2026-09-12', startDate: '2026-09-12', endDate: '2026-09-12',
+        dates: ['2026-09-12'], name: '9月12日', note: '',
+      },
+    ]);
+  });
+
   it('加密保存并还原个人 API Token', () => {
     const encrypted = encryptTickTickToken('personal-token', 'sync-secret');
     expect(encrypted.data).not.toContain('personal-token');

@@ -77,6 +77,7 @@ export default function TickTickTripSyncControl() {
             void connectTickTick(secret, token.trim()).then(() => {
               setToken('');
               setEditing(false);
+              return syncTickTickTrips(secret);
             }).catch(() => undefined);
           }}
           style={{ display: 'flex', gap: 6, marginTop: 8 }}

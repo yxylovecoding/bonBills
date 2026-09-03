@@ -34,7 +34,10 @@ async function requestTickTick(secret: string, init: RequestInit = {}) {
     },
   });
   const body = await response.json().catch(() => null) as (TickTickStatusResponse & { error?: string }) | null;
-  if (!response.ok) throw new Error(body?.error || `HTTP ${response.status}`);
+  if (!response.ok) {
+    const fallback = response.status >= 500 ? '同步服务暂时不可用，请稍后重试' : `请求失败（${response.status}）`;
+    throw new Error(body?.error || fallback);
+  }
   return body;
 }
 
@@ -62,7 +65,7 @@ export async function connectTickTick(secret: string, token: string) {
     const body = await requestTickTick(secret, { method: 'PUT', body: JSON.stringify({ token }) });
     store.setStatus({
       connection: 'connected',
-      operation: body?.error ? 'error' : 'synced',
+      operation: body?.error ? 'error' : 'idle',
       message: body?.error ?? '',
       lastSyncAt: body?.lastSyncAt,
     });

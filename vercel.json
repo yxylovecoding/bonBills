@@ -1,4 +1,7 @@
 {
+  "functions": {
+    "api/ticktick-trips.ts": { "maxDuration": 60 }
+  },
   "crons": [
     { "path": "/api/sync-monthly-backup", "schedule": "10 0 1 * *" },
     { "path": "/api/ticktick-trips", "schedule": "20 1 * * *" }
