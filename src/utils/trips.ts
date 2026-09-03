@@ -113,6 +113,22 @@ export function detectTripGroups(
 
 export interface TagCandidate { tag: string; hitInRange: number; totalHit: number; }
 
+// 只把仍对应真实行程的其它标签视为已占用。历史行程被删除或重新切分后，
+// tripTags 可能留下孤立键；这些旧记录不应继续隐藏候选标签。
+export function getActiveTripTagsExcept(
+  tripTags: Record<string, string>,
+  activeTripStartDates: ReadonlySet<string>,
+  currentStartDate: string,
+): Set<string> {
+  const tags = new Set<string>();
+  for (const [startDate, tag] of Object.entries(tripTags)) {
+    if (startDate !== currentStartDate && activeTripStartDates.has(startDate) && tag) {
+      tags.add(tag);
+    }
+  }
+  return tags;
+}
+
 // 从全部账单里抽取候选 tag：
 // - 必须命中 TRIP_TAG_PATTERN（yy.m.d 描述）
 // - 剔除系统 tag

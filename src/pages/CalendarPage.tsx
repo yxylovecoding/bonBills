@@ -11,7 +11,7 @@ import { inferInvestmentProfitFromBaseline } from '../utils/investTransactionPro
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useExpenseScopeOverrideStore, resolveExpenseScope, subcategoryKey, type ExpenseScope, type OverrideValue, type OverrideDimension } from '../stores/expenseScopeOverrideStore';
 import { useTripStore } from '../stores/tripStore';
-import { detectTrips, detectTripGroups, extractCandidateTags, sumBillsByTag, flattenExpenseItems, isDailyTripTagFormat, tagYearMonthPrefix } from '../utils/trips';
+import { detectAllTrips, detectTrips, detectTripGroups, extractCandidateTags, getActiveTripTagsExcept, sumBillsByTag, flattenExpenseItems, isDailyTripTagFormat, tagYearMonthPrefix } from '../utils/trips';
 import type { TripGroup } from '../utils/trips';
 import AmountInput from '../components/AmountInput';
 import InvestInstrumentPicker from '../components/InvestInstrumentPicker';
@@ -3767,6 +3767,10 @@ export default function CalendarPage() {
   // ── 出游胶囊：连接同段 trip 内同周的相邻 cell（splits 处自动断开）──
   const tripsThisMonth = useMemo(() => detectTrips(tagMap, yearMonth, tripSplits), [tagMap, yearMonth, tripSplits]);
   const tripGroupsThisMonth = useMemo(() => detectTripGroups(tagMap, yearMonth, tripSplits), [tagMap, yearMonth, tripSplits]);
+  const activeTripStartDates = useMemo(
+    () => new Set(detectAllTrips(tagMap, tripSplits).map((trip) => trip.startDate)),
+    [tagMap, tripSplits],
+  );
   const selectedTripStartsThisMonth = useMemo(
     () => tripGroupsThisMonth.flatMap((group) => group.trips.map((trip) => trip.startDate)).filter((startDate) => !!tripTags[startDate]),
     [tripGroupsThisMonth, tripTags],
@@ -4802,6 +4806,7 @@ export default function CalendarPage() {
             tripTags={tripTags}
             tripNotes={tripNotes}
             tripSplits={tripSplits}
+            activeTripStartDates={activeTripStartDates}
             activeTripStartDate={effectiveActiveTripStartDate}
             filterPanelOpen={tripFilterPanelOpen}
             onSetTripTag={setTripTag}
@@ -4915,6 +4920,7 @@ function TripsSection({
   tripTags,
   tripNotes,
   tripSplits,
+  activeTripStartDates,
   activeTripStartDate,
   filterPanelOpen,
   onSetTripTag,
@@ -4929,6 +4935,7 @@ function TripsSection({
   tripTags: Record<string, string>;
   tripNotes: Record<string, string>;
   tripSplits: Record<string, true>;
+  activeTripStartDates: ReadonlySet<string>;
   activeTripStartDate: string | null;
   filterPanelOpen: boolean;
   onSetTripTag: (startDate: string, tag: string) => void;
@@ -4976,10 +4983,7 @@ function TripsSection({
             {g.trips.map((t) => {
               const tripDateSet = new Set(t.dates);
               const selectedTag = tripTags[t.startDate] ?? '';
-              const excludeTags = new Set<string>();
-              for (const [k, v] of Object.entries(tripTags)) {
-                if (k !== t.startDate && v) excludeTags.add(v);
-              }
+              const excludeTags = getActiveTripTagsExcept(tripTags, activeTripStartDates, t.startDate);
               const candidates = extractCandidateTags(flatItems, tripDateSet, excludeTags);
               const summary = selectedTag ? sumBillsByTag(flatItems, selectedTag) : null;
               const note = tripNotes[t.startDate] ?? '';
