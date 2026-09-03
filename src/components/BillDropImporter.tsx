@@ -168,7 +168,7 @@ export default function BillDropImporter() {
           confirming={confirming}
           onCancel={() => {
             setImportDraft(null);
-            showMessage('已取消导入');
+            showMessage(importDraft.meta.billMonths.length > 0 ? '账单已导入 · 账户和理财未变' : '已取消导入');
           }}
           onConfirm={() => { void confirmDraft(); }}
         />

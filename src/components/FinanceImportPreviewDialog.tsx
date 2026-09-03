@@ -57,6 +57,7 @@ export default function FinanceImportPreviewDialog({
   onConfirm: () => void;
 }) {
   const changesOnly = Boolean(draft.meta.changesOnly);
+  const billsAlreadyImported = draft.meta.billMonths.length > 0;
   const { investmentRecords, accountChanges, holdingChanges, investmentOperationChanges } = useMemo(() => {
     const accounts = (Object.keys(ACCOUNT_LABELS) as AutoAccountBalanceKey[]).flatMap((key) => {
       const before = draft.before.snapshot.current.accounts[key];
@@ -91,7 +92,9 @@ export default function FinanceImportPreviewDialog({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
           <div>
             <div id="finance-import-preview-title" style={{ fontSize: 16, fontWeight: 800, color: '#202124' }}>{draft.meta.title}</div>
-            <div style={{ fontSize: 11, color: '#5f6368', marginTop: 3 }}>确认后才会写入</div>
+            <div style={{ fontSize: 11, color: '#5f6368', marginTop: 3 }}>
+              {billsAlreadyImported ? '账单已导入 · 确认后更新账户和理财' : '确认后才会写入'}
+            </div>
           </div>
           <button type="button" onClick={onCancel} disabled={confirming} aria-label="关闭导入预览" style={{ border: 'none', borderRadius: 8, backgroundColor: '#f1f3f4', color: '#5f6368', width: 30, height: 30, fontSize: 16, fontWeight: 800, cursor: confirming ? 'default' : 'pointer' }}>×</button>
         </div>
@@ -200,8 +203,8 @@ export default function FinanceImportPreviewDialog({
         )}
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <button type="button" onClick={onCancel} disabled={confirming} style={{ border: '1px solid #dadce0', borderRadius: 10, backgroundColor: '#fff', color: '#5f6368', padding: '10px 0', fontSize: 13, fontWeight: 800, cursor: confirming ? 'default' : 'pointer' }}>取消</button>
-          <button type="button" onClick={onConfirm} disabled={confirming} style={{ border: 'none', borderRadius: 10, backgroundColor: confirming ? '#9aa0a6' : '#1a73e8', color: '#fff', padding: '10px 0', fontSize: 13, fontWeight: 800, cursor: confirming ? 'default' : 'pointer' }}>{confirming ? '写入中' : '确认导入'}</button>
+          <button type="button" onClick={onCancel} disabled={confirming} style={{ border: '1px solid #dadce0', borderRadius: 10, backgroundColor: '#fff', color: '#5f6368', padding: '10px 0', fontSize: 13, fontWeight: 800, cursor: confirming ? 'default' : 'pointer' }}>{billsAlreadyImported ? '保持不变' : '取消'}</button>
+          <button type="button" onClick={onConfirm} disabled={confirming} style={{ border: 'none', borderRadius: 10, backgroundColor: confirming ? '#9aa0a6' : '#1a73e8', color: '#fff', padding: '10px 0', fontSize: 13, fontWeight: 800, cursor: confirming ? 'default' : 'pointer' }}>{confirming ? '写入中' : billsAlreadyImported ? '更新账户和理财' : '确认导入'}</button>
         </div>
       </div>
     </aside>

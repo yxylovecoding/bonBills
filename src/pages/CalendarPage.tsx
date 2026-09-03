@@ -4885,7 +4885,7 @@ export default function CalendarPage() {
           confirming={financeImportConfirming}
           onCancel={() => {
             setFinanceImportDraft(null);
-            setBillImportMsg('已取消导入');
+            setBillImportMsg(financeImportDraft.meta.billMonths.length > 0 ? '账单已导入 · 账户和理财未变' : '已取消导入');
           }}
           onConfirm={() => { void confirmImportDraft(); }}
         />

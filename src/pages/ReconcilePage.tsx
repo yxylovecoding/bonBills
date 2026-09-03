@@ -3402,7 +3402,7 @@ export default function ReconcilePage() {
           confirming={financeImportConfirming}
           onCancel={() => {
             setFinanceImportDraft(null);
-            setScreenshotImportMsg('已取消导入');
+            setScreenshotImportMsg(financeImportDraft.meta.billMonths.length > 0 ? '账单已导入 · 账户和理财未变' : '已取消导入');
           }}
           onConfirm={() => { void confirmImportDraft(); }}
         />

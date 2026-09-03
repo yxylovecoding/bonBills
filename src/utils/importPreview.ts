@@ -117,6 +117,57 @@ function cloneData<T>(value: T): T {
   return structuredClone(value);
 }
 
+function billRecordAfterPreview(before: MonthlyRecord | undefined, after: MonthlyRecord): MonthlyRecord {
+  if (before) {
+    return {
+      ...before,
+      income: after.income,
+      totalExpense: after.totalExpense,
+      volatileLife: after.volatileLife,
+      periodicLife: after.periodicLife,
+      consumption: after.consumption,
+      school: after.school,
+    };
+  }
+  return {
+    yearMonth: after.yearMonth,
+    income: after.income,
+    totalExpense: after.totalExpense,
+    accumulatedProfit: 0,
+    investTotal: 0,
+    volatileLife: after.volatileLife,
+    periodicLife: after.periodicLife,
+    consumption: after.consumption,
+    school: after.school,
+    homeDays: after.homeDays ?? 0,
+    travelDays: after.travelDays ?? 0,
+    schoolDays: after.schoolDays,
+    internDays: after.internDays,
+    majorExpenses: after.majorExpenses ?? [],
+    majorExpensesNote: after.majorExpensesNote,
+  };
+}
+
+export function stateWithCommittedBills(
+  before: FinanceImportState,
+  after: FinanceImportState,
+  billMonths: string[],
+): FinanceImportState {
+  const records = new Map(before.records.map((record) => [record.yearMonth, record]));
+  const afterRecords = new Map(after.records.map((record) => [record.yearMonth, record]));
+  for (const month of new Set(billMonths)) {
+    const afterRecord = afterRecords.get(month);
+    if (!afterRecord) continue;
+    records.set(month, billRecordAfterPreview(records.get(month), afterRecord));
+  }
+  return {
+    records: [...records.values()].sort((left, right) => right.yearMonth.localeCompare(left.yearMonth)),
+    billDetails: cloneData(after.billDetails),
+    snapshot: cloneData(before.snapshot),
+    possessions: cloneData(after.possessions),
+  };
+}
+
 export function captureFinanceImportState(): FinanceImportState {
   const monthly = useMonthlyStore.getState();
   const bills = useBillDetailStore.getState();
@@ -152,17 +203,21 @@ export async function prepareFinanceImport(
   run: () => Promise<FinanceImportPreviewMeta>,
 ): Promise<FinanceImportPreviewDraft> {
   const before = captureFinanceImportState();
-  return runWithSyncPaused(async () => {
+  const draft = await runWithSyncPaused(async () => {
     try {
       const meta = await run();
       const after = captureFinanceImportState();
-      applyFinanceImportState(before);
+      applyFinanceImportState(meta.billMonths.length > 0
+        ? stateWithCommittedBills(before, after, meta.billMonths)
+        : before);
       return { before, after, meta };
     } catch (error) {
       applyFinanceImportState(before);
       throw error;
     }
   });
+  if (draft.meta.billMonths.length > 0) await triggerUpload();
+  return draft;
 }
 
 export async function confirmFinanceImport(draft: FinanceImportPreviewDraft) {
