@@ -21,6 +21,7 @@ class FakeTickTickApi implements TickTickApi {
   createCalls = 0;
   updateCalls = 0;
   deleteCalls = 0;
+  readonly updatePayloads = new Map<string, Record<string, unknown>>();
   private sequence = 0;
 
   constructor() {
@@ -81,6 +82,7 @@ class FakeTickTickApi implements TickTickApi {
 
   async updateTask(taskId: string, payload: Record<string, unknown>) {
     this.updateCalls += 1;
+    this.updatePayloads.set(taskId, payload);
     const current = this.tasks.get(taskId);
     if (!current) throw new Error('TickTick 404');
     const items = ((payload.items ?? current.items ?? []) as TickTickTask['items'])?.map((item, index) => ({
@@ -122,7 +124,10 @@ class FakeRoutineTickTickApi extends FakeTickTickApi {
     this.tasks.set('school-dated', {
       id: 'school-dated', projectId: 'life', parentId: 'school-root', title: '校园卡充值', status: 0,
       startDate: '2026-09-15T00:00:00+0800', dueDate: '2026-09-15T00:00:00+0800',
-      items: [{ id: 'school-item', title: '查余额', status: 1 }],
+      items: [
+        { id: 'school-item', title: '查余额', status: 0, startDate: '2026-09-15T07:30:00+0800' },
+        { id: 'school-item-done', title: '已处理', status: 1, startDate: '2026-09-15T08:00:00+0800' },
+      ],
     });
     this.tasks.set('school-start-only', {
       id: 'school-start-only', projectId: 'life', parentId: 'school-root', title: '只有开始日期', status: 0,
@@ -256,8 +261,12 @@ describe('TickTick 出游同步', () => {
     expect(api.tasks.get('school-dated')).toMatchObject({
       startDate: '2026-09-07T00:00:00+0800',
       dueDate: '2026-09-07T00:00:00+0800',
-      items: [{ id: 'school-item', title: '查余额', status: 1 }],
+      items: [
+        { id: 'school-item', title: '查余额', status: 0, startDate: '2026-09-07T07:30:00+0800' },
+        { id: 'school-item-done', title: '已处理', status: 1, startDate: '2026-09-15T08:00:00+0800' },
+      ],
     });
+    expect([...api.updatePayloads.entries()].every(([taskId, payload]) => payload.id === taskId)).toBe(true);
     expect(api.tasks.get('school-start-only')?.startDate).toBe('2026-09-07T08:30:00+0800');
     expect(api.tasks.get('school-start-only')?.dueDate).toBeUndefined();
     expect(api.tasks.get('home-no-date')?.dueDate).toBeUndefined();

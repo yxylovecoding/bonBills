@@ -436,11 +436,48 @@ function normalizedRoutineTitle(value: string): string {
   return value.normalize('NFKC').replace(/\s+/g, '').toLocaleLowerCase();
 }
 
+function checklistItemDate(item: TickTickChecklistItem): string | null {
+  const date = item.startDate?.slice(0, 10);
+  return date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
+}
+
+function shiftedRoutineItems(task: TickTickTask, targetDate: string): TickTickChecklistItem[] | undefined {
+  return task.items?.map((item) => {
+    const date = checklistItemDate(item);
+    if (!date || (item.status ?? 0) !== 0) return item;
+    return {
+      ...item,
+      startDate: shiftTickTickDate(item.startDate, date, targetDate),
+    };
+  });
+}
+
+function routineTaskHasDate(task: TickTickTask): boolean {
+  return Boolean(taskDate(task)) || Boolean(task.items?.some(
+    (item) => (item.status ?? 0) === 0 && checklistItemDate(item),
+  ));
+}
+
+function routineTaskIsAligned(task: TickTickTask, targetDate: string): boolean {
+  const date = taskDate(task);
+  if (date && date !== targetDate) return false;
+  return !(task.items ?? []).some(
+    (item) => (item.status ?? 0) === 0
+      && checklistItemDate(item)
+      && checklistItemDate(item) !== targetDate,
+  );
+}
+
 function routineTaskPayload(task: TickTickTask, targetDate: string): Record<string, unknown> {
-  const scheduledDate = taskDate(task)!;
-  const shiftedStartDate = shiftTickTickDate(task.startDate, scheduledDate, targetDate);
-  const shiftedDueDate = shiftTickTickDate(task.dueDate, scheduledDate, targetDate);
+  const scheduledDate = taskDate(task);
+  const shiftedStartDate = scheduledDate
+    ? shiftTickTickDate(task.startDate, scheduledDate, targetDate)
+    : task.startDate;
+  const shiftedDueDate = scheduledDate
+    ? shiftTickTickDate(task.dueDate, scheduledDate, targetDate)
+    : task.dueDate;
   return {
+    id: task.id,
     projectId: task.projectId,
     title: task.title,
     ...(task.content !== undefined ? { content: task.content } : {}),
@@ -456,7 +493,7 @@ function routineTaskPayload(task: TickTickTask, targetDate: string): Record<stri
     ...(task.sortOrder !== undefined ? { sortOrder: task.sortOrder } : {}),
     ...(task.kind ? { kind: task.kind } : {}),
     ...(task.parentId ? { parentId: task.parentId } : {}),
-    ...(task.items !== undefined ? { items: task.items } : {}),
+    ...(task.items !== undefined ? { items: shiftedRoutineItems(task, targetDate) } : {}),
   };
 }
 
@@ -500,11 +537,14 @@ export async function syncTickTickRoutines(options: {
       : sameNamedProjects[0]
         ? activeTasks.filter((task) => task.projectId === sameNamedProjects[0].id)
         : [];
-    const tasks = scopedTasks.filter((task) => taskDate(task));
+    const tasks = scopedTasks.filter((task) => routineTaskHasDate(task));
 
     for (const task of tasks) {
-      if (taskDate(task) === spec.targetDate) continue;
-      await api.updateTask(task.id, routineTaskPayload(task, spec.targetDate));
+      if (routineTaskIsAligned(task, spec.targetDate)) continue;
+      const updated = await api.updateTask(task.id, routineTaskPayload(task, spec.targetDate));
+      if (!updated?.id || !routineTaskIsAligned(updated, spec.targetDate)) {
+        throw new Error(`TickTick 未正确更新“${task.title}”的日期`);
+      }
       updatedRoutineTasks += 1;
     }
   }
