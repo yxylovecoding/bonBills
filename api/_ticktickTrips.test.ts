@@ -155,8 +155,24 @@ class FakeRoutineTickTickApi extends FakeTickTickApi {
   }
 
   async filterTasks(projectIds: string | string[], statuses: number[]) {
-    return (await super.filterTasks(projectIds, statuses))
-      .filter((task) => task.projectId !== 'life');
+    return (await super.filterTasks(projectIds, statuses)).map((task) => task.projectId === 'life'
+      ? {
+        id: task.id,
+        projectId: task.projectId,
+        title: task.title,
+        status: task.status,
+      }
+      : task);
+  }
+
+  async updateTask(taskId: string, payload: Record<string, unknown>) {
+    const updated = await super.updateTask(taskId, payload);
+    return {
+      id: updated.id,
+      projectId: updated.projectId,
+      title: updated.title,
+      status: updated.status,
+    };
   }
 }
 
@@ -235,7 +251,7 @@ describe('TickTick 出游同步', () => {
     });
   });
 
-  it('从完整清单数据平移 routine 父任务树中的已定日任务', async () => {
+  it('不让筛选接口的精简任务覆盖完整清单，并以重新读取结果确认日期', async () => {
     const api = new FakeRoutineTickTickApi();
     const calendarState = { tagMap: {
       '2026-09-01': 'home',

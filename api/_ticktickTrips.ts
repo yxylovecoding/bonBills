@@ -299,10 +299,19 @@ function descendantsOf(tasks: TickTickTask[], rootId: string): TickTickTask[] {
   return result;
 }
 
+function mergeTaskLists(primaryTasks: TickTickTask[], fallbackTasks: TickTickTask[]) {
+  const tasksById = new Map<string, TickTickTask>();
+  for (const task of [...primaryTasks, ...fallbackTasks]) {
+    const existing = tasksById.get(task.id);
+    tasksById.set(task.id, existing ? { ...task, ...existing } : task);
+  }
+  return [...tasksById.values()];
+}
+
 function mergeProjectTasks(projectData: TickTickProjectData, filteredTasks: TickTickTask[]) {
-  return [...new Map(
-    [...projectData.tasks, ...filteredTasks].map((task) => [task.id, task]),
-  ).values()];
+  // Project data carries hierarchy/checklist fields that /task/filter may omit.
+  // Keep it authoritative while using the filter response only to fill missing tasks/fields.
+  return mergeTaskLists(projectData.tasks, filteredTasks);
 }
 
 export async function discoverTickTickTemplate(api: TickTickApi): Promise<TickTickTemplate> {
@@ -511,11 +520,10 @@ export async function syncTickTickRoutines(options: {
       api.filterTasks(projects.map((project) => project.id), [0]),
     ])
     : [[], []] as [TickTickProjectData[], TickTickTask[]];
-  const activeTasks = [...new Map(
-    [...projectData.flatMap((data) => data.tasks), ...filteredTasks]
-      .filter((task) => (task.status ?? 0) === 0)
-      .map((task) => [task.id, task]),
-  ).values()];
+  const activeTasks = mergeTaskLists(
+    projectData.flatMap((data) => data.tasks),
+    filteredTasks,
+  ).filter((task) => (task.status ?? 0) === 0);
   const specs = [
     { title: TICKTICK_HOME_ROUTINE_TITLE, targetDate: routineTargets.home },
     { title: TICKTICK_SCHOOL_ROUTINE_TITLE, targetDate: routineTargets.school },
@@ -541,7 +549,8 @@ export async function syncTickTickRoutines(options: {
 
     for (const task of tasks) {
       if (routineTaskIsAligned(task, spec.targetDate)) continue;
-      const updated = await api.updateTask(task.id, routineTaskPayload(task, spec.targetDate));
+      await api.updateTask(task.id, routineTaskPayload(task, spec.targetDate));
+      const updated = await api.getTask(task.projectId, task.id);
       if (!updated?.id || !routineTaskIsAligned(updated, spec.targetDate)) {
         throw new Error(`TickTick 未正确更新“${task.title}”的日期`);
       }
