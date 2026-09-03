@@ -133,7 +133,7 @@ export function normalizeInvestmentRecordInstruments(record: MonthlyRecord): Mon
       const originalSymbol = item.symbol;
       const symbol = canonicalInvestmentSymbol(originalSymbol);
       const targetGroup = groupKey !== 'account' && groupKey !== 'aggregate'
-        && (isPrefixedFundSymbol(originalSymbol) || item.quoteSource === 'eastmoney-fund')
+        && isPrefixedFundSymbol(originalSymbol)
         && /^\d{6}$/.test(symbol)
         ? 'a'
         : groupKey;

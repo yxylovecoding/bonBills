@@ -189,6 +189,32 @@ describe('理财导出表导入', () => {
     expect(normalized.investPositionItems?.us ?? []).toHaveLength(0);
   });
 
+  it('报价源为国内基金时保留原有资产品类', () => {
+    const base = septemberRecord();
+    const fund = (id: string, name: string, symbol: string): InvestPositionItem => ({
+      ...tltPosition(),
+      id,
+      name,
+      symbol,
+      quoteSource: 'eastmoney-fund',
+      quoteCurrency: 'CNY',
+    });
+    base.investPositionItems = {
+      eu: [fund('eu-fund', '欧A', '012345')],
+      asia: [fund('asia-fund', '日经A', '012346')],
+      longBond: [fund('bond-fund', '10年国债', '012347')],
+      gold: [fund('gold-fund', '黄金', '012348')],
+    };
+
+    const normalized = normalizeMonthlyRecords([base])[0];
+
+    expect(normalized.investPositionItems?.eu?.[0]).toMatchObject({ id: 'eu-fund', symbol: '012345' });
+    expect(normalized.investPositionItems?.asia?.[0]).toMatchObject({ id: 'asia-fund', symbol: '012346' });
+    expect(normalized.investPositionItems?.longBond?.[0]).toMatchObject({ id: 'bond-fund', symbol: '012347' });
+    expect(normalized.investPositionItems?.gold?.[0]).toMatchObject({ id: 'gold-fund', symbol: '012348' });
+    expect(normalized.investPositionItems?.a ?? []).toHaveLength(0);
+  });
+
   it('预览阶段不写入，确认后才应用导入结果', async () => {
     const draft = await prepareFinanceImport(async () => {
       const result = await importInvestmentFileIntoStores(moneyWizInvestmentFile(), { deferUpload: true });
