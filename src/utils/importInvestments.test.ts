@@ -215,6 +215,51 @@ describe('理财导出表导入', () => {
     expect(normalized.investPositionItems?.a ?? []).toHaveLength(0);
   });
 
+  it('恢复被旧版本误归到A股的基金品类', () => {
+    const base = septemberRecord();
+    const fund = (id: string, name: string, symbol: string): InvestPositionItem => ({
+      ...tltPosition(),
+      id,
+      name,
+      symbol,
+      quoteSource: 'eastmoney-fund',
+      quoteCurrency: 'CNY',
+    });
+    base.investPositionItems = {
+      a: [
+        fund('us-fund', '红利低波A', '008163'),
+        fund('eu-fund', '欧A', '012345'),
+        fund('asia-fund', '日经A', '012346'),
+        fund('bond-fund', '10年国债', '012347'),
+        fund('gold-fund', '黄金', '012348'),
+        fund('cn-fund', '沪深300', '012349'),
+      ],
+    };
+    base.investmentTransactions = [{
+      id: 'us-fund-buy',
+      date: '2026-09-02',
+      side: 'buy',
+      name: '南方标普红利低波50ETF联接A',
+      symbol: '008163',
+      groupKey: 'a',
+      shares: 1,
+      price: 1,
+      fee: 0,
+      currency: 'CNY',
+      quoteSource: 'eastmoney-fund',
+    }];
+
+    const normalized = normalizeMonthlyRecords([base])[0];
+
+    expect(normalized.investPositionItems?.us?.[0].id).toBe('us-fund');
+    expect(normalized.investPositionItems?.eu?.[0].id).toBe('eu-fund');
+    expect(normalized.investPositionItems?.asia?.[0].id).toBe('asia-fund');
+    expect(normalized.investPositionItems?.longBond?.[0].id).toBe('bond-fund');
+    expect(normalized.investPositionItems?.gold?.[0].id).toBe('gold-fund');
+    expect(normalized.investPositionItems?.a?.map((item) => item.id)).toEqual(['cn-fund']);
+    expect(normalized.investmentTransactions?.[0].groupKey).toBe('us');
+  });
+
   it('预览阶段不写入，确认后才应用导入结果', async () => {
     const draft = await prepareFinanceImport(async () => {
       const result = await importInvestmentFileIntoStores(moneyWizInvestmentFile(), { deferUpload: true });

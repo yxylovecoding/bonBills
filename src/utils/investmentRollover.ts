@@ -123,25 +123,47 @@ function mergeSamePosition(left: InvestPositionItem, right: InvestPositionItem):
   };
 }
 
+function inferFundUnderlyingGroup(text: string): InvestKey | undefined {
+  const normalized = text.trim().toLowerCase();
+  if (/黄金|gold/.test(normalized)) return 'gold';
+  if (/美债|美国(?:国债|公债)|us\s*(?:bond|treasury)/.test(normalized)) return 'usBond';
+  if (/长债|长期债|国债|债券/.test(normalized)) return 'longBond';
+  if (/欧股|欧洲|欧(?:a|c)?(?:\s|$)|europe|euro/.test(normalized)) return 'eu';
+  if (/亚股|亚洲|日经|日本|日股|港股|香港|asia/.test(normalized)) return 'asia';
+  if (/美股|美国|标普|纳指|nasdaq|s&p|us\s*stock/.test(normalized)) return 'us';
+  return undefined;
+}
+
 export function normalizeInvestmentRecordInstruments(record: MonthlyRecord): MonthlyRecord {
   if (!record.investPositionItems && !record.investmentTransactions) return record;
   const normalizedItems: InvestPositionItems = {};
   const itemIndexes = new Map<string, { groupKey: keyof InvestPositionItems; index: number }>();
+  const itemGroupBySymbol = new Map<string, InvestKey>();
+  const transactionNamesBySymbol = new Map<string, string[]>();
+  for (const transaction of record.investmentTransactions ?? []) {
+    const symbol = canonicalInvestmentSymbol(transaction.symbol);
+    if (!symbol) continue;
+    transactionNamesBySymbol.set(symbol, [...(transactionNamesBySymbol.get(symbol) ?? []), transaction.name]);
+  }
   const groupOrder = ['a', ...INVEST_POSITION_GROUP_KEYS.filter((key) => key !== 'a')] as const;
   for (const groupKey of groupOrder) {
     for (const item of record.investPositionItems?.[groupKey] ?? []) {
       const originalSymbol = item.symbol;
       const symbol = canonicalInvestmentSymbol(originalSymbol);
-      const targetGroup = groupKey !== 'account' && groupKey !== 'aggregate'
-        && isPrefixedFundSymbol(originalSymbol)
-        && /^\d{6}$/.test(symbol)
-        ? 'a'
-        : groupKey;
+      const isFund = /^\d{6}$/.test(symbol)
+        && (isPrefixedFundSymbol(originalSymbol) || item.quoteSource === 'eastmoney-fund');
+      const inferredGroup = groupKey === 'a' && isFund
+        ? inferFundUnderlyingGroup([item.name, ...(transactionNamesBySymbol.get(symbol) ?? [])].join(' '))
+        : undefined;
+      const targetGroup = inferredGroup ?? groupKey;
       const normalizedItem: InvestPositionItem = {
         ...item,
         symbol,
         quoteSource: isPrefixedFundSymbol(originalSymbol) ? 'eastmoney-fund' : item.quoteSource,
         quoteCurrency: isPrefixedFundSymbol(originalSymbol) ? 'CNY' : item.quoteCurrency,
+        pendingBuys: targetGroup !== 'account' && targetGroup !== 'aggregate'
+          ? item.pendingBuys?.map((pending) => ({ ...pending, groupKey: targetGroup }))
+          : item.pendingBuys,
       };
       const comparisonKey = symbol && targetGroup !== 'account' && targetGroup !== 'aggregate'
         ? `symbol:${symbol}`
@@ -150,6 +172,7 @@ export function normalizeInvestmentRecordInstruments(record: MonthlyRecord): Mon
       if (!existing) {
         const group = normalizedItems[targetGroup] ?? [];
         itemIndexes.set(comparisonKey, { groupKey: targetGroup, index: group.length });
+        if (symbol && targetGroup !== 'account' && targetGroup !== 'aggregate') itemGroupBySymbol.set(symbol, targetGroup);
         normalizedItems[targetGroup] = [...group, normalizedItem];
         continue;
       }
@@ -162,10 +185,13 @@ export function normalizeInvestmentRecordInstruments(record: MonthlyRecord): Mon
     const originalSymbol = transaction.symbol;
     const symbol = canonicalInvestmentSymbol(originalSymbol);
     const isFundAlias = isPrefixedFundSymbol(originalSymbol) && /^\d{6}$/.test(symbol);
+    const inferredGroup = transaction.groupKey === 'a' && (isFundAlias || transaction.quoteSource === 'eastmoney-fund')
+      ? inferFundUnderlyingGroup(transaction.name)
+      : undefined;
     return {
       ...transaction,
       symbol,
-      groupKey: isFundAlias ? 'a' as const : transaction.groupKey,
+      groupKey: itemGroupBySymbol.get(symbol) ?? inferredGroup ?? transaction.groupKey,
       currency: isFundAlias ? 'CNY' : transaction.currency,
       quoteSource: isFundAlias ? 'eastmoney-fund' as const : transaction.quoteSource,
     };
