@@ -301,6 +301,20 @@ describe('理财导出表导入', () => {
     expect(normalized.investPositionItems?.us ?? []).toHaveLength(0);
   });
 
+  it('已修复记录保持原始条目，不再跨品类合并同一代码', () => {
+    const base = septemberRecord();
+    base.investmentCategoryRepairVersion = 2;
+    base.investPositionItems = {
+      a: [{ ...tltPosition(), id: 'a-item', symbol: '008163', shares: 10 }],
+      us: [{ ...tltPosition(), id: 'us-item', symbol: '008163', shares: 20 }],
+    };
+
+    const normalized = normalizeMonthlyRecords([base])[0];
+
+    expect(normalized.investPositionItems?.a?.[0]).toMatchObject({ id: 'a-item', shares: 10 });
+    expect(normalized.investPositionItems?.us?.[0]).toMatchObject({ id: 'us-item', shares: 20 });
+  });
+
   it('预览阶段不写入，确认后才应用导入结果', async () => {
     const draft = await prepareFinanceImport(async () => {
       const result = await importInvestmentFileIntoStores(moneyWizInvestmentFile(), { deferUpload: true });

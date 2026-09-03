@@ -142,6 +142,7 @@ function inferFundUnderlyingGroup(text: string): InvestKey | undefined {
 export function normalizeInvestmentRecordInstruments(record: MonthlyRecord): MonthlyRecord {
   if (!record.investPositionItems && !record.investmentTransactions) return record;
   const categoryRepairVersion = record.investmentCategoryRepairVersion ?? 0;
+  if (categoryRepairVersion >= INVESTMENT_CATEGORY_REPAIR_VERSION) return record;
   const shouldInferCorruptedCategories = categoryRepairVersion < 1;
   const shouldApplyCategoryOverrides = categoryRepairVersion < INVESTMENT_CATEGORY_REPAIR_VERSION;
   const normalizedItems: InvestPositionItems = {};

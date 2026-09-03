@@ -1,6 +1,14 @@
 import { kv } from '@vercel/kv';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { MONTHLY_BACKUP_INDEX_KEY, type MonthlyBackupIndexEntry } from './_monthlyBackup.js';
+import { restoreMonthlyInvestmentState } from './_restoreMonthlyInvestment.js';
 import { SYNC_STORE_KEYS, type SyncPayload } from './_syncKeys.js';
+
+const AUGUST_INVESTMENT_RECOVERY_MARKER = 'sync-recovery:2026-08-investment:2026-09-03-v1';
+
+interface MonthlyBackup {
+  data?: SyncPayload;
+}
 
 function authOk(req: VercelRequest): boolean {
   const secret = (process.env.SYNC_SECRET || '').trim();
@@ -8,6 +16,37 @@ function authOk(req: VercelRequest): boolean {
   const header = req.headers.authorization || '';
   const match = header.match(/^Bearer\s+(.+)$/);
   return match !== null && match[1].trim() === secret;
+}
+
+async function restoreAugustInvestmentFromLatestBackup(currentState: unknown) {
+  const completed = await kv.get(AUGUST_INVESTMENT_RECOVERY_MARKER);
+  if (completed) return currentState;
+
+  const index = await kv.get<MonthlyBackupIndexEntry[]>(MONTHLY_BACKUP_INDEX_KEY);
+  const entries = Array.isArray(index)
+    ? [...index].sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    : [];
+  for (const entry of entries) {
+    const backup = await kv.get<MonthlyBackup>(entry.key);
+    const restored = restoreMonthlyInvestmentState(
+      currentState,
+      backup?.data?.['monthly-records'],
+      '2026-08',
+    );
+    if (!restored.restored) continue;
+    const restoredAt = new Date().toISOString();
+    await kv.set(`${AUGUST_INVESTMENT_RECOVERY_MARKER}:before`, {
+      createdAt: restoredAt,
+      data: currentState,
+    });
+    await kv.set('monthly-records', restored.state);
+    await kv.set(AUGUST_INVESTMENT_RECOVERY_MARKER, {
+      restoredAt,
+      source: entry.key,
+    });
+    return restored.state;
+  }
+  return currentState;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -25,6 +64,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         hasAny = true;
       }
     });
+    if (result['monthly-records']) {
+      result['monthly-records'] = await restoreAugustInvestmentFromLatestBackup(result['monthly-records']);
+    }
     if (!hasAny) {
       return res.status(204).end();
     }
