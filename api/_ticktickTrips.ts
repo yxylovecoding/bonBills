@@ -118,13 +118,14 @@ export interface TickTickRoutineTargets {
 export interface TickTickRoutineSyncResult {
   updatedRoutineTasks: number;
   routineTargets: TickTickRoutineTargets;
+  routineTaskCounts: { home: number; school: number };
 }
 
 export interface TickTickApi {
   listProjects(): Promise<TickTickProject[]>;
   getPreference(): Promise<{ timeZone?: string }>;
   getProjectData(projectId: string): Promise<TickTickProjectData>;
-  filterTasks(projectIds: string | string[], statuses: number[]): Promise<TickTickTask[]>;
+  filterTasks(projectIds: string | string[] | undefined, statuses: number[]): Promise<TickTickTask[]>;
   getTask(projectId: string, taskId: string): Promise<TickTickTask>;
   createTask(payload: Record<string, unknown>): Promise<TickTickTask>;
   updateTask(taskId: string, payload: Record<string, unknown>): Promise<TickTickTask>;
@@ -209,10 +210,13 @@ export class TickTickOpenApiClient implements TickTickApi {
     return this.request<TickTickProjectData>(`/project/${encodeURIComponent(projectId)}/data`);
   }
 
-  filterTasks(projectIds: string | string[], statuses: number[]) {
+  filterTasks(projectIds: string | string[] | undefined, statuses: number[]) {
     return this.request<TickTickTask[]>('/task/filter', {
       method: 'POST',
-      body: JSON.stringify({ projectIds: Array.isArray(projectIds) ? projectIds : [projectIds], status: statuses }),
+      body: JSON.stringify({
+        ...(projectIds === undefined ? {} : { projectIds: Array.isArray(projectIds) ? projectIds : [projectIds] }),
+        status: statuses,
+      }),
     });
   }
 
@@ -513,24 +517,28 @@ export async function syncTickTickRoutines(options: {
 }): Promise<TickTickRoutineSyncResult> {
   const { api, calendarState, today } = options;
   const routineTargets = getTickTickRoutineTargetDates(calendarState, today);
-  const projects = await api.listProjects();
-  const [projectData, filteredTasks] = projects.length > 0
-    ? await Promise.all([
-      Promise.all(projects.map((project) => api.getProjectData(project.id))),
-      api.filterTasks(projects.map((project) => project.id), [0]),
-    ])
-    : [[], []] as [TickTickProjectData[], TickTickTask[]];
+  // /project omits the built-in Inbox. Discover tasks without a project filter,
+  // then read complete data for every returned project, including the Inbox.
+  const [projects, filteredTasks] = await Promise.all([
+    api.listProjects(),
+    api.filterTasks(undefined, [0]),
+  ]);
+  const projectIds = [...new Set([
+    ...projects.map((project) => project.id),
+    ...filteredTasks.map((task) => task.projectId),
+  ])];
+  const projectData = await Promise.all(projectIds.map((projectId) => api.getProjectData(projectId)));
   const activeTasks = mergeTaskLists(
     projectData.flatMap((data) => data.tasks),
     filteredTasks,
   ).filter((task) => (task.status ?? 0) === 0);
   const specs = [
-    { title: TICKTICK_HOME_ROUTINE_TITLE, targetDate: routineTargets.home },
-    { title: TICKTICK_SCHOOL_ROUTINE_TITLE, targetDate: routineTargets.school },
-  ];
+    { key: 'home', title: TICKTICK_HOME_ROUTINE_TITLE, targetDate: routineTargets.home },
+    { key: 'school', title: TICKTICK_SCHOOL_ROUTINE_TITLE, targetDate: routineTargets.school },
+  ] as const;
   let updatedRoutineTasks = 0;
-
-  for (const spec of specs) {
+  const routineTaskCounts = { home: 0, school: 0 };
+  const scopes = specs.map((spec) => {
     const normalizedTitle = normalizedRoutineTitle(spec.title);
     const roots = activeTasks.filter((task) => normalizedRoutineTitle(task.title) === normalizedTitle);
     if (roots.length > 1) throw new Error(`TickTick 中存在多个“${spec.title}”父任务`);
@@ -539,6 +547,7 @@ export async function syncTickTickRoutines(options: {
       (project) => normalizedRoutineTitle(project.name) === normalizedTitle,
     );
     if (!root && sameNamedProjects.length > 1) throw new Error(`TickTick 中存在多个“${spec.title}”清单`);
+    if (!root && !sameNamedProjects[0]) throw new Error(`TickTick 中找不到“${spec.title}”父任务或清单`);
 
     const scopedTasks = root
       ? descendantsOf(activeTasks.filter((task) => task.projectId === root.projectId), root.id)
@@ -546,8 +555,12 @@ export async function syncTickTickRoutines(options: {
         ? activeTasks.filter((task) => task.projectId === sameNamedProjects[0].id)
         : [];
     const tasks = scopedTasks.filter((task) => routineTaskHasDate(task));
+    routineTaskCounts[spec.key] = tasks.length;
+    return { ...spec, tasks };
+  });
 
-    for (const task of tasks) {
+  for (const spec of scopes) {
+    for (const task of spec.tasks) {
       if (routineTaskIsAligned(task, spec.targetDate)) continue;
       await api.updateTask(task.id, routineTaskPayload(task, spec.targetDate));
       const updated = await api.getTask(task.projectId, task.id);
@@ -558,7 +571,7 @@ export async function syncTickTickRoutines(options: {
     }
   }
 
-  return { updatedRoutineTasks, routineTargets };
+  return { updatedRoutineTasks, routineTargets, routineTaskCounts };
 }
 
 function templateDepth(task: TickTickTask, byId: Map<string, TickTickTask>): number {

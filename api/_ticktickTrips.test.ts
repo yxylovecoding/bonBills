@@ -55,10 +55,10 @@ class FakeTickTickApi implements TickTickApi {
     return { project: { id: projectId, name: '玩' }, tasks: [...this.tasks.values()] };
   }
 
-  async filterTasks(projectIds: string | string[], statuses: number[]) {
+  async filterTasks(projectIds: string | string[] | undefined, statuses: number[]) {
     const includedProjects = new Set(Array.isArray(projectIds) ? projectIds : [projectIds]);
     return [...this.tasks.values()].filter(
-      (task) => includedProjects.has(task.projectId) && statuses.includes(task.status ?? 0),
+      (task) => (projectIds === undefined || includedProjects.has(task.projectId)) && statuses.includes(task.status ?? 0),
     );
   }
 
@@ -140,10 +140,8 @@ class FakeRoutineTickTickApi extends FakeTickTickApi {
   }
 
   async listProjects() {
-    return [
-      { id: 'play', name: '玩' },
-      { id: 'life', name: '活' },
-    ];
+    // The built-in Inbox ("life" here) is absent from /project.
+    return [{ id: 'play', name: '玩' }];
   }
 
   async getProjectData(projectId: string): Promise<TickTickProjectData> {
@@ -154,7 +152,7 @@ class FakeRoutineTickTickApi extends FakeTickTickApi {
     };
   }
 
-  async filterTasks(projectIds: string | string[], statuses: number[]) {
+  async filterTasks(projectIds: string | string[] | undefined, statuses: number[]) {
     return (await super.filterTasks(projectIds, statuses)).map((task) => task.projectId === 'life'
       ? {
         id: task.id,
@@ -251,7 +249,7 @@ describe('TickTick 出游同步', () => {
     });
   });
 
-  it('不让筛选接口的精简任务覆盖完整清单，并以重新读取结果确认日期', async () => {
+  it('同步普通清单列表之外的收集箱 routine，并保留完整任务字段', async () => {
     const api = new FakeRoutineTickTickApi();
     const calendarState = { tagMap: {
       '2026-09-01': 'home',
@@ -268,6 +266,7 @@ describe('TickTick 出游同步', () => {
     await expect(syncTickTickRoutines({ api, calendarState, today: '2026-09-07' })).resolves.toEqual({
       updatedRoutineTasks: 3,
       routineTargets: { home: '2026-09-20', school: '2026-09-07' },
+      routineTaskCounts: { home: 1, school: 2 },
     });
     expect(api.tasks.get('home-dated')).toMatchObject({
       startDate: '2026-09-19T09:00:00+0800',
@@ -291,6 +290,14 @@ describe('TickTick 出游同步', () => {
 
     await expect(syncTickTickRoutines({ api, calendarState, today: '2026-09-07' }))
       .resolves.toMatchObject({ updatedRoutineTasks: 0 });
+  });
+
+  it('找不到 routine 时明确报错，不报告零项同步成功', async () => {
+    const api = new FakeRoutineTickTickApi();
+    api.tasks.delete('home-root');
+    await expect(syncTickTickRoutines({ api, calendarState: { tagMap: {} }, today: '2026-09-04' }))
+      .rejects.toThrow('找不到“在家routine”父任务或清单');
+    expect(api.updateCalls).toBe(0);
   });
 
   it('加密保存并还原个人 API Token', () => {
