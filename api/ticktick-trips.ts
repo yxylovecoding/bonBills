@@ -103,6 +103,7 @@ async function runSync() {
         saveState: (nextState) => kv.set(SYNC_STATE_KEY, nextState).then(() => undefined),
       });
       const routineResult = await syncTickTickRoutines({ api, calendarState, today });
+      console.info('[ticktick-routine-sync]', JSON.stringify(routineResult));
       return { busy: false as const, ...result, ...routineResult, lastSyncAt: state.lastSyncAt };
     } catch (error) {
       state.lastError = error instanceof Error ? error.message : String(error);

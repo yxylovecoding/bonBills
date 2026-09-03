@@ -432,6 +432,10 @@ export function getTickTickRoutineTargetDates(calendarState: unknown, today: str
   };
 }
 
+function normalizedRoutineTitle(value: string): string {
+  return value.normalize('NFKC').replace(/\s+/g, '').toLocaleLowerCase();
+}
+
 function routineTaskPayload(task: TickTickTask, targetDate: string): Record<string, unknown> {
   const scheduledDate = taskDate(task)!;
   const shiftedStartDate = shiftTickTickDate(task.startDate, scheduledDate, targetDate);
@@ -482,12 +486,12 @@ export async function syncTickTickRoutines(options: {
   let updatedRoutineTasks = 0;
 
   for (const spec of specs) {
-    const normalizedTitle = spec.title.toLocaleLowerCase();
-    const roots = activeTasks.filter((task) => task.title.trim().toLocaleLowerCase() === normalizedTitle);
+    const normalizedTitle = normalizedRoutineTitle(spec.title);
+    const roots = activeTasks.filter((task) => normalizedRoutineTitle(task.title) === normalizedTitle);
     if (roots.length > 1) throw new Error(`TickTick 中存在多个“${spec.title}”父任务`);
     const root = roots[0];
     const sameNamedProjects = projects.filter(
-      (project) => project.name.trim().toLocaleLowerCase() === normalizedTitle,
+      (project) => normalizedRoutineTitle(project.name) === normalizedTitle,
     );
     if (!root && sameNamedProjects.length > 1) throw new Error(`TickTick 中存在多个“${spec.title}”清单`);
 

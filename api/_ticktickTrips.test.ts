@@ -102,7 +102,7 @@ class FakeRoutineTickTickApi extends FakeTickTickApi {
   constructor() {
     super();
     this.tasks.set('home-root', {
-      id: 'home-root', projectId: 'life', title: '在家routine', status: 0,
+      id: 'home-root', projectId: 'life', title: '在家 routine', status: 0,
     });
     this.tasks.set('home-dated', {
       id: 'home-dated', projectId: 'life', parentId: 'home-root', title: '整理房间', status: 0,
@@ -117,7 +117,7 @@ class FakeRoutineTickTickApi extends FakeTickTickApi {
       dueDate: '2026-09-01T00:00:00+0800',
     });
     this.tasks.set('school-root', {
-      id: 'school-root', projectId: 'life', title: '在校routine', status: 0,
+      id: 'school-root', projectId: 'life', title: '在校 ROUTINE', status: 0,
     });
     this.tasks.set('school-dated', {
       id: 'school-dated', projectId: 'life', parentId: 'school-root', title: '校园卡充值', status: 0,
