@@ -313,18 +313,21 @@ export async function initSync() {
       // 应用服务端数据到各 store
       syncingFromServer = true;
       const storesMissingFromServer: StoreEntry[] = [];
+      const storesNormalizedOnLoad: StoreEntry[] = [];
       for (const s of stores) {
         const legacyVal = s.legacyKeys?.map((key) => serverData[key]).find((val) => val && typeof val === 'object');
         const val = serverData[s.key] ?? legacyVal;
         if (val && typeof val === 'object') {
           s.setState(val as Record<string, unknown>);
+          if (JSON.stringify(s.serialize()) !== JSON.stringify(val)) storesNormalizedOnLoad.push(s);
         } else {
           storesMissingFromServer.push(s);
         }
       }
-      // 新增同步 Store 时，保留当前浏览器已有数据并立即补传到云端。
-      if (storesMissingFromServer.length > 0) {
-        await uploadStores(secret, storesMissingFromServer);
+      // 新增 Store 或加载时完成数据迁移后，立即把规范化结果固化到云端。
+      const storesToUpload = [...new Set([...storesMissingFromServer, ...storesNormalizedOnLoad])];
+      if (storesToUpload.length > 0) {
+        await uploadStores(secret, storesToUpload);
       }
       // 下一个 tick 再开订阅，避免刚 setState 触发回传
       setTimeout(() => {
