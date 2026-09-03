@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { importBillFileIntoStores } from '../utils/billImportActions';
+import { formatInvestmentImportSummary, importInvestmentFileIntoStores } from '../utils/importInvestments';
+import FinanceImportPreviewDialog from './FinanceImportPreviewDialog';
+import {
+  confirmFinanceImport,
+  prepareFinanceImport,
+  type FinanceImportPreviewDraft,
+} from '../utils/importPreview';
 import {
   FINANCE_SCREENSHOT_DRAFT_EVENT,
   applyFinanceScreenshotDraftToSnapshot,
@@ -40,6 +47,8 @@ export default function BillDropImporter() {
   const [dragOver, setDragOver] = useState(false);
   const [message, setMessage] = useState('');
   const [failed, setFailed] = useState(false);
+  const [importDraft, setImportDraft] = useState<FinanceImportPreviewDraft | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   const showMessage = (text: string, isFailed = false) => {
     setMessage(text);
@@ -79,18 +88,34 @@ export default function BillDropImporter() {
             showMessage(`已识别 ${screenshotDraftItemCount(draft)} 项 · 请确认草稿`);
             return;
           }
-          const usdRate = financeScreenshotNeedsUsdRate(draft) ? await fetchFinanceScreenshotUsdRate() : null;
-          const result = applyFinanceScreenshotDraftToSnapshot(draft, { usdRate });
-          showMessage(financeScreenshotImportMessage(result, file.name));
+          const prepared = await prepareFinanceImport(async () => {
+            const usdRate = financeScreenshotNeedsUsdRate(draft) ? await fetchFinanceScreenshotUsdRate() : null;
+            const result = applyFinanceScreenshotDraftToSnapshot(draft, { usdRate });
+            const line = financeScreenshotImportMessage(result, file.name);
+            return { title: `导入预览 · ${file.name}`, lines: [line], investmentMonths: [], billMonths: [], successMessage: `已导入 · ${line}` };
+          });
+          setImportDraft(prepared);
+          showMessage('预览已生成 · 等待确认');
           return;
         }
-        const result = await importBillFileIntoStores(file);
-        const balanceStatus = result.accountBalances.updatedKeys.length > 0
-          ? ` · 余额 ${result.accountBalances.updatedKeys.length} 项`
-          : result.accountBalances.initializedKeys.length > 0
-            ? ' · 余额已接续'
-            : '';
-        showMessage(`已导入 ${result.updatedMonths} 个月记录${balanceStatus}${result.importedPossessions > 0 ? ` · ${result.importedPossessions} 个物品动作` : ''} · ${result.fileName}`);
+        const isInvestment = /^理财/i.test(file.name) && /\.(xlsx?|csv)$/i.test(file.name);
+        const prepared = await prepareFinanceImport(async () => {
+          if (isInvestment) {
+            const result = await importInvestmentFileIntoStores(file, { deferUpload: true });
+            const line = `理财 ${formatInvestmentImportSummary(result)}`;
+            return { title: `导入预览 · ${file.name}`, lines: [line], investmentMonths: result.months, billMonths: [], successMessage: `已导入 · ${line}` };
+          }
+          const result = await importBillFileIntoStores(file, { deferUpload: true });
+          const balanceStatus = result.accountBalances.updatedKeys.length > 0
+            ? ` · 余额 ${result.accountBalances.updatedKeys.length} 项`
+            : result.accountBalances.initializedKeys.length > 0
+              ? ' · 余额已接续'
+              : '';
+          const line = `账单 ${result.updatedMonths} 个月${balanceStatus}${result.importedPossessions > 0 ? ` · ${result.importedPossessions} 个物品动作` : ''}`;
+          return { title: `导入预览 · ${file.name}`, lines: [line], investmentMonths: [], billMonths: result.months, successMessage: `已导入 · ${line}` };
+        });
+        setImportDraft(prepared);
+        showMessage('预览已生成 · 等待确认');
       } catch (err) {
         showMessage(`导入失败：${err instanceof Error ? err.message : String(err)}`, true);
       }
@@ -109,6 +134,20 @@ export default function BillDropImporter() {
     };
   }, []);
 
+  const confirmDraft = async () => {
+    if (!importDraft) return;
+    setConfirming(true);
+    try {
+      await confirmFinanceImport(importDraft);
+      showMessage(importDraft.meta.successMessage);
+      setImportDraft(null);
+    } catch (error) {
+      showMessage(`导入失败：${error instanceof Error ? error.message : String(error)}`, true);
+    } finally {
+      setConfirming(false);
+    }
+  };
+
   return (
     <>
       {dragOver && (
@@ -122,6 +161,17 @@ export default function BillDropImporter() {
         <div style={{ position: 'fixed', left: '50%', bottom: 84, transform: 'translateX(-50%)', zIndex: 1000, maxWidth: 'calc(100vw - 32px)', width: 360, borderRadius: 10, padding: '10px 12px', backgroundColor: '#fff', color: failed ? C.red : C.sub, boxShadow: '0 6px 24px rgba(0,0,0,0.16)', fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>
           {message}
         </div>
+      )}
+      {importDraft && (
+        <FinanceImportPreviewDialog
+          draft={importDraft}
+          confirming={confirming}
+          onCancel={() => {
+            setImportDraft(null);
+            showMessage('已取消导入');
+          }}
+          onConfirm={() => { void confirmDraft(); }}
+        />
       )}
     </>
   );

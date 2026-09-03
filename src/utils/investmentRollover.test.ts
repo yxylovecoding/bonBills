@@ -8,6 +8,7 @@ import { importInvestmentFileIntoStores, transactionIsAfterEdit } from './import
 import {
   createInvestmentRolloverRecord,
   emptyMonthlyRecord,
+  pendingInvestmentAmounts,
   propagateInvestmentInheritance,
   replayInvestmentRecord,
 } from './investmentRollover';
@@ -66,6 +67,30 @@ function shares(record: MonthlyRecord) {
 }
 
 describe('理财月际继承', () => {
+  it('再平衡额度计入有金额的待确认买入并换算美元', () => {
+    const item = position(10);
+    item.pendingBuys = [
+      { id: 'cny', matchKey: 'cny', baseMatchKey: 'cny', operationAt: '2026-09-03T10:00:00', amount: 100, currency: 'CNY', name: '标普', symbol: 'SPY', groupKey: 'us' },
+      { id: 'usd', matchKey: 'usd', baseMatchKey: 'usd', operationAt: '2026-09-03T11:00:00', amount: 10, currency: 'USD', name: '标普', symbol: 'SPY', groupKey: 'us' },
+      { id: 'empty', matchKey: 'empty', baseMatchKey: 'empty', operationAt: '2026-09-03T12:00:00', currency: 'CNY', name: '标普', symbol: 'SPY', groupKey: 'us' },
+    ];
+
+    expect(pendingInvestmentAmounts({ us: [item] }, 7).us).toBe(170);
+  });
+
+  it('旧持仓没有编辑时间时只建立一次安全增量起点', () => {
+    const legacy = investmentRecord('2026-09', 10);
+    legacy.investmentEditedAt = undefined;
+    useMonthlyStore.setState({ records: [legacy] });
+
+    expect(useMonthlyStore.getState().ensureInvestmentImportCutoff()).toBe(true);
+    const cutoff = useMonthlyStore.getState().records[0].investmentEditedAt;
+
+    expect(cutoff).toBeTruthy();
+    expect(useMonthlyStore.getState().ensureInvestmentImportCutoff()).toBe(false);
+    expect(useMonthlyStore.getState().records[0].investmentEditedAt).toBe(cutoff);
+  });
+
   it('新月未手动修改时随父月 ending 更新', () => {
     const august = investmentRecord('2026-08', 10);
     const september = createInvestmentRolloverRecord(august, '2026-09');

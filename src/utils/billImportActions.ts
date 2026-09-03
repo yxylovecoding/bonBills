@@ -60,7 +60,7 @@ export function recordFromBillAggregate(yearMonth: string, a: BillMonthlyAgg, pr
   };
 }
 
-export async function importBillFileIntoStores(file: File) {
+export async function importBillFileIntoStores(file: File, options?: { deferUpload?: boolean }) {
   const { tagStats, aggregates, expenseItems, incomeItems, accountTransactions } = await parseBillFile(file);
   useBillDetailStore.getState().updateFromImport(tagStats, expenseItems, incomeItems, aggregates);
   const accountBalances = syncAccountBalancesFromBill(accountTransactions);
@@ -90,10 +90,11 @@ export async function importBillFileIntoStores(file: File) {
     updatedMonths += 1;
   }
 
-  triggerUpload();
+  if (!options?.deferUpload) void triggerUpload();
   return {
     fileName: file.name,
     updatedMonths,
+    months: Object.keys(aggregates).sort(),
     importedPossessions: possessionImport.importedCount,
     accountBalances,
   };

@@ -21,6 +21,20 @@ export interface InvestAllocTargets extends InvestHoldings {}
 export type InvestPositionStatus = 'active' | 'paused' | 'closed';
 export type InvestQuoteSource = 'yahoo' | 'eastmoney-fund';
 
+export interface PendingInvestmentBuy {
+  id: string;
+  orderId?: string;
+  matchKey: string;
+  baseMatchKey: string;
+  operationAt: string;
+  amount?: number;
+  currency: string;
+  account?: string;
+  name: string;
+  symbol: string;
+  groupKey: InvestKey;
+}
+
 export interface InvestPositionItem {
   id: string;
   name: string;
@@ -39,6 +53,7 @@ export interface InvestPositionItem {
   lastCurrency?: string;
   lastFxRateToCny?: number;
   quoteAt?: string;
+  pendingBuys?: PendingInvestmentBuy[];
 }
 
 export type InvestPositionGroupKey = InvestKey | 'account' | 'aggregate';
@@ -57,6 +72,14 @@ export interface InvestmentTransactionRecord {
   fee: number;
   currency: string;
   quoteSource?: InvestQuoteSource;
+  orderId?: string;
+  operationAt?: string;
+  confirmationAt?: string;
+  amount?: number;
+  account?: string;
+  pendingMatchKey?: string;
+  pendingBaseMatchKey?: string;
+  costFromAmount?: boolean;
 }
 
 export interface InvestmentProfitBaseline {

@@ -980,3 +980,29 @@ input[type='number'] { -moz-appearance: textfield; }
     align-items: center;
   }
 }
+/* 导入预览与当前页面并排显示。 */
+.finance-import-preview-shell {
+  position: fixed;
+  inset: 0 0 0 auto;
+  z-index: 1100;
+  width: min(50vw, 720px);
+  min-width: 420px;
+  background: #fff;
+  border-left: 1px solid #dadce0;
+  box-shadow: -12px 0 36px rgba(32, 33, 36, 0.18);
+}
+
+.finance-import-preview-panel {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  padding: 16px;
+}
+
+@media (max-width: 760px) {
+  .finance-import-preview-shell {
+    width: 100vw;
+    min-width: 0;
+  }
+}

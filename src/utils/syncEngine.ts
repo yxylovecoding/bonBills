@@ -229,6 +229,7 @@ function debounce<T extends (...args: never[]) => void>(fn: T, ms: number) {
 }
 
 let syncingFromServer = false; // 防止首次 setState 触发回传
+let syncPauseDepth = 0;
 let activeSecret: string | null = null;
 let uploadInFlight: Promise<void> | null = null;
 let uploadQueued = false;
@@ -268,6 +269,15 @@ export async function triggerUpload() {
   return uploadInFlight;
 }
 
+export async function runWithSyncPaused<T>(run: () => Promise<T>): Promise<T> {
+  syncPauseDepth += 1;
+  try {
+    return await run();
+  } finally {
+    syncPauseDepth = Math.max(0, syncPauseDepth - 1);
+  }
+}
+
 function startSubscriptions() {
   const debouncedUpload = debounce(() => {
     if (syncingFromServer) return;
@@ -275,7 +285,10 @@ function startSubscriptions() {
   }, 2000);
 
   for (const s of stores) {
-    s.subscribe(() => debouncedUpload());
+    s.subscribe(() => {
+      if (syncingFromServer || syncPauseDepth > 0) return;
+      debouncedUpload();
+    });
   }
 }
 

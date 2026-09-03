@@ -6,7 +6,7 @@ import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
 import { tagMeta, investMeta } from '../data/mockData';
 import { aggregateExpenseItems, assignExpenseIds, type BillItem, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
 import { fieldsNeedingRestore, importBillFileIntoStores, recordFromBillAggregate } from '../utils/billImportActions';
-import { importInvestmentFileIntoStores } from '../utils/importInvestments';
+import { formatInvestmentImportSummary, importInvestmentFileIntoStores } from '../utils/importInvestments';
 import { inferInvestmentProfitFromBaseline } from '../utils/investTransactionProfit';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useExpenseScopeOverrideStore, resolveExpenseScope, subcategoryKey, type ExpenseScope, type OverrideValue, type OverrideDimension } from '../stores/expenseScopeOverrideStore';
@@ -15,6 +15,8 @@ import { detectTrips, detectTripGroups, extractCandidateTags, sumBillsByTag, fla
 import type { TripGroup } from '../utils/trips';
 import AmountInput from '../components/AmountInput';
 import InvestInstrumentPicker from '../components/InvestInstrumentPicker';
+import FinanceImportPreviewDialog from '../components/FinanceImportPreviewDialog';
+import ImportCutoffHint from '../components/ImportCutoffHint';
 import { calcHistoryStats } from '../calculations/history';
 import { buildExpenseScopeStats, suggestScope, isInconsistent, type ExpenseScopeStatRow } from '../calculations/expenseScopeStats';
 import {
@@ -25,6 +27,7 @@ import {
 } from '../stores/calendarStore';
 import { useConfigStore } from '../stores/configStore';
 import { useMonthlyStore, type InvestmentMutationSource } from '../stores/monthlyStore';
+import { useSnapshotStore } from '../stores/snapshotStore';
 import { usePossessionStore } from '../stores/possessionStore';
 import { classifyTag, type ManualTagCategory } from '../utils/tagCategory';
 import { usePrefsStore, REVIEWABLE_CATEGORIES, type ReviewableCategory } from '../stores/prefsStore';
@@ -64,13 +67,21 @@ import {
   type InvestMarketSnapshot,
 } from '../utils/investPositionItems';
 import { getMonthlyAssetChange, getMonthlySavedAmount, getMonthlySavingsRate } from '../utils/monthlyMetrics';
-import { getActiveSyncSecret, triggerUpload } from '../utils/syncEngine';
+import { triggerUpload } from '../utils/syncEngine';
 import {
   financeScreenshotImportMessage,
   importFinanceScreenshotFileIntoSnapshot,
   isFinanceScreenshotFile,
 } from '../utils/financeScreenshotOcr';
 import { compileTagLogic, formatTagReference } from '../utils/tagLogic';
+import { fetchLatestMailAttachments } from '../utils/mailAttachments';
+import { billImportCutoff, investmentImportCutoff } from '../utils/importCutoffs';
+import {
+  confirmFinanceImport,
+  prepareFinanceImport,
+  type FinanceImportPreviewDraft,
+  type FinanceImportPreviewMeta,
+} from '../utils/importPreview';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', border: '#e0e0e0', weekend: '#ea4335', orange: '#e8710a' };
 function surplusHighlightStyle(value: number): React.CSSProperties {
@@ -101,19 +112,6 @@ type UsdRateResponse = {
   rate: number;
   date?: string;
   source?: string;
-};
-
-type MailAttachmentPayload = {
-  kind?: 'bill' | 'investment';
-  fileName: string;
-  contentType?: string;
-  base64: string;
-  subject?: string;
-  uid?: number;
-};
-
-type BillAttachmentResponse = MailAttachmentPayload & {
-  attachments?: MailAttachmentPayload[];
 };
 
 // ── Calendar helpers ──────────────────────────────────────────────
@@ -172,7 +170,10 @@ function formatNativeCurrency(value: number, currency: string, signed = false) {
 
 function cloneInvestPositionItems(items: InvestPositionItems): InvestPositionItems {
   return Object.fromEntries(
-    Object.entries(items).map(([key, group]) => [key, group?.map((item) => ({ ...item }))]),
+    Object.entries(items).map(([key, group]) => [key, group?.map((item) => ({
+      ...item,
+      pendingBuys: item.pendingBuys?.map((pending) => ({ ...pending })),
+    }))]),
   ) as InvestPositionItems;
 }
 
@@ -195,38 +196,6 @@ function getSavedAmountTitle(
   const savedCalculation = `${formula}\n= (${formatCurrencyValue(record.investTotal)} − ${formatCurrencyValue(previous.investTotal)}) − (${formatCurrencyValue(record.accumulatedProfit)} − ${formatCurrencyValue(previous.accumulatedProfit)})\n= (${formatSignedCurrency(investmentAssetChange)}) − (${formatSignedCurrency(investmentIncome)}) = ${formatSignedCurrency(savedAmount)}`;
   if (record.income <= 0) return `${savedCalculation}\n储蓄率 = 存下 ÷ 本月收入；本月收入需大于 0`;
   return `${savedCalculation}\n储蓄率 = 存下 ÷ 本月收入 = ${formatSignedCurrency(savedAmount)} ÷ ${formatCurrencyValue(record.income)} = ${((savedAmount / record.income) * 100).toFixed(1)}%`;
-}
-
-function base64ToFile(base64: string, fileName: string, contentType?: string): File {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new File([bytes], fileName, { type: contentType || 'application/vnd.ms-excel' });
-}
-
-async function fetchLatestMailAttachments(): Promise<Array<{ kind: 'bill' | 'investment'; file: File; subject?: string; uid?: number }>> {
-  const secret = getActiveSyncSecret();
-  if (!secret) throw new Error('缺少同步密码');
-  const lastInvestmentMailUid = useMonthlyStore.getState().records.reduce(
-    (latest, record) => Math.max(latest, record.lastInvestmentMailUid ?? 0),
-    0,
-  );
-  const query = lastInvestmentMailUid > 0 ? `?sinceInvestmentUid=${lastInvestmentMailUid}` : '';
-  const res = await fetch(`/api/latest-bill-attachment${query}`, {
-    headers: { Authorization: `Bearer ${secret}` },
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => null) as { error?: string } | null;
-    throw new Error(body?.error || `HTTP ${res.status}`);
-  }
-  const body = await res.json() as BillAttachmentResponse;
-  const attachments = body.attachments?.length ? body.attachments : [body];
-  return attachments.map((attachment) => ({
-    kind: attachment.kind === 'investment' ? 'investment' : 'bill',
-    file: base64ToFile(attachment.base64, attachment.fileName, attachment.contentType),
-    subject: attachment.subject,
-    uid: attachment.uid,
-  }));
 }
 
 // ── Bill tag detail helpers ───────────────────────────────────────
@@ -2275,7 +2244,9 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
       </div>
 
       {visibleGroupKeys.map((groupKey) => {
-        const items = positionDraftGroups[groupKey].filter((item) => activeStatus === 'active' ? item.status === 'active' : item.status !== 'active');
+        const items = positionDraftGroups[groupKey].filter((item) => activeStatus === 'active'
+          ? item.status === 'active' || (item.pendingBuys?.length ?? 0) > 0
+          : item.status !== 'active' && (item.pendingBuys?.length ?? 0) === 0);
         const groupStateKey = `${activeStatus}:${groupKey}`;
         const groupExpanded = expandedGroupKeys.has(groupStateKey);
         const groupLabel = groupKey === 'account' ? '历史账户' : groupKey === 'aggregate' ? '待归类账户' : investMeta[groupKey].label;
@@ -2438,6 +2409,20 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                       <button type="button" onClick={() => { if (window.confirm(`删除“${item.name}”？`)) { removePositionDraft(groupKey, item.id); setExpandedItemKey(null); } }} aria-label={`删除${item.name}`} style={{ width: 24, height: 24, border: 'none', borderRadius: 6, backgroundColor: '#fce8e6', color: C.red, cursor: 'pointer', fontWeight: 800 }}>×</button>
                     </div>
                   </div>
+
+                  {(item.pendingBuys?.length ?? 0) > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 5 }}>
+                      {item.pendingBuys?.map((pending) => (
+                        <div key={pending.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, borderRadius: 7, backgroundColor: '#fff4e5', padding: '5px 7px', color: C.orange, fontSize: 10, fontWeight: 700 }}>
+                          <span>待确认 · {pending.operationAt.slice(5, 16).replace('T', ' ')}</span>
+                          <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                            {pending.amount ? `${currencyMark(pending.currency)}${formatCurrency(pending.amount)}` : '金额待出'}
+                            {pending.account ? ` · ${pending.account}` : ''}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   {isExpanded && (
                     <div style={{ marginTop: 8 }}>
@@ -3686,6 +3671,7 @@ export default function CalendarPage() {
   const { tagMap, setTag, toggleTag, countByTag, bulkFillSchool, confirmedExpenses, setConfirmedExpenseScope, markConfirmedExpenseZero, clearConfirmedExpenseSelection } = useCalendarStore();
   const { config, setConfig } = useConfigStore();
   const { records, upsert, updateDayCounts } = useMonthlyStore();
+  const importSnapshot = useSnapshotStore((state) => state.current);
   const { tagStats: billTagStats, aggregates: billAggregates, expenseItems: billExpenseItems, incomeItems: billIncomeItems } = useBillDetailStore();
   const { overrides: expenseScopeOverrides, setOverride: setExpenseScopeOverride } = useExpenseScopeOverrideStore();
   const { tripTags, tripNotes, tripSplits, setTripTag, setTripNote, clearTripTag, toggleTripSplit } = useTripStore();
@@ -3915,33 +3901,56 @@ export default function CalendarPage() {
   const [expandedTag, setExpandedTag] = useState<null | 'eat' | 'red' | 'black'>(null);
   const [billImportMsg, setBillImportMsg] = useState<string>('');
   const [billImporting, setBillImporting] = useState(false);
+  const [financeImportDraft, setFinanceImportDraft] = useState<FinanceImportPreviewDraft | null>(null);
+  const [financeImportConfirming, setFinanceImportConfirming] = useState(false);
   const billFileRef = useRef<HTMLInputElement>(null);
   const importFileContent = async (file: File, kind: 'auto' | 'bill' | 'investment' = 'auto', mailUid?: number) => {
     const isInvestment = kind === 'investment'
       || (kind === 'auto' && /^理财/i.test(file.name) && /\.(xlsx?|csv)$/i.test(file.name));
     if (isInvestment) {
-      const result = await importInvestmentFileIntoStores(file, { mailUid });
-      return result.importedTransactions > 0
-        ? `理财 ${result.importedTransactions} 笔 · ${result.updatedMonths} 个月 · ${result.fileName}`
-        : `理财无新增 · ${result.fileName}`;
+      const result = await importInvestmentFileIntoStores(file, { mailUid, deferUpload: true });
+      return {
+        line: `理财 ${formatInvestmentImportSummary(result)}`,
+        investmentMonths: result.months,
+        billMonths: [] as string[],
+      };
     }
     if (isFinanceScreenshotFile(file)) {
       const { result } = await importFinanceScreenshotFileIntoSnapshot(file);
-      return financeScreenshotImportMessage(result, file.name);
+      return { line: financeScreenshotImportMessage(result, file.name), investmentMonths: [] as string[], billMonths: [] as string[] };
     }
-    const result = await importBillFileIntoStores(file);
+    const result = await importBillFileIntoStores(file, { deferUpload: true });
     const balanceStatus = result.accountBalances.updatedKeys.length > 0
       ? ` · 余额 ${result.accountBalances.updatedKeys.length} 项`
       : result.accountBalances.initializedKeys.length > 0
         ? ' · 余额已接续'
         : '';
-    return `账单 ${result.updatedMonths} 个月${balanceStatus}${result.importedPossessions > 0 ? ` · ${result.importedPossessions} 个物品动作` : ''} · ${result.fileName}`;
+    return {
+      line: `账单 ${result.updatedMonths} 个月${balanceStatus}${result.importedPossessions > 0 ? ` · ${result.importedPossessions} 个物品动作` : ''}`,
+      investmentMonths: [] as string[],
+      billMonths: result.months,
+    };
+  };
+  const buildPreviewMeta = (title: string, results: Awaited<ReturnType<typeof importFileContent>>[]): FinanceImportPreviewMeta => {
+    const lines = results.map((result) => result.line);
+    return {
+      title,
+      lines,
+      investmentMonths: [...new Set(results.flatMap((result) => result.investmentMonths))].sort(),
+      billMonths: [...new Set(results.flatMap((result) => result.billMonths))].sort(),
+      successMessage: `已导入 · ${lines.join(' · ')}`,
+    };
   };
   const importBillFromFile = async (file: File) => {
     setBillImporting(true);
     try {
-      setBillImportMsg(isFinanceScreenshotFile(file) ? '图片OCR中' : '导入中');
-      setBillImportMsg(`已导入 · ${await importFileContent(file)}`);
+      setBillImportMsg(isFinanceScreenshotFile(file) ? '图片OCR中' : '生成预览中');
+      const draft = await prepareFinanceImport(async () => buildPreviewMeta(
+        `导入预览 · ${file.name}`,
+        [await importFileContent(file)],
+      ));
+      setFinanceImportDraft(draft);
+      setBillImportMsg('预览已生成 · 等待确认');
     } catch (err) {
       setBillImportMsg(`导入失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -3953,18 +3962,24 @@ export default function CalendarPage() {
     setBillImportMsg('邮箱查找中');
     try {
       const attachments = await fetchLatestMailAttachments();
-      const imported: string[] = [];
+      const imported: Awaited<ReturnType<typeof importFileContent>>[] = [];
       const failed: string[] = [];
-      for (const attachment of attachments) {
-        setBillImportMsg(attachment.kind === 'investment' ? '邮箱理财导入中' : '邮箱账单导入中');
-        try {
-          imported.push(await importFileContent(attachment.file, attachment.kind, attachment.uid));
-        } catch (err) {
-          failed.push(`${attachment.file.name}：${err instanceof Error ? err.message : String(err)}`);
+      const draft = await prepareFinanceImport(async () => {
+        for (const attachment of attachments) {
+          setBillImportMsg(attachment.kind === 'investment' ? '邮箱理财预览中' : '邮箱账单预览中');
+          try {
+            imported.push(await importFileContent(attachment.file, attachment.kind, attachment.uid));
+          } catch (err) {
+            failed.push(`${attachment.file.name}：${err instanceof Error ? err.message : String(err)}`);
+          }
         }
-      }
-      if (imported.length === 0) throw new Error(failed.join('；') || '没有可导入附件');
-      setBillImportMsg(`邮箱已导入 · ${imported.join(' · ')}${failed.length ? ` · ${failed.join('；')}` : ''}`);
+        if (imported.length === 0) throw new Error(failed.join('；') || '没有可导入附件');
+        const meta = buildPreviewMeta('邮箱导入预览', imported);
+        if (failed.length > 0) meta.lines.push(...failed.map((message) => `失败 · ${message}`));
+        return meta;
+      });
+      setFinanceImportDraft(draft);
+      setBillImportMsg('邮箱预览已生成 · 等待确认');
     } catch (err) {
       setBillImportMsg(`邮箱导入失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -3975,6 +3990,19 @@ export default function CalendarPage() {
     const file = e.target.files?.[0];
     if (file) await importBillFromFile(file);
     if (billFileRef.current) billFileRef.current.value = '';
+  };
+  const confirmImportDraft = async () => {
+    if (!financeImportDraft) return;
+    setFinanceImportConfirming(true);
+    try {
+      await confirmFinanceImport(financeImportDraft);
+      setBillImportMsg(financeImportDraft.meta.successMessage);
+      setFinanceImportDraft(null);
+    } catch (error) {
+      setBillImportMsg(`导入失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setFinanceImportConfirming(false);
+    }
   };
   const pickerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -4167,6 +4195,10 @@ export default function CalendarPage() {
               >
                 {billImporting ? '导入中' : '邮箱'}
               </button>
+              <ImportCutoffHint
+                investment={investmentImportCutoff(records)}
+                bill={billImportCutoff(importSnapshot)}
+              />
               <button
                 onClick={() => billFileRef.current?.click()}
                 disabled={billImporting}
@@ -4820,6 +4852,17 @@ export default function CalendarPage() {
             ))}
           </Card>
         </>
+      )}
+      {financeImportDraft && (
+        <FinanceImportPreviewDialog
+          draft={financeImportDraft}
+          confirming={financeImportConfirming}
+          onCancel={() => {
+            setFinanceImportDraft(null);
+            setBillImportMsg('已取消导入');
+          }}
+          onConfirm={() => { void confirmImportDraft(); }}
+        />
       )}
     </div>
   );

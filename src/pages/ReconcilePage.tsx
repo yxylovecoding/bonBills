@@ -2,6 +2,8 @@ import { Fragment, useEffect, useLayoutEffect, useState, useMemo, useRef, type P
 import Card from '../components/Card';
 import { formatCurrency } from '../components/CurrencyDisplay';
 import AmountInput from '../components/AmountInput';
+import FinanceImportPreviewDialog from '../components/FinanceImportPreviewDialog';
+import ImportCutoffHint from '../components/ImportCutoffHint';
 
 const fmtInt = (v: number) => Math.round(v).toLocaleString('zh-CN');
 import { useSnapshotStore } from '../stores/snapshotStore';
@@ -39,8 +41,15 @@ import {
   type ScreenshotParseResult,
 } from '../utils/financeScreenshotOcr';
 import { importBillFileIntoStores } from '../utils/billImportActions';
-import { importInvestmentFileIntoStores } from '../utils/importInvestments';
+import { formatInvestmentImportSummary, importInvestmentFileIntoStores } from '../utils/importInvestments';
+import { pendingInvestmentAmounts } from '../utils/investmentRollover';
 import { fetchLatestMailAttachments } from '../utils/mailAttachments';
+import { billImportCutoff, investmentImportCutoff } from '../utils/importCutoffs';
+import {
+  confirmFinanceImport,
+  prepareFinanceImport,
+  type FinanceImportPreviewDraft,
+} from '../utils/importPreview';
 import {
   buildDramDecision,
   normalizeDramDecisionConfig,
@@ -391,7 +400,6 @@ type ReconcileUndoState = {
   localHoldings: Record<InvestKey, string>;
   localUsStockItems: UsStockItemInput[];
   dramConfigInputs: { shares: string; costPrice: string };
-  localConfirmed: Record<InvestKey, string>;
   localFundingLeg: Record<string, string>;
 };
 
@@ -428,7 +436,10 @@ const cloneMonthlyRecord = (record: MonthlyRecord | undefined): MonthlyRecord | 
         ? Object.fromEntries(Object.entries(record.investPastProfitComponents).map(([key, value]) => [key, value ? { ...value } : value]))
         : undefined,
       investPositionItems: record.investPositionItems
-        ? Object.fromEntries(Object.entries(record.investPositionItems).map(([key, items]) => [key, items?.map((item) => ({ ...item }))]))
+        ? Object.fromEntries(Object.entries(record.investPositionItems).map(([key, items]) => [key, items?.map((item) => ({
+            ...item,
+            pendingBuys: item.pendingBuys?.map((pending) => ({ ...pending })),
+          }))]))
         : undefined,
       investmentTransactions: record.investmentTransactions?.map((transaction) => ({ ...transaction })),
       importedInvestmentTransactionIds: record.importedInvestmentTransactionIds ? [...record.importedInvestmentTransactionIds] : undefined,
@@ -455,7 +466,6 @@ const cloneReconcileUndoState = (state: ReconcileUndoState): ReconcileUndoState 
   localHoldings: { ...state.localHoldings },
   localUsStockItems: state.localUsStockItems.map((item) => ({ ...item })),
   dramConfigInputs: { ...state.dramConfigInputs },
-  localConfirmed: { ...state.localConfirmed },
   localFundingLeg: { ...state.localFundingLeg },
 });
 
@@ -482,7 +492,6 @@ const reconcileUndoFingerprint = (state: ReconcileUndoState) => {
     localHoldings: state.localHoldings,
     localUsStockItems: state.localUsStockItems,
     dramConfigInputs: state.dramConfigInputs,
-    localConfirmed: state.localConfirmed,
     localFundingLeg: state.localFundingLeg,
   });
 };
@@ -543,7 +552,10 @@ export default function ReconcilePage() {
     const nextItems = Object.fromEntries(
       Object.entries(currentInvestPositionItems).map(([groupKey, items]) => [
         groupKey,
-        items?.map((item) => ({ ...item })),
+        items?.map((item) => ({
+          ...item,
+          pendingBuys: item.pendingBuys?.map((pending) => ({ ...pending })),
+        })),
       ]),
     ) as InvestPositionItems;
     nextItems[key] = update(nextItems[key] ?? []);
@@ -713,6 +725,8 @@ export default function ReconcilePage() {
   const [usdRebalanceCells, setUsdRebalanceCells] = useState<Set<InvestKey>>(() => new Set());
   const [screenshotImportMsg, setScreenshotImportMsg] = useState('');
   const [mailImporting, setMailImporting] = useState(false);
+  const [financeImportDraft, setFinanceImportDraft] = useState<FinanceImportPreviewDraft | null>(null);
+  const [financeImportConfirming, setFinanceImportConfirming] = useState(false);
   const [screenshotDraft, setScreenshotDraft] = useState<ScreenshotParseResult | null>(null);
   const [screenshotPreview, setScreenshotPreview] = useState<{ url: string; fileName: string } | null>(null);
   const screenshotPreviewUrlRef = useRef<string | null>(null);
@@ -773,32 +787,79 @@ export default function ReconcilePage() {
       const attachments = await fetchLatestMailAttachments();
       const imported: string[] = [];
       const failed: string[] = [];
+      const tableAttachments = [] as typeof attachments;
       for (const attachment of attachments) {
         try {
           if (isFinanceScreenshotFile(attachment.file)) {
             setScreenshotImportMsg('邮箱图片识别中');
             imported.push(showScreenshotDraft(await parseFinanceScreenshot(attachment.file), attachment.file));
-          } else if (attachment.kind === 'investment') {
-            setScreenshotImportMsg('邮箱理财导入中');
-            const result = await importInvestmentFileIntoStores(attachment.file, { mailUid: attachment.uid });
-            imported.push(result.importedTransactions > 0
-              ? `理财 ${result.importedTransactions} 笔 · ${result.updatedMonths} 个月`
-              : '理财无新增');
           } else {
-            setScreenshotImportMsg('邮箱账单导入中');
-            const result = await importBillFileIntoStores(attachment.file);
-            imported.push(`账单 ${result.updatedMonths} 个月`);
+            tableAttachments.push(attachment);
           }
         } catch (error) {
           failed.push(`${attachment.file.name}：${error instanceof Error ? error.message : String(error)}`);
         }
       }
+      if (tableAttachments.length > 0) {
+        const draft = await prepareFinanceImport(async () => {
+          const investmentMonths: string[] = [];
+          const billMonths: string[] = [];
+          const lines: string[] = [];
+          for (const attachment of tableAttachments) {
+            try {
+              if (attachment.kind === 'investment') {
+                setScreenshotImportMsg('邮箱理财预览中');
+                const result = await importInvestmentFileIntoStores(attachment.file, { mailUid: attachment.uid, deferUpload: true });
+                const line = `理财 ${formatInvestmentImportSummary(result)}`;
+                lines.push(line);
+                imported.push(line);
+                investmentMonths.push(...result.months);
+              } else {
+                setScreenshotImportMsg('邮箱账单预览中');
+                const result = await importBillFileIntoStores(attachment.file, { deferUpload: true });
+                const line = `账单 ${result.updatedMonths} 个月 · 余额 ${result.accountBalances.appliedTransactions} 笔`;
+                lines.push(line);
+                imported.push(line);
+                billMonths.push(...result.months);
+              }
+            } catch (error) {
+              failed.push(`${attachment.file.name}：${error instanceof Error ? error.message : String(error)}`);
+            }
+          }
+          if (lines.length === 0) throw new Error(failed.join('；') || '没有可预览附件');
+          if (failed.length > 0) lines.push(...failed.map((message) => `失败 · ${message}`));
+          return {
+            title: '邮箱导入预览',
+            lines,
+            investmentMonths: [...new Set(investmentMonths)].sort(),
+            billMonths: [...new Set(billMonths)].sort(),
+            successMessage: `邮箱已导入 · ${imported.join(' · ')}`,
+          };
+        });
+        setFinanceImportDraft(draft);
+      }
       if (imported.length === 0) throw new Error(failed.join('；') || '没有可导入附件');
-      setScreenshotImportMsg(`邮箱已导入 · ${imported.join(' · ')}${failed.length ? ` · ${failed.join('；')}` : ''}`);
+      setScreenshotImportMsg(tableAttachments.length > 0
+        ? '邮箱预览已生成 · 等待确认'
+        : `已生成图片草稿 · ${imported.join(' · ')}`);
     } catch (error) {
       setScreenshotImportMsg(`邮箱导入失败：${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setMailImporting(false);
+    }
+  };
+
+  const confirmImportDraft = async () => {
+    if (!financeImportDraft) return;
+    setFinanceImportConfirming(true);
+    try {
+      await confirmFinanceImport(financeImportDraft);
+      setScreenshotImportMsg(financeImportDraft.meta.successMessage);
+      setFinanceImportDraft(null);
+    } catch (error) {
+      setScreenshotImportMsg(`导入失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setFinanceImportConfirming(false);
     }
   };
 
@@ -868,11 +929,6 @@ export default function ReconcilePage() {
     [effectiveConfig, stats, confirmed, tags, current.accounts],
   );
 
-  // 理财再平衡建议（算法值）
-  const effectiveInvestHoldings = useMemo(() => ({
-    ...monthlyInvestHoldings,
-    longBond: Math.max(0, monthlyInvestHoldings.longBond - longBondRepay),
-  }), [monthlyInvestHoldings, longBondRepay]);
   const investKeys = INVEST_TARGET_KEYS;
   const investAllocTargets = useMemo(
     () => investKeys.some((k) => (config.investAllocTargets[k] ?? 0) > 0)
@@ -918,6 +974,21 @@ export default function ReconcilePage() {
     return () => controller.abort();
   }, []);
   const latestUsdRate = remoteUsdRate?.rate ?? fallbackUsdRate;
+  const pendingInvestHoldings = useMemo(
+    () => pendingInvestmentAmounts(currentInvestPositionItems, latestUsdRate),
+    [currentInvestPositionItems, latestUsdRate],
+  );
+  const effectiveInvestHoldings = useMemo(() => Object.fromEntries(
+    INVEST_TARGET_KEYS.map((key) => [
+      key,
+      roundMoney(
+        (key === 'longBond'
+          ? Math.max(0, monthlyInvestHoldings.longBond - longBondRepay)
+          : monthlyInvestHoldings[key])
+        + pendingInvestHoldings[key],
+      ),
+    ]),
+  ) as Record<InvestKey, number>, [longBondRepay, monthlyInvestHoldings, pendingInvestHoldings]);
   const usdRateLabel = remoteUsdRate
     ? `${remoteUsdRate.source}${remoteUsdRate.date ? ` · ${remoteUsdRate.date}` : ''}`
     : fallbackUsdRate !== null
@@ -1265,11 +1336,6 @@ export default function ReconcilePage() {
     return roundMoney(Math.max(rawCnyNeed - cappedCnyNeed, 0));
   }, [allowRebalanceSell, investKeys, rawRebalanceSuggested, rebalanceNewFunds, rebalanceSuggested]);
 
-  const rebalanceInputRefs = useRef<(HTMLInputElement | null)[]>([]);
-  // 已加仓（本次会话输入，执行后归零）
-  const [localConfirmed, setLocalConfirmed] = useState<Record<InvestKey, string>>(
-    () => Object.fromEntries(investKeys.map((k) => [k, '0'])) as Record<InvestKey, string>
-  );
   const totalInvest = investKeys.reduce((s, k) => s + effectiveInvestHoldings[k], 0);
   const rebalanceFunding = useMemo(() => {
     const isUsdKey = (k: InvestKey) => USD_INVEST_KEYS.includes(k);
@@ -1451,134 +1517,6 @@ export default function ReconcilePage() {
     updateHoldings(nextHoldings);
     updateAccounts({ savingsCard: newSavings });
     setLocalAccounts((p) => ({ ...p, savingsCard: String(newSavings) }));
-  };
-
-  const handleExecuteRebalance = () => {
-    if (!currentInvestRecord) {
-      window.alert('请先创建本月记录，再执行加仓。');
-      return;
-    }
-    const entries = investKeys.map((k) => [k, parseFloat(localConfirmed[k]) || 0] as const);
-    const hasUsdExecution = entries.some(([k, amount]) => USD_INVEST_KEYS.includes(k) && amount !== 0);
-    if (hasUsdExecution && latestUsdRate === null) {
-      window.alert('暂无美元汇率，先在月度记录里录入美股/美债美元收益汇率后再执行美元资产加减仓。');
-      return;
-    }
-
-    const newHoldings = { ...monthlyInvestHoldings };
-    const nextAccounts: AccountSnapshot['accounts'] = {
-      credit: current.accounts.credit ?? 0,
-      creditMonthly: current.accounts.creditMonthly ?? 0,
-      savingsCard: current.accounts.savingsCard ?? 0,
-      incomeBank: current.accounts.incomeBank ?? 0,
-      livingBank: current.accounts.livingBank ?? 0,
-      campusCard: current.accounts.campusCard ?? 0,
-      consumptionBank: current.accounts.consumptionBank ?? 0,
-      wishJar: current.accounts.wishJar ?? 0,
-      investCnyBank: current.accounts.investCnyBank ?? 0,
-      usdLivingBank: current.accounts.usdLivingBank ?? 0,
-      usdConsumptionBank: current.accounts.usdConsumptionBank ?? 0,
-      usdWishJar: current.accounts.usdWishJar ?? 0,
-      investUsdBank: current.accounts.investUsdBank ?? 0,
-    };
-
-    const buyUsdAsset = (amountCny: number) => {
-      const rate = latestUsdRate!;
-      let needUsd = amountCny / rate;
-
-      const usdFromInvest = Math.min(Math.max(nextAccounts.investUsdBank, 0), needUsd);
-      if (usdFromInvest > 0) {
-        nextAccounts.investUsdBank = roundMoney(nextAccounts.investUsdBank - usdFromInvest);
-        needUsd -= usdFromInvest;
-      }
-
-      for (const bucket of USD_REPLACE_BUCKETS) {
-        if (needUsd <= 0.0001) break;
-        const usdFromBucket = Math.min(Math.max(nextAccounts[bucket.usdKey], 0), needUsd);
-        if (usdFromBucket <= 0) continue;
-        const cnyEquivalent = roundMoney(usdFromBucket * rate);
-        nextAccounts[bucket.usdKey] = roundMoney(nextAccounts[bucket.usdKey] - usdFromBucket);
-        nextAccounts[bucket.cnyKey] = roundMoney(nextAccounts[bucket.cnyKey] + cnyEquivalent);
-        nextAccounts.investCnyBank = roundMoney(nextAccounts.investCnyBank - cnyEquivalent);
-        needUsd -= usdFromBucket;
-      }
-
-      if (needUsd > 0.0001) {
-        nextAccounts.investCnyBank = roundMoney(nextAccounts.investCnyBank - needUsd * rate);
-      }
-    };
-
-    const buyCnyAsset = (amountCny: number) => {
-      let remaining = amountCny;
-      let covered = 0;
-
-      const fromInvest = roundMoney(Math.min(Math.max(nextAccounts.investCnyBank, 0), remaining));
-      if (fromInvest > 0) {
-        nextAccounts.investCnyBank = roundMoney(nextAccounts.investCnyBank - fromInvest);
-        remaining = roundMoney(remaining - fromInvest);
-        covered = roundMoney(covered + fromInvest);
-      }
-
-      if (remaining > 0.0001 && latestUsdRate !== null) {
-        const rate = latestUsdRate;
-        for (const bucket of USD_REPLACE_BUCKETS) {
-          if (remaining <= 0.0001) break;
-          const availableCny = Math.max(nextAccounts[bucket.cnyKey], 0);
-          const parkableCny = Math.max(nextAccounts.investUsdBank, 0) * rate;
-          const fromBuffer = roundMoney(Math.min(availableCny, parkableCny, remaining));
-          if (fromBuffer <= 0) continue;
-
-          const usdToPark = roundMoney(Math.min(Math.max(nextAccounts.investUsdBank, 0), fromBuffer / rate));
-          nextAccounts[bucket.cnyKey] = roundMoney(nextAccounts[bucket.cnyKey] - fromBuffer);
-          nextAccounts.investUsdBank = roundMoney(nextAccounts.investUsdBank - usdToPark);
-          nextAccounts[bucket.usdKey] = roundMoney(nextAccounts[bucket.usdKey] + usdToPark);
-          remaining = roundMoney(remaining - fromBuffer);
-          covered = roundMoney(covered + fromBuffer);
-        }
-      }
-
-      return covered;
-    };
-
-    for (const [k, executed] of entries) {
-      if (executed === 0) continue;
-      let holdingDelta = executed;
-
-      if (USD_INVEST_KEYS.includes(k)) {
-        const rate = latestUsdRate!;
-        if (executed > 0) {
-          buyUsdAsset(executed);
-        } else {
-          nextAccounts.investUsdBank = roundMoney(nextAccounts.investUsdBank + (-executed / rate));
-        }
-      } else if (executed > 0) {
-        holdingDelta = buyCnyAsset(executed);
-      } else {
-        nextAccounts.investCnyBank = roundMoney(nextAccounts.investCnyBank + (-executed));
-      }
-      newHoldings[k] = roundMoney(newHoldings[k] + holdingDelta);
-    }
-
-    upsert(markInvestmentEdited(syncInvestPositionCategoryAmounts(currentInvestRecord, newHoldings)), { investmentSource: 'manual' });
-    updateHoldings(newHoldings);
-    updateAccounts(nextAccounts);
-    setLocalHoldings(Object.fromEntries(investKeys.map((k) => [
-      k,
-      String(newHoldings[k]),
-    ])) as Record<InvestKey, string>);
-    setLocalAccounts((prev) => ({
-      ...prev,
-      livingBank: String(nextAccounts.livingBank),
-      consumptionBank: String(nextAccounts.consumptionBank),
-      wishJar: String(nextAccounts.wishJar),
-      incomeBank: String(nextAccounts.incomeBank),
-      investCnyBank: String(nextAccounts.investCnyBank),
-      usdLivingBank: String(nextAccounts.usdLivingBank),
-      usdConsumptionBank: String(nextAccounts.usdConsumptionBank),
-      usdWishJar: String(nextAccounts.usdWishJar),
-      investUsdBank: String(nextAccounts.investUsdBank),
-    }));
-    setLocalConfirmed(Object.fromEntries(investKeys.map((k) => [k, '0'])) as Record<InvestKey, string>);
   };
 
   const todayDate = today.getDate();
@@ -1816,12 +1754,11 @@ export default function ReconcilePage() {
     localHoldings: { ...localHoldings },
     localUsStockItems: localUsStockItems.map((item) => ({ ...item })),
     dramConfigInputs: { ...dramConfigInputs },
-    localConfirmed: { ...localConfirmed },
     localFundingLeg: { ...localFundingLeg },
   }), [
     allowRebalanceSell, config.dramDecision, config.investAllocTargets, confirmed, consumptionWishOpen,
     current, currentInvestRecord, dramConfigInputs, groupedTargetInputs, investUsdCnyInput, investUsdInputMode,
-    localAccounts, localConfirmed, localFundingLeg, localHoldings, localTransferred, localUsStockItems,
+    localAccounts, localFundingLeg, localHoldings, localTransferred, localUsStockItems,
     reconcileMode, revealConsumptionWishUsd, revealedUsdAccounts,
   ]);
   const latestUndoFingerprint = useMemo(() => reconcileUndoFingerprint(latestUndoState), [latestUndoState]);
@@ -1896,7 +1833,6 @@ export default function ReconcilePage() {
     setLocalHoldings({ ...previous.state.localHoldings });
     setLocalUsStockItems(previous.state.localUsStockItems.map((item) => ({ ...item })));
     setDramConfigInputs({ ...previous.state.dramConfigInputs });
-    setLocalConfirmed({ ...previous.state.localConfirmed });
     setLocalFundingLeg({ ...previous.state.localFundingLeg });
   };
 
@@ -2119,8 +2055,7 @@ export default function ReconcilePage() {
   const dramActionPlan = useMemo(() => {
     if (!dramDecision) return null;
     const usSuggested = rebalanceSuggested.us ?? 0;
-    const usDone = Math.max(0, parseAmountPart(localConfirmed.us));
-    const usRemaining = roundMoney(Math.max(usSuggested - usDone, 0));
+    const usRemaining = roundMoney(Math.max(usSuggested, 0));
     const priceCny = latestUsdRate !== null ? dramDecision.latestPrice * latestUsdRate : null;
     const sharesFromCny = (cny: number) => (priceCny !== null && priceCny > 0 ? Math.round((cny / priceCny) * 10000) / 10000 : 0);
 
@@ -2158,7 +2093,7 @@ export default function ReconcilePage() {
       buyShares: 0,
       usRemaining,
     };
-  }, [dramDecision, latestUsdRate, localConfirmed.us, rebalanceSuggested.us]);
+  }, [dramDecision, latestUsdRate, rebalanceSuggested.us]);
   const renderDramDecisionPanel = () => (
     <div style={{ border: `1.5px solid ${activeDramTone.border}`, borderRadius: 12, padding: '10px 12px', backgroundColor: activeDramTone.bg }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
@@ -2290,6 +2225,10 @@ export default function ReconcilePage() {
           >
             {mailImporting ? '导入中' : '邮箱'}
           </button>
+          <ImportCutoffHint
+            investment={investmentImportCutoff(records)}
+            bill={billImportCutoff(current)}
+          />
           <button
             onClick={() => {
               setGroupedTargetInputs(groupedTargetInputFromConfig(effectiveInvestTargets(config.investAllocTargets)));
@@ -2774,7 +2713,7 @@ export default function ReconcilePage() {
 
       {/* Step 3: 理财配置 & 再平衡 */}
       <div id="sec-invest">
-      <Card title="③ 理财配置 & 再平衡" subtitle="本月持仓同步，保留加仓与再平衡">
+      <Card title="③ 理财配置 & 再平衡" subtitle="持仓同步与配置建议">
         {/* 本次投入 */}
         <div {...makeUsdSwipeHandlers('investUsdBank')} style={{ touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, border: '1.5px solid #fbbf24', borderRadius: 10, padding: '10px 12px', backgroundColor: '#fffbeb', marginBottom: 14 }}>
           {([
@@ -2820,7 +2759,7 @@ export default function ReconcilePage() {
                           onChange={(v) => setLocalAccounts((p) => ({ ...p, [usdKey]: normalizeAmountInput(v) }))}
                           onFocus={(e) => e.target.select()}
                           onBlur={() => syncAccounts()}
-                          onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); rebalanceInputRefs.current[0]?.focus(); } }}
+                          onKeyDown={(e) => { if (e.key === 'Enter') syncAccounts(); }}
                           style={{ width: 68, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
                         />
                       </div>
@@ -2843,7 +2782,7 @@ export default function ReconcilePage() {
                             onChange={(v) => setInvestUsdCnyInput(normalizeAmountInput(v))}
                             onFocus={(e) => e.target.select()}
                             onBlur={() => commitInvestUsdCnyInput()}
-                            onKeyDown={(e) => { if (e.key === 'Enter') { commitInvestUsdCnyInput(); rebalanceInputRefs.current[0]?.focus(); } }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') commitInvestUsdCnyInput(); }}
                             style={{ width: 74, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
                           />
                         ) : (
@@ -2942,11 +2881,10 @@ export default function ReconcilePage() {
         {/* 持仓表（固定列宽） */}
         <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse', marginBottom: 16, tableLayout: 'fixed' }}>
           <colgroup>
-            <col style={{ width: '18%' }} />
-            <col style={{ width: '30%' }} />
-            <col style={{ width: '18%' }} />
-            <col style={{ width: '14%' }} />
-            <col style={{ width: '20%' }} />
+            <col style={{ width: '22%' }} />
+            <col style={{ width: '32%' }} />
+            <col style={{ width: '24%' }} />
+            <col style={{ width: '22%' }} />
           </colgroup>
           <thead>
             <tr style={{ borderBottom: '2px solid #e8eaed' }}>
@@ -2964,7 +2902,6 @@ export default function ReconcilePage() {
                 </button>
               </th>
               <th style={{ ...thStyle, textAlign: 'right', color: allowRebalanceSell ? C.blue : C.orange }}>{allowRebalanceSell ? '需加/赎' : '需加'}</th>
-              <th style={{ ...thStyle, textAlign: 'right', color: C.green }}>{allowRebalanceSell ? '已执行' : '已加'}</th>
             </tr>
           </thead>
           <tbody>
@@ -2987,30 +2924,25 @@ export default function ReconcilePage() {
               const cumulativeProfit = cumulativeProfitSummary?.amount ?? null;
               const positionExpanded = expandedPositionKey === k;
               const suggested = Math.round(rebalanceSuggested[k]);
-              // 需加/需赎 = 建议 - 已加，赎回时为负数
-              const localDone = parseFloat(localConfirmed[k]) || 0;
-              const remaining = suggested - localDone;
               const showUsd = (USD_INVEST_KEYS.includes(k) || usdRebalanceCells.has(k)) && latestUsdRate !== null;
               const remainingLabel = suggested === 0
                 ? '—'
-                : Math.abs(remaining) < 0.5
-                  ? '✓'
-                  : showUsd
-                    ? fmtUsd(remaining / latestUsdRate)
-                    : remaining > 0
-                      ? `+${Math.round(remaining)}`
-                      : `${Math.round(remaining)}`;
+                : showUsd
+                  ? fmtUsd(suggested / latestUsdRate)
+                  : suggested > 0
+                    ? `+${suggested}`
+                    : `${suggested}`;
               return (
                 <Fragment key={k}>
                 {isGroupStart && i > 0 && (
                   <tr aria-hidden="true">
-                    <td colSpan={5} style={{ height: 8, padding: 0, backgroundColor: '#fff' }} />
+                    <td colSpan={4} style={{ height: 8, padding: 0, backgroundColor: '#fff' }} />
                   </tr>
                 )}
                 {isGroupStart && (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={4}
                       style={{ padding: '7px 10px', backgroundColor: groupTargetWarning ? '#fce8e6' : groupTone.header, borderBottom: `1px solid ${groupTargetWarning ? '#f28b82' : groupTone.border}` }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -3054,6 +2986,11 @@ export default function ReconcilePage() {
                         配置净额 ¥{fmtInt(effectiveInvestHoldings.longBond)}
                       </div>
                     )}
+                    {pendingInvestHoldings[k] > 0 && (
+                      <div style={{ marginTop: 2, color: C.orange, fontSize: 9, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                        待确认 ¥{fmtInt(pendingInvestHoldings[k])}
+                      </div>
+                    )}
                   </td>
                   {/* 累计收益率 */}
                   <td
@@ -3084,10 +3021,10 @@ export default function ReconcilePage() {
                       <span style={{ fontSize: 11, color: C.sub }}>—</span>
                     )}
                   </td>
-                  {/* 需加/需赎（实时 = 建议 - 已加；正=加仓，负=赎回） */}
+                  {/* 需加/需赎建议；正=加仓，负=赎回 */}
                   <td
                     onClick={() => {
-                      if (latestUsdRate === null || suggested === 0 || Math.abs(remaining) < 0.5) return;
+                      if (latestUsdRate === null || suggested === 0) return;
                       setUsdRebalanceCells((prev) => {
                         const next = new Set(prev);
                         if (next.has(k)) next.delete(k);
@@ -3096,31 +3033,20 @@ export default function ReconcilePage() {
                       });
                     }}
                     title={latestUsdRate === null ? '暂无美元汇率' : '点击切换人民币/美元'}
-                    style={{ padding: '8px 0', textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: remaining > 0 ? C.orange : remaining < 0 ? C.blue : C.sub, cursor: latestUsdRate !== null && suggested !== 0 && Math.abs(remaining) >= 0.5 ? 'pointer' : 'default', userSelect: 'none' }}
+                    style={{ padding: '8px 0', textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: suggested > 0 ? C.orange : suggested < 0 ? C.blue : C.sub, cursor: latestUsdRate !== null && suggested !== 0 ? 'pointer' : 'default', userSelect: 'none' }}
                   >
                     {remainingLabel}
-                  </td>
-                  {/* 已加（编辑后按执行键生效） */}
-                  <td style={{ padding: '4px 0', textAlign: 'right' }}>
-                    <AmountInput
-                      ref={(el) => { rebalanceInputRefs.current[i] = el; }}
-                      value={localConfirmed[k]}
-                      onChange={(v) => setLocalConfirmed((p) => ({ ...p, [k]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }))}
-                      onFocus={(e) => e.target.select()}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') rebalanceInputRefs.current[i + 1]?.focus();
-                      }}
-                      style={{ width: '100%', border: 'none', borderBottom: `1px solid ${C.green}`, outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.green, textAlign: 'right' }}
-                    />
                   </td>
                 </tr>
                 {positionExpanded && (() => {
                   const detailItems = (currentInvestPositionItems[k] ?? []).filter((item) => (
-                    positionDetailStatus === 'now' ? item.status === 'active' : item.status !== 'active'
+                    positionDetailStatus === 'now'
+                      ? item.status === 'active' || (item.pendingBuys?.length ?? 0) > 0
+                      : item.status !== 'active' && (item.pendingBuys?.length ?? 0) === 0
                   ));
                   return (
                     <tr style={{ backgroundColor: '#f8fbff', borderBottom: `1px solid ${groupTone.border}` }}>
-                      <td colSpan={5} style={{ padding: '8px 0 10px' }}>
+                      <td colSpan={4} style={{ padding: '8px 0 10px' }}>
                         <div style={{ border: `1px solid ${groupTone.border}`, borderRadius: 10, padding: '8px 9px', backgroundColor: '#fff' }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', border: '1px solid #dadce0', borderRadius: 8, overflow: 'hidden' }}>
@@ -3250,6 +3176,19 @@ export default function ReconcilePage() {
                                         />
                                       </label>
                                     </div>
+                                    {(item.pendingBuys?.length ?? 0) > 0 && (
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 7 }}>
+                                        {item.pendingBuys?.map((pending) => (
+                                          <div key={pending.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, borderRadius: 7, backgroundColor: '#fff4e5', padding: '5px 7px', color: C.orange, fontSize: 10, fontWeight: 700 }}>
+                                            <span>待确认 · {pending.operationAt.slice(5, 16).replace('T', ' ')}</span>
+                                            <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                                              {pending.amount ? `${currencyMark(pending.currency)}${formatCurrency(pending.amount)}` : '金额待出'}
+                                              {pending.account ? ` · ${pending.account}` : ''}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
                                     <div style={{ marginTop: 6, textAlign: 'right', color: itemHoldingProfit > 0 ? C.red : itemHoldingProfit < 0 ? C.green : C.sub, fontSize: 10, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
                                       持有收益 {itemHoldingProfit > 0 ? '+' : itemHoldingProfit < 0 ? '-' : ''}{itemCurrencyMark}{formatCurrency(Math.abs(itemHoldingProfit))}
                                     </div>
@@ -3265,7 +3204,7 @@ export default function ReconcilePage() {
                 })()}
                 {false && (
                   <tr style={{ backgroundColor: '#f8fbff', borderBottom: '1px solid #e8f0fe' }}>
-                    <td colSpan={5} style={{ padding: '8px 0 10px' }}>
+                    <td colSpan={4} style={{ padding: '8px 0 10px' }}>
                       <div style={{ border: '1px solid #d2e3fc', borderRadius: 10, padding: '8px 9px', backgroundColor: '#fff' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
                           <div>
@@ -3429,19 +3368,20 @@ export default function ReconcilePage() {
           </tbody>
         </table>
 
-        {/* 执行按钮：将"已加/已执行"数值写入持仓，然后清零 */}
-        <button
-          onClick={handleExecuteRebalance}
-          style={{
-            width: '100%', padding: '10px 0', borderRadius: 10, border: 'none',
-            backgroundColor: C.green, color: '#fff', fontWeight: 600, fontSize: 14,
-            cursor: 'pointer', marginBottom: 12,
-          }}
-        >
-          {allowRebalanceSell ? '执行再平衡' : '执行加仓'}
-        </button>
       </Card>
       </div>
+
+      {financeImportDraft && (
+        <FinanceImportPreviewDialog
+          draft={financeImportDraft}
+          confirming={financeImportConfirming}
+          onCancel={() => {
+            setFinanceImportDraft(null);
+            setScreenshotImportMsg('已取消导入');
+          }}
+          onConfirm={() => { void confirmImportDraft(); }}
+        />
+      )}
 
       {screenshotDraft && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000, backgroundColor: 'rgba(32,33,36,0.32)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>

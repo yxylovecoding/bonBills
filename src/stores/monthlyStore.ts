@@ -6,6 +6,7 @@ import {
   createInvestmentRolloverRecord,
   hasInvestmentEndingState,
   hasSameInvestmentEnding,
+  normalizeInvestmentRecordInstruments,
   propagateInvestmentInheritance,
 } from '../utils/investmentRollover';
 
@@ -29,6 +30,7 @@ interface MonthlyStore {
   upsert: (record: MonthlyRecord, options?: MonthlyUpsertOptions) => void;
   upsertMany: (records: MonthlyRecord[], options?: MonthlyUpsertOptions) => void;
   ensureInvestmentMonth: (yearMonth: string) => boolean;
+  ensureInvestmentImportCutoff: () => boolean;
   updateDayCounts: (yearMonth: string, counts: DayCounts) => void;
   getByYearMonth: (ym: string) => MonthlyRecord | undefined;
 }
@@ -88,7 +90,7 @@ export function normalizeMonthlyRecords(input: unknown): MonthlyRecord[] {
     if (!record || typeof record !== 'object') continue;
     const ym = normalizeBillYearMonth((record as MonthlyRecord).yearMonth);
     if (!ym) continue;
-    const source = record as MonthlyRecord;
+    const source = normalizeInvestmentRecordInstruments(record as MonthlyRecord);
     const rolledOverFrom = typeof source.investmentRolledOverFrom === 'string'
       ? normalizeBillYearMonth(source.investmentRolledOverFrom)
       : null;
@@ -147,6 +149,24 @@ export const useMonthlyStore = create<MonthlyStore>()(
           const reconciled = propagateInvestmentInheritance(records, inheritedParents);
           if (reconciled.some((record, index) => record !== records[index])) changed = true;
           return changed ? { records: reconciled } : s;
+        });
+        return changed;
+      },
+      ensureInvestmentImportCutoff: () => {
+        let changed = false;
+        set((state) => {
+          if (state.records.some((record) => Boolean(record.investmentEditedAt))) return state;
+          const latest = [...state.records]
+            .filter(hasInvestmentEndingState)
+            .sort((left, right) => right.yearMonth.localeCompare(left.yearMonth))[0];
+          if (!latest) return state;
+          changed = true;
+          return {
+            records: mergeAndPropagateMonthlyRecords(state.records, [{
+              ...latest,
+              investmentEditedAt: new Date().toISOString(),
+            }], { investmentSource: 'import' }),
+          };
         });
         return changed;
       },
