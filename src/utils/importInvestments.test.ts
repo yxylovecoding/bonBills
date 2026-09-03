@@ -143,8 +143,8 @@ describe('理财导出表导入', () => {
     const transactions = await parseInvestmentFile(fundInvestmentFile());
 
     expect(transactions).toHaveLength(2);
-    expect(transactions[0]).toMatchObject({ symbol: '008163', groupKey: 'a', currency: 'CNY', quoteSource: 'eastmoney-fund' });
-    expect(transactions[1]).toMatchObject({ symbol: '008163', groupKey: 'a', currency: 'CNY', quoteSource: 'eastmoney-fund' });
+    expect(transactions[0]).toMatchObject({ symbol: '008163', groupKey: 'us', currency: 'CNY', quoteSource: 'eastmoney-fund' });
+    expect(transactions[1]).toMatchObject({ symbol: '008163', groupKey: 'us', currency: 'CNY', quoteSource: 'eastmoney-fund' });
   });
 
   it('过滤编辑时间以前的历史，只把新份额并入已有基金', async () => {
@@ -171,7 +171,7 @@ describe('理财导出表导入', () => {
     expect(result.eligibleTransactions).toBe(1);
     expect(result.importedTransactions).toBe(1);
     expect(record.investPositionItems?.a).toHaveLength(1);
-    expect(record.investPositionItems?.a?.[0]).toMatchObject({ symbol: '008163', shares: 542.96 });
+    expect(record.investPositionItems?.a?.[0]).toMatchObject({ name: '红利低波A', symbol: '008163', shares: 542.96 });
     expect(record.investPositionItems?.us ?? []).toHaveLength(0);
   });
 
@@ -258,6 +258,26 @@ describe('理财导出表导入', () => {
     expect(normalized.investPositionItems?.gold?.[0].id).toBe('gold-fund');
     expect(normalized.investPositionItems?.a?.map((item) => item.id)).toEqual(['cn-fund']);
     expect(normalized.investmentTransactions?.[0].groupKey).toBe('us');
+  });
+
+  it('品类修复完成后不再按名称移动已有持仓', () => {
+    const base = septemberRecord();
+    base.investmentCategoryRepairVersion = 1;
+    base.investPositionItems = {
+      a: [{
+        ...tltPosition(),
+        id: 'manual-sp500-fund',
+        name: '标普基金',
+        symbol: '012345',
+        quoteSource: 'eastmoney-fund',
+        quoteCurrency: 'CNY',
+      }],
+    };
+
+    const normalized = normalizeMonthlyRecords([base])[0];
+
+    expect(normalized.investPositionItems?.a?.[0].id).toBe('manual-sp500-fund');
+    expect(normalized.investPositionItems?.us ?? []).toHaveLength(0);
   });
 
   it('预览阶段不写入，确认后才应用导入结果', async () => {

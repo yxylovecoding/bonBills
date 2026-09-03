@@ -136,6 +136,7 @@ function inferFundUnderlyingGroup(text: string): InvestKey | undefined {
 
 export function normalizeInvestmentRecordInstruments(record: MonthlyRecord): MonthlyRecord {
   if (!record.investPositionItems && !record.investmentTransactions) return record;
+  const shouldRepairCategories = (record.investmentCategoryRepairVersion ?? 0) < 1;
   const normalizedItems: InvestPositionItems = {};
   const itemIndexes = new Map<string, { groupKey: keyof InvestPositionItems; index: number }>();
   const itemGroupBySymbol = new Map<string, InvestKey>();
@@ -152,7 +153,7 @@ export function normalizeInvestmentRecordInstruments(record: MonthlyRecord): Mon
       const symbol = canonicalInvestmentSymbol(originalSymbol);
       const isFund = /^\d{6}$/.test(symbol)
         && (isPrefixedFundSymbol(originalSymbol) || item.quoteSource === 'eastmoney-fund');
-      const inferredGroup = groupKey === 'a' && isFund
+      const inferredGroup = shouldRepairCategories && groupKey === 'a' && isFund
         ? inferFundUnderlyingGroup([item.name, ...(transactionNamesBySymbol.get(symbol) ?? [])].join(' '))
         : undefined;
       const targetGroup = inferredGroup ?? groupKey;
@@ -185,7 +186,8 @@ export function normalizeInvestmentRecordInstruments(record: MonthlyRecord): Mon
     const originalSymbol = transaction.symbol;
     const symbol = canonicalInvestmentSymbol(originalSymbol);
     const isFundAlias = isPrefixedFundSymbol(originalSymbol) && /^\d{6}$/.test(symbol);
-    const inferredGroup = transaction.groupKey === 'a' && (isFundAlias || transaction.quoteSource === 'eastmoney-fund')
+    const inferredGroup = shouldRepairCategories && transaction.groupKey === 'a'
+      && (isFundAlias || transaction.quoteSource === 'eastmoney-fund')
       ? inferFundUnderlyingGroup(transaction.name)
       : undefined;
     return {
@@ -196,9 +198,11 @@ export function normalizeInvestmentRecordInstruments(record: MonthlyRecord): Mon
       quoteSource: isFundAlias ? 'eastmoney-fund' as const : transaction.quoteSource,
     };
   });
-  if (!record.investPositionItems) return { ...record, investmentTransactions: transactions };
+  if (!record.investPositionItems) {
+    return { ...record, investmentTransactions: transactions, investmentCategoryRepairVersion: 1 };
+  }
   const normalizedRecord = syncInvestPositionItems(record, normalizedItems);
-  return { ...normalizedRecord, investmentTransactions: transactions };
+  return { ...normalizedRecord, investmentTransactions: transactions, investmentCategoryRepairVersion: 1 };
 }
 
 export function applyInvestmentTransaction(

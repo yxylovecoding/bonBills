@@ -103,7 +103,6 @@ export function normalizeInstrumentSymbol(raw: string, category: string, name: s
 
 function inferGroupKey(category: string, symbol: string, name: string, currency: string): InvestKey {
   const text = `${category} ${name}`.toLowerCase();
-  if (/^\d{6}$/.test(symbol) && (currency === 'CNY' || /基金|联接|指数/.test(text))) return 'a';
   if (/黄金|gold/.test(text)) return 'gold';
   if (/美债|美国债|美公债|美国公债|us\s*(?:bond|treasury)/.test(text) || /^(tlt|ief|shy)$/i.test(symbol)) return 'usBond';
   if (/长债|长期债|国债|债券/.test(text)) return 'longBond';
@@ -247,7 +246,9 @@ export async function parseInvestmentFileDetails(file: File): Promise<ParsedInve
       const shares = rawShares || (rawPrice > 0 ? amount / rawPrice : 0);
       const price = rawPrice || (shares > 0 ? amount / shares : 0);
       const preliminaryGroup = inferGroupKey(category, symbol, name, rawCurrency);
-      const currency = rawCurrency || (preliminaryGroup === 'us' || preliminaryGroup === 'usBond' ? 'USD' : 'CNY');
+      const currency = rawCurrency || (/^\d{6}$/.test(symbol)
+        ? 'CNY'
+        : preliminaryGroup === 'us' || preliminaryGroup === 'usBond' ? 'USD' : 'CNY');
       const groupKey = inferGroupKey(category, symbol, name, currency);
       const fee = numberCell(row, header.indexes.fee);
       const orderId = stringCell(row, header.indexes.transactionId) || undefined;
@@ -336,6 +337,25 @@ export function formatInvestmentImportSummary(result: {
 function samePendingInstrument(item: InvestPositionItem, pending: PendingInvestmentBuy) {
   if (pending.symbol) return canonicalInvestmentSymbol(item.symbol) === canonicalInvestmentSymbol(pending.symbol);
   return item.name.trim().toLowerCase() === pending.name.trim().toLowerCase();
+}
+
+function matchedPositionGroup(items: InvestPositionItems, symbol: string): InvestKey | undefined {
+  const canonicalSymbol = canonicalInvestmentSymbol(symbol);
+  if (!canonicalSymbol) return undefined;
+  for (const groupKey of ['us', 'eu', 'asia', 'a', 'longBond', 'usBond', 'gold'] as const) {
+    if ((items[groupKey] ?? []).some((item) => canonicalInvestmentSymbol(item.symbol) === canonicalSymbol)) {
+      return groupKey;
+    }
+  }
+  return undefined;
+}
+
+function useMatchedPositionGroup<T extends PendingInvestmentBuy | InvestmentTransaction>(
+  items: InvestPositionItems,
+  entry: T,
+): T {
+  const groupKey = matchedPositionGroup(items, entry.symbol);
+  return groupKey && groupKey !== entry.groupKey ? { ...entry, groupKey } : entry;
 }
 
 function attachPendingBuy(items: InvestPositionItems, pending: PendingInvestmentBuy) {
@@ -452,20 +472,22 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
     return record;
   };
 
-  for (const pending of parsed.pendingBuys) {
-    const yearMonth = pending.operationAt.slice(0, 7);
+  for (const parsedPending of parsed.pendingBuys) {
+    const yearMonth = parsedPending.operationAt.slice(0, 7);
     let record = ensureWorkingRecord(yearMonth);
     const items = cloneInvestPositionItems(investmentPositionItemsForRecord(record));
+    const pending = useMatchedPositionGroup(items, parsedPending);
     if (attachPendingBuy(items, pending)) newPendingBuys += 1;
     record = syncInvestPositionItems(record, items);
     workingRecords.set(yearMonth, record);
     changedMonths.add(yearMonth);
   }
 
-  for (const transaction of parsed.transactions) {
-    const yearMonth = transaction.date.slice(0, 7);
+  for (const parsedTransaction of parsed.transactions) {
+    const yearMonth = parsedTransaction.date.slice(0, 7);
     let record = ensureWorkingRecord(yearMonth);
     const items = cloneInvestPositionItems(investmentPositionItemsForRecord(record));
+    const transaction = useMatchedPositionGroup(items, parsedTransaction);
     const matches = transaction.side === 'buy' ? findPendingMatches(items, transaction) : [];
     const isUniquePendingResolution = matches.length === 1
       && transaction.shares > 0

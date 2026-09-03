@@ -291,6 +291,7 @@ export interface MonthlyRecord {
   investmentEditedAt?: string; // 最近一次手动确认持仓/收益的时间，增量导入只接续此后交易
   investmentRolledOverFrom?: string; // 仍与该月 ending 联动；本月手动修改理财后清除
   investmentInheritanceRevision?: number; // 继承状态刷新版本，用于让月度编辑器同步外部变更
+  investmentCategoryRepairVersion?: number; // 已执行的理财品类修复版本，避免后续重复按名称迁移
   isBaseline?: boolean;         // 旧版兼容字段，现已停用
   volatileLife: number;
   periodicLife: number;
