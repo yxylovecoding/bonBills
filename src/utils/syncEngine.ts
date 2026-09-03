@@ -209,6 +209,10 @@ async function uploadAll(secret: string) {
   await uploadStores(secret, stores);
 }
 
+function serializeAllStores() {
+  return Object.fromEntries(stores.map((store) => [store.key, store.serialize()]));
+}
+
 async function uploadStores(secret: string, selectedStores: readonly StoreEntry[]) {
   const body: Record<string, unknown> = {};
   for (const s of selectedStores) body[s.key] = s.serialize();
@@ -240,6 +244,20 @@ export function getActiveSyncSecret(): string | null {
     return sessionStorage.getItem(LS_SECRET_KEY);
   } catch {
     return null;
+  }
+}
+
+export async function createManualBackup() {
+  const secret = getActiveSyncSecret();
+  if (!secret) throw new Error('缺少同步密码');
+  const res = await fetch('/api/sync-monthly-backup', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(serializeAllStores()),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null) as { error?: string } | null;
+    throw new Error(body?.error || `HTTP ${res.status}`);
   }
 }
 

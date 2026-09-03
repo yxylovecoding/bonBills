@@ -45,6 +45,7 @@ import { formatInvestmentImportSummary, importInvestmentFileIntoStores } from '.
 import { pendingInvestmentAmounts } from '../utils/investmentRollover';
 import { fetchLatestMailAttachments } from '../utils/mailAttachments';
 import { accountBalanceUpdatedAt, investmentImportCutoff } from '../utils/importCutoffs';
+import { createManualBackup } from '../utils/syncEngine';
 import {
   confirmFinanceImport,
   prepareFinanceImport,
@@ -724,6 +725,7 @@ export default function ReconcilePage() {
   const [usdRateError, setUsdRateError] = useState(false);
   const [usdRebalanceCells, setUsdRebalanceCells] = useState<Set<InvestKey>>(() => new Set());
   const [screenshotImportMsg, setScreenshotImportMsg] = useState('');
+  const [backupCreating, setBackupCreating] = useState(false);
   const [mailImporting, setMailImporting] = useState(false);
   const [financeImportDraft, setFinanceImportDraft] = useState<FinanceImportPreviewDraft | null>(null);
   const [financeImportConfirming, setFinanceImportConfirming] = useState(false);
@@ -846,6 +848,19 @@ export default function ReconcilePage() {
       setScreenshotImportMsg(`邮箱导入失败：${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setMailImporting(false);
+    }
+  };
+
+  const backupCurrentVersion = async () => {
+    setBackupCreating(true);
+    setScreenshotImportMsg('备份中');
+    try {
+      await createManualBackup();
+      setScreenshotImportMsg('当前版本已备份');
+    } catch (error) {
+      setScreenshotImportMsg(`备份失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setBackupCreating(false);
     }
   };
 
@@ -2216,6 +2231,15 @@ export default function ReconcilePage() {
           {screenshotImportMsg && <div style={{ marginTop: 4, fontSize: 11, lineHeight: 1.35, color: C.sub, overflowWrap: 'anywhere' }}>{screenshotImportMsg}</div>}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+          <button
+            type="button"
+            onClick={backupCurrentVersion}
+            disabled={backupCreating}
+            title="备份当前版本"
+            style={{ fontSize: 11, lineHeight: 1, padding: '4px 7px', borderRadius: 7, border: '1px solid #e0e0e0', backgroundColor: backupCreating ? '#f1f3f4' : '#fff', color: backupCreating ? '#9aa0a6' : C.sub, cursor: backupCreating ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
+          >
+            {backupCreating ? '备份中' : '备份'}
+          </button>
           <button
             type="button"
             onClick={importLatestFromMail}

@@ -67,7 +67,7 @@ import {
   type InvestMarketSnapshot,
 } from '../utils/investPositionItems';
 import { getMonthlyAssetChange, getMonthlySavedAmount, getMonthlySavingsRate } from '../utils/monthlyMetrics';
-import { triggerUpload } from '../utils/syncEngine';
+import { createManualBackup, triggerUpload } from '../utils/syncEngine';
 import {
   financeScreenshotImportMessage,
   importFinanceScreenshotFileIntoSnapshot,
@@ -3900,6 +3900,7 @@ export default function CalendarPage() {
   const [autoSumStartMonthInput, setAutoSumStartMonthInput] = useState(config.investAutoSumStartMonth ?? '');
   const [expandedTag, setExpandedTag] = useState<null | 'eat' | 'red' | 'black'>(null);
   const [billImportMsg, setBillImportMsg] = useState<string>('');
+  const [backupCreating, setBackupCreating] = useState(false);
   const [billImporting, setBillImporting] = useState(false);
   const [financeImportDraft, setFinanceImportDraft] = useState<FinanceImportPreviewDraft | null>(null);
   const [financeImportConfirming, setFinanceImportConfirming] = useState(false);
@@ -3984,6 +3985,18 @@ export default function CalendarPage() {
       setBillImportMsg(`邮箱导入失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setBillImporting(false);
+    }
+  };
+  const backupCurrentVersion = async () => {
+    setBackupCreating(true);
+    setBillImportMsg('备份中');
+    try {
+      await createManualBackup();
+      setBillImportMsg('当前版本已备份');
+    } catch (error) {
+      setBillImportMsg(`备份失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setBackupCreating(false);
     }
   };
   const handleBillFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -4187,6 +4200,15 @@ export default function CalendarPage() {
           </h1>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 'clamp(3px, 1.5vw, 8px)', flexWrap: 'nowrap', minWidth: 0, flexShrink: 0, whiteSpace: 'nowrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={backupCurrentVersion}
+                disabled={backupCreating}
+                title="备份当前版本"
+                style={{ fontSize: 11, lineHeight: 1, padding: '4px clamp(5px, 1.5vw, 7px)', borderRadius: 7, border: `1px solid ${C.border}`, backgroundColor: backupCreating ? '#f1f3f4' : '#fff', color: backupCreating ? '#9aa0a6' : C.sub, cursor: backupCreating ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
+              >
+                {backupCreating ? '备份中' : '备份'}
+              </button>
               <button
                 onClick={importLatestBillFromMail}
                 disabled={billImporting}
