@@ -416,15 +416,7 @@ function findRoutineTargetDate(
   today: string,
   matches: (tag: unknown) => boolean,
 ): string {
-  if (matches(tagMap[today])) {
-    let segmentStart = today;
-    let previous = addCalendarDays(segmentStart, -1);
-    while (matches(tagMap[previous])) {
-      segmentStart = previous;
-      previous = addCalendarDays(segmentStart, -1);
-    }
-    return segmentStart;
-  }
+  if (matches(tagMap[today])) return today;
 
   const nextDate = Object.keys(tagMap)
     .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date) && date > today && matches(tagMap[date]))

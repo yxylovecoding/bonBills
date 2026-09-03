@@ -185,7 +185,7 @@ describe('TickTick 出游同步', () => {
     ]);
   });
 
-  it('按当前场景段或下一场景段计算 routine 日期', () => {
+  it('当前场景对齐今天，非当前场景对齐下一段开始日', () => {
     const calendarState = { tagMap: {
       '2026-09-01': 'home',
       '2026-09-02': 'home',
@@ -200,12 +200,16 @@ describe('TickTick 出游同步', () => {
     } };
 
     expect(getTickTickRoutineTargetDates(calendarState, '2026-09-05')).toEqual({
-      home: '2026-09-01',
+      home: '2026-09-05',
       school: '2026-09-07',
     });
     expect(getTickTickRoutineTargetDates(calendarState, '2026-09-07')).toEqual({
       home: '2026-09-20',
       school: '2026-09-07',
+    });
+    expect(getTickTickRoutineTargetDates(calendarState, '2026-09-08')).toEqual({
+      home: '2026-09-20',
+      school: '2026-09-08',
     });
     expect(getTickTickRoutineTargetDates(calendarState, '2026-09-09')).toEqual({
       home: '2026-09-20',
