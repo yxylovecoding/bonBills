@@ -6,6 +6,7 @@ export const TICKTICK_SYNC_LOCK_KEY = 'ticktick:trip-sync:lock';
 export const TICKTICK_PROJECT_NAME = '玩';
 export const TICKTICK_TEMPLATE_TITLE = '出门todo';
 export const TICKTICK_ANCHOR_TITLE = '出门当天';
+export const TICKTICK_WISH_PREPARATION_TITLE = '出门前七个月';
 export const TICKTICK_HOME_ROUTINE_TITLE = '在家routine';
 export const TICKTICK_SCHOOL_ROUTINE_TITLE = '在校routine';
 export const TICKTICK_API_BASE_URL = 'https://api.ticktick.com/open/v1';
@@ -99,6 +100,7 @@ export interface TickTickTripInstance {
 
 export interface TickTickTripSyncState {
   instances: Record<string, TickTickTripInstance>;
+  wishInstances?: Record<string, TickTickTripInstance>;
   lastSyncAt?: string;
   lastError?: string;
 }
@@ -262,6 +264,23 @@ function addCalendarDays(date: string, delta: number): string {
   return value.toISOString().slice(0, 10);
 }
 
+function addCalendarMonths(date: string, delta: number): string {
+  const value = new Date(`${date}T00:00:00Z`);
+  const day = value.getUTCDate();
+  value.setUTCDate(1);
+  value.setUTCMonth(value.getUTCMonth() + delta);
+  const monthEnd = new Date(value);
+  monthEnd.setUTCMonth(monthEnd.getUTCMonth() + 1, 0);
+  value.setUTCDate(Math.min(day, monthEnd.getUTCDate()));
+  return value.toISOString().slice(0, 10);
+}
+
+function isValidCalendarDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
 const CHINESE_CALENDAR_FORMATTER = new Intl.DateTimeFormat('en-u-ca-chinese', {
   timeZone: 'Asia/Shanghai',
   month: 'numeric',
@@ -423,6 +442,46 @@ export function buildTripSourcesFromSyncState(calendarState: unknown, tripState:
       note: tripNotes[startDate]?.trim() ?? '',
     };
   });
+}
+
+export function buildWishPreparationSourcesFromSyncState(configState: unknown): TickTickTripSource[] {
+  const stored = configState && typeof configState === 'object' ? configState as Record<string, unknown> : {};
+  const config = stored.config && typeof stored.config === 'object' ? stored.config as Record<string, unknown> : {};
+  const wishes = Array.isArray(config.wishes) ? config.wishes : [];
+  const sources = new Map<string, TickTickTripSource>();
+  for (const value of wishes) {
+    if (!value || typeof value !== 'object') continue;
+    const wish = value as Record<string, unknown>;
+    if (wish.isActive !== true || wish.linkedTripStartDate) continue;
+    if (typeof wish.id !== 'string' || !wish.id.trim() || typeof wish.name !== 'string' || !wish.name.trim()) continue;
+    if (!isValidCalendarDate(wish.deadline)) continue;
+    const preparationDate = addCalendarMonths(wish.deadline, -7);
+    sources.set(wish.id, {
+      key: wish.id,
+      startDate: preparationDate,
+      // 生命周期截止日仍是预计出发日；七个月前的准备日期已过也不能跳过未到期心愿。
+      endDate: wish.deadline,
+      dates: [preparationDate],
+      name: wish.name.trim(),
+      note: '',
+    });
+  }
+  return [...sources.values()];
+}
+
+function wishPreparationTemplate(template: TickTickTemplate): TickTickTemplate {
+  const roots = template.tasks.filter((task) =>
+    /^出门前(?:七|7)个月$/.test(task.title.normalize('NFKC').replace(/\s/g, '')),
+  );
+  if (roots.length !== 1) throw new Error(`出门todo 模板需要唯一的“${TICKTICK_WISH_PREPARATION_TITLE}”任务`);
+  const rootTask = roots[0];
+  return {
+    projectId: template.projectId,
+    rootTask,
+    tasks: [rootTask, ...descendantsOf(template.tasks, rootTask.id)],
+    anchorTask: rootTask,
+    anchorDate: taskDate(rootTask) ?? addCalendarMonths(template.anchorDate, -7),
+  };
 }
 
 function calendarTagMapFromSyncState(calendarState: unknown): Record<string, unknown> {
@@ -640,7 +699,7 @@ function baseTaskPayload(
   const rootContent = [templateTask.content?.trim(), trip.note].filter(Boolean).join('\n\n');
   return {
     projectId: template.projectId,
-    title: `${trip.name} · ${isRoot ? TICKTICK_TEMPLATE_TITLE : templateTask.title}`,
+    title: `${trip.name} · ${templateTask.title}`,
     content: isRoot ? rootContent : (templateTask.content ?? ''),
     desc: templateTask.desc ?? '',
     isAllDay: isRoot ? true : (templateTask.isAllDay ?? true),
@@ -846,13 +905,15 @@ export async function reconcileTickTickTrips(options: {
   trips: TickTickTripSource[];
   state: TickTickTripSyncState;
   today: string;
+  matchByDateOverlap?: boolean;
   saveState: (state: TickTickTripSyncState) => Promise<void>;
 }): Promise<TickTickSyncResult> {
   const { api, template, state, today, saveState } = options;
   const activeTrips = options.trips.filter((trip) => trip.endDate >= today);
+  const activeKeys = new Set(activeTrips.map((trip) => trip.key));
   const projectData = await api.getProjectData(template.projectId);
   const projectTasks = new Map(projectData.tasks.map((task) => [task.id, task]));
-  const activeInstances = Object.entries(state.instances).filter(([, instance]) => instance.endDate >= today);
+  const activeInstances = Object.entries(state.instances).filter(([key, instance]) => instance.endDate >= today || activeKeys.has(key));
   const unmatchedInstances = new Map(activeInstances);
   const matches = new Map<string, { oldKey: string; instance: TickTickTripInstance }>();
 
@@ -863,7 +924,7 @@ export async function reconcileTickTickTrips(options: {
     unmatchedInstances.delete(trip.key);
   }
   for (const trip of activeTrips) {
-    if (matches.has(trip.key)) continue;
+    if (options.matchByDateOverlap === false || matches.has(trip.key)) continue;
     const candidates = [...unmatchedInstances.entries()]
       .map(([key, instance]) => ({ key, instance, overlap: overlapCount(trip.dates, instance.dates) }))
       .filter((candidate) => candidate.overlap > 0)
@@ -912,4 +973,42 @@ export async function reconcileTickTickTrips(options: {
   state.lastError = undefined;
   await saveState(state);
   return { createdTrips, updatedTrips, deletedTrips, activeTrips: activeTrips.length };
+}
+
+export async function reconcileTickTickWishPreparations(options: {
+  api: TickTickApi;
+  template: TickTickTemplate;
+  configState: unknown;
+  state: TickTickTripSyncState;
+  today: string;
+  saveState: (state: TickTickTripSyncState) => Promise<void>;
+}) {
+  const { state, template, today, saveState } = options;
+  const wishes = buildWishPreparationSourcesFromSyncState(options.configState);
+  const hasActiveWishes = wishes.some((wish) => wish.endDate >= today);
+  if (!hasActiveWishes && !Object.values(state.wishInstances ?? {}).some((instance) => instance.endDate >= today)) {
+    return { createdWishPreparations: 0, updatedWishPreparations: 0, deletedWishPreparations: 0, activeWishPreparations: 0 };
+  }
+  // 没有待生成心愿时无需七个月模板，仍可清理后来已关联/停用/删除的心愿副本。
+  const selectedTemplate = hasActiveWishes ? wishPreparationTemplate(template) : template;
+  const result = await reconcileTickTickTrips({
+    api: options.api,
+    template: selectedTemplate,
+    trips: wishes,
+    state: { instances: state.wishInstances ?? {} },
+    today,
+    // 同一天的不同心愿不能像日历行程那样凭日期重叠合并。
+    matchByDateOverlap: false,
+    saveState: async (next) => {
+      state.wishInstances = next.instances;
+      if (next.lastSyncAt) state.lastSyncAt = next.lastSyncAt;
+      await saveState(state);
+    },
+  });
+  return {
+    createdWishPreparations: result.createdTrips,
+    updatedWishPreparations: result.updatedTrips,
+    deletedWishPreparations: result.deletedTrips,
+    activeWishPreparations: result.activeTrips,
+  };
 }

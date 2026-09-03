@@ -315,26 +315,25 @@ function startSubscriptions() {
     });
   }
 
-  let tripSignature = JSON.stringify({
+  const readTripSignature = () => JSON.stringify({
     tagMap: useCalendarStore.getState().tagMap,
     tripTags: useTripStore.getState().tripTags,
     tripNotes: useTripStore.getState().tripNotes,
     tripSplits: useTripStore.getState().tripSplits,
+    wishes: (useConfigStore.getState().config.wishes ?? []).map(({ id, name, deadline, linkedTripStartDate, isActive }) =>
+      ({ id, name, deadline, linkedTripStartDate, isActive })),
   });
+  let tripSignature = readTripSignature();
   const markTickTickSyncNeeded = () => {
     if (syncingFromServer || syncPauseDepth > 0) return;
-    const nextSignature = JSON.stringify({
-      tagMap: useCalendarStore.getState().tagMap,
-      tripTags: useTripStore.getState().tripTags,
-      tripNotes: useTripStore.getState().tripNotes,
-      tripSplits: useTripStore.getState().tripSplits,
-    });
+    const nextSignature = readTripSignature();
     if (nextSignature === tripSignature) return;
     tripSignature = nextSignature;
     tickTickSyncQueued = true;
   };
   useCalendarStore.subscribe(markTickTickSyncNeeded);
   useTripStore.subscribe(markTickTickSyncNeeded);
+  useConfigStore.subscribe(markTickTickSyncNeeded);
 }
 
 async function startTickTickSync(secret: string) {

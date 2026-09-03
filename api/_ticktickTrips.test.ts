@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildTripSourcesFromSyncState,
+  buildWishPreparationSourcesFromSyncState,
   decryptTickTickToken,
   discoverTickTickTemplate,
   encryptTickTickToken,
@@ -8,6 +9,7 @@ import {
   nextChineseNewYear,
   readConnectedTickTickTemplate,
   reconcileTickTickTrips,
+  reconcileTickTickWishPreparations,
   shiftTickTickDate,
   syncTickTickRoutines,
   type TickTickApi,
@@ -189,6 +191,212 @@ const futureTrip = {
   name: '东京',
   note: '带护照',
 };
+
+function addWishPreparationTemplate(api: FakeTickTickApi) {
+  api.tasks.set('template-seven-months', {
+    id: 'template-seven-months', projectId: 'play', parentId: 'template-root', title: '出门前七个月',
+    startDate: '2026-04-20T00:00:00+0800', dueDate: '2026-04-20T00:00:00+0800',
+    items: [{ id: 'template-visa-check', title: '查签证', status: 1, startDate: '2026-04-21T09:00:00+0800' }],
+    status: 2,
+  });
+  api.tasks.set('template-visa', {
+    id: 'template-visa', projectId: 'play', parentId: 'template-seven-months', title: '办签证',
+    startDate: '2026-04-21T08:00:00+0800', dueDate: '2026-04-22T18:00:00+0800', isAllDay: false,
+  });
+  api.tasks.set('template-photo', {
+    id: 'template-photo', projectId: 'play', parentId: 'template-visa', title: '准备证件照',
+  });
+}
+
+const futureWish = { id: 'wish-tokyo', name: '东京', isActive: true, deadline: '2027-09-30', linkedTripStartDate: null };
+
+describe('TickTick 心愿七个月准备', () => {
+  it('只接收有日期、名称且启用的未关联心愿，按七个自然月回退并钳制月末', () => {
+    const sources = buildWishPreparationSourcesFromSyncState({ config: { wishes: [
+      futureWish,
+      { ...futureWish, id: 'leap', deadline: '2028-09-30' },
+      { ...futureWish, id: 'year-boundary', deadline: '2027-01-31' },
+      { ...futureWish, id: 'inactive', isActive: false },
+      { ...futureWish, id: 'linked', linkedTripStartDate: '2027-09-30' },
+      { ...futureWish, id: 'undated', deadline: null },
+      { ...futureWish, id: 'invalid', deadline: '2027-02-30' },
+      { ...futureWish, id: 'unnamed', name: ' ' },
+      { ...futureWish, id: '' },
+      null,
+    ] } });
+    expect(sources.map(({ key, startDate, endDate }) => ({ key, startDate, endDate }))).toEqual([
+      { key: 'wish-tokyo', startDate: '2027-02-28', endDate: '2027-09-30' },
+      { key: 'leap', startDate: '2028-02-29', endDate: '2028-09-30' },
+      { key: 'year-boundary', startDate: '2026-06-30', endDate: '2027-01-31' },
+    ]);
+    expect(buildWishPreparationSourcesFromSyncState(null)).toEqual([]);
+  });
+
+  it('只复制七个月阶段及所有后代，日期平移且每个任务带心愿名', async () => {
+    const api = new FakeTickTickApi();
+    addWishPreparationTemplate(api);
+    const template = await discoverTickTickTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    const result = await reconcileTickTickWishPreparations({
+      api, template, state, configState: { config: { wishes: [futureWish] } }, today: '2026-09-04', saveState: async () => undefined,
+    });
+    expect(result).toMatchObject({ createdWishPreparations: 1, activeWishPreparations: 1 });
+    expect(api.createCalls).toBe(3);
+    expect(state.instances).toEqual({});
+    const instance = state.wishInstances![futureWish.id];
+    const root = api.tasks.get(instance.rootTaskId!)!;
+    const visa = api.tasks.get(instance.taskIdsByTemplateId['template-visa'])!;
+    const photo = api.tasks.get(instance.taskIdsByTemplateId['template-photo'])!;
+    expect(root).toMatchObject({ title: '东京 · 出门前七个月', dueDate: '2027-02-28T00:00:00+0800', status: 0 });
+    expect(root.parentId).toBeUndefined();
+    expect(root.items?.[0]).toMatchObject({ title: '查签证', status: 0, startDate: '2027-03-01T09:00:00+0800' });
+    expect(visa).toMatchObject({
+      title: '东京 · 办签证', parentId: root.id, isAllDay: false,
+      startDate: '2027-03-01T08:00:00+0800', dueDate: '2027-03-02T18:00:00+0800',
+    });
+    expect(photo).toMatchObject({ title: '东京 · 准备证件照', parentId: visa.id });
+    expect(photo.dueDate).toBeUndefined();
+    expect(instance.taskIdsByTemplateId['template-root']).toBeUndefined();
+    expect(instance.taskIdsByTemplateId['template-month']).toBeUndefined();
+    expect(api.tasks.get('template-seven-months')?.status).toBe(2);
+  });
+
+  it('重启后按心愿 ID 更新改名、改期，保留完成状态和手工清单项，不误合并同日心愿', async () => {
+    const api = new FakeTickTickApi();
+    addWishPreparationTemplate(api);
+    const template = await discoverTickTickTemplate(api);
+    let state: TickTickTripSyncState = { instances: {} };
+    const saveState = async () => undefined;
+    const sync = (wishes: unknown[]) => reconcileTickTickWishPreparations({
+      api, template, state, configState: { config: { wishes } }, today: '2026-09-04', saveState,
+    });
+    await sync([futureWish]);
+    state = JSON.parse(JSON.stringify(state));
+    const rootId = state.wishInstances![futureWish.id].rootTaskId!;
+    const root = api.tasks.get(rootId)!;
+    root.status = 2;
+    root.items![0].status = 1;
+    root.items!.push({ id: 'manual-check', title: '临时补充', status: 1 });
+    const changed = { ...futureWish, name: '京都', deadline: '2027-10-31' };
+    await sync([changed, { ...changed, id: 'another-wish' }]);
+    await sync([changed, { ...changed, id: 'another-wish' }]);
+    expect(api.createCalls).toBe(6);
+    expect(state.wishInstances![futureWish.id].rootTaskId).toBe(rootId);
+    expect(state.wishInstances!['another-wish'].rootTaskId).not.toBe(rootId);
+    expect(api.tasks.get(rootId)).toMatchObject({ title: '京都 · 出门前七个月', status: 2, dueDate: '2027-03-31T00:00:00+0800' });
+    expect(api.tasks.get(rootId)?.items?.map((item) => [item.title, item.status])).toEqual([['查签证', 1], ['临时补充', 1]]);
+  });
+
+  it('不同心愿不能按相同准备日期接管旧副本', async () => {
+    const api = new FakeTickTickApi();
+    addWishPreparationTemplate(api);
+    const template = await discoverTickTickTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    const sync = (id: string) => reconcileTickTickWishPreparations({
+      api, template, state, configState: { config: { wishes: [{ ...futureWish, id }] } }, today: '2026-09-04', saveState: async () => undefined,
+    });
+    await sync('first');
+    const firstRoot = state.wishInstances!.first.rootTaskId!;
+    await sync('second');
+    expect(state.wishInstances!.first).toBeUndefined();
+    expect(state.wishInstances!.second.rootTaskId).not.toBe(firstRoot);
+    expect(api.tasks.has(firstRoot)).toBe(false);
+  });
+
+  it('准备日已过仍生成未到期心愿；到期后改期仍复用原副本', async () => {
+    const api = new FakeTickTickApi();
+    addWishPreparationTemplate(api);
+    const template = await discoverTickTickTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    const sync = (deadline: string, today: string) => reconcileTickTickWishPreparations({
+      api, template, state, configState: { config: { wishes: [{ ...futureWish, deadline }] } }, today, saveState: async () => undefined,
+    });
+    await sync('2027-01-10', '2026-09-04');
+    const rootId = state.wishInstances![futureWish.id].rootTaskId!;
+    expect(api.tasks.get(rootId)?.dueDate).toBe('2026-06-10T00:00:00+0800');
+    await sync('2027-10-10', '2027-02-10');
+    expect(state.wishInstances![futureWish.id].rootTaskId).toBe(rootId);
+    expect(api.createCalls).toBe(3);
+  });
+
+  it('关联出游后清理心愿副本，完整日历任务保持独立', async () => {
+    const api = new FakeTickTickApi();
+    addWishPreparationTemplate(api);
+    const template = await discoverTickTickTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    const saveState = async () => undefined;
+    const options = { api, template, state, today: '2026-09-04', saveState };
+    await reconcileTickTickWishPreparations({ ...options, configState: { config: { wishes: [futureWish] } } });
+    const wishTaskIds = Object.values(state.wishInstances![futureWish.id].taskIdsByTemplateId);
+    await reconcileTickTickTrips({ ...options, trips: [futureTrip] });
+    const fullRootId = state.instances[futureTrip.key].rootTaskId!;
+    await reconcileTickTickWishPreparations({ ...options, configState: { config: { wishes: [{ ...futureWish, linkedTripStartDate: futureTrip.startDate }] } } });
+    expect(state.wishInstances).toEqual({});
+    expect(wishTaskIds.some((id) => api.tasks.has(id))).toBe(false);
+    expect(api.tasks.has(fullRootId)).toBe(true);
+    expect(Object.keys(state.instances[futureTrip.key].taskIdsByTemplateId)).toHaveLength(7);
+  });
+
+  it('七个月模板缺失或不唯一时明确报错，不退回六个月或复制整套任务', async () => {
+    const api = new FakeTickTickApi();
+    api.tasks.set('template-six', { id: 'template-six', projectId: 'play', parentId: 'template-root', title: '出门前六个月' });
+    const state: TickTickTripSyncState = { instances: {} };
+    const options = { api, state, today: '2026-09-04', configState: { config: { wishes: [futureWish] } }, saveState: async () => undefined };
+    await expect(reconcileTickTickWishPreparations({ ...options, template: await discoverTickTickTemplate(api) })).rejects.toThrow('出门前七个月');
+    addWishPreparationTemplate(api);
+    api.tasks.set('duplicate-seven', { id: 'duplicate-seven', projectId: 'play', parentId: 'template-root', title: '出门前7个月' });
+    await expect(reconcileTickTickWishPreparations({ ...options, template: await discoverTickTickTemplate(api) })).rejects.toThrow('唯一');
+    expect(api.createCalls).toBe(0);
+  });
+
+  it.each(['deleted', 'inactive', 'undated'])('心愿 %s 后只清理独立副本，不再要求七个月模板', async (change) => {
+    const api = new FakeTickTickApi();
+    addWishPreparationTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    const options = { api, state, today: '2026-09-04', saveState: async () => undefined };
+    await reconcileTickTickWishPreparations({
+      ...options, template: await discoverTickTickTemplate(api), configState: { config: { wishes: [futureWish] } },
+    });
+    const wishIds = Object.values(state.wishInstances![futureWish.id].taskIdsByTemplateId);
+    api.tasks.delete('template-seven-months');
+    const wishes = change === 'deleted' ? [] : [{ ...futureWish, ...(change === 'inactive' ? { isActive: false } : { deadline: null }) }];
+    const result = await reconcileTickTickWishPreparations({
+      ...options, template: await discoverTickTickTemplate(api), configState: { config: { wishes } },
+    });
+    expect(result.deletedWishPreparations).toBe(1);
+    expect(state.wishInstances).toEqual({});
+    expect(wishIds.some((id) => api.tasks.has(id))).toBe(false);
+    expect(api.tasks.has('template-root')).toBe(true);
+  });
+
+  it('无心愿或截止日已过时不生成，也不要求七个月模板', async () => {
+    const api = new FakeTickTickApi();
+    const template = await discoverTickTickTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    const options = { api, template, state, today: '2026-09-04', saveState: async () => undefined };
+    await reconcileTickTickWishPreparations({ ...options, configState: null });
+    const result = await reconcileTickTickWishPreparations({ ...options, configState: { config: { wishes: [{ ...futureWish, deadline: '2026-09-03' }] } } });
+    expect(result.activeWishPreparations).toBe(0);
+    expect(api.createCalls).toBe(0);
+    expect(api.updateCalls).toBe(0);
+    expect(api.deleteCalls).toBe(0);
+  });
+
+  it('兼容数字七个月标题及无日期的阶段根任务', async () => {
+    const api = new FakeTickTickApi();
+    addWishPreparationTemplate(api);
+    const root = api.tasks.get('template-seven-months')!;
+    root.title = '出门前 7 个月';
+    delete root.startDate;
+    delete root.dueDate;
+    const template = await discoverTickTickTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    await reconcileTickTickWishPreparations({ api, template, state, today: '2026-09-04', configState: { config: { wishes: [futureWish] } }, saveState: async () => undefined });
+    const instance = state.wishInstances![futureWish.id];
+    expect(api.tasks.get(instance.rootTaskId!)?.dueDate).toBe('2027-02-28T00:00:00+0800');
+    expect(api.tasks.get(instance.taskIdsByTemplateId['template-visa'])?.startDate).toBe('2027-03-01T08:00:00+0800');
+  });
+});
 
 describe('TickTick 出游同步', () => {
   it('在服务端独立生成连续、切分及命名后的行程', () => {

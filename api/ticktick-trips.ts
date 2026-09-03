@@ -25,6 +25,7 @@ interface TickTickTripSyncState {
     taskIdsByTemplateId: Record<string, string>;
     itemIdsByTemplateTaskId: Record<string, Record<string, string>>;
   }>;
+  wishInstances?: TickTickTripSyncState['instances'];
   lastSyncAt?: string;
   lastError?: string;
 }
@@ -74,6 +75,7 @@ async function runSync() {
       decryptTickTickToken,
       readConnectedTickTickTemplate,
       reconcileTickTickTrips,
+      reconcileTickTickWishPreparations,
       syncTickTickRoutines,
       TickTickOpenApiClient,
     } = await import('./_ticktickTrips.js');
@@ -82,9 +84,10 @@ async function runSync() {
     if (!connection) throw new Error('TickTick 未连接');
     const token = decryptTickTickToken(connection.encryptedToken, secret);
     const api = new TickTickOpenApiClient(token, (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
-    const [calendarState, tripState, savedState] = await Promise.all([
+    const [calendarState, tripState, configState, savedState] = await Promise.all([
       kv.get('calendar-tags'),
       kv.get('trip-tags'),
+      kv.get('app-config'),
       kv.get<TickTickTripSyncState>(SYNC_STATE_KEY),
     ]);
     const state: TickTickTripSyncState = savedState && typeof savedState === 'object'
@@ -102,9 +105,17 @@ async function runSync() {
         today,
         saveState: (nextState) => kv.set(SYNC_STATE_KEY, nextState).then(() => undefined),
       });
+      const wishResult = await reconcileTickTickWishPreparations({
+        api,
+        template,
+        configState,
+        state,
+        today,
+        saveState: (nextState) => kv.set(SYNC_STATE_KEY, nextState).then(() => undefined),
+      });
       const routineResult = await syncTickTickRoutines({ api, calendarState, today });
       console.info('[ticktick-routine-sync]', JSON.stringify(routineResult));
-      return { busy: false as const, ...result, ...routineResult, lastSyncAt: state.lastSyncAt };
+      return { busy: false as const, ...result, ...wishResult, ...routineResult, lastSyncAt: state.lastSyncAt };
     } catch (error) {
       state.lastError = error instanceof Error ? error.message : String(error);
       await kv.set(SYNC_STATE_KEY, state);
