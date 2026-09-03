@@ -8,6 +8,7 @@ import { usePossessionStore } from '../stores/possessionStore';
 import { DEFAULT_SNAPSHOT, useSnapshotStore } from '../stores/snapshotStore';
 import { useTripStore } from '../stores/tripStore';
 import { useSyncStatus } from './syncStatus';
+import { loadTickTickSyncStatus, syncTickTickTrips } from './tickTickSync';
 
 const EXPENSE_SCOPE_SYNC_KEY = 'expense-scope-overrides';
 const LEGACY_EXPENSE_SCOPE_SYNC_KEY = 'life-period-overrides';
@@ -237,6 +238,7 @@ let syncPauseDepth = 0;
 let activeSecret: string | null = null;
 let uploadInFlight: Promise<void> | null = null;
 let uploadQueued = false;
+let tickTickSyncQueued = false;
 
 export function getActiveSyncSecret(): string | null {
   if (activeSecret) return activeSecret;
@@ -273,6 +275,10 @@ export async function triggerUpload() {
         uploadQueued = false;
         await uploadAll(activeSecret);
       }
+      if (tickTickSyncQueued && activeSecret) {
+        tickTickSyncQueued = false;
+        void syncTickTickTrips(activeSecret);
+      }
       status.setStatus('saved');
       setTimeout(() => {
         if (useSyncStatus.getState().state === 'saved') useSyncStatus.getState().setStatus('idle');
@@ -308,6 +314,32 @@ function startSubscriptions() {
       debouncedUpload();
     });
   }
+
+  let tripSignature = JSON.stringify({
+    tagMap: useCalendarStore.getState().tagMap,
+    tripTags: useTripStore.getState().tripTags,
+    tripNotes: useTripStore.getState().tripNotes,
+    tripSplits: useTripStore.getState().tripSplits,
+  });
+  const markTickTickSyncNeeded = () => {
+    if (syncingFromServer || syncPauseDepth > 0) return;
+    const nextSignature = JSON.stringify({
+      tagMap: useCalendarStore.getState().tagMap,
+      tripTags: useTripStore.getState().tripTags,
+      tripNotes: useTripStore.getState().tripNotes,
+      tripSplits: useTripStore.getState().tripSplits,
+    });
+    if (nextSignature === tripSignature) return;
+    tripSignature = nextSignature;
+    tickTickSyncQueued = true;
+  };
+  useCalendarStore.subscribe(markTickTickSyncNeeded);
+  useTripStore.subscribe(markTickTickSyncNeeded);
+}
+
+async function startTickTickSync(secret: string) {
+  const connected = await loadTickTickSyncStatus(secret);
+  if (connected) await syncTickTickTrips(secret);
 }
 
 export async function initSync() {
@@ -351,6 +383,7 @@ export async function initSync() {
       setTimeout(() => {
         syncingFromServer = false;
         startSubscriptions();
+        void startTickTickSync(secret);
       }, 100);
       status.setStatus('saved', '已从云端同步');
       setTimeout(() => {
@@ -363,6 +396,7 @@ export async function initSync() {
       status.setStatus('saving', '首次同步，上传本地数据');
       await uploadAll(secret);
       startSubscriptions();
+      void startTickTickSync(secret);
       status.setStatus('saved', '首次同步完成');
       setTimeout(() => {
         if (useSyncStatus.getState().state === 'saved') {

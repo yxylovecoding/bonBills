@@ -16,6 +16,7 @@ import type { TripGroup } from '../utils/trips';
 import AmountInput from '../components/AmountInput';
 import InvestInstrumentPicker from '../components/InvestInstrumentPicker';
 import FinanceImportPreviewDialog from '../components/FinanceImportPreviewDialog';
+import TickTickTripSyncControl from '../components/TickTickTripSyncControl';
 import ImportCutoffHint from '../components/ImportCutoffHint';
 import { calcHistoryStats } from '../calculations/history';
 import { buildExpenseScopeStats, suggestScope, isInconsistent, type ExpenseScopeStatRow } from '../calculations/expenseScopeStats';
@@ -4938,6 +4939,7 @@ function TripsSection({
   if (groups.length === 0) return null;
   return (
     <Card title="本月出游" subtitle="若连续『游』其实是两次，点 ─ 切开">
+      <TickTickTripSyncControl />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {groups.map((g) => (
           <div key={g.rawDates[0]} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
