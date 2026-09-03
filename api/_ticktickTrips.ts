@@ -546,7 +546,7 @@ function baseTaskPayload(
   const rootContent = [templateTask.content?.trim(), trip.note].filter(Boolean).join('\n\n');
   return {
     projectId: template.projectId,
-    title: isRoot ? `${trip.name} · ${TICKTICK_TEMPLATE_TITLE}` : templateTask.title,
+    title: `${trip.name} · ${isRoot ? TICKTICK_TEMPLATE_TITLE : templateTask.title}`,
     content: isRoot ? rootContent : (templateTask.content ?? ''),
     desc: templateTask.desc ?? '',
     isAllDay: isRoot ? true : (templateTask.isAllDay ?? true),

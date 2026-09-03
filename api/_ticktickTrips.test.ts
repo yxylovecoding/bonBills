@@ -317,7 +317,8 @@ describe('TickTick 出游同步', () => {
     const before = api.tasks.get(instance.taskIdsByTemplateId['template-before'])!;
     const month = api.tasks.get(instance.taskIdsByTemplateId['template-month'])!;
     expect(root).toMatchObject({ title: '东京 · 出门todo', dueDate: '2027-01-10T00:00:00+0800', content: '模板说明\n\n带护照' });
-    expect(before).toMatchObject({ dueDate: '2027-01-09T00:00:00+0800', parentId: root?.id });
+    expect(before).toMatchObject({ title: '东京 · 出门前一天', dueDate: '2027-01-09T00:00:00+0800', parentId: root?.id });
+    expect(month.title).toBe('东京 · 出门前一个月');
     expect(month.status).toBe(0);
     expect(before.items?.[0].status).toBe(0);
 
@@ -339,6 +340,7 @@ describe('TickTick 出游同步', () => {
     expect(state.instances['2027-01-10']).toBeUndefined();
     expect(state.instances['2027-01-09'].rootTaskId).toBe(root?.id);
     const updatedBefore = api.tasks.get(before.id)!;
+    expect(updatedBefore.title).toBe('东京 · 出门前一天');
     expect(updatedBefore.status).toBe(2);
     expect(updatedBefore.items?.map((item) => item.title)).toEqual(['随身包', '相机', '临时增加']);
     expect(updatedBefore.items?.find((item) => item.title === '随身包')?.status).toBe(1);
