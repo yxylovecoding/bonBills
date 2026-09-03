@@ -39,6 +39,7 @@ import {
 } from '../utils/wishInternSavings';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
+type LodgingAmountMode = 'daily' | 'total';
 const LIFE_EXPENSE_TOOLTIP_ORDER: Array<{ kind: TagKind; label: string }> = [
   { kind: 'home', label: '家' },
   { kind: 'travel', label: '游' },
@@ -121,6 +122,7 @@ export default function WishesPage() {
   const { tripTags, tripSplits } = useTripStore();
   const showPayrollCutoffMarkers = usePrefsStore((state) => state.showPayrollCutoffMarkers);
   const [amountDrafts, setAmountDrafts] = useState<Record<string, string>>({});
+  const [lodgingAmountModes, setLodgingAmountModes] = useState<Record<string, LodgingAmountMode>>({});
   const [budgetEstimateWishId, setBudgetEstimateWishId] = useState<string | null>(null);
   const [planningDeadline, setPlanningDeadline] = useState('');
   const [activeWishId, setActiveWishId] = useState<string | null>(null);
@@ -499,6 +501,41 @@ export default function WishesPage() {
     setAmountDrafts((prev) => {
       const next = { ...prev };
       delete next[key];
+      return next;
+    });
+  };
+  const updateLodgingAmount = (
+    id: string,
+    raw: string,
+    lodgingNights: number,
+    mode: LodgingAmountMode,
+  ) => {
+    const key = `${id}:travelLodging:${mode}`;
+    setAmountDrafts((prev) => ({ ...prev, [key]: raw }));
+    const amount = sanitizeAmount(raw);
+    updateWish(
+      id,
+      'travelLodgingDailyAmount',
+      mode === 'total' ? (lodgingNights > 0 ? amount / lodgingNights : 0) : amount,
+    );
+  };
+  const finishLodgingAmountEdit = (id: string, mode: LodgingAmountMode) => {
+    const key = `${id}:travelLodging:${mode}`;
+    setAmountDrafts((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+  const toggleLodgingAmountMode = (id: string) => {
+    setLodgingAmountModes((prev) => ({
+      ...prev,
+      [id]: (prev[id] ?? 'daily') === 'daily' ? 'total' : 'daily',
+    }));
+    setAmountDrafts((prev) => {
+      const next = { ...prev };
+      delete next[`${id}:travelLodging:daily`];
+      delete next[`${id}:travelLodging:total`];
       return next;
     });
   };
@@ -941,7 +978,6 @@ export default function WishesPage() {
             const confirmedSavedAmount = wishes.find((wish) => wish.id === item.id)?.savedAmount ?? 0;
             const pendingInternSavingAmount = pendingInternSavingsByWish[item.id] ?? 0;
             const ticketKey = `${item.id}:travelTicketAmount`;
-            const lodgingKey = `${item.id}:travelLodgingDailyAmount`;
             const lifeCorrectionKey = `${item.id}:travelLifeCorrectionAmount`;
             const linkedTrip = item.linkedTripStartDate
               ? allTripSegments.find((trip) => trip.startDate === item.linkedTripStartDate)
@@ -961,6 +997,9 @@ export default function WishesPage() {
                 ? '__manual__'
                 : '';
             const itemTravelDays = linkedTrip?.dates.length ?? Math.max(Math.round(item.plannedTravelDays ?? 0), 0);
+            const lodgingNights = Math.max(itemTravelDays - 1, 0);
+            const lodgingAmountMode = lodgingAmountModes[item.id] ?? 'daily';
+            const lodgingKey = `${item.id}:travelLodging:${lodgingAmountMode}`;
             const itemLodgingDailyAmount = Number.isFinite(item.travelLodgingDailyAmount)
               ? Math.max(item.travelLodgingDailyAmount ?? 0, 0)
               : itemTravelDays > 0
@@ -975,6 +1014,9 @@ export default function WishesPage() {
               itemLodgingDailyAmount,
               itemExtraExpenseAmount,
             );
+            const lodgingInputAmount = lodgingAmountMode === 'total'
+              ? travelEstimate.lodgingAmount
+              : itemLodgingDailyAmount;
             const itemTravelLifeAmount = travelEstimate.lifeAmount;
             const itemTravelLifeCorrectionAmount = Number.isFinite(item.travelLifeCorrectionAmount)
               ? Math.min(Math.max(item.travelLifeCorrectionAmount ?? 0, 0), itemTravelLifeAmount)
@@ -1193,20 +1235,31 @@ export default function WishesPage() {
                             />
                           </div>
                         </label>
-                        <label>
-                          <span style={{ display: 'block', marginBottom: 3, fontSize: 9, color: C.sub }}>酒店/天</span>
+                        <div>
+                          <span style={{ display: 'flex', alignItems: 'center', marginBottom: 3, fontSize: 9, color: C.sub }}>
+                            酒店
+                            <button
+                              type="button"
+                              aria-label={`${item.name} 酒店价格当前为${lodgingAmountMode === 'daily' ? '每天' : '总价'}，点击切换为${lodgingAmountMode === 'daily' ? '总价' : '每天'}`}
+                              aria-pressed={lodgingAmountMode === 'total'}
+                              onClick={() => toggleLodgingAmountMode(item.id)}
+                              style={{ border: 'none', borderBottom: '1px dotted currentColor', backgroundColor: 'transparent', color: C.purple, padding: 0, font: 'inherit', lineHeight: 'inherit', cursor: 'pointer' }}
+                            >
+                              {lodgingAmountMode === 'daily' ? '/天' : '总价'}
+                            </button>
+                          </span>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 3, borderRadius: 7, backgroundColor: '#fff', padding: '5px 6px' }}>
                             <span style={{ fontSize: 10, color: C.sub }}>¥</span>
                             <AmountInput
-                              aria-label={`${item.name} 酒店日均价格`}
-                              value={amountDrafts[lodgingKey] ?? (itemLodgingDailyAmount ? String(itemLodgingDailyAmount) : '')}
-                              onChange={(raw) => updateAmount(item.id, 'travelLodgingDailyAmount', raw)}
-                              onBlur={() => finishAmountEdit(item.id, 'travelLodgingDailyAmount')}
+                              aria-label={`${item.name} 酒店${lodgingAmountMode === 'daily' ? '日均价格' : '总价'}`}
+                              value={amountDrafts[lodgingKey] ?? (lodgingInputAmount ? String(roundToSitePrecision(lodgingInputAmount)) : '')}
+                              onChange={(raw) => updateLodgingAmount(item.id, raw, lodgingNights, lodgingAmountMode)}
+                              onBlur={() => finishLodgingAmountEdit(item.id, lodgingAmountMode)}
                               placeholder="0"
                               style={{ width: '100%', minWidth: 0, border: 'none', outline: 'none', backgroundColor: 'transparent', textAlign: 'right', fontSize: 11, fontWeight: 700, color: C.purple }}
                             />
                           </div>
-                        </label>
+                        </div>
                         <div style={{ gridColumn: '1 / -1' }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
                             <span style={{ fontSize: 9, color: C.sub }}>额外消费（计入心愿）</span>
