@@ -62,6 +62,13 @@ class FakeTickTickApi implements TickTickApi {
     );
   }
 
+  async listCompletedTasks(projectIds: string[], startDate: string, endDate: string) {
+    return [...this.tasks.values()].filter((task) => projectIds.includes(task.projectId)
+      && task.status === 2 && task.completedTime
+      && Date.parse(task.completedTime) >= Date.parse(startDate)
+      && Date.parse(task.completedTime) <= Date.parse(endDate));
+  }
+
   async getTask(_projectId: string, taskId: string) {
     const task = this.tasks.get(taskId);
     if (!task) throw new Error('TickTick 404');

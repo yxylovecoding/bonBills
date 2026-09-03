@@ -126,6 +126,7 @@ export interface TickTickApi {
   getPreference(): Promise<{ timeZone?: string }>;
   getProjectData(projectId: string): Promise<TickTickProjectData>;
   filterTasks(projectIds: string | string[] | undefined, statuses: number[]): Promise<TickTickTask[]>;
+  listCompletedTasks(projectIds: string[], startDate: string, endDate: string): Promise<TickTickTask[]>;
   getTask(projectId: string, taskId: string): Promise<TickTickTask>;
   createTask(payload: Record<string, unknown>): Promise<TickTickTask>;
   updateTask(taskId: string, payload: Record<string, unknown>): Promise<TickTickTask>;
@@ -217,6 +218,13 @@ export class TickTickOpenApiClient implements TickTickApi {
         ...(projectIds === undefined ? {} : { projectIds: Array.isArray(projectIds) ? projectIds : [projectIds] }),
         status: statuses,
       }),
+    });
+  }
+
+  listCompletedTasks(projectIds: string[], startDate: string, endDate: string) {
+    return this.request<TickTickTask[]>('/task/completed', {
+      method: 'POST',
+      body: JSON.stringify({ projectIds, startDate, endDate }),
     });
   }
 
@@ -572,6 +580,26 @@ export async function syncTickTickRoutines(options: {
   }
 
   return { updatedRoutineTasks, routineTargets, routineTaskCounts };
+}
+
+export async function inspectTickTickRoutineDates(api: TickTickApi, today: string) {
+  const active = await api.filterTasks(undefined, [0]);
+  const roots = active.filter((task) => [TICKTICK_HOME_ROUTINE_TITLE, TICKTICK_SCHOOL_ROUTINE_TITLE]
+    .some((title) => normalizedRoutineTitle(task.title) === normalizedRoutineTitle(title)));
+  const projectIds = [...new Set(roots.map((task) => task.projectId))];
+  const projects = await Promise.all(projectIds.map((id) => api.getProjectData(id)));
+  const tasks = mergeTaskLists(projects.flatMap((project) => project.tasks), active);
+  const scoped = roots.flatMap((root) => [root, ...descendantsOf(tasks, root.id)]);
+  const completed = projectIds.length ? await api.listCompletedTasks(
+    projectIds, `${addCalendarDays(today, -7)}T00:00:00+0800`, `${today}T23:59:59+0800`,
+  ) : [];
+  const titles = new Set(scoped.map((task) => task.title));
+  const timing = (task: TickTickTask) => Object.fromEntries(Object.entries(task)
+    .filter(([key]) => /id|date|time|repeat|status|isAllDay|title/i.test(key)));
+  return {
+    active: scoped.map(timing),
+    completed: completed.filter((task) => titles.has(task.title)).map(timing),
+  };
 }
 
 function templateDepth(task: TickTickTask, byId: Map<string, TickTickTask>): number {

@@ -160,6 +160,16 @@ async function status() {
     kv.get<TickTickConnection>(CONNECTION_KEY),
     kv.get<TickTickTripSyncState>(SYNC_STATE_KEY),
   ]);
+  if (connection) {
+    try {
+      const { decryptTickTickToken, inspectTickTickRoutineDates, TickTickOpenApiClient } = await import('./_ticktickTrips.js');
+      const api = new TickTickOpenApiClient(decryptTickTickToken(connection.encryptedToken, getSyncSecret()),
+        (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
+      console.info('[ticktick-routine-dates]', JSON.stringify(await inspectTickTickRoutineDates(api, shanghaiDate())));
+    } catch (error) {
+      console.info('[ticktick-routine-dates]', error instanceof Error ? error.message : String(error));
+    }
+  }
   return {
     connected: Boolean(connection),
     projectName: connection ? '玩' : undefined,
