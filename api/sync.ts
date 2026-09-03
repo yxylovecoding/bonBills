@@ -1,10 +1,11 @@
 import { kv } from '@vercel/kv';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { MONTHLY_BACKUP_INDEX_KEY, type MonthlyBackupIndexEntry } from './_monthlyBackup.js';
-import { restoreMonthlyInvestmentState } from './_restoreMonthlyInvestment.js';
+import { mergeRecoveredMonthlyInvestmentState, restoreMonthlyInvestmentState } from './_restoreMonthlyInvestment.js';
 import { SYNC_STORE_KEYS, type SyncPayload } from './_syncKeys.js';
 
 const AUGUST_INVESTMENT_RECOVERY_MARKER = 'sync-recovery:2026-08-investment:2026-09-03-v1';
+const AUGUST_INVESTMENT_MERGE_MARKER = 'sync-recovery:2026-08-investment:2026-09-03-v2';
 
 interface MonthlyBackup {
   data?: SyncPayload;
@@ -49,6 +50,25 @@ async function restoreAugustInvestmentFromLatestBackup(currentState: unknown) {
   return currentState;
 }
 
+async function mergeAugustInvestmentFromPreRestoreState(currentState: unknown) {
+  const completed = await kv.get(AUGUST_INVESTMENT_MERGE_MARKER);
+  if (completed) return currentState;
+
+  const previous = await kv.get<{ data?: unknown }>(`${AUGUST_INVESTMENT_RECOVERY_MARKER}:before`);
+  const merged = mergeRecoveredMonthlyInvestmentState(currentState, previous?.data, '2026-08');
+  const mergedAt = new Date().toISOString();
+  if (merged.merged) {
+    await kv.set(`${AUGUST_INVESTMENT_MERGE_MARKER}:before`, { createdAt: mergedAt, data: currentState });
+    await kv.set('monthly-records', merged.state);
+  }
+  await kv.set(AUGUST_INVESTMENT_MERGE_MARKER, {
+    mergedAt,
+    merged: merged.merged,
+    selectedRecoveryGroups: merged.selectedRecoveryGroups ?? [],
+  });
+  return merged.state;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!authOk(req)) {
     return res.status(401).json({ error: 'unauthorized' });
@@ -66,6 +86,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
     if (result['monthly-records']) {
       result['monthly-records'] = await restoreAugustInvestmentFromLatestBackup(result['monthly-records']);
+      result['monthly-records'] = await mergeAugustInvestmentFromPreRestoreState(result['monthly-records']);
     }
     if (!hasAny) {
       return res.status(204).end();
