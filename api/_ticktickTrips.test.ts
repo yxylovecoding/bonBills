@@ -148,6 +148,11 @@ class FakeRoutineTickTickApi extends FakeTickTickApi {
       tasks: [...this.tasks.values()].filter((task) => task.projectId === projectId),
     };
   }
+
+  async filterTasks(projectIds: string | string[], statuses: number[]) {
+    return (await super.filterTasks(projectIds, statuses))
+      .filter((task) => task.projectId !== 'life');
+  }
 }
 
 const futureTrip = {
@@ -225,7 +230,7 @@ describe('TickTick 出游同步', () => {
     });
   });
 
-  it('只平移 routine 父任务树中未完成且有日期的后代任务', async () => {
+  it('从完整清单数据平移 routine 父任务树中的已定日任务', async () => {
     const api = new FakeRoutineTickTickApi();
     const calendarState = { tagMap: {
       '2026-09-01': 'home',

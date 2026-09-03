@@ -464,10 +464,17 @@ export async function syncTickTickRoutines(options: {
   const { api, calendarState, today } = options;
   const routineTargets = getTickTickRoutineTargetDates(calendarState, today);
   const projects = await api.listProjects();
-  const activeTasks = projects.length > 0
-    ? (await api.filterTasks(projects.map((project) => project.id), [0]))
+  const [projectData, filteredTasks] = projects.length > 0
+    ? await Promise.all([
+      Promise.all(projects.map((project) => api.getProjectData(project.id))),
+      api.filterTasks(projects.map((project) => project.id), [0]),
+    ])
+    : [[], []] as [TickTickProjectData[], TickTickTask[]];
+  const activeTasks = [...new Map(
+    [...projectData.flatMap((data) => data.tasks), ...filteredTasks]
       .filter((task) => (task.status ?? 0) === 0)
-    : [];
+      .map((task) => [task.id, task]),
+  ).values()];
   const specs = [
     { title: TICKTICK_HOME_ROUTINE_TITLE, targetDate: routineTargets.home },
     { title: TICKTICK_SCHOOL_ROUTINE_TITLE, targetDate: routineTargets.school },
