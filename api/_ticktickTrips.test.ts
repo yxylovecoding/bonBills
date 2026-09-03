@@ -54,9 +54,10 @@ class FakeTickTickApi implements TickTickApi {
     return { project: { id: projectId, name: '玩' }, tasks: [...this.tasks.values()] };
   }
 
-  async filterTasks(projectId: string, statuses: number[]) {
+  async filterTasks(projectIds: string | string[], statuses: number[]) {
+    const includedProjects = new Set(Array.isArray(projectIds) ? projectIds : [projectIds]);
     return [...this.tasks.values()].filter(
-      (task) => task.projectId === projectId && statuses.includes(task.status ?? 0),
+      (task) => includedProjects.has(task.projectId) && statuses.includes(task.status ?? 0),
     );
   }
 
@@ -100,30 +101,43 @@ class FakeTickTickApi implements TickTickApi {
 class FakeRoutineTickTickApi extends FakeTickTickApi {
   constructor() {
     super();
+    this.tasks.set('home-root', {
+      id: 'home-root', projectId: 'life', title: '在家routine', status: 0,
+    });
     this.tasks.set('home-dated', {
-      id: 'home-dated', projectId: 'home-routine', title: '整理房间', status: 0,
+      id: 'home-dated', projectId: 'life', parentId: 'home-root', title: '整理房间', status: 0,
       startDate: '2026-08-31T09:00:00+0800', dueDate: '2026-09-01T18:00:00+0800',
       timeZone: 'Asia/Shanghai', reminders: ['TRIGGER:P0DT9H0M0S'],
     });
     this.tasks.set('home-no-date', {
-      id: 'home-no-date', projectId: 'home-routine', title: '想起来再做', status: 0,
+      id: 'home-no-date', projectId: 'life', parentId: 'home-root', title: '想起来再做', status: 0,
     });
     this.tasks.set('home-completed', {
-      id: 'home-completed', projectId: 'home-routine', title: '已完成', status: 2,
+      id: 'home-completed', projectId: 'life', parentId: 'home-root', title: '已完成', status: 2,
       dueDate: '2026-09-01T00:00:00+0800',
     });
+    this.tasks.set('school-root', {
+      id: 'school-root', projectId: 'life', title: '在校routine', status: 0,
+    });
     this.tasks.set('school-dated', {
-      id: 'school-dated', projectId: 'school-routine', title: '校园卡充值', status: 0,
+      id: 'school-dated', projectId: 'life', parentId: 'school-root', title: '校园卡充值', status: 0,
       startDate: '2026-09-15T00:00:00+0800', dueDate: '2026-09-15T00:00:00+0800',
       items: [{ id: 'school-item', title: '查余额', status: 1 }],
+    });
+    this.tasks.set('school-start-only', {
+      id: 'school-start-only', projectId: 'life', parentId: 'school-root', title: '只有开始日期', status: 0,
+      startDate: '2026-09-15T08:30:00+0800',
+    });
+    this.tasks.set('unrelated-dated', {
+      id: 'unrelated-dated', projectId: 'life', title: '清单内其他任务', status: 0,
+      startDate: '2026-09-15T00:00:00+0800', dueDate: '2026-09-15T00:00:00+0800',
     });
   }
 
   async listProjects() {
     return [
       { id: 'play', name: '玩' },
-      { id: 'home-routine', name: '在家routine' },
-      { id: 'school-routine', name: '在校Routine' },
+      { id: 'life', name: '活' },
     ];
   }
 
@@ -207,7 +221,7 @@ describe('TickTick 出游同步', () => {
     });
   });
 
-  it('只平移 routine 中未完成且有截止日期的任务', async () => {
+  it('只平移 routine 父任务树中未完成且有日期的后代任务', async () => {
     const api = new FakeRoutineTickTickApi();
     const calendarState = { tagMap: {
       '2026-09-01': 'home',
@@ -222,7 +236,7 @@ describe('TickTick 出游同步', () => {
     } };
 
     await expect(syncTickTickRoutines({ api, calendarState, today: '2026-09-07' })).resolves.toEqual({
-      updatedRoutineTasks: 2,
+      updatedRoutineTasks: 3,
       routineTargets: { home: '2026-09-20', school: '2026-09-07' },
     });
     expect(api.tasks.get('home-dated')).toMatchObject({
@@ -235,8 +249,11 @@ describe('TickTick 出游同步', () => {
       dueDate: '2026-09-07T00:00:00+0800',
       items: [{ id: 'school-item', title: '查余额', status: 1 }],
     });
+    expect(api.tasks.get('school-start-only')?.startDate).toBe('2026-09-07T08:30:00+0800');
+    expect(api.tasks.get('school-start-only')?.dueDate).toBeUndefined();
     expect(api.tasks.get('home-no-date')?.dueDate).toBeUndefined();
     expect(api.tasks.get('home-completed')?.dueDate).toBe('2026-09-01T00:00:00+0800');
+    expect(api.tasks.get('unrelated-dated')?.dueDate).toBe('2026-09-15T00:00:00+0800');
 
     await expect(syncTickTickRoutines({ api, calendarState, today: '2026-09-07' }))
       .resolves.toMatchObject({ updatedRoutineTasks: 0 });

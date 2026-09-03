@@ -6,8 +6,8 @@ export const TICKTICK_SYNC_LOCK_KEY = 'ticktick:trip-sync:lock';
 export const TICKTICK_PROJECT_NAME = '玩';
 export const TICKTICK_TEMPLATE_TITLE = '出门todo';
 export const TICKTICK_ANCHOR_TITLE = '出门当天';
-export const TICKTICK_HOME_ROUTINE_PROJECT_NAME = '在家routine';
-export const TICKTICK_SCHOOL_ROUTINE_PROJECT_NAME = '在校routine';
+export const TICKTICK_HOME_ROUTINE_TITLE = '在家routine';
+export const TICKTICK_SCHOOL_ROUTINE_TITLE = '在校routine';
 export const TICKTICK_API_BASE_URL = 'https://api.ticktick.com/open/v1';
 
 const TRIP_TAG_PREFIX = /^\d{2}\.\d{1,2}(?:\.\d{1,2})?\s*/;
@@ -124,7 +124,7 @@ export interface TickTickApi {
   listProjects(): Promise<TickTickProject[]>;
   getPreference(): Promise<{ timeZone?: string }>;
   getProjectData(projectId: string): Promise<TickTickProjectData>;
-  filterTasks(projectId: string, statuses: number[]): Promise<TickTickTask[]>;
+  filterTasks(projectIds: string | string[], statuses: number[]): Promise<TickTickTask[]>;
   getTask(projectId: string, taskId: string): Promise<TickTickTask>;
   createTask(payload: Record<string, unknown>): Promise<TickTickTask>;
   updateTask(taskId: string, payload: Record<string, unknown>): Promise<TickTickTask>;
@@ -209,10 +209,10 @@ export class TickTickOpenApiClient implements TickTickApi {
     return this.request<TickTickProjectData>(`/project/${encodeURIComponent(projectId)}/data`);
   }
 
-  filterTasks(projectId: string, statuses: number[]) {
+  filterTasks(projectIds: string | string[], statuses: number[]) {
     return this.request<TickTickTask[]>('/task/filter', {
       method: 'POST',
-      body: JSON.stringify({ projectIds: [projectId], status: statuses }),
+      body: JSON.stringify({ projectIds: Array.isArray(projectIds) ? projectIds : [projectIds], status: statuses }),
     });
   }
 
@@ -441,10 +441,9 @@ export function getTickTickRoutineTargetDates(calendarState: unknown, today: str
 }
 
 function routineTaskPayload(task: TickTickTask, targetDate: string): Record<string, unknown> {
-  const dueDate = task.dueDate!;
-  const dueDateOnly = dueDate.slice(0, 10);
-  const shiftedStartDate = shiftTickTickDate(task.startDate, dueDateOnly, targetDate);
-  const shiftedDueDate = shiftTickTickDate(dueDate, dueDateOnly, targetDate)!;
+  const scheduledDate = taskDate(task)!;
+  const shiftedStartDate = shiftTickTickDate(task.startDate, scheduledDate, targetDate);
+  const shiftedDueDate = shiftTickTickDate(task.dueDate, scheduledDate, targetDate);
   return {
     projectId: task.projectId,
     title: task.title,
@@ -452,7 +451,7 @@ function routineTaskPayload(task: TickTickTask, targetDate: string): Record<stri
     ...(task.desc !== undefined ? { desc: task.desc } : {}),
     ...(task.isAllDay !== undefined ? { isAllDay: task.isAllDay } : {}),
     ...(shiftedStartDate ? { startDate: shiftedStartDate } : {}),
-    dueDate: shiftedDueDate,
+    ...(shiftedDueDate ? { dueDate: shiftedDueDate } : {}),
     ...(task.timeZone ? { timeZone: task.timeZone } : {}),
     ...(task.reminders !== undefined ? { reminders: task.reminders } : {}),
     ...(task.tags !== undefined ? { tags: task.tags } : {}),
@@ -473,29 +472,35 @@ export async function syncTickTickRoutines(options: {
   const { api, calendarState, today } = options;
   const routineTargets = getTickTickRoutineTargetDates(calendarState, today);
   const projects = await api.listProjects();
+  const activeTasks = projects.length > 0
+    ? (await api.filterTasks(projects.map((project) => project.id), [0]))
+      .filter((task) => (task.status ?? 0) === 0)
+    : [];
   const specs = [
-    { name: TICKTICK_HOME_ROUTINE_PROJECT_NAME, targetDate: routineTargets.home },
-    { name: TICKTICK_SCHOOL_ROUTINE_PROJECT_NAME, targetDate: routineTargets.school },
+    { title: TICKTICK_HOME_ROUTINE_TITLE, targetDate: routineTargets.home },
+    { title: TICKTICK_SCHOOL_ROUTINE_TITLE, targetDate: routineTargets.school },
   ];
   let updatedRoutineTasks = 0;
 
   for (const spec of specs) {
-    const normalizedName = spec.name.toLocaleLowerCase();
-    const matches = projects.filter((project) => project.name.trim().toLocaleLowerCase() === normalizedName);
-    if (matches.length > 1) throw new Error(`TickTick 中存在多个“${spec.name}”清单`);
-    const project = matches[0];
-    if (!project) continue;
+    const normalizedTitle = spec.title.toLocaleLowerCase();
+    const roots = activeTasks.filter((task) => task.title.trim().toLocaleLowerCase() === normalizedTitle);
+    if (roots.length > 1) throw new Error(`TickTick 中存在多个“${spec.title}”父任务`);
+    const root = roots[0];
+    const sameNamedProjects = projects.filter(
+      (project) => project.name.trim().toLocaleLowerCase() === normalizedTitle,
+    );
+    if (!root && sameNamedProjects.length > 1) throw new Error(`TickTick 中存在多个“${spec.title}”清单`);
 
-    const [projectData, filteredTasks] = await Promise.all([
-      api.getProjectData(project.id),
-      api.filterTasks(project.id, [0]),
-    ]);
-    const tasks = mergeProjectTasks(projectData, filteredTasks)
-      .filter((task) => task.projectId === project.id && (task.status ?? 0) === 0)
-      .filter((task) => task.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(task.dueDate.slice(0, 10)));
+    const scopedTasks = root
+      ? descendantsOf(activeTasks.filter((task) => task.projectId === root.projectId), root.id)
+      : sameNamedProjects[0]
+        ? activeTasks.filter((task) => task.projectId === sameNamedProjects[0].id)
+        : [];
+    const tasks = scopedTasks.filter((task) => taskDate(task));
 
     for (const task of tasks) {
-      if (task.dueDate!.slice(0, 10) === spec.targetDate) continue;
+      if (taskDate(task) === spec.targetDate) continue;
       await api.updateTask(task.id, routineTaskPayload(task, spec.targetDate));
       updatedRoutineTasks += 1;
     }
