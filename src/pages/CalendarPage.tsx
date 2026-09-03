@@ -3915,11 +3915,12 @@ export default function CalendarPage() {
         line: `理财 ${formatInvestmentImportSummary(result)}`,
         investmentMonths: result.months,
         billMonths: [] as string[],
+        changesOnly: true,
       };
     }
     if (isFinanceScreenshotFile(file)) {
       const { result } = await importFinanceScreenshotFileIntoSnapshot(file);
-      return { line: financeScreenshotImportMessage(result, file.name), investmentMonths: [] as string[], billMonths: [] as string[] };
+      return { line: financeScreenshotImportMessage(result, file.name), investmentMonths: [] as string[], billMonths: [] as string[], changesOnly: false };
     }
     const result = await importBillFileIntoStores(file, { deferUpload: true });
     const balanceStatus = result.accountBalances.updatedKeys.length > 0
@@ -3931,6 +3932,7 @@ export default function CalendarPage() {
       line: `账单 ${result.updatedMonths} 个月${balanceStatus}${result.importedPossessions > 0 ? ` · ${result.importedPossessions} 个物品动作` : ''}`,
       investmentMonths: [] as string[],
       billMonths: result.months,
+      changesOnly: true,
     };
   };
   const buildPreviewMeta = (title: string, results: Awaited<ReturnType<typeof importFileContent>>[]): FinanceImportPreviewMeta => {
@@ -3941,6 +3943,7 @@ export default function CalendarPage() {
       investmentMonths: [...new Set(results.flatMap((result) => result.investmentMonths))].sort(),
       billMonths: [...new Set(results.flatMap((result) => result.billMonths))].sort(),
       successMessage: `已导入 · ${lines.join(' · ')}`,
+      changesOnly: results.every((result) => result.changesOnly),
     };
   };
   const importBillFromFile = async (file: File) => {

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import * as XLSX from 'xlsx';
 import type { InvestPositionItem, MonthlyRecord } from '../models/types';
 import { normalizeMonthlyRecords, useMonthlyStore } from '../stores/monthlyStore';
-import { confirmFinanceImport, prepareFinanceImport } from './importPreview';
+import { confirmFinanceImport, diffInvestmentOperations, prepareFinanceImport } from './importPreview';
 import { importInvestmentFileIntoStores, parseInvestmentFile } from './importInvestments';
 
 function moneyWizInvestmentFile() {
@@ -329,6 +329,13 @@ describe('理财导出表导入', () => {
 
     expect(useMonthlyStore.getState().records[0].investPositionItems?.usBond?.[0].shares).toBe(1);
     expect(draft.after.records[0].investPositionItems?.usBond?.[0].shares).toBe(1.4925);
+    expect(diffInvestmentOperations(draft.before.records, draft.after.records)).toEqual([
+      expect.objectContaining({
+        kind: 'transaction',
+        change: 'added',
+        item: expect.objectContaining({ symbol: 'TLT', side: 'buy', amount: 40.37 }),
+      }),
+    ]);
 
     await confirmFinanceImport(draft);
     expect(useMonthlyStore.getState().records[0].investPositionItems?.usBond?.[0].shares).toBe(1.4925);
@@ -339,8 +346,10 @@ describe('理财导出表导入', () => {
     const file = pendingFundFile({
       rows: [['ORDER-1', '2026-08-31 10:20', '', '买入', '南方标普红利低波50ETF联接A', 'OF008163', '', '', 100, '招商', '确认中']],
     });
+    const before = structuredClone(useMonthlyStore.getState().records);
 
     const first = await importInvestmentFileIntoStores(file);
+    const afterFirst = structuredClone(useMonthlyStore.getState().records);
     const second = await importInvestmentFileIntoStores(file);
     const fund = useMonthlyStore.getState().records[0].investPositionItems?.a?.[0];
 
@@ -349,6 +358,13 @@ describe('理财导出表导入', () => {
     expect(fund?.shares).toBe(10);
     expect(fund?.pendingBuys).toHaveLength(1);
     expect(fund?.pendingBuys?.[0]).toMatchObject({ orderId: 'ORDER-1', amount: 100, account: '招商' });
+    expect(diffInvestmentOperations(before, afterFirst)).toEqual([
+      expect.objectContaining({
+        kind: 'pending',
+        change: 'added',
+        item: expect.objectContaining({ orderId: 'ORDER-1', amount: 100 }),
+      }),
+    ]);
   });
 
   it('跨月确认越过编辑时间过滤转正，并保持历史月份待确认快照', async () => {

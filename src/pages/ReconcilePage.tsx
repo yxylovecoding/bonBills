@@ -836,6 +836,7 @@ export default function ReconcilePage() {
             investmentMonths: [...new Set(investmentMonths)].sort(),
             billMonths: [...new Set(billMonths)].sort(),
             successMessage: `邮箱已导入 · ${imported.join(' · ')}`,
+            changesOnly: true,
           };
         });
         setFinanceImportDraft(draft);

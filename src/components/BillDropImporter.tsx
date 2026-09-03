@@ -103,7 +103,7 @@ export default function BillDropImporter() {
           if (isInvestment) {
             const result = await importInvestmentFileIntoStores(file, { deferUpload: true });
             const line = `理财 ${formatInvestmentImportSummary(result)}`;
-            return { title: `导入预览 · ${file.name}`, lines: [line], investmentMonths: result.months, billMonths: [], successMessage: `已导入 · ${line}` };
+            return { title: `导入预览 · ${file.name}`, lines: [line], investmentMonths: result.months, billMonths: [], successMessage: `已导入 · ${line}`, changesOnly: true };
           }
           const result = await importBillFileIntoStores(file, { deferUpload: true });
           const balanceStatus = result.accountBalances.updatedKeys.length > 0
@@ -112,7 +112,7 @@ export default function BillDropImporter() {
               ? ' · 余额已接续'
               : '';
           const line = `账单 ${result.updatedMonths} 个月${balanceStatus}${result.importedPossessions > 0 ? ` · ${result.importedPossessions} 个物品动作` : ''}`;
-          return { title: `导入预览 · ${file.name}`, lines: [line], investmentMonths: [], billMonths: result.months, successMessage: `已导入 · ${line}` };
+          return { title: `导入预览 · ${file.name}`, lines: [line], investmentMonths: [], billMonths: result.months, successMessage: `已导入 · ${line}`, changesOnly: true };
         });
         setImportDraft(prepared);
         showMessage('预览已生成 · 等待确认');
