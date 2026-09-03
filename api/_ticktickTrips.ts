@@ -6,6 +6,8 @@ export const TICKTICK_SYNC_LOCK_KEY = 'ticktick:trip-sync:lock';
 export const TICKTICK_PROJECT_NAME = '玩';
 export const TICKTICK_TEMPLATE_TITLE = '出门todo';
 export const TICKTICK_ANCHOR_TITLE = '出门当天';
+export const TICKTICK_HOME_ROUTINE_PROJECT_NAME = '在家routine';
+export const TICKTICK_SCHOOL_ROUTINE_PROJECT_NAME = '在校routine';
 export const TICKTICK_API_BASE_URL = 'https://api.ticktick.com/open/v1';
 
 const TRIP_TAG_PREFIX = /^\d{2}\.\d{1,2}(?:\.\d{1,2})?\s*/;
@@ -106,6 +108,16 @@ export interface TickTickSyncResult {
   updatedTrips: number;
   deletedTrips: number;
   activeTrips: number;
+}
+
+export interface TickTickRoutineTargets {
+  home: string;
+  school: string;
+}
+
+export interface TickTickRoutineSyncResult {
+  updatedRoutineTasks: number;
+  routineTargets: TickTickRoutineTargets;
 }
 
 export interface TickTickApi {
@@ -236,6 +248,23 @@ function addCalendarDays(date: string, delta: number): string {
   const value = new Date(`${date}T00:00:00Z`);
   value.setUTCDate(value.getUTCDate() + delta);
   return value.toISOString().slice(0, 10);
+}
+
+const CHINESE_CALENDAR_FORMATTER = new Intl.DateTimeFormat('en-u-ca-chinese', {
+  timeZone: 'Asia/Shanghai',
+  month: 'numeric',
+  day: 'numeric',
+});
+
+export function nextChineseNewYear(afterDate: string): string {
+  let date = addCalendarDays(afterDate, 1);
+  for (let days = 0; days < 450; days += 1) {
+    const parts = CHINESE_CALENDAR_FORMATTER.formatToParts(new Date(`${date}T12:00:00+08:00`));
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    if (values.month === '1' && values.day === '1') return date;
+    date = addCalendarDays(date, 1);
+  }
+  throw new Error('无法计算下一个春节');
 }
 
 function calendarDayDifference(date: string, anchor: string): number {
@@ -373,6 +402,106 @@ export function buildTripSourcesFromSyncState(calendarState: unknown, tripState:
       note: tripNotes[startDate]?.trim() ?? '',
     };
   });
+}
+
+function calendarTagMapFromSyncState(calendarState: unknown): Record<string, unknown> {
+  const calendar = calendarState && typeof calendarState === 'object' ? calendarState as Record<string, unknown> : {};
+  return calendar.tagMap && typeof calendar.tagMap === 'object'
+    ? calendar.tagMap as Record<string, unknown>
+    : {};
+}
+
+function findRoutineTargetDate(
+  tagMap: Record<string, unknown>,
+  today: string,
+  matches: (tag: unknown) => boolean,
+): string {
+  if (matches(tagMap[today])) {
+    let segmentStart = today;
+    let previous = addCalendarDays(segmentStart, -1);
+    while (matches(tagMap[previous])) {
+      segmentStart = previous;
+      previous = addCalendarDays(segmentStart, -1);
+    }
+    return segmentStart;
+  }
+
+  const nextDate = Object.keys(tagMap)
+    .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date) && date > today && matches(tagMap[date]))
+    .sort()[0];
+  return nextDate ?? nextChineseNewYear(today);
+}
+
+export function getTickTickRoutineTargetDates(calendarState: unknown, today: string): TickTickRoutineTargets {
+  const tagMap = calendarTagMapFromSyncState(calendarState);
+  return {
+    home: findRoutineTargetDate(tagMap, today, (tag) => tag === 'home'),
+    school: findRoutineTargetDate(tagMap, today, (tag) => tag === 'school' || tag === 'intern'),
+  };
+}
+
+function routineTaskPayload(task: TickTickTask, targetDate: string): Record<string, unknown> {
+  const dueDate = task.dueDate!;
+  const dueDateOnly = dueDate.slice(0, 10);
+  const shiftedStartDate = shiftTickTickDate(task.startDate, dueDateOnly, targetDate);
+  const shiftedDueDate = shiftTickTickDate(dueDate, dueDateOnly, targetDate)!;
+  return {
+    projectId: task.projectId,
+    title: task.title,
+    ...(task.content !== undefined ? { content: task.content } : {}),
+    ...(task.desc !== undefined ? { desc: task.desc } : {}),
+    ...(task.isAllDay !== undefined ? { isAllDay: task.isAllDay } : {}),
+    ...(shiftedStartDate ? { startDate: shiftedStartDate } : {}),
+    dueDate: shiftedDueDate,
+    ...(task.timeZone ? { timeZone: task.timeZone } : {}),
+    ...(task.reminders !== undefined ? { reminders: task.reminders } : {}),
+    ...(task.tags !== undefined ? { tags: task.tags } : {}),
+    ...(task.repeatFlag ? { repeatFlag: task.repeatFlag } : {}),
+    ...(task.priority !== undefined ? { priority: task.priority } : {}),
+    ...(task.sortOrder !== undefined ? { sortOrder: task.sortOrder } : {}),
+    ...(task.kind ? { kind: task.kind } : {}),
+    ...(task.parentId ? { parentId: task.parentId } : {}),
+    ...(task.items !== undefined ? { items: task.items } : {}),
+  };
+}
+
+export async function syncTickTickRoutines(options: {
+  api: TickTickApi;
+  calendarState: unknown;
+  today: string;
+}): Promise<TickTickRoutineSyncResult> {
+  const { api, calendarState, today } = options;
+  const routineTargets = getTickTickRoutineTargetDates(calendarState, today);
+  const projects = await api.listProjects();
+  const specs = [
+    { name: TICKTICK_HOME_ROUTINE_PROJECT_NAME, targetDate: routineTargets.home },
+    { name: TICKTICK_SCHOOL_ROUTINE_PROJECT_NAME, targetDate: routineTargets.school },
+  ];
+  let updatedRoutineTasks = 0;
+
+  for (const spec of specs) {
+    const normalizedName = spec.name.toLocaleLowerCase();
+    const matches = projects.filter((project) => project.name.trim().toLocaleLowerCase() === normalizedName);
+    if (matches.length > 1) throw new Error(`TickTick 中存在多个“${spec.name}”清单`);
+    const project = matches[0];
+    if (!project) continue;
+
+    const [projectData, filteredTasks] = await Promise.all([
+      api.getProjectData(project.id),
+      api.filterTasks(project.id, [0]),
+    ]);
+    const tasks = mergeProjectTasks(projectData, filteredTasks)
+      .filter((task) => task.projectId === project.id && (task.status ?? 0) === 0)
+      .filter((task) => task.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(task.dueDate.slice(0, 10)));
+
+    for (const task of tasks) {
+      if (task.dueDate!.slice(0, 10) === spec.targetDate) continue;
+      await api.updateTask(task.id, routineTaskPayload(task, spec.targetDate));
+      updatedRoutineTasks += 1;
+    }
+  }
+
+  return { updatedRoutineTasks, routineTargets };
 }
 
 function templateDepth(task: TickTickTask, byId: Map<string, TickTickTask>): number {
