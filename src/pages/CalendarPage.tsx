@@ -2762,6 +2762,7 @@ function MajorExpensesSection({ state }: { state: MonthFormState }) {
           <input
             type="text"
             aria-label={`大额支出名称 ${i + 1}`}
+            title="点击编辑名称"
             value={e.name}
             placeholder={e.sourceName}
             onChange={(event) => updateMajorExpenseName(e.sourceName, event.target.value)}
@@ -2769,7 +2770,7 @@ function MajorExpensesSection({ state }: { state: MonthFormState }) {
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.nativeEvent.isComposing) event.currentTarget.blur();
             }}
-            style={{ ...fieldStyle, minWidth: 0, borderRadius: 6, padding: '6px 8px' }}
+            style={{ width: '100%', minWidth: 0, border: 'none', backgroundColor: 'transparent', fontSize: 13, padding: '6px 8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
           />
           <span style={{ ...fieldStyle, padding: '6px 8px', backgroundColor: amtBg, borderColor: amtBorder, color: amtColor, fontWeight: 600, textAlign: 'right', display: 'block' }}>{amt ? Math.round(amt) : ''}</span>
         </div>
