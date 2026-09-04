@@ -1571,6 +1571,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   const internDays = tagCounts.intern > 0 ? tagCounts.intern : (existing?.internDays ?? 0);
 
   const [majorExpensesNote, setMajorExpensesNote] = useState<string>(existing?.majorExpensesNote ?? '');
+  const [majorExpenseNameDrafts, setMajorExpenseNameDrafts] = useState<Record<string, string>>({});
   const [breakdown] = useState<Partial<Record<keyof InvestHoldings, string>>>(
     () => Object.fromEntries(INVEST_KEYS.map((k) => [k, String(existing?.investBreakdown?.[k] ?? '')])) as Record<keyof InvestHoldings, string>
   );
@@ -1829,7 +1830,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     });
   };
 
-  const majorExpenses = useMemo<MajorExpense[]>(() => {
+  const suggestedMajorExpenses = useMemo<MajorExpense[]>(() => {
     if (!expenseItems || expenseItems.length === 0) {
       return existing?.majorExpenses ?? [];
     }
@@ -1875,8 +1876,21 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       const type: '生活' | '消费' = consumeAmt > lifeAmt ? '消费' : '生活';
       return { type, name: tag, amount: Math.round(tagTotals.get(tag)! * 100) / 100 };
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expenseItems, config.majorExpenseThreshold, tagCategory, yearMonth]);
+  }, [expenseItems, config.majorExpenseThreshold, tagCategory, yearMonth, existing?.majorExpenses]);
+  const majorExpenses = useMemo(() => {
+    const savedNames = new Map((existing?.majorExpenses ?? []).map((expense) => [expense.sourceName ?? expense.name, expense.name]));
+    return suggestedMajorExpenses.map((expense) => {
+      const sourceName = expense.sourceName ?? expense.name;
+      return {
+        ...expense,
+        sourceName,
+        name: majorExpenseNameDrafts[sourceName] ?? savedNames.get(sourceName) ?? expense.name,
+      };
+    });
+  }, [existing?.majorExpenses, majorExpenseNameDrafts, suggestedMajorExpenses]);
+  const updateMajorExpenseName = (sourceName: string, name: string) => {
+    setMajorExpenseNameDrafts((previous) => ({ ...previous, [sourceName]: name }));
+  };
 
   const buildProfitComponents = (): MonthlyRecord['investProfitComponents'] => {
     const out: NonNullable<MonthlyRecord['investProfitComponents']> = {};
@@ -1959,7 +1973,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       investmentInheritanceRevision: existing?.investmentInheritanceRevision,
       isBaseline: undefined,
       homeDays, travelDays, schoolDays, internDays,
-      majorExpenses: majorExpenses.filter((e) => e.name.trim()),
+      majorExpenses: majorExpenses.map((expense) => ({ ...expense, name: expense.name.trim() || expense.sourceName })),
       majorExpensesNote: majorExpensesNote.trim() || undefined,
     }, investmentInputsChanged ? 'manual' : undefined);
   };
@@ -2013,7 +2027,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     totalAssets, setTotalAssets, totalAssetsValue, previousTotalAssets: prevRecord?.totalAssets,
     assetChange, savedAmount, savingsRate, savedAmountTitle,
     accProfit, setAccProfit, accumulatedProfitValue, isAccumulatedProfitAuto, hasPositionModel, investTotal,
-    majorExpenses, majorExpensesNote, setMajorExpensesNote,
+    majorExpenses, updateMajorExpenseName, majorExpensesNote, setMajorExpensesNote,
     surplus, investIncome, investMonthly, investAnnual, investTotalForRate, investTotalStoredOnly, n,
     getBreakdownMonthlyProfit,
     mainFieldRefs,
@@ -2687,7 +2701,7 @@ function PositionSplitPanel({
 }
 
 function MajorExpensesSection({ state }: { state: MonthFormState }) {
-  const { majorExpenses, majorExpensesNote, setMajorExpensesNote, fieldStyle } = state;
+  const { majorExpenses, updateMajorExpenseName, majorExpensesNote, setMajorExpensesNote, fieldStyle } = state;
   return (
     <div style={{ marginBottom: 12 }}>
       {(() => {
@@ -2704,9 +2718,20 @@ function MajorExpensesSection({ state }: { state: MonthFormState }) {
         const amtColor = amt > 0 ? `hsl(${hue}, 70%, 30%)` : '#202124';
         const typeColor = e.type === '生活' ? C.blue : C.purple;
         return (
-        <div key={i} style={{ display: 'grid', gridTemplateColumns: '46px 1fr 76px', gap: 5, marginBottom: 6, alignItems: 'center' }}>
+        <div key={e.sourceName} style={{ display: 'grid', gridTemplateColumns: '46px minmax(0, 1fr) 76px', gap: 5, marginBottom: 6, alignItems: 'center' }}>
           <span style={{ border: `1.5px solid ${typeColor}`, borderRadius: 6, padding: '6px 2px', fontSize: 11, color: typeColor, fontWeight: 600, backgroundColor: `${typeColor}12`, textAlign: 'center' }}>{e.type}</span>
-          <span style={{ fontSize: 13, padding: '6px 8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.name}</span>
+          <input
+            type="text"
+            aria-label={`大额支出名称 ${i + 1}`}
+            value={e.name}
+            placeholder={e.sourceName}
+            onChange={(event) => updateMajorExpenseName(e.sourceName, event.target.value)}
+            onBlur={() => updateMajorExpenseName(e.sourceName, e.name.trim() || e.sourceName)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.nativeEvent.isComposing) event.currentTarget.blur();
+            }}
+            style={{ ...fieldStyle, minWidth: 0, borderRadius: 6, padding: '6px 8px' }}
+          />
           <span style={{ ...fieldStyle, padding: '6px 8px', backgroundColor: amtBg, borderColor: amtBorder, color: amtColor, fontWeight: 600, textAlign: 'right', display: 'block' }}>{amt ? Math.round(amt) : ''}</span>
         </div>
         );

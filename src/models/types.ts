@@ -269,6 +269,7 @@ export interface AccountSnapshot {
 export interface MajorExpense {
   type: '生活' | '消费';
   name: string;
+  sourceName?: string; // 原账单标签或历史名称，保留手动改名与自动聚合的对应关系
   amount: number;
 }
 
