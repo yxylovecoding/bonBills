@@ -18,6 +18,7 @@ import { useBillDetailStore } from '../stores/billDetailStore';
 import { useExpenseScopeOverrideStore } from '../stores/expenseScopeOverrideStore';
 import { useTripStore } from '../stores/tripStore';
 import { fetchBonCvFireProfile } from '../utils/bonCv';
+import { signOut } from '../utils/authClient';
 import { calcHistoryStats } from '../calculations/history';
 import { calcFire } from '../calculations/fire';
 import { tagMeta } from '../data/mockData';
@@ -40,7 +41,7 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '保留手动改期';
+const RELEASE_NOTE = '调整退出位置';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -229,6 +230,8 @@ function TrendCharts({ records }: { records: MonthlyRecord[] }) {
 // ── 主页 ──────────────────────────────────────────────────────────
 export default function HomePage() {
   const navigate = useNavigate();
+  const [signingOut, setSigningOut] = useState(false);
+  const [logoutError, setLogoutError] = useState('');
   const { current } = useSnapshotStore();
   const { config, setConfig } = useConfigStore();
   const { records } = useMonthlyStore();
@@ -822,7 +825,20 @@ export default function HomePage() {
       {/* 页头：标题 + 人生时钟 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', margin: '0 0 16px' }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 2px' }}>盘账助手</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 2 }}>
+            <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, whiteSpace: 'nowrap' }}>盘账助手</h1>
+            <button type="button" disabled={signingOut} onClick={() => {
+              setSigningOut(true);
+              setLogoutError('');
+              void signOut().catch((cause) => {
+                setLogoutError(cause instanceof Error ? cause.message : '退出失败，请重试');
+                setSigningOut(false);
+              });
+            }} style={{ border: 'none', padding: '4px 0', background: 'transparent', color: C.sub, fontSize: 11, whiteSpace: 'nowrap', cursor: 'pointer' }}>
+              {signingOut ? '退出中…' : '退出登录'}
+            </button>
+          </div>
+          {logoutError && <p role="alert" style={{ color: '#c5221f', fontSize: 11, margin: '0 0 2px' }}>{logoutError}</p>}
           <p style={{ fontSize: 13, color: C.sub, margin: 0 }}>
             {today.getFullYear()}年{today.getMonth() + 1}月 · 第 {today.getDate()} 天
           </p>
