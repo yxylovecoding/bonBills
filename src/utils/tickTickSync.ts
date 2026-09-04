@@ -1,3 +1,4 @@
+import { apiFetch } from './authClient';
 import { create } from 'zustand';
 
 export type TickTickConnectionState = 'unknown' | 'connected' | 'disconnected';
@@ -24,11 +25,10 @@ export const useTickTickSyncStatus = create<TickTickSyncStore>((set) => ({
   setStatus: (partial) => set(partial),
 }));
 
-async function requestTickTick(secret: string, init: RequestInit = {}) {
-  const response = await fetch('/api/ticktick-trips', {
+async function requestTickTick(init: RequestInit = {}) {
+  const response = await apiFetch('/api/ticktick-trips', {
     ...init,
     headers: {
-      Authorization: `Bearer ${secret}`,
       ...(init.body ? { 'Content-Type': 'application/json' } : {}),
       ...init.headers,
     },
@@ -41,10 +41,10 @@ async function requestTickTick(secret: string, init: RequestInit = {}) {
   return body;
 }
 
-export async function loadTickTickSyncStatus(secret: string) {
+export async function loadTickTickSyncStatus() {
   const store = useTickTickSyncStatus.getState();
   try {
-    const body = await requestTickTick(secret, { method: 'GET' });
+    const body = await requestTickTick({ method: 'GET' });
     store.setStatus({
       connection: body?.connected ? 'connected' : 'disconnected',
       operation: body?.error ? 'error' : 'idle',
@@ -58,11 +58,11 @@ export async function loadTickTickSyncStatus(secret: string) {
   }
 }
 
-export async function connectTickTick(secret: string, token: string) {
+export async function connectTickTick(token: string) {
   const store = useTickTickSyncStatus.getState();
   store.setStatus({ operation: 'connecting', message: '' });
   try {
-    const body = await requestTickTick(secret, { method: 'PUT', body: JSON.stringify({ token }) });
+    const body = await requestTickTick({ method: 'PUT', body: JSON.stringify({ token }) });
     store.setStatus({
       connection: 'connected',
       operation: body?.error ? 'error' : 'idle',
@@ -79,12 +79,12 @@ export async function connectTickTick(secret: string, token: string) {
   }
 }
 
-export async function syncTickTickTrips(secret: string) {
+export async function syncTickTickTrips() {
   const store = useTickTickSyncStatus.getState();
   if (store.connection === 'disconnected') return;
   store.setStatus({ operation: 'syncing', message: '' });
   try {
-    const body = await requestTickTick(secret, { method: 'POST' });
+    const body = await requestTickTick({ method: 'POST' });
     store.setStatus({
       connection: 'connected',
       operation: 'synced',
@@ -101,8 +101,8 @@ export async function syncTickTickTrips(secret: string) {
   }
 }
 
-export async function disconnectTickTick(secret: string) {
+export async function disconnectTickTick() {
   const store = useTickTickSyncStatus.getState();
-  await requestTickTick(secret, { method: 'DELETE' });
+  await requestTickTick({ method: 'DELETE' });
   store.setStatus({ connection: 'disconnected', operation: 'idle', message: '', lastSyncAt: undefined });
 }

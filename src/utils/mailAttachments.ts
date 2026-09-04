@@ -1,5 +1,5 @@
 import { useMonthlyStore } from '../stores/monthlyStore';
-import { getActiveSyncSecret } from './syncEngine';
+import { apiFetch } from './authClient';
 
 type MailAttachmentPayload = {
   kind?: 'bill' | 'investment';
@@ -29,16 +29,12 @@ function base64ToFile(base64: string, fileName: string, contentType?: string): F
 }
 
 export async function fetchLatestMailAttachments(): Promise<MailAttachment[]> {
-  const secret = getActiveSyncSecret();
-  if (!secret) throw new Error('缺少同步密码');
   const lastInvestmentMailUid = useMonthlyStore.getState().records.reduce(
     (latest, record) => Math.max(latest, record.lastInvestmentMailUid ?? 0),
     0,
   );
   const query = lastInvestmentMailUid > 0 ? `?sinceInvestmentUid=${lastInvestmentMailUid}` : '';
-  const response = await fetch(`/api/latest-bill-attachment${query}`, {
-    headers: { Authorization: `Bearer ${secret}` },
-  });
+  const response = await apiFetch(`/api/latest-bill-attachment${query}`);
   if (!response.ok) {
     const body = await response.json().catch(() => null) as { error?: string } | null;
     throw new Error(body?.error || `HTTP ${response.status}`);

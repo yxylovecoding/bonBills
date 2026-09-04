@@ -1,5 +1,6 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const sendJson = (res: { statusCode: number; setHeader: (k: string, v: string) => void; end: (body: string) => void }, status: number, body: unknown) => {
   res.statusCode = status;
@@ -77,6 +78,41 @@ export default defineConfig({
     {
       name: 'local-api',
       configureServer(server) {
+        const env = loadEnv(server.config.mode, server.config.root, '');
+        for (const [key, value] of Object.entries(env)) {
+          if (/^(SYNC_SECRET|LOGIN_USERNAME|LOGIN_PASSWORD|CRON_SECRET|KV_|BILL_|BONCV_)/.test(key)
+            && process.env[key] === undefined) process.env[key] = value;
+        }
+        const protectedRoutes = new Set(['auth', 'sync', 'sync-monthly-backup', 'ticktick-trips', 'latest-bill-attachment', 'boncv-profile']);
+        server.middlewares.use(async (req, res, next) => {
+          const url = new URL(req.url || '/', 'http://localhost');
+          const route = url.pathname.replace(/^\/api\//, '');
+          if (!url.pathname.startsWith('/api/') || !protectedRoutes.has(route)) return next();
+          try {
+            const chunks: Uint8Array[] = [];
+            let bytes = 0;
+            for await (const chunk of req) {
+              bytes += chunk.length;
+              if (bytes > 4_500_000) return sendJson(res, 413, { error: '请求过大' });
+              chunks.push(new Uint8Array(Buffer.from(chunk)));
+            }
+            const request = Object.assign(req, {
+              body: Buffer.concat(chunks).toString('utf8') || undefined,
+              query: Object.fromEntries(url.searchParams),
+            }) as VercelRequest;
+            const response = Object.assign(res, {
+              status(code: number) { res.statusCode = code; return response; },
+              json(body: unknown) { sendJson(res, res.statusCode, body); return response; },
+              send(body: string | Buffer) { res.end(body); return response; },
+            }) as unknown as VercelResponse;
+            const module = await server.ssrLoadModule(`/api/${route}.ts`);
+            await module.default(request, response);
+          } catch {
+            if (!res.headersSent) sendJson(res, 503, { error: '服务暂不可用，请稍后重试' });
+            else res.end();
+          }
+        });
+
         server.middlewares.use('/api/usd-rate', async (_req, res) => {
           try {
             const upstream = await fetch('https://api.frankfurter.dev/v2/rate/USD/CNY');

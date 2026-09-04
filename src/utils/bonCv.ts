@@ -1,5 +1,5 @@
 import type { BonCvFireSnapshot } from '../models/types';
-import { getActiveSyncSecret } from './syncEngine';
+import { apiFetch } from './authClient';
 
 export interface BonCvFireProfile {
   schemaVersion: 1;
@@ -24,11 +24,9 @@ function isProfile(value: unknown): value is BonCvFireProfile {
 }
 
 export async function fetchBonCvFireProfile(etag?: string) {
-  const secret = getActiveSyncSecret();
-  if (!secret) throw new Error('BONBILLS_UNAUTHORIZED');
-  const headers: Record<string, string> = { Authorization: `Bearer ${secret}` };
+  const headers: Record<string, string> = {};
   if (etag) headers['If-None-Match'] = etag;
-  const response = await fetch('/api/boncv-profile', { headers, cache: 'no-store' });
+  const response = await apiFetch('/api/boncv-profile', { headers, cache: 'no-store' });
   if (response.status === 304) return { status: 'not-modified' as const, etag };
   if (response.status === 503) throw new Error('BONCV_NOT_CONFIGURED');
   if (!response.ok) throw new Error(`BONCV_HTTP_${response.status}`);

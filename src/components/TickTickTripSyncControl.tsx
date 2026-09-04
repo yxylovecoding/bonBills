@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { getActiveSyncSecret } from '../utils/syncEngine';
 import {
   connectTickTick,
   disconnectTickTick,
@@ -22,13 +21,11 @@ export default function TickTickTripSyncControl() {
   const { connection, operation, message } = useTickTickSyncStatus();
   const [editing, setEditing] = useState(false);
   const [token, setToken] = useState('');
-  const secret = getActiveSyncSecret();
 
   useEffect(() => {
-    if (secret) void loadTickTickSyncStatus(secret);
-  }, [secret]);
+    void loadTickTickSyncStatus();
+  }, []);
 
-  if (!secret) return null;
   const busy = operation === 'connecting' || operation === 'syncing';
   const connected = connection === 'connected';
   const label = operation === 'connecting'
@@ -50,13 +47,13 @@ export default function TickTickTripSyncControl() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           {connected ? (
             <>
-              <button type="button" disabled={busy} onClick={() => void syncTickTickTrips(secret)} style={BUTTON_STYLE}>
+              <button type="button" disabled={busy} onClick={() => void syncTickTickTrips()} style={BUTTON_STYLE}>
                 立即同步
               </button>
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => void disconnectTickTick(secret)}
+                onClick={() => void disconnectTickTick()}
                 style={{ ...BUTTON_STYLE, color: '#5f6368', border: 'none', background: 'transparent' }}
               >
                 断开
@@ -74,10 +71,10 @@ export default function TickTickTripSyncControl() {
           onSubmit={(event) => {
             event.preventDefault();
             if (!token.trim()) return;
-            void connectTickTick(secret, token.trim()).then(() => {
+            void connectTickTick(token.trim()).then(() => {
               setToken('');
               setEditing(false);
-              return syncTickTickTrips(secret);
+              return syncTickTickTrips();
             }).catch(() => undefined);
           }}
           style={{ display: 'flex', gap: 6, marginTop: 8 }}

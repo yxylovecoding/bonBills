@@ -1,3 +1,4 @@
+import { authOk } from './_auth.js';
 import { randomUUID } from 'node:crypto';
 import { kv } from '@vercel/kv';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
@@ -32,11 +33,6 @@ interface TickTickTripSyncState {
 
 function getSyncSecret() {
   return (process.env.SYNC_SECRET || '').trim();
-}
-
-function syncAuthOk(req: VercelRequest) {
-  const secret = getSyncSecret();
-  return Boolean(secret) && req.headers.authorization === `Bearer ${secret}`;
 }
 
 function cronAuthOk(req: VercelRequest) {
@@ -181,8 +177,9 @@ async function status() {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Cache-Control', 'private, no-store');
   const isCron = req.method === 'GET' && cronAuthOk(req);
-  if (!isCron && !syncAuthOk(req)) return res.status(401).json({ error: 'unauthorized' });
+  if (!isCron && !await authOk(req)) return res.status(401).json({ error: 'unauthorized' });
 
   try {
     if (isCron) {

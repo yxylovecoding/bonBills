@@ -1,3 +1,4 @@
+import { authOk } from './_auth.js';
 import { kv } from '@vercel/kv';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
@@ -14,11 +15,6 @@ import { SYNC_STORE_KEYS, type SyncPayload } from './_syncKeys.js';
 
 function cronAuthOk(req: VercelRequest) {
   const secret = (process.env.CRON_SECRET || '').trim();
-  return Boolean(secret) && req.headers.authorization === `Bearer ${secret}`;
-}
-
-function syncAuthOk(req: VercelRequest) {
-  const secret = (process.env.SYNC_SECRET || '').trim();
   return Boolean(secret) && req.headers.authorization === `Bearer ${secret}`;
 }
 
@@ -57,8 +53,9 @@ async function saveBackup(
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Cache-Control', 'private, no-store');
   if (req.method === 'POST') {
-    if (!syncAuthOk(req)) return res.status(401).json({ error: 'unauthorized' });
+    if (!await authOk(req)) return res.status(401).json({ error: 'unauthorized' });
     const data = parseSyncPayload(req);
     if (!data) return res.status(400).json({ error: 'invalid body' });
 

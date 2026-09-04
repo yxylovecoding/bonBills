@@ -1,3 +1,4 @@
+import { authOk } from './_auth.js';
 import tls from 'node:tls';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
@@ -31,14 +32,6 @@ const DEFAULT_ATTACHMENT_PATTERN = '^账单_\\d{10}\\.xlsx?$';
 const DEFAULT_IMAGE_ATTACHMENT_PATTERN = '\\.(png|jpe?g|webp|gif|bmp|tiff?)$';
 const DEFAULT_INVESTMENT_ATTACHMENT_PATTERN = '\\.(xlsx?|csv)$';
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-function authOk(req: VercelRequest): boolean {
-  const secret = (process.env.SYNC_SECRET || '').trim();
-  if (!secret) return false;
-  const header = req.headers.authorization || '';
-  const match = header.match(/^Bearer\s+(.+)$/);
-  return match !== null && match[1].trim() === secret;
-}
 
 function envValue(...keys: string[]): string {
   for (const key of keys) {
@@ -431,7 +424,8 @@ async function findLatestMailAttachments(sinceInvestmentUid?: number): Promise<F
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (!authOk(req)) return res.status(401).json({ error: 'unauthorized' });
+  res.setHeader('Cache-Control', 'private, no-store');
+  if (!await authOk(req)) return res.status(401).json({ error: 'unauthorized' });
   if (req.method !== 'GET') return res.status(405).json({ error: 'method not allowed' });
 
   try {

@@ -1,29 +1,18 @@
+import { apiFetch } from './authClient';
 import { normalizeBillDetailState, useBillDetailStore } from '../stores/billDetailStore';
 import { normalizeConfirmedExpenses, useCalendarStore } from '../stores/calendarStore';
-import { DEFAULT_CONFIG, useConfigStore } from '../stores/configStore';
+import { useConfigStore } from '../stores/configStore';
 import { normalizeExpenseScopeOverrides, useExpenseScopeOverrideStore } from '../stores/expenseScopeOverrideStore';
 import { normalizeMonthlyRecords, useMonthlyStore } from '../stores/monthlyStore';
 import { DEFAULT_EXPENSE_SCOPE_HELP_TEXT, usePrefsStore } from '../stores/prefsStore';
 import { usePossessionStore } from '../stores/possessionStore';
-import { DEFAULT_SNAPSHOT, useSnapshotStore } from '../stores/snapshotStore';
+import { useSnapshotStore } from '../stores/snapshotStore';
 import { useTripStore } from '../stores/tripStore';
 import { useSyncStatus } from './syncStatus';
 import { loadTickTickSyncStatus, syncTickTickTrips } from './tickTickSync';
 
 const EXPENSE_SCOPE_SYNC_KEY = 'expense-scope-overrides';
 const LEGACY_EXPENSE_SCOPE_SYNC_KEY = 'life-period-overrides';
-
-const EMPTY_STATES: Record<string, Record<string, unknown>> = {
-  'bill-details': { tagStats: {}, aggregates: {}, expenseItems: {}, incomeItems: {}, hasOverride: false },
-  'monthly-records': { records: [] },
-  'calendar-tags': { tagMap: {}, initializedFromRecords: false, confirmedExpenses: {} },
-  'trip-tags': { tripTags: {}, tripNotes: {}, tripSplits: {} },
-  'account-snapshot': { current: DEFAULT_SNAPSHOT, history: [] },
-  'app-config': { config: DEFAULT_CONFIG },
-  'possessions': { items: [], ignoredBillItemIds: [], tagCategory: {} },
-  [EXPENSE_SCOPE_SYNC_KEY]: { overrides: { categories: {}, subcategories: {}, notes: {}, tags: {} } },
-  // user-prefs 保留 UI 偏好，不清空
-};
 
 type StoreEntry = {
   key: string;
@@ -174,31 +163,10 @@ const stores: StoreEntry[] = [
   },
 ];
 
-const LS_SECRET_KEY = 'sync-secret';
-
-function getSecret(): string | null {
-  // URL 参数优先，读到后写入 sessionStorage 并清除 URL
-  // 用 sessionStorage 而非 localStorage：关闭标签页/重开浏览器后密钥不保留
-  try {
-    const url = new URL(window.location.href);
-    const fromUrl = url.searchParams.get('key');
-    if (fromUrl) {
-      sessionStorage.setItem(LS_SECRET_KEY, fromUrl);
-      url.searchParams.delete('key');
-      window.history.replaceState({}, '', url.toString());
-      return fromUrl;
-    }
-    return sessionStorage.getItem(LS_SECRET_KEY);
-  } catch {
-    return null;
-  }
-}
-
-
-async function fetchServer(secret: string): Promise<Record<string, unknown> | null> {
-  const res = await fetch('/api/sync', {
+async function fetchServer(): Promise<Record<string, unknown> | null> {
+  const res = await apiFetch('/api/sync', {
     method: 'GET',
-    headers: { Authorization: `Bearer ${secret}` },
+    signal: AbortSignal.timeout(15_000),
   });
   if (res.status === 204) return null;
   if (res.status === 401) throw new Error('UNAUTHORIZED');
@@ -206,20 +174,20 @@ async function fetchServer(secret: string): Promise<Record<string, unknown> | nu
   return await res.json();
 }
 
-async function uploadAll(secret: string) {
-  await uploadStores(secret, stores);
+async function uploadAll() {
+  await uploadStores(stores);
 }
 
 function serializeAllStores() {
   return Object.fromEntries(stores.map((store) => [store.key, store.serialize()]));
 }
 
-async function uploadStores(secret: string, selectedStores: readonly StoreEntry[]) {
+async function uploadStores(selectedStores: readonly StoreEntry[]) {
   const body: Record<string, unknown> = {};
   for (const s of selectedStores) body[s.key] = s.serialize();
-  const res = await fetch('/api/sync', {
+  const res = await apiFetch('/api/sync', {
     method: 'PUT',
-    headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`upload HTTP ${res.status}`);
@@ -235,26 +203,16 @@ function debounce<T extends (...args: never[]) => void>(fn: T, ms: number) {
 
 let syncingFromServer = false; // 防止首次 setState 触发回传
 let syncPauseDepth = 0;
-let activeSecret: string | null = null;
+let activeSession = false;
 let uploadInFlight: Promise<void> | null = null;
 let uploadQueued = false;
 let tickTickSyncQueued = false;
 
-export function getActiveSyncSecret(): string | null {
-  if (activeSecret) return activeSecret;
-  try {
-    return sessionStorage.getItem(LS_SECRET_KEY);
-  } catch {
-    return null;
-  }
-}
-
 export async function createManualBackup() {
-  const secret = getActiveSyncSecret();
-  if (!secret) throw new Error('缺少同步密码');
-  const res = await fetch('/api/sync-monthly-backup', {
+  if (!activeSession) throw new Error('请先登录');
+  const res = await apiFetch('/api/sync-monthly-backup', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(serializeAllStores()),
   });
   if (!res.ok) {
@@ -264,20 +222,20 @@ export async function createManualBackup() {
 }
 
 export async function triggerUpload() {
-  if (!activeSecret) return;
+  if (!activeSession) return;
   uploadQueued = true;
   if (uploadInFlight) return uploadInFlight;
   const status = useSyncStatus.getState();
   uploadInFlight = (async () => {
     try {
       status.setStatus('saving');
-      while (uploadQueued && activeSecret) {
+      while (uploadQueued && activeSession) {
         uploadQueued = false;
-        await uploadAll(activeSecret);
+        await uploadAll();
       }
-      if (tickTickSyncQueued && activeSecret) {
+      if (tickTickSyncQueued && activeSession) {
         tickTickSyncQueued = false;
-        void syncTickTickTrips(activeSecret);
+        void syncTickTickTrips();
       }
       status.setStatus('saved');
       setTimeout(() => {
@@ -336,28 +294,17 @@ function startSubscriptions() {
   useConfigStore.subscribe(markTickTickSyncNeeded);
 }
 
-async function startTickTickSync(secret: string) {
-  const connected = await loadTickTickSyncStatus(secret);
-  if (connected) await syncTickTickTrips(secret);
+async function startTickTickSync() {
+  const connected = await loadTickTickSyncStatus();
+  if (connected) await syncTickTickTrips();
 }
 
 export async function initSync() {
   const status = useSyncStatus.getState();
-  const secret = getSecret();
-  activeSecret = secret;
-  if (!secret) {
-    // 无密码访问：清空所有 store（覆盖任何遗留的 localStorage 数据）
-    for (const s of stores) {
-      const empty = EMPTY_STATES[s.key];
-      if (empty) s.setState(empty);
-    }
-    status.setStatus('offline', '无密码，使用本地存储');
-    return;
-  }
 
   try {
     status.setStatus('loading');
-    const serverData = await fetchServer(secret);
+    const serverData = await fetchServer();
     if (serverData) {
       // 应用服务端数据到各 store
       syncingFromServer = true;
@@ -376,13 +323,14 @@ export async function initSync() {
       // 新增 Store 或加载时完成数据迁移后，立即把规范化结果固化到云端。
       const storesToUpload = [...new Set([...storesMissingFromServer, ...storesNormalizedOnLoad])];
       if (storesToUpload.length > 0) {
-        await uploadStores(secret, storesToUpload);
+        await uploadStores(storesToUpload);
       }
       // 下一个 tick 再开订阅，避免刚 setState 触发回传
+      activeSession = true;
       setTimeout(() => {
         syncingFromServer = false;
         startSubscriptions();
-        void startTickTickSync(secret);
+        void startTickTickSync();
       }, 100);
       status.setStatus('saved', '已从云端同步');
       setTimeout(() => {
@@ -393,9 +341,10 @@ export async function initSync() {
     } else {
       // 首次：上传当前 localStorage 数据到服务端
       status.setStatus('saving', '首次同步，上传本地数据');
-      await uploadAll(secret);
+      await uploadAll();
+      activeSession = true;
       startSubscriptions();
-      void startTickTickSync(secret);
+      void startTickTickSync();
       status.setStatus('saved', '首次同步完成');
       setTimeout(() => {
         if (useSyncStatus.getState().state === 'saved') {
@@ -404,11 +353,10 @@ export async function initSync() {
       }, 2000);
     }
   } catch (e) {
+    activeSession = false;
+    syncingFromServer = false;
     const msg = e instanceof Error ? e.message : String(e);
-    if (msg === 'UNAUTHORIZED') {
-      status.setStatus('offline', '密码错误，重新访问时加 ?key=xxx');
-    } else {
-      status.setStatus('error', msg);
-    }
+    status.setStatus('error', msg);
+    throw new Error('账单加载失败，请重试');
   }
 }

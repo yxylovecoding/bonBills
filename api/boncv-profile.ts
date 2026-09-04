@@ -1,13 +1,9 @@
+import { authOk } from './_auth.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-function authOk(req: VercelRequest) {
-  const secret = (process.env.SYNC_SECRET || '').trim();
-  const match = String(req.headers.authorization || '').match(/^Bearer\s+(.+)$/i);
-  return Boolean(secret && match && match[1].trim() === secret);
-}
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (!authOk(req)) return res.status(401).json({ error: 'unauthorized' });
+  res.setHeader('Cache-Control', 'private, no-store');
+  if (!await authOk(req)) return res.status(401).json({ error: 'unauthorized' });
   if (req.method !== 'GET') return res.status(405).json({ error: 'method not allowed' });
   const baseUrl = (process.env.BONCV_API_BASE_URL || '').replace(/\/$/, '');
   const apiKey = (process.env.BONCV_API_KEY || '').trim();

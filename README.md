@@ -14,6 +14,21 @@ npm run dev       # 开发模式 (http://localhost:5173)
 npm run build     # 生产构建
 ```
 
+本地登录需要在 `.env.local` 配置 `SYNC_SECRET`、`KV_REST_API_URL`、`KV_REST_API_TOKEN`，建议连接开发用 KV。Vite 会转发登录及账单相关接口到同一份服务端实现。
+
+## 登录
+
+默认使用账号密码登录，账号为 `bon`，初始密码沿用现有 `SYNC_SECRET`。可通过服务端环境变量单独设置账号和密码（不要使用 `VITE_` 前缀）：
+
+```bash
+LOGIN_USERNAME=bon
+LOGIN_PASSWORD=自定义登录密码
+```
+
+登录页保留“使用 Key 登录”，旧的 `?key=原同步密钥` 链接和旧标签页仍可登录。两种方式共用原有云端数据，不创建新账本；未登录或登录失败不会清空本地账单。`SYNC_SECRET` 仍用于 Key 登录、脚本鉴权及 TickTick 加密，不要为修改登录密码而更换它。
+
+浏览器登录状态保存 30 天，退出后服务端会话立即失效；账号或密码修改后，已有会话需要重新登录。密码和 Key 不写入前端配置或浏览器持久存储。登录接口使用原有 Vercel KV 保存会话和限制重试次数。
+
 ## 163 邮箱账单导入
 
 记录页的“邮箱导入”会通过服务端 IMAP 拉取最近匹配 `账单_数字.xls/xlsx` 的附件，然后复用前端账单导入规则；全量账单在生成预览时就会导入，预览仅决定是否更新账户和理财操作。如果最新附件是图片，则自动走本地 OCR 并按内容判断资产页或理财页。
@@ -21,7 +36,7 @@ npm run build     # 生产构建
 部署环境需要配置：
 
 ```bash
-SYNC_SECRET=访问应用时 ?key= 使用的同步密钥
+SYNC_SECRET=现有同步密钥（兼容 Key 登录；未设置 LOGIN_PASSWORD 时也作为登录密码）
 CRON_SECRET=Vercel 定时任务鉴权密钥（每月云端快照）
 BILL_MAIL_USER=你的163邮箱
 BILL_MAIL_PASS=163客户端授权码
@@ -40,7 +55,7 @@ BILL_IMAGE_ATTACHMENT_PATTERN=\.(png|jpe?g|webp|gif|bmp|tiff?)$
 
 ## BonCV FIRE 联动
 
-首页 FIRE 可以从 BonCV 单向同步出生日期、最高学历和毕业日期。BonCV 连接密钥只保存在服务端，浏览器通过受现有 `SYNC_SECRET` 保护的代理读取最小字段。
+首页 FIRE 可以从 BonCV 单向同步出生日期、最高学历和毕业日期。BonCV 连接密钥只保存在服务端，浏览器通过受登录会话保护的代理读取最小字段。
 
 ```bash
 BONCV_API_BASE_URL=https://你的-boncv-域名

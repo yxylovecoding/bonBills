@@ -1,3 +1,4 @@
+import { authOk } from './_auth.js';
 import { kv } from '@vercel/kv';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { MONTHLY_BACKUP_INDEX_KEY, type MonthlyBackupIndexEntry } from './_monthlyBackup.js';
@@ -9,14 +10,6 @@ const AUGUST_INVESTMENT_MERGE_MARKER = 'sync-recovery:2026-08-investment:2026-09
 
 interface MonthlyBackup {
   data?: SyncPayload;
-}
-
-function authOk(req: VercelRequest): boolean {
-  const secret = (process.env.SYNC_SECRET || '').trim();
-  if (!secret) return false;
-  const header = req.headers.authorization || '';
-  const match = header.match(/^Bearer\s+(.+)$/);
-  return match !== null && match[1].trim() === secret;
 }
 
 async function restoreAugustInvestmentFromLatestBackup(currentState: unknown) {
@@ -70,7 +63,8 @@ async function mergeAugustInvestmentFromPreRestoreState(currentState: unknown) {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (!authOk(req)) {
+  res.setHeader('Cache-Control', 'private, no-store');
+  if (!await authOk(req)) {
     return res.status(401).json({ error: 'unauthorized' });
   }
 
