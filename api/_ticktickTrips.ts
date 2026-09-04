@@ -884,7 +884,7 @@ function preserveChecklistDates(
     // their absence after a user clears a date, without replacing other metadata.
     const preserved = { ...withoutDateFields(item) } as TickTickChecklistItem;
     for (const key of ['startDate', 'isAllDay', 'timeZone'] as const) {
-      if (Object.hasOwn(existing, key)) Object.assign(preserved, { [key]: existing[key] });
+      if (Object.prototype.hasOwnProperty.call(existing, key)) Object.assign(preserved, { [key]: existing[key] });
     }
     return preserved;
   });
