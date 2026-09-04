@@ -3653,8 +3653,10 @@ export default function CalendarPage() {
   // ── Calendar state ──
   const _now = _NOW;
   const today = `${_now.getFullYear()}-${String(_now.getMonth()+1).padStart(2,'0')}-${String(_now.getDate()).padStart(2,'0')}`;
-  const [year,  setYear]  = useState(_now.getFullYear());
-  const [month, setMonth] = useState(_now.getMonth());
+  const requestedMonth = searchParams.get('month') ?? '';
+  const validRequestedMonth = /^\d{4}-(0[1-9]|1[0-2])$/.test(requestedMonth);
+  const [year,  setYear]  = useState(() => validRequestedMonth ? Number(requestedMonth.slice(0, 4)) : _now.getFullYear());
+  const [month, setMonth] = useState(() => validRequestedMonth ? Number(requestedMonth.slice(5, 7)) - 1 : _now.getMonth());
   const [selectedTag, setSelectedTag] = useState<TagKind>('school');
   const [selectMode, setSelectMode]   = useState<'single' | 'range' | 'detail'>('detail');
   const [rangeStart, setRangeStart]   = useState<string | null>(null);

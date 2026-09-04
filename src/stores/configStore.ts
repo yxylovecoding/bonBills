@@ -12,6 +12,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   fireTargetYears: undefined,
   safeWithdrawRate: 0.04,
   investAnnualGrowthRate: 0.04,
+  fireUseAverageAnnualRate: true,
   fireHousingFundRate: 0.12,
   fireExpenseTagKind: 'intern',
   fireSavingsAllocationRate: 0.5,

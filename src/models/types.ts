@@ -190,6 +190,7 @@ export interface AppConfig {
   fireTargetYears?: number;   // FIRE 攒钱目标年数，默认到退休年龄
   safeWithdrawRate: number;   // 0.04
   investAnnualGrowthRate?: number; // FIRE 扣除通胀后的实际年化收益率，默认 0.04
+  fireUseAverageAnnualRate?: boolean; // FIRE 默认随记录平均年化收益率更新；手填时关闭
   fireHousingFundRate?: number; // FIRE 杭州口径中的个人公积金比例（5%–12%）
   fireExpenseTagKind?: FireExpenseScenario; // FIRE 未来生活支出参照场景，支持按近两年旅行占比混合在校与旅行
   fireSavingsAllocationRate?: number; // FIRE“分配”模式中，覆盖“活”后收入的存入比例

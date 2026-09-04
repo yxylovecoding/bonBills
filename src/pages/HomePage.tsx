@@ -42,7 +42,7 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '年化一键填入';
+const RELEASE_NOTE = '首页联动优化';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -502,6 +502,13 @@ export default function HomePage() {
   // FIRE 模式切换
   const [fireMode, setFireMode] = useState<FireMode>('all');
   const averageAnnualizedRate = useMemo(() => getAverageAnnualizedRate(records), [records]);
+  const fireUseAverageAnnualRate = config.fireUseAverageAnnualRate !== false;
+  const fireConfig = useMemo(() => ({
+    ...config,
+    investAnnualGrowthRate: fireUseAverageAnnualRate && averageAnnualizedRate !== null
+      ? Math.max(averageAnnualizedRate, MIN_INVEST_ANNUAL_GROWTH_RATE)
+      : config.investAnnualGrowthRate,
+  }), [averageAnnualizedRate, config, fireUseAverageAnnualRate]);
   const [sceneDailyMode, setSceneDailyMode] = useState<'life' | 'all'>('life');
   const [fireExpanded, setFireExpanded] = useState(false);
   const [fireHousingFundRateDraft, setFireHousingFundRateDraft] = useState<string | null>(null);
@@ -596,7 +603,7 @@ export default function HomePage() {
   const fireExpenseAvg = fireAnnualExpense / 12;
   const fireStats = useMemo(() => ({ ...stats, totalExpenseAvg: fireExpenseAvg }), [stats, fireExpenseAvg]);
   const fire = useMemo(() => calcFire(
-    config,
+    fireConfig,
     fireStats,
     totalInvest,
     fireMode === 'allocation'
@@ -606,14 +613,14 @@ export default function HomePage() {
         wishShare: 0.8,
       }
       : undefined,
-  ), [config, fireMode, fireSavingsAllocationRate, fireStats, futureLifeAnnualExpense, totalInvest]);
+  ), [fireConfig, fireMode, fireSavingsAllocationRate, fireStats, futureLifeAnnualExpense, totalInvest]);
   const fireLivingStats = useMemo(
     () => ({ ...stats, totalExpenseAvg: (futureLifeAnnualExpense + futureConsumptionAnnualExpense) / 12 }),
     [stats, futureConsumptionAnnualExpense, futureLifeAnnualExpense],
   );
   const fireLiving = useMemo(
-    () => calcFire(config, fireLivingStats, totalInvest),
-    [config, fireLivingStats, totalInvest],
+    () => calcFire(fireConfig, fireLivingStats, totalInvest),
+    [fireConfig, fireLivingStats, totalInvest],
   );
   const fireLivingSalaryMatchRate = fireLiving.requiredAnnualSavings + futureConsumptionAnnualExpense > 0
     ? fireLiving.requiredAnnualSavings / (fireLiving.requiredAnnualSavings + futureConsumptionAnnualExpense)
@@ -649,7 +656,7 @@ export default function HomePage() {
   const updateFireGrowthRate = (raw: string) => {
     const parsed = Number(normalizeDecimalPunctuation(raw));
     const next = Number.isFinite(parsed) ? Math.max(parsed / 100, MIN_INVEST_ANNUAL_GROWTH_RATE) : 0;
-    setConfig({ investAnnualGrowthRate: next });
+    setConfig({ investAnnualGrowthRate: next, fireUseAverageAnnualRate: false });
   };
   const updateFireSavingsAllocationRate = (raw: string) => {
     const parsed = Number(raw);
@@ -1031,9 +1038,6 @@ export default function HomePage() {
         )}
       </Card>
 
-      {/* 收支趋势 + 支出构成 */}
-      <TrendCharts records={records} />
-
       {/* FIRE */}
       <section style={{ backgroundColor: '#fff', borderRadius: 16, padding: '18px 20px', marginBottom: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
@@ -1305,12 +1309,11 @@ export default function HomePage() {
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                   <button
                     type="button"
+                    aria-pressed={fireUseAverageAnnualRate}
                     disabled={averageAnnualizedRate === null}
                     title={averageAnnualizedRate === null ? '暂无平均年化利率' : `记录 · 年：平均年化 ${(averageAnnualizedRate * 100).toFixed(1)}%`}
-                    onClick={() => {
-                      if (averageAnnualizedRate !== null) updateFireGrowthRate(String(averageAnnualizedRate * 100));
-                    }}
-                    style={{ border: '1px solid #e0e0e0', borderRadius: 7, backgroundColor: '#fff', color: averageAnnualizedRate === null ? C.sub : C.blue, fontSize: 12, fontWeight: 600, padding: '3px 5px', cursor: averageAnnualizedRate === null ? 'default' : 'pointer', opacity: averageAnnualizedRate === null ? 0.5 : 1, whiteSpace: 'nowrap' }}
+                    onClick={() => setConfig({ fireUseAverageAnnualRate: true })}
+                    style={{ border: `1px solid ${fireUseAverageAnnualRate ? C.blue : '#e0e0e0'}`, borderRadius: 7, backgroundColor: fireUseAverageAnnualRate ? '#e8f0fe' : '#fff', color: averageAnnualizedRate === null ? C.sub : C.blue, fontSize: 12, fontWeight: 600, padding: '3px 5px', cursor: averageAnnualizedRate === null ? 'default' : 'pointer', opacity: averageAnnualizedRate === null ? 0.5 : 1, whiteSpace: 'nowrap' }}
                   >
                     使用平均
                   </button>
@@ -1606,6 +1609,7 @@ export default function HomePage() {
         travelLabelsByDate={travelLabelsByDate}
         holidayDataByYear={holidayDataByYear}
         onToggleWorkingDate={toggleWishCalendarWorkingDate}
+        onOpenMonth={(yearMonth) => navigate(`/calendar?tab=month&month=${yearMonth}`)}
         onPreviousMonth={() => {
           if (visibleWishCalendarMonth > currentYearMonth) {
             setWishCalendarMonth(offsetMonthKey(visibleWishCalendarMonth, -1));
@@ -1617,6 +1621,9 @@ export default function HomePage() {
           }
         }}
       />
+
+      {/* 收支趋势 + 支出构成 */}
+      <TrendCharts records={records} />
 
       <div style={{ textAlign: 'center', fontSize: 11, color: '#bdc1c6', padding: '8px 0 4px' }}>
         盘账助手 v{APP_VERSION}

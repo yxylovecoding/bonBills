@@ -18,6 +18,7 @@ interface HomeWishInternCalendarProps {
   travelLabelsByDate: Record<string, string>;
   holidayDataByYear: HolidayDataByYear;
   onToggleWorkingDate: (date: string, assignment?: { wishId: string; theme: string }) => void;
+  onOpenMonth: (yearMonth: string) => void;
   onPreviousMonth: () => void;
   onNextMonth: () => void;
 }
@@ -61,6 +62,7 @@ export default function HomeWishInternCalendar({
   travelLabelsByDate,
   holidayDataByYear,
   onToggleWorkingDate,
+  onOpenMonth,
   onPreviousMonth,
   onNextMonth,
 }: HomeWishInternCalendarProps) {
@@ -116,6 +118,14 @@ export default function HomeWishInternCalendar({
           </span>
         </div>
         <div className="home-wish-calendar-actions">
+          <button
+            type="button"
+            className="home-wish-calendar-open-month"
+            aria-label={`查看${year}年${month}月记录`}
+            onClick={() => onOpenMonth(visibleMonth)}
+          >
+            月记录 ↗
+          </button>
           <button
             type="button"
             aria-label="上一个月"

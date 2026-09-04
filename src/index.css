@@ -409,6 +409,14 @@ input[type='number'] { -moz-appearance: textfield; }
   cursor: default;
 }
 
+.home-wish-calendar-actions .home-wish-calendar-open-month {
+  width: auto;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .home-wish-calendar-counts {
   display: flex;
   min-height: 28px;
