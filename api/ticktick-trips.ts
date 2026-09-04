@@ -2,34 +2,11 @@ import { authOk } from './_auth.js';
 import { randomUUID } from 'node:crypto';
 import { kv } from '@vercel/kv';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import type { TickTickConnection, TickTickTripSyncState } from './_ticktickTrips.js';
 
 const CONNECTION_KEY = 'ticktick:connection:v1';
 const SYNC_STATE_KEY = 'ticktick:trip-sync:v1';
 const SYNC_LOCK_KEY = 'ticktick:trip-sync:lock';
-
-interface TickTickConnection {
-  encryptedToken: { iv: string; tag: string; data: string };
-  projectId: string;
-  templateRootId: string;
-  timeZone: string;
-  connectedAt: string;
-}
-
-interface TickTickTripSyncState {
-  instances: Record<string, {
-    tripKey: string;
-    startDate: string;
-    endDate: string;
-    dates: string[];
-    name: string;
-    rootTaskId?: string;
-    taskIdsByTemplateId: Record<string, string>;
-    itemIdsByTemplateTaskId: Record<string, Record<string, string>>;
-  }>;
-  wishInstances?: TickTickTripSyncState['instances'];
-  lastSyncAt?: string;
-  lastError?: string;
-}
 
 function getSyncSecret() {
   return (process.env.SYNC_SECRET || '').trim();

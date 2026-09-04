@@ -110,6 +110,18 @@ export interface TickTickTemplate {
   anchorDate: string;
 }
 
+interface TickTickDateSnapshot {
+  startDate: string | null;
+  dueDate: string | null;
+  isAllDay: boolean;
+  timeZone: string;
+}
+
+interface TickTickDateSyncState {
+  lastSynced: TickTickDateSnapshot;
+  manual: boolean;
+}
+
 export interface TickTickTripInstance {
   tripKey: string;
   startDate: string;
@@ -119,6 +131,8 @@ export interface TickTickTripInstance {
   rootTaskId?: string;
   taskIdsByTemplateId: Record<string, string>;
   itemIdsByTemplateTaskId: Record<string, Record<string, string>>;
+  taskDateStates?: Record<string, TickTickDateSyncState>;
+  checklistDateStates?: Record<string, Record<string, TickTickDateSyncState>>;
 }
 
 export interface TickTickTripSyncState {
@@ -810,6 +824,92 @@ function initialChecklistItems(templateTask: TickTickTask, template: TickTickTem
   }));
 }
 
+type DateFields = Pick<TickTickTask, 'startDate' | 'dueDate' | 'isAllDay' | 'timeZone'>;
+const DATE_FIELDS = ['startDate', 'dueDate', 'isAllDay', 'timeZone'] as const;
+
+function dateSnapshot(value: DateFields, fallback?: DateFields): TickTickDateSnapshot {
+  return {
+    startDate: value.startDate || null,
+    dueDate: value.dueDate || null,
+    isAllDay: value.isAllDay ?? fallback?.isAllDay ?? true,
+    timeZone: value.timeZone || fallback?.timeZone || 'Asia/Shanghai',
+  };
+}
+
+function sameDateSnapshot(left: TickTickDateSnapshot, right: TickTickDateSnapshot): boolean {
+  const datesMatch = (['startDate', 'dueDate'] as const).every((key) => {
+    if (left[key] === right[key]) return true;
+    if (!left[key] || !right[key]) return false;
+    // API responses can canonicalize +0800 to +0000 without a user edit.
+    const leftTime = Date.parse(left[key]);
+    const rightTime = Date.parse(right[key]);
+    return Number.isFinite(leftTime) && leftTime === rightTime;
+  });
+  if (!datesMatch) return false;
+  if (!left.startDate && !left.dueDate) return true;
+  return left.isAllDay === right.isAllDay && left.timeZone === right.timeZone;
+}
+
+function hasManualDates(
+  current: TickTickDateSnapshot,
+  previousAuto: TickTickDateSnapshot,
+  state: TickTickDateSyncState | undefined,
+): boolean {
+  return state?.manual === true || !sameDateSnapshot(current, state?.lastSynced ?? previousAuto);
+}
+
+function withoutDateFields<T extends DateFields>(value: T): Omit<T, typeof DATE_FIELDS[number]> {
+  const result = { ...value };
+  for (const key of DATE_FIELDS) delete result[key];
+  return result;
+}
+
+function preserveChecklistDates(
+  items: TickTickChecklistItem[],
+  previousAutoItems: TickTickChecklistItem[],
+  generatedTask: TickTickTask,
+  instance: TickTickTripInstance,
+) {
+  const existingById = new Map((generatedTask.items ?? []).map((item) => [item.id, item]));
+  const previousAutoById = new Map(previousAutoItems.map((item) => [item.id, item]));
+  const manualIds = new Set<string>();
+  const protectedItems = items.map((item) => {
+    const existing = item.id ? existingById.get(item.id) : undefined;
+    const previousAuto = item.id ? previousAutoById.get(item.id) : undefined;
+    if (!item.id || !existing || !previousAuto) return item;
+    const state = instance.checklistDateStates?.[generatedTask.id]?.[item.id];
+    if (!hasManualDates(dateSnapshot(existing, generatedTask), dateSnapshot(previousAuto, generatedTask), state)) return item;
+    manualIds.add(item.id);
+    // Checklist arrays are sent in full: copy the existing date fields, including
+    // their absence after a user clears a date, without replacing other metadata.
+    const preserved = { ...withoutDateFields(item) } as TickTickChecklistItem;
+    for (const key of ['startDate', 'isAllDay', 'timeZone'] as const) {
+      if (Object.hasOwn(existing, key)) Object.assign(preserved, { [key]: existing[key] });
+    }
+    return preserved;
+  });
+  return { items: protectedItems, manualIds };
+}
+
+function rememberDateStates(
+  instance: TickTickTripInstance,
+  task: TickTickTask,
+  manualTask: boolean,
+  manualItems = new Set<string>(),
+) {
+  (instance.taskDateStates ??= {})[task.id] = { lastSynced: dateSnapshot(task), manual: manualTask };
+  const itemStates: Record<string, TickTickDateSyncState> = {};
+  for (const item of task.items ?? []) {
+    if (item.id) itemStates[item.id] = { lastSynced: dateSnapshot(item, task), manual: manualItems.has(item.id) };
+  }
+  (instance.checklistDateStates ??= {})[task.id] = itemStates;
+}
+
+function forgetDateStates(instance: TickTickTripInstance, taskId: string) {
+  delete instance.taskDateStates?.[taskId];
+  delete instance.checklistDateStates?.[taskId];
+}
+
 function updatedChecklistItems(
   templateTask: TickTickTask,
   generatedTask: TickTickTask,
@@ -897,6 +997,7 @@ async function deleteGeneratedTree(
     }
     delete instance.taskIdsByTemplateId[templateTaskId];
     delete instance.itemIdsByTemplateTaskId[templateTaskId];
+    forgetDateStates(instance, generatedTaskId);
     await persist();
   }
 }
@@ -909,6 +1010,12 @@ async function syncTripInstance(
   instance: TickTickTripInstance,
   persist: () => Promise<void>,
 ) {
+  // Existing installations do not have per-task snapshots yet. Reconstruct the
+  // last automatic schedule using the *previous* trip, not its newly edited dates.
+  const previousTrip: TickTickTripSource = {
+    key: instance.tripKey, startDate: instance.startDate, endDate: instance.endDate,
+    dates: instance.dates, name: instance.name, note: '',
+  };
   const templateById = new Map(template.tasks.map((task) => [task.id, task]));
   const orderedTemplateTasks = [...template.tasks].sort(
     (left, right) => templateDepth(left, templateById) - templateDepth(right, templateById),
@@ -921,29 +1028,65 @@ async function syncTripInstance(
       ? await getGeneratedTask(api, template.projectId, generatedTaskId, projectTasks)
       : null;
     if (!generatedTask) {
-      const created = await api.createTask(baseTaskPayload(
+      if (generatedTaskId) forgetDateStates(instance, generatedTaskId);
+      const payload = baseTaskPayload(
         templateTask,
         trip,
         template,
         parentId,
         initialChecklistItems(templateTask, template, trip),
-      ));
+      );
+      const created = await api.createTask(payload);
       if (!created?.id) throw new Error('TickTick 创建任务后未返回任务 ID');
+      // Keep fields from the request when an API reply contains only an ID.
+      let resolved = { ...payload, ...created } as unknown as TickTickTask;
       instance.taskIdsByTemplateId[templateTask.id] = created.id;
       if (templateTask.id === template.rootTask.id) instance.rootTaskId = created.id;
-      refreshChecklistIdMap(templateTask, created, instance);
-      projectTasks.set(created.id, created);
+      const requestedItems = payload.items as TickTickChecklistItem[];
+      if (requestedItems.length && (created.items?.length !== requestedItems.length || !created.items.every((item) => item.id))) {
+        // Save the new identity before a follow-up request can fail. A retry must
+        // resume this task, not create another copy of the same template task.
+        rememberDateStates(instance, resolved, false);
+        await persist();
+        resolved = { ...resolved, ...await api.getTask(template.projectId, created.id) };
+      }
+      refreshChecklistIdMap(templateTask, resolved, instance);
+      rememberDateStates(instance, resolved, false);
+      projectTasks.set(created.id, resolved);
       await persist();
       continue;
     }
 
-    const items = updatedChecklistItems(templateTask, generatedTask, instance, template, trip);
-    const updated = await api.updateTask(generatedTask.id, {
+    // Recover missing item mappings after a compact create response / interrupted
+    // follow-up read, before constructing a full checklist replacement.
+    const previousItemMap = instance.itemIdsByTemplateTaskId[templateTask.id] ?? {};
+    refreshChecklistIdMap(templateTask, generatedTask, instance);
+    instance.itemIdsByTemplateTaskId[templateTask.id] = {
+      ...previousItemMap, ...instance.itemIdsByTemplateTaskId[templateTask.id],
+    };
+    const previousItems = updatedChecklistItems(templateTask, generatedTask, instance, template, previousTrip);
+    const protectedChecklist = preserveChecklistDates(
+      updatedChecklistItems(templateTask, generatedTask, instance, template, trip),
+      previousItems, generatedTask, instance,
+    );
+    const previousAuto = baseTaskPayload(templateTask, previousTrip, template, parentId, previousItems);
+    const manualTask = hasManualDates(
+      dateSnapshot(generatedTask), dateSnapshot(previousAuto), instance.taskDateStates?.[generatedTask.id],
+    );
+    const automaticPayload = baseTaskPayload(templateTask, trip, template, parentId, protectedChecklist.items);
+    const payload = {
       id: generatedTask.id,
-      ...baseTaskPayload(templateTask, trip, template, parentId, items),
-    });
-    const resolved = updated?.id ? updated : { ...generatedTask, ...baseTaskPayload(templateTask, trip, template, parentId, items) } as TickTickTask;
+      // Omit task dates entirely for manual overrides; a metadata-only update
+      // cannot reintroduce a date that the user cleared or moved again meanwhile.
+      ...(manualTask ? withoutDateFields(automaticPayload) : automaticPayload),
+    };
+    const updated = await api.updateTask(generatedTask.id, payload);
+    let resolved = { ...generatedTask, ...payload, ...updated } as TickTickTask;
+    if (protectedChecklist.items.some((item) => !item.id)) {
+      resolved = { ...resolved, ...await api.getTask(template.projectId, generatedTask.id) };
+    }
     refreshChecklistIdMap(templateTask, resolved, instance);
+    rememberDateStates(instance, resolved, manualTask, protectedChecklist.manualIds);
     projectTasks.set(generatedTask.id, resolved);
     await persist();
   }
@@ -972,6 +1115,7 @@ async function syncTripInstance(
     }
     delete instance.taskIdsByTemplateId[obsoleteTemplateId];
     delete instance.itemIdsByTemplateTaskId[obsoleteTemplateId];
+    forgetDateStates(instance, generatedTaskId);
     await persist();
   }
 

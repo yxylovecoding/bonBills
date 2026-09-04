@@ -445,6 +445,228 @@ describe('TickTick 心愿七个月准备', () => {
   });
 });
 
+describe('TickTick 手动改期优先', () => {
+  it.each([false, true])('北海道七个月准备手动推到三个月前，多次同步和重启仍保留（旧记录：%s）', async (legacy) => {
+    const api = new FakeTickTickApi();
+    addWishPreparationTemplate(api);
+    const template = await discoverTickTickTemplate(api);
+    let state: TickTickTripSyncState = { instances: {} };
+    const wish = { ...futureWish, name: '北海道', deadline: '2027-02-01' };
+    const sync = (currentWish = wish) => reconcileTickTickWishPreparations({
+      api, template, state, configState: { config: { wishes: [currentWish] } },
+      today: '2026-09-04', saveState: async () => undefined,
+    });
+    await sync();
+    const instance = state.wishInstances![wish.id];
+    const rootId = instance.rootTaskId!;
+    expect(api.tasks.get(rootId)?.dueDate).toBe('2026-07-01T00:00:00+0800');
+    if (legacy) {
+      delete instance.taskDateStates;
+      delete instance.checklistDateStates;
+    }
+    Object.assign(api.tasks.get(rootId)!, {
+      startDate: '2026-11-01T00:00:00+0800', dueDate: '2026-11-01T00:00:00+0800',
+    });
+    await sync();
+    state = JSON.parse(JSON.stringify(state));
+    await sync();
+    await sync({ ...wish, name: '北海道冬游', deadline: '2027-03-01' });
+    expect(api.tasks.get(rootId)).toMatchObject({
+      title: '北海道冬游 · 出门前七个月',
+      startDate: '2026-11-01T00:00:00+0800', dueDate: '2026-11-01T00:00:00+0800',
+    });
+    expect(api.updatePayloads.get(rootId)).not.toHaveProperty('dueDate');
+    // 只锁定改过的任务，未改的后代仍跟随出发日。
+    expect(api.tasks.get(instance.taskIdsByTemplateId['template-visa'])?.dueDate).toBe('2026-08-03T18:00:00+0800');
+    expect(state.wishInstances![wish.id].taskDateStates?.[rootId].manual).toBe(true);
+    expect(api.createCalls).toBe(3);
+  });
+
+  it.each([false, true])('日历出游保留手动改期和清空日期，未改任务仍跟随行程（旧记录：%s）', async (legacy) => {
+    const api = new FakeTickTickApi();
+    const template = await discoverTickTickTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    const sync = (trip = futureTrip) => reconcileTickTickTrips({
+      api, template, state, trips: [trip], today: '2026-09-04', saveState: async () => undefined,
+    });
+    await sync();
+    const instance = state.instances[futureTrip.key];
+    const beforeId = instance.taskIdsByTemplateId['template-before'];
+    const monthId = instance.taskIdsByTemplateId['template-month'];
+    if (legacy) {
+      delete instance.taskDateStates;
+      delete instance.checklistDateStates;
+    }
+    Object.assign(api.tasks.get(beforeId)!, {
+      startDate: '2027-01-05T09:00:00+0800', dueDate: '2027-01-05T10:00:00+0800', isAllDay: false,
+    });
+    delete api.tasks.get(monthId)!.startDate;
+    delete api.tasks.get(monthId)!.dueDate;
+    const changed = { ...futureTrip, key: '2027-01-09', startDate: '2027-01-09', dates: ['2027-01-09', ...futureTrip.dates], name: '京都' };
+    await sync(changed);
+    await sync(changed);
+    expect(api.tasks.get(beforeId)).toMatchObject({
+      title: '京都 · 出门前一天', startDate: '2027-01-05T09:00:00+0800', dueDate: '2027-01-05T10:00:00+0800', isAllDay: false,
+    });
+    expect(api.tasks.get(monthId)?.startDate).toBeUndefined();
+    expect(api.tasks.get(monthId)?.dueDate).toBeUndefined();
+    expect(api.updatePayloads.get(monthId)).not.toHaveProperty('startDate');
+    expect(api.updatePayloads.get(monthId)).not.toHaveProperty('dueDate');
+    expect(api.tasks.get(instance.rootTaskId!)?.dueDate).toBe('2027-01-09T00:00:00+0800');
+    expect(api.tasks.get(instance.taskIdsByTemplateId['template-day'])?.dueDate).toBe('2027-01-09T00:00:00+0800');
+    expect(instance.taskDateStates?.[instance.rootTaskId!].manual).toBe(false);
+  });
+
+  it.each(['moved', 'cleared', 'time-only'])('清单项 %s 后保持手动日期及完成记录，其他项照常平移', async (change) => {
+    const api = new FakeTickTickApi();
+    addWishPreparationTemplate(api);
+    api.tasks.get('template-seven-months')!.items!.push({
+      id: 'template-auto-item', title: '自动项', startDate: '2026-04-22T09:00:00+0800', status: 0,
+    });
+    const template = await discoverTickTickTemplate(api);
+    let state: TickTickTripSyncState = { instances: {} };
+    const sync = (deadline = futureWish.deadline) => reconcileTickTickWishPreparations({
+      api, template, state, configState: { config: { wishes: [{ ...futureWish, deadline }] } },
+      today: '2026-09-04', saveState: async () => undefined,
+    });
+    await sync();
+    const instance = state.wishInstances![futureWish.id];
+    // 覆盖升级前已存在、没有日期快照的 checklist。
+    delete instance.taskDateStates;
+    delete instance.checklistDateStates;
+    const rootId = instance.rootTaskId!;
+    const item = api.tasks.get(rootId)!.items![0];
+    item.status = 1;
+    item.completedTime = '2026-09-04T01:00:00Z';
+    if (change === 'cleared') delete item.startDate;
+    else item.startDate = change === 'moved' ? '2027-07-01T09:00:00+0800' : '2027-03-01T15:00:00+0800';
+    item.isAllDay = false;
+    const manualDate = item.startDate;
+    await sync('2027-10-31');
+    state = JSON.parse(JSON.stringify(state));
+    await sync('2027-10-31');
+    const saved = api.tasks.get(rootId)!.items!;
+    expect(saved[0]).toMatchObject({ id: item.id, status: 1, completedTime: item.completedTime, isAllDay: false });
+    expect(saved[0].startDate).toBe(manualDate);
+    expect(saved[1].startDate).toBe('2027-04-02T09:00:00+0800');
+    expect(state.wishInstances![futureWish.id].checklistDateStates?.[rootId][item.id!].manual).toBe(true);
+  });
+
+  it('UTC 与 +0800 等价响应不会被误判为手动改期', async () => {
+    const api = new FakeTickTickApi();
+    const template = await discoverTickTickTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    const sync = (trip = futureTrip) => reconcileTickTickTrips({
+      api, template, state, trips: [trip], today: '2026-09-04', saveState: async () => undefined,
+    });
+    await sync();
+    const instance = state.instances[futureTrip.key];
+    for (const taskId of Object.values(instance.taskIdsByTemplateId)) {
+      const task = api.tasks.get(taskId)!;
+      for (const key of ['startDate', 'dueDate'] as const) if (task[key]) task[key] = new Date(task[key]!).toISOString();
+    }
+    await sync({ ...futureTrip, key: '2027-01-09', startDate: '2027-01-09', dates: ['2027-01-09', ...futureTrip.dates] });
+    expect(api.tasks.get(instance.rootTaskId!)?.dueDate).toBe('2027-01-09T00:00:00+0800');
+    expect(Object.values(instance.taskDateStates!).every((entry) => !entry.manual)).toBe(true);
+  });
+
+  it('简略写入响应仍保存完整日期及清单 ID，不误锁定后续自动改期', async () => {
+    const api = new FakeTickTickApi();
+    const create = api.createTask.bind(api);
+    const update = api.updateTask.bind(api);
+    api.createTask = async (payload) => {
+      const task = await create(payload);
+      return { id: task.id, projectId: task.projectId, title: task.title, items: [] };
+    };
+    api.updateTask = async (id, payload) => {
+      const task = await update(id, payload);
+      return { id: task.id, projectId: task.projectId, title: task.title };
+    };
+    const template = await discoverTickTickTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    const sync = (trip = futureTrip) => reconcileTickTickTrips({
+      api, template, state, trips: [trip], today: '2026-09-04', saveState: async () => undefined,
+    });
+    await sync();
+    const instance = state.instances[futureTrip.key];
+    expect(instance.itemIdsByTemplateTaskId['template-before']['template-pack']).toBeTruthy();
+    await sync();
+    await sync({ ...futureTrip, key: '2027-01-09', startDate: '2027-01-09', dates: ['2027-01-09', ...futureTrip.dates] });
+    expect(api.tasks.get(instance.rootTaskId!)?.dueDate).toBe('2027-01-09T00:00:00+0800');
+    expect(Object.values(instance.taskDateStates!).every((entry) => !entry.manual)).toBe(true);
+    expect(api.tasks.get(instance.taskIdsByTemplateId['template-before'])?.items).toHaveLength(1);
+  });
+
+  it('任务删除后重建不继承旧 ID 的手动日期设置', async () => {
+    const api = new FakeTickTickApi();
+    const template = await discoverTickTickTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    const sync = () => reconcileTickTickTrips({ api, template, state, trips: [futureTrip], today: '2026-09-04', saveState: async () => undefined });
+    await sync();
+    const instance = state.instances[futureTrip.key];
+    const oldId = instance.taskIdsByTemplateId['template-before'];
+    api.tasks.get(oldId)!.dueDate = '2027-01-03T00:00:00+0800';
+    await sync();
+    expect(instance.taskDateStates?.[oldId].manual).toBe(true);
+    api.tasks.delete(oldId);
+    await sync();
+    const newId = instance.taskIdsByTemplateId['template-before'];
+    expect(newId).not.toBe(oldId);
+    expect(instance.taskDateStates?.[oldId]).toBeUndefined();
+    expect(instance.checklistDateStates?.[oldId]).toBeUndefined();
+    expect(instance.taskDateStates?.[newId].manual).toBe(false);
+    expect(api.tasks.get(newId)?.dueDate).toBe('2027-01-09T00:00:00+0800');
+  });
+
+  it('简略创建响应后的补读失败，重启续传不重复生成任务或清单项', async () => {
+    const api = new FakeTickTickApi();
+    const create = api.createTask.bind(api);
+    const get = api.getTask.bind(api);
+    api.createTask = async (payload) => {
+      const task = await create(payload);
+      return { id: task.id, projectId: task.projectId, title: task.title };
+    };
+    api.getTask = async (projectId, taskId) => {
+      if (taskId.startsWith('generated-')) throw new Error('临时网络错误');
+      return get(projectId, taskId);
+    };
+    const template = await discoverTickTickTemplate(api);
+    let state: TickTickTripSyncState = { instances: {} };
+    let persisted = structuredClone(state);
+    const sync = () => reconcileTickTickTrips({
+      api, template, state, trips: [futureTrip], today: '2026-09-04', saveState: async (next) => { persisted = structuredClone(next); },
+    });
+    await expect(sync()).rejects.toThrow('临时网络错误');
+    state = persisted;
+    api.getTask = get;
+    await sync();
+    await sync();
+    const instance = state.instances[futureTrip.key];
+    expect(api.createCalls).toBe(4);
+    expect(api.tasks.get(instance.taskIdsByTemplateId['template-before'])?.items).toHaveLength(1);
+  });
+
+  it('模板日期更新仍影响自动项，移除模板清单项不会误变成手工新增项', async () => {
+    const api = new FakeTickTickApi();
+    let template = await discoverTickTickTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    const sync = () => reconcileTickTickTrips({ api, template, state, trips: [futureTrip], today: '2026-09-04', saveState: async () => undefined });
+    await sync();
+    const instance = state.instances[futureTrip.key];
+    const beforeId = instance.taskIdsByTemplateId['template-before'];
+    api.tasks.get(beforeId)!.items!.push({ id: 'manual-extra', title: '手工新增', status: 0 });
+    const beforeTemplate = api.tasks.get('template-before')!;
+    beforeTemplate.startDate = '2026-11-18T00:00:00+0800';
+    beforeTemplate.dueDate = beforeTemplate.startDate;
+    beforeTemplate.items = [];
+    template = await discoverTickTickTemplate(api);
+    await sync();
+    expect(api.tasks.get(beforeId)?.dueDate).toBe('2027-01-08T00:00:00+0800');
+    expect(api.tasks.get(beforeId)?.items?.map((item) => item.id)).toEqual(['manual-extra']);
+    expect(instance.taskDateStates?.[beforeId].manual).toBe(false);
+  });
+});
+
 describe('TickTick 清单状态续写', () => {
   it.each(['trip', 'wish'] as const)('%s 保留已有和手工清单项的完成情况，不再透传非 0/1 状态', async (scope) => {
     const api = new FakeTickTickApi();
