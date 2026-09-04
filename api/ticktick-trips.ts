@@ -95,6 +95,8 @@ async function runSync() {
       : { instances: {} };
     try {
       const today = shanghaiDate();
+      const routineResult = await syncTickTickRoutines({ api, calendarState, today });
+      console.info('[ticktick-routine-sync]', JSON.stringify(routineResult));
       const template = await readConnectedTickTickTemplate(api, connection);
       const trips = buildTripSourcesFromSyncState(calendarState, tripState);
       const result = await reconcileTickTickTrips({
@@ -113,8 +115,6 @@ async function runSync() {
         today,
         saveState: (nextState) => kv.set(SYNC_STATE_KEY, nextState).then(() => undefined),
       });
-      const routineResult = await syncTickTickRoutines({ api, calendarState, today });
-      console.info('[ticktick-routine-sync]', JSON.stringify(routineResult));
       return { busy: false as const, ...result, ...wishResult, ...routineResult, lastSyncAt: state.lastSyncAt };
     } catch (error) {
       state.lastError = error instanceof Error ? error.message : String(error);
@@ -171,16 +171,6 @@ async function status() {
     kv.get<TickTickConnection>(CONNECTION_KEY),
     kv.get<TickTickTripSyncState>(SYNC_STATE_KEY),
   ]);
-  if (connection) {
-    try {
-      const { decryptTickTickToken, inspectTickTickRoutineDates, TickTickOpenApiClient } = await import('./_ticktickTrips.js');
-      const api = new TickTickOpenApiClient(decryptTickTickToken(connection.encryptedToken, getSyncSecret()),
-        (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
-      console.info('[ticktick-routine-dates]', JSON.stringify(await inspectTickTickRoutineDates(api, shanghaiDate())));
-    } catch (error) {
-      console.info('[ticktick-routine-dates]', error instanceof Error ? error.message : String(error));
-    }
-  }
   return {
     connected: Boolean(connection),
     projectName: connection ? '玩' : undefined,

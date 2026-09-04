@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, createSecretKey, randomBytes, type KeyObject } from 'node:crypto';
+import { Lunar } from 'lunar-typescript';
 
 export const TICKTICK_CONNECTION_KEY = 'ticktick:connection:v1';
 export const TICKTICK_SYNC_STATE_KEY = 'ticktick:trip-sync:v1';
@@ -281,21 +282,12 @@ function isValidCalendarDate(value: unknown): value is string {
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
-const CHINESE_CALENDAR_FORMATTER = new Intl.DateTimeFormat('en-u-ca-chinese', {
-  timeZone: 'Asia/Shanghai',
-  month: 'numeric',
-  day: 'numeric',
-});
-
 export function nextChineseNewYear(afterDate: string): string {
-  let date = addCalendarDays(afterDate, 1);
-  for (let days = 0; days < 450; days += 1) {
-    const parts = CHINESE_CALENDAR_FORMATTER.formatToParts(new Date(`${date}T12:00:00+08:00`));
-    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-    if (values.month === '1' && values.day === '1') return date;
-    date = addCalendarDays(date, 1);
-  }
-  throw new Error('无法计算下一个春节');
+  const year = Number(afterDate.slice(0, 4));
+  // ICU's Chinese calendar differs by a day for some years (including 2027).
+  // Regression dates are checked against https://www.hko.gov.hk/en/gts/time/conversion.htm
+  const thisYear = Lunar.fromYmd(year, 1, 1).getSolar().toYmd();
+  return thisYear > afterDate ? thisYear : Lunar.fromYmd(year + 1, 1, 1).getSolar().toYmd();
 }
 
 function calendarDayDifference(date: string, anchor: string): number {
@@ -495,8 +487,9 @@ function findRoutineTargetDate(
   tagMap: Record<string, unknown>,
   today: string,
   matches: (tag: unknown) => boolean,
+  includeToday = true,
 ): string {
-  if (matches(tagMap[today])) return today;
+  if (includeToday && matches(tagMap[today])) return today;
 
   const nextDate = Object.keys(tagMap)
     .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date) && date > today && matches(tagMap[date]))
@@ -516,14 +509,51 @@ function normalizedRoutineTitle(value: string): string {
   return value.normalize('NFKC').replace(/\s+/g, '').toLocaleLowerCase();
 }
 
-function checklistItemDate(item: TickTickChecklistItem): string | null {
-  const date = item.startDate?.slice(0, 10);
+function calendarDateInTimeZone(value: string | undefined, timeZone = 'Asia/Shanghai'): string | null {
+  if (!value) return null;
+  const rawDate = value.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) return null;
+  // Floating TickTick dates already contain their calendar date. Zoned values,
+  // especially all-day midnight returned as the previous UTC day at 16:00,
+  // must be interpreted in the task's timezone.
+  if (!/[zZ]|[+-]\d{2}:?\d{2}$/.test(value)) return rawDate;
+  const instant = new Date(value);
+  if (!Number.isFinite(instant.getTime())) return rawDate;
+  try {
+    const parts = new Intl.DateTimeFormat('en', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(instant);
+    const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value;
+    const year = part('year');
+    const month = part('month');
+    const day = part('day');
+    return year && month && day ? `${year}-${month}-${day}` : rawDate;
+  } catch {
+    return rawDate;
+  }
+}
+
+function routineTaskDate(task: TickTickTask): string | null {
+  return calendarDateInTimeZone(task.dueDate || task.startDate, task.timeZone);
+}
+
+function routineOccurrenceKey(task: TickTickTask): string {
+  // Completing a repeating task creates a history record with a new ID.
+  // Keep the parent boundary so unrelated same-named tasks cannot postpone it.
+  return JSON.stringify([task.projectId, task.parentId ?? '', task.title]);
+}
+
+function checklistItemDate(item: TickTickChecklistItem, fallbackTimeZone?: string): string | null {
+  const date = calendarDateInTimeZone(item.startDate, item.timeZone || fallbackTimeZone);
   return date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
 }
 
 function shiftedRoutineItems(task: TickTickTask, targetDate: string): TickTickChecklistItem[] | undefined {
   return task.items?.map((item) => {
-    const date = checklistItemDate(item);
+    const date = checklistItemDate(item, task.timeZone);
     if (!date || (item.status ?? 0) !== 0) return item;
     return {
       ...item,
@@ -533,23 +563,23 @@ function shiftedRoutineItems(task: TickTickTask, targetDate: string): TickTickCh
 }
 
 function routineTaskHasDate(task: TickTickTask): boolean {
-  return Boolean(taskDate(task)) || Boolean(task.items?.some(
-    (item) => (item.status ?? 0) === 0 && checklistItemDate(item),
+  return Boolean(routineTaskDate(task)) || Boolean(task.items?.some(
+    (item) => (item.status ?? 0) === 0 && checklistItemDate(item, task.timeZone),
   ));
 }
 
 function routineTaskIsAligned(task: TickTickTask, targetDate: string): boolean {
-  const date = taskDate(task);
+  const date = routineTaskDate(task);
   if (date && date !== targetDate) return false;
   return !(task.items ?? []).some(
     (item) => (item.status ?? 0) === 0
-      && checklistItemDate(item)
-      && checklistItemDate(item) !== targetDate,
+      && checklistItemDate(item, task.timeZone)
+      && checklistItemDate(item, task.timeZone) !== targetDate,
   );
 }
 
 function routineTaskPayload(task: TickTickTask, targetDate: string): Record<string, unknown> {
-  const scheduledDate = taskDate(task);
+  const scheduledDate = routineTaskDate(task);
   const shiftedStartDate = scheduledDate
     ? shiftTickTickDate(task.startDate, scheduledDate, targetDate)
     : task.startDate;
@@ -600,8 +630,14 @@ export async function syncTickTickRoutines(options: {
     filteredTasks,
   ).filter((task) => (task.status ?? 0) === 0);
   const specs = [
-    { key: 'home', title: TICKTICK_HOME_ROUTINE_TITLE, targetDate: routineTargets.home },
-    { key: 'school', title: TICKTICK_SCHOOL_ROUTINE_TITLE, targetDate: routineTargets.school },
+    {
+      key: 'home', title: TICKTICK_HOME_ROUTINE_TITLE, targetDate: routineTargets.home,
+      matches: (tag: unknown) => tag === 'home',
+    },
+    {
+      key: 'school', title: TICKTICK_SCHOOL_ROUTINE_TITLE, targetDate: routineTargets.school,
+      matches: (tag: unknown) => tag === 'school' || tag === 'intern',
+    },
   ] as const;
   let updatedRoutineTasks = 0;
   const routineTaskCounts = { home: 0, school: 0 };
@@ -623,15 +659,46 @@ export async function syncTickTickRoutines(options: {
         : [];
     const tasks = scopedTasks.filter((task) => routineTaskHasDate(task));
     routineTaskCounts[spec.key] = tasks.length;
-    return { ...spec, tasks };
+    return { ...spec, root, tasks };
   });
+
+  const routineProjectIds = [...new Set(scopes.flatMap((scope) =>
+    scope.root ? [scope.root.projectId] : scope.tasks.map((task) => task.projectId)))];
+  const completedToday = await api.listCompletedTasks(
+    routineProjectIds,
+    `${today}T00:00:00+0800`,
+    `${today}T23:59:59.999+0800`,
+  );
+  const completedKeys = new Set(completedToday
+    .filter((task) => (task.status ?? 2) === 2
+      && calendarDateInTimeZone(task.completedTime, 'Asia/Shanghai') === today)
+    .map(routineOccurrenceKey));
+  const tagMap = calendarTagMapFromSyncState(calendarState);
 
   for (const spec of scopes) {
     for (const task of spec.tasks) {
-      if (routineTaskIsAligned(task, spec.targetDate)) continue;
-      await api.updateTask(task.id, routineTaskPayload(task, spec.targetDate));
+      const completedThisOccurrence = Boolean(task.repeatFlag)
+        && spec.targetDate === today
+        && completedKeys.has(routineOccurrenceKey(task));
+      const taskTargetDate = completedThisOccurrence
+        ? findRoutineTargetDate(tagMap, today, spec.matches, false)
+        : spec.targetDate;
+      if (routineTaskIsAligned(task, taskTargetDate)) continue;
+      const payload = routineTaskPayload(task, taskTargetDate);
+      await api.updateTask(task.id, payload);
       const updated = await api.getTask(task.projectId, task.id);
-      if (!updated?.id || !routineTaskIsAligned(updated, spec.targetDate)) {
+      const datesPersisted = (['startDate', 'dueDate'] as const).every((key) => {
+        const expected = payload[key];
+        if (typeof expected !== 'string') return true;
+        return updated[key] === expected || Date.parse(updated[key] ?? '') === Date.parse(expected);
+      });
+      const itemsPersisted = !(task.items ?? []).some((item) => {
+        if ((item.status ?? 0) !== 0 || !checklistItemDate(item, task.timeZone)) return false;
+        const saved = updated.items?.find((candidate) => candidate.id === item.id);
+        return !saved || checklistItemDate(saved, updated.timeZone) !== taskTargetDate;
+      });
+      if (!updated?.id || !datesPersisted || !itemsPersisted
+        || !routineTaskIsAligned(updated, taskTargetDate)) {
         throw new Error(`TickTick 未正确更新“${task.title}”的日期`);
       }
       updatedRoutineTasks += 1;
@@ -639,26 +706,6 @@ export async function syncTickTickRoutines(options: {
   }
 
   return { updatedRoutineTasks, routineTargets, routineTaskCounts };
-}
-
-export async function inspectTickTickRoutineDates(api: TickTickApi, today: string) {
-  const active = await api.filterTasks(undefined, [0]);
-  const roots = active.filter((task) => [TICKTICK_HOME_ROUTINE_TITLE, TICKTICK_SCHOOL_ROUTINE_TITLE]
-    .some((title) => normalizedRoutineTitle(task.title) === normalizedRoutineTitle(title)));
-  const projectIds = [...new Set(roots.map((task) => task.projectId))];
-  const projects = await Promise.all(projectIds.map((id) => api.getProjectData(id)));
-  const tasks = mergeTaskLists(projects.flatMap((project) => project.tasks), active);
-  const scoped = roots.flatMap((root) => [root, ...descendantsOf(tasks, root.id)]);
-  const completed = projectIds.length ? await api.listCompletedTasks(
-    projectIds, `${addCalendarDays(today, -7)}T00:00:00+0800`, `${today}T23:59:59+0800`,
-  ) : [];
-  const titles = new Set(scoped.map((task) => task.title));
-  const timing = (task: TickTickTask) => Object.fromEntries(Object.entries(task)
-    .filter(([key]) => /id|date|time|repeat|status|isAllDay|title/i.test(key)));
-  return {
-    active: scoped.map(timing),
-    completed: completed.filter((task) => titles.has(task.title)).map(timing),
-  };
 }
 
 function templateDepth(task: TickTickTask, byId: Map<string, TickTickTask>): number {

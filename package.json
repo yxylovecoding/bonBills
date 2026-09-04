@@ -1,7 +1,7 @@
 {
   "name": "monthlybills",
   "private": true,
-  "version": "1.0.26",
+  "version": "1.0.27",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@vercel/kv": "^3.0.0",
+    "lunar-typescript": "1.8.6",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.2",

@@ -457,10 +457,12 @@ describe('TickTick 出游同步', () => {
   });
 
   it('日历没有下一场景时使用下一个春节', () => {
-    expect(nextChineseNewYear('2026-09-21')).toBe('2027-02-07');
+    expect(nextChineseNewYear('2026-09-21')).toBe('2027-02-06');
+    expect(nextChineseNewYear('2027-02-05')).toBe('2027-02-06');
+    expect(nextChineseNewYear('2027-02-06')).toBe('2028-01-26');
     expect(getTickTickRoutineTargetDates({ tagMap: {} }, '2026-09-21')).toEqual({
-      home: '2027-02-07',
-      school: '2027-02-07',
+      home: '2027-02-06',
+      school: '2027-02-06',
     });
   });
 
@@ -507,12 +509,150 @@ describe('TickTick 出游同步', () => {
       .resolves.toMatchObject({ updatedRoutineTasks: 0 });
   });
 
+  it('按上海日期判断全天任务，今天未完成留在今天，今天完成后才排到明天', async () => {
+    const calendarState = { tagMap: {
+      '2026-09-04': 'home',
+      '2026-09-05': 'home',
+      '2026-09-10': 'school',
+    } };
+    const pendingApi = new FakeRoutineTickTickApi();
+    const pending = pendingApi.tasks.get('home-dated')!;
+    pending.repeatFlag = 'RRULE:FREQ=DAILY;INTERVAL=1';
+    pending.isAllDay = true;
+    // TickTick 用 UTC 表示上海全天任务：这里实际是 9 月 5 日零点。
+    pending.startDate = '2026-09-04T16:00:00.000+0000';
+    pending.dueDate = '2026-09-04T16:00:00.000+0000';
+
+    await syncTickTickRoutines({ api: pendingApi, calendarState, today: '2026-09-04' });
+    expect(pendingApi.tasks.get('home-dated')).toMatchObject({
+      startDate: '2026-09-03T16:00:00.000+0000',
+      dueDate: '2026-09-03T16:00:00.000+0000',
+    });
+
+    const completedApi = new FakeRoutineTickTickApi();
+    const next = completedApi.tasks.get('home-dated')!;
+    next.repeatFlag = 'RRULE:FREQ=DAILY;INTERVAL=1';
+    next.isAllDay = true;
+    next.startDate = '2026-09-04T16:00:00.000+0000';
+    next.dueDate = '2026-09-04T16:00:00.000+0000';
+    completedApi.tasks.set('home-dated-completed-today', {
+      ...next,
+      id: 'home-dated-completed-today',
+      status: 2,
+      completedTime: '2026-09-04T08:30:00.000+0000',
+      startDate: '2026-09-03T16:00:00.000+0000',
+      dueDate: '2026-09-03T16:00:00.000+0000',
+    });
+
+    const result = await syncTickTickRoutines({ api: completedApi, calendarState, today: '2026-09-04' });
+    expect(completedApi.tasks.get('home-dated')).toMatchObject({
+      startDate: '2026-09-04T16:00:00.000+0000',
+      dueDate: '2026-09-04T16:00:00.000+0000',
+    });
+    expect(completedApi.updatePayloads.has('home-dated')).toBe(false);
+    expect(result.routineTargets.home).toBe('2026-09-04');
+  });
+
+  it('凌晨的完成算今天，明天离家则等下次回家，不重排已完成记录', async () => {
+    const api = new FakeRoutineTickTickApi();
+    const task = api.tasks.get('home-dated')!;
+    Object.assign(task, {
+      repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=1', isAllDay: true,
+      startDate: '2026-09-03T16:00:00.000+0000', dueDate: '2026-09-03T16:00:00.000+0000',
+    });
+    const completed = { ...task, id: 'home-history', status: 2, completedTime: '2026-09-03T16:05:00.000+0000' };
+    api.tasks.set(completed.id, completed);
+    const calendarState = { tagMap: { '2026-09-04': 'home', '2026-09-05': 'intern', '2026-10-01': 'home' } };
+    const options = { api, calendarState, today: '2026-09-04' };
+    await syncTickTickRoutines(options);
+    expect(api.tasks.get(task.id)?.dueDate).toBe('2026-09-30T16:00:00.000+0000');
+    expect(api.tasks.get(completed.id)).toEqual(completed);
+    expect(api.updatePayloads.has(completed.id)).toBe(false);
+    await expect(syncTickTickRoutines(options)).resolves.toMatchObject({ updatedRoutineTasks: 0 });
+  });
+
+  it('昨天完成不算今天完成，其他父任务的同名完成记录也不影响今天', async () => {
+    const api = new FakeRoutineTickTickApi();
+    const task = api.tasks.get('home-dated')!;
+    Object.assign(task, {
+      repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=1', isAllDay: true,
+      startDate: '2026-09-04T16:00:00.000+0000', dueDate: '2026-09-04T16:00:00.000+0000',
+    });
+    api.tasks.set('yesterday-done', { ...task, id: 'yesterday-done', status: 2, completedTime: '2026-09-03T15:59:59.000+0000' });
+    api.tasks.set('other-parent-done', {
+      ...task, id: 'other-parent-done', parentId: 'other-parent', status: 2, completedTime: '2026-09-04T01:00:00.000+0000',
+    });
+    const options = { api, calendarState: { tagMap: { '2026-09-04': 'home', '2026-09-05': 'home' } }, today: '2026-09-04' };
+    await syncTickTickRoutines(options);
+    expect(api.tasks.get(task.id)?.dueDate).toBe('2026-09-03T16:00:00.000+0000');
+    await expect(syncTickTickRoutines(options)).resolves.toMatchObject({ updatedRoutineTasks: 0 });
+  });
+
+  it('在校任务完成后次日实习也可执行，清单项按本地日期移动且保留完成状态', async () => {
+    const api = new FakeRoutineTickTickApi();
+    const task = api.tasks.get('school-dated')!;
+    Object.assign(task, {
+      repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=1', isAllDay: true, timeZone: 'Asia/Shanghai',
+      startDate: '2026-09-03T16:00:00.000+0000', dueDate: '2026-09-03T16:00:00.000+0000',
+      items: [
+        { id: 'unchecked', title: '未完成清单项', status: 0, startDate: '2026-09-03T16:00:00.000+0000' },
+        { id: 'checked', title: '已完成清单项', status: 1, startDate: '2026-09-03T16:00:00.000+0000' },
+      ],
+    });
+    api.tasks.set('school-history', { ...task, id: 'school-history', status: 2, completedTime: '2026-09-04T01:00:00+0000' });
+    const calendarState = { tagMap: { '2026-09-04': 'school', '2026-09-05': 'intern' } };
+    await syncTickTickRoutines({ api, calendarState, today: '2026-09-04' });
+    expect(api.tasks.get(task.id)).toMatchObject({
+      dueDate: '2026-09-04T16:00:00.000+0000',
+      items: [
+        { id: 'unchecked', status: 0, startDate: '2026-09-04T16:00:00.000+0000' },
+        { id: 'checked', status: 1, startDate: '2026-09-03T16:00:00.000+0000' },
+      ],
+    });
+  });
+
+  it('今天完成但没有下一场景时使用下个春节，未设日期的任务不新增日期', async () => {
+    const api = new FakeRoutineTickTickApi();
+    const task = api.tasks.get('home-dated')!;
+    Object.assign(task, {
+      repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=1', isAllDay: true,
+      startDate: '2026-09-03T16:00:00.000+0000', dueDate: '2026-09-03T16:00:00.000+0000',
+    });
+    api.tasks.set('home-history', { ...task, id: 'home-history', status: 2, completedTime: '2026-09-04T01:00:00+0000' });
+    await syncTickTickRoutines({ api, calendarState: { tagMap: { '2026-09-04': 'home' } }, today: '2026-09-04' });
+    expect(api.tasks.get(task.id)?.dueDate).toBe('2027-02-05T16:00:00.000+0000');
+    expect(api.tasks.get('home-no-date')?.startDate).toBeUndefined();
+    expect(api.tasks.get('home-no-date')?.dueDate).toBeUndefined();
+  });
+
   it('找不到 routine 时明确报错，不报告零项同步成功', async () => {
     const api = new FakeRoutineTickTickApi();
     api.tasks.delete('home-root');
     await expect(syncTickTickRoutines({ api, calendarState: { tagMap: {} }, today: '2026-09-04' }))
       .rejects.toThrow('找不到“在家routine”父任务或清单');
     expect(api.updateCalls).toBe(0);
+  });
+
+  it('写入后回读缺少日期不能报告同步成功', async () => {
+    const api = new FakeRoutineTickTickApi();
+    api.getTask = async (_projectId, taskId) => {
+      const task = api.tasks.get(taskId)!;
+      return { id: task.id, projectId: task.projectId, title: task.title, status: 0 };
+    };
+    await expect(syncTickTickRoutines({ api, calendarState: { tagMap: { '2026-09-04': 'home' } }, today: '2026-09-04' }))
+      .rejects.toThrow('未正确更新');
+  });
+
+  it('除夕完成且没有下次场景时，不会跳过明天的春节', async () => {
+    const api = new FakeRoutineTickTickApi();
+    const task = api.tasks.get('home-dated')!;
+    Object.assign(task, {
+      repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=1', isAllDay: true,
+      startDate: '2027-02-04T16:00:00.000+0000', dueDate: '2027-02-04T16:00:00.000+0000',
+    });
+    api.tasks.set('home-history', { ...task, id: 'home-history', status: 2, completedTime: '2027-02-05T01:00:00+0000' });
+    await syncTickTickRoutines({ api, calendarState: { tagMap: { '2027-02-05': 'home' } }, today: '2027-02-05' });
+    expect(api.tasks.get(task.id)?.dueDate).toBe('2027-02-05T16:00:00.000+0000');
   });
 
   it('加密保存并还原个人 API Token', () => {
