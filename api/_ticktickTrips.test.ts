@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   buildTripSourcesFromSyncState,
   buildWishPreparationSourcesFromSyncState,
@@ -12,11 +12,58 @@ import {
   reconcileTickTickWishPreparations,
   shiftTickTickDate,
   syncTickTickRoutines,
+  TickTickOpenApiClient,
   type TickTickApi,
   type TickTickProjectData,
   type TickTickTask,
   type TickTickTripSyncState,
 } from './_ticktickTrips';
+
+describe('TickTick 写入协议', () => {
+  it.each(['create', 'update'] as const)('%s 清单项只发送数字 0/1，不改变任务状态或原始数据', async (operation) => {
+    const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
+      const payload = JSON.parse(String(init?.body));
+      // 模拟远端的实际约束；不能像普通内存 fake 一样接受任意状态。
+      if (payload.items.some((item: { status: unknown }) => item.status !== 0 && item.status !== 1)) {
+        return new Response('checklist item status is invalid', { status: 500 });
+      }
+      return new Response(JSON.stringify({ ...payload, id: 'saved' }), { status: 200 });
+    });
+    const api = new TickTickOpenApiClient('test-token', 'https://ticktick.test', fetcher);
+    const payload = {
+      id: 'task', projectId: 'project', title: '保留完成记录', status: 2,
+      items: [
+        { id: 'open', title: '未完成', status: 0, startDate: '2026-09-04T00:00:00+0800' },
+        { id: 'done', title: '已完成', status: 1, completedTime: '2026-09-03T01:00:00Z' },
+        { id: 'task-code', title: '任务式状态', status: 2, completedTime: '2026-09-03T02:00:00Z' },
+        { id: 'string-open', title: '文本未完成', status: '0' },
+        { id: 'string-done', title: '文本已完成', status: '1' },
+        { id: 'string-task-code', title: '文本任务式状态', status: '2' },
+        { id: 'null-open', title: '空状态', status: null },
+        { id: 'missing-open', title: '缺少状态' },
+        { id: 'missing-done', title: '有完成时间', completedTime: '2026-09-03T03:00:00Z' },
+        { id: 'reopened', title: '已重新打开', status: 0, completedTime: '2026-09-03T04:00:00Z' },
+      ],
+    };
+    const original = structuredClone(payload);
+    const result = operation === 'create' ? await api.createTask(payload) : await api.updateTask('task', payload);
+    expect(result.items?.map((item) => item.status)).toEqual([0, 1, 1, 0, 1, 1, 0, 0, 1, 0]);
+    expect(result.status).toBe(2);
+    expect(result.items?.map((item) => item.id)).toEqual(payload.items.map((item) => item.id));
+    expect(result.items?.[2].completedTime).toBe('2026-09-03T02:00:00Z');
+    expect(result.items?.[0].startDate).toBe('2026-09-04T00:00:00+0800');
+    expect(payload).toEqual(original);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([-1, 3, 'unknown', false])('未知清单状态 %s 不猜测完成情况，且不向远端写入', async (status) => {
+    const fetcher = vi.fn<typeof fetch>();
+    const api = new TickTickOpenApiClient('test-token', 'https://ticktick.test', fetcher);
+    await expect(api.updateTask('task', { title: '任务', items: [{ title: '需要确认的项目', status }] }))
+      .rejects.toThrow('无法安全同步清单项“需要确认的项目”');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+});
 
 class FakeTickTickApi implements TickTickApi {
   readonly tasks = new Map<string, TickTickTask>();
@@ -398,6 +445,37 @@ describe('TickTick 心愿七个月准备', () => {
   });
 });
 
+describe('TickTick 清单状态续写', () => {
+  it.each(['trip', 'wish'] as const)('%s 保留已有和手工清单项的完成情况，不再透传非 0/1 状态', async (scope) => {
+    const api = new FakeTickTickApi();
+    if (scope === 'wish') addWishPreparationTemplate(api);
+    const template = await discoverTickTickTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    const options = { api, template, state, today: '2026-09-04', saveState: async () => undefined };
+    const sync = () => scope === 'trip'
+      ? reconcileTickTickTrips({ ...options, trips: [futureTrip] })
+      : reconcileTickTickWishPreparations({ ...options, configState: { config: { wishes: [futureWish] } } });
+    await sync();
+    const instance = scope === 'trip' ? state.instances[futureTrip.key] : state.wishInstances![futureWish.id];
+    const taskId = instance.taskIdsByTemplateId[scope === 'trip' ? 'template-before' : 'template-seven-months'];
+    const task = api.tasks.get(taskId)!;
+    task.items![0].status = 2;
+    task.items![0].completedTime = '2026-09-03T01:00:00Z';
+    task.items!.push(
+      { id: 'manual-done', title: '手工已完成', status: '1', completedTime: '2026-09-03T02:00:00Z' },
+      { id: 'manual-open', title: '手工未完成', status: null },
+    );
+    const ids = task.items!.map((item) => item.id);
+    await sync();
+    const updated = api.tasks.get(taskId)!;
+    expect(updated.items?.map((item) => item.status)).toEqual([1, 1, 0]);
+    expect(updated.items?.map((item) => item.id)).toEqual(ids);
+    expect(updated.items?.map((item) => item.completedTime)).toEqual([
+      '2026-09-03T01:00:00Z', '2026-09-03T02:00:00Z', undefined,
+    ]);
+  });
+});
+
 describe('TickTick 出游同步', () => {
   it('在服务端独立生成连续、切分及命名后的行程', () => {
     expect(buildTripSourcesFromSyncState(
@@ -641,6 +719,22 @@ describe('TickTick 出游同步', () => {
     };
     await expect(syncTickTickRoutines({ api, calendarState: { tagMap: { '2026-09-04': 'home' } }, today: '2026-09-04' }))
       .rejects.toThrow('未正确更新');
+  });
+
+  it('routine 的兼容完成状态和完成时间仍被识别为已完成，不平移它们的日期', async () => {
+    const api = new FakeRoutineTickTickApi();
+    const task = api.tasks.get('school-dated')!;
+    task.items = [
+      { id: 'done', title: '已完成', status: 2, completedTime: '2026-09-03T03:00:00Z', startDate: '2026-09-03T00:00:00+0800' },
+      { id: 'missing-status-done', title: '已完成但无状态', completedTime: '2026-09-03T03:00:00Z', startDate: '2026-09-03T00:00:00+0800' },
+      { id: 'open', title: '未完成', status: '0', startDate: '2026-09-03T00:00:00+0800' },
+    ];
+    await syncTickTickRoutines({ api, calendarState: { tagMap: { '2026-09-04': 'school' } }, today: '2026-09-04' });
+    expect(api.tasks.get(task.id)?.items).toMatchObject([
+      { id: 'done', status: 1, startDate: '2026-09-03T00:00:00+0800' },
+      { id: 'missing-status-done', status: 1, startDate: '2026-09-03T00:00:00+0800' },
+      { id: 'open', status: 0, startDate: '2026-09-04T00:00:00+0800' },
+    ]);
   });
 
   it('除夕完成且没有下次场景时，不会跳过明天的春节', async () => {

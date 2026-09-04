@@ -40,12 +40,34 @@ export interface TickTickConnection {
 export interface TickTickChecklistItem {
   id?: string;
   title: string;
-  status?: number;
+  status?: number | string | null;
   completedTime?: string;
   isAllDay?: boolean;
   sortOrder?: number;
   startDate?: string;
   timeZone?: string;
+}
+
+function checklistItemStatus(item: TickTickChecklistItem): 0 | 1 {
+  if (item.status == null) return item.completedTime ? 1 : 0;
+  const status = typeof item.status === 'string' && /^[012]$/.test(item.status.trim())
+    ? Number(item.status.trim())
+    : item.status;
+  if (status === 0) return 0;
+  // Task-style completion is 2; the checklist write contract only accepts 1.
+  if (status === 1 || status === 2) return 1;
+  throw new Error(`无法安全同步清单项“${item.title}”：未知状态 ${JSON.stringify(item.status)}`);
+}
+
+function taskWritePayload(payload: Record<string, unknown>): Record<string, unknown> {
+  if (!Array.isArray(payload.items)) return payload;
+  return {
+    ...payload,
+    items: payload.items.map((item: TickTickChecklistItem) => ({
+      ...item,
+      status: checklistItemStatus(item),
+    })),
+  };
 }
 
 export interface TickTickTask {
@@ -235,15 +257,26 @@ export class TickTickOpenApiClient implements TickTickApi {
     return this.request<TickTickTask>(`/project/${encodeURIComponent(projectId)}/task/${encodeURIComponent(taskId)}`);
   }
 
+  private async writeTask(path: string, payload: Record<string, unknown>) {
+    const normalized = taskWritePayload(payload);
+    try {
+      return await this.request<TickTickTask>(path, { method: 'POST', body: JSON.stringify(normalized) });
+    } catch (error) {
+      console.error('[ticktick-task-write]', JSON.stringify({
+        path,
+        checklistStatuses: Array.isArray(normalized.items) ? normalized.items.map((item) => item.status) : [],
+      }));
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`同步任务“${String(payload.title ?? payload.id ?? '')}”失败：${detail}`);
+    }
+  }
+
   createTask(payload: Record<string, unknown>) {
-    return this.request<TickTickTask>('/task', { method: 'POST', body: JSON.stringify(payload) });
+    return this.writeTask('/task', payload);
   }
 
   updateTask(taskId: string, payload: Record<string, unknown>) {
-    return this.request<TickTickTask>(`/task/${encodeURIComponent(taskId)}`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
+    return this.writeTask(`/task/${encodeURIComponent(taskId)}`, payload);
   }
 
   async deleteTask(projectId: string, taskId: string) {
@@ -554,9 +587,11 @@ function checklistItemDate(item: TickTickChecklistItem, fallbackTimeZone?: strin
 function shiftedRoutineItems(task: TickTickTask, targetDate: string): TickTickChecklistItem[] | undefined {
   return task.items?.map((item) => {
     const date = checklistItemDate(item, task.timeZone);
-    if (!date || (item.status ?? 0) !== 0) return item;
+    const status = checklistItemStatus(item);
+    if (!date || status !== 0) return { ...item, status };
     return {
       ...item,
+      status,
       startDate: shiftTickTickDate(item.startDate, date, targetDate),
     };
   });
@@ -564,7 +599,7 @@ function shiftedRoutineItems(task: TickTickTask, targetDate: string): TickTickCh
 
 function routineTaskHasDate(task: TickTickTask): boolean {
   return Boolean(routineTaskDate(task)) || Boolean(task.items?.some(
-    (item) => (item.status ?? 0) === 0 && checklistItemDate(item, task.timeZone),
+    (item) => checklistItemStatus(item) === 0 && checklistItemDate(item, task.timeZone),
   ));
 }
 
@@ -572,7 +607,7 @@ function routineTaskIsAligned(task: TickTickTask, targetDate: string): boolean {
   const date = routineTaskDate(task);
   if (date && date !== targetDate) return false;
   return !(task.items ?? []).some(
-    (item) => (item.status ?? 0) === 0
+    (item) => checklistItemStatus(item) === 0
       && checklistItemDate(item, task.timeZone)
       && checklistItemDate(item, task.timeZone) !== targetDate,
   );
@@ -693,7 +728,7 @@ export async function syncTickTickRoutines(options: {
         return updated[key] === expected || Date.parse(updated[key] ?? '') === Date.parse(expected);
       });
       const itemsPersisted = !(task.items ?? []).some((item) => {
-        if ((item.status ?? 0) !== 0 || !checklistItemDate(item, task.timeZone)) return false;
+        if (checklistItemStatus(item) !== 0 || !checklistItemDate(item, task.timeZone)) return false;
         const saved = updated.items?.find((candidate) => candidate.id === item.id);
         return !saved || checklistItemDate(saved, updated.timeZone) !== taskTargetDate;
       });
@@ -791,7 +826,7 @@ function updatedChecklistItems(
     return {
       ...(existing?.id ? { id: existing.id } : {}),
       title: item.title,
-      status: existing?.status ?? 0,
+      status: existing ? checklistItemStatus(existing) : 0,
       ...(existing?.completedTime ? { completedTime: existing.completedTime } : {}),
       isAllDay: item.isAllDay ?? true,
       sortOrder: item.sortOrder ?? 0,
@@ -799,7 +834,9 @@ function updatedChecklistItems(
       timeZone: item.timeZone || templateTask.timeZone || 'Asia/Shanghai',
     };
   });
-  const manualItems = (generatedTask.items ?? []).filter((item) => !item.id || !mappedGeneratedIds.has(item.id));
+  const manualItems = (generatedTask.items ?? [])
+    .filter((item) => !item.id || !mappedGeneratedIds.has(item.id))
+    .map((item) => ({ ...item, status: checklistItemStatus(item) }));
   return [...templateItems, ...manualItems];
 }
 
