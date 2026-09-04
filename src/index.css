@@ -93,15 +93,38 @@ input[type='number'] { -moz-appearance: textfield; }
   white-space: nowrap;
 }
 
-.invest-position-group-toggle .invest-position-group-monthly {
-  margin-top: 4px;
+.invest-position-group-toggle {
+  overflow-x: auto;
+}
+
+.invest-position-group-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: max-content;
+  white-space: nowrap;
+}
+
+.invest-position-group-heading > * {
+  flex-shrink: 0;
+}
+
+.invest-position-group-heading .invest-position-group-monthly {
+  flex-wrap: nowrap;
+  gap: 6px;
 }
 
 .invest-position-group-market {
   color: #5f6368;
   font-size: 10px;
   font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .invest-position-group-add-label {
+    display: none;
+  }
 }
 
 .invest-holdings-group {

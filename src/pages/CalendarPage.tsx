@@ -2337,21 +2337,21 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                       })}
                       style={{ flex: 1, minWidth: 0, border: 'none', padding: 0, backgroundColor: 'transparent', cursor: 'pointer', textAlign: 'left' }}
                     >
-                    <div className="invest-position-group-heading" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, minWidth: 0 }}>
-                      <div className="invest-position-group-title" style={{ display: 'flex', alignItems: 'center', gap: 5, fontWeight: 800, whiteSpace: 'nowrap' }}>
-                        <span style={{ color: C.sub, fontSize: 9 }}>{groupExpanded ? '▼' : '▶'}</span>
-                        <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: groupColor }} />
-                        {groupLabel}
+                      <div className="invest-position-group-heading">
+                        <div className="invest-position-group-title" style={{ display: 'flex', alignItems: 'center', gap: 5, fontWeight: 800, whiteSpace: 'nowrap' }}>
+                          <span style={{ color: C.sub, fontSize: 9 }}>{groupExpanded ? '▼' : '▶'}</span>
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: groupColor }} />
+                          {groupLabel}
+                        </div>
+                        {groupKey !== 'account' && groupKey !== 'aggregate' && (
+                          <>
+                            <span className="invest-position-group-market">¥{formatCurrency(groupMarketValue)}</span>
+                            <InvestmentMonthlyReturn label={groupLabel} profit={groupMonthlyProfit} marketValue={groupMarketValue} />
+                          </>
+                        )}
                       </div>
-                      {groupKey !== 'account' && groupKey !== 'aggregate' && (
-                        <span className="invest-position-group-market">¥{formatCurrency(groupMarketValue)}</span>
-                      )}
-                    </div>
-                    {groupKey !== 'account' && groupKey !== 'aggregate' && (
-                      <InvestmentMonthlyReturn label={groupLabel} profit={groupMonthlyProfit} marketValue={groupMarketValue} />
-                    )}
                     </button>
-                    {groupKey !== 'aggregate' && <button type="button" onClick={() => {
+                    {groupKey !== 'aggregate' && <button type="button" className="invest-position-group-add" aria-label={`新增${groupLabel}${groupKey === 'account' ? '' : '股票/基金'}`} title={groupKey === 'account' ? '新增账户' : '新增股票/基金'} onClick={() => {
                       const id = addPositionDraft(groupKey, activeStatus);
                       setExpandedGroupKeys((current) => new Set(current).add(groupStateKey));
                       if (groupKey !== 'account') {
@@ -2361,7 +2361,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                         setSplitSource(null);
                       }
                     }} style={{ flexShrink: 0, whiteSpace: 'nowrap', border: 'none', borderRadius: 7, backgroundColor: `${INVEST_POSITION_STATUS_META[activeStatus].color}16`, color: INVEST_POSITION_STATUS_META[activeStatus].color, padding: '4px 8px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>
-                      + {groupKey === 'account' ? '账户' : '股票/基金'}
+                      +<span className="invest-position-group-add-label"> {groupKey === 'account' ? '账户' : '股票/基金'}</span>
                     </button>}
                   </div>
 
