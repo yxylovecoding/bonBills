@@ -52,6 +52,7 @@ import { getPayrollScheduleForMonth } from '../utils/payroll';
 import {
   applyInvestAutoSumStartMonth,
   getAverageAnnualizedRate,
+  getGroupAverageAnnualizedRate,
   getCategoryProfit,
   getInvestTotalForRate,
   getManualAccumulatedProfit,
@@ -109,6 +110,11 @@ const HOLIDAY_COLORS = {
 const CN_MONTH = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
 const WEEK_HEADERS = ['一', '二', '三', '四', '五', '六', '日'];
 const HISTORY_GRID_COLUMNS = '64px repeat(4, minmax(0, 1fr)) 88px';
+const HISTORY_RATE_GROUPS = [
+  { label: '股', title: '股（美、欧、亚、A）', keys: ['us', 'eu', 'asia', 'a'] },
+  { label: '债', title: '债（长债、美债）', keys: ['longBond', 'usBond'] },
+  { label: '商', title: '商（黄金）', keys: ['gold'] },
+] as const;
 
 type UsdRateResponse = {
   rate: number;
@@ -4172,6 +4178,10 @@ export default function CalendarPage() {
     return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
   }, [records]);
   const averageAnnualizedRate = useMemo(() => getAverageAnnualizedRate(records), [records]);
+  const groupAverageAnnualizedRates = useMemo(() => HISTORY_RATE_GROUPS.map((group) => ({
+    ...group,
+    rate: getGroupAverageAnnualizedRate(records, group.keys),
+  })), [records]);
   const allBillStatisticItems = useMemo<BillStatisticItem[]>(
     () => [
       ...Object.values(billExpenseItems).flat().map((item) => ({ ...item, transactionType: '支出' as const })),
@@ -4193,10 +4203,15 @@ export default function CalendarPage() {
   const tableHeader = (
     <div style={{ marginBottom: 4 }}>
       {yearProfitMode === 'rate' && (
-        <div style={{ display: 'grid', gridTemplateColumns: HISTORY_GRID_COLUMNS, padding: '0 10px', fontSize: 10, fontWeight: 600, marginBottom: 2 }}>
-          <span style={{ gridColumn: 6, textAlign: 'right', color: averageAnnualizedRate !== null ? (averageAnnualizedRate >= 0 ? C.red : C.green) : C.sub, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+        <div aria-label="平均年化收益率" style={{ display: 'flex', justifyContent: 'flex-end', flexWrap: 'wrap', gap: '4px 12px', padding: '0 10px', fontSize: 10, fontWeight: 600, marginBottom: 2 }}>
+          <span style={{ color: averageAnnualizedRate !== null ? (averageAnnualizedRate >= 0 ? C.red : C.green) : C.sub, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
             平均年化 {averageAnnualizedRate !== null ? `${(averageAnnualizedRate * 100).toFixed(1)}%` : '—'}
           </span>
+          {groupAverageAnnualizedRates.map(({ label, title, rate }) => (
+            <span key={label} aria-label={`${label}平均年化`} title={title} style={{ color: rate !== null ? (rate >= 0 ? C.red : C.green) : C.sub, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+              {label} {rate !== null ? `${(rate * 100).toFixed(1)}%` : '—'}
+            </span>
+          ))}
         </div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: HISTORY_GRID_COLUMNS, padding: '6px 10px', fontSize: 11, color: C.sub, fontWeight: 500 }}>

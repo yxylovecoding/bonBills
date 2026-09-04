@@ -96,6 +96,42 @@ export function getAverageAnnualizedRate(records: MonthlyRecord[]): number | nul
   return Number.isFinite(average) ? average : null;
 }
 
+export function getGroupAverageAnnualizedRate(
+  records: MonthlyRecord[],
+  keys: readonly InvestKey[],
+): number | null {
+  const groupRecords = records.flatMap((record) => {
+    const summary = record.investPositionItems !== undefined
+      ? summarizeInvestPositionItems(record.investPositionItems)
+      : null;
+    let investTotal = 0;
+    let accumulatedProfit = 0;
+    let hasProfit = false;
+    for (const key of keys) {
+      const holding = summary
+        ? summary.marketValueByCategory[key]
+        : record.investBreakdown?.[key] ?? 0;
+      const profit = summary
+        ? (record.investPositionItems?.[key]?.length ?? 0) > 0
+          ? summary.holdingProfitByCategory[key] + summary.historicalProfitByCategory[key]
+          : null
+        : getCategoryProfit(record, key);
+      if (!Number.isFinite(holding) || holding < 0) return [];
+      // 有持仓却缺少收益时跳过该月，避免把未知收益当作零收益。
+      if (profit === null) {
+        if (holding > 0) return [];
+        continue;
+      }
+      if (!Number.isFinite(profit)) return [];
+      investTotal += holding;
+      accumulatedProfit += profit;
+      hasProfit = true;
+    }
+    return hasProfit ? [{ ...record, investTotal, accumulatedProfit }] : [];
+  });
+  return getAverageAnnualizedRate(groupRecords);
+}
+
 export interface CategoryCumulativeRateSummary {
   rate: number;
   startYearMonth: string;
