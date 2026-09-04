@@ -26,6 +26,10 @@ export function signIn(credentials: { username: string; password: string } | { k
   return requestSession({ method: 'POST', body: JSON.stringify(credentials) });
 }
 
+export function register(credentials: { key: string; username: string; password: string }) {
+  return requestSession({ method: 'POST', body: JSON.stringify({ ...credentials, action: 'register' }) });
+}
+
 export async function apiFetch(url: string, init: RequestInit = {}) {
   const response = await fetch(url, { ...init, credentials: 'same-origin', cache: 'no-store' });
   if (response.status === 401) {

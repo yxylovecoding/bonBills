@@ -80,7 +80,7 @@ export default defineConfig({
       configureServer(server) {
         const env = loadEnv(server.config.mode, server.config.root, '');
         for (const [key, value] of Object.entries(env)) {
-          if (/^(SYNC_SECRET|LOGIN_USERNAME|LOGIN_PASSWORD|CRON_SECRET|KV_|BILL_|BONCV_)/.test(key)
+          if (/^(SYNC_SECRET|CRON_SECRET|KV_|BILL_|BONCV_)/.test(key)
             && process.env[key] === undefined) process.env[key] = value;
         }
         const protectedRoutes = new Set(['auth', 'sync', 'sync-monthly-backup', 'ticktick-trips', 'latest-bill-attachment', 'boncv-profile']);

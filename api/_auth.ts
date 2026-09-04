@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { kv } from '@vercel/kv';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
@@ -7,18 +7,23 @@ const SESSION_SECONDS = 30 * 24 * 60 * 60;
 const LOGIN_WINDOW_SECONDS = 15 * 60;
 
 interface Session {
+  kind: 'key' | 'account';
   username: string;
   version: string;
   expiresAt: number;
 }
 
+export interface BoundAccount {
+  username: string;
+  passwordHash: string;
+  passwordSalt: string;
+  passwordAlgorithm: 'scrypt-v1';
+  createdAt: string;
+}
+
 export function loginConfig() {
   const secret = (process.env.SYNC_SECRET || '').trim();
-  return {
-    secret,
-    username: (process.env.LOGIN_USERNAME || '').trim() || 'bon',
-    password: process.env.LOGIN_PASSWORD ?? secret,
-  };
+  return { secret };
 }
 
 function digest(value: string) {
@@ -29,11 +34,46 @@ function equal(left: string, right: string) {
   return timingSafeEqual(new Uint8Array(digest(left)), new Uint8Array(digest(right)));
 }
 
-export function credentialsMatch(username: string, password: string) {
-  const config = loginConfig();
-  const usernameMatches = equal(username, config.username);
-  const passwordMatches = equal(password, config.password);
-  return Boolean(config.secret && config.password && usernameMatches && passwordMatches);
+function accountKey() {
+  // 一个现有 Key 对应一条账号绑定；账本仍使用原来的存储键。
+  const fingerprint = createHmac('sha256', loginConfig().secret).update('account-binding:v1').digest('hex');
+  return `auth:account:v1:${fingerprint}`;
+}
+
+export async function readAccount() {
+  if (!loginConfig().secret) return null;
+  return kv.get<BoundAccount>(accountKey());
+}
+
+function hashPassword(password: string, salt: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    scrypt(password, salt, 64, { N: 32768, r: 8, p: 3, maxmem: 64 * 1024 * 1024 }, (error, key) => {
+      if (error) reject(error);
+      else resolve(key.toString('hex'));
+    });
+  });
+}
+
+export async function registerAccount(username: string, password: string): Promise<BoundAccount | null> {
+  const passwordSalt = randomBytes(16).toString('hex');
+  const account: BoundAccount = {
+    username,
+    passwordSalt,
+    passwordHash: await hashPassword(password, passwordSalt),
+    passwordAlgorithm: 'scrypt-v1',
+    createdAt: new Date().toISOString(),
+  };
+  // NX 保证重复或并发注册无法覆盖已经绑定的账号。
+  const saved = await kv.set(accountKey(), account, { nx: true });
+  return saved ? account : null;
+}
+
+export async function authenticateAccount(username: string, password: string): Promise<BoundAccount | null> {
+  const account = await readAccount();
+  if (!account || account.passwordAlgorithm !== 'scrypt-v1') return null;
+  const usernameMatches = equal(username, account.username);
+  const passwordMatches = equal(await hashPassword(password, account.passwordSalt), account.passwordHash);
+  return usernameMatches && passwordMatches ? account : null;
 }
 
 export function keyMatches(key: string) {
@@ -41,9 +81,11 @@ export function keyMatches(key: string) {
   return Boolean(secret && equal(key, secret));
 }
 
-function credentialVersion() {
-  const { secret, username, password } = loginConfig();
-  return createHmac('sha256', secret).update(JSON.stringify([username, password])).digest('hex');
+function credentialVersion(account?: BoundAccount) {
+  const identity = account
+    ? ['account:v2', account.username, account.passwordSalt, account.passwordHash]
+    : ['key:v2'];
+  return createHmac('sha256', loginConfig().secret).update(JSON.stringify(identity)).digest('hex');
 }
 
 export function sameOrigin(req: VercelRequest) {
@@ -75,8 +117,14 @@ export async function readSession(req: VercelRequest): Promise<Session | null> {
   const key = sessionKey(req);
   if (!key) return null;
   const session = await kv.get<Session>(key);
-  if (!session || session.expiresAt <= Date.now() || session.username !== config.username
-    || !equal(session.version, credentialVersion())) return null;
+  if (!session || session.expiresAt <= Date.now()) return null;
+  if (session.kind === 'key') {
+    return equal(session.version, credentialVersion()) ? session : null;
+  }
+  if (session.kind !== 'account') return null;
+  const account = await readAccount();
+  if (!account || session.username !== account.username
+    || !equal(session.version, credentialVersion(account))) return null;
   return session;
 }
 
@@ -99,12 +147,13 @@ export async function deleteSession(req: VercelRequest) {
   if (key) await kv.del(key);
 }
 
-export async function createSession(req: VercelRequest, res: VercelResponse) {
+export async function createSession(req: VercelRequest, res: VercelResponse, account?: BoundAccount) {
   await deleteSession(req);
   const token = randomBytes(32).toString('hex');
   const session: Session = {
-    username: loginConfig().username,
-    version: credentialVersion(),
+    kind: account ? 'account' : 'key',
+    username: account?.username ?? 'Key',
+    version: credentialVersion(account),
     expiresAt: Date.now() + SESSION_SECONDS * 1000,
   };
   await kv.set(`auth:session:${digest(token).toString('hex')}`, session, { ex: SESSION_SECONDS });

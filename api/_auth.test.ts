@@ -6,7 +6,7 @@ import backup from './sync-monthly-backup';
 import mail from './latest-bill-attachment';
 import boncv from './boncv-profile';
 import ticktick from './ticktick-trips';
-import { authOk, readSession } from './_auth';
+import { authOk, readAccount, readSession } from './_auth';
 
 const { data, storage } = vi.hoisted(() => {
   const data = new Map<string, unknown>();
@@ -54,11 +54,16 @@ async function call(req: VercelRequest, endpoint = handler) {
   return result;
 }
 
-const credentials = { username: 'bon', password: 'test-original-key' };
-async function login(body: unknown = credentials) {
+const credentials = { username: 'my-account', password: 'my-password' };
+const keyCredentials = { key: 'test-original-key' };
+async function login(body: unknown = keyCredentials) {
   const result = await call(request('POST', body));
   expect(result.status).toBe(200);
   return { result, cookie: result.headers['Set-Cookie'].split(';')[0] };
+}
+
+async function register(overrides: Record<string, unknown> = {}) {
+  return call(request('POST', { action: 'register', ...credentials, ...keyCredentials, ...overrides }));
 }
 
 beforeEach(() => {
@@ -84,30 +89,31 @@ describe('账号密码与 Key 登录', () => {
     expect(result.headers['Cache-Control']).toContain('no-store');
   });
 
-  it('默认账号密码登录后设置安全会话，不返回密码或 Key', async () => {
-    const { cookie, result } = await login();
-    expect(result.body).toEqual({ authenticated: true, username: 'bon' });
+  it('注册后使用自己的账号密码登录，返回安全会话', async () => {
+    expect((await register()).status).toBe(200);
+    const { cookie, result } = await login(credentials);
+    expect(result.body).toEqual({ authenticated: true, username: credentials.username });
     expect(result.headers['Set-Cookie']).toMatch(/HttpOnly; SameSite=Strict; Max-Age=2592000; Secure/);
     expect(JSON.stringify(result)).not.toContain(credentials.password);
     const status = await call(request('GET', undefined, { cookie }));
-    expect(status.body).toEqual({ authenticated: true, username: 'bon' });
+    expect(status.body).toEqual({ authenticated: true, username: credentials.username });
   });
 
   it('独立账号密码与原 Key 均读取同一份既有账单', async () => {
-    vi.stubEnv('LOGIN_USERNAME', 'my-account');
-    vi.stubEnv('LOGIN_PASSWORD', 'new-password');
     const bills = { 'calendar-tags': { tagMap: { '2026-09-01': 'intern' } } };
     data.set('calendar-tags', bills['calendar-tags']);
-    const passwordSession = await login({ username: 'my-account', password: 'new-password' });
+    const registration = await register();
+    expect(registration.status).toBe(200);
+    const passwordSession = await login(credentials);
     const keySession = await login({ key: 'test-original-key' });
-    for (const cookie of [passwordSession.cookie, keySession.cookie]) {
+    for (const cookie of [registration.headers['Set-Cookie'].split(';')[0], passwordSession.cookie, keySession.cookie]) {
       const result = await call(request('GET', undefined, { cookie }), sync);
       expect(result.status).toBe(200);
       expect(result.body).toEqual(bills);
     }
     expect(data.get('calendar-tags')).toEqual(bills['calendar-tags']);
     expect(storage.set.mock.calls.every(([key]) => key.startsWith('auth:'))).toBe(true);
-    expect((await call(request('POST', credentials))).status).toBe(401);
+    expect((await call(request('POST', { username: 'bon', password: 'test-original-key' }))).status).toBe(401);
   });
 
   it.each([{ key: 'arbitrary-key' }, { username: 'other', password: 'test-original-key' }, { username: 'bon', password: 'wrong' }])(
@@ -135,11 +141,11 @@ describe('账号密码与 Key 登录', () => {
     for (let index = 0; index < 10; index += 1) {
       expect((await call(request('POST', { key: 'wrong' }))).status).toBe(401);
     }
-    const blocked = await call(request('POST', credentials));
+    const blocked = await call(request('POST', keyCredentials));
     expect(blocked.status).toBe(429);
     expect(blocked.headers['Retry-After']).toBe('900');
     now.mockReturnValue(start + 15 * 60 * 1000);
-    expect((await call(request('POST', credentials))).status).toBe(200);
+    expect((await call(request('POST', keyCredentials))).status).toBe(200);
   });
 
   it.each(['{', null, [], { username: 'bon' }, { key: '' }, { key: 'a'.repeat(1025) }])(
@@ -164,6 +170,77 @@ describe('账号密码与 Key 登录', () => {
     expect(result.status).toBe(503);
     expect(result.headers['Set-Cookie']).toBeUndefined();
   });
+
+  it('未注册时不接受默认账号密码或旧环境变量账号', async () => {
+    vi.stubEnv('LOGIN_USERNAME', 'configured');
+    vi.stubEnv('LOGIN_PASSWORD', 'configured-password');
+    expect((await call(request('POST', { username: 'bon', password: 'test-original-key' }))).status).toBe(401);
+    expect((await call(request('POST', { username: 'configured', password: 'configured-password' }))).status).toBe(401);
+    expect(await readAccount()).toBeNull();
+  });
+
+  it('注册必须验证原 Key，不允许错误 Key 建立账号或读取账单', async () => {
+    data.set('calendar-tags', { tagMap: { '2026-09-01': 'home' } });
+    expect((await register({ key: 'wrong-key' })).status).toBe(401);
+    expect(await readAccount()).toBeNull();
+    expect(data.get('calendar-tags')).toEqual({ tagMap: { '2026-09-01': 'home' } });
+    expect((await call(request('POST', credentials))).status).toBe(401);
+  });
+
+  it('绑定只保存账号和加盐密码哈希，不保存原密码或 Key', async () => {
+    expect((await register()).status).toBe(200);
+    const account = await readAccount();
+    expect(account?.username).toBe(credentials.username);
+    expect(account?.passwordHash).toMatch(/^[a-f0-9]{128}$/);
+    expect(account?.passwordSalt).toMatch(/^[a-f0-9]{32}$/);
+    expect(account?.passwordAlgorithm).toBe('scrypt-v1');
+    const stored = JSON.stringify([...data]);
+    expect(stored).not.toContain(credentials.password);
+    expect(stored).not.toContain(keyCredentials.key);
+  });
+
+  it('重复注册不能替换原账号密码', async () => {
+    expect((await register()).status).toBe(200);
+    const original = await readAccount();
+    expect((await register({ username: 'replacement', password: 'other-password' })).status).toBe(409);
+    expect(await readAccount()).toEqual(original);
+    expect((await call(request('POST', credentials))).status).toBe(200);
+    expect((await call(request('POST', { username: 'replacement', password: 'other-password' }))).status).toBe(401);
+  });
+
+  it('并发注册只能成功一次，绑定的密码与最终账号一致', async () => {
+    const results = await Promise.all([
+      register({ username: 'first', password: 'first-password' }),
+      register({ username: 'second', password: 'second-password' }),
+    ]);
+    expect(results.map((result) => result.status).sort()).toEqual([200, 409]);
+    const winner = results[0].status === 200 ? 'first' : 'second';
+    expect((await readAccount())?.username).toBe(winner);
+    expect((await call(request('POST', { username: winner, password: `${winner}-password` }))).status).toBe(200);
+  });
+
+  it.each([{ key: '' }, { key: undefined }, { username: '' }, { password: 'short' }, { password: '' }])(
+    '无效注册信息不能建立绑定：%j', async (overrides) => {
+      expect((await register(overrides)).status).toBe(400);
+      expect(await readAccount()).toBeNull();
+    },
+  );
+
+  it('Key 登录不依赖账号注册，注册后既有 Key 会话仍有效', async () => {
+    const { cookie } = await login();
+    expect((await register()).status).toBe(200);
+    expect(await authOk(request('GET', undefined, { cookie }))).toBe(true);
+  });
+
+  it('绑定和会话与当前 Key 对应，其他 Key 配置不能使用该账号', async () => {
+    const registration = await register();
+    expect(registration.status).toBe(200);
+    const cookie = registration.headers['Set-Cookie'].split(';')[0];
+    vi.stubEnv('SYNC_SECRET', 'another-key');
+    expect(await readAccount()).toBeNull();
+    expect((await call(request('POST', credentials))).status).toBe(401);
+    expect(await authOk(request('GET', undefined, { cookie }))).toBe(false);
+  });
 });
 
 describe('会话与受保护接口', () => {
@@ -177,13 +254,15 @@ describe('会话与受保护接口', () => {
     expect(data.get('calendar-tags')).toEqual({ tagMap: { '2026-09-01': 'home' } });
   });
 
-  it('过期、伪造、改密前的会话均不能读取账单', async () => {
-    const { cookie } = await login();
+  it('过期、伪造、绑定已变化的会话均不能读取账单', async () => {
+    expect((await register()).status).toBe(200);
+    const { cookie } = await login(credentials);
     const now = Date.now();
     const time = vi.spyOn(Date, 'now').mockReturnValue(now + 31 * 24 * 60 * 60 * 1000);
     expect(await readSession(request('GET', undefined, { cookie }))).toBeNull();
     time.mockReturnValue(now);
-    vi.stubEnv('LOGIN_PASSWORD', 'changed-password');
+    const accountKey = [...data.keys()].find((key) => key.startsWith('auth:account:'))!;
+    data.set(accountKey, { ...await readAccount(), passwordHash: '0'.repeat(128) });
     expect(await readSession(request('GET', undefined, { cookie }))).toBeNull();
     expect(await authOk(request('GET', undefined, { cookie: `bonbills-session=${'a'.repeat(64)}` }))).toBe(false);
   });

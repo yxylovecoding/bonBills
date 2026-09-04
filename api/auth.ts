@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
-  allowLoginAttempt, clearSessionCookie, createSession, credentialsMatch,
-  deleteSession, keyMatches, loginConfig, readSession, sameOrigin,
+  allowLoginAttempt, authenticateAccount, clearSessionCookie, createSession,
+  deleteSession, keyMatches, loginConfig, readAccount, readSession, registerAccount, sameOrigin,
 } from './_auth.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -36,23 +36,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     } catch {
       return res.status(400).json({ error: '请求格式无效' });
     }
-    const { username, password, key } = (body || {}) as Record<string, unknown>;
-    const usesKey = key !== undefined;
-    if (usesKey ? (typeof key !== 'string' || !key.trim() || key.length > 1024)
-      : (typeof username !== 'string' || typeof password !== 'string'
-        || !username.trim() || username.length > 100 || !password || password.length > 1024)) {
-      return res.status(400).json({ error: '请输入账号和密码' });
+    const { username, password, key, action } = (body || {}) as Record<string, unknown>;
+    if (action !== undefined && action !== 'register') return res.status(400).json({ error: '请求无效' });
+    const registering = action === 'register';
+    const usesKey = key !== undefined && !registering;
+    const validKey = typeof key === 'string' && Boolean(key.trim()) && key.length <= 1024;
+    const validCredentials = typeof username === 'string' && Boolean(username.trim()) && username.length <= 100
+      && typeof password === 'string' && Boolean(password) && password.length <= 1024;
+    if (usesKey ? !validKey : !validCredentials || (registering && !validKey)) {
+      return res.status(400).json({ error: registering ? '请输入 Key、账号和密码' : '请输入账号和密码' });
     }
+    if (registering && (password as string).length < 8) return res.status(400).json({ error: '密码至少 8 位' });
     if (!await allowLoginAttempt(req)) {
       res.setHeader('Retry-After', '900');
       return res.status(429).json({ error: '尝试次数过多，请稍后再试' });
     }
-    const valid = usesKey ? keyMatches((key as string).trim())
-      : credentialsMatch((username as string).trim(), password as string);
-    if (!valid) {
-      return res.status(401).json({ error: usesKey ? 'Key 错误' : '账号或密码错误' });
+    if (usesKey || registering) {
+      if (!keyMatches((key as string).trim())) return res.status(401).json({ error: 'Key 错误' });
+      if (registering) {
+        if (await readAccount()) return res.status(409).json({ error: '此 Key 已绑定账号，请登录' });
+        const account = await registerAccount((username as string).trim(), password as string);
+        if (!account) return res.status(409).json({ error: '此 Key 已绑定账号，请登录' });
+        const session = await createSession(req, res, account);
+        return res.status(200).json({ authenticated: true, username: session.username });
+      }
+      const session = await createSession(req, res);
+      return res.status(200).json({ authenticated: true, username: session.username });
     }
-    const session = await createSession(req, res);
+    const account = await authenticateAccount((username as string).trim(), password as string);
+    if (!account) return res.status(401).json({ error: '账号或密码错误' });
+    const session = await createSession(req, res, account);
     return res.status(200).json({ authenticated: true, username: session.username });
   } catch {
     return res.status(503).json({ error: '登录服务暂不可用，请稍后重试' });
