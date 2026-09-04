@@ -4,15 +4,16 @@ import type { ReactNode } from 'react';
 interface CardProps {
   title?: string;
   subtitle?: string;
+  headerAction?: ReactNode;
   children: ReactNode;
   className?: string;
   collapsible?: boolean;
   defaultCollapsed?: boolean;
 }
 
-export default function Card({ title, subtitle, children, className = '', collapsible = false, defaultCollapsed = false }: CardProps) {
+export default function Card({ title, subtitle, headerAction, children, className = '', collapsible = false, defaultCollapsed = false }: CardProps) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
-  const showHeader = !!(title || subtitle);
+  const showHeader = !!(title || subtitle || headerAction);
   const isCollapsed = collapsible && collapsed;
   return (
     <section
@@ -32,7 +33,7 @@ export default function Card({ title, subtitle, children, className = '', collap
           style={{
             display: 'flex',
             justifyContent: 'space-between',
-            alignItems: 'baseline',
+            alignItems: headerAction ? 'center' : 'baseline',
             marginBottom: isCollapsed ? 0 : 14,
             cursor: collapsible ? 'pointer' : 'default',
             userSelect: collapsible ? 'none' : 'auto',
@@ -49,6 +50,7 @@ export default function Card({ title, subtitle, children, className = '', collap
           {subtitle && (
             <span style={{ fontSize: 12, color: '#5f6368' }}>{subtitle}</span>
           )}
+          {headerAction}
         </div>
       )}
       {!isCollapsed && children}

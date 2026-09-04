@@ -3744,6 +3744,7 @@ export default function CalendarPage() {
   const [tripFilterPanelOpen, setTripFilterPanelOpen] = useState(false);
 
   // ── History state ──
+  const [historySearchOpen, setHistorySearchOpen] = useState(false);
   const [yearProfitMode, setYearProfitMode] = useState<YearProfitMode>('rate');
   const toggleYearProfitMode = () => setYearProfitMode((m) => m === 'rate' ? 'amount' : 'rate');
 
@@ -4939,14 +4940,28 @@ export default function CalendarPage() {
       ) : (
         /* ── 统计年：历史明细 ── */
         <>
-          {allBillStatisticItems.length > 0 && (
-            <Card title="标签逻辑统计" subtitle="默认全部时间">
-              <TagLogicStats items={allBillStatisticItems} />
-            </Card>
-          )}
-
           {/* 历史明细（按年展开） */}
-          <Card title="历史明细" subtitle="点击年份展开月度">
+          <Card title="历史明细" headerAction={
+            <button
+              type="button"
+              aria-label="统计查找"
+              title="统计查找"
+              aria-expanded={historySearchOpen}
+              aria-controls="history-statistics-search"
+              onClick={() => setHistorySearchOpen((open) => !open)}
+              style={{ width: 30, height: 30, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: 'none', borderRadius: 8, backgroundColor: historySearchOpen ? '#ede9fe' : 'transparent', color: historySearchOpen ? C.purple : C.sub, cursor: 'pointer' }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                <circle cx="10.5" cy="10.5" r="6.5" />
+                <path d="m16 16 5 5" />
+              </svg>
+            </button>
+          }>
+            <div id="history-statistics-search" role="region" aria-label="统计查找" hidden={!historySearchOpen} style={{ marginBottom: 14 }}>
+              {allBillStatisticItems.length > 0
+                ? <TagLogicStats items={allBillStatisticItems} />
+                : <div style={{ color: C.sub, fontSize: 12 }}>暂无账单记录</div>}
+            </div>
             {tableHeader}
             {years.map(([yr, recs]) => (
               <YearSection
