@@ -51,6 +51,7 @@ import { sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { getPayrollScheduleForMonth } from '../utils/payroll';
 import {
   applyInvestAutoSumStartMonth,
+  getAverageAnnualizedRate,
   getCategoryProfit,
   getInvestTotalForRate,
   getManualAccumulatedProfit,
@@ -4132,16 +4133,7 @@ export default function CalendarPage() {
     }
     return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
   }, [records]);
-  const averageAnnualizedRate = useMemo(() => {
-    const monthlyRates = records.map((record) => {
-      const previousRecord = records.find((candidate) => candidate.yearMonth === prevYearMonth(record.yearMonth));
-      const investTotalForRate = getInvestTotalForRate(record.yearMonth, record.investTotal, records);
-      if (!previousRecord || investTotalForRate === null) return null;
-      return (record.accumulatedProfit - (previousRecord.accumulatedProfit ?? 0)) / investTotalForRate.value;
-    }).filter((rate): rate is number => rate !== null);
-    if (monthlyRates.length === 0) return null;
-    return (monthlyRates.reduce((sum, rate) => sum + rate, 0) / monthlyRates.length) * 12;
-  }, [records]);
+  const averageAnnualizedRate = useMemo(() => getAverageAnnualizedRate(records), [records]);
   const allBillStatisticItems = useMemo<BillStatisticItem[]>(
     () => [
       ...Object.values(billExpenseItems).flat().map((item) => ({ ...item, transactionType: '支出' as const })),

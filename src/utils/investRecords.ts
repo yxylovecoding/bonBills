@@ -83,6 +83,19 @@ function previousYearMonth(yearMonth: string): string {
   return `${previousYear}-${String(previousMonth).padStart(2, '0')}`;
 }
 
+export function getAverageAnnualizedRate(records: MonthlyRecord[]): number | null {
+  const recordsByMonth = new Map(records.map((record) => [record.yearMonth, record]));
+  const monthlyRates = records.map((record) => {
+    const previousRecord = recordsByMonth.get(previousYearMonth(record.yearMonth));
+    const investTotalForRate = getInvestTotalForRate(record.yearMonth, record.investTotal, records);
+    if (!previousRecord || investTotalForRate === null) return null;
+    return (record.accumulatedProfit - (previousRecord.accumulatedProfit ?? 0)) / investTotalForRate.value;
+  }).filter((rate): rate is number => rate !== null && Number.isFinite(rate));
+  if (monthlyRates.length === 0) return null;
+  const average = (monthlyRates.reduce((sum, rate) => sum + rate, 0) / monthlyRates.length) * 12;
+  return Number.isFinite(average) ? average : null;
+}
+
 export interface CategoryCumulativeRateSummary {
   rate: number;
   startYearMonth: string;

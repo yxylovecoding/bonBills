@@ -27,6 +27,7 @@ import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { dateLabel, daysUntilDate, resolveIncomeForMonth } from '../utils/payroll';
 import { calculateCreditRepaymentPlan } from '../utils/creditRepayment';
+import { getAverageAnnualizedRate } from '../utils/investRecords';
 import { detectAllTrips } from '../utils/trips';
 import { calculateWishMilestonePlan, type WishRepaymentDue } from '../utils/wishMilestonePlan';
 import { applyPendingWishInternSavings, WISH_INTERN_SAVING_START_DATE } from '../utils/wishInternSavings';
@@ -41,7 +42,7 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '改期兼容修复';
+const RELEASE_NOTE = '年化一键填入';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -500,6 +501,7 @@ export default function HomePage() {
 
   // FIRE 模式切换
   const [fireMode, setFireMode] = useState<FireMode>('all');
+  const averageAnnualizedRate = useMemo(() => getAverageAnnualizedRate(records), [records]);
   const [sceneDailyMode, setSceneDailyMode] = useState<'life' | 'all'>('life');
   const [fireExpanded, setFireExpanded] = useState(false);
   const [fireHousingFundRateDraft, setFireHousingFundRateDraft] = useState<string | null>(null);
@@ -1301,9 +1303,21 @@ export default function HomePage() {
               <StatRow label="理财总额" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(totalInvest)}</span>} />
               <StatRow label="实际年化收益" value={(
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <button
+                    type="button"
+                    disabled={averageAnnualizedRate === null}
+                    title={averageAnnualizedRate === null ? '暂无平均年化利率' : `记录 · 年：平均年化 ${(averageAnnualizedRate * 100).toFixed(1)}%`}
+                    onClick={() => {
+                      if (averageAnnualizedRate !== null) updateFireGrowthRate(String(averageAnnualizedRate * 100));
+                    }}
+                    style={{ border: '1px solid #e0e0e0', borderRadius: 7, backgroundColor: '#fff', color: averageAnnualizedRate === null ? C.sub : C.blue, fontSize: 12, fontWeight: 600, padding: '3px 5px', cursor: averageAnnualizedRate === null ? 'default' : 'pointer', opacity: averageAnnualizedRate === null ? 0.5 : 1, whiteSpace: 'nowrap' }}
+                  >
+                    使用平均
+                  </button>
                   <input
                     type="text"
                     inputMode="decimal"
+                    aria-label="FIRE 实际年化收益率"
                     value={(fire.investAnnualGrowthRate * 100).toFixed(1).replace(/\.0$/, '')}
                     onChange={(e) => {
                       const next = sanitizeDecimalNumberInput(e.target.value, { allowNegative: true });
