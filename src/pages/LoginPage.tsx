@@ -60,7 +60,7 @@ export default function LoginPage({ initialError = '' }: { initialError?: string
           {!usesKey && (
             <label htmlFor="login-password">密码
               <input id="login-password" name="password" type="password" autoComplete={registering ? 'new-password' : 'current-password'}
-                required minLength={registering ? 8 : undefined} maxLength={1024} placeholder={registering ? '至少 8 位' : undefined}
+                required minLength={registering ? 6 : undefined} maxLength={1024} placeholder={registering ? '至少 6 位' : undefined}
                 value={password} disabled={busy} aria-invalid={Boolean(error)}
                 aria-describedby={error ? 'login-error' : undefined} onChange={(event) => setPassword(event.target.value)} />
             </label>

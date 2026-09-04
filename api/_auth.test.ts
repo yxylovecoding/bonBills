@@ -54,7 +54,7 @@ async function call(req: VercelRequest, endpoint = handler) {
   return result;
 }
 
-const credentials = { username: 'my-account', password: 'my-password' };
+const credentials = { username: 'my-account', password: 'testpw' };
 const keyCredentials = { key: 'test-original-key' };
 async function login(body: unknown = keyCredentials) {
   const result = await call(request('POST', body));
@@ -89,7 +89,7 @@ describe('账号密码与 Key 登录', () => {
     expect(result.headers['Cache-Control']).toContain('no-store');
   });
 
-  it('注册后使用自己的账号密码登录，返回安全会话', async () => {
+  it('使用六位密码注册后可以登录，返回安全会话', async () => {
     expect((await register()).status).toBe(200);
     const { cookie, result } = await login(credentials);
     expect(result.body).toEqual({ authenticated: true, username: credentials.username });

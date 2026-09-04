@@ -46,7 +46,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (usesKey ? !validKey : !validCredentials || (registering && !validKey)) {
       return res.status(400).json({ error: registering ? '请输入 Key、账号和密码' : '请输入账号和密码' });
     }
-    if (registering && (password as string).length < 8) return res.status(400).json({ error: '密码至少 8 位' });
+    if (registering && (password as string).length < 6) return res.status(400).json({ error: '密码至少 6 位' });
     if (!await allowLoginAttempt(req)) {
       res.setHeader('Retry-After', '900');
       return res.status(429).json({ error: '尝试次数过多，请稍后再试' });
