@@ -110,7 +110,7 @@ const HOLIDAY_COLORS = {
 const CN_MONTH = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
 const WEEK_HEADERS = ['一', '二', '三', '四', '五', '六', '日'];
 const HISTORY_GRID_COLUMNS = '64px repeat(4, minmax(0, 1fr)) 88px';
-const HISTORY_RATE_GROUPS = [
+const INVESTMENT_GROUPS = [
   { label: '股', title: '股（美、欧、亚、A）', keys: ['us', 'eu', 'asia', 'a'] },
   { label: '债', title: '债（长债、美债）', keys: ['longBond', 'usBond'] },
   { label: '商', title: '商（黄金）', keys: ['gold'] },
@@ -2219,6 +2219,23 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
   );
 }
 
+function InvestmentMonthlyReturn({ label, profit, marketValue }: { label: string; profit: number | null; marketValue: number }) {
+  const monthlyProfit = profit !== null && Number.isFinite(profit) ? profit : null;
+  const rate = monthlyProfit !== null && Number.isFinite(marketValue) && marketValue > 0
+    ? monthlyProfit / marketValue
+    : null;
+  return (
+    <div className="invest-position-group-monthly">
+      <span aria-label={`${label}本月收益`} style={{ color: monthlyProfit === null ? C.sub : monthlyProfit >= 0 ? C.red : C.green }}>
+        本月 {monthlyProfit === null ? '—' : formatSignedCurrency(monthlyProfit)}
+      </span>
+      <span aria-label={`${label}月收益率`} style={{ color: rate === null ? C.sub : rate >= 0 ? C.red : C.green }}>
+        月收益率 {rate === null ? '—' : `${(rate * 100).toFixed(2)}%`}
+      </span>
+    </div>
+  );
+}
+
 function HoldingsSection({ state }: { state: MonthFormState }) {
   const {
     positionDraftGroups, updatePositionDraft, addPositionDraft, removePositionDraft,
@@ -2241,9 +2258,11 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
     document.addEventListener('pointerdown', handleOutsidePointerDown);
     return () => document.removeEventListener('pointerdown', handleOutsidePointerDown);
   }, [expandedItemKey]);
-  const visibleGroupKeys: InvestPositionGroupKey[] = activeStatus === 'active'
-    ? INVEST_POSITION_KEYS
-    : ['account', ...INVEST_POSITION_KEYS, ...(positionDraftGroups.aggregate.length > 0 ? ['aggregate' as const] : [])];
+  const holdingSections: { label?: string; keys: readonly InvestPositionGroupKey[] }[] = [
+    ...(activeStatus !== 'active' ? [{ keys: ['account' as const] }] : []),
+    ...INVESTMENT_GROUPS,
+    ...(activeStatus !== 'active' && positionDraftGroups.aggregate.length > 0 ? [{ keys: ['aggregate' as const] }] : []),
+  ];
   const signedAmount = (value: number) => `${value >= 0 ? '+' : '-'}¥${formatCurrency(value)}`;
 
   return (
@@ -2276,272 +2295,287 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
         })}
       </div>
 
-      {visibleGroupKeys.map((groupKey) => {
-        const items = positionDraftGroups[groupKey].filter((item) => activeStatus === 'active'
-          ? item.status === 'active' || (item.pendingBuys?.length ?? 0) > 0
-          : item.status !== 'active' && (item.pendingBuys?.length ?? 0) === 0);
-        const groupStateKey = `${activeStatus}:${groupKey}`;
-        const groupExpanded = expandedGroupKeys.has(groupStateKey);
-        const groupLabel = groupKey === 'account' ? '历史账户' : groupKey === 'aggregate' ? '待归类账户' : investMeta[groupKey].label;
-        const groupColor = groupKey === 'account' || groupKey === 'aggregate' ? C.sub : investMeta[groupKey].color;
-        const groupMonthlyProfit = groupKey === 'account' || groupKey === 'aggregate'
-          ? null
-          : state.getBreakdownMonthlyProfit(groupKey);
-        const groupMarketValue = items.reduce(
-          (sum, item) => sum + (positionSummary.metricsById[item.id]?.marketValueCny ?? 0),
-          0,
-        );
+      {holdingSections.map(({ label, keys }) => {
+        const investmentKeys = keys.filter((key): key is InvestKey => key !== 'account' && key !== 'aggregate');
+        const monthlyProfits = investmentKeys.map(state.getBreakdownMonthlyProfit).filter((profit): profit is number => profit !== null);
+        const monthlyProfit = monthlyProfits.length > 0 ? roundCny(monthlyProfits.reduce((sum, profit) => sum + profit, 0)) : null;
+        const marketValue = investmentKeys.reduce((sum, key) => sum + positionSummary.marketValueByCategory[key], 0);
         return (
-          <div key={groupKey} style={{ border: '1px solid #e8eaed', borderRadius: 10, padding: '8px', backgroundColor: '#fff' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: groupExpanded && items.length > 0 ? 7 : 0 }}>
-              <button
-                type="button"
-                aria-expanded={groupExpanded}
-                aria-label={`${groupExpanded ? '收起' : '展开'}${groupLabel}`}
-                onClick={() => setExpandedGroupKeys((current) => {
-                  const next = new Set(current);
-                  if (next.has(groupStateKey)) next.delete(groupStateKey);
-                  else next.add(groupStateKey);
-                  return next;
-                })}
-                style={{ minWidth: 0, border: 'none', padding: 0, backgroundColor: 'transparent', cursor: 'pointer', textAlign: 'left' }}
-              >
-              <div className="invest-position-group-heading" style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                <div className="invest-position-group-title" style={{ display: 'flex', alignItems: 'center', gap: 5, fontWeight: 800, whiteSpace: 'nowrap' }}>
-                  <span style={{ color: C.sub, fontSize: 9 }}>{groupExpanded ? '▼' : '▶'}</span>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: groupColor }} />
-                  {groupLabel}
-                </div>
-                {items.length > 0 && groupKey !== 'account' && groupKey !== 'aggregate' && (
-                  <div className="invest-position-group-monthly" style={{ display: 'flex', alignItems: 'center', gap: 7, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                    <span style={{ color: C.sub }}>¥{formatCurrency(groupMarketValue)}</span>
-                    <span style={{ color: groupMonthlyProfit === null ? C.sub : groupMonthlyProfit >= 0 ? C.red : C.green }}>
-                      本月 {groupMonthlyProfit === null ? '—' : signedAmount(groupMonthlyProfit)}
-                    </span>
-                  </div>
-                )}
+          <section key={label ?? keys[0]} className="invest-holdings-group" aria-label={label ? `${label}类持仓` : undefined}>
+            {label && (
+              <div className="invest-holdings-group-header">
+                <h3>{label}</h3>
+                <InvestmentMonthlyReturn label={label} profit={monthlyProfit} marketValue={marketValue} />
               </div>
-              </button>
-              {groupKey !== 'aggregate' && <button type="button" onClick={() => {
-                const id = addPositionDraft(groupKey, activeStatus);
-                setExpandedGroupKeys((current) => new Set(current).add(groupStateKey));
-                if (groupKey !== 'account') {
-                  const itemKey = `${groupKey}:${id}`;
-                  setExpandedItemKey(itemKey);
-                  setAutoFocusCodeItemKey(itemKey);
-                  setSplitSource(null);
-                }
-              }} style={{ border: 'none', borderRadius: 7, backgroundColor: `${INVEST_POSITION_STATUS_META[activeStatus].color}16`, color: INVEST_POSITION_STATUS_META[activeStatus].color, padding: '4px 8px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>
-                + {groupKey === 'account' ? '账户' : '股票/基金'}
-              </button>}
-            </div>
-
-            {groupExpanded && items.map((item) => {
-              const metric = positionSummary.metricsById[item.id];
-              const symbol = item.symbol.trim().toUpperCase();
-              const quoteKey = investPositionQuoteKey(item);
-              const quote = symbol ? positionQuotes[quoteKey] : undefined;
-              const quoteFailed = symbol ? positionQuoteErrors.has(quoteKey) : false;
-              const needsSelection = Boolean(symbol && !item.quoteSource && /^\d{6}$/.test(symbol));
-              const priceDisplay = metric?.price !== undefined
-                ? `${metric.price.toFixed(item.quoteSource === 'eastmoney-fund' ? 4 : 2)} ${metric.currency ?? ''}`
-                : null;
-              const positionCurrency = (item.quoteCurrency || metric?.currency || defaultInvestQuoteCurrency(groupKey) || '').toUpperCase();
-              const profitCurrency = isInvestPositionSummaryItem(item)
-                ? 'CNY'
-                : (positionCurrency || item.historicalProfitCurrency || 'CNY').toUpperCase();
-              const costPriceLabel = positionCurrency ? `成本价（${positionCurrency}）` : '成本价';
-              const cumulativeProfitLabel = `累计收益${currencyMark(profitCurrency)}`;
-              const nativeFxRate = ['CNY', 'CNH'].includes(profitCurrency)
-                ? 1
-                : (metric?.fxRateToCny || metric?.profitFxRateToCny || 1);
-              const nativeMarketValue = (metric?.marketValueCny ?? 0) / (metric?.fxRateToCny || nativeFxRate);
-              const nativeHoldingProfit = (metric?.holdingProfitCny ?? 0) / nativeFxRate;
-              const nativeTotalProfit = (metric?.totalProfitCny ?? 0) / nativeFxRate;
-              const isAggregateAccount = symbol.length === 0;
-              const splitOpen = splitSource?.id === item.id && splitSource.groupKey === groupKey;
-              const canChangeStatus = groupKey !== 'account' && groupKey !== 'aggregate';
-              const itemKey = `${groupKey}:${item.id}`;
-              const isExpanded = expandedItemKey === itemKey;
-              const cumulativeProfitInput = cumulativeProfitInputs[itemKey] ?? String(roundCny(nativeTotalProfit));
-              const monthlyProfit = positionMonthlyProfitById[item.id] ?? null;
-              const showMonthlyProfit = Boolean(
-                symbol
-                && item.status !== 'closed'
-                && numberOrUndefined(item.shares) !== 0
-                && (metric?.marketValueCny ?? 0) > 0,
-              );
-              const profitInputColor = Number(cumulativeProfitInput) > 0
-                ? C.red
-                : Number(cumulativeProfitInput) < 0
-                  ? C.green
-                  : C.sub;
+            )}
+            {keys.map((groupKey) => {
+              const items = positionDraftGroups[groupKey].filter((item) => activeStatus === 'active'
+                ? item.status === 'active' || (item.pendingBuys?.length ?? 0) > 0
+                : item.status !== 'active' && (item.pendingBuys?.length ?? 0) === 0);
+              const groupStateKey = `${activeStatus}:${groupKey}`;
+              const groupExpanded = expandedGroupKeys.has(groupStateKey);
+              const groupLabel = groupKey === 'account' ? '历史账户' : groupKey === 'aggregate' ? '待归类账户' : investMeta[groupKey].label;
+              const groupColor = groupKey === 'account' || groupKey === 'aggregate' ? C.sub : investMeta[groupKey].color;
+              const groupMonthlyProfit = groupKey === 'account' || groupKey === 'aggregate'
+                ? null
+                : state.getBreakdownMonthlyProfit(groupKey);
+              const groupMarketValue = groupKey === 'account' || groupKey === 'aggregate'
+                ? items.reduce((sum, item) => sum + (positionSummary.metricsById[item.id]?.marketValueCny ?? 0), 0)
+                : positionSummary.marketValueByCategory[groupKey];
               return (
-                <div key={item.id} data-invest-position-key={itemKey} data-invest-position-expanded={isExpanded ? 'true' : undefined} style={{ borderTop: '1px solid #f1f3f4', padding: '8px 0 2px' }}>
-                  <div className={`invest-position-header${!isExpanded ? ' invest-position-header--collapsed' : groupKey !== 'account' ? ' invest-position-header--with-code' : ''}`}>
-                    <input
-                      className="invest-position-name"
-                      aria-label={`${groupLabel}名称`}
-                      value={item.name}
-                      readOnly={!isExpanded}
-                      title={isExpanded ? '编辑名称' : '展开详情'}
-                      onClick={() => {
-                        if (!isExpanded) {
-                          setExpandedItemKey(itemKey);
-                          setSplitSource(null);
-                        }
-                      }}
-                      onChange={(event) => updatePositionDraft(groupKey, item.id, { name: event.target.value })}
-                      onKeyDown={(event) => { if (event.key === 'Escape') setExpandedItemKey(null); }}
-                      style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: isExpanded ? '1px solid #dadce0' : '1px solid transparent', outline: 'none', fontWeight: 800, backgroundColor: 'transparent', cursor: isExpanded ? 'text' : 'pointer' }}
-                    />
-                    {isExpanded && groupKey !== 'account' && (
-                      <div className="invest-position-code">
-                        <InvestInstrumentPicker
-                          hideName
-                          autoFocusSymbol={autoFocusCodeItemKey === itemKey}
-                          onSymbolFocus={() => setAutoFocusCodeItemKey(null)}
-                          name={item.name}
-                          symbol={item.symbol}
-                          quoteSource={item.quoteSource}
-                          ariaLabel={groupLabel}
-                          onChange={(patch) => updatePositionDraft(groupKey, item.id, {
-                            ...patch,
-                            historicalProfitCurrency: patch.quoteCurrency || item.historicalProfitCurrency,
-                          })}
-                        />
+                <div key={groupKey} style={{ border: '1px solid #e8eaed', borderRadius: 10, padding: '8px', backgroundColor: '#fff' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: groupExpanded && items.length > 0 ? 7 : 0 }}>
+                    <button
+                      type="button"
+                      className="invest-position-group-toggle"
+                      aria-expanded={groupExpanded}
+                      aria-label={`${groupExpanded ? '收起' : '展开'}${groupLabel}`}
+                      onClick={() => setExpandedGroupKeys((current) => {
+                        const next = new Set(current);
+                        if (next.has(groupStateKey)) next.delete(groupStateKey);
+                        else next.add(groupStateKey);
+                        return next;
+                      })}
+                      style={{ flex: 1, minWidth: 0, border: 'none', padding: 0, backgroundColor: 'transparent', cursor: 'pointer', textAlign: 'left' }}
+                    >
+                    <div className="invest-position-group-heading" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, minWidth: 0 }}>
+                      <div className="invest-position-group-title" style={{ display: 'flex', alignItems: 'center', gap: 5, fontWeight: 800, whiteSpace: 'nowrap' }}>
+                        <span style={{ color: C.sub, fontSize: 9 }}>{groupExpanded ? '▼' : '▶'}</span>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: groupColor }} />
+                        {groupLabel}
                       </div>
-                    )}
-                    {!isExpanded && (
-                      <div className="invest-position-summary" style={{ gridTemplateColumns: showMonthlyProfit ? 'repeat(3, minmax(0, 1fr))' : 'repeat(2, minmax(0, 1fr))', backgroundColor: '#f8f9fa', color: C.sub }}>
-                        <span>持有金额<br /><b style={{ color: '#202124' }}>{formatNativeCurrency(nativeMarketValue, positionCurrency || 'CNY')}</b></span>
-                        <span>累计收益<br /><b style={{ color: nativeTotalProfit >= 0 ? C.red : C.green }}>{formatNativeCurrency(nativeTotalProfit, profitCurrency, true)}</b></span>
-                        {showMonthlyProfit && <span>本月收益<br /><b style={{ color: monthlyProfit === null ? C.sub : monthlyProfit.value >= 0 ? C.red : C.green }}>{monthlyProfit === null ? '—' : formatNativeCurrency(monthlyProfit.value, monthlyProfit.currency, true)}</b></span>}
-                      </div>
-                    )}
-                    <div className="invest-position-actions">
-                      {isAggregateAccount ? (
-                        <button type="button" aria-label={splitOpen ? '收起分出个股' : '分出个股'} title={splitOpen ? '收起' : '分出个股'} aria-pressed={splitOpen} onClick={() => {
-                          setExpandedItemKey(null);
-                          setSplitSource(splitOpen ? null : { groupKey, id: item.id });
-                        }} style={{ width: 26, height: 26, border: 'none', borderRadius: 6, backgroundColor: '#e8f0fe', color: C.blue, fontSize: 15, fontWeight: 800, cursor: 'pointer' }}>
-                          ｜
-                        </button>
-                      ) : canChangeStatus ? (
-                        <select aria-label={`${item.name}移至其他状态`} title="切换状态" value="" onChange={(event) => {
-                          setExpandedItemKey(null);
-                          updatePositionDraft(groupKey, item.id, { status: event.target.value as InvestPositionStatus });
-                        }} style={{ width: 34, height: 26, border: '1px solid #dadce0', borderRadius: 6, padding: '2px', appearance: 'none', WebkitAppearance: 'none', textAlign: 'center', fontSize: 11, color: C.sub, backgroundColor: '#fff', cursor: 'pointer' }}>
-                          <option value="" disabled>→</option>
-                          {(() => {
-                            const targetStatus: InvestPositionStatus = item.status === 'active' ? 'paused' : 'active';
-                            return <option value={targetStatus}>{INVEST_POSITION_STATUS_META[targetStatus].label}</option>;
-                          })()}
-                        </select>
-                      ) : null}
-                      <button type="button" onClick={() => { if (window.confirm(`删除“${item.name}”？`)) { removePositionDraft(groupKey, item.id); setExpandedItemKey(null); } }} aria-label={`删除${item.name}`} style={{ width: 24, height: 24, border: 'none', borderRadius: 6, backgroundColor: '#fce8e6', color: C.red, cursor: 'pointer', fontWeight: 800 }}>×</button>
+                      {groupKey !== 'account' && groupKey !== 'aggregate' && (
+                        <span className="invest-position-group-market">¥{formatCurrency(groupMarketValue)}</span>
+                      )}
                     </div>
+                    {groupKey !== 'account' && groupKey !== 'aggregate' && (
+                      <InvestmentMonthlyReturn label={groupLabel} profit={groupMonthlyProfit} marketValue={groupMarketValue} />
+                    )}
+                    </button>
+                    {groupKey !== 'aggregate' && <button type="button" onClick={() => {
+                      const id = addPositionDraft(groupKey, activeStatus);
+                      setExpandedGroupKeys((current) => new Set(current).add(groupStateKey));
+                      if (groupKey !== 'account') {
+                        const itemKey = `${groupKey}:${id}`;
+                        setExpandedItemKey(itemKey);
+                        setAutoFocusCodeItemKey(itemKey);
+                        setSplitSource(null);
+                      }
+                    }} style={{ flexShrink: 0, whiteSpace: 'nowrap', border: 'none', borderRadius: 7, backgroundColor: `${INVEST_POSITION_STATUS_META[activeStatus].color}16`, color: INVEST_POSITION_STATUS_META[activeStatus].color, padding: '4px 8px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>
+                      + {groupKey === 'account' ? '账户' : '股票/基金'}
+                    </button>}
                   </div>
 
-                  {(item.pendingBuys?.length ?? 0) > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 5 }}>
-                      {item.pendingBuys?.map((pending) => (
-                        <div key={pending.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, borderRadius: 7, backgroundColor: '#fff4e5', padding: '5px 7px', color: C.orange, fontSize: 10, fontWeight: 700 }}>
-                          <span>待确认 · {pending.operationAt.slice(5, 16).replace('T', ' ')}</span>
-                          <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                            {pending.amount ? `${currencyMark(pending.currency)}${formatCurrency(pending.amount)}` : '金额待出'}
-                            {pending.account ? ` · ${pending.account}` : ''}
-                          </span>
+                  {groupExpanded && items.map((item) => {
+                    const metric = positionSummary.metricsById[item.id];
+                    const symbol = item.symbol.trim().toUpperCase();
+                    const quoteKey = investPositionQuoteKey(item);
+                    const quote = symbol ? positionQuotes[quoteKey] : undefined;
+                    const quoteFailed = symbol ? positionQuoteErrors.has(quoteKey) : false;
+                    const needsSelection = Boolean(symbol && !item.quoteSource && /^\d{6}$/.test(symbol));
+                    const priceDisplay = metric?.price !== undefined
+                      ? `${metric.price.toFixed(item.quoteSource === 'eastmoney-fund' ? 4 : 2)} ${metric.currency ?? ''}`
+                      : null;
+                    const positionCurrency = (item.quoteCurrency || metric?.currency || defaultInvestQuoteCurrency(groupKey) || '').toUpperCase();
+                    const profitCurrency = isInvestPositionSummaryItem(item)
+                      ? 'CNY'
+                      : (positionCurrency || item.historicalProfitCurrency || 'CNY').toUpperCase();
+                    const costPriceLabel = positionCurrency ? `成本价（${positionCurrency}）` : '成本价';
+                    const cumulativeProfitLabel = `累计收益${currencyMark(profitCurrency)}`;
+                    const nativeFxRate = ['CNY', 'CNH'].includes(profitCurrency)
+                      ? 1
+                      : (metric?.fxRateToCny || metric?.profitFxRateToCny || 1);
+                    const nativeMarketValue = (metric?.marketValueCny ?? 0) / (metric?.fxRateToCny || nativeFxRate);
+                    const nativeHoldingProfit = (metric?.holdingProfitCny ?? 0) / nativeFxRate;
+                    const nativeTotalProfit = (metric?.totalProfitCny ?? 0) / nativeFxRate;
+                    const isAggregateAccount = symbol.length === 0;
+                    const splitOpen = splitSource?.id === item.id && splitSource.groupKey === groupKey;
+                    const canChangeStatus = groupKey !== 'account' && groupKey !== 'aggregate';
+                    const itemKey = `${groupKey}:${item.id}`;
+                    const isExpanded = expandedItemKey === itemKey;
+                    const cumulativeProfitInput = cumulativeProfitInputs[itemKey] ?? String(roundCny(nativeTotalProfit));
+                    const monthlyProfit = positionMonthlyProfitById[item.id] ?? null;
+                    const showMonthlyProfit = Boolean(
+                      symbol
+                      && item.status !== 'closed'
+                      && numberOrUndefined(item.shares) !== 0
+                      && (metric?.marketValueCny ?? 0) > 0,
+                    );
+                    const profitInputColor = Number(cumulativeProfitInput) > 0
+                      ? C.red
+                      : Number(cumulativeProfitInput) < 0
+                        ? C.green
+                        : C.sub;
+                    return (
+                      <div key={item.id} data-invest-position-key={itemKey} data-invest-position-expanded={isExpanded ? 'true' : undefined} style={{ borderTop: '1px solid #f1f3f4', padding: '8px 0 2px' }}>
+                        <div className={`invest-position-header${!isExpanded ? ' invest-position-header--collapsed' : groupKey !== 'account' ? ' invest-position-header--with-code' : ''}`}>
+                          <input
+                            className="invest-position-name"
+                            aria-label={`${groupLabel}名称`}
+                            value={item.name}
+                            readOnly={!isExpanded}
+                            title={isExpanded ? '编辑名称' : '展开详情'}
+                            onClick={() => {
+                              if (!isExpanded) {
+                                setExpandedItemKey(itemKey);
+                                setSplitSource(null);
+                              }
+                            }}
+                            onChange={(event) => updatePositionDraft(groupKey, item.id, { name: event.target.value })}
+                            onKeyDown={(event) => { if (event.key === 'Escape') setExpandedItemKey(null); }}
+                            style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: isExpanded ? '1px solid #dadce0' : '1px solid transparent', outline: 'none', fontWeight: 800, backgroundColor: 'transparent', cursor: isExpanded ? 'text' : 'pointer' }}
+                          />
+                          {isExpanded && groupKey !== 'account' && (
+                            <div className="invest-position-code">
+                              <InvestInstrumentPicker
+                                hideName
+                                autoFocusSymbol={autoFocusCodeItemKey === itemKey}
+                                onSymbolFocus={() => setAutoFocusCodeItemKey(null)}
+                                name={item.name}
+                                symbol={item.symbol}
+                                quoteSource={item.quoteSource}
+                                ariaLabel={groupLabel}
+                                onChange={(patch) => updatePositionDraft(groupKey, item.id, {
+                                  ...patch,
+                                  historicalProfitCurrency: patch.quoteCurrency || item.historicalProfitCurrency,
+                                })}
+                              />
+                            </div>
+                          )}
+                          {!isExpanded && (
+                            <div className="invest-position-summary" style={{ gridTemplateColumns: showMonthlyProfit ? 'repeat(3, minmax(0, 1fr))' : 'repeat(2, minmax(0, 1fr))', backgroundColor: '#f8f9fa', color: C.sub }}>
+                              <span>持有金额<br /><b style={{ color: '#202124' }}>{formatNativeCurrency(nativeMarketValue, positionCurrency || 'CNY')}</b></span>
+                              <span>累计收益<br /><b style={{ color: nativeTotalProfit >= 0 ? C.red : C.green }}>{formatNativeCurrency(nativeTotalProfit, profitCurrency, true)}</b></span>
+                              {showMonthlyProfit && <span>本月收益<br /><b style={{ color: monthlyProfit === null ? C.sub : monthlyProfit.value >= 0 ? C.red : C.green }}>{monthlyProfit === null ? '—' : formatNativeCurrency(monthlyProfit.value, monthlyProfit.currency, true)}</b></span>}
+                            </div>
+                          )}
+                          <div className="invest-position-actions">
+                            {isAggregateAccount ? (
+                              <button type="button" aria-label={splitOpen ? '收起分出个股' : '分出个股'} title={splitOpen ? '收起' : '分出个股'} aria-pressed={splitOpen} onClick={() => {
+                                setExpandedItemKey(null);
+                                setSplitSource(splitOpen ? null : { groupKey, id: item.id });
+                              }} style={{ width: 26, height: 26, border: 'none', borderRadius: 6, backgroundColor: '#e8f0fe', color: C.blue, fontSize: 15, fontWeight: 800, cursor: 'pointer' }}>
+                                ｜
+                              </button>
+                            ) : canChangeStatus ? (
+                              <select aria-label={`${item.name}移至其他状态`} title="切换状态" value="" onChange={(event) => {
+                                setExpandedItemKey(null);
+                                updatePositionDraft(groupKey, item.id, { status: event.target.value as InvestPositionStatus });
+                              }} style={{ width: 34, height: 26, border: '1px solid #dadce0', borderRadius: 6, padding: '2px', appearance: 'none', WebkitAppearance: 'none', textAlign: 'center', fontSize: 11, color: C.sub, backgroundColor: '#fff', cursor: 'pointer' }}>
+                                <option value="" disabled>→</option>
+                                {(() => {
+                                  const targetStatus: InvestPositionStatus = item.status === 'active' ? 'paused' : 'active';
+                                  return <option value={targetStatus}>{INVEST_POSITION_STATUS_META[targetStatus].label}</option>;
+                                })()}
+                              </select>
+                            ) : null}
+                            <button type="button" onClick={() => { if (window.confirm(`删除“${item.name}”？`)) { removePositionDraft(groupKey, item.id); setExpandedItemKey(null); } }} aria-label={`删除${item.name}`} style={{ width: 24, height: 24, border: 'none', borderRadius: 6, backgroundColor: '#fce8e6', color: C.red, cursor: 'pointer', fontWeight: 800 }}>×</button>
+                          </div>
                         </div>
-                      ))}
-                    </div>
-                  )}
 
-                  {isExpanded && (
-                    <div style={{ marginTop: 8 }}>
-                      {groupKey === 'account' ? (
-                        <label style={{ display: 'grid', gridTemplateColumns: '1fr minmax(90px, 130px)', gap: 8, alignItems: 'center', marginTop: 8, fontSize: 10, color: C.sub }}>
-                          <span>累计收益</span>
-                          <AmountInput value={item.historicalProfitCny} onChange={(value) => updatePositionDraft(groupKey, item.id, { historicalProfitCny: value })} style={{ width: '100%', border: 'none', borderBottom: `1px solid ${profitInputColor}`, outline: 'none', textAlign: 'right', color: profitInputColor, fontSize: 12, fontWeight: 700, backgroundColor: 'transparent' }} />
-                        </label>
-                      ) : (
-                        <>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 7, marginTop: 8 }}>
-                            {([
-                              ['份额', 'shares'],
-                              [costPriceLabel, 'costPrice'],
-                              [cumulativeProfitLabel, 'historicalProfitCny'],
-                            ] as const).map(([label, field]) => (
-                              <label key={field} style={{ minWidth: 0, fontSize: 10, color: C.sub }}>
-                                <span>{label}</span>
-                                <AmountInput
-                                  decimalPlaces={field === 'costPrice' || field === 'shares' ? 4 : undefined}
-                                  value={field === 'historicalProfitCny' ? cumulativeProfitInput : item[field]}
-                                  onChange={(value) => {
-                                    if (field !== 'historicalProfitCny') {
-                                      updatePositionDraft(groupKey, item.id, { [field]: value });
-                                      return;
-                                    }
-                                    setCumulativeProfitInputs((current) => ({ ...current, [itemKey]: value }));
-                                    const totalProfit = numberOrUndefined(value);
-                                    if (totalProfit === undefined) return;
-                                    updatePositionDraft(groupKey, item.id, {
-                                      historicalProfitCny: String(roundCny(totalProfit - nativeHoldingProfit)),
-                                      historicalProfitCurrency: profitCurrency,
-                                      profitInputMode: 'historical',
-                                    });
-                                  }}
-                                  onBlur={() => {
-                                    if (field !== 'historicalProfitCny') return;
-                                    setCumulativeProfitInputs((current) => {
-                                      const next = { ...current };
-                                      delete next[itemKey];
-                                      return next;
-                                    });
-                                  }}
-                                  style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', textAlign: 'right', fontSize: 11, fontWeight: 700, color: field === 'historicalProfitCny' ? profitInputColor : '#202124', backgroundColor: 'transparent', boxSizing: 'border-box' }}
-                                />
-                              </label>
+                        {(item.pendingBuys?.length ?? 0) > 0 && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 5 }}>
+                            {item.pendingBuys?.map((pending) => (
+                              <div key={pending.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, borderRadius: 7, backgroundColor: '#fff4e5', padding: '5px 7px', color: C.orange, fontSize: 10, fontWeight: 700 }}>
+                                <span>待确认 · {pending.operationAt.slice(5, 16).replace('T', ' ')}</span>
+                                <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                                  {pending.amount ? `${currencyMark(pending.currency)}${formatCurrency(pending.amount)}` : '金额待出'}
+                                  {pending.account ? ` · ${pending.account}` : ''}
+                                </span>
+                              </div>
                             ))}
                           </div>
-                          {quoteFailed && (
-                            <label style={{ display: 'grid', gridTemplateColumns: '1fr minmax(90px, 130px)', gap: 8, alignItems: 'center', marginTop: 8, fontSize: 10, color: C.sub }}>
-                              <span>手填{item.quoteSource === 'eastmoney-fund' ? '净值' : '现价'}（{positionCurrency || 'CNY'}）</span>
-                              <AmountInput decimalPlaces={4} value={item.lastPrice} onChange={(value) => updatePositionDraft(groupKey, item.id, { lastPrice: value })} style={{ width: '100%', border: 'none', borderBottom: `1px solid ${C.orange}`, outline: 'none', textAlign: 'right', color: C.orange, fontSize: 11, fontWeight: 700, backgroundColor: 'transparent' }} />
-                            </label>
-                          )}
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 4, marginTop: 8, padding: '6px', borderRadius: 7, backgroundColor: '#f8f9fa', fontSize: 9, color: C.sub }}>
-                            <span>{item.quoteSource === 'eastmoney-fund' ? '净值' : '现价'}<br /><b style={{ color: metric?.live ? C.blue : C.sub }}>{priceDisplay ?? (needsSelection ? '请选择' : quoteFailed ? '失败' : symbol && isCurrentRecordMonth ? '获取中' : '—')}</b></span>
-                            <span>市值<br /><b style={{ color: '#202124' }}>{formatNativeCurrency(nativeMarketValue, positionCurrency || 'CNY')}</b></span>
-                            <span>持有收益<br /><b style={{ color: nativeHoldingProfit >= 0 ? C.red : C.green }}>{formatNativeCurrency(nativeHoldingProfit, profitCurrency, true)}</b></span>
-                            <span>累计收益<br /><b style={{ color: nativeTotalProfit >= 0 ? C.red : C.green }}>{formatNativeCurrency(nativeTotalProfit, profitCurrency, true)}</b></span>
+                        )}
+
+                        {isExpanded && (
+                          <div style={{ marginTop: 8 }}>
+                            {groupKey === 'account' ? (
+                              <label style={{ display: 'grid', gridTemplateColumns: '1fr minmax(90px, 130px)', gap: 8, alignItems: 'center', marginTop: 8, fontSize: 10, color: C.sub }}>
+                                <span>累计收益</span>
+                                <AmountInput value={item.historicalProfitCny} onChange={(value) => updatePositionDraft(groupKey, item.id, { historicalProfitCny: value })} style={{ width: '100%', border: 'none', borderBottom: `1px solid ${profitInputColor}`, outline: 'none', textAlign: 'right', color: profitInputColor, fontSize: 12, fontWeight: 700, backgroundColor: 'transparent' }} />
+                              </label>
+                            ) : (
+                              <>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 7, marginTop: 8 }}>
+                                  {([
+                                    ['份额', 'shares'],
+                                    [costPriceLabel, 'costPrice'],
+                                    [cumulativeProfitLabel, 'historicalProfitCny'],
+                                  ] as const).map(([label, field]) => (
+                                    <label key={field} style={{ minWidth: 0, fontSize: 10, color: C.sub }}>
+                                      <span>{label}</span>
+                                      <AmountInput
+                                        decimalPlaces={field === 'costPrice' || field === 'shares' ? 4 : undefined}
+                                        value={field === 'historicalProfitCny' ? cumulativeProfitInput : item[field]}
+                                        onChange={(value) => {
+                                          if (field !== 'historicalProfitCny') {
+                                            updatePositionDraft(groupKey, item.id, { [field]: value });
+                                            return;
+                                          }
+                                          setCumulativeProfitInputs((current) => ({ ...current, [itemKey]: value }));
+                                          const totalProfit = numberOrUndefined(value);
+                                          if (totalProfit === undefined) return;
+                                          updatePositionDraft(groupKey, item.id, {
+                                            historicalProfitCny: String(roundCny(totalProfit - nativeHoldingProfit)),
+                                            historicalProfitCurrency: profitCurrency,
+                                            profitInputMode: 'historical',
+                                          });
+                                        }}
+                                        onBlur={() => {
+                                          if (field !== 'historicalProfitCny') return;
+                                          setCumulativeProfitInputs((current) => {
+                                            const next = { ...current };
+                                            delete next[itemKey];
+                                            return next;
+                                          });
+                                        }}
+                                        style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', textAlign: 'right', fontSize: 11, fontWeight: 700, color: field === 'historicalProfitCny' ? profitInputColor : '#202124', backgroundColor: 'transparent', boxSizing: 'border-box' }}
+                                      />
+                                    </label>
+                                  ))}
+                                </div>
+                                {quoteFailed && (
+                                  <label style={{ display: 'grid', gridTemplateColumns: '1fr minmax(90px, 130px)', gap: 8, alignItems: 'center', marginTop: 8, fontSize: 10, color: C.sub }}>
+                                    <span>手填{item.quoteSource === 'eastmoney-fund' ? '净值' : '现价'}（{positionCurrency || 'CNY'}）</span>
+                                    <AmountInput decimalPlaces={4} value={item.lastPrice} onChange={(value) => updatePositionDraft(groupKey, item.id, { lastPrice: value })} style={{ width: '100%', border: 'none', borderBottom: `1px solid ${C.orange}`, outline: 'none', textAlign: 'right', color: C.orange, fontSize: 11, fontWeight: 700, backgroundColor: 'transparent' }} />
+                                  </label>
+                                )}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 4, marginTop: 8, padding: '6px', borderRadius: 7, backgroundColor: '#f8f9fa', fontSize: 9, color: C.sub }}>
+                                  <span>{item.quoteSource === 'eastmoney-fund' ? '净值' : '现价'}<br /><b style={{ color: metric?.live ? C.blue : C.sub }}>{priceDisplay ?? (needsSelection ? '请选择' : quoteFailed ? '失败' : symbol && isCurrentRecordMonth ? '获取中' : '—')}</b></span>
+                                  <span>市值<br /><b style={{ color: '#202124' }}>{formatNativeCurrency(nativeMarketValue, positionCurrency || 'CNY')}</b></span>
+                                  <span>持有收益<br /><b style={{ color: nativeHoldingProfit >= 0 ? C.red : C.green }}>{formatNativeCurrency(nativeHoldingProfit, profitCurrency, true)}</b></span>
+                                  <span>累计收益<br /><b style={{ color: nativeTotalProfit >= 0 ? C.red : C.green }}>{formatNativeCurrency(nativeTotalProfit, profitCurrency, true)}</b></span>
+                                </div>
+                                {quote?.regularMarketTime && <div style={{ marginTop: 4, textAlign: 'right', fontSize: 9, color: C.sub }}>{quote.regularMarketTime.slice(0, 10)}</div>}
+                              </>
+                            )}
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+                              <button type="button" onClick={() => setExpandedItemKey(null)} style={{ border: 'none', padding: 0, backgroundColor: 'transparent', color: C.sub, fontSize: 9, cursor: 'pointer' }}>收起</button>
+                            </div>
                           </div>
-                          {quote?.regularMarketTime && <div style={{ marginTop: 4, textAlign: 'right', fontSize: 9, color: C.sub }}>{quote.regularMarketTime.slice(0, 10)}</div>}
-                        </>
-                      )}
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
-                        <button type="button" onClick={() => setExpandedItemKey(null)} style={{ border: 'none', padding: 0, backgroundColor: 'transparent', color: C.sub, fontSize: 9, cursor: 'pointer' }}>收起</button>
+                        )}
+                        {splitOpen && isAggregateAccount && (
+                          <PositionSplitPanel
+                            key={`${groupKey}:${item.id}`}
+                            sourceGroupKey={groupKey}
+                            source={item}
+                            sourceMarketValueCny={metric?.marketValueCny ?? 0}
+                            isCurrentRecordMonth={isCurrentRecordMonth}
+                            onClose={() => setSplitSource(null)}
+                            onConfirm={(input) => {
+                              splitPositionAccount(input);
+                              setSplitSource(null);
+                            }}
+                          />
+                        )}
                       </div>
-                    </div>
-                  )}
-                  {splitOpen && isAggregateAccount && (
-                    <PositionSplitPanel
-                      key={`${groupKey}:${item.id}`}
-                      sourceGroupKey={groupKey}
-                      source={item}
-                      sourceMarketValueCny={metric?.marketValueCny ?? 0}
-                      isCurrentRecordMonth={isCurrentRecordMonth}
-                      onClose={() => setSplitSource(null)}
-                      onConfirm={(input) => {
-                        splitPositionAccount(input);
-                        setSplitSource(null);
-                      }}
-                    />
-                  )}
+                    );
+                  })}
                 </div>
               );
             })}
-          </div>
+
+          </section>
         );
       })}
 
@@ -4178,7 +4212,7 @@ export default function CalendarPage() {
     return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
   }, [records]);
   const averageAnnualizedRate = useMemo(() => getAverageAnnualizedRate(records), [records]);
-  const groupAverageAnnualizedRates = useMemo(() => HISTORY_RATE_GROUPS.map((group) => ({
+  const groupAverageAnnualizedRates = useMemo(() => INVESTMENT_GROUPS.map((group) => ({
     ...group,
     rate: getGroupAverageAnnualizedRate(records, group.keys),
   })), [records]);
