@@ -3,9 +3,11 @@ import AutoPossessionImporter from './AutoPossessionImporter';
 import BillDropImporter from './BillDropImporter';
 import Nav from './Nav';
 import SyncIndicator from './SyncIndicator';
+import { usePageScrollRestoration } from '../hooks/usePageScrollRestoration';
 
 export default function Layout() {
   const location = useLocation();
+  usePageScrollRestoration(`${location.pathname}${location.search}`);
   const isHomePage = location.pathname === '/';
   const isCalendarPage = location.pathname === '/calendar';
   const isWishesPage = location.pathname === '/wishes';
