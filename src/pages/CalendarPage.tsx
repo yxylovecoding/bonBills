@@ -2050,7 +2050,7 @@ type MonthFormState = ReturnType<typeof useMonthForm>;
 
 function MonthDataSection({ state }: { state: MonthFormState }) {
   const {
-    income, totalExpense, periodicLife, volatileLife, consumption, school,
+    income, totalExpense, periodicLife, volatileLife, consumption,
     totalAssets, setTotalAssets, totalAssetsValue, previousTotalAssets, assetChange, savedAmount, savingsRate, savedAmountTitle,
     accProfit, setAccProfit, accumulatedProfitValue, isAccumulatedProfitAuto, investTotal,
     surplus, investIncome, investMonthly, investAnnual, investTotalForRate, investTotalStoredOnly, n,
@@ -2093,7 +2093,6 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
     },
     { label: '总收入', val: income ? formatCurrency(n(income)) : '—', bg: '#f1f3f4', fg: '#3c4043', kind: 'auto' as const },
     { label: '总支出', val: totalExpense ? formatCurrency(n(totalExpense)) : '—', bg: '#f1f3f4', fg: '#3c4043', kind: 'auto' as const },
-    { label: '校园卡支出', val: school ? formatCurrency(n(school)) : '—', bg: '#f1f3f4', fg: '#3c4043', kind: 'auto' as const },
     {
       label: '理财总额',
       val: investTotalDisplay,
