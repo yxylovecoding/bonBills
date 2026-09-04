@@ -1664,6 +1664,11 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     [marketsBySymbol, positionItems, previousMarketsBySymbol, previousPositionItems],
   );
   const positionMonthlyProfitById = positionMonthlyProfit.byItemId;
+  const positionMonthlyIncome = useMemo(() => {
+    if (!previousPositionItems) return null;
+    const previousSummary = summarizeInvestPositionItems(previousPositionItems, previousMarketsBySymbol);
+    return roundCny(positionSummary.totalProfitCny - previousSummary.totalProfitCny);
+  }, [positionSummary.totalProfitCny, previousMarketsBySymbol, previousPositionItems]);
   const positionItemsForSave = useMemo<InvestPositionItems>(() => {
     const next: InvestPositionItems = {};
     for (const key of INVEST_POSITION_GROUP_KEYS) {
@@ -2014,7 +2019,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     mainFieldRefs,
     positionDraftGroups, updatePositionDraft, addPositionDraft, removePositionDraft,
     splitPositionAccount,
-    positionSummary, positionMonthlyProfitById, positionQuotes, positionQuoteErrors, isCurrentRecordMonth,
+    positionSummary, positionMonthlyIncome, positionMonthlyProfitById, positionQuotes, positionQuoteErrors, isCurrentRecordMonth,
     handleSave,
     fieldStyle, labelStyle,
     yearMonth,
@@ -2198,7 +2203,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
   const {
     positionDraftGroups, updatePositionDraft, addPositionDraft, removePositionDraft,
     splitPositionAccount,
-    positionSummary, positionMonthlyProfitById, positionQuotes, positionQuoteErrors, isCurrentRecordMonth,
+    positionSummary, positionMonthlyIncome, positionMonthlyProfitById, positionQuotes, positionQuoteErrors, isCurrentRecordMonth,
   } = state;
   const [activeStatus, setActiveStatus] = useState<InvestPositionStatus>('active');
   const [expandedGroupKeys, setExpandedGroupKeys] = useState<Set<string>>(() => new Set());
@@ -2223,14 +2228,20 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        <div style={{ borderRadius: 9, padding: '8px 10px', backgroundColor: '#f1f3f4' }}>
+      <div className="invest-holdings-totals">
+        <div style={{ backgroundColor: '#f1f3f4' }}>
           <div style={{ fontSize: 10, color: C.sub }}>持有市值</div>
-          <div style={{ fontSize: 14, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(positionSummary.totalMarketValueCny)}</div>
+          <div className="invest-holdings-total-amount">¥{formatCurrency(positionSummary.totalMarketValueCny)}</div>
         </div>
-        <div style={{ borderRadius: 9, padding: '8px 10px', backgroundColor: positionSummary.totalProfitCny >= 0 ? '#fce8e6' : '#e6f4ea' }}>
+        <div style={{ backgroundColor: positionMonthlyIncome === null ? '#f1f3f4' : positionMonthlyIncome >= 0 ? '#fce8e6' : '#e6f4ea' }}>
+          <div style={{ fontSize: 10, color: C.sub }}>本月收益</div>
+          <div className="invest-holdings-total-amount" style={{ color: positionMonthlyIncome === null ? C.sub : positionMonthlyIncome >= 0 ? C.red : C.green }}>
+            {positionMonthlyIncome === null ? '—' : signedAmount(positionMonthlyIncome)}
+          </div>
+        </div>
+        <div style={{ backgroundColor: positionSummary.totalProfitCny >= 0 ? '#fce8e6' : '#e6f4ea' }}>
           <div style={{ fontSize: 10, color: C.sub }}>累计收益</div>
-          <div style={{ fontSize: 14, fontWeight: 800, color: positionSummary.totalProfitCny >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>{signedAmount(positionSummary.totalProfitCny)}</div>
+          <div className="invest-holdings-total-amount" style={{ color: positionSummary.totalProfitCny >= 0 ? C.red : C.green }}>{signedAmount(positionSummary.totalProfitCny)}</div>
         </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', border: '1px solid #dadce0', borderRadius: 8, overflow: 'hidden' }}>
