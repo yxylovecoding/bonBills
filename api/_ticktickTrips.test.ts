@@ -699,6 +699,33 @@ describe('TickTick 清单状态续写', () => {
 });
 
 describe('TickTick 出游同步', () => {
+  it('无日期的七个月阶段按出发日补齐截止日期，并修复旧实例', async () => {
+    const api = new FakeTickTickApi();
+    addWishPreparationTemplate(api);
+    const sevenMonthTemplate = api.tasks.get('template-seven-months')!;
+    delete sevenMonthTemplate.startDate;
+    delete sevenMonthTemplate.dueDate;
+    const template = await discoverTickTickTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    const sync = () => reconcileTickTickTrips({
+      api, template, state, trips: [futureTrip], today: '2026-09-04', saveState: async () => undefined,
+    });
+
+    await sync();
+    const instance = state.instances[futureTrip.key];
+    const generatedId = instance.taskIdsByTemplateId['template-seven-months'];
+    expect(api.tasks.get(generatedId)).toMatchObject({
+      startDate: '2026-06-10T00:00:00+0800',
+      dueDate: '2026-06-10T00:00:00+0800',
+    });
+
+    delete api.tasks.get(generatedId)!.startDate;
+    delete api.tasks.get(generatedId)!.dueDate;
+    delete instance.taskDateStates;
+    await sync();
+    expect(api.tasks.get(generatedId)?.dueDate).toBe('2026-06-10T00:00:00+0800');
+  });
+
   it('在服务端独立生成连续、切分及命名后的行程', () => {
     expect(buildTripSourcesFromSyncState(
       { tagMap: {

@@ -510,7 +510,7 @@ export function buildWishPreparationSourcesFromSyncState(configState: unknown): 
 
 function wishPreparationTemplate(template: TickTickTemplate): TickTickTemplate {
   const roots = template.tasks.filter((task) =>
-    /^出门前(?:七|7)个月$/.test(task.title.normalize('NFKC').replace(/\s/g, '')),
+    isSevenMonthPreparationTask(task),
   );
   if (roots.length !== 1) throw new Error(`出门todo 模板需要唯一的“${TICKTICK_WISH_PREPARATION_TITLE}”任务`);
   const rootTask = roots[0];
@@ -521,6 +521,10 @@ function wishPreparationTemplate(template: TickTickTemplate): TickTickTemplate {
     anchorTask: rootTask,
     anchorDate: taskDate(rootTask) ?? addCalendarMonths(template.anchorDate, -7),
   };
+}
+
+function isSevenMonthPreparationTask(task: Pick<TickTickTask, 'title'>): boolean {
+  return /^出门前(?:七|7)个月$/.test(task.title.normalize('NFKC').replace(/\s/g, ''));
 }
 
 function calendarTagMapFromSyncState(calendarState: unknown): Record<string, unknown> {
@@ -786,12 +790,18 @@ function baseTaskPayload(
   items: TickTickChecklistItem[],
 ): Record<string, unknown> {
   const isRoot = templateTask.id === template.rootTask.id;
+  const inferredStageDate = !isRoot
+    && isSevenMonthPreparationTask(templateTask)
+    && !templateTask.startDate
+    && !templateTask.dueDate
+      ? `${addCalendarMonths(trip.startDate, -7)}T00:00:00+0800`
+      : undefined;
   const startDate = isRoot
     ? `${trip.startDate}T00:00:00+0800`
-    : shiftTickTickDate(templateTask.startDate, template.anchorDate, trip.startDate);
+    : shiftTickTickDate(templateTask.startDate, template.anchorDate, trip.startDate) ?? inferredStageDate;
   const dueDate = isRoot
     ? `${trip.startDate}T00:00:00+0800`
-    : shiftTickTickDate(templateTask.dueDate, template.anchorDate, trip.startDate);
+    : shiftTickTickDate(templateTask.dueDate, template.anchorDate, trip.startDate) ?? inferredStageDate;
   const rootContent = [templateTask.content?.trim(), trip.note].filter(Boolean).join('\n\n');
   return {
     projectId: template.projectId,
@@ -1070,8 +1080,15 @@ async function syncTripInstance(
       previousItems, generatedTask, instance,
     );
     const previousAuto = baseTaskPayload(templateTask, previousTrip, template, parentId, previousItems);
-    const manualTask = hasManualDates(
-      dateSnapshot(generatedTask), dateSnapshot(previousAuto), instance.taskDateStates?.[generatedTask.id],
+    const savedDateState = instance.taskDateStates?.[generatedTask.id];
+    const isUndatedSevenMonthMigration = isSevenMonthPreparationTask(templateTask)
+      && !templateTask.startDate
+      && !templateTask.dueDate
+      && !generatedTask.startDate
+      && !generatedTask.dueDate
+      && !savedDateState;
+    const manualTask = !isUndatedSevenMonthMigration && hasManualDates(
+      dateSnapshot(generatedTask), dateSnapshot(previousAuto), savedDateState,
     );
     const automaticPayload = baseTaskPayload(templateTask, trip, template, parentId, protectedChecklist.items);
     const payload = {
