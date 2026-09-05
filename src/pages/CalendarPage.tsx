@@ -63,6 +63,7 @@ import {
   INVEST_POSITION_KEYS,
   calculateInvestPositionMetric,
   calculateInvestPositionMonthlyProfit,
+  inferInvestPositionFxRateToCny,
   isInvestPositionSummaryItem,
   investPositionQuoteKey,
   migrateLegacyInvestPositionItems,
@@ -1690,7 +1691,9 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
           holdingProfitCny: metric.holdingProfitCny,
           lastPrice: metric.price,
           lastCurrency: metric.currency,
-          lastFxRateToCny: metric.fxRateToCny,
+          lastFxRateToCny: metric.fxRateToCny
+            ?? inferInvestPositionFxRateToCny(item, item.lastCurrency || item.quoteCurrency || defaultInvestQuoteCurrency(key))
+            ?? item.lastFxRateToCny,
           quoteAt: metric.quoteAt,
         };
       });
@@ -2383,7 +2386,10 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                     const cumulativeProfitLabel = `累计收益${currencyMark(profitCurrency)}`;
                     const nativeFxRate = ['CNY', 'CNH'].includes(profitCurrency)
                       ? 1
-                      : (metric?.fxRateToCny || metric?.profitFxRateToCny || 1);
+                      : (metric?.fxRateToCny
+                        || inferInvestPositionFxRateToCny(item, profitCurrency)
+                        || metric?.profitFxRateToCny
+                        || 1);
                     const nativeMarketValue = (metric?.marketValueCny ?? 0) / (metric?.fxRateToCny || nativeFxRate);
                     const nativeHoldingProfit = (metric?.holdingProfitCny ?? 0) / nativeFxRate;
                     const nativeTotalProfit = (metric?.totalProfitCny ?? 0) / nativeFxRate;

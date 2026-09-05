@@ -68,6 +68,22 @@ const finiteOrZero = (value: unknown) => {
 const roundMoney = (value: number) => Math.round(value * 100) / 100;
 const roundShares = (value: number) => Math.round(value * 10000) / 10000;
 
+export function inferInvestPositionFxRateToCny(
+  item: { shares?: unknown; costPrice?: unknown; marketValueCny?: unknown; holdingProfitCny?: unknown; lastFxRateToCny?: unknown },
+  currency: string | undefined,
+) {
+  const normalizedCurrency = (currency ?? '').toUpperCase();
+  if (['CNY', 'CNH'].includes(normalizedCurrency)) return 1;
+  const storedRate = finiteOrZero(item.lastFxRateToCny);
+  if (storedRate > 0) return storedRate;
+  const shares = finiteOrZero(item.shares);
+  const costPrice = finiteOrZero(item.costPrice);
+  const costBasisCny = finiteOrZero(item.marketValueCny) - finiteOrZero(item.holdingProfitCny);
+  if (!(shares > 0) || !(costPrice > 0) || !(costBasisCny > 0)) return null;
+  const inferredRate = costBasisCny / (shares * costPrice);
+  return Number.isFinite(inferredRate) && inferredRate > 0 ? inferredRate : null;
+}
+
 export function investPositionQuoteKey(item: Pick<InvestPositionItem, 'symbol' | 'quoteSource'>) {
   return `${item.quoteSource ?? 'yahoo'}:${item.symbol.trim().toUpperCase()}`;
 }
@@ -91,7 +107,9 @@ export function calculateInvestPositionMetric(
     : (item.historicalProfitCurrency || item.quoteCurrency || market?.currency || item.lastCurrency || 'CNY').toUpperCase();
   const profitFxRateToCny = ['CNY', 'CNH'].includes(profitCurrency)
     ? 1
-    : (market?.fxRateToCny ?? finiteOrZero(item.lastFxRateToCny)) || 1;
+    : market?.fxRateToCny
+      ?? inferInvestPositionFxRateToCny(item, profitCurrency)
+      ?? 1;
   const storedProfitCny = roundMoney(finiteOrZero(item.historicalProfitCny) * profitFxRateToCny);
   if (item.status === 'closed') {
     return {
