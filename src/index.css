@@ -80,6 +80,21 @@ input[type='number'] { -moz-appearance: textfield; }
   overflow-wrap: anywhere;
 }
 
+.invest-holdings-total-value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.invest-holdings-total-rate {
+  flex: 0 0 auto;
+  font-size: clamp(8px, 2.2vw, 10px);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 .invest-position-group-monthly {
   display: flex;
   flex-wrap: wrap;

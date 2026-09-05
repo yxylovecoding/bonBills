@@ -2266,6 +2266,9 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
     ...(activeStatus !== 'active' && positionDraftGroups.aggregate.length > 0 ? [{ keys: ['aggregate' as const] }] : []),
   ];
   const signedAmount = (value: number) => `${value >= 0 ? '+' : '-'}¥${formatCurrency(value)}`;
+  const positionMonthlyRate = positionMonthlyIncome !== null && positionSummary.totalMarketValueCny > 0
+    ? positionMonthlyIncome / positionSummary.totalMarketValueCny
+    : null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -2276,8 +2279,11 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
         </div>
         <div style={{ backgroundColor: positionMonthlyIncome === null ? '#f1f3f4' : positionMonthlyIncome >= 0 ? '#fce8e6' : '#e6f4ea' }}>
           <div style={{ fontSize: 10, color: C.sub }}>本月收益</div>
-          <div className="invest-holdings-total-amount" style={{ color: positionMonthlyIncome === null ? C.sub : positionMonthlyIncome >= 0 ? C.red : C.green }}>
-            {positionMonthlyIncome === null ? '—' : signedAmount(positionMonthlyIncome)}
+          <div className="invest-holdings-total-value-row" style={{ color: positionMonthlyIncome === null ? C.sub : positionMonthlyIncome >= 0 ? C.red : C.green }}>
+            <span className="invest-holdings-total-amount">{positionMonthlyIncome === null ? '—' : signedAmount(positionMonthlyIncome)}</span>
+            <span className="invest-holdings-total-rate" aria-label="本月收益率">
+              {positionMonthlyRate === null ? '—' : `${(positionMonthlyRate * 100).toFixed(2)}%`}
+            </span>
           </div>
         </div>
         <div style={{ backgroundColor: positionSummary.totalProfitCny >= 0 ? '#fce8e6' : '#e6f4ea' }}>
