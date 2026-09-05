@@ -2327,8 +2327,12 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
               const groupMonthlyProfit = groupKey === 'account' || groupKey === 'aggregate'
                 ? null
                 : state.getBreakdownMonthlyProfit(groupKey);
-              const groupMarketValue = groupKey === 'account' || groupKey === 'aggregate'
-                ? items.reduce((sum, item) => sum + (positionSummary.metricsById[item.id]?.marketValueCny ?? 0), 0)
+              const displayedGroupMarketValue = items.reduce(
+                (sum, item) => sum + (positionSummary.metricsById[item.id]?.marketValueCny ?? 0),
+                0,
+              );
+              const combinedGroupMarketValue = groupKey === 'account' || groupKey === 'aggregate'
+                ? displayedGroupMarketValue
                 : positionSummary.marketValueByCategory[groupKey];
               return (
                 <div key={groupKey} style={{ border: '1px solid #e8eaed', borderRadius: 10, padding: '8px', backgroundColor: '#fff' }}>
@@ -2354,8 +2358,8 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                         </div>
                         {groupKey !== 'account' && groupKey !== 'aggregate' && (
                           <>
-                            <span className="invest-position-group-market">¥{formatCurrency(groupMarketValue)}</span>
-                            <InvestmentMonthlyReturn label={groupLabel} profit={groupMonthlyProfit} marketValue={groupMarketValue} />
+                            <span className="invest-position-group-market">¥{formatCurrency(displayedGroupMarketValue)}</span>
+                            <InvestmentMonthlyReturn label={groupLabel} profit={groupMonthlyProfit} marketValue={combinedGroupMarketValue} />
                           </>
                         )}
                       </div>
