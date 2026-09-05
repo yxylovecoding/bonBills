@@ -3747,6 +3747,7 @@ export default function CalendarPage() {
   const today = `${_now.getFullYear()}-${String(_now.getMonth()+1).padStart(2,'0')}-${String(_now.getDate()).padStart(2,'0')}`;
   const requestedMonth = searchParams.get('month') ?? '';
   const validRequestedMonth = /^\d{4}-(0[1-9]|1[0-2])$/.test(requestedMonth);
+  const focusMonthCalendar = searchParams.get('focus') === 'calendar';
   const [year,  setYear]  = useState(() => validRequestedMonth ? Number(requestedMonth.slice(0, 4)) : _now.getFullYear());
   const [month, setMonth] = useState(() => validRequestedMonth ? Number(requestedMonth.slice(5, 7)) - 1 : _now.getMonth());
   const [selectedTag, setSelectedTag] = useState<TagKind>('school');
@@ -3845,6 +3846,22 @@ export default function CalendarPage() {
 
   // ── Calendar computed ──
   const yearMonth    = `${year}-${pad(month + 1)}`;
+  useEffect(() => {
+    if (tab !== 'month' || !focusMonthCalendar) return;
+    let secondFrame = 0;
+    const scrollToCalendar = () => {
+      document.getElementById('month-calendar')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(scrollToCalendar);
+    });
+    const settleTimer = window.setTimeout(scrollToCalendar, 350);
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+      window.clearTimeout(settleTimer);
+    };
+  }, [focusMonthCalendar, tab, yearMonth]);
   const daysInMonth  = getDaysInMonth(year, month);
   const firstDayWeekIdx = (new Date(year, month, 1).getDay() + 6) % 7;
   const payrollCutoffDate = useMemo(
@@ -4808,8 +4825,9 @@ export default function CalendarPage() {
           )}
 
           {/* 月历 */}
-          <Card>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginBottom: 5, fontSize: 9, color: C.sub }}>
+          <div id="month-calendar" style={{ scrollMarginTop: 58 }}>
+            <Card>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginBottom: 5, fontSize: 9, color: C.sub }}>
               <span><span style={{ marginRight: 3, borderRadius: 4, padding: '1px 3px', backgroundColor: HOLIDAY_COLORS.off.background, color: HOLIDAY_COLORS.off.color, fontWeight: 700 }}>休</span>法定节假日</span>
               <span><span style={{ marginRight: 3, borderRadius: 4, padding: '1px 3px', backgroundColor: HOLIDAY_COLORS.work.background, color: HOLIDAY_COLORS.work.color, fontWeight: 700 }}>班</span>调休上班</span>
             </div>
@@ -4893,8 +4911,9 @@ export default function CalendarPage() {
                   </button>
                 );
               })}
-            </div>
-          </Card>
+              </div>
+            </Card>
+          </div>
 
           <TripsSection
             groups={tripGroupsThisMonth}
