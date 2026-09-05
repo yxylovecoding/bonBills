@@ -116,6 +116,12 @@ const INVESTMENT_GROUPS = [
   { label: '债', title: '债（长债、美债）', keys: ['longBond', 'usBond'] },
   { label: '商', title: '商（黄金）', keys: ['gold'] },
 ] as const;
+const STOCK_MARKETS = [
+  { label: '美', key: 'us' },
+  { label: '欧', key: 'eu' },
+  { label: '亚', key: 'asia' },
+  { label: 'A', key: 'a' },
+] as const;
 
 type UsdRateResponse = {
   rate: number;
@@ -4250,6 +4256,10 @@ export default function CalendarPage() {
     ...group,
     rate: getGroupAverageAnnualizedRate(records, group.keys),
   })), [records]);
+  const stockAverageAnnualizedRates = useMemo(() => STOCK_MARKETS.map((market) => ({
+    ...market,
+    rate: getGroupAverageAnnualizedRate(records, [market.key]),
+  })), [records]);
   const allBillStatisticItems = useMemo<BillStatisticItem[]>(
     () => [
       ...Object.values(billExpenseItems).flat().map((item) => ({ ...item, transactionType: '支出' as const })),
@@ -4278,6 +4288,13 @@ export default function CalendarPage() {
           {groupAverageAnnualizedRates.map(({ label, title, rate }) => (
             <span key={label} aria-label={`${label}平均年化`} title={title} style={{ color: rate !== null ? (rate >= 0 ? C.red : C.green) : C.sub, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
               {label} {rate !== null ? `${(rate * 100).toFixed(1)}%` : '—'}
+              {label === '股' && (
+                <span>（{stockAverageAnnualizedRates.map((market, index) => (
+                  <span key={market.key} style={{ color: market.rate !== null ? (market.rate >= 0 ? C.red : C.green) : C.sub }}>
+                    {index > 0 ? ' ' : ''}{market.label}{market.rate !== null ? `${(market.rate * 100).toFixed(1)}%` : '—'}
+                  </span>
+                ))}）</span>
+              )}
             </span>
           ))}
         </div>
