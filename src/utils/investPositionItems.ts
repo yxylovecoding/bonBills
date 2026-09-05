@@ -98,13 +98,17 @@ function investPositionComparisonKey(item: Pick<InvestPositionItem, 'name' | 'sy
     : `instrument:${investPositionQuoteKey(item)}`;
 }
 
+function investPositionSymbolKey(item: Pick<InvestPositionItem, 'symbol'>) {
+  return item.symbol.trim().toUpperCase();
+}
+
 export function calculateInvestPositionMetric(
   item: InvestPositionItem,
   market?: InvestMarketSnapshot,
 ): InvestPositionMetric {
   const profitCurrency = isInvestPositionSummaryItem(item)
     ? 'CNY'
-    : (item.historicalProfitCurrency || item.quoteCurrency || market?.currency || item.lastCurrency || 'CNY').toUpperCase();
+    : (item.quoteCurrency || market?.currency || item.lastCurrency || item.historicalProfitCurrency || 'CNY').toUpperCase();
   const profitFxRateToCny = ['CNY', 'CNH'].includes(profitCurrency)
     ? 1
     : market?.fxRateToCny
@@ -357,8 +361,12 @@ export function calculateInvestPositionMonthlyProfit(
     const previousGroup = previousItems?.[groupKey] ?? [];
     const previousById = new Map(previousGroup.map((item) => [item.id, item]));
     const previousByStableKey = new Map<string, InvestPositionItem>();
+    const previousBySymbol = new Map<string, InvestPositionItem | null>();
     for (const item of previousGroup) {
       previousByStableKey.set(investPositionComparisonKey(item), item);
+      const symbolKey = investPositionSymbolKey(item);
+      if (!symbolKey) continue;
+      previousBySymbol.set(symbolKey, previousBySymbol.has(symbolKey) ? null : item);
     }
 
     for (const item of currentItems[groupKey] ?? []) {
@@ -380,7 +388,10 @@ export function calculateInvestPositionMonthlyProfit(
       )
         ? previousItemById
         : undefined;
-      const previousItem = previousItemWithSameId ?? previousByStableKey.get(comparisonKey);
+      const previousItem = previousItemWithSameId
+        ?? previousByStableKey.get(comparisonKey)
+        ?? previousBySymbol.get(investPositionSymbolKey(item))
+        ?? undefined;
       const previousMetric = previousItem ? previousSummary?.metricsById[previousItem.id] : undefined;
       if (
         !previousMetric
