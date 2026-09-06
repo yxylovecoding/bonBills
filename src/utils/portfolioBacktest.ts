@@ -67,7 +67,9 @@ export interface PortfolioBacktestResult {
 export function portfolioBacktestRequestUrl(definition: PortfolioBacktestSeriesDefinition): string {
   const params = new URLSearchParams({
     symbol: definition.symbol,
-    range: 'max',
+    // Yahoo 的 max 会把较长指数自动降采样成季度；20y 已覆盖本组合
+    // 最早的国债代理（2013），并能稳定返回连续月线。
+    range: definition.source ? 'max' : '20y',
     interval: '1mo',
   });
   if (definition.source) params.set('source', definition.source);

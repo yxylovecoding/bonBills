@@ -56,5 +56,7 @@ describe('目标比例最长回测', () => {
     expect(portfolioBacktestRequestUrl({
       id: 'eu-006282', symbol: '006282', source: 'eastmoney-fund', currency: 'CNY',
     })).toBe('/api/market-chart?symbol=006282&range=max&interval=1mo&source=eastmoney-fund&currency=CNY');
+    expect(portfolioBacktestRequestUrl({ id: 'asia-nikkei', symbol: '^N225' }))
+      .toBe('/api/market-chart?symbol=%5EN225&range=20y&interval=1mo');
   });
 });

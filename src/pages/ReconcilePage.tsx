@@ -353,11 +353,11 @@ function RebalanceSettingsModal({
               ? '比例配平后显示回测'
               : backtest
                 ? <>
-                    最长 {backtest.years.toFixed(1)} 年
+                    最长回测 {backtest.years.toFixed(1)} 年
                     <span style={{ color: backtest.annualizedReturn >= 0 ? C.red : C.green }}> · 年化 {(backtest.annualizedReturn * 100).toFixed(1)}%</span>
                     <span style={{ color: C.green }}> · 最大回撤 {(backtest.maxDrawdown * 100).toFixed(1)}%</span>
                   </>
-                : backtestError ? '最长回测暂不可用' : '最长回测计算中…'}
+                : backtestError || backtestCharts ? '最长回测数据不足' : '最长回测计算中…'}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {INVEST_GROUPS.map((group) => {
