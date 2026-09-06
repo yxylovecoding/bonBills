@@ -57,6 +57,13 @@ import {
   type DramDecisionKind,
   type MarketChartResponse,
 } from '../utils/dramDecision';
+import {
+  calculatePortfolioBacktest,
+  portfolioBacktestRequestUrl,
+  PORTFOLIO_BACKTEST_REQUESTS,
+  PORTFOLIO_BACKTEST_SOURCE_TITLE,
+  type PortfolioBacktestSeriesId,
+} from '../utils/portfolioBacktest';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', sub: '#5f6368', orange: '#e8710a' };
 const INVEST_TARGET_KEYS: InvestKey[] = ['us', 'eu', 'asia', 'a', 'longBond', 'usBond', 'gold'];
 const USD_INVEST_KEYS: InvestKey[] = ['us', 'usBond'];
@@ -243,6 +250,45 @@ function RebalanceSettingsModal({
 }) {
   const total = INVEST_GROUPS.reduce((sum, group) => sum + (parseFloat(groupedTargetInputs.groups[group.key]) || 0), 0);
   const totalOk = Math.abs(total - 100) < 0.01;
+  const groupAssetsOk = INVEST_GROUPS.every((group) => {
+    const groupTotal = parseFloat(groupedTargetInputs.groups[group.key]) || 0;
+    if (groupTotal <= 0) return true;
+    const assetTotal = group.keys.reduce((sum, key) => sum + (parseFloat(groupedTargetInputs.assets[key]) || 0), 0);
+    return Math.abs(assetTotal - 100) < 0.01;
+  });
+  const allocationOk = totalOk && groupAssetsOk;
+  const [backtestCharts, setBacktestCharts] = useState<Partial<Record<PortfolioBacktestSeriesId, MarketChartResponse>> | null>(null);
+  const [backtestError, setBacktestError] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    void Promise.all(PORTFOLIO_BACKTEST_REQUESTS.map(async (definition) => {
+      const response = await fetch(portfolioBacktestRequestUrl(definition), { signal: controller.signal });
+      if (!response.ok) throw new Error(`${definition.symbol} history ${response.status}`);
+      return [definition.id, await response.json() as MarketChartResponse] as const;
+    })).then((entries) => {
+      setBacktestCharts(Object.fromEntries(entries));
+      setBacktestError(false);
+    }).catch((error) => {
+      if (controller.signal.aborted) return;
+      console.warn('portfolio backtest unavailable', error);
+      setBacktestError(true);
+    });
+    return () => controller.abort();
+  }, []);
+  const backtestTargets = useMemo(
+    () => groupedTargetInputsToConfig(groupedTargetInputs),
+    [groupedTargetInputs],
+  );
+  const currentMonth = useMemo(() => {
+    const date = new Date();
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  }, []);
+  const backtest = useMemo(
+    () => allocationOk && backtestCharts
+      ? calculatePortfolioBacktest(backtestCharts, backtestTargets, currentMonth)
+      : null,
+    [allocationOk, backtestCharts, backtestTargets, currentMonth],
+  );
   const setGroupInput = (group: InvestGroupKey, value: string) =>
     setGroupedTargetInputs({ ...groupedTargetInputs, groups: { ...groupedTargetInputs.groups, [group]: value } });
   const setAssetInput = (key: InvestKey, value: string) =>
@@ -297,6 +343,21 @@ function RebalanceSettingsModal({
             <div style={{ fontSize: 11, fontWeight: 600, color: totalOk ? C.green : C.orange }}>
               合计 {total.toFixed(2)}%
             </div>
+          </div>
+          <div
+            role="status"
+            title={backtest ? `${backtest.startMonth} 至 ${backtest.endMonth} · ${PORTFOLIO_BACKTEST_SOURCE_TITLE}` : PORTFOLIO_BACKTEST_SOURCE_TITLE}
+            style={{ margin: '-2px 0 10px', padding: '7px 9px', borderRadius: 8, backgroundColor: '#f8f9fa', color: C.sub, fontSize: 11, fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+          >
+            {!allocationOk
+              ? '比例配平后显示回测'
+              : backtest
+                ? <>
+                    最长 {backtest.years.toFixed(1)} 年
+                    <span style={{ color: backtest.annualizedReturn >= 0 ? C.red : C.green }}> · 年化 {(backtest.annualizedReturn * 100).toFixed(1)}%</span>
+                    <span style={{ color: C.green }}> · 最大回撤 {(backtest.maxDrawdown * 100).toFixed(1)}%</span>
+                  </>
+                : backtestError ? '最长回测暂不可用' : '最长回测计算中…'}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {INVEST_GROUPS.map((group) => {

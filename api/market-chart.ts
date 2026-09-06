@@ -37,7 +37,67 @@ type EastmoneyNavResponse = {
   ErrCode?: number;
 };
 
+type EastmoneyTrendPoint = {
+  x?: number;
+  y?: number;
+  equityReturn?: number;
+};
+
+type PriceBar = {
+  date: string;
+  close: number;
+  adjClose: number;
+  [key: string]: unknown;
+};
+
 const VALID_SYMBOL = /^[A-Z0-9.^=_-]{1,24}$/i;
+
+export function lastBarPerMonth<T extends { date: string }>(bars: T[]): T[] {
+  const byMonth = new Map<string, T>();
+  for (const bar of [...bars].sort((left, right) => left.date.localeCompare(right.date))) {
+    byMonth.set(bar.date.slice(0, 7), bar);
+  }
+  return [...byMonth.values()];
+}
+
+function parseEastmoneyTrend(script: string): EastmoneyTrendPoint[] {
+  const match = script.match(/Data_netWorthTrend\s*=\s*(\[[\s\S]*?\]);/);
+  if (!match) throw new Error('fund NAV trend missing');
+  return JSON.parse(match[1]) as EastmoneyTrendPoint[];
+}
+
+export function fundTotalReturnBars(trend: EastmoneyTrendPoint[]): PriceBar[] {
+  let totalReturnIndex = 1;
+  let previousNav: number | null = null;
+  return trend.flatMap((item) => {
+    const timestamp = Number(item.x);
+    const nav = Number(item.y);
+    if (!Number.isFinite(timestamp) || !Number.isFinite(nav) || nav <= 0) return [];
+    const reportedReturn = Number(item.equityReturn);
+    const periodReturn = Number.isFinite(reportedReturn)
+      ? reportedReturn / 100
+      : previousNav !== null ? nav / previousNav - 1 : 0;
+    if (Number.isFinite(periodReturn) && periodReturn > -1) totalReturnIndex *= 1 + periodReturn;
+    previousNav = nav;
+    return [{
+      date: new Date(timestamp).toISOString().slice(0, 10),
+      close: totalReturnIndex,
+      adjClose: totalReturnIndex,
+    }];
+  });
+}
+
+async function fetchEastmoneyTrend(symbol: string): Promise<EastmoneyTrendPoint[]> {
+  const response = await fetch(`https://fund.eastmoney.com/pingzhongdata/${symbol}.js?v=${Date.now()}`, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0',
+      Referer: `https://fund.eastmoney.com/${symbol}.html`,
+      Accept: 'text/javascript,*/*',
+    },
+  });
+  if (!response.ok) throw new Error(`fund trend ${response.status}`);
+  return parseEastmoneyTrend(await response.text());
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {
@@ -57,6 +117,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!/^\d{6}$/.test(symbol)) return res.status(400).json({ error: 'invalid fund code' });
     const fundCurrency = String(req.query.currency ?? 'CNY').trim().toUpperCase();
     if (!['CNY', 'USD', 'HKD'].includes(fundCurrency)) return res.status(400).json({ error: 'invalid currency' });
+    if (range === 'max') {
+      try {
+        const trend = await fetchEastmoneyTrend(symbol);
+        const valid = trend.filter((item) => Number.isFinite(item.x) && Number.isFinite(item.y) && Number(item.y) > 0);
+        const latest = valid[valid.length - 1];
+        if (!latest) throw new Error('fund NAV trend empty');
+        const totalReturnBars = fundTotalReturnBars(valid);
+        res.setHeader('Cache-Control', 's-maxage=21600, stale-while-revalidate=86400');
+        return res.status(200).json({
+          symbol,
+          currency: fundCurrency,
+          regularMarketPrice: Number(latest.y),
+          regularMarketTime: new Date(Number(latest.x)).toISOString(),
+          bars: interval === '1mo' ? lastBarPerMonth(totalReturnBars) : totalReturnBars,
+          source: 'Eastmoney Fund Total Return',
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'unknown error';
+        return res.status(502).json({ error: 'fund history fetch failed', message });
+      }
+    }
     const url = new URL('https://api.fund.eastmoney.com/f10/lsjz');
     url.searchParams.set('fundCode', symbol);
     url.searchParams.set('pageIndex', '1');
@@ -95,9 +176,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
         if (!fallback.ok) throw new Error(`fallback ${fallback.status}`);
         const script = await fallback.text();
-        const match = script.match(/Data_netWorthTrend\s*=\s*(\[[\s\S]*?\]);/);
-        if (!match) throw new Error('fallback NAV missing');
-        const trend = JSON.parse(match[1]) as Array<{ x?: number; y?: number }>;
+        const trend = parseEastmoneyTrend(script);
         const valid = trend.filter((item) => Number.isFinite(item.x) && Number.isFinite(item.y) && Number(item.y) > 0);
         const latest = valid[valid.length - 1];
         if (!latest) throw new Error('fallback NAV empty');
@@ -174,7 +253,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       regularMarketTime: result.meta?.regularMarketTime
         ? new Date(result.meta.regularMarketTime * 1000).toISOString()
         : null,
-      bars,
+      bars: interval === '1mo' ? lastBarPerMonth(bars) : bars,
       source: 'Yahoo Finance',
     });
   } catch (error) {
