@@ -302,7 +302,7 @@ describe('TickTick 心愿七个月准备', () => {
       startDate: '2027-03-01T08:00:00+0800', dueDate: '2027-03-02T18:00:00+0800',
     });
     expect(photo).toMatchObject({ title: '东京 · 准备证件照', parentId: visa.id });
-    expect(photo.dueDate).toBeUndefined();
+    expect(photo.dueDate).toBe('2027-02-28T00:00:00+0800');
     expect(instance.taskIdsByTemplateId['template-root']).toBeUndefined();
     expect(instance.taskIdsByTemplateId['template-month']).toBeUndefined();
     expect(api.tasks.get('template-seven-months')?.status).toBe(2);
@@ -699,6 +699,51 @@ describe('TickTick 清单状态续写', () => {
 });
 
 describe('TickTick 出游同步', () => {
+  it.each(['wish', 'trip'])('七个月阶段无日期子任务继承阶段日期，修复旧实例并保留手动清空（%s）', async (source) => {
+    const api = new FakeTickTickApi();
+    addWishPreparationTemplate(api);
+    const stage = api.tasks.get('template-seven-months')!;
+    delete stage.startDate;
+    delete stage.dueDate;
+    api.tasks.set('template-flight', {
+      id: 'template-flight', projectId: 'play', parentId: stage.id, title: 'googleflight',
+    });
+    const template = await discoverTickTickTemplate(api);
+    let state: TickTickTripSyncState = { instances: {} };
+    const sync = () => source === 'wish'
+      ? reconcileTickTickWishPreparations({ api, template, state, configState: { config: { wishes: [futureWish] } }, today: '2026-09-04', saveState: async () => undefined })
+      : reconcileTickTickTrips({ api, template, state, trips: [futureTrip], today: '2026-09-04', saveState: async () => undefined });
+    const instance = () => source === 'wish' ? state.wishInstances![futureWish.id] : state.instances[futureTrip.key];
+    const expectedDate = source === 'wish' ? '2027-02-28T00:00:00+0800' : '2026-06-10T00:00:00+0800';
+    await sync();
+    const flightId = instance().taskIdsByTemplateId['template-flight'];
+    const photoId = instance().taskIdsByTemplateId['template-photo'];
+    expect(api.tasks.get(flightId)).toMatchObject({ startDate: expectedDate, dueDate: expectedDate });
+    expect(api.tasks.get(photoId)?.dueDate).toBe(expectedDate);
+
+    // Simulate old automatic records, both with and without persisted snapshots.
+    for (const id of [flightId, photoId]) {
+      delete api.tasks.get(id)!.startDate;
+      delete api.tasks.get(id)!.dueDate;
+    }
+    instance().taskDateStates![flightId].lastSynced.startDate = null;
+    instance().taskDateStates![flightId].lastSynced.dueDate = null;
+    delete instance().taskDateStates![photoId];
+    state = JSON.parse(JSON.stringify(state));
+    await sync();
+    expect(api.tasks.get(flightId)?.dueDate).toBe(expectedDate);
+    expect(api.tasks.get(photoId)?.dueDate).toBe(expectedDate);
+
+    delete api.tasks.get(flightId)!.startDate;
+    delete api.tasks.get(flightId)!.dueDate;
+    await sync();
+    state = JSON.parse(JSON.stringify(state));
+    await sync();
+    expect(api.tasks.get(flightId)?.startDate).toBeUndefined();
+    expect(api.tasks.get(flightId)?.dueDate).toBeUndefined();
+    expect(instance().taskDateStates![flightId].manual).toBe(true);
+  });
+
   it('无日期的七个月阶段按出发日补齐截止日期，并修复旧实例', async () => {
     const api = new FakeTickTickApi();
     addWishPreparationTemplate(api);

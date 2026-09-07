@@ -782,6 +782,29 @@ function overlapCount(left: string[], right: string[]): number {
   return left.reduce((count, date) => count + (rightSet.has(date) ? 1 : 0), 0);
 }
 
+function inheritedPreparationDate(
+  task: TickTickTask,
+  template: TickTickTemplate,
+  trip: TickTickTripSource,
+): string | undefined {
+  if (task.startDate || task.dueDate) return undefined;
+  const byId = new Map(template.tasks.map((candidate) => [candidate.id, candidate]));
+  const seen = new Set<string>();
+  let stage: TickTickTask | undefined = task;
+  while (stage && !seen.has(stage.id)) {
+    seen.add(stage.id);
+    if (isSevenMonthPreparationTask(stage)) {
+      const date = stage.id === template.rootTask.id
+        ? trip.startDate
+        : shiftTickTickDate(taskDate(stage) ?? undefined, template.anchorDate, trip.startDate)
+          ?? addCalendarMonths(trip.startDate, -7);
+      return `${date}T00:00:00+0800`;
+    }
+    stage = stage.parentId ? byId.get(stage.parentId) : undefined;
+  }
+  return undefined;
+}
+
 function baseTaskPayload(
   templateTask: TickTickTask,
   trip: TickTickTripSource,
@@ -790,12 +813,7 @@ function baseTaskPayload(
   items: TickTickChecklistItem[],
 ): Record<string, unknown> {
   const isRoot = templateTask.id === template.rootTask.id;
-  const inferredStageDate = !isRoot
-    && isSevenMonthPreparationTask(templateTask)
-    && !templateTask.startDate
-    && !templateTask.dueDate
-      ? `${addCalendarMonths(trip.startDate, -7)}T00:00:00+0800`
-      : undefined;
+  const inferredStageDate = inheritedPreparationDate(templateTask, template, trip);
   const startDate = isRoot
     ? `${trip.startDate}T00:00:00+0800`
     : shiftTickTickDate(templateTask.startDate, template.anchorDate, trip.startDate) ?? inferredStageDate;
@@ -1081,9 +1099,7 @@ async function syncTripInstance(
     );
     const previousAuto = baseTaskPayload(templateTask, previousTrip, template, parentId, previousItems);
     const savedDateState = instance.taskDateStates?.[generatedTask.id];
-    const isUndatedSevenMonthMigration = isSevenMonthPreparationTask(templateTask)
-      && !templateTask.startDate
-      && !templateTask.dueDate
+    const isUndatedSevenMonthMigration = Boolean(inheritedPreparationDate(templateTask, template, previousTrip))
       && !generatedTask.startDate
       && !generatedTask.dueDate
       && !savedDateState;
