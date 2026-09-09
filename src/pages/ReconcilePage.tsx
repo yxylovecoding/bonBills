@@ -18,18 +18,14 @@ import { calcBudget } from '../calculations/budget';
 import { calcHistoryStats } from '../calculations/history';
 import { calcRebalance } from '../calculations/rebalance';
 import { investMeta, tagMeta } from '../data/mockData';
-import type { AccountSnapshot, AppConfig, DailyTag, InvestAllocTargets, InvestHoldings, InvestKey, InvestPositionItem, InvestPositionItems, MonthlyRecord, TagKind, UsStockHoldingItem } from '../models/types';
+import type { AccountSnapshot, AppConfig, DailyTag, InvestAllocTargets, InvestHoldings, InvestKey, TagKind, UsStockHoldingItem } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { tryEvalFormula } from '../utils/formula';
 import { dateLabel, resolveIncomeForMonth, type ResolvedIncomeItem } from '../utils/payroll';
-import { getCategoryCumulativeRateSummary, getCategoryProfit, type CategoryCumulativeRateSummary } from '../utils/investRecords';
 import {
-  calculateInvestPositionMetric,
   migrateLegacyInvestPositionItems,
   summarizeInvestPositionItems,
-  syncInvestPositionCategoryAmounts,
-  syncInvestPositionItems,
 } from '../utils/investPositionItems';
 import { calculateCreditRepaymentPlan, LONG_BOND_REPAY_THRESHOLD } from '../utils/creditRepayment';
 import {
@@ -138,12 +134,7 @@ const fmtUsd = (value: number) => {
 const fmtDollar = (value: number) => `$${value >= 100 ? Math.round(value).toLocaleString('zh-CN') : value.toFixed(2)}`;
 const fmtPct = (value: number | null, digits = 1) => value === null ? '—' : `${(value * 100).toFixed(digits)}%`;
 const roundMoney = (value: number) => Math.round(value * 100) / 100;
-const currencyMark = (currency: string) => {
-  const normalized = currency.toUpperCase();
-  if (normalized === 'USD') return '$';
-  if (normalized === 'CNY' || normalized === 'CNH') return '¥';
-  return `${normalized} `;
-};
+
 const latestMarketBar = (chart: MarketChartResponse | null | undefined) => {
   const bars = chart?.bars?.filter((bar) => Number.isFinite(Number(bar.adjClose ?? bar.close))) ?? [];
   return bars.length > 0 ? bars[bars.length - 1] : null;
@@ -446,7 +437,6 @@ type ReconcileMode = 'monthStart' | 'monthMiddle';
 
 type ReconcileUndoState = {
   current: AccountSnapshot;
-  monthlyRecord?: MonthlyRecord;
   config: Pick<AppConfig, 'investAllocTargets' | 'dramDecision'>;
   revealConsumptionWishUsd: boolean;
   localAccounts: Record<keyof AccountSnapshot['accounts'], string>;
@@ -475,44 +465,14 @@ const cloneAccountSnapshot = (snapshot: AccountSnapshot): AccountSnapshot => ({
       ]))
     : undefined,
   investHoldings: { ...snapshot.investHoldings },
+  reconcileInvestHoldings: snapshot.reconcileInvestHoldings ? { ...snapshot.reconcileInvestHoldings } : undefined,
   usStockHoldings: snapshot.usStockHoldings?.map((item) => ({ ...item })),
   transfersDone: { ...snapshot.transfersDone },
 });
 
-const markInvestmentEdited = (record: MonthlyRecord): MonthlyRecord => ({
-  ...record,
-  investmentEditedAt: new Date().toISOString(),
-  investmentRolledOverFrom: undefined,
-});
-
-const cloneMonthlyRecord = (record: MonthlyRecord | undefined): MonthlyRecord | undefined => record
-  ? {
-      ...record,
-      investBreakdown: record.investBreakdown ? { ...record.investBreakdown } : undefined,
-      investBreakdownProfit: record.investBreakdownProfit ? { ...record.investBreakdownProfit } : undefined,
-      investProfitComponents: record.investProfitComponents
-        ? Object.fromEntries(Object.entries(record.investProfitComponents).map(([key, value]) => [key, value ? { ...value } : value]))
-        : undefined,
-      investBreakdownPastProfit: record.investBreakdownPastProfit ? { ...record.investBreakdownPastProfit } : undefined,
-      investPastProfitComponents: record.investPastProfitComponents
-        ? Object.fromEntries(Object.entries(record.investPastProfitComponents).map(([key, value]) => [key, value ? { ...value } : value]))
-        : undefined,
-      investPositionItems: record.investPositionItems
-        ? Object.fromEntries(Object.entries(record.investPositionItems).map(([key, items]) => [key, items?.map((item) => ({
-            ...item,
-            pendingBuys: item.pendingBuys?.map((pending) => ({ ...pending })),
-          }))]))
-        : undefined,
-      investmentTransactions: record.investmentTransactions?.map((transaction) => ({ ...transaction })),
-      importedInvestmentTransactionIds: record.importedInvestmentTransactionIds ? [...record.importedInvestmentTransactionIds] : undefined,
-      majorExpenses: record.majorExpenses?.map((expense) => ({ ...expense })),
-    }
-  : undefined;
-
 const cloneReconcileUndoState = (state: ReconcileUndoState): ReconcileUndoState => ({
   ...state,
   current: cloneAccountSnapshot(state.current),
-  monthlyRecord: cloneMonthlyRecord(state.monthlyRecord),
   config: {
     investAllocTargets: { ...state.config.investAllocTargets },
     dramDecision: state.config.dramDecision ? { ...state.config.dramDecision } : undefined,
@@ -540,7 +500,7 @@ const reconcileUndoFingerprint = (state: ReconcileUndoState) => {
   };
   return JSON.stringify({
     config: state.config,
-    monthlyRecord: state.monthlyRecord,
+    reconcileInvestHoldings: state.current.reconcileInvestHoldings,
     revealConsumptionWishUsd: state.revealConsumptionWishUsd,
     localAccounts: visibleAccounts,
     revealedUsdAccounts: [...state.revealedUsdAccounts].sort(),
@@ -567,9 +527,9 @@ const RECONCILE_MODES: { key: ReconcileMode; label: string; hint: string }[] = [
 const defaultReconcileMode = (date: Date): ReconcileMode => (date.getDate() >= 1 && date.getDate() <= 13 ? 'monthStart' : 'monthMiddle');
 
 export default function ReconcilePage() {
-  const { current, updateAccounts, updateTransfers, updateHoldings, updateUsStockHoldings, restoreCurrent } = useSnapshotStore();
+  const { current, updateAccounts, updateTransfers, updateReconcileHoldings, updateUsStockHoldings, restoreCurrent } = useSnapshotStore();
   const { config, setConfig } = useConfigStore();
-  const { records, upsert } = useMonthlyStore();
+  const { records } = useMonthlyStore();
   const { tagMap, confirmedExpenses } = useCalendarStore();
   const { expenseItems } = useBillDetailStore();
   const { overrides: expenseScopeOverrides } = useExpenseScopeOverrideStore();
@@ -592,57 +552,22 @@ export default function ReconcilePage() {
       : summarizeInvestPositionItems(currentInvestRecord.investPositionItems),
     [currentInvestRecord],
   );
-  const monthlyInvestHoldings = useMemo(() => {
+  const sourceInvestHoldings = useMemo(() => {
     const breakdown = currentPositionSummary?.marketValueByCategory ?? currentInvestRecord?.investBreakdown;
     const next = emptyInvestHoldings();
     for (const key of INVEST_TARGET_KEYS) next[key] = roundMoney(Math.max(Number(breakdown?.[key]) || 0, 0));
     return next;
   }, [currentInvestRecord?.investBreakdown, currentPositionSummary]);
+  const reconcileHoldings = current.reconcileInvestHoldings ?? sourceInvestHoldings;
+  useEffect(() => {
+    if (!current.reconcileInvestHoldings && currentInvestRecord) {
+      updateReconcileHoldings(sourceInvestHoldings);
+    }
+  }, [current.reconcileInvestHoldings, currentInvestRecord, sourceInvestHoldings, updateReconcileHoldings]);
   const currentInvestPositionItems = useMemo(
     () => migrateLegacyInvestPositionItems(currentInvestRecord, INVEST_FIELD_LABELS),
     [currentInvestRecord],
   );
-
-  const updateCurrentInvestPositionGroup = (
-    key: InvestKey,
-    update: (items: InvestPositionItem[]) => InvestPositionItem[],
-  ) => {
-    if (!currentInvestRecord) {
-      window.alert('请先创建本月记录，再编辑理财明细。');
-      return;
-    }
-    const nextItems = Object.fromEntries(
-      Object.entries(currentInvestPositionItems).map(([groupKey, items]) => [
-        groupKey,
-        items?.map((item) => ({
-          ...item,
-          pendingBuys: item.pendingBuys?.map((pending) => ({ ...pending })),
-        })),
-      ]),
-    ) as InvestPositionItems;
-    nextItems[key] = update(nextItems[key] ?? []);
-    upsert(markInvestmentEdited(syncInvestPositionItems(currentInvestRecord, nextItems)), { investmentSource: 'manual' });
-  };
-
-  const normalizePositionProfit = (item: InvestPositionItem): InvestPositionItem => {
-    if (item.profitInputMode === 'historical') return item;
-    const metric = calculateInvestPositionMetric(item);
-    return {
-      ...item,
-      historicalProfitCny: roundMoney(metric.historicalProfitCny / metric.profitFxRateToCny),
-      historicalProfitCurrency: metric.profitCurrency,
-      profitInputMode: 'historical',
-    };
-  };
-
-  const patchCurrentInvestPosition = (key: InvestKey, id: string, patch: Partial<InvestPositionItem>) =>
-    updateCurrentInvestPositionGroup(key, (items) => items.map((item) => (
-      item.id === id ? { ...normalizePositionProfit(item), ...patch } : item
-    )));
-
-  const removeCurrentInvestPosition = (key: InvestKey, id: string) =>
-    updateCurrentInvestPositionGroup(key, (items) => items.filter((item) => item.id !== id));
-
 
   // 账户余额本地编辑
   const [localAccounts, setLocalAccounts] = useState({
@@ -754,7 +679,7 @@ export default function ReconcilePage() {
     creditMonthly: current.accounts.creditMonthly,
     creditTotal: current.accounts.credit,
     savingsCard: current.accounts.savingsCard,
-    longBond: monthlyInvestHoldings.longBond,
+    longBond: reconcileHoldings.longBond,
   });
 
   // 已转金额（用户直接编辑）— 每次进入页面默认为 0
@@ -794,7 +719,6 @@ export default function ReconcilePage() {
   const [screenshotPreview, setScreenshotPreview] = useState<{ url: string; fileName: string } | null>(null);
   const screenshotPreviewUrlRef = useRef<string | null>(null);
   const [reconcileMode, setReconcileMode] = useState<ReconcileMode>(() => defaultReconcileMode(new Date()));
-  const [investProfitDisplayMode, setInvestProfitDisplayMode] = useState<'rate' | 'amount'>('amount');
   const isMonthStartMode = reconcileMode === 'monthStart';
 
   const clearScreenshotDraft = () => {
@@ -946,16 +870,24 @@ export default function ReconcilePage() {
   const [localHoldings, setLocalHoldings] = useState<Record<InvestKey, string>>(
     () => Object.fromEntries(INVEST_TARGET_KEYS.map((k) => [
       k,
-      String(monthlyInvestHoldings[k]),
+      String(reconcileHoldings[k]),
     ])) as Record<InvestKey, string>
   );
   const transferInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   useEffect(() => {
     setLocalHoldings(Object.fromEntries(INVEST_TARGET_KEYS.map((key) => [
       key,
-      String(monthlyInvestHoldings[key]),
+      String(reconcileHoldings[key]),
     ])) as Record<InvestKey, string>);
-  }, [monthlyInvestHoldings]);
+  }, [reconcileHoldings]);
+
+  const holdingInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const commitHolding = (key: InvestKey, raw: string) => {
+    const value = Number(tryEvalFormula(raw) ?? raw.trim());
+    const amount = Number.isFinite(value) && value >= 0 ? roundMoney(value) : reconcileHoldings[key];
+    setLocalHoldings((previous) => ({ ...previous, [key]: String(amount) }));
+    updateReconcileHoldings({ ...reconcileHoldings, [key]: amount });
+  };
 
   const showCreditMonthlyInput = isMonthStartMode;
   const { holidayDataByYear, holidayWarning } = useHolidayYears([currentYear - 1, currentYear, nextYear]);
@@ -1013,21 +945,6 @@ export default function ReconcilePage() {
       : DEFAULT_CONFIG.investAllocTargets,
     [config.investAllocTargets, investKeys],
   );
-  const cumulativeBreakdownRates = useMemo(
-    () => Object.fromEntries(
-      INVEST_TARGET_KEYS.map((key) => [key, getCategoryCumulativeRateSummary(records, key)]),
-    ) as Record<InvestKey, CategoryCumulativeRateSummary | null>,
-    [records],
-  );
-  const currentBreakdownProfits = useMemo(() => Object.fromEntries(
-    INVEST_TARGET_KEYS.map((key) => {
-      const summaryAmount = currentPositionSummary && (currentInvestRecord?.investPositionItems?.[key]?.length ?? 0) > 0
-        ? currentPositionSummary.holdingProfitByCategory[key] + currentPositionSummary.historicalProfitByCategory[key]
-        : null;
-      const amount = summaryAmount ?? getCategoryProfit(currentInvestRecord, key);
-      return [key, amount === null ? null : { amount, yearMonth: curYM }];
-    }),
-  ) as Record<InvestKey, { amount: number; yearMonth: string } | null>, [curYM, currentInvestRecord, currentPositionSummary]);
   const fallbackUsdRate = useMemo(
     () => [...records].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth))
       .map((r) => r.investProfitComponents?.us?.rate ?? r.investProfitComponents?.usBond?.rate)
@@ -1060,12 +977,12 @@ export default function ReconcilePage() {
       key,
       roundMoney(
         (key === 'longBond'
-          ? Math.max(0, monthlyInvestHoldings.longBond - longBondRepay)
-          : monthlyInvestHoldings[key])
+          ? Math.max(0, reconcileHoldings.longBond - longBondRepay)
+          : reconcileHoldings[key])
         + pendingInvestHoldings[key],
       ),
     ]),
-  ) as Record<InvestKey, number>, [longBondRepay, monthlyInvestHoldings, pendingInvestHoldings]);
+  ) as Record<InvestKey, number>, [longBondRepay, reconcileHoldings, pendingInvestHoldings]);
   const usdRateLabel = remoteUsdRate
     ? `${remoteUsdRate.source}${remoteUsdRate.date ? ` · ${remoteUsdRate.date}` : ''}`
     : fallbackUsdRate !== null
@@ -1134,9 +1051,9 @@ export default function ReconcilePage() {
       chart: dramChart,
       config: dramConfig,
       usdRate: latestUsdRate,
-      usStockValueCny: monthlyInvestHoldings.us,
+      usStockValueCny: reconcileHoldings.us,
     }) : null,
-    [dramChart, dramConfig, latestUsdRate, monthlyInvestHoldings.us],
+    [dramChart, dramConfig, latestUsdRate, reconcileHoldings.us],
   );
   const effectiveUsStockItems = useMemo<UsStockHoldingItem[]>(() => {
     if (storedUsStockItems.length > 0) return storedUsStockItems;
@@ -1154,10 +1071,10 @@ export default function ReconcilePage() {
         id: 'sp500',
         name: '标普',
         symbol: 'SPY',
-        amountCny: roundMoney(Math.max(monthlyInvestHoldings.us - dramCostValue, 0)),
+        amountCny: roundMoney(Math.max(reconcileHoldings.us - dramCostValue, 0)),
       },
     ];
-  }, [dramConfig, latestUsdRate, monthlyInvestHoldings.us, storedUsStockItems]);
+  }, [dramConfig, latestUsdRate, reconcileHoldings.us, storedUsStockItems]);
   const autoFillUsStockAmount = (item: UsStockItemInput) => {
     if (isSpyUsStockInput(item)) return item;
     const amountCny = usStockCostAmountCny(item, latestUsdRate);
@@ -1166,7 +1083,7 @@ export default function ReconcilePage() {
   const normalizeUsStockInputs = (inputs: UsStockItemInput[], options?: { autoAmount?: boolean; usTotalCny?: number }) => {
     const shouldAutoAmount = options?.autoAmount !== false;
     const amountInputs = shouldAutoAmount ? inputs.map(autoFillUsStockAmount) : inputs;
-    return syncSpyUsStockAmount(amountInputs, options?.usTotalCny ?? monthlyInvestHoldings.us);
+    return syncSpyUsStockAmount(amountInputs, options?.usTotalCny ?? reconcileHoldings.us);
   };
   const usStockInputsToItems = (inputs: UsStockItemInput[]) => (
     inputs.map((item, index) => {
@@ -1183,15 +1100,13 @@ export default function ReconcilePage() {
       };
     })
   );
-  const [expandedPositionKey, setExpandedPositionKey] = useState<InvestKey | null>(null);
-  const [positionDetailStatus, setPositionDetailStatus] = useState<'now' | 'past'>('now');
   const [dramDecisionExpanded, setDramDecisionExpanded] = useState(false);
   const [localUsStockItems, setLocalUsStockItems] = useState<UsStockItemInput[]>(
     () => normalizeUsStockInputs(usStockInputsFromItems(effectiveUsStockItems)),
   );
   useEffect(() => {
     setLocalUsStockItems(normalizeUsStockInputs(usStockInputsFromItems(effectiveUsStockItems)));
-  }, [effectiveUsStockItems, latestUsdRate, monthlyInvestHoldings.us]);
+  }, [effectiveUsStockItems, latestUsdRate, reconcileHoldings.us]);
   const usStockSymbols = useMemo(
     () => [...new Set(localUsStockItems.map((item) => item.symbol.trim().toUpperCase()).filter(Boolean))],
     [localUsStockItems],
@@ -1245,12 +1160,6 @@ export default function ReconcilePage() {
   };
   const applyScreenshotDraft = () => {
     if (!screenshotDraft) return;
-    const hasInvestmentAmounts = Object.values(screenshotDraft.investHoldings)
-      .some((value) => value !== null && Number.isFinite(value));
-    if (hasInvestmentAmounts && !currentInvestRecord) {
-      setScreenshotImportMsg('请先创建本月记录，再同步理财数据');
-      return;
-    }
     const accountPatch: Partial<AccountSnapshot['accounts']> = {};
     for (const [key, value] of Object.entries(screenshotDraft.accounts) as [keyof AccountSnapshot['accounts'], number | null][]) {
       if (value !== null && Number.isFinite(value)) accountPatch[key] = roundMoney(value);
@@ -1271,9 +1180,8 @@ export default function ReconcilePage() {
       if (value !== null && Number.isFinite(value)) holdingPatch[key] = roundMoney(value);
     }
     if (Object.keys(holdingPatch).length > 0) {
-      const nextHoldings = { ...monthlyInvestHoldings, ...holdingPatch };
-      upsert(markInvestmentEdited(syncInvestPositionCategoryAmounts(currentInvestRecord!, nextHoldings)), { investmentSource: 'manual' });
-      updateHoldings(nextHoldings);
+      const nextHoldings = { ...reconcileHoldings, ...holdingPatch };
+      updateReconcileHoldings(nextHoldings);
     }
 
     if (screenshotDraft.usStockHoldings.length > 0) {
@@ -1292,8 +1200,6 @@ export default function ReconcilePage() {
       const inputs = usStockInputsFromItems(items);
       setLocalUsStockItems(inputs);
       updateUsStockHoldings(usStockInputsToItems(inputs));
-      setExpandedPositionKey('us');
-      setPositionDetailStatus('now');
     }
 
     clearScreenshotDraft();
@@ -1312,8 +1218,6 @@ export default function ReconcilePage() {
     ]);
     setLocalUsStockItems(next);
     commitUsStockItems(next);
-    setExpandedPositionKey('us');
-    setPositionDetailStatus('now');
   };
   const removeUsStockItem = (id: string) => {
     const next = normalizeUsStockInputs(localUsStockItems.filter((item) => item.id !== id));
@@ -1321,7 +1225,7 @@ export default function ReconcilePage() {
     commitUsStockItems(next);
   };
   const usStockDetailTotal = localUsStockItems.reduce((sum, item) => sum + Math.max(0, parseAmountPart(item.amountCny)), 0);
-  const usStockDetailGap = roundMoney(usStockDetailTotal - monthlyInvestHoldings.us);
+  const usStockDetailGap = roundMoney(usStockDetailTotal - reconcileHoldings.us);
   const commitInvestUsdCnyInput = (rawCny = investUsdCnyInput) => {
     if (latestUsdRate === null) {
       syncAccounts();
@@ -1583,15 +1487,10 @@ export default function ReconcilePage() {
   const handleRedeemLongBond = () => {
     const amount = roundMoney(longBondRepay);
     if (amount <= 0) return;
-    if (!currentInvestRecord) {
-      window.alert('请先创建本月记录，再执行长债赎回。');
-      return;
-    }
-    const newLongBond = roundMoney(monthlyInvestHoldings.longBond - amount);
+    const newLongBond = roundMoney(reconcileHoldings.longBond - amount);
     const newSavings = roundMoney((current.accounts.savingsCard ?? 0) + amount);
-    const nextHoldings = { ...monthlyInvestHoldings, longBond: newLongBond };
-    upsert(markInvestmentEdited(syncInvestPositionCategoryAmounts(currentInvestRecord, nextHoldings)), { investmentSource: 'manual' });
-    updateHoldings(nextHoldings);
+    const nextHoldings = { ...reconcileHoldings, longBond: newLongBond };
+    updateReconcileHoldings(nextHoldings);
     updateAccounts({ savingsCard: newSavings });
     setLocalAccounts((p) => ({ ...p, savingsCard: String(newSavings) }));
   };
@@ -1813,7 +1712,6 @@ export default function ReconcilePage() {
   const previousUndoFingerprintRef = useRef<string | null>(null);
   const latestUndoState = useMemo<ReconcileUndoState>(() => ({
     current: cloneAccountSnapshot(current),
-    monthlyRecord: cloneMonthlyRecord(currentInvestRecord),
     config: {
       investAllocTargets: { ...config.investAllocTargets },
       dramDecision: config.dramDecision ? { ...config.dramDecision } : undefined,
@@ -1838,7 +1736,7 @@ export default function ReconcilePage() {
     localFundingLeg: { ...localFundingLeg },
   }), [
     allowRebalanceSell, config.dramDecision, config.investAllocTargets, confirmed, consumptionWishOpen,
-    current, currentInvestRecord, dramConfigInputs, groupedTargetInputs, investUsdCnyInput, investUsdInputMode,
+    current, dramConfigInputs, groupedTargetInputs, investUsdCnyInput, investUsdInputMode,
     localAccounts, localFundingLeg, localHoldings, localTransferred, localUsStockItems,
     reconcileMode, revealConsumptionWishUsd, revealedUsdAccounts,
   ]);
@@ -1892,7 +1790,6 @@ export default function ReconcilePage() {
       pendingUndoTimerRef.current = null;
     }
     restoreCurrent(cloneAccountSnapshot(previous.state.current));
-    if (previous.state.monthlyRecord) upsert(cloneMonthlyRecord(previous.state.monthlyRecord)!);
     setConfig({
       investAllocTargets: { ...previous.state.config.investAllocTargets },
       dramDecision: previous.state.config.dramDecision ? { ...previous.state.config.dramDecision } : undefined,
@@ -2810,7 +2707,18 @@ export default function ReconcilePage() {
 
       {/* Step 3: 理财配置 & 再平衡 */}
       <div id="sec-invest">
-      <Card title="③ 理财配置 & 再平衡" subtitle="持仓同步与配置建议">
+      <Card title="③ 理财配置 & 再平衡">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>总金额 ¥{formatCurrency(investKeys.reduce((sum, key) => sum + reconcileHoldings[key], 0))}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {!currentInvestRecord && <span style={{ color: C.sub, fontSize: 11 }}>暂无本月记录</span>}
+            <button type="button" disabled={!currentInvestRecord}
+              onClick={() => updateReconcileHoldings(sourceInvestHoldings)}
+              style={{ border: 'none', borderRadius: 8, padding: '6px 9px', backgroundColor: currentInvestRecord ? '#e8f0fe' : '#f1f3f4', color: currentInvestRecord ? C.blue : C.sub, fontSize: 12, fontWeight: 700, cursor: currentInvestRecord ? 'pointer' : 'default' }}>
+              获取持仓
+            </button>
+          </div>
+        </div>
         {/* 本次投入 */}
         <div {...makeUsdSwipeHandlers('investUsdBank')} style={{ touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, border: '1.5px solid #fbbf24', borderRadius: 10, padding: '10px 12px', backgroundColor: '#fffbeb', marginBottom: 14 }}>
           {([
@@ -2978,26 +2886,14 @@ export default function ReconcilePage() {
         {/* 持仓表（固定列宽） */}
         <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse', marginBottom: 16, tableLayout: 'fixed' }}>
           <colgroup>
-            <col style={{ width: '22%' }} />
-            <col style={{ width: '32%' }} />
-            <col style={{ width: '24%' }} />
-            <col style={{ width: '22%' }} />
+            <col style={{ width: '25%' }} />
+            <col style={{ width: '45%' }} />
+            <col style={{ width: '30%' }} />
           </colgroup>
           <thead>
             <tr style={{ borderBottom: '2px solid #e8eaed' }}>
               <th style={thStyle}>品类</th>
-              <th style={{ ...thStyle, textAlign: 'right' }}>当前金额</th>
-              <th style={{ ...thStyle, textAlign: 'right' }}>
-                <button
-                  type="button"
-                  onClick={() => setInvestProfitDisplayMode((mode) => mode === 'rate' ? 'amount' : 'rate')}
-                  title={investProfitDisplayMode === 'rate' ? '点击切换为累计收益' : '点击切换为累计收益率'}
-                  aria-label={investProfitDisplayMode === 'rate' ? '累计收益率，点击切换为累计收益' : '累计收益，点击切换为累计收益率'}
-                  style={{ padding: 0, border: 'none', borderBottom: `1px dashed ${C.sub}`, background: 'transparent', color: 'inherit', font: 'inherit', cursor: 'pointer' }}
-                >
-                  {investProfitDisplayMode === 'rate' ? '累计收益率' : '累计收益'}
-                </button>
-              </th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>now 总金额</th>
               <th style={{ ...thStyle, textAlign: 'right', color: allowRebalanceSell ? C.blue : C.orange }}>{allowRebalanceSell ? '需加/赎' : '需加'}</th>
             </tr>
           </thead>
@@ -3015,11 +2911,6 @@ export default function ReconcilePage() {
               const groupTargetWarning = groupTargetGap !== null
                 && groupTargetGap >= INVEST_GROUP_WARNING_THRESHOLD - 1e-9;
               const groupTargetDirection = groupRatio !== null && groupRatio > groupTargetRatio ? '偏高' : '偏低';
-              const profitRateSummary = cumulativeBreakdownRates[k] ?? null;
-              const profitRate = profitRateSummary?.rate ?? null;
-              const cumulativeProfitSummary = currentBreakdownProfits[k] ?? null;
-              const cumulativeProfit = cumulativeProfitSummary?.amount ?? null;
-              const positionExpanded = expandedPositionKey === k;
               const suggested = Math.round(rebalanceSuggested[k]);
               const showUsd = (USD_INVEST_KEYS.includes(k) || usdRebalanceCells.has(k)) && latestUsdRate !== null;
               const remainingLabel = suggested === 0
@@ -3033,13 +2924,13 @@ export default function ReconcilePage() {
                 <Fragment key={k}>
                 {isGroupStart && i > 0 && (
                   <tr aria-hidden="true">
-                    <td colSpan={4} style={{ height: 8, padding: 0, backgroundColor: '#fff' }} />
+                    <td colSpan={3} style={{ height: 8, padding: 0, backgroundColor: '#fff' }} />
                   </tr>
                 )}
                 {isGroupStart && (
                   <tr>
                     <td
-                      colSpan={4}
+                      colSpan={3}
                       style={{ padding: '7px 10px', backgroundColor: groupTargetWarning ? '#fce8e6' : groupTone.header, borderBottom: `1px solid ${groupTargetWarning ? '#f28b82' : groupTone.border}` }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -3062,22 +2953,26 @@ export default function ReconcilePage() {
                   </tr>
                 )}
                 <tr style={{ backgroundColor: groupTone.surface, borderBottom: `1px solid ${groupTone.border}` }}>
-                  <td style={{ padding: '8px 0', paddingRight: 34, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', position: 'relative' }}>
+                  <td style={{ padding: '8px 0', paddingRight: 8, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', position: 'relative' }}>
                     <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', backgroundColor: investMeta[k].color, marginRight: 4, verticalAlign: 'middle', flexShrink: 0 }} />
                     {investMeta[k].label}
-                    <button
-                      type="button"
-                      onClick={() => setExpandedPositionKey(positionExpanded ? null : k)}
-                      aria-label={positionExpanded ? `收起${investMeta[k].label}明细` : `展开${investMeta[k].label}明细`}
-                      style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', border: 'none', borderRadius: 8, backgroundColor: '#eef4ff', color: C.blue, width: 32, height: 32, padding: 0, cursor: 'pointer', fontSize: 17, fontWeight: 900, lineHeight: 1 }}
-                    >
-                      {positionExpanded ? '▾' : '▸'}
-                    </button>
+
                   </td>
                   <td style={{ padding: '4px 0', textAlign: 'right' }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#202124' }}>
-                      {formatCurrency(monthlyInvestHoldings[k])}
-                    </span>
+                    <AmountInput
+                      ref={(element) => { holdingInputRefs.current[i] = element; }}
+                      aria-label={`${investMeta[k].label} now 总金额`}
+                      value={localHoldings[k]}
+                      onChange={(value) => setLocalHoldings((previous) => ({ ...previous, [k]: value }))}
+                      onBlur={(event) => commitHolding(k, event.currentTarget.value)}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+                        event.preventDefault();
+                        event.currentTarget.blur();
+                        holdingInputRefs.current[i + 1]?.focus();
+                      }}
+                      style={{ width: '100%', minWidth: 0, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', textAlign: 'right', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue }}
+                    />
                     {k === 'longBond' && longBondRepay > 0 && (
                       <div title={`已扣除信用卡还款 ¥${fmtInt(longBondRepay)}`} style={{ marginTop: 2, color: C.sub, fontSize: 9, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                         配置净额 ¥{fmtInt(effectiveInvestHoldings.longBond)}
@@ -3087,35 +2982,6 @@ export default function ReconcilePage() {
                       <div style={{ marginTop: 2, color: C.orange, fontSize: 9, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                         待确认 ¥{fmtInt(pendingInvestHoldings[k])}
                       </div>
-                    )}
-                  </td>
-                  {/* 累计收益率 */}
-                  <td
-                    title={investProfitDisplayMode === 'rate'
-                      ? (profitRateSummary ? `自 ${profitRateSummary.startYearMonth} 起，累计 ${profitRateSummary.monthCount} 个月的月收益率` : '暂无可累计的月收益率')
-                      : (cumulativeProfitSummary ? `截至 ${cumulativeProfitSummary.yearMonth}，累计收益 = now + past` : '暂无累计收益')}
-                    style={{ padding: '8px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
-                  >
-                    {investProfitDisplayMode === 'rate' && profitRate !== null ? (
-                      <div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: profitRate >= 0 ? C.red : C.green }}>
-                          {profitRate >= 0 ? '+' : ''}{(profitRate * 100).toFixed(1)}%
-                        </div>
-                        <div style={{ marginTop: 2, fontSize: 9, lineHeight: 1.1, color: C.sub, whiteSpace: 'nowrap' }}>
-                          自 {profitRateSummary!.startYearMonth}
-                        </div>
-                      </div>
-                    ) : investProfitDisplayMode === 'amount' && cumulativeProfit !== null ? (
-                      <div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: cumulativeProfit >= 0 ? C.red : C.green }}>
-                          {cumulativeProfit >= 0 ? '+' : '-'}¥{fmtInt(Math.abs(cumulativeProfit))}
-                        </div>
-                        <div style={{ marginTop: 2, fontSize: 9, lineHeight: 1.1, color: C.sub, whiteSpace: 'nowrap' }}>
-                          截至 {cumulativeProfitSummary!.yearMonth}
-                        </div>
-                      </div>
-                    ) : (
-                      <span style={{ fontSize: 11, color: C.sub }}>—</span>
                     )}
                   </td>
                   {/* 需加/需赎建议；正=加仓，负=赎回 */}
@@ -3135,179 +3001,15 @@ export default function ReconcilePage() {
                     {remainingLabel}
                   </td>
                 </tr>
-                {positionExpanded && (() => {
-                  const detailItems = (currentInvestPositionItems[k] ?? []).filter((item) => (
-                    positionDetailStatus === 'now'
-                      ? item.status === 'active' || (item.pendingBuys?.length ?? 0) > 0
-                      : item.status !== 'active' && (item.pendingBuys?.length ?? 0) === 0
-                  ));
-                  return (
-                    <tr style={{ backgroundColor: '#f8fbff', borderBottom: `1px solid ${groupTone.border}` }}>
-                      <td colSpan={4} style={{ padding: '8px 0 10px' }}>
-                        <div style={{ border: `1px solid ${groupTone.border}`, borderRadius: 10, padding: '8px 9px', backgroundColor: '#fff' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', border: '1px solid #dadce0', borderRadius: 8, overflow: 'hidden' }}>
-                              {(['now', 'past'] as const).map((status) => (
-                                <button
-                                  key={status}
-                                  type="button"
-                                  aria-pressed={positionDetailStatus === status}
-                                  onClick={() => setPositionDetailStatus(status)}
-                                  style={{ minWidth: 64, border: 'none', borderRight: status === 'now' ? '1px solid #dadce0' : 'none', padding: '5px 12px', backgroundColor: positionDetailStatus === status ? '#e8f0fe' : '#fff', color: positionDetailStatus === status ? C.blue : C.sub, fontSize: 11, fontWeight: 800, cursor: 'pointer' }}
-                                >
-                                  {status}
-                                </button>
-                              ))}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => updateCurrentInvestPositionGroup(k, (items) => [...items, {
-                                id: `reconcile-position:${curYM}:${k}:${Date.now()}`,
-                                name: '新项目',
-                                symbol: '',
-                                status: positionDetailStatus === 'now' ? 'active' : 'paused',
-                                historicalProfitCny: 0,
-                                historicalProfitCurrency: 'CNY',
-                                profitInputMode: 'historical',
-                                marketValueCny: 0,
-                                holdingProfitCny: 0,
-                              }])}
-                              style={{ border: 'none', borderRadius: 8, backgroundColor: '#e8f0fe', color: C.blue, padding: '6px 9px', fontSize: 11, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}
-                            >
-                              + 项目
-                            </button>
-                          </div>
-                          {!currentInvestRecord ? (
-                            <div style={{ padding: '12px 0', textAlign: 'center', color: C.sub, fontSize: 11 }}>请先创建本月记录</div>
-                          ) : detailItems.length === 0 ? (
-                            <div style={{ padding: '12px 0', textAlign: 'center', color: C.sub, fontSize: 11 }}>暂无项目</div>
-                          ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                              {detailItems.map((item) => {
-                                const metric = calculateInvestPositionMetric(item);
-                                const itemCurrency = item.symbol.trim()
-                                  ? (item.quoteCurrency || item.lastCurrency || (k === 'us' || k === 'usBond' ? 'USD' : metric.profitCurrency) || 'CNY').toUpperCase()
-                                  : 'CNY';
-                                const itemFxRate = ['CNY', 'CNH'].includes(itemCurrency)
-                                  ? 1
-                                  : (metric.fxRateToCny || item.lastFxRateToCny || (itemCurrency === 'USD' ? latestUsdRate : null) || metric.profitFxRateToCny || 1);
-                                const itemMarketValue = metric.marketValueCny / itemFxRate;
-                                const itemHoldingProfit = metric.holdingProfitCny / itemFxRate;
-                                const itemHistoricalProfit = metric.historicalProfitCny / itemFxRate;
-                                const totalProfit = itemHistoricalProfit + itemHoldingProfit;
-                                const itemCurrencyMark = currencyMark(itemCurrency);
-                                const optionalNumber = (raw: string) => raw.trim() === '' ? undefined : parseAmountPart(raw);
-                                return (
-                                  <div key={item.id} style={{ border: '1px solid #edf2fb', borderRadius: 9, padding: '7px 8px', backgroundColor: '#fbfdff' }}>
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(72px, 1fr) minmax(58px, 80px) auto', gap: 7, alignItems: 'center' }}>
-                                      <input
-                                        aria-label={`${investMeta[k].label}项目名称`}
-                                        defaultValue={item.name}
-                                        onBlur={(event) => patchCurrentInvestPosition(k, item.id, { name: event.target.value })}
-                                        style={{ minWidth: 0, width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', color: '#202124', fontSize: 12, fontWeight: 800 }}
-                                      />
-                                      <div aria-label={`${item.name}金额`} style={{ minWidth: 0, textAlign: 'right', color: '#202124', fontSize: 12, fontWeight: 800, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                                        {itemCurrencyMark}{formatCurrency(itemMarketValue)}
-                                      </div>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                        <button
-                                          type="button"
-                                          title={positionDetailStatus === 'now' ? '移至 past' : '移至 now'}
-                                          aria-label={`${item.name}${positionDetailStatus === 'now' ? '移至 past' : '移至 now'}`}
-                                          onClick={() => patchCurrentInvestPosition(k, item.id, { status: positionDetailStatus === 'now' ? 'paused' : 'active' })}
-                                          style={{ border: '1px solid #dadce0', borderRadius: 7, width: 27, height: 27, backgroundColor: '#fff', color: C.sub, cursor: 'pointer', fontSize: 13 }}
-                                        >
-                                          →
-                                        </button>
-                                        <button
-                                          type="button"
-                                          aria-label={`删除${item.name}`}
-                                          onClick={() => { if (window.confirm(`删除“${item.name}”？`)) removeCurrentInvestPosition(k, item.id); }}
-                                          style={{ border: 'none', borderRadius: 7, width: 27, height: 27, backgroundColor: '#fce8e6', color: C.red, cursor: 'pointer', fontSize: 14, fontWeight: 800 }}
-                                        >
-                                          ×
-                                        </button>
-                                      </div>
-                                    </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: item.symbol.trim() ? 'repeat(3, minmax(0, 1fr))' : 'repeat(2, minmax(0, 1fr))', gap: '6px 10px', marginTop: 8 }}>
-                                      {!item.symbol.trim() && (
-                                      <label style={{ minWidth: 0, color: C.sub, fontSize: 9 }}>
-                                        代码
-                                        <input
-                                          type="text"
-                                          defaultValue={item.symbol}
-                                          onBlur={(event) => patchCurrentInvestPosition(k, item.id, { symbol: event.target.value.trim().toUpperCase() })}
-                                          placeholder="填写后隐藏"
-                                          style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', color: C.blue, textAlign: 'right', fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}
-                                        />
-                                      </label>
-                                      )}
-                                      <label style={{ minWidth: 0, color: C.sub, fontSize: 9 }}>
-                                        累计收益{itemCurrencyMark}
-                                        <input
-                                          type="text"
-                                          inputMode="decimal"
-                                          defaultValue={totalProfit.toFixed(2)}
-                                          onBlur={(event) => patchCurrentInvestPosition(k, item.id, { historicalProfitCny: roundMoney(parseAmountPart(event.target.value) - itemHoldingProfit), historicalProfitCurrency: itemCurrency, profitInputMode: 'historical' })}
-                                          style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', color: totalProfit > 0 ? C.red : totalProfit < 0 ? C.green : C.sub, textAlign: 'right', fontSize: 11, fontWeight: 700 }}
-                                        />
-                                      </label>
-                                      <label style={{ minWidth: 0, color: C.sub, fontSize: 9 }}>
-                                        份额
-                                        <input
-                                          type="text"
-                                          inputMode="decimal"
-                                          defaultValue={item.shares}
-                                          onBlur={(event) => patchCurrentInvestPosition(k, item.id, { shares: optionalNumber(event.target.value) })}
-                                          style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', color: C.sub, textAlign: 'right', fontSize: 11, fontWeight: 700 }}
-                                        />
-                                      </label>
-                                      <label style={{ minWidth: 0, color: C.sub, fontSize: 9 }}>
-                                        成本价{itemCurrencyMark}
-                                        <input
-                                          type="text"
-                                          inputMode="decimal"
-                                          defaultValue={item.costPrice}
-                                          onBlur={(event) => patchCurrentInvestPosition(k, item.id, { costPrice: optionalNumber(event.target.value) })}
-                                          style={{ width: '100%', border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', color: C.sub, textAlign: 'right', fontSize: 11, fontWeight: 700 }}
-                                        />
-                                      </label>
-                                    </div>
-                                    {(item.pendingBuys?.length ?? 0) > 0 && (
-                                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 7 }}>
-                                        {item.pendingBuys?.map((pending) => (
-                                          <div key={pending.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, borderRadius: 7, backgroundColor: '#fff4e5', padding: '5px 7px', color: C.orange, fontSize: 10, fontWeight: 700 }}>
-                                            <span>待确认 · {pending.operationAt.slice(5, 16).replace('T', ' ')}</span>
-                                            <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                                              {pending.amount ? `${currencyMark(pending.currency)}${formatCurrency(pending.amount)}` : '金额待出'}
-                                              {pending.account ? ` · ${pending.account}` : ''}
-                                            </span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                    <div style={{ marginTop: 6, textAlign: 'right', color: itemHoldingProfit > 0 ? C.red : itemHoldingProfit < 0 ? C.green : C.sub, fontSize: 10, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                                      持有收益 {itemHoldingProfit > 0 ? '+' : itemHoldingProfit < 0 ? '-' : ''}{itemCurrencyMark}{formatCurrency(Math.abs(itemHoldingProfit))}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })()}
                 {false && (
                   <tr style={{ backgroundColor: '#f8fbff', borderBottom: '1px solid #e8f0fe' }}>
-                    <td colSpan={4} style={{ padding: '8px 0 10px' }}>
+                    <td colSpan={3} style={{ padding: '8px 0 10px' }}>
                       <div style={{ border: '1px solid #d2e3fc', borderRadius: 10, padding: '8px 9px', backgroundColor: '#fff' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
                           <div>
                             <div style={{ fontSize: 12, fontWeight: 800, color: '#202124' }}>美股明细</div>
                             <div style={{ fontSize: 10, color: Math.abs(usStockDetailGap) >= 1 ? C.orange : C.sub, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
-                              合计 ¥{fmtInt(usStockDetailTotal)} · 美股 ¥{fmtInt(monthlyInvestHoldings.us)}
+                              合计 ¥{fmtInt(usStockDetailTotal)} · 美股 ¥{fmtInt(reconcileHoldings.us)}
                               {Math.abs(usStockDetailGap) >= 1 ? ` · 差额 ${usStockDetailGap > 0 ? '+' : ''}¥${fmtInt(usStockDetailGap)}` : ''}
                             </div>
                           </div>
@@ -3322,7 +3024,7 @@ export default function ReconcilePage() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
                           {localUsStockItems.map((item) => {
                             const amount = Math.max(0, parseAmountPart(item.amountCny));
-                            const weight = monthlyInvestHoldings.us > 0 ? amount / monthlyInvestHoldings.us : null;
+                            const weight = reconcileHoldings.us > 0 ? amount / reconcileHoldings.us : null;
                             const symbol = item.symbol.trim().toUpperCase();
                             const isSpyItem = isSpyUsStockInput(item);
                             const isDramItem = symbol === 'DRAM' || item.name.trim().toUpperCase() === 'DRAM';
