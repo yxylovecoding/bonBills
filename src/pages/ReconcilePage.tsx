@@ -558,7 +558,7 @@ const reconcileUndoFingerprint = (state: ReconcileUndoState) => {
   });
 };
 
-interface BudgetDetailItem { icon: string; label: string; amount: number; note?: string }
+interface BudgetDetailItem { icon: string; label: string; amount: number; note?: string; isIncome?: boolean }
 
 const RECONCILE_MODES: { key: ReconcileMode; label: string; hint: string }[] = [
   { key: 'monthStart', label: '月初', hint: '1-13号' },
@@ -1599,6 +1599,8 @@ export default function ReconcilePage() {
   const todayDate = today.getDate();
   const weekEnd = todayDate + Math.min(budget.daysLeftInMonth, 7);
   const payDateDay = (item: ResolvedIncomeItem) => Number(item.resolvedPayDate.slice(8, 10));
+  const internIncomeLast = (a: ResolvedIncomeItem, b: ResolvedIncomeItem) =>
+    Number(a.isInternPayroll) - Number(b.isInternPayroll);
   const makeIncomeNote = (item: ResolvedIncomeItem, status: 'upcoming' | 'received' | 'next') => {
     const baseLabel = status === 'received'
       ? `${payDateDay(item)}号已发`
@@ -1686,8 +1688,8 @@ export default function ReconcilePage() {
     weekly: {
       income: [
         { icon: '🏦', label: '生活账户余额', amount: current.accounts.livingBank ?? 0, note: '当前余额' },
-        ...currentResolvedIncomeItems.filter((item) => item.isActive && payDateDay(item) > todayDate && payDateDay(item) <= weekEnd).map((item) => ({
-          icon: '💰', label: item.name, amount: item.resolvedAmount, note: makeIncomeNote(item, 'upcoming'),
+        ...currentResolvedIncomeItems.filter((item) => item.isActive && payDateDay(item) > todayDate && payDateDay(item) <= weekEnd).sort(internIncomeLast).map((item) => ({
+          icon: '💰', label: item.name, amount: item.resolvedAmount, isIncome: true, note: makeIncomeNote(item, 'upcoming'),
         })),
       ],
       expense: [
@@ -1702,9 +1704,10 @@ export default function ReconcilePage() {
     monthly: {
       income: [
         { icon: '🏦', label: '生活账户余额', amount: current.accounts.livingBank ?? 0, note: '当前余额' },
-        ...currentResolvedIncomeItems.filter((item) => item.isActive).map((item) => {
+        ...currentResolvedIncomeItems.filter((item) => item.isActive).sort(internIncomeLast).map((item) => {
           const received = payDateDay(item) <= todayDate;
           return {
+            isIncome: true,
             icon: received ? '✅' : '💰',
             label: item.name,
             amount: received ? 0 : item.resolvedAmount,
@@ -1723,7 +1726,8 @@ export default function ReconcilePage() {
       ],
     },
     beyond: {
-      income: nextResolvedIncomeItems.filter((item) => item.isActive).map((item) => ({
+      income: nextResolvedIncomeItems.filter((item) => item.isActive).sort(internIncomeLast).map((item) => ({
+        isIncome: true,
         icon: '💰',
         label: item.name,
         amount: item.resolvedAmount,
@@ -2588,6 +2592,9 @@ export default function ReconcilePage() {
           const isOpen = expandedBudget === row.key;
           const detail = budgetDetails[row.key];
           const balance = row.inc - row.exp;
+          const incomeTotal = detail.income
+            .filter((item) => item.isIncome)
+            .reduce((sum, item) => sum + item.amount, 0);
           const livingExpenseTotal = detail.expense
             .filter((item) => item.label.endsWith('·生活'))
             .reduce((sum, item) => sum + item.amount, 0);
@@ -2627,6 +2634,10 @@ export default function ReconcilePage() {
                           <span style={{ fontSize: 13, fontWeight: 500, color: C.red, fontVariantNumeric: 'tabular-nums' }}>+¥{formatCurrency(item.amount)}</span>
                         </div>
                       ))}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5, paddingTop: 7, borderTop: '1px solid #dbe8fb', fontSize: 13, fontWeight: 700 }}>
+                        <span style={{ color: C.sub }}>总收入</span>
+                        <span style={{ color: C.red, fontVariantNumeric: 'tabular-nums' }}>+¥{formatCurrency(incomeTotal)}</span>
+                      </div>
                     </div>
                   )}
                   <div style={{ height: 1, backgroundColor: '#dbe8fb' }} />
