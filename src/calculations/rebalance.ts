@@ -1,5 +1,26 @@
 import type { InvestHoldings, InvestAllocTargets, RebalanceResult, InvestKey } from '../models/types';
 
+export function calcTopUpRebalance(
+  holdings: InvestHoldings,
+  targets: InvestAllocTargets,
+  newFunds: number,
+  longBondFloor: number,
+): RebalanceResult {
+  const funds = Math.max(newFunds, 0);
+  const topUp = Math.min(funds, Math.max(longBondFloor - holdings.longBond, 0));
+  const keys = Object.keys(holdings) as InvestKey[];
+  const remainingWeight = keys.reduce((sum, key) => sum + (key === 'longBond' ? 0 : targets[key]), 0);
+  // 长债视为达标：剔除实际持仓和目标权重，其他品类按原相对权重计算欠配。
+  const allocationTargets = { ...targets };
+  for (const key of keys) {
+    allocationTargets[key] = key !== 'longBond' && remainingWeight > 0 ? targets[key] / remainingWeight : 0;
+  }
+  const result = calcRebalance(
+    { ...holdings, longBond: 0 }, allocationTargets, funds - topUp, false,
+  );
+  return { ...result, longBond: topUp };
+}
+
 export function calcRebalance(
   holdings: InvestHoldings,
   targets: InvestAllocTargets,

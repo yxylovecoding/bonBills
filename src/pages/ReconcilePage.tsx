@@ -16,7 +16,7 @@ import { useTripStore } from '../stores/tripStore';
 import { usePrefsStore } from '../stores/prefsStore';
 import { calcBudget } from '../calculations/budget';
 import { calcHistoryStats } from '../calculations/history';
-import { calcRebalance } from '../calculations/rebalance';
+import { calcRebalance, calcTopUpRebalance } from '../calculations/rebalance';
 import { investMeta, tagMeta } from '../data/mockData';
 import type { AccountSnapshot, AppConfig, DailyTag, InvestAllocTargets, InvestHoldings, InvestKey, TagKind, UsStockHoldingItem } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
@@ -1272,20 +1272,8 @@ export default function ReconcilePage() {
     [current.accounts.investCnyBank, current.accounts.investUsdBank, latestUsdRate],
   );
   const rawRebalanceSuggested = useMemo(() => {
-    // 加仓优先：长债总额不足自动还债阈值时，先把新资金补到长债，剩余再按目标比例分配
     if (!allowRebalanceSell && rebalanceNewFunds > 0) {
-      const longBondTotal = effectiveInvestHoldings.longBond ?? 0;
-      const shortfall = Math.max(0, LONG_BOND_REPAY_THRESHOLD - longBondTotal);
-      const topUp = Math.min(rebalanceNewFunds, shortfall);
-      if (topUp > 0) {
-        const remaining = roundMoney(rebalanceNewFunds - topUp);
-        const holdingsAfterTopUp = {
-          ...effectiveInvestHoldings,
-          longBond: effectiveInvestHoldings.longBond + topUp,
-        };
-        const rest = calcRebalance(holdingsAfterTopUp, investAllocTargets, remaining, false);
-        return { ...rest, longBond: (rest.longBond ?? 0) + topUp };
-      }
+      return calcTopUpRebalance(effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, LONG_BOND_REPAY_THRESHOLD);
     }
     return calcRebalance(effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell);
   }, [effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell]);
@@ -1305,8 +1293,13 @@ export default function ReconcilePage() {
     );
     if (cnyNeed <= cnyCapacity || cnyNeed <= 0) return rounded;
 
-    const factor = cnyCapacity / cnyNeed;
-    const cnyKeys = investKeys.filter((k) => !isUsdKey(k) && (rawRebalanceSuggested[k] ?? 0) > 0);
+    const longBondTopUp = Math.max(rawRebalanceSuggested.longBond ?? 0, 0);
+    const reservedTopUp = Math.min(cnyCapacity, longBondTopUp);
+    rounded.longBond = roundMoney(reservedTopUp);
+    const otherCapacity = roundMoney(Math.max(cnyCapacity - reservedTopUp, 0));
+    const otherNeed = cnyNeed - longBondTopUp;
+    const factor = otherNeed > 0 ? otherCapacity / otherNeed : 0;
+    const cnyKeys = investKeys.filter((k) => k !== 'longBond' && !isUsdKey(k) && (rawRebalanceSuggested[k] ?? 0) > 0);
     let scaledTotal = 0;
     let largestKey: InvestKey | null = null;
     for (const k of cnyKeys) {
@@ -1317,7 +1310,7 @@ export default function ReconcilePage() {
         largestKey = k;
       }
     }
-    const drift = roundMoney(cnyCapacity - scaledTotal);
+    const drift = roundMoney(otherCapacity - scaledTotal);
     if (largestKey && Math.abs(drift) >= 0.01) {
       rounded[largestKey] = roundMoney(Math.max(rounded[largestKey] + drift, 0));
     }
