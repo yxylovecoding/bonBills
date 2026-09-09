@@ -1,5 +1,26 @@
 import type { InvestHoldings, InvestAllocTargets, RebalanceResult, InvestKey } from '../models/types';
 
+export function calcAllocationRatios(
+  holdings: InvestHoldings,
+  targets: InvestAllocTargets,
+  longBondFloor: number,
+): Record<InvestKey, number> {
+  const keys = Object.keys(holdings) as InvestKey[];
+  const total = keys.reduce((sum, key) => sum + Math.max(holdings[key], 0), 0);
+  const otherTotal = keys.reduce((sum, key) => sum + (key === 'longBond' ? 0 : Math.max(holdings[key], 0)), 0);
+  const longBondAtTarget = holdings.longBond >= longBondFloor;
+  const longBondRatio = Math.min(1, Math.max(0, targets.longBond));
+  const ratios = { ...holdings };
+  for (const key of keys) {
+    ratios[key] = longBondAtTarget
+      ? key === 'longBond'
+        ? longBondRatio
+        : otherTotal > 0 ? Math.max(holdings[key], 0) / otherTotal * (1 - longBondRatio) : 0
+      : total > 0 ? Math.max(holdings[key], 0) / total : 0;
+  }
+  return ratios;
+}
+
 export function calcTopUpRebalance(
   holdings: InvestHoldings,
   targets: InvestAllocTargets,

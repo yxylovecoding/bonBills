@@ -16,7 +16,7 @@ import { useTripStore } from '../stores/tripStore';
 import { usePrefsStore } from '../stores/prefsStore';
 import { calcBudget } from '../calculations/budget';
 import { calcHistoryStats } from '../calculations/history';
-import { calcRebalance, calcTopUpRebalance } from '../calculations/rebalance';
+import { calcAllocationRatios, calcRebalance, calcTopUpRebalance } from '../calculations/rebalance';
 import { investMeta, tagMeta } from '../data/mockData';
 import type { AccountSnapshot, AppConfig, DailyTag, InvestAllocTargets, InvestHoldings, InvestKey, TagKind, UsStockHoldingItem } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
@@ -1324,6 +1324,7 @@ export default function ReconcilePage() {
   }, [allowRebalanceSell, investKeys, rawRebalanceSuggested, rebalanceNewFunds, rebalanceSuggested]);
 
   const totalInvest = investKeys.reduce((s, k) => s + effectiveInvestHoldings[k], 0);
+  const allocationRatios = calcAllocationRatios(effectiveInvestHoldings, investAllocTargets, LONG_BOND_REPAY_THRESHOLD);
   const rebalanceFunding = useMemo(() => {
     const isUsdKey = (k: InvestKey) => USD_INVEST_KEYS.includes(k);
     const usdBuyCny = investKeys.reduce((s, k) => s + (isUsdKey(k) ? Math.max(rebalanceSuggested[k], 0) : 0), 0);
@@ -2877,7 +2878,7 @@ export default function ReconcilePage() {
         {/* 色条 */}
         <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginBottom: 14 }}>
           {investKeys.map((k) => (
-            <div key={k} style={{ width: `${totalInvest > 0 ? (effectiveInvestHoldings[k] / totalInvest) * 100 : 0}%`, backgroundColor: investMeta[k].color }} />
+            <div key={k} style={{ width: `${allocationRatios[k] * 100}%`, backgroundColor: investMeta[k].color }} />
           ))}
         </div>
 
@@ -2903,9 +2904,9 @@ export default function ReconcilePage() {
               const groupTone = INVEST_GROUP_TONES[group.key];
               const groupKeys = group.keys.filter((key) => investKeys.includes(key));
               const isGroupStart = groupKeys[0] === k;
-              // 配置占比使用有效持仓：长债先扣除已划作信用卡还款的部分。
-              const groupTotal = groupKeys.reduce((sum, key) => sum + Math.max(effectiveInvestHoldings[key] ?? 0, 0), 0);
-              const groupRatio = totalInvest > 0 ? groupTotal / totalInvest : null;
+              const groupRatio = totalInvest > 0
+                ? groupKeys.reduce((sum, key) => sum + allocationRatios[key], 0)
+                : null;
               const groupTargetRatio = groupKeys.reduce((sum, key) => sum + (investAllocTargets[key] ?? 0), 0);
               const groupTargetGap = groupRatio === null ? null : Math.abs(groupRatio - groupTargetRatio);
               const groupTargetWarning = groupTargetGap !== null
