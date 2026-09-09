@@ -17,9 +17,9 @@ export function roundToSitePrecision(value: number) {
 
 export function normalizeSitePrecisionForDisplay(raw: string, decimalPlaces = SITE_DECIMAL_PLACES) {
   const normalized = normalizeDecimalPunctuation(raw);
-  if (!/^-?(?:\d+(?:\.\d*)?|\.\d+)$/.test(normalized)) return normalized;
+  if (!/^-?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(normalized)) return normalized;
   const fraction = normalized.split('.')[1] ?? '';
-  return fraction.length > decimalPlaces
+  return /e/i.test(normalized) || fraction.length > decimalPlaces
     ? String(roundToPrecision(Number(normalized), decimalPlaces))
     : normalized;
 }
