@@ -2978,6 +2978,9 @@ export default function ReconcilePage() {
                       }}
                       style={{ width: '100%', minWidth: 0, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', textAlign: 'right', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue }}
                     />
+                    <div style={{ marginTop: 2, color: C.sub, fontSize: 10, fontVariantNumeric: 'tabular-nums' }}>
+                      总金额 ¥{reconcileTotalHoldings[k].toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </div>
                     {k === 'longBond' && longBondRepay > 0 && (
                       <div title={`已扣除信用卡还款 ¥${fmtInt(longBondRepay)}`} style={{ marginTop: 2, color: C.sub, fontSize: 9, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                         配置净额 ¥{fmtInt(effectiveInvestHoldings.longBond)}
