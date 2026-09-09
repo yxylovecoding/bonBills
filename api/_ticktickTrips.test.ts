@@ -279,7 +279,7 @@ describe('TickTick 心愿七个月准备', () => {
     expect(buildWishPreparationSourcesFromSyncState(null)).toEqual([]);
   });
 
-  it('只复制七个月阶段及所有后代，日期平移且每个任务带心愿名', async () => {
+  it('只复制七个月阶段及所有后代，后代日期一致且每个任务带心愿名', async () => {
     const api = new FakeTickTickApi();
     addWishPreparationTemplate(api);
     const template = await discoverTickTickTemplate(api);
@@ -298,8 +298,8 @@ describe('TickTick 心愿七个月准备', () => {
     expect(root.parentId).toBeUndefined();
     expect(root.items?.[0]).toMatchObject({ title: '查签证', status: 0, startDate: '2027-03-01T09:00:00+0800' });
     expect(visa).toMatchObject({
-      title: '东京 · 办签证', parentId: root.id, isAllDay: false,
-      startDate: '2027-03-01T08:00:00+0800', dueDate: '2027-03-02T18:00:00+0800',
+      title: '东京 · 办签证', parentId: root.id, isAllDay: true,
+      startDate: '2027-02-28T00:00:00+0800', dueDate: '2027-02-28T00:00:00+0800',
     });
     expect(photo).toMatchObject({ title: '东京 · 准备证件照', parentId: visa.id });
     expect(photo.dueDate).toBe('2027-02-28T00:00:00+0800');
@@ -441,7 +441,7 @@ describe('TickTick 心愿七个月准备', () => {
     await reconcileTickTickWishPreparations({ api, template, state, today: '2026-09-04', configState: { config: { wishes: [futureWish] } }, saveState: async () => undefined });
     const instance = state.wishInstances![futureWish.id];
     expect(api.tasks.get(instance.rootTaskId!)?.dueDate).toBe('2027-02-28T00:00:00+0800');
-    expect(api.tasks.get(instance.taskIdsByTemplateId['template-visa'])?.startDate).toBe('2027-03-01T08:00:00+0800');
+    expect(api.tasks.get(instance.taskIdsByTemplateId['template-visa'])?.startDate).toBe('2027-02-28T00:00:00+0800');
   });
 });
 
@@ -476,8 +476,8 @@ describe('TickTick 手动改期优先', () => {
       startDate: '2026-11-01T00:00:00+0800', dueDate: '2026-11-01T00:00:00+0800',
     });
     expect(api.updatePayloads.get(rootId)).not.toHaveProperty('dueDate');
-    // 只锁定改过的任务，未改的后代仍跟随出发日。
-    expect(api.tasks.get(instance.taskIdsByTemplateId['template-visa'])?.dueDate).toBe('2026-08-03T18:00:00+0800');
+    // 后代跟随母任务手动调整后的日期。
+    expect(api.tasks.get(instance.taskIdsByTemplateId['template-visa'])?.dueDate).toBe('2026-11-01T00:00:00+0800');
     expect(state.wishInstances![wish.id].taskDateStates?.[rootId].manual).toBe(true);
     expect(api.createCalls).toBe(3);
   });
@@ -646,7 +646,7 @@ describe('TickTick 手动改期优先', () => {
     expect(api.tasks.get(instance.taskIdsByTemplateId['template-before'])?.items).toHaveLength(1);
   });
 
-  it('模板日期更新仍影响自动项，移除模板清单项不会误变成手工新增项', async () => {
+  it('模板改名影响自动日期，模板日期不影响排期，移除清单项不变成手工新增项', async () => {
     const api = new FakeTickTickApi();
     let template = await discoverTickTickTemplate(api);
     const state: TickTickTripSyncState = { instances: {} };
@@ -659,6 +659,10 @@ describe('TickTick 手动改期优先', () => {
     beforeTemplate.startDate = '2026-11-18T00:00:00+0800';
     beforeTemplate.dueDate = beforeTemplate.startDate;
     beforeTemplate.items = [];
+    template = await discoverTickTickTemplate(api);
+    await sync();
+    expect(api.tasks.get(beforeId)?.dueDate).toBe('2027-01-09T00:00:00+0800');
+    beforeTemplate.title = '出门前两天';
     template = await discoverTickTickTemplate(api);
     await sync();
     expect(api.tasks.get(beforeId)?.dueDate).toBe('2027-01-08T00:00:00+0800');
@@ -699,7 +703,127 @@ describe('TickTick 清单状态续写', () => {
 });
 
 describe('TickTick 出游同步', () => {
-  it.each(['wish', 'trip'])('七个月阶段无日期子任务继承阶段日期，修复旧实例并保留手动清空（%s）', async (source) => {
+  it.each([false, true])('旧版模板日期偏移迁移到名称排期，保留完成状态（有快照：%s）', async (snapshots) => {
+    const api = new FakeTickTickApi();
+    const template = await discoverTickTickTemplate(api);
+    let state: TickTickTripSyncState = { instances: {} };
+    const trip = { ...futureTrip, startDate: '2027-03-10', endDate: '2027-03-11', dates: ['2027-03-10'] };
+    const sync = () => reconcileTickTickTrips({ api, template, state, trips: [trip], today: '2026-09-09', saveState: async () => undefined });
+    await sync();
+    const instance = state.instances[trip.key];
+    const id = instance.taskIdsByTemplateId['template-month'];
+    // Old scheduling moved this template 31 days before departure.
+    Object.assign(api.tasks.get(id)!, { startDate: '2027-02-07T00:00:00+0800', dueDate: '2027-02-07T00:00:00+0800', status: 2 });
+    if (snapshots) {
+      Object.assign(instance.taskDateStates![id].lastSynced, { startDate: '2027-02-07T00:00:00+0800', dueDate: '2027-02-07T00:00:00+0800' });
+    } else delete instance.taskDateStates;
+    state = JSON.parse(JSON.stringify(state));
+    await sync();
+    expect(api.tasks.get(id)).toMatchObject({ startDate: '2027-02-10T00:00:00+0800', dueDate: '2027-02-10T00:00:00+0800', status: 2 });
+    expect(api.createCalls).toBe(4);
+  });
+
+  it('心愿模板全树不带日期、不包含出门当天，也能生成七个月准备及后代', async () => {
+    const api = new FakeTickTickApi();
+    addWishPreparationTemplate(api);
+    api.tasks.delete('template-day');
+    for (const task of api.tasks.values()) {
+      delete task.startDate;
+      delete task.dueDate;
+      for (const item of task.items ?? []) delete item.startDate;
+    }
+    const template = await discoverTickTickTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    await reconcileTickTickWishPreparations({ api, template, state, configState: { config: { wishes: [futureWish] } }, today: '2026-09-09', saveState: async () => undefined });
+    for (const id of Object.values(state.wishInstances![futureWish.id].taskIdsByTemplateId)) {
+      expect(api.tasks.get(id)).toMatchObject({ startDate: '2027-02-28T00:00:00+0800', dueDate: '2027-02-28T00:00:00+0800' });
+    }
+  });
+
+  it.each([
+    ['出门当天', '2028-03-31'],
+    ['出门前一天', '2028-03-30'],
+    ['出门前 ３ 天', '2028-03-28'],
+    ['出门前两周', '2028-03-17'],
+    ['出门前一个星期', '2028-03-24'],
+    ['出门前一个月', '2028-02-29'],
+    ['出门前七个月', '2027-08-31'],
+    ['出门前十二个月', '2027-03-31'],
+    ['出门前一年', '2027-03-31'],
+    ['出门前半年', '2027-09-30'],
+    ['出门前半个月', '2028-03-16'],
+    ['出门后两天', '2028-04-02'],
+  ])('无日期模板按一级名称 %s 排期，多层子任务同日', async (title, expected) => {
+    const api = new FakeTickTickApi();
+    for (const task of api.tasks.values()) {
+      delete task.startDate;
+      delete task.dueDate;
+    }
+    api.tasks.delete('template-day');
+    api.tasks.get('template-month')!.title = title;
+    api.tasks.set('child', {
+      id: 'child', projectId: 'play', parentId: 'template-month', title: 'googleflight',
+      startDate: '2025-01-01T08:00:00+0800', dueDate: '2025-01-02T09:00:00+0800', isAllDay: false,
+    });
+    api.tasks.set('grandchild', {
+      id: 'grandchild', projectId: 'play', parentId: 'child', title: '出门前一天',
+    });
+    const originals = structuredClone([...api.tasks.values()]);
+    const discovered = await discoverTickTickTemplate(api);
+    expect(discovered.anchorDate).toBeUndefined();
+    const template = await readConnectedTickTickTemplate(api, { projectId: 'play', templateRootId: 'template-root' });
+    const state: TickTickTripSyncState = { instances: {} };
+    const trip = { ...futureTrip, startDate: '2028-03-31', endDate: '2028-04-02', dates: ['2028-03-31'] };
+    const sync = () => reconcileTickTickTrips({ api, template, state, trips: [trip], today: '2026-09-09', saveState: async () => undefined });
+    await sync();
+    await sync();
+    for (const id of ['template-month', 'child', 'grandchild']) {
+      const task = api.tasks.get(state.instances[trip.key].taskIdsByTemplateId[id]);
+      expect(task).toMatchObject({ startDate: `${expected}T00:00:00+0800`, dueDate: `${expected}T00:00:00+0800`, isAllDay: true });
+    }
+    for (const original of originals) expect(api.tasks.get(original.id)).toEqual(original);
+  });
+
+  it('一级母任务手动改期或清空后，各层子任务同步跟随，重启后仍一致', async () => {
+    const api = new FakeTickTickApi();
+    api.tasks.set('child', { id: 'child', projectId: 'play', parentId: 'template-month', title: '机票' });
+    api.tasks.set('grandchild', { id: 'grandchild', projectId: 'play', parentId: 'child', title: '比价' });
+    const template = await discoverTickTickTemplate(api);
+    let state: TickTickTripSyncState = { instances: {} };
+    const sync = () => reconcileTickTickTrips({ api, template, state, trips: [futureTrip], today: '2026-09-09', saveState: async () => undefined });
+    await sync();
+    const ids = state.instances[futureTrip.key].taskIdsByTemplateId;
+    const parent = api.tasks.get(ids['template-month'])!;
+    Object.assign(parent, { startDate: '2026-12-05T08:00:00+0800', dueDate: '2026-12-06T18:00:00+0800', isAllDay: false });
+    await sync();
+    for (const id of ['child', 'grandchild']) {
+      expect(api.tasks.get(ids[id])).toMatchObject({ startDate: parent.startDate, dueDate: parent.dueDate, isAllDay: false });
+    }
+    delete parent.startDate;
+    delete parent.dueDate;
+    state = JSON.parse(JSON.stringify(state));
+    // The fake API replaces the saved object during update; clear the current record too.
+    delete api.tasks.get(ids['template-month'])!.startDate;
+    delete api.tasks.get(ids['template-month'])!.dueDate;
+    await sync();
+    for (const id of ['child', 'grandchild']) {
+      expect(api.updatePayloads.get(ids[id])).toMatchObject({ startDate: null, dueDate: null });
+    }
+    state = JSON.parse(JSON.stringify(state));
+    await sync();
+    expect(api.tasks.get(ids.grandchild)?.dueDate).toBeNull();
+  });
+
+  it('无法识别的一级时间名称明确报错，不写入部分任务', async () => {
+    const api = new FakeTickTickApi();
+    api.tasks.get('template-month')!.title = '出门前若干天';
+    const template = await discoverTickTickTemplate(api);
+    await expect(reconcileTickTickTrips({ api, template, state: { instances: {} }, trips: [futureTrip], today: '2026-09-09', saveState: async () => undefined }))
+      .rejects.toThrow('出门前若干天');
+    expect(api.createCalls).toBe(0);
+  });
+
+  it.each(['wish', 'trip'])('七个月阶段子任务修复旧实例，独立清空后仍恢复为母任务日期（%s）', async (source) => {
     const api = new FakeTickTickApi();
     addWishPreparationTemplate(api);
     const stage = api.tasks.get('template-seven-months')!;
@@ -739,9 +863,9 @@ describe('TickTick 出游同步', () => {
     await sync();
     state = JSON.parse(JSON.stringify(state));
     await sync();
-    expect(api.tasks.get(flightId)?.startDate).toBeUndefined();
-    expect(api.tasks.get(flightId)?.dueDate).toBeUndefined();
-    expect(instance().taskDateStates![flightId].manual).toBe(true);
+    expect(api.tasks.get(flightId)?.startDate).toBe(expectedDate);
+    expect(api.tasks.get(flightId)?.dueDate).toBe(expectedDate);
+    expect(instance().taskDateStates![flightId].manual).toBe(false);
   });
 
   it('无日期的七个月阶段按出发日补齐截止日期，并修复旧实例', async () => {

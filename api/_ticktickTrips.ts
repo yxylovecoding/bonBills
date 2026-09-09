@@ -106,8 +106,9 @@ export interface TickTickTemplate {
   projectId: string;
   rootTask: TickTickTask;
   tasks: TickTickTask[];
-  anchorTask: TickTickTask;
-  anchorDate: string;
+  // Optional dates support legacy schedule migration and existing dated checklist items.
+  anchorTask?: TickTickTask;
+  anchorDate?: string;
 }
 
 interface TickTickDateSnapshot {
@@ -341,8 +342,8 @@ function calendarDayDifference(date: string, anchor: string): number {
   return Math.round((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${anchor}T00:00:00Z`)) / 86_400_000);
 }
 
-export function shiftTickTickDate(value: string | undefined, anchorDate: string, tripStartDate: string): string | undefined {
-  if (!value) return undefined;
+export function shiftTickTickDate(value: string | undefined, anchorDate: string | undefined, tripStartDate: string): string | undefined {
+  if (!value || !anchorDate) return undefined;
   const sourceDate = value.slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(sourceDate)) return value;
   const shiftedDate = addCalendarDays(tripStartDate, calendarDayDifference(sourceDate, anchorDate));
@@ -399,13 +400,12 @@ export async function discoverTickTickTemplate(api: TickTickApi): Promise<TickTi
   const rootTask = roots[0];
   const tasks = [rootTask, ...descendantsOf(allTasks, rootTask.id)];
   const anchors = tasks.filter((task) => task.title.trim() === TICKTICK_ANCHOR_TITLE && taskDate(task));
-  if (anchors.length !== 1) throw new Error('模板需要唯一且带日期的“出门当天”任务');
   return {
     projectId: project.id,
     rootTask,
     tasks,
     anchorTask: anchors[0],
-    anchorDate: taskDate(anchors[0])!,
+    anchorDate: anchors[0] ? taskDate(anchors[0]) ?? undefined : undefined,
   };
 }
 
@@ -422,13 +422,12 @@ export async function readConnectedTickTickTemplate(
   if (!rootTask) throw new Error('TickTick 中的“出门todo”模板已不存在');
   const tasks = [rootTask, ...descendantsOf(allTasks, rootTask.id)];
   const anchors = tasks.filter((task) => task.title.trim() === TICKTICK_ANCHOR_TITLE && taskDate(task));
-  if (anchors.length !== 1) throw new Error('模板需要唯一且带日期的“出门当天”任务');
   return {
     projectId: connection.projectId,
     rootTask,
     tasks,
     anchorTask: anchors[0],
-    anchorDate: taskDate(anchors[0])!,
+    anchorDate: anchors[0] ? taskDate(anchors[0]) ?? undefined : undefined,
   };
 }
 
@@ -510,7 +509,7 @@ export function buildWishPreparationSourcesFromSyncState(configState: unknown): 
 
 function wishPreparationTemplate(template: TickTickTemplate): TickTickTemplate {
   const roots = template.tasks.filter((task) =>
-    isSevenMonthPreparationTask(task),
+    task.parentId === template.rootTask.id && isSevenMonthPreparationTask(task),
   );
   if (roots.length !== 1) throw new Error(`出门todo 模板需要唯一的“${TICKTICK_WISH_PREPARATION_TITLE}”任务`);
   const rootTask = roots[0];
@@ -519,7 +518,7 @@ function wishPreparationTemplate(template: TickTickTemplate): TickTickTemplate {
     rootTask,
     tasks: [rootTask, ...descendantsOf(template.tasks, rootTask.id)],
     anchorTask: rootTask,
-    anchorDate: taskDate(rootTask) ?? addCalendarMonths(template.anchorDate, -7),
+    anchorDate: taskDate(rootTask) ?? (template.anchorDate ? addCalendarMonths(template.anchorDate, -7) : undefined),
   };
 }
 
@@ -805,19 +804,82 @@ function inheritedPreparationDate(
   return undefined;
 }
 
+function relativeStageDate(title: string, departureDate: string): string {
+  const normalized = title.normalize('NFKC').replace(/\s/g, '');
+  if (normalized === TICKTICK_ANCHOR_TITLE) return departureDate;
+  const match = /^出门(前|后)(半|[0-9零〇一二两三四五六七八九十百]+)(?:个)?(天|日|周|星期|月|年)$/.exec(normalized);
+  if (!match) {
+    if (/^出门[前后]/.test(normalized)) throw new Error(`无法识别模板阶段“${title}”的时间，请使用“出门前七个月”或“出门前两周”等名称`);
+    return departureDate;
+  }
+  const digits: Record<string, number> = { 零: 0, '〇': 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+  const raw = match[2];
+  let amount = raw === '半' ? 0.5 : Number(raw);
+  if (Number.isNaN(amount)) {
+    amount = 0;
+    let digit = 0;
+    for (const char of raw) {
+      if (char === '十' || char === '百') {
+        amount += (digit || 1) * (char === '十' ? 10 : 100);
+        digit = 0;
+      } else digit = digits[char];
+    }
+    amount += digit;
+  }
+  const sign = match[1] === '前' ? -1 : 1;
+  const unit = match[3];
+  if (unit === '年') return addCalendarMonths(departureDate, sign * amount * 12);
+  if (unit === '月' && Number.isInteger(amount)) return addCalendarMonths(departureDate, sign * amount);
+  const days = amount * (unit === '月' ? 30 : unit === '周' || unit === '星期' ? 7 : 1);
+  if (!Number.isInteger(days)) throw new Error(`模板阶段“${title}”需要按整天设置`);
+  return addCalendarDays(departureDate, sign * days);
+}
+
+function scheduledTaskDate(task: TickTickTask, template: TickTickTemplate, trip: TickTickTripSource): string {
+  if (isSevenMonthPreparationTask(template.rootTask) || task.id === template.rootTask.id) return trip.startDate;
+  const byId = new Map(template.tasks.map((candidate) => [candidate.id, candidate]));
+  const seen = new Set<string>();
+  let stage = task;
+  while (stage.parentId && stage.parentId !== template.rootTask.id && !seen.has(stage.id)) {
+    seen.add(stage.id);
+    const parent = byId.get(stage.parentId);
+    if (!parent) break;
+    stage = parent;
+  }
+  return relativeStageDate(stage.title, trip.startDate);
+}
+
+function inheritsParentSchedule(task: TickTickTask, template: TickTickTemplate): boolean {
+  return task.id !== template.rootTask.id && Boolean(task.parentId)
+    && (isSevenMonthPreparationTask(template.rootTask) || task.parentId !== template.rootTask.id);
+}
+
+function followParentSchedule(payload: Record<string, unknown>, parent: TickTickTask | undefined) {
+  if (!parent) return payload;
+  return {
+    ...payload,
+    startDate: parent.startDate ?? null,
+    dueDate: parent.dueDate ?? null,
+    isAllDay: parent.isAllDay ?? true,
+    timeZone: parent.timeZone || 'Asia/Shanghai',
+  };
+}
+
 function baseTaskPayload(
   templateTask: TickTickTask,
   trip: TickTickTripSource,
   template: TickTickTemplate,
   parentId: string | undefined,
   items: TickTickChecklistItem[],
+  legacySchedule = false,
 ): Record<string, unknown> {
   const isRoot = templateTask.id === template.rootTask.id;
   const inferredStageDate = inheritedPreparationDate(templateTask, template, trip);
-  const startDate = isRoot
+  const namedDate = `${scheduledTaskDate(templateTask, template, trip)}T00:00:00+0800`;
+  const startDate = !legacySchedule ? namedDate : isRoot
     ? `${trip.startDate}T00:00:00+0800`
     : shiftTickTickDate(templateTask.startDate, template.anchorDate, trip.startDate) ?? inferredStageDate;
-  const dueDate = isRoot
+  const dueDate = !legacySchedule ? namedDate : isRoot
     ? `${trip.startDate}T00:00:00+0800`
     : shiftTickTickDate(templateTask.dueDate, template.anchorDate, trip.startDate) ?? inferredStageDate;
   const rootContent = [templateTask.content?.trim(), trip.note].filter(Boolean).join('\n\n');
@@ -826,10 +888,10 @@ function baseTaskPayload(
     title: `${trip.name} · ${templateTask.title}`,
     content: isRoot ? rootContent : (templateTask.content ?? ''),
     desc: templateTask.desc ?? '',
-    isAllDay: isRoot ? true : (templateTask.isAllDay ?? true),
+    isAllDay: !legacySchedule || isRoot ? true : (templateTask.isAllDay ?? true),
     ...(startDate ? { startDate } : {}),
     ...(dueDate ? { dueDate } : {}),
-    timeZone: templateTask.timeZone || 'Asia/Shanghai',
+    timeZone: legacySchedule ? templateTask.timeZone || 'Asia/Shanghai' : 'Asia/Shanghai',
     reminders: templateTask.reminders ?? [],
     tags: templateTask.tags ?? [],
     ...(templateTask.repeatFlag ? { repeatFlag: templateTask.repeatFlag } : {}),
@@ -1049,21 +1111,26 @@ async function syncTripInstance(
     (left, right) => templateDepth(left, templateById) - templateDepth(right, templateById),
   );
 
+  // Validate stage names before creating or updating any part of the instance.
+  for (const task of orderedTemplateTasks) scheduledTaskDate(task, template, trip);
+
   for (const templateTask of orderedTemplateTasks) {
     const parentId = templateTask.parentId ? instance.taskIdsByTemplateId[templateTask.parentId] : undefined;
+    const inheritsParent = inheritsParentSchedule(templateTask, template);
+    const scheduledParent = inheritsParent && parentId ? projectTasks.get(parentId) : undefined;
     const generatedTaskId = instance.taskIdsByTemplateId[templateTask.id];
     const generatedTask = generatedTaskId
       ? await getGeneratedTask(api, template.projectId, generatedTaskId, projectTasks)
       : null;
     if (!generatedTask) {
       if (generatedTaskId) forgetDateStates(instance, generatedTaskId);
-      const payload = baseTaskPayload(
+      const payload = followParentSchedule(baseTaskPayload(
         templateTask,
         trip,
         template,
         parentId,
         initialChecklistItems(templateTask, template, trip),
-      );
+      ), scheduledParent);
       const created = await api.createTask(payload);
       if (!created?.id) throw new Error('TickTick 创建任务后未返回任务 ID');
       // Keep fields from the request when an API reply contains only an ID.
@@ -1099,14 +1166,16 @@ async function syncTripInstance(
     );
     const previousAuto = baseTaskPayload(templateTask, previousTrip, template, parentId, previousItems);
     const savedDateState = instance.taskDateStates?.[generatedTask.id];
-    const isUndatedSevenMonthMigration = Boolean(inheritedPreparationDate(templateTask, template, previousTrip))
+    const isUndatedScheduleMigration = !templateTask.startDate && !templateTask.dueDate
       && !generatedTask.startDate
       && !generatedTask.dueDate
       && !savedDateState;
-    const manualTask = !isUndatedSevenMonthMigration && hasManualDates(
+    const legacyAuto = baseTaskPayload(templateTask, previousTrip, template, parentId, previousItems, true);
+    const matchesLegacyAuto = !savedDateState && sameDateSnapshot(dateSnapshot(generatedTask), dateSnapshot(legacyAuto));
+    const manualTask = !inheritsParent && !isUndatedScheduleMigration && !matchesLegacyAuto && hasManualDates(
       dateSnapshot(generatedTask), dateSnapshot(previousAuto), savedDateState,
     );
-    const automaticPayload = baseTaskPayload(templateTask, trip, template, parentId, protectedChecklist.items);
+    const automaticPayload = followParentSchedule(baseTaskPayload(templateTask, trip, template, parentId, protectedChecklist.items), scheduledParent);
     const payload = {
       id: generatedTask.id,
       // Omit task dates entirely for manual overrides; a metadata-only update
