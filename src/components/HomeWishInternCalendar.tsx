@@ -100,10 +100,13 @@ export default function HomeWishInternCalendar({
     count: assignment.dateKeys.filter((date) => date.startsWith(`${visibleMonth}-`)).length,
   })).filter((assignment) => assignment.count > 0), [assignments, visibleMonth, wishSummaryLabelsById]);
   const monthInternDays = monthAssignments.reduce((sum, assignment) => sum + assignment.count, 0);
-  const monthWorkingDays = cells.filter(
-    (cell) => cell.day !== null && isWorkingDate(cell.key, holidayDataByYear),
+  const monthEligibleWorkingDays = cells.filter(
+    (cell) => cell.day !== null
+      && tagMap[cell.key] !== 'home'
+      && tagMap[cell.key] !== 'travel'
+      && isWorkingDate(cell.key, holidayDataByYear),
   ).length;
-  const monthMaxRestDays = Math.max(0, monthWorkingDays - monthInternDays);
+  const monthMaxRestDays = Math.max(0, monthEligibleWorkingDays - monthInternDays);
   const monthAvailableInternDays = useMemo(
     () => availableInternDates.filter((date) => date.startsWith(`${visibleMonth}-`)).length,
     [availableInternDates, visibleMonth],
