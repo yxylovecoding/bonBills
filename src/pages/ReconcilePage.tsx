@@ -546,28 +546,41 @@ export default function ReconcilePage() {
     () => records.find((record) => record.yearMonth === curYM),
     [curYM, records],
   );
-  const currentPositionSummary = useMemo(
-    () => currentInvestRecord?.investPositionItems === undefined
-      ? null
-      : summarizeInvestPositionItems(currentInvestRecord.investPositionItems),
-    [currentInvestRecord],
-  );
-  const sourceInvestHoldings = useMemo(() => {
-    const breakdown = currentPositionSummary?.marketValueByCategory ?? currentInvestRecord?.investBreakdown;
-    const next = emptyInvestHoldings();
-    for (const key of INVEST_TARGET_KEYS) next[key] = roundMoney(Math.max(Number(breakdown?.[key]) || 0, 0));
-    return next;
-  }, [currentInvestRecord?.investBreakdown, currentPositionSummary]);
-  const reconcileHoldings = current.reconcileInvestHoldings ?? sourceInvestHoldings;
-  useEffect(() => {
-    if (!current.reconcileInvestHoldings && currentInvestRecord) {
-      updateReconcileHoldings(sourceInvestHoldings);
-    }
-  }, [current.reconcileInvestHoldings, currentInvestRecord, sourceInvestHoldings, updateReconcileHoldings]);
   const currentInvestPositionItems = useMemo(
     () => migrateLegacyInvestPositionItems(currentInvestRecord, INVEST_FIELD_LABELS),
     [currentInvestRecord],
   );
+  const sourceHoldings = useMemo(() => {
+    const now = emptyInvestHoldings();
+    const past = emptyInvestHoldings();
+    const summary = summarizeInvestPositionItems(currentInvestPositionItems);
+    for (const key of INVEST_TARGET_KEYS) {
+      for (const item of currentInvestPositionItems[key] ?? []) {
+        const target = item.status === 'active' || (item.pendingBuys?.length ?? 0) > 0 ? now : past;
+        target[key] += summary.metricsById[item.id]?.marketValueCny ?? 0;
+      }
+      now[key] = roundMoney(now[key]);
+      past[key] = roundMoney(past[key]);
+    }
+    return { now, past };
+  }, [currentInvestPositionItems]);
+  const sourceInvestHoldings = sourceHoldings.now;
+  const reconcileHoldings = useMemo(() => {
+    if (!current.reconcileInvestHoldings) return sourceInvestHoldings;
+    if (current.reconcileInvestHoldingsVersion === 2) return current.reconcileInvestHoldings;
+    // 上版独立字段保存的是 now + past，首次读取时转换为 now。
+    return Object.fromEntries(INVEST_TARGET_KEYS.map((key) => [
+      key, roundMoney(Math.max(0, current.reconcileInvestHoldings![key] - sourceHoldings.past[key])),
+    ])) as unknown as InvestHoldings;
+  }, [current.reconcileInvestHoldings, current.reconcileInvestHoldingsVersion, sourceHoldings, sourceInvestHoldings]);
+  useEffect(() => {
+    if (current.reconcileInvestHoldingsVersion !== 2 && currentInvestRecord) {
+      updateReconcileHoldings(reconcileHoldings);
+    }
+  }, [current.reconcileInvestHoldingsVersion, currentInvestRecord, reconcileHoldings, updateReconcileHoldings]);
+  const reconcileTotalHoldings = useMemo(() => Object.fromEntries(INVEST_TARGET_KEYS.map((key) => [
+    key, roundMoney(reconcileHoldings[key] + sourceHoldings.past[key]),
+  ])) as unknown as InvestHoldings, [reconcileHoldings, sourceHoldings.past]);
 
   // 账户余额本地编辑
   const [localAccounts, setLocalAccounts] = useState({
@@ -679,7 +692,7 @@ export default function ReconcilePage() {
     creditMonthly: current.accounts.creditMonthly,
     creditTotal: current.accounts.credit,
     savingsCard: current.accounts.savingsCard,
-    longBond: reconcileHoldings.longBond,
+    longBond: reconcileTotalHoldings.longBond,
   });
 
   // 已转金额（用户直接编辑）— 每次进入页面默认为 0
@@ -977,12 +990,12 @@ export default function ReconcilePage() {
       key,
       roundMoney(
         (key === 'longBond'
-          ? Math.max(0, reconcileHoldings.longBond - longBondRepay)
-          : reconcileHoldings[key])
+          ? Math.max(0, reconcileTotalHoldings.longBond - longBondRepay)
+          : reconcileTotalHoldings[key])
         + pendingInvestHoldings[key],
       ),
     ]),
-  ) as Record<InvestKey, number>, [longBondRepay, reconcileHoldings, pendingInvestHoldings]);
+  ) as Record<InvestKey, number>, [longBondRepay, reconcileTotalHoldings, pendingInvestHoldings]);
   const usdRateLabel = remoteUsdRate
     ? `${remoteUsdRate.source}${remoteUsdRate.date ? ` · ${remoteUsdRate.date}` : ''}`
     : fallbackUsdRate !== null
@@ -2709,15 +2722,7 @@ export default function ReconcilePage() {
       <div id="sec-invest">
       <Card title="③ 理财配置 & 再平衡">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>总金额 ¥{formatCurrency(investKeys.reduce((sum, key) => sum + reconcileHoldings[key], 0))}</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {!currentInvestRecord && <span style={{ color: C.sub, fontSize: 11 }}>暂无本月记录</span>}
-            <button type="button" disabled={!currentInvestRecord}
-              onClick={() => updateReconcileHoldings(sourceInvestHoldings)}
-              style={{ border: 'none', borderRadius: 8, padding: '6px 9px', backgroundColor: currentInvestRecord ? '#e8f0fe' : '#f1f3f4', color: currentInvestRecord ? C.blue : C.sub, fontSize: 12, fontWeight: 700, cursor: currentInvestRecord ? 'pointer' : 'default' }}>
-              获取持仓
-            </button>
-          </div>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>总金额 ¥{formatCurrency(investKeys.reduce((sum, key) => sum + reconcileTotalHoldings[key], 0))}</span>
         </div>
         {/* 本次投入 */}
         <div {...makeUsdSwipeHandlers('investUsdBank')} style={{ touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, border: '1.5px solid #fbbf24', borderRadius: 10, padding: '10px 12px', backgroundColor: '#fffbeb', marginBottom: 14 }}>
@@ -3167,6 +3172,14 @@ export default function ReconcilePage() {
           </tbody>
         </table>
 
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
+          {!currentInvestRecord && <span style={{ color: C.sub, fontSize: 11 }}>暂无本月记录</span>}
+          <button type="button" disabled={!currentInvestRecord}
+            onClick={() => updateReconcileHoldings(sourceInvestHoldings)}
+            style={{ border: 'none', borderRadius: 8, padding: '6px 9px', backgroundColor: currentInvestRecord ? '#e8f0fe' : '#f1f3f4', color: currentInvestRecord ? C.blue : C.sub, fontSize: 12, fontWeight: 700, cursor: currentInvestRecord ? 'pointer' : 'default' }}>
+            获取持仓
+          </button>
+        </div>
       </Card>
       </div>
 

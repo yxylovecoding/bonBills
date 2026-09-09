@@ -254,7 +254,8 @@ export interface AccountSnapshot {
   accountBalanceUpdatedAt?: string; // 最近一次手动修改或账单导入后的账户余额更新时间
   accountBalanceSync?: Partial<Record<AutoAccountBalanceKey, AccountBalanceSyncCursor>>;
   investHoldings: InvestHoldings;
-  reconcileInvestHoldings?: InvestHoldings; // 对账独立持仓，仅手动获取或对账操作更新
+  reconcileInvestHoldings?: InvestHoldings; // 对账独立 now 持仓
+  reconcileInvestHoldingsVersion?: 2; // 缺省为旧版 now + past 合计
   usStockHoldings?: UsStockHoldingItem[]; // 美股内部明细，合计对应 investHoldings.us
   transfersDone: {
     campusCard: number;
