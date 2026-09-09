@@ -2884,14 +2884,16 @@ export default function ReconcilePage() {
         {/* 持仓表（固定列宽） */}
         <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse', marginBottom: 16, tableLayout: 'fixed' }}>
           <colgroup>
-            <col style={{ width: '25%' }} />
-            <col style={{ width: '45%' }} />
+            <col style={{ width: '20%' }} />
+            <col style={{ width: '26%' }} />
             <col style={{ width: '30%' }} />
+            <col style={{ width: '24%' }} />
           </colgroup>
           <thead>
             <tr style={{ borderBottom: '2px solid #e8eaed' }}>
               <th style={thStyle}>品类</th>
-              <th style={{ ...thStyle, textAlign: 'right' }}>now 总金额</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>now</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>总金额</th>
               <th style={{ ...thStyle, textAlign: 'right', color: allowRebalanceSell ? C.blue : C.orange }}>{allowRebalanceSell ? '需加/赎' : '需加'}</th>
             </tr>
           </thead>
@@ -2922,13 +2924,13 @@ export default function ReconcilePage() {
                 <Fragment key={k}>
                 {isGroupStart && i > 0 && (
                   <tr aria-hidden="true">
-                    <td colSpan={3} style={{ height: 8, padding: 0, backgroundColor: '#fff' }} />
+                    <td colSpan={4} style={{ height: 8, padding: 0, backgroundColor: '#fff' }} />
                   </tr>
                 )}
                 {isGroupStart && (
                   <tr>
                     <td
-                      colSpan={3}
+                      colSpan={4}
                       style={{ padding: '7px 10px', backgroundColor: groupTargetWarning ? '#fce8e6' : groupTone.header, borderBottom: `1px solid ${groupTargetWarning ? '#f28b82' : groupTone.border}` }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -2959,7 +2961,7 @@ export default function ReconcilePage() {
                   <td style={{ padding: '4px 0', textAlign: 'right' }}>
                     <AmountInput
                       ref={(element) => { holdingInputRefs.current[i] = element; }}
-                      aria-label={`${investMeta[k].label} now 总金额`}
+                      aria-label={`${investMeta[k].label} now`}
                       value={localHoldings[k]}
                       onChange={(value) => setLocalHoldings((previous) => ({ ...previous, [k]: value }))}
                       onBlur={(event) => commitHolding(k, event.currentTarget.value)}
@@ -2971,9 +2973,6 @@ export default function ReconcilePage() {
                       }}
                       style={{ width: '100%', minWidth: 0, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', textAlign: 'right', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue }}
                     />
-                    <div style={{ marginTop: 2, color: C.sub, fontSize: 10, fontVariantNumeric: 'tabular-nums' }}>
-                      总金额 ¥{reconcileTotalHoldings[k].toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </div>
                     {k === 'longBond' && longBondRepay > 0 && (
                       <div title={`已扣除信用卡还款 ¥${fmtInt(longBondRepay)}`} style={{ marginTop: 2, color: C.sub, fontSize: 9, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                         配置净额 ¥{fmtInt(effectiveInvestHoldings.longBond)}
@@ -2984,6 +2983,9 @@ export default function ReconcilePage() {
                         待确认 ¥{fmtInt(pendingInvestHoldings[k])}
                       </div>
                     )}
+                  </td>
+                  <td style={{ padding: '8px 0 8px 8px', textAlign: 'right', color: C.sub, fontSize: 12, fontVariantNumeric: 'tabular-nums', overflowWrap: 'anywhere' }}>
+                    ¥{reconcileTotalHoldings[k].toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   {/* 需加/需赎建议；正=加仓，负=赎回 */}
                   <td
@@ -3004,7 +3006,7 @@ export default function ReconcilePage() {
                 </tr>
                 {false && (
                   <tr style={{ backgroundColor: '#f8fbff', borderBottom: '1px solid #e8f0fe' }}>
-                    <td colSpan={3} style={{ padding: '8px 0 10px' }}>
+                    <td colSpan={4} style={{ padding: '8px 0 10px' }}>
                       <div style={{ border: '1px solid #d2e3fc', borderRadius: 10, padding: '8px 9px', backgroundColor: '#fff' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
                           <div>
