@@ -100,6 +100,10 @@ export default function HomeWishInternCalendar({
     count: assignment.dateKeys.filter((date) => date.startsWith(`${visibleMonth}-`)).length,
   })).filter((assignment) => assignment.count > 0), [assignments, visibleMonth, wishSummaryLabelsById]);
   const monthInternDays = monthAssignments.reduce((sum, assignment) => sum + assignment.count, 0);
+  const monthWorkingDays = cells.filter(
+    (cell) => cell.day !== null && isWorkingDate(cell.key, holidayDataByYear),
+  ).length;
+  const monthMaxRestDays = Math.max(0, monthWorkingDays - monthInternDays);
   const monthAvailableInternDays = useMemo(
     () => availableInternDates.filter((date) => date.startsWith(`${visibleMonth}-`)).length,
     [availableInternDates, visibleMonth],
@@ -114,7 +118,7 @@ export default function HomeWishInternCalendar({
           <h2>日历</h2>
           <span>
             {year}年{month}月
-            {isFullPowerMonth ? ' · 全勤' : monthInternDays > 0 ? ` · 本月最少${monthInternDays}天` : ''}
+            {` · 本月最多休息${monthMaxRestDays}天`}
           </span>
         </div>
         <div className="home-wish-calendar-actions">
