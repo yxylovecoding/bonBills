@@ -29,6 +29,7 @@ import { daysBetween } from '../calculations/possessions';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', sub: '#5f6368', orange: '#e8710a', purple: '#7c3aed' };
 const TAG_KINDS: TagKind[] = ['school', 'home', 'travel'];
 const SCOPE_LABEL: Record<ExpenseScope, string> = { local: '本地', shared: '共享' };
+const HIDDEN_FILTER_CATEGORIES = new Set(['水果', '化妆']);
 
 type TabKind = PossessionKind;
 type StatusFilter = 'all' | 'active' | 'retired';
@@ -357,20 +358,31 @@ export default function PossessionsPage() {
     return map;
   }, [items]);
 
-  // 当前 tab 的分类下拉选项：预设排前，物品上的额外值再 union，最后 + 未分类
+  const filterableItems = useMemo(() => items.filter((item) => {
+    if (item.kind !== tab) return false;
+    if (statusFilter === 'active' && !itemIsActive(item)) return false;
+    if (statusFilter === 'retired' && !itemIsDone(item)) return false;
+    if (item.kind === 'consumable') {
+      if (scopeFilter !== 'all' && !item.txns.some((txn) => txn.scope === scopeFilter)) return false;
+      if (sceneFilter !== 'all' && !item.txns.some((txn) => txn.scope === 'local' && txn.scene === sceneFilter)) return false;
+    }
+    return true;
+  }), [items, tab, statusFilter, scopeFilter, sceneFilter]);
+
+  // 只列出当前筛选下有物品的分类，保持预设顺序，未分类排最后。
   const categories = useMemo(() => {
     const preset = categoryConfig[tab].categories;
     const presetSet = new Set(preset);
-    const extras: string[] = [];
-    for (const item of items) {
-      if (item.kind !== tab) continue;
-      const eff = effectiveCategoryByItemId[item.id];
-      if (eff && eff !== UNCATEGORIZED && !presetSet.has(eff) && !extras.includes(eff)) {
-        extras.push(eff);
-      }
-    }
-    return [...preset, ...extras.sort((a, b) => a.localeCompare(b, 'zh-CN')), UNCATEGORIZED];
-  }, [categoryConfig, items, tab, effectiveCategoryByItemId]);
+    const used = new Set(filterableItems.map((item) => effectiveCategoryByItemId[item.id] ?? UNCATEGORIZED));
+    const extras = [...used].filter((category) => !presetSet.has(category) && category !== UNCATEGORIZED);
+    return [...new Set([...preset, ...extras.sort((a, b) => a.localeCompare(b, 'zh-CN')), UNCATEGORIZED])]
+      .filter((category) => used.has(category) && !HIDDEN_FILTER_CATEGORIES.has(category));
+  }, [categoryConfig, filterableItems, tab, effectiveCategoryByItemId]);
+
+  const selectedCategoryFilter = categories.includes(categoryFilter) ? categoryFilter : 'all';
+  useEffect(() => {
+    if (categoryFilter !== selectedCategoryFilter) setCategoryFilter(selectedCategoryFilter);
+  }, [categoryFilter, selectedCategoryFilter]);
 
   // 切换 tab 时重置分类筛选
   useEffect(() => { setCategoryFilter('all'); }, [tab]);
@@ -386,17 +398,9 @@ export default function PossessionsPage() {
   const durableNetCost = durableItems.reduce((sum, item) => sum + calcDurableStats(item, today).netCost, 0);
 
   const filteredItems = useMemo(() => {
-    const base = items.filter((item) => {
-      if (item.kind !== tab) return false;
-      if (statusFilter === 'active' && !itemIsActive(item)) return false;
-      if (statusFilter === 'retired' && !itemIsDone(item)) return false;
-      if (categoryFilter !== 'all' && (effectiveCategoryByItemId[item.id] ?? UNCATEGORIZED) !== categoryFilter) return false;
-      if (item.kind === 'consumable') {
-        if (scopeFilter !== 'all' && !item.txns.some((txn) => txn.scope === scopeFilter)) return false;
-        if (sceneFilter !== 'all' && !item.txns.some((txn) => txn.scope === 'local' && txn.scene === sceneFilter)) return false;
-      }
-      return true;
-    });
+    const base = filterableItems.filter((item) => (
+      selectedCategoryFilter === 'all' || (effectiveCategoryByItemId[item.id] ?? UNCATEGORIZED) === selectedCategoryFilter
+    ));
     // 默认排序：消耗品按紧急度（在用先，progress 高先，runoutDate 早先）；长期品按日均降序
     if (tab === 'consumable') {
       return [...base].sort((a, b) => {
@@ -412,7 +416,7 @@ export default function PossessionsPage() {
       });
     }
     return [...base].sort((a, b) => calcDurableStats(b, today).costPerDay - calcDurableStats(a, today).costPerDay);
-  }, [items, tab, statusFilter, categoryFilter, scopeFilter, sceneFilter, today, effectiveCategoryByItemId]);
+  }, [filterableItems, tab, selectedCategoryFilter, today, effectiveCategoryByItemId]);
 
   // 长期品日均 top 25% 阈值，用于卡片颜色凸出
   const durableCostPerDayTopThreshold = useMemo(() => {
@@ -600,7 +604,7 @@ export default function PossessionsPage() {
           <option value="active">在用</option>
           <option value="retired">{retiredFilterLabel(tab)}</option>
         </select>
-        <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '7px 9px', fontSize: 12, maxWidth: 138 }}>
+        <select value={selectedCategoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '7px 9px', fontSize: 12, maxWidth: 138 }}>
           <option value="all">全部分类</option>
           {categories.map((category) => <option key={category} value={category}>{category}</option>)}
         </select>
