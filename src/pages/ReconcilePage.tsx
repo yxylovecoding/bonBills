@@ -634,20 +634,21 @@ export default function ReconcilePage() {
       }
     }, 0);
   };
+  // 失焦时 AmountInput 的计算结果尚未完成状态更新，保存前需直接解析草稿中的算式。
   const syncAccounts = (next = localAccounts) => updateAccounts({
-    credit:        parseFloat(next.credit)        || 0,
-    creditMonthly: parseFloat(next.creditMonthly) || 0,
-    savingsCard:   parseFloat(next.savingsCard)   || 0,
-    campusCard:    parseFloat(next.campusCard)    || 0,
-    livingBank:    parseFloat(next.livingBank)    || 0,
-    consumptionBank: parseFloat(next.consumptionBank) || 0,
-    wishJar:       parseFloat(next.wishJar)       || 0,
-    incomeBank:    parseFloat(next.incomeBank)    || 0,
-    investCnyBank: parseFloat(next.investCnyBank) || 0,
-    usdLivingBank: parseFloat(next.usdLivingBank) || 0,
-    usdConsumptionBank: parseFloat(next.usdConsumptionBank) || 0,
-    usdWishJar:    parseFloat(next.usdWishJar)    || 0,
-    investUsdBank: parseFloat(next.investUsdBank) || 0,
+    credit:        parseAmountPart(next.credit),
+    creditMonthly: parseAmountPart(next.creditMonthly),
+    savingsCard:   parseAmountPart(next.savingsCard),
+    campusCard:    parseAmountPart(next.campusCard),
+    livingBank:    parseAmountPart(next.livingBank),
+    consumptionBank: parseAmountPart(next.consumptionBank),
+    wishJar:       parseAmountPart(next.wishJar),
+    incomeBank:    parseAmountPart(next.incomeBank),
+    investCnyBank: parseAmountPart(next.investCnyBank),
+    usdLivingBank: parseAmountPart(next.usdLivingBank),
+    usdConsumptionBank: parseAmountPart(next.usdConsumptionBank),
+    usdWishJar:    parseAmountPart(next.usdWishJar),
+    investUsdBank: parseAmountPart(next.investUsdBank),
   });
   const showUsdAccount = (usdKey: UsdVirtualAccountKey) =>
     parseAmountPart(localAccounts[usdKey]) !== 0 || (current.accounts[usdKey] ?? 0) !== 0 || revealedUsdAccounts.has(usdKey);
