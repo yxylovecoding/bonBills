@@ -129,7 +129,11 @@ function Modal({
       style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, backgroundColor: 'rgba(32,33,36,0.32)' }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}
         style={{ width: '100%', maxWidth: 430, maxHeight: '88vh', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', borderRadius: 16, boxShadow: '0 16px 48px rgba(0,0,0,0.2)', overflow: 'hidden' }}
       >
         <div style={{ padding: '18px 20px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
@@ -229,6 +233,7 @@ export default function PossessionsPage() {
   const [billPickerOpen, setBillPickerOpen] = useState(false);
   const [billPeriodicOnly, setBillPeriodicOnly] = useState(true);
   const [billQuery, setBillQuery] = useState('');
+  const [billDetailId, setBillDetailId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'semantic' | 'purpose'>('semantic');
   const [nameTagQuery, setNameTagQuery] = useState('');
@@ -441,6 +446,7 @@ export default function PossessionsPage() {
   const selectedBill = txnForm?.billItemId
     ? billChoices.find((choice) => choice.id === txnForm.billItemId)
     : undefined;
+  const billDetail = billDetailId ? billChoices.find((choice) => choice.id === billDetailId)?.item : undefined;
 
   const visibleBillChoices = useMemo(() => {
     if (!txnItem) return [];
@@ -843,7 +849,17 @@ export default function PossessionsPage() {
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', marginTop: 4, fontSize: 11, color: C.sub }}>
                               <CurrencyDisplay value={txn.amount} size="sm" color={txn.kind === 'resale' ? C.green : undefined} />
-                              {txn.billItemId && <span style={{ color: C.blue }}>已关联账单</span>}
+                              {txn.billItemId && (
+                                <button
+                                  type="button"
+                                  aria-haspopup="dialog"
+                                  aria-label={`查看${item.name} ${txn.date}的关联账单`}
+                                  onClick={() => setBillDetailId(txn.billItemId ?? null)}
+                                  style={{ border: 'none', background: 'transparent', color: C.blue, font: 'inherit', padding: 0, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 2 }}
+                                >
+                                  已关联账单
+                                </button>
+                              )}
                               {txn.doneAt && <span>用完日 {txn.doneAt}</span>}
                               {txn.note && <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{txn.note}</span>}
                             </div>
@@ -870,6 +886,40 @@ export default function PossessionsPage() {
       >
         +
       </button>
+
+      {billDetailId && (
+        <Modal
+          title="账单详情"
+          onClose={() => setBillDetailId(null)}
+          footer={(
+            <button type="button" autoFocus onClick={() => setBillDetailId(null)} style={{ border: '1px solid #dadce0', backgroundColor: '#fff', color: C.sub, borderRadius: 10, padding: '8px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>关闭</button>
+          )}
+        >
+          {billDetail ? (
+            <dl style={{ display: 'flex', flexDirection: 'column', gap: 14, margin: '8px 0 0', fontSize: 13 }}>
+              {[
+                { label: '金额', value: <CurrencyDisplay value={billDetail.amount} size="lg" /> },
+                { label: '日期', value: billDetail.date },
+                { label: '分类', value: [billDetail.category, billDetail.subcategory].filter(Boolean).join(' / ') || '未分类' },
+                { label: '账户', value: billDetail.account || '—' },
+                { label: '标签', value: billDetail.tags ? (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                    {[...new Set(tagsOf(billDetail))].map((tag) => <span key={tag} style={{ backgroundColor: '#f1f3f4', borderRadius: 6, padding: '2px 6px', fontSize: 12 }}>{tag}</span>)}
+                  </div>
+                ) : '—' },
+                { label: '备注', value: billDetail.note || '—' },
+              ].map(({ label, value }) => (
+                <div key={label} style={{ display: 'grid', gridTemplateColumns: '44px minmax(0, 1fr)', gap: 12, alignItems: 'start' }}>
+                  <dt style={{ color: C.sub, lineHeight: 1.7 }}>{label}</dt>
+                  <dd style={{ margin: 0, color: '#202124', lineHeight: 1.7, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : (
+            <div role="status" style={{ padding: '18px 0', color: C.sub, fontSize: 13, textAlign: 'center' }}>未找到原账单</div>
+          )}
+        </Modal>
+      )}
 
       {itemForm && (
         <Modal
