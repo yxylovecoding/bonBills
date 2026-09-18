@@ -436,6 +436,8 @@ export interface PossessionItem {
   name: string;
   kind: PossessionKind;
   category?: string;
+  /** 物品页明确选择的用途分类；账单导入分类仍保存在 category。 */
+  categoryOverride?: string;
   icon?: string;
   status: PossessionStatus;
   txns: PossessionTxn[];

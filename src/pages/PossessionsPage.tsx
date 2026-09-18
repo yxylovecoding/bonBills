@@ -324,13 +324,13 @@ export default function PossessionsPage() {
     return out;
   }, [storedItems, billChoices]);
 
-  // 物品 → 有效用途分类（手动 > 标签映射 > 未分类）
+  // 物品 → 设置列表中的有效分类（手动选择 > 标签映射 > 旧分类 > 未分类）
   const effectiveCategoryByItemId = useMemo(() => {
     const out: Record<string, string> = {};
     for (const item of storedItems) {
       out[item.id] = getItemCategory(
         item,
-        categoryConfig[item.kind].tagToCategory,
+        categoryConfig[item.kind],
         tagsByItemId[item.id] ?? [],
       );
     }
@@ -385,10 +385,8 @@ export default function PossessionsPage() {
   // 只列出当前筛选下有物品的分类，保持预设顺序，未分类排最后。
   const categories = useMemo(() => {
     const preset = categoryConfig[tab].categories;
-    const presetSet = new Set(preset);
     const used = new Set(filterableItems.map((item) => effectiveCategoryByItemId[item.id] ?? UNCATEGORIZED));
-    const extras = [...used].filter((category) => !presetSet.has(category) && category !== UNCATEGORIZED);
-    return [...new Set([...preset, ...extras.sort((a, b) => a.localeCompare(b, 'zh-CN')), UNCATEGORIZED])]
+    return [...new Set([...preset, UNCATEGORIZED])]
       .filter((category) => used.has(category) && !HIDDEN_FILTER_CATEGORIES.has(category));
   }, [categoryConfig, filterableItems, tab, effectiveCategoryByItemId]);
 
@@ -474,7 +472,7 @@ export default function PossessionsPage() {
     addItem({
       kind: itemForm.kind,
       name: itemForm.name.trim(),
-      category: itemForm.category.trim() || undefined,
+      categoryOverride: categoryConfig[itemForm.kind].categories.includes(itemForm.category) ? itemForm.category : undefined,
       icon: itemForm.icon.trim() || undefined,
       unit: itemForm.kind === 'consumable' ? (itemForm.unit.trim() || '个') : undefined,
       retiredAt: undefined,
@@ -727,23 +725,13 @@ export default function PossessionsPage() {
                   <div style={{ display: 'grid', gridTemplateColumns: item.kind === 'consumable' ? '1fr 82px' : '1fr 110px', gap: 8, paddingTop: 12 }}>
                     {(() => {
                       const presetList = categoryConfig[item.kind].categories;
-                      const cur = item.category?.trim() ?? '';
-                      const inPreset = cur === '' || presetList.includes(cur);
-                      if (!inPreset) {
-                        // 自定义值：用 text input 保留
-                        return (
-                          <input
-                            value={item.category ?? ''}
-                            onChange={(e) => updateItem(item.id, { category: e.target.value || undefined })}
-                            placeholder="分类"
-                            style={{ ...inputStyle, padding: '7px 8px', fontSize: 12 }}
-                          />
-                        );
-                      }
+                      const manual = item.categoryOverride?.trim() ?? '';
+                      const cur = presetList.includes(manual) ? manual : '';
                       return (
                         <select
                           value={cur}
-                          onChange={(e) => updateItem(item.id, { category: e.target.value || undefined })}
+                          aria-label={`${item.name}分类`}
+                          onChange={(e) => updateItem(item.id, { categoryOverride: e.target.value || undefined })}
                           style={{ ...inputStyle, padding: '7px 8px', fontSize: 12 }}
                         >
                           <option value="">自动 / 未指定</option>
@@ -946,7 +934,14 @@ export default function PossessionsPage() {
               <input value={itemForm.icon} onChange={(e) => setItemForm({ ...itemForm, icon: e.target.value.slice(0, 2) })} style={inputStyle} />
             </Field>
             <Field label="分类">
-              <input value={itemForm.category} onChange={(e) => setItemForm({ ...itemForm, category: e.target.value })} style={inputStyle} />
+              <select
+                value={categoryConfig[itemForm.kind].categories.includes(itemForm.category) ? itemForm.category : ''}
+                onChange={(e) => setItemForm({ ...itemForm, category: e.target.value })}
+                style={inputStyle}
+              >
+                <option value="">自动 / 未指定</option>
+                {categoryConfig[itemForm.kind].categories.map((category) => <option key={category} value={category}>{category}</option>)}
+              </select>
             </Field>
           </div>
           {itemForm.kind === 'consumable' && (
@@ -1118,7 +1113,8 @@ export default function PossessionsPage() {
                   {purposeTagRows.length === 0 ? (
                     <div style={{ fontSize: 12, color: C.sub, textAlign: 'center', padding: '14px 0' }}>暂无相关标签</div>
                   ) : purposeTagRows.map(([tag, count]) => {
-                    const cur = bucket.tagToCategory[tag] ?? '';
+                    const mapped = bucket.tagToCategory[tag] ?? '';
+                    const cur = bucket.categories.includes(mapped) ? mapped : '';
                     return (
                       <div key={tag} style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid #e8eaed', backgroundColor: '#fff', borderRadius: 8, padding: '5px 8px' }}>
                         <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tag}</span>

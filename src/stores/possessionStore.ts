@@ -214,6 +214,9 @@ export const usePossessionStore = create<PossessionStore>()(
             if (cat !== trimmed) nextMap[tag] = cat;
           }
           return {
+            items: s.items.map((item) => item.kind === kind && item.categoryOverride?.trim() === trimmed
+              ? { ...item, categoryOverride: undefined }
+              : item),
             categoryConfig: {
               ...s.categoryConfig,
               [kind]: {

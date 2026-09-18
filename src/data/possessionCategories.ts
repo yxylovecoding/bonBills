@@ -1,4 +1,5 @@
 import type {
+  PossessionCategoryBucket,
   PossessionCategoryConfig,
   PossessionItem,
   PossessionKind,
@@ -26,14 +27,18 @@ export function bucketFor(
 
 export function getItemCategory(
   item: PossessionItem,
-  tagToCategory: Record<string, string>,
+  bucket: PossessionCategoryBucket,
   itemTags: string[],
 ): string {
-  const manual = item.category?.trim();
-  if (manual) return manual;
+  const configured = new Set(bucket.categories);
+  const manual = item.categoryOverride?.trim();
+  if (manual && configured.has(manual)) return manual;
   for (const tag of itemTags) {
-    const hit = tagToCategory[tag];
-    if (hit) return hit;
+    const hit = bucket.tagToCategory[tag];
+    if (hit && configured.has(hit)) return hit;
   }
+  // 兼容账单导入的分类和旧物品分类，但不让它们覆盖用户的标签映射。
+  const fallback = item.category?.trim();
+  if (fallback && configured.has(fallback)) return fallback;
   return UNCATEGORIZED;
 }
