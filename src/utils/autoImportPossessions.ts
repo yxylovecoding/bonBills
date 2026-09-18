@@ -6,6 +6,7 @@ import { classifyTag, type ManualTagCategory } from './tagCategory';
 const POSSESSION_CATEGORIES = new Set(['购物', '医疗']);
 const EXCLUDED_KEYWORDS = ['体检', '周边', '医院'];
 const CONSUMABLE_TAG = '消耗品';
+const PERIODIC_TAG = '周期生活';
 const DONE_TAG = 'done';
 const QUANTITY_PATTERN = /(\d+(?:\.\d+)?)\s*(kg|mg|ml|l|g|斤|两|升|毫升|瓶|盒|支|个|包|袋|片|颗|粒|罐|条|卷|套|只|双|斤装|毫升装)/i;
 
@@ -56,10 +57,6 @@ function isPossessionBill(item: BillExpenseItem, tags: string[]) {
   return tags.includes(CONSUMABLE_TAG) || POSSESSION_CATEGORIES.has(item.category);
 }
 
-function possessionKind(tags: string[]): PossessionKind {
-  return tags.includes(CONSUMABLE_TAG) ? 'consumable' : 'durable';
-}
-
 function itemName(item: BillExpenseItem, tags: string[], tagCategory: Record<string, ManualTagCategory>) {
   // 优先 name > brand > unclassified；自动 3 类（system/trip/quantity）+ person/ignore 都不当物品名
   const pickByCategory = (target: 'name' | 'brand' | 'unclassified') =>
@@ -68,8 +65,48 @@ function itemName(item: BillExpenseItem, tags: string[], tagCategory: Record<str
   return tag || item.subcategory || item.note || item.category || '未命名物品';
 }
 
+function normalizedName(name: string) {
+  return name.trim().toLowerCase();
+}
+
+function isFruitBill(item: BillExpenseItem, tags: string[]) {
+  return [item.category.trim(), item.subcategory.trim(), ...tags].includes('水果');
+}
+
+export function getEligibleConsumableNames(
+  expenseItems: Record<string, BillExpenseMonth>,
+  tagCategory: Record<string, ManualTagCategory>,
+): Set<string> {
+  const latestByName = new Map<string, BillExpenseItem>();
+  for (const monthItems of Object.values(expenseItems)) {
+    for (const item of monthItems) {
+      const name = normalizedName(itemName(item, tagsOf(item), tagCategory));
+      const latest = latestByName.get(name);
+      // 账单只保留日期；同日时沿用原始账单顺序中的第一条。
+      if (!latest || item.date > latest.date) latestByName.set(name, item);
+    }
+  }
+  return new Set([...latestByName].filter(([, item]) => {
+    const tags = tagsOf(item);
+    return tags.includes(CONSUMABLE_TAG) && tags.includes(PERIODIC_TAG)
+      && !isFruitBill(item, tags) && isPossessionBill(item, tags);
+  }).map(([name]) => name));
+}
+
+export function isVisiblePossession(
+  item: PossessionItem,
+  eligibleConsumableNames: Set<string>,
+  category: string,
+  itemTags: string[],
+) {
+  if (item.kind !== 'consumable') return true;
+  return eligibleConsumableNames.has(normalizedName(item.name))
+    && category !== '水果' && item.category?.trim() !== '水果'
+    && normalizedName(item.name) !== '水果' && !itemTags.includes('水果');
+}
+
 function itemKey(kind: PossessionKind, name: string) {
-  return `${kind}::${name.trim().toLowerCase()}`;
+  return `${kind}::${normalizedName(name)}`;
 }
 
 function sortTxns(txns: PossessionTxn[]) {
@@ -109,7 +146,7 @@ function normalizeImportedTxn(
   if (kind !== 'consumable') return txn;
   const parsed = parsePossessionQuantity(billItem);
   const isDone = tags.includes(DONE_TAG);
-  const done = isDone || txn.done || undefined;
+  const done = isDone || undefined;
   const inferredScope = resolveExpenseScope(billItem, overrides);
   const scope = inferredScope ?? txn.scope ?? 'local';
   const nextQuantity = parsed && (txn.quantity === undefined || txn.quantity === 1) ? parsed.quantity : txn.quantity;
@@ -141,6 +178,13 @@ export function mergePossessionsFromBills({
     .flatMap(([, monthItems]) => assignExpenseIds(monthItems));
 
   for (const { item, id } of billEntries) billById.set(id, item);
+
+  const eligibleConsumableNames = getEligibleConsumableNames(expenseItems, tagCategory);
+  const kindForBill = (item: BillExpenseItem, tags: string[], name: string): PossessionKind | null => {
+    if (eligibleConsumableNames.has(normalizedName(name)) && !isFruitBill(item, tags)) return 'consumable';
+    if (tags.includes(CONSUMABLE_TAG) || !isPossessionBill(item, tags)) return null;
+    return 'durable';
+  };
 
   const nextItems = items.map((item) => ({ ...item, txns: [] as PossessionTxn[] }));
   const originalTxnCounts = new Map(items.map((item) => [item.id, item.txns.length]));
@@ -197,11 +241,13 @@ export function mergePossessionsFromBills({
       if (txn.billItemId && !ignored.has(txn.billItemId)) {
         const billItem = billById.get(txn.billItemId);
         const tags = billItem ? tagsOf(billItem) : [];
-        if (billItem && isPossessionBill(billItem, tags)) {
-          const kind = possessionKind(tags);
+        if (billItem) {
           const name = itemName(billItem, tags, tagCategory);
-          target = ensureTarget(billItem, kind, name, parsePossessionQuantity(billItem));
-          if (target.id !== current.id) changed = true;
+          const kind = kindForBill(billItem, tags, name);
+          if (kind) {
+            target = ensureTarget(billItem, kind, name, parsePossessionQuantity(billItem));
+            if (target.id !== current.id) changed = true;
+          }
         }
       }
       const billItem = txn.billItemId ? billById.get(txn.billItemId) : undefined;
@@ -214,12 +260,11 @@ export function mergePossessionsFromBills({
   for (const { item, id: billItemId } of billEntries) {
     if (ignored.has(billItemId) || referenced.has(billItemId)) continue;
     const tags = tagsOf(item);
-    if (!isPossessionBill(item, tags)) continue;
-
-    const kind = possessionKind(tags);
+    const name = itemName(item, tags, tagCategory);
+    const kind = kindForBill(item, tags, name);
+    if (!kind) continue;
     const parsedQuantity = parsePossessionQuantity(item);
     const isDoneConsumable = kind === 'consumable' && tags.includes(DONE_TAG);
-    const name = itemName(item, tags, tagCategory);
     const key = itemKey(kind, name);
     let possession = byName.get(key);
     if (!possession) {

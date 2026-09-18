@@ -16,7 +16,7 @@ import {
   type ExpenseScope,
 } from '../stores/expenseScopeOverrideStore';
 import { usePossessionStore } from '../stores/possessionStore';
-import { parsePossessionQuantity } from '../utils/autoImportPossessions';
+import { getEligibleConsumableNames, isVisiblePossession, parsePossessionQuantity } from '../utils/autoImportPossessions';
 import { assignExpenseIds, type BillExpenseItem } from '../utils/importBill';
 import {
   classifyTag,
@@ -209,7 +209,7 @@ export default function PossessionsPage() {
   const navigate = useNavigate();
   const today = todayKey();
   const {
-    items, tagCategory, categoryConfig,
+    items: storedItems, tagCategory, categoryConfig,
     addItem, updateItem, removeItem,
     addTxn, removeTxn, setTxnDone, setStatus,
     setTagCategory, addCategory, removeCategory, setTagToCategory,
@@ -284,7 +284,7 @@ export default function PossessionsPage() {
     const billById = new Map<string, BillExpenseItem>();
     for (const choice of billChoices) billById.set(choice.id, choice.item);
     const out: Record<string, string> = {};
-    for (const item of items) {
+    for (const item of storedItems) {
       for (const txn of item.txns) {
         if (!txn.billItemId) continue;
         const bill = billById.get(txn.billItemId);
@@ -294,14 +294,14 @@ export default function PossessionsPage() {
       }
     }
     return out;
-  }, [items, billChoices, tagCategory]);
+  }, [storedItems, billChoices, tagCategory]);
 
   // 物品 → 全部 txn 标签（去重，保持出现顺序）
   const tagsByItemId = useMemo(() => {
     const billById = new Map<string, BillExpenseItem>();
     for (const choice of billChoices) billById.set(choice.id, choice.item);
     const out: Record<string, string[]> = {};
-    for (const item of items) {
+    for (const item of storedItems) {
       const seen = new Set<string>();
       const list: string[] = [];
       for (const txn of item.txns) {
@@ -317,12 +317,12 @@ export default function PossessionsPage() {
       out[item.id] = list;
     }
     return out;
-  }, [items, billChoices]);
+  }, [storedItems, billChoices]);
 
   // 物品 → 有效用途分类（手动 > 标签映射 > 未分类）
   const effectiveCategoryByItemId = useMemo(() => {
     const out: Record<string, string> = {};
-    for (const item of items) {
+    for (const item of storedItems) {
       out[item.id] = getItemCategory(
         item,
         categoryConfig[item.kind].tagToCategory,
@@ -330,7 +330,15 @@ export default function PossessionsPage() {
       );
     }
     return out;
-  }, [items, categoryConfig, tagsByItemId]);
+  }, [storedItems, categoryConfig, tagsByItemId]);
+
+  const eligibleConsumableNames = useMemo(
+    () => getEligibleConsumableNames(expenseItems, tagCategory),
+    [expenseItems, tagCategory],
+  );
+  const items = useMemo(() => storedItems.filter((item) => isVisiblePossession(
+    item, eligibleConsumableNames, effectiveCategoryByItemId[item.id], tagsByItemId[item.id] ?? [],
+  )), [storedItems, eligibleConsumableNames, effectiveCategoryByItemId, tagsByItemId]);
 
   // 出现在当前 purposeKind 物品上、且属于「名称」类的标签 + 计数
   const purposeTagRows = useMemo(() => {
@@ -350,13 +358,13 @@ export default function PossessionsPage() {
 
   const referencedBillMap = useMemo(() => {
     const map = new Map<string, string>();
-    for (const item of items) {
+    for (const item of storedItems) {
       for (const txn of item.txns) {
         if (txn.billItemId && !map.has(txn.billItemId)) map.set(txn.billItemId, item.name);
       }
     }
     return map;
-  }, [items]);
+  }, [storedItems]);
 
   const filterableItems = useMemo(() => items.filter((item) => {
     if (item.kind !== tab) return false;
@@ -822,8 +830,9 @@ export default function PossessionsPage() {
                               {isConsumablePurchase && (
                                 <button
                                   type="button"
+                                  disabled={!!txn.billItemId}
                                   onClick={() => setTxnDone(item.id, txn.id, !txn.done, txn.doneAt ?? today)}
-                                  style={{ border: 'none', backgroundColor: txn.done ? '#fff4e8' : '#e6f4ea', color: txn.done ? C.orange : C.green, borderRadius: 999, padding: '2px 6px', fontSize: 10, fontWeight: 800, cursor: 'pointer' }}
+                                  style={{ border: 'none', backgroundColor: txn.done ? '#fff4e8' : '#e6f4ea', color: txn.done ? C.orange : C.green, borderRadius: 999, padding: '2px 6px', fontSize: 10, fontWeight: 800, cursor: txn.billItemId ? 'default' : 'pointer' }}
                                 >
                                   {txn.done ? '已用完' : '在用'}
                                 </button>
