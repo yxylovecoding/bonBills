@@ -192,7 +192,7 @@ export interface AppConfig {
   investAnnualGrowthRate?: number; // FIRE 扣除通胀后的实际年化收益率，默认 0.04
   fireUseAverageAnnualRate?: boolean; // FIRE 默认随记录平均年化收益率更新；手填时关闭
   fireHousingFundRate?: number; // FIRE 杭州口径中的个人公积金比例（5%–12%）
-  fireExpenseTagKind?: FireExpenseScenario; // FIRE 家/校支出参照场景，可按近两年旅行占比计入旅行；兼容旧场景
+  fireExpenseTagKind?: FireExpenseScenario; // 仅用于 FIRE 后的家/校支出场景，可计入旅行；兼容旧场景
   fireSavingsAllocationRate?: number; // FIRE“分配”模式中，覆盖“活”后收入的存入比例
   fireTalentDegree?: 'none' | 'bachelor' | 'master' | 'doctor';
   fireProfileSource?: 'boncv' | 'manual';

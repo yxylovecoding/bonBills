@@ -1,9 +1,10 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { AppConfig } from '../models/types';
+import { DEFAULT_FIRE_GRADUATION_DATE } from '../calculations/fireExpenses';
 
 export const DEFAULT_WISH_DEADLINE_MILESTONES = [
-  { id: 'milestone_graduation', name: '毕业前', date: '2028-06-20' },
+  { id: 'milestone_graduation', name: '毕业前', date: DEFAULT_FIRE_GRADUATION_DATE },
 ];
 
 export const DEFAULT_CONFIG: AppConfig = {

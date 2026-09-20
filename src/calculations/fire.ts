@@ -12,10 +12,9 @@ import {
 const DEFAULT_INVEST_ANNUAL_GROWTH_RATE = 0.04;
 const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
 
-export function getAge(birthDate: string): number {
+export function getAge(birthDate: string, now = new Date()): number {
   const birth = new Date(birthDate);
   if (Number.isNaN(birth.getTime())) return 0;
-  const now = new Date();
   let age = now.getFullYear() - birth.getFullYear();
   const m = now.getMonth() - birth.getMonth();
   if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age--;
@@ -37,6 +36,7 @@ export interface FireResult {
   projectedInvestmentGrowth: number;
   monthlyNeeded: number;
   monthlySurplus: number;
+  annualEssentialExpense: number;
   requiredAnnualSavings: number;
   requiredAnnualSavingsBeforeTalentSubsidy: number;
   postEssentialSavingsRate: number;
@@ -71,6 +71,9 @@ export interface FireCalculationOptions {
   postEssentialSavingsRate?: number;
   /** 工作期每年需先覆盖的刚需；默认与退休目标使用同一支出口径。 */
   annualEssentialExpense?: number;
+  /** 按日期分段的 FIRE 前支出；末段不设结束日，延续到 FIRE。 */
+  essentialExpenseStages?: readonly { endDate?: string; annualExpense: number }[];
+  now?: Date;
   /** 弹性分配中进入心愿账户的比例；默认沿用“建议转账”的 80%。 */
   wishShare?: number;
 }
@@ -83,6 +86,38 @@ function normalizeInvestAnnualGrowthRate(rate: number | undefined): number {
 function calcFutureSavingsFactor(annualGrowthRate: number, years: number): number {
   if (Math.abs(annualGrowthRate) < 1e-9) return years;
   return (Math.pow(1 + annualGrowthRate, years) - 1) / annualGrowthRate;
+}
+
+function calcEssentialExpenses(
+  fallback: number,
+  stages: FireCalculationOptions['essentialExpenseStages'],
+  now: Date,
+  targetYears: number,
+  annualGrowthRate: number,
+) {
+  const startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const totalFactor = calcFutureSavingsFactor(annualGrowthRate, targetYears);
+  let elapsedYears = 0;
+  let futureValue = 0;
+  let currentAnnualExpense = fallback;
+  for (const stage of stages ?? []) {
+    const endDate = stage.endDate ? new Date(`${stage.endDate}T00:00:00`) : null;
+    if (endDate && Number.isNaN(endDate.getTime())) continue;
+    const endYears = endDate
+      ? Math.min(Math.max((endDate.getTime() - startDate.getTime()) / (365.25 * 86400000), 0), targetYears)
+      : targetYears;
+    if (endYears <= elapsedYears) continue;
+    const annualExpense = Number.isFinite(stage.annualExpense) ? Math.max(stage.annualExpense, 0) : fallback;
+    if (elapsedYears === 0) currentAnnualExpense = annualExpense;
+    // 分段费用使用与储蓄相同的终值权重，保留先低后高支出对资产积累的影响。
+    const factor = calcFutureSavingsFactor(annualGrowthRate, targetYears - elapsedYears)
+      - calcFutureSavingsFactor(annualGrowthRate, targetYears - endYears);
+    futureValue += annualExpense * factor;
+    elapsedYears = endYears;
+    if (elapsedYears >= targetYears) break;
+  }
+  futureValue += fallback * calcFutureSavingsFactor(annualGrowthRate, targetYears - elapsedYears);
+  return { annualExpense: futureValue / totalFactor, currentAnnualExpense };
 }
 
 const HANGZHOU_ANNUAL_RENT_TAX_DEDUCTION = 1500 * 12;
@@ -113,6 +148,7 @@ function calcTalentSubsidies(
   annualRentExpense: number,
   targetYears: number,
   annualGrowthRate: number,
+  now: Date,
 ) {
   const enabled = config.fireTalentSubsidyEnabled !== false;
   const degreeEligible = (config.fireTalentDegree ?? 'master') !== 'none';
@@ -124,7 +160,6 @@ function calcTalentSubsidies(
   const eTalentRecognitionYear = Math.min(Math.max(Math.round(config.fireETalentRecognitionYear ?? 3), 2), 5);
   const wholeYears = Math.max(Math.floor(targetYears), 0);
   const graduationDate = config.fireGraduationDate ? new Date(config.fireGraduationDate) : null;
-  const now = new Date();
   const careerStartOffsetYears = graduationDate && !Number.isNaN(graduationDate.getTime()) && graduationDate > now
     ? (graduationDate.getTime() - now.getTime()) / (365.25 * 24 * 60 * 60 * 1000)
     : 0;
@@ -164,7 +199,8 @@ export function calcFire(
   investTotal: number,
   options?: FireCalculationOptions,
 ): FireResult {
-  const age = getAge(config.birthDate);
+  const now = options?.now ?? new Date();
+  const age = getAge(config.birthDate, now);
   const annualExpense = stats.totalExpenseAvg * 12;
 
   const target4pct = annualExpense / config.safeWithdrawRate;
@@ -186,7 +222,7 @@ export function calcFire(
   const projectedCurrentInvest = investTotal * Math.pow(1 + investAnnualGrowthRate, targetYears);
   const projectedInvestmentGrowth = projectedCurrentInvest - investTotal;
   const annualRentExpense = getAnnualRentExpense(config);
-  const talentSubsidy = calcTalentSubsidies(config, annualRentExpense, targetYears, investAnnualGrowthRate);
+  const talentSubsidy = calcTalentSubsidies(config, annualRentExpense, targetYears, investAnnualGrowthRate, now);
   const remainingTargetBeforeTalentSubsidy = Math.max(fireTarget - projectedCurrentInvest, 0);
   const talentSubsidyFutureValue = Math.min(talentSubsidy.futureValue, remainingTargetBeforeTalentSubsidy);
   const remainingTarget = Math.max(remainingTargetBeforeTalentSubsidy - talentSubsidyFutureValue, 0);
@@ -197,11 +233,13 @@ export function calcFire(
   const requiredAnnualSavings = savingsFutureValueFactor > 0 ? remainingTarget / savingsFutureValueFactor : remainingTarget / targetYears;
   const monthlyNeeded = requiredAnnualSavings / 12;
   const configuredAnnualEssentialExpense = options?.annualEssentialExpense;
-  const annualEssentialExpense = typeof configuredAnnualEssentialExpense === 'number'
+  const fallbackAnnualExpense = typeof configuredAnnualEssentialExpense === 'number'
     && Number.isFinite(configuredAnnualEssentialExpense)
     ? Math.max(configuredAnnualEssentialExpense, 0)
     : annualExpense;
-  const monthlySurplus = stats.monthlyIncomeAvg - annualEssentialExpense / 12;
+  const essentialExpenses = calcEssentialExpenses(fallbackAnnualExpense, options?.essentialExpenseStages, now, targetYears, investAnnualGrowthRate);
+  const annualEssentialExpense = essentialExpenses.annualExpense;
+  const monthlySurplus = stats.monthlyIncomeAvg - essentialExpenses.currentAnnualExpense / 12;
   const configuredSavingsRate = options?.postEssentialSavingsRate ?? 1;
   const postEssentialSavingsRate = Number.isFinite(configuredSavingsRate)
     ? Math.min(Math.max(configuredSavingsRate, 0.01), 1)
@@ -278,6 +316,7 @@ export function calcFire(
     projectedInvestmentGrowth,
     monthlyNeeded,
     monthlySurplus,
+    annualEssentialExpense,
     requiredAnnualSavings,
     requiredAnnualSavingsBeforeTalentSubsidy,
     postEssentialSavingsRate,
