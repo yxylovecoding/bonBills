@@ -22,7 +22,7 @@ import { signOut } from '../utils/authClient';
 import { calcHistoryStats } from '../calculations/history';
 import { calcFire } from '../calculations/fire';
 import { tagMeta } from '../data/mockData';
-import type { FireExpenseScenario, FutureFireExpense, IncomeItem, MajorFireWish, TagKind, LocalLifeBreakdownRow, MonthlyRecord, SharedLifeBreakdownItem, SharedLifeBreakdownRow } from '../models/types';
+import type { FutureFireExpense, IncomeItem, MajorFireWish, TagKind, LocalLifeBreakdownRow, MonthlyRecord, SharedLifeBreakdownItem, SharedLifeBreakdownRow } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { dateLabel, daysUntilDate, resolveIncomeForMonth } from '../utils/payroll';
@@ -42,7 +42,7 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '分类同步';
+const RELEASE_NOTE = '场景切换';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -50,13 +50,6 @@ const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
 const MIN_FIRE_SAVINGS_ALLOCATION_RATE = 0.1;
 const CNY_ASSET_ACCOUNT_KEYS = ['savingsCard', 'incomeBank', 'livingBank', 'campusCard', 'consumptionBank', 'wishJar', 'investCnyBank'] as const;
 const USD_ASSET_ACCOUNT_KEYS = ['usdLivingBank', 'usdConsumptionBank', 'usdWishJar', 'investUsdBank'] as const;
-const FIRE_SCENARIO_LABELS: Record<FireExpenseScenario, string> = {
-  intern: '工作',
-  school: '在校',
-  home: '居家',
-  travel: '旅行',
-  schoolTravel: '在校+旅行',
-};
 const FIRE_MODE_LABELS = { life: '活', all: '生活', allocation: '分配' } as const;
 type FireMode = keyof typeof FIRE_MODE_LABELS;
 const FIRE_DEGREE_LABELS = { none: '不计人才政策', bachelor: '本科', master: '硕士', doctor: '博士' } as const;
@@ -564,34 +557,38 @@ export default function HomePage() {
     // 仅在来源切换或页面首次进入时同步，避免写回配置后重复请求。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.fireProfileSource]);
-  const configuredFireExpenseTagKind = config.fireExpenseTagKind ?? 'intern';
+  const configuredFireExpenseTagKind = config.fireExpenseTagKind ?? 'school';
+  const fireBaseScenario = configuredFireExpenseTagKind === 'home' || configuredFireExpenseTagKind === 'homeTravel'
+    ? 'home'
+    : 'school';
+  const fireIncludesTravel = configuredFireExpenseTagKind === 'schoolTravel'
+    || configuredFireExpenseTagKind === 'homeTravel'
+    || configuredFireExpenseTagKind === 'travel';
+  const fireScenarioLabel = `${fireBaseScenario === 'home' ? '家' : '校'}${fireIncludesTravel ? '＋旅行' : ''}`;
+  const updateFireScenario = (base: 'home' | 'school', includesTravel: boolean) => {
+    setConfig({ fireExpenseTagKind: includesTravel ? (base === 'home' ? 'homeTravel' : 'schoolTravel') : base });
+  };
   const recentScenarioDays = Object.values(stats.stateDailyConfidence).reduce((sum, days) => sum + days, 0);
   const recentTravelDays = stats.stateDailyConfidence.travel;
   const recentTravelRatio = recentScenarioDays > 0 ? recentTravelDays / recentScenarioDays : 0;
   const annualizedTravelDays = recentTravelRatio * 365;
-  const isSchoolTravelFireScenario = configuredFireExpenseTagKind === 'schoolTravel';
-  const fireExpenseScenarioHasData = isSchoolTravelFireScenario
-    ? stats.stateDailyConfidence.school > 0 || stats.stateDailyConfidence.travel > 0
-    : stats.stateDailyConfidence[configuredFireExpenseTagKind] > 0;
-  const fallbackFireExpenseTagKind: TagKind = fireExpenseScenarioHasData && !isSchoolTravelFireScenario
-    ? configuredFireExpenseTagKind
-    : 'school';
-  const schoolLifeDaily = stats.stateDailyConfidence.school > 0 ? stats.stateDailyAvg.school : stats.stateDailyAvg.travel;
-  const travelLifeDaily = stats.stateDailyConfidence.travel > 0 ? stats.stateDailyAvg.travel : schoolLifeDaily;
-  const schoolConsumptionDaily = stats.stateDailyConfidence.school > 0
-    ? stats.stateConsumptionDailyAvg.school
-    : stats.stateConsumptionDailyAvg.travel;
+  const fireExpenseScenarioHasData = stats.stateDailyConfidence[fireBaseScenario] > 0
+    || (fireIncludesTravel && stats.stateDailyConfidence.travel > 0);
+  const fallbackFireExpenseTagKind = stats.stateDailyConfidence[fireBaseScenario] > 0
+    ? fireBaseScenario
+    : stats.stateDailyConfidence.school > 0 || !fireIncludesTravel ? 'school' : 'travel';
+  const baseLifeDaily = stats.stateDailyAvg[fallbackFireExpenseTagKind];
+  const travelLifeDaily = stats.stateDailyConfidence.travel > 0 ? stats.stateDailyAvg.travel : baseLifeDaily;
+  const baseConsumptionDaily = stats.stateConsumptionDailyAvg[fallbackFireExpenseTagKind];
   const travelConsumptionDaily = stats.stateDailyConfidence.travel > 0
     ? stats.stateConsumptionDailyAvg.travel
-    : schoolConsumptionDaily;
-  const schoolTravelLifeDaily = schoolLifeDaily * (1 - recentTravelRatio) + travelLifeDaily * recentTravelRatio;
-  const schoolTravelConsumptionDaily = schoolConsumptionDaily * (1 - recentTravelRatio) + travelConsumptionDaily * recentTravelRatio;
-  const futureLifeDailyExpense = isSchoolTravelFireScenario
-    ? schoolTravelLifeDaily
-    : stats.stateDailyAvg[fallbackFireExpenseTagKind];
-  const futureConsumptionDailyExpense = isSchoolTravelFireScenario
-    ? schoolTravelConsumptionDaily
-    : stats.stateConsumptionDailyAvg[fallbackFireExpenseTagKind];
+    : baseConsumptionDaily;
+  const futureLifeDailyExpense = fireIncludesTravel
+    ? baseLifeDaily * (1 - recentTravelRatio) + travelLifeDaily * recentTravelRatio
+    : baseLifeDaily;
+  const futureConsumptionDailyExpense = fireIncludesTravel
+    ? baseConsumptionDaily * (1 - recentTravelRatio) + travelConsumptionDaily * recentTravelRatio
+    : baseConsumptionDaily;
   const futureLifeAnnualExpense = futureLifeDailyExpense * 365 + activeFutureFireMonthly * 12;
   const futureConsumptionAnnualExpense = fireExpenseScenarioHasData
     ? futureConsumptionDailyExpense * 365
@@ -1048,7 +1045,7 @@ export default function HomePage() {
             <span style={{ fontSize: 15, fontWeight: 700 }}>FIRE</span>
             <span style={{ fontSize: 11, color: C.sub, transform: fireExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', display: 'inline-block' }}>▼</span>
           </button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', backgroundColor: '#f1f3f4', borderRadius: 999, padding: 2, gap: 2 }} onClick={(e) => e.stopPropagation()}>
               {(Object.keys(FIRE_MODE_LABELS) as FireMode[]).map((mode) => {
                 const active = fireMode === mode;
@@ -1059,17 +1056,27 @@ export default function HomePage() {
                 );
               })}
             </div>
-            <select
-              value={configuredFireExpenseTagKind}
-              onClick={(e) => e.stopPropagation()}
-              onChange={(e) => setConfig({ fireExpenseTagKind: e.target.value as FireExpenseScenario })}
-              aria-label="FIRE 未来支出场景"
-              style={{ border: '1px solid #e0e0e0', borderRadius: 999, backgroundColor: '#fff', color: '#202124', fontSize: 12, fontWeight: 700, padding: '5px 8px', outline: 'none', cursor: 'pointer' }}
-            >
-              {(Object.keys(FIRE_SCENARIO_LABELS) as FireExpenseScenario[]).map((kind) => (
-                <option key={kind} value={kind}>{FIRE_SCENARIO_LABELS[kind]}</option>
-              ))}
-            </select>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <select
+                value={fireBaseScenario}
+                onChange={(e) => updateFireScenario(e.target.value as 'home' | 'school', fireIncludesTravel)}
+                aria-label="FIRE 未来支出场景"
+                style={{ border: '1px solid #e0e0e0', borderRadius: 999, backgroundColor: '#fff', color: '#202124', fontSize: 12, fontWeight: 700, padding: '5px 8px', cursor: 'pointer' }}
+              >
+                <option value="home">家</option>
+                <option value="school">校</option>
+              </select>
+              <span aria-hidden="true" style={{ color: C.sub, fontSize: 12 }}>＋</span>
+              <button
+                type="button"
+                aria-label="FIRE 计入旅行"
+                aria-pressed={fireIncludesTravel}
+                onClick={() => updateFireScenario(fireBaseScenario, !fireIncludesTravel)}
+                style={{ border: `1px solid ${fireIncludesTravel ? '#d2e3fc' : '#e0e0e0'}`, borderRadius: 999, backgroundColor: fireIncludesTravel ? '#e8f0fe' : '#fff', color: fireIncludesTravel ? C.blue : C.sub, fontSize: 12, fontWeight: 700, padding: '5px 8px', cursor: 'pointer', transition: 'all 0.15s' }}
+              >
+                旅行
+              </button>
+            </div>
             <select
               value={fireTargetYearSelectValue}
               onClick={(e) => e.stopPropagation()}
@@ -1083,7 +1090,7 @@ export default function HomePage() {
             </select>
           </div>
         </div>
-        {isSchoolTravelFireScenario && (
+        {fireIncludesTravel && (
           <div style={{ margin: '-4px 0 12px', fontSize: 11, color: C.sub, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
             近两年旅行 {annualizedTravelDays.toFixed(1)}天/年 · {(recentTravelRatio * 100).toFixed(1)}%
           </div>
@@ -1191,8 +1198,8 @@ export default function HomePage() {
               />
             </FireDetailGroup>
             <FireDetailGroup title="支出口径">
-              <StatRow label="未来场景" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{FIRE_SCENARIO_LABELS[configuredFireExpenseTagKind]}{!fireExpenseScenarioHasData ? ' · 暂沿用在校样本' : ''}</span>} />
-              {isSchoolTravelFireScenario && <StatRow label="近两年旅行" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.purple }}>{annualizedTravelDays.toFixed(1)}天/年 · {(recentTravelRatio * 100).toFixed(1)}%</span>} />}
+              <StatRow label="未来场景" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fireScenarioLabel}{fallbackFireExpenseTagKind !== fireBaseScenario ? ` · 暂沿用${fallbackFireExpenseTagKind === 'school' ? '在校' : '旅行'}样本` : ''}</span>} />
+              {fireIncludesTravel && <StatRow label="近两年旅行" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.purple }}>{annualizedTravelDays.toFixed(1)}天/年 · {(recentTravelRatio * 100).toFixed(1)}%</span>} />}
               <StatRow label="活年支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(futureLifeAnnualExpense)}</span>} />
               <StatRow label="历史消费年支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.purple }}>{fmt万(futureConsumptionAnnualExpense)}</span>} />
               {fireMode === 'allocation' && <StatRow label="分配消费/心愿" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.purple }}>{fmt万(fire.requiredAnnualFlexibleSpending)}</span>} />}
