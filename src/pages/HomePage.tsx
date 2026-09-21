@@ -43,7 +43,7 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '分段测算';
+const RELEASE_NOTE = '场景周期切换';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -52,6 +52,12 @@ const MIN_FIRE_SAVINGS_ALLOCATION_RATE = 0.1;
 const CNY_ASSET_ACCOUNT_KEYS = ['savingsCard', 'incomeBank', 'livingBank', 'campusCard', 'consumptionBank', 'wishJar', 'investCnyBank'] as const;
 const USD_ASSET_ACCOUNT_KEYS = ['usdLivingBank', 'usdConsumptionBank', 'usdWishJar', 'investUsdBank'] as const;
 const FIRE_MODE_LABELS = { life: '活', all: '生活', allocation: '分配' } as const;
+const SCENE_PERIODS = {
+  day: { label: '日', days: 1 },
+  month: { label: '月', days: 365 / 12 },
+  year: { label: '年', days: 365 },
+} as const;
+type ScenePeriod = keyof typeof SCENE_PERIODS;
 type FireMode = keyof typeof FIRE_MODE_LABELS;
 const FIRE_DEGREE_LABELS = { none: '不计人才政策', bachelor: '本科', master: '硕士', doctor: '博士' } as const;
 const HANGZHOU_E_TALENT_WAGE_THRESHOLD = 500000;
@@ -505,6 +511,7 @@ export default function HomePage() {
       : config.investAnnualGrowthRate,
   }), [averageAnnualizedRate, config, fireUseAverageAnnualRate]);
   const [sceneDailyMode, setSceneDailyMode] = useState<'life' | 'all'>('life');
+  const [scenePeriod, setScenePeriod] = useState<ScenePeriod>('day');
   const [fireExpanded, setFireExpanded] = useState(false);
   const [fireHousingFundRateDraft, setFireHousingFundRateDraft] = useState<string | null>(null);
   const [fireExpectedWageDraft, setFireExpectedWageDraft] = useState<string | null>(null);
@@ -833,6 +840,8 @@ export default function HomePage() {
   const sceneRangeLabel = filteredRecords.length >= 12
     ? `(近 ${(filteredRecords.length / 12).toFixed(1)} 年)`
     : `(近 ${filteredRecords.length} 个月)`;
+  const scenePeriodConfig = SCENE_PERIODS[scenePeriod];
+  const formatSceneAmount = (dailyAmount: number) => `¥${formatCurrency(dailyAmount * scenePeriodConfig.days)}/${scenePeriodConfig.label}`;
   const fireProgressPercent = Math.min(Math.max(fire.progress * 100, 0), 100);
   const fireProgressLabel = `${(fire.progress * 100).toFixed(1)}%`;
   const fireProgressGap = Math.max(fire.fireTarget - totalInvest, 0);
@@ -892,22 +901,41 @@ export default function HomePage() {
         {hasSceneDaily && (
           <>
             <Divider />
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <div style={{ fontSize: 12, color: C.sub }}>场景日均 {sceneRangeLabel}</div>
-              <div style={{ display: 'flex', backgroundColor: '#f1f3f4', borderRadius: 999, padding: 2, gap: 2 }}>
-                {(['life', 'all'] as const).map((mode) => {
-                  const active = sceneDailyMode === mode;
-                  return (
-                    <button
-                      key={mode}
-                      type="button"
-                      onClick={() => setSceneDailyMode(mode)}
-                      style={{ minWidth: 38, padding: '3px 9px', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, backgroundColor: active ? '#fff' : 'transparent', color: active ? C.blue : C.sub, boxShadow: active ? '0 1px 2px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.15s' }}
-                    >
-                      {mode === 'life' ? '活' : '生活'}
-                    </button>
-                  );
-                })}
+            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '4px 8px', marginBottom: 4 }}>
+              <div style={{ fontSize: 12, color: C.sub, whiteSpace: 'nowrap' }}>场景{scenePeriodConfig.label}均 {sceneRangeLabel}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+                <div role="group" aria-label="场景金额周期" style={{ display: 'flex', backgroundColor: '#f1f3f4', borderRadius: 999, padding: 2, gap: 2 }}>
+                  {(['day', 'month', 'year'] as const).map((period) => {
+                    const active = scenePeriod === period;
+                    return (
+                      <button
+                        key={period}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => setScenePeriod(period)}
+                        style={{ minWidth: 28, padding: '3px 6px', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, backgroundColor: active ? '#fff' : 'transparent', color: active ? C.blue : C.sub, boxShadow: active ? '0 1px 2px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.15s' }}
+                      >
+                        {SCENE_PERIODS[period].label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div role="group" aria-label="场景支出范围" style={{ display: 'flex', backgroundColor: '#f1f3f4', borderRadius: 999, padding: 2, gap: 2 }}>
+                  {(['life', 'all'] as const).map((mode) => {
+                    const active = sceneDailyMode === mode;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => setSceneDailyMode(mode)}
+                        style={{ minWidth: 38, padding: '3px 9px', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, backgroundColor: active ? '#fff' : 'transparent', color: active ? C.blue : C.sub, boxShadow: active ? '0 1px 2px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.15s' }}
+                      >
+                        {mode === 'life' ? '活' : '生活'}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
             {sceneBlocks.map((block) => (
@@ -933,7 +961,7 @@ export default function HomePage() {
                             <span style={{ fontSize: 11, color: '#9aa0a6' }}>（共享均摊 {sharedPct.toFixed(1)}%）</span>
                           )}
                         </span>
-                        <span style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: '#202124', flexShrink: 0 }}>¥{formatCurrency(r.val)}/天</span>
+                        <span style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: '#202124', flexShrink: 0 }}>{formatSceneAmount(r.val)}</span>
                       </button>
                       {expanded && (
                         <div style={{ padding: '4px 10px 8px', borderTop: '1px dashed #dadce0' }}>
@@ -958,7 +986,7 @@ export default function HomePage() {
                                     )}
                                     {row.category} <span style={{ color: '#9aa0a6' }}>· {pct.toFixed(1)}%</span>
                                   </span>
-                                  <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>¥{row.dailyBase.toFixed(2)}/天</span>
+                                  <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>{formatSceneAmount(row.dailyBase)}</span>
                                 </button>
                                 {categoryOpen && hasSubBreakdown && (
                                   <div style={{ padding: '0 0 3px 14px' }}>
@@ -969,7 +997,7 @@ export default function HomePage() {
                                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
                                             {sub.subcategory} <span style={{ color: '#9aa0a6' }}>· {subPct.toFixed(1)}%</span>
                                           </span>
-                                          <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>¥{sub.dailyBase.toFixed(2)}/天</span>
+                                          <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{formatSceneAmount(sub.dailyBase)}</span>
                                         </div>
                                       );
                                     })}
@@ -986,7 +1014,7 @@ export default function HomePage() {
                                       <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>
                                         {sharedBillsOpen ? '▼' : '▶'} 共享均摊账单 · {row.sharedItems.length}笔
                                       </span>
-                                      <span style={{ flexShrink: 0, fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>¥{row.sharedDailyBase.toFixed(2)}/天</span>
+                                      <span style={{ flexShrink: 0, fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>{formatSceneAmount(row.sharedDailyBase)}</span>
                                     </button>
                                     {sharedBillsOpen && (
                                       <div style={{ borderTop: '1px dashed rgba(124,58,237,0.16)', padding: '2px 6px 4px' }}>
@@ -1016,7 +1044,7 @@ export default function HomePage() {
                               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
                                 {sceneDailyMode === 'all' ? '活未拆分估算' : '未拆分估算'} <span style={{ color: '#9aa0a6' }}>· {((unclassifiedLifeDaily / r.val) * 100).toFixed(1)}%</span>
                               </span>
-                              <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>¥{unclassifiedLifeDaily.toFixed(2)}/天</span>
+                              <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>{formatSceneAmount(unclassifiedLifeDaily)}</span>
                             </div>
                           )}
                           {sceneDailyMode === 'all' && r.consumptionVal > 0.005 && (
@@ -1024,15 +1052,15 @@ export default function HomePage() {
                               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
                                 消费估算 <span style={{ color: '#9aa0a6' }}>· {((r.consumptionVal / r.val) * 100).toFixed(1)}%</span>
                               </span>
-                              <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.purple }}>¥{r.consumptionVal.toFixed(2)}/天</span>
+                              <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.purple }}>{formatSceneAmount(r.consumptionVal)}</span>
                             </div>
                           )}
                           {r.tagKind === 'school' && campusDailyAvgYear > 0 && (
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: '#3c4043' }}>
                               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
-                                🍜 校园卡日均 <span style={{ color: '#9aa0a6' }}>(近一年 · 已含)</span>
+                                🍜 校园卡{scenePeriodConfig.label}均 <span style={{ color: '#9aa0a6' }}>(近一年 · 已含)</span>
                               </span>
-                              <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>¥{campusDailyAvgYear.toFixed(2)}/天</span>
+                              <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>{formatSceneAmount(campusDailyAvgYear)}</span>
                             </div>
                           )}
                         </div>
