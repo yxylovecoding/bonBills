@@ -1,7 +1,7 @@
 {
   "functions": {
     "api/outlook-calendar.ts": { "maxDuration": 60 },
-    "api/ticktick-trips.ts": { "maxDuration": 60 }
+    "api/ticktick-trips.ts": { "maxDuration": 300 }
   },
   "crons": [
     { "path": "/api/sync-monthly-backup", "schedule": "10 0 1 * *" },

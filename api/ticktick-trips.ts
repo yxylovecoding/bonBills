@@ -30,7 +30,7 @@ function shanghaiDate() {
 
 async function acquireLock() {
   const lockId = randomUUID();
-  const acquired = await kv.set(SYNC_LOCK_KEY, lockId, { nx: true, ex: 90 });
+  const acquired = await kv.set(SYNC_LOCK_KEY, lockId, { nx: true, ex: 330 });
   return acquired ? lockId : null;
 }
 
