@@ -1,5 +1,11 @@
 import type { AppConfig, CurrentStats } from '../models/types';
 import {
+  getFireEmploymentStartYears,
+  getFullHousingFundWithdrawalEndYears,
+  getHousingFundAnnualRentWithdrawalLimit,
+  HOUSING_FUND_EXIT_WAIT_YEARS,
+} from './fireHousingFund';
+import {
   calculateAnnualComprehensiveTax,
   HANGZHOU_DEFAULT_HOUSING_FUND_RATE,
   HANGZHOU_EMPLOYEE_SOCIAL_INSURANCE_RATE,
@@ -58,6 +64,15 @@ export interface FireResult {
   requiredAnnualHousingFund: number;
   requiredAnnualSocialContribution: number;
   requiredAnnualHousingFundRentWithdrawal: number;
+  projectedHousingFundBalance: number;
+  housingFundExitWithdrawal: number;
+  housingFundExitValueAtFire: number;
+  housingFundRentWithdrawalTotal: number;
+  housingFundRentWithdrawalFutureValue: number;
+  projectedLiquidAssets: number;
+  employmentStartYears: number;
+  preCareerFundingGap: number;
+  canReachTarget: boolean;
   annualRentExpense: number;
   annualRentTaxDeduction: number;
   talentSubsidyNominalTotal: number;
@@ -233,24 +248,49 @@ export function calcFire(
   const projectedInvestmentGrowth = projectedCurrentInvest - investTotal;
   const annualRentExpense = getAnnualRentExpense(config);
   const talentSubsidy = calcTalentSubsidies(config, annualRentExpense, targetYears, investAnnualGrowthRate, now);
-  const remainingTargetBeforeTalentSubsidy = Math.max(fireTarget - projectedCurrentInvest, 0);
-  const talentSubsidyFutureValue = Math.min(talentSubsidy.futureValue, remainingTargetBeforeTalentSubsidy);
-  const remainingTarget = Math.max(remainingTargetBeforeTalentSubsidy - talentSubsidyFutureValue, 0);
   const savingsFutureValueFactor = calcFutureSavingsFactor(investAnnualGrowthRate, targetYears);
-  const requiredAnnualSavingsBeforeTalentSubsidy = savingsFutureValueFactor > 0
-    ? remainingTargetBeforeTalentSubsidy / savingsFutureValueFactor
-    : remainingTargetBeforeTalentSubsidy / targetYears;
-  const requiredAnnualSavings = savingsFutureValueFactor > 0 ? remainingTarget / savingsFutureValueFactor : remainingTarget / targetYears;
+  const futureValueFactor = (start: number, end: number, horizon = targetYears) =>
+    calcFutureSavingsFactor(investAnnualGrowthRate, horizon - start)
+      - calcFutureSavingsFactor(investAnnualGrowthRate, horizon - end);
   const configuredAnnualEssentialExpense = options?.annualEssentialExpense;
   const fallbackAnnualExpense = typeof configuredAnnualEssentialExpense === 'number'
     && Number.isFinite(configuredAnnualEssentialExpense)
     ? Math.max(configuredAnnualEssentialExpense, 0)
     : annualExpense;
   const essentialExpenses = calcEssentialExpenses(fallbackAnnualExpense, options?.essentialExpenseStages, now, targetYears, investAnnualGrowthRate);
-  const annualEssentialExpense = essentialExpenses.annualExpense;
-  const firstYearAnnualEssentialExpense = calcEssentialExpenses(
-    fallbackAnnualExpense, options?.essentialExpenseStages, now, Math.min(targetYears, 1), investAnnualGrowthRate,
-  ).annualExpense;
+  const employmentStartYears = getFireEmploymentStartYears(config, now);
+  const careerStart = Math.min(employmentStartYears, targetYears);
+  const workingYears = targetYears - careerStart;
+  const firstWorkingYearEnd = Math.min(careerStart + 1, targetYears);
+  const firstWorkingYearFactor = calcFutureSavingsFactor(investAnnualGrowthRate, Math.min(workingYears, 1));
+  let workExpensesFutureValue = 0;
+  let firstYearExpensesFutureValue = 0;
+  let preCareerCashFutureValue = 0;
+  let preCareerAssets = investTotal;
+  let preCareerFundingGap = 0;
+  const studentAnnualIncome = Math.max(Number.isFinite(stats.monthlyIncomeAvg) ? stats.monthlyIncomeAvg * 12 : 0, 0);
+  for (const period of essentialExpenses.periods) {
+    const preEnd = Math.min(period.endYear, careerStart);
+    if (period.startYear < preEnd) {
+      const duration = preEnd - period.startYear;
+      const surplus = studentAnnualIncome - period.annualExpense;
+      preCareerCashFutureValue += surplus * futureValueFactor(period.startYear, preEnd);
+      preCareerAssets = preCareerAssets * (1 + investAnnualGrowthRate) ** duration
+        + surplus * calcFutureSavingsFactor(investAnnualGrowthRate, duration);
+      preCareerFundingGap = Math.max(preCareerFundingGap, -preCareerAssets);
+    }
+    const start = Math.max(period.startYear, careerStart);
+    if (start >= period.endYear) continue;
+    workExpensesFutureValue += period.annualExpense * futureValueFactor(start, period.endYear);
+    const end = Math.min(period.endYear, firstWorkingYearEnd);
+    if (start < end) firstYearExpensesFutureValue += period.annualExpense * futureValueFactor(start, end, firstWorkingYearEnd);
+  }
+  // 等额字段用于“生活同薪”比较；首年字段仅指毕业后的首个就业年度。
+  const annualEssentialExpense = workExpensesFutureValue / savingsFutureValueFactor;
+  const firstYearAnnualEssentialExpense = firstWorkingYearFactor > 0 ? firstYearExpensesFutureValue / firstWorkingYearFactor : 0;
+  const remainingTargetBeforeTalentSubsidy = Math.max(fireTarget - projectedCurrentInvest - preCareerCashFutureValue, 0);
+  const talentSubsidyFutureValue = Math.min(talentSubsidy.futureValue, remainingTargetBeforeTalentSubsidy);
+  const remainingTarget = Math.max(remainingTargetBeforeTalentSubsidy - talentSubsidyFutureValue, 0);
   const monthlySurplus = stats.monthlyIncomeAvg - essentialExpenses.currentAnnualExpense / 12;
   const configuredSavingsRate = options?.postEssentialSavingsRate ?? 1;
   const postEssentialSavingsRate = Number.isFinite(configuredSavingsRate)
@@ -278,44 +318,88 @@ export function calcFire(
     housingFundMonthlyBaseMax: HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MAX,
     annualSpecialAdditionalDeduction: annualRentTaxDeduction,
   };
-  const housingFundRentCredit = (housingFundAmount: number) => config.fireHasHangzhouHome !== true
-    && config.fireHousingFundRentWithdrawalEnabled !== false
-    && annualRentExpense > 0
-    ? Math.min(annualRentExpense, housingFundAmount * 2)
-    : 0;
-  // 首年工资不涨薪；每满一年增长 10%，逐年重新计算个税、缴存上限与抵租金额。
-  const salaryPeriods = Array.from({ length: Math.ceil(targetYears) }, (_, year) => {
-    const endYear = Math.min(year + 1, targetYears);
+  const housingFundEnabled = config.fireHousingFundRentWithdrawalEnabled !== false;
+  const rentalEligible = housingFundEnabled && config.fireHasHangzhouHome !== true && annualRentExpense > 0;
+  const initialHousingFundBalance = Number.isFinite(config.fireHousingFundBalance)
+    ? Math.max(config.fireHousingFundBalance ?? 0, 0) : 0;
+  const fullWithdrawalEnd = getFullHousingFundWithdrawalEndYears(config, now);
+  // 按月累计缴存与提取；在毕业、资格变化、涨薪和支出阶段边界处分段。
+  const boundaries = new Set([careerStart, targetYears]);
+  for (let month = 1; month / 12 < workingYears; month++) boundaries.add(careerStart + month / 12);
+  if (fullWithdrawalEnd > careerStart && fullWithdrawalEnd < targetYears) boundaries.add(fullWithdrawalEnd);
+  for (const period of essentialExpenses.periods) {
+    if (period.endYear > careerStart && period.endYear < targetYears) boundaries.add(period.endYear);
+  }
+  const orderedBoundaries = [...boundaries].sort((a, b) => a - b);
+  const salaryPeriods = orderedBoundaries.slice(0, -1).map((startYear, index) => {
+    const endYear = orderedBoundaries[index + 1];
     return {
-      growthFactor: Math.pow(1 + SALARY_ANNUAL_GROWTH_RATE, year),
-      futureValueFactor: calcFutureSavingsFactor(investAnnualGrowthRate, targetYears - year)
-        - calcFutureSavingsFactor(investAnnualGrowthRate, targetYears - endYear),
+      startYear,
+      endYear,
+      salaryYear: Math.min(Math.floor(startYear - careerStart + 1e-9), Math.ceil(workingYears) - 1),
+      duration: endYear - startYear,
+      futureValueFactor: futureValueFactor(startYear, endYear),
+      withdrawalFutureValueFactor: (1 + investAnnualGrowthRate) ** (targetYears - endYear),
       minimumResources: Math.max(0, ...essentialExpenses.periods
-        .filter((period) => period.startYear < endYear && period.endYear > year)
+        .filter((period) => period.startYear < endYear && period.endYear > startYear)
         .map((period) => period.annualExpense)),
     };
   });
   const projectSalary = (firstYearGross: number) => {
+    const annualTaxes = Array.from({ length: Math.ceil(workingYears) }, (_, year) =>
+      calculateAnnualComprehensiveTax(firstYearGross * (1 + SALARY_ANNUAL_GROWTH_RATE) ** year, contributionPolicy));
     let futureValue = 0;
     let coversExpenses = true;
+    let housingFundBalance = initialHousingFundBalance;
+    let rentWithdrawalTotal = 0;
+    let rentWithdrawalFutureValue = 0;
+    let firstYearWithdrawalTotal = 0;
+    let pendingRentAllowance = 0;
     for (const period of salaryPeriods) {
-      const tax = calculateAnnualComprehensiveTax(firstYearGross * period.growthFactor, contributionPolicy);
-      const resources = tax.netAnnualIncome + housingFundRentCredit(tax.housingFundAmount);
-      futureValue += resources * period.futureValueFactor;
-      if (resources < period.minimumResources) coversExpenses = false;
+      const tax = annualTaxes[period.salaryYear];
+      const annualContribution = tax.housingFundAmount * 2;
+      housingFundBalance += annualContribution * period.duration;
+      const annualRentLimit = rentalEligible
+        ? getHousingFundAnnualRentWithdrawalLimit(annualContribution, period.startYear < fullWithdrawalEnd)
+        : 0;
+      pendingRentAllowance += annualRentLimit * period.duration;
+      // 新就业连续缴存满3个月后申请；补提此前合资格月份，绝不透支账户。
+      const canWithdraw = employmentStartYears <= 0 || period.endYear - careerStart >= 0.25 - 1e-9;
+      const withdrawal = canWithdraw ? Math.min(housingFundBalance, pendingRentAllowance) : 0;
+      if (canWithdraw) pendingRentAllowance = 0;
+      housingFundBalance -= withdrawal;
+      rentWithdrawalTotal += withdrawal;
+      rentWithdrawalFutureValue += withdrawal * period.withdrawalFutureValueFactor;
+      futureValue += tax.netAnnualIncome * period.futureValueFactor + withdrawal * period.withdrawalFutureValueFactor;
+      if (period.endYear <= firstWorkingYearEnd + 1e-9) {
+        firstYearWithdrawalTotal += withdrawal;
+      }
+      const sustainableWithdrawal = canWithdraw ? Math.min(annualContribution, annualRentLimit) : 0;
+      if (tax.netAnnualIncome + sustainableWithdrawal < period.minimumResources - 1e-7) coversExpenses = false;
     }
-    return { futureValue, coversExpenses };
+    // 未提取余额不预估利息；离职后封存半年再取，不能提前按投资收益复利。
+    const exitWithdrawal = housingFundEnabled && workingYears > 0 ? housingFundBalance : 0;
+    const exitValueAtFire = exitWithdrawal / (1 + Math.max(investAnnualGrowthRate, 0)) ** HOUSING_FUND_EXIT_WAIT_YEARS;
+    return {
+      futureValue, coversExpenses, housingFundBalance, exitWithdrawal, exitValueAtFire,
+      rentWithdrawalTotal, rentWithdrawalFutureValue, firstYearWithdrawalTotal,
+    };
   };
-  const requiredResourcesFutureValue = annualEssentialExpense * savingsFutureValueFactor
-    + remainingTarget / postEssentialSavingsRate;
+  const otherLiquidAssets = projectedCurrentInvest + preCareerCashFutureValue + talentSubsidyFutureValue;
+  const bridgeReserve = Math.min(fireTarget, majorWishTotal + annualExpense * HOUSING_FUND_EXIT_WAIT_YEARS);
+  const liquidAssetsFor = (projection: ReturnType<typeof projectSalary>) => otherLiquidAssets
+    + (projection.futureValue - workExpensesFutureValue) * postEssentialSavingsRate;
   const meetsTarget = (firstYearGross: number) => {
     const projection = projectSalary(firstYearGross);
-    return projection.coversExpenses && projection.futureValue >= requiredResourcesFutureValue;
+    const liquidAssets = liquidAssetsFor(projection);
+    return projection.coversExpenses
+      && liquidAssets + projection.exitValueAtFire >= fireTarget - 1e-7
+      && liquidAssets >= bridgeReserve - 1e-7;
   };
   let firstYearGross = 0;
-  if (!meetsTarget(0)) {
+  if (workingYears > 0 && !meetsTarget(0)) {
     let low = 0;
-    let high = Math.max(annualEssentialExpense + requiredAnnualSavings / postEssentialSavingsRate, 1);
+    let high = Math.max(annualEssentialExpense + remainingTarget / workingYears / postEssentialSavingsRate, 1);
     while (!meetsTarget(high)) high *= 2;
     for (let i = 0; i < 80; i++) {
       const mid = (low + high) / 2;
@@ -327,13 +411,19 @@ export function calcFire(
     while (!meetsTarget(firstYearGross)) firstYearGross = Math.round(firstYearGross * 100 + 1) / 100;
   }
   const requiredIncomeTax = calculateAnnualComprehensiveTax(firstYearGross, contributionPolicy);
-  const equivalentAnnualNetIncome = projectSalary(firstYearGross).futureValue / savingsFutureValueFactor;
+  const salaryProjection = projectSalary(firstYearGross);
+  const equivalentAnnualNetIncome = salaryProjection.futureValue / savingsFutureValueFactor;
+  const requiredAnnualSavings = Math.max(remainingTarget - salaryProjection.exitValueAtFire, bridgeReserve - otherLiquidAssets, 0)
+    / savingsFutureValueFactor;
+  const requiredAnnualSavingsBeforeTalentSubsidy = Math.max(remainingTargetBeforeTalentSubsidy - salaryProjection.exitValueAtFire, 0)
+    / savingsFutureValueFactor;
   const requiredAnnualGrossIncome = requiredIncomeTax.grossAnnualIncome;
   const requiredAnnualTax = requiredIncomeTax.taxAmount;
   const requiredAnnualSocialInsurance = requiredIncomeTax.socialInsuranceAmount;
   const requiredAnnualHousingFund = requiredIncomeTax.housingFundAmount;
   const requiredAnnualSocialContribution = requiredIncomeTax.socialContributionAmount;
-  const requiredAnnualHousingFundRentWithdrawal = housingFundRentCredit(requiredAnnualHousingFund);
+  const requiredAnnualHousingFundRentWithdrawal = workingYears > 0
+    ? salaryProjection.firstYearWithdrawalTotal / Math.min(workingYears, 1) : 0;
   const requiredAnnualSalaryNetIncome = requiredIncomeTax.netAnnualIncome;
   const requiredAnnualNetIncome = requiredAnnualSalaryNetIncome + requiredAnnualHousingFundRentWithdrawal;
   const firstYearPostEssentialIncome = Math.max(requiredAnnualNetIncome - firstYearAnnualEssentialExpense, 0);
@@ -387,6 +477,15 @@ export function calcFire(
     requiredAnnualHousingFund,
     requiredAnnualSocialContribution,
     requiredAnnualHousingFundRentWithdrawal,
+    projectedHousingFundBalance: salaryProjection.housingFundBalance,
+    housingFundExitWithdrawal: salaryProjection.exitWithdrawal,
+    housingFundExitValueAtFire: salaryProjection.exitValueAtFire,
+    housingFundRentWithdrawalTotal: salaryProjection.rentWithdrawalTotal,
+    housingFundRentWithdrawalFutureValue: salaryProjection.rentWithdrawalFutureValue,
+    projectedLiquidAssets: liquidAssetsFor(salaryProjection),
+    employmentStartYears,
+    preCareerFundingGap,
+    canReachTarget: preCareerFundingGap <= 0 && meetsTarget(firstYearGross),
     annualRentExpense,
     annualRentTaxDeduction,
     talentSubsidyNominalTotal: talentSubsidy.nominalTotal,

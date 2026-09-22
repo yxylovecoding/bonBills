@@ -30,7 +30,7 @@ function expectTargetReached(assets: number, target: number) {
   expect(assets - target).toBeLessThan(1);
 }
 
-const config = { ...DEFAULT_CONFIG, fireTargetYears: 8, fireTalentSubsidyEnabled: false };
+const config = { ...DEFAULT_CONFIG, fireTargetYears: 8, fireTalentSubsidyEnabled: false, fireHousingFundRentWithdrawalEnabled: false };
 const stats = { ...calcHistoryStats([]), totalExpenseAvg: 2000, monthlyIncomeAvg: 5000 };
 const now = new Date(2025, 0, 1);
 const stages = [
@@ -193,18 +193,17 @@ describe('FIRE 年薪每年普调 10%', () => {
       const tax = calculateAnnualComprehensiveTax(result.requiredAnnualGrossIncome * 1.1 ** year, {
         ...salaryTaxPolicy, housingFundRate: 0.05, annualSpecialAdditionalDeduction: 18000,
       });
-      const rentCredit = withdrawalEnabled ? Math.min(18000, tax.housingFundAmount * 2) : 0;
       const subsidy = (year === 0 ? 30000 : 0) + (year >= 2 && year <= 6 ? 30000 : 0);
-      assets = assets * 1.04 + tax.netAnnualIncome + rentCredit - 120000 + subsidy;
+      assets = assets * 1.04 + tax.netAnnualIncome - 120000 + subsidy;
       if (year === 0) firstYearTax = tax.taxAmount;
       lastYearTax = tax.taxAmount;
       lastYearHousingFund = tax.housingFundAmount;
     }
-    expectTargetReached(assets, result.fireTarget);
+    expectTargetReached(assets + result.housingFundRentWithdrawalFutureValue + result.housingFundExitValueAtFire, result.fireTarget);
     expect(result.talentSubsidyNominalTotal).toBe(180000);
     expect(result.requiredAnnualTax).toBe(firstYearTax);
     expect(lastYearTax).toBeGreaterThan(firstYearTax);
-    expect(lastYearHousingFund).toBe(HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MAX * 12 * 0.05);
+    expect(lastYearHousingFund).toBe(Math.round(HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MAX * 12 * 0.05 * 100) / 100);
     expect(result.requiredAnnualNetIncome).toBeCloseTo(
       result.requiredAnnualSalaryNetIncome + result.requiredAnnualHousingFundRentWithdrawal, 8,
     );

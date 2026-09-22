@@ -21,6 +21,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   fireProfileSource: 'boncv',
   fireGraduationDate: null,
   fireHasHangzhouHome: false,
+  fireHasHangzhouHukou: false,
+  fireHousingFundBalance: 0,
   fireExpectedAnnualWageIncome: 500000,
   fireExpectedTalentClass: 'e',
   fireETalentRecognitionYear: 3,

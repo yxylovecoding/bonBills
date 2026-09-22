@@ -51,13 +51,14 @@ export const TAX_RULE_PRESETS = [
 
 const MONEY_ROUNDING = 100;
 const ANNUAL_BASIC_DEDUCTION = 60000;
-// 截至 2026-07-13 的杭州最新已公布口径：社保 2025 年、公积金上限 2025 年度、下限按 2026 年市区最低工资。
+// 社保沿用2025年度口径；公积金按2026年度基数（2026-07至2027-06）。
+// 杭州发布：https://hznews.hangzhou.com.cn/jingji/content/2026-07/25/content_9263759.htm
 export const HANGZHOU_EMPLOYEE_SOCIAL_INSURANCE_RATE = 0.105;
 export const HANGZHOU_DEFAULT_HOUSING_FUND_RATE = 0.12;
 export const HANGZHOU_SOCIAL_INSURANCE_MONTHLY_BASE_MIN = 4986;
 export const HANGZHOU_SOCIAL_INSURANCE_MONTHLY_BASE_MAX = 25299;
 export const HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MIN = 2660;
-export const HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MAX = 40694;
+export const HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MAX = 42151;
 const ANNUAL_COMPREHENSIVE_TAX_BRACKETS = [
   { limit: 36000, rate: 0.03 },
   { limit: 144000, rate: 0.10 },

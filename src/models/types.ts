@@ -226,12 +226,15 @@ export interface AppConfig {
   fireGraduationDate?: string | null;
   bonCvFireSnapshot?: BonCvFireSnapshot;
   fireHasHangzhouHome?: boolean;
+  fireHasHangzhouHukou?: boolean; // 默认非杭州户籍
+  fireHangzhouHukouDate?: string; // 最近落户日期，用于新市民3年资格
+  fireHousingFundBalance?: number; // 当前未提取余额，不含已计入理财的资金
   fireExpectedAnnualWageIncome?: number; // 预期年工资性收入，用于人才政策情景，不代替“最低年薪”
   fireExpectedTalentClass?: 'none' | 'e';
   fireETalentRecognitionYear?: number; // 预计第几个就业年度起完成 E 类认定
   fireTalentSubsidyEnabled?: boolean; // 是否将预期符合的杭州应届生补贴折算进 FIRE
   fireRentTaxDeductionEnabled?: boolean; // 杭州无房租金个税专项附加扣除
-  fireHousingFundRentWithdrawalEnabled?: boolean; // 青年/新市民无房租赁公积金提取
+  fireHousingFundRentWithdrawalEnabled?: boolean; // 计入租赁提取及离职封存半年后的余额提取
   lifeExpectancy: number;     // 85
   investAllocTargets: InvestAllocTargets;
   creditBillDate: number;     // 26
