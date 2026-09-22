@@ -18,7 +18,7 @@ export interface OutlookRules {
   ignoredPlayTitles: string[];
 }
 
-export const DEFAULT_OUTLOOK_RULES: OutlookRules = { homeTitles: ['🏠'], ignoredPlayTitles: ['新卡池'] };
+export const DEFAULT_OUTLOOK_RULES: OutlookRules = { homeTitles: ['🏠'], ignoredPlayTitles: ['新卡池', '新卡池&新月卡'] };
 
 export interface OutlookSnapshot {
   startDate: string;
