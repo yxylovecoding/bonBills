@@ -22,7 +22,7 @@ import { detectAllTrips, type TripSegment } from '../utils/trips';
 import { calculateWishInternPlan } from '../utils/wishInternPlan';
 import {
   calculateWishFunding,
-  applyWishDebtRepayment,
+  resolveWishRepayments,
   resolveWishTravelBudget,
   wishTravelLifeAmount,
   calculateWishPlan,
@@ -143,11 +143,15 @@ export default function WishesPage() {
     () => calcHistoryStats(filteredRecords, tagMap, confirmedExpenses, expenseItems, overrides, tripTags),
     [filteredRecords, tagMap, confirmedExpenses, expenseItems, overrides, tripTags],
   );
-  const wishes = config.wishes ?? [];
+  const storedWishes = useMemo(() => config.wishes ?? [], [config.wishes]);
+  const wishes = useMemo(
+    () => resolveWishRepayments(storedWishes, config.wishDebtTotal),
+    [storedWishes, config.wishDebtTotal],
+  );
   const deadlineMilestones = config.wishDeadlineMilestones ?? DEFAULT_WISH_DEADLINE_MILESTONES;
   useEffect(() => {
     let changed = false;
-    const normalizedWishes = wishes.map((wish) => {
+    const normalizedWishes = storedWishes.map((wish) => {
       const linkedTripStart = wish.linkedTripStartDate ?? null;
       if (!linkedTripStart) return wish;
       const defaultDeadline = offsetDateKey(linkedTripStart, -1);
@@ -156,7 +160,7 @@ export default function WishesPage() {
       return { ...wish, deadline: defaultDeadline };
     });
     if (changed) setConfig({ wishes: normalizedWishes });
-  }, [setConfig, wishes]);
+  }, [setConfig, storedWishes]);
   const allTripSegments = useMemo(() => detectAllTrips(tagMap, tripSplits), [tagMap, tripSplits]);
   const futureTripSegments = useMemo(
     () => allTripSegments.filter((trip) => trip.startDate >= todayKey),
@@ -417,25 +421,9 @@ export default function WishesPage() {
 
   const syncWishes = (items: WishItem[]) => setConfig({ wishes: items });
   const updateDebtTotal = (wishDebtTotal: number | undefined) => {
-    const previous = useConfigStore.getState().config;
-    const previousWishes = previous.wishes ?? [];
-    const nextWishes = applyWishDebtRepayment(previousWishes, previous.wishDebtTotal, wishDebtTotal);
-    const repaymentChanges = new Map(nextWishes.map((wish, index) => [
-      wish.id,
-      calculateWishFunding(wish).repaidAmount - calculateWishFunding(previousWishes[index]).repaidAmount,
-    ]));
-    setConfig({ wishDebtTotal, wishes: nextWishes });
-    return () => {
-      const latestWishes = useConfigStore.getState().config.wishes ?? [];
-      setConfig({
-        wishDebtTotal: previous.wishDebtTotal,
-        wishes: latestWishes.map((wish) => {
-          const change = repaymentChanges.get(wish.id) ?? 0;
-          if (change <= 0) return wish;
-          return { ...wish, repaidAmount: roundToSitePrecision(Math.max(calculateWishFunding(wish).repaidAmount - change, 0)) };
-        }),
-      });
-    };
+    const previousTotal = useConfigStore.getState().config.wishDebtTotal;
+    setConfig({ wishDebtTotal });
+    return () => setConfig({ wishDebtTotal: previousTotal });
   };
   const syncDeadlineMilestones = (items: WishDeadlineMilestone[]) => setConfig({ wishDeadlineMilestones: items });
   const addDeadlineMilestone = () => syncDeadlineMilestones([
@@ -457,7 +445,7 @@ export default function WishesPage() {
     setSelectedSegmentDays({});
     setPendingWishNameFocusId(id);
     syncWishes([
-      ...wishes,
+      ...storedWishes,
       {
         id,
         name: '新心愿',
@@ -473,15 +461,15 @@ export default function WishesPage() {
     setSelectedSegmentDays({});
     setActiveWishId((currentId) => currentId === id ? null : currentId);
     setBudgetEstimateWishId((currentId) => currentId === id ? null : currentId);
-    syncWishes(wishes.filter((item) => item.id !== id));
+    syncWishes(storedWishes.filter((item) => item.id !== id));
   };
   const updateWish = <K extends keyof WishItem>(id: string, field: K, value: WishItem[K]) => {
     if (field !== 'name') setSelectedSegmentDays({});
-    syncWishes(wishes.map((item) => item.id === id ? { ...item, [field]: value } : item));
+    syncWishes(storedWishes.map((item) => item.id === id ? { ...item, [field]: value } : item));
   };
   const updateWishFields = (id: string, patch: Partial<WishItem>) => {
     setSelectedSegmentDays({});
-    syncWishes(wishes.map((item) => item.id === id ? { ...item, ...patch } : item));
+    syncWishes(storedWishes.map((item) => item.id === id ? { ...item, ...patch } : item));
   };
   type WishAmountField = 'targetAmount' | 'savedAmount' | 'travelTicketAmount' | 'travelLodgingDailyAmount' | 'travelLifeCorrectionAmount';
   const updateAmount = (id: string, field: WishAmountField, raw: string) => {

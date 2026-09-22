@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { WishItem } from '../models/types';
 import {
-  applyWishDebtRepayment,
+  resolveWishRepayments,
   calculateWishDebtSummary,
   calculateWishFunding,
   calculateWishPlan,
@@ -65,34 +65,37 @@ describe('心愿资金', () => {
 });
 
 describe('总欠款拆分', () => {
-  it('外部总欠款减去所有心愿欠款，包含暂停心愿', () => {
+  it('从当前总欠款拆出心愿内和未归属金额，包含暂停心愿且忽略旧已还', () => {
     const paused = wish({ id: 'paused', isActive: false, repaidAmount: 3500 });
+    expect(calculateWishDebtSummary([wish(), paused], 9000)).toEqual({
+      totalAmount: 9000, assignedAmount: 8000, unassignedAmount: 1000, repaidAmount: 0,
+    });
     expect(calculateWishDebtSummary([wish(), paused], 7000)).toEqual({
-      totalAmount: 7000, assignedAmount: 2500, unassignedAmount: 4500, discrepancyAmount: 0,
+      totalAmount: 7000, assignedAmount: 7000, unassignedAmount: 0, repaidAmount: 1000,
     });
   });
 
-  it('明确的零总额与未填写区分，并报告低于心愿合计的差额', () => {
-    expect(calculateWishDebtSummary([wish()])).toMatchObject({ totalAmount: 2000, unassignedAmount: 0 });
-    expect(calculateWishDebtSummary([wish()], 0)).toMatchObject({ totalAmount: 0, unassignedAmount: 0, discrepancyAmount: 2000 });
+  it('未填总额时默认已花全部待还，明确填零时全部还清，无心愿时全部未归属', () => {
+    expect(calculateWishDebtSummary([wish()])).toMatchObject({ totalAmount: 4000, assignedAmount: 4000, repaidAmount: 0 });
+    expect(calculateWishDebtSummary([wish()], 0)).toMatchObject({ totalAmount: 0, assignedAmount: 0, unassignedAmount: 0, repaidAmount: 4000 });
     expect(calculateWishDebtSummary([], 7000).unassignedAmount).toBe(7000);
   });
 });
 
-describe('根据总欠款自动登记还款', () => {
-  it('总欠款减少两千时推算已还两千，已攒三千保持不变', () => {
-    const original = wish({ repaidAmount: 0 });
-    const [updated] = applyWishDebtRepayment([original], 7000, 5000);
+describe('仅用当前总欠款与已花推算还款', () => {
+  it('首次输入已花四千、当前欠两千，就推算已还两千，已攒保持不变', () => {
+    const original = wish({ repaidAmount: 123 });
+    const [updated] = resolveWishRepayments([original], 2000);
     expect(updated).toMatchObject({ savedAmount: 3000, repaidAmount: 2000 });
     expect(calculateWishFunding(updated)).toMatchObject({ debtAmount: 2000, remainingAmount: 5000 });
-    expect(original.repaidAmount).toBe(0);
-    expect(calculateWishDebtSummary([updated], 5000).unassignedAmount).toBe(3000);
+    expect(original.repaidAmount).toBe(123);
+    expect(calculateWishDebtSummary([updated], 2000).unassignedAmount).toBe(0);
   });
 
-  it('只增加已攒或提高总欠款不会新增还款', () => {
-    const original = wish({ savedAmount: 8000, repaidAmount: 0 });
-    expect(applyWishDebtRepayment([original], 7000, 7000)[0].repaidAmount).toBe(0);
-    expect(applyWishDebtRepayment([original], 7000, 8000)[0].repaidAmount).toBe(0);
+  it('已攒即使高于已花也不算还款', () => {
+    const original = wish({ savedAmount: 8000 });
+    expect(resolveWishRepayments([original], 5000)[0].repaidAmount).toBe(0);
+    expect(resolveWishRepayments([original], 3000)[0].repaidAmount).toBe(1000);
   });
 
   it('优先偿还截止日近的心愿，欠款包括暂停心愿且保持列表顺序', () => {
@@ -100,33 +103,55 @@ describe('根据总欠款自动登记还款', () => {
       wish({ id: 'later', deadline: '2027-01-01', repaidAmount: 0 }),
       wish({ id: 'earlier', deadline: '2026-11-01', repaidAmount: 0, isActive: false }),
     ];
-    const updated = applyWishDebtRepayment(wishes, 10000, 5000);
+    const updated = resolveWishRepayments(wishes, 3000);
     expect(updated.map((item) => [item.id, item.repaidAmount])).toEqual([['later', 1000], ['earlier', 4000]]);
-    expect(calculateWishDebtSummary(updated, 5000)).toMatchObject({ assignedAmount: 3000, unassignedAmount: 2000 });
+    expect(calculateWishDebtSummary(updated, 3000)).toMatchObject({ assignedAmount: 3000, unassignedAmount: 0 });
   });
 
-  it('心愿还清后的减少额继续抵扣未归属部分，已还不超过已花', () => {
-    const original = wish({ spentItems: [{ id: 'fee', name: '代拍费', amount: 200 }], repaidAmount: 0 });
-    const updated = applyWishDebtRepayment([original], 5120.51, 4000);
-    expect(updated[0].repaidAmount).toBe(200);
-    expect(calculateWishDebtSummary(updated, 4000)).toMatchObject({ assignedAmount: 0, unassignedAmount: 4000 });
+  it('只记录代拍费两百时，总欠款超过已花的部分始终未归属，不把余额下降当成该项还款', () => {
+    const original = wish({ spentItems: [{ id: 'fee', name: '代拍费', amount: 200 }] });
+    const first = resolveWishRepayments([original], 5120.51);
+    const updated = resolveWishRepayments(first, 5000);
+    expect(updated[0].repaidAmount).toBe(0);
+    expect(calculateWishDebtSummary(updated, 5000)).toMatchObject({ assignedAmount: 200, unassignedAmount: 4800 });
   });
 
-  it('小数还款和连续更新按本次总欠款差额累计，不重复记账', () => {
-    const original = wish({ spentItems: [{ id: 'fee', name: '代拍费', amount: 200 }], repaidAmount: 0 });
-    const first = applyWishDebtRepayment([original], 5120.51, 5000);
-    expect(first[0].repaidAmount).toBe(120.51);
-    expect(calculateWishFunding(first[0]).debtAmount).toBe(79.49);
-    const second = applyWishDebtRepayment(first, 5000, 4950);
-    expect(second[0].repaidAmount).toBe(170.51);
-    expect(applyWishDebtRepayment(second, 4950, 4950)[0].repaidAmount).toBe(170.51);
+  it('先录欠款或先录明细结果相同，重复计算、调大欠款与恢复原值不会累计已还', () => {
+    const original = wish({ repaidAmount: undefined });
+    const debtFirst = resolveWishRepayments([wish({ spentItems: [] })], 2000);
+    debtFirst[0].spentItems = original.spentItems;
+    expect(resolveWishRepayments(debtFirst, 2000)).toEqual(resolveWishRepayments([original], 2000));
+    const first = resolveWishRepayments([original], 2000);
+    expect(resolveWishRepayments(first, 2000)).toEqual(first);
+    const raised = resolveWishRepayments(first, 3500);
+    expect(raised[0].repaidAmount).toBe(500);
+    expect(resolveWishRepayments(raised, 2000)).toEqual(first);
   });
 
-  it('首次填写总欠款从已有心愿欠款推算，清空总额不会伪造还款', () => {
-    const original = wish({ repaidAmount: 0 });
-    expect(applyWishDebtRepayment([original], undefined, 2000)[0].repaidAmount).toBe(2000);
-    expect(applyWishDebtRepayment([original], 4000, undefined)[0].repaidAmount).toBe(0);
-    expect(applyWishDebtRepayment([], 4000, 2000)).toEqual([]);
+  it('小数按分分配，同截止日按编号稳定分配，无截止日排最后', () => {
+    const wishes = [
+      wish({ id: 'undated', deadline: null, spentItems: [{ id: '1', name: '酒店', amount: 100 }] }),
+      wish({ id: 'b', spentItems: [{ id: '2', name: '机票', amount: 0.2 }] }),
+      wish({ id: 'a', spentItems: [{ id: '3', name: '机票', amount: 0.1 }] }),
+    ];
+    const updated = resolveWishRepayments(wishes, 100.01);
+    expect(updated.map((item) => item.repaidAmount)).toEqual([0, 0.19, 0.1]);
+    expect(calculateWishDebtSummary(updated, 100.01)).toMatchObject({ assignedAmount: 100.01, repaidAmount: 0.29 });
+  });
+
+  it('更正或删除已花后立即重算，不保留之前分配的还款', () => {
+    const [first] = resolveWishRepayments([wish()], 2000);
+    const corrected = { ...first, spentItems: [{ id: 'fee', name: '代拍费', amount: 200 }] };
+    expect(resolveWishRepayments([corrected], 2000)[0].repaidAmount).toBe(0);
+    expect(calculateWishDebtSummary([corrected], 2000).unassignedAmount).toBe(1800);
+    expect(resolveWishRepayments([{ ...first, spentItems: [] }], 2000)[0].repaidAmount).toBe(0);
+  });
+
+  it('清空总欠款不推断已还，明确填零则全部已花都还清，兼容无明细旧数据', () => {
+    expect(resolveWishRepayments([wish()])[0].repaidAmount).toBe(0);
+    expect(resolveWishRepayments([wish()], 0)[0].repaidAmount).toBe(4000);
+    expect(resolveWishRepayments([wish({ spentItems: undefined })], 0)[0].repaidAmount).toBe(0);
+    expect(resolveWishRepayments([], 2000)).toEqual([]);
   });
 });
 

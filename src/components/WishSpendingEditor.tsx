@@ -20,11 +20,8 @@ export default function WishSpendingEditor({ wish, onChange }: Props) {
   const funding = calculateWishFunding(wish);
 
   const save = (patch: Partial<WishItem>) => {
-    const next = { ...wish, ...patch };
-    const spent = calculateWishFunding(next).spentAmount;
     setError('');
-    onChange({ ...patch, repaidAmount: Math.min(wish.repaidAmount ?? 0, spent) });
-    return true;
+    onChange(patch);
   };
   const commitAmount = (key: string, raw: string, itemId: string) => {
     const amount = Number(tryEvalFormula(raw) ?? raw);
@@ -34,7 +31,8 @@ export default function WishSpendingEditor({ wish, onChange }: Props) {
     }
     const value = roundToSitePrecision(amount);
     const patch = { spentItems: items.map((item) => item.id === itemId ? { ...item, amount: value } : item) };
-    if (save(patch)) setDrafts((current) => {
+    save(patch);
+    setDrafts((current) => {
       const next = { ...current };
       delete next[key];
       return next;

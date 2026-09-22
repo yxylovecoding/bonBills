@@ -93,41 +93,34 @@ export function calculateWishFunding(wish: WishItem, lifeAmount = 0) {
 }
 
 export function calculateWishDebtSummary(wishes: readonly WishItem[], total?: number) {
-  const assignedAmount = roundToSitePrecision(wishes.reduce(
-    (sum, wish) => sum + calculateWishFunding(wish).debtAmount, 0,
+  const spentAmount = roundToSitePrecision(wishes.reduce(
+    (sum, wish) => sum + calculateWishFunding(wish).spentAmount, 0,
   ));
-  const totalAmount = total === undefined ? assignedAmount : normalizedAmount(total);
+  const totalAmount = total === undefined ? spentAmount : roundToSitePrecision(normalizedAmount(total));
   return {
     totalAmount,
-    assignedAmount,
-    unassignedAmount: roundToSitePrecision(Math.max(totalAmount - assignedAmount, 0)),
-    discrepancyAmount: roundToSitePrecision(Math.max(assignedAmount - totalAmount, 0)),
+    assignedAmount: Math.min(spentAmount, totalAmount),
+    unassignedAmount: roundToSitePrecision(Math.max(totalAmount - spentAmount, 0)),
+    repaidAmount: roundToSitePrecision(Math.max(spentAmount - totalAmount, 0)),
   };
 }
 
-/** 总欠款下降时才记为还款，先清偿截止日较近的心愿，余款归到未归属部分。 */
-export function applyWishDebtRepayment(wishes: readonly WishItem[], previousTotal: number | undefined, nextTotal: number | undefined): WishItem[] {
-  if (nextTotal === undefined) return [...wishes];
-  let remaining = roundToSitePrecision(Math.max(
-    calculateWishDebtSummary(wishes, previousTotal).totalAmount - normalizedAmount(nextTotal), 0,
-  ));
-  if (remaining === 0) return [...wishes];
+/** 仅根据当前总欠款和已花推算，按截止日分配；不依赖已攒、旧已还或录入历史。 */
+export function resolveWishRepayments(wishes: readonly WishItem[], total?: number): WishItem[] {
+  let remaining = calculateWishDebtSummary(wishes, total).repaidAmount;
   const repayments = new Map<string, number>();
   const ordered = [...wishes].sort((first, second) => (
     (first.deadline || '9999-12-31').localeCompare(second.deadline || '9999-12-31')
     || first.id.localeCompare(second.id)
   ));
   for (const wish of ordered) {
-    const funding = calculateWishFunding(wish);
-    const amount = Math.min(funding.debtAmount, remaining);
-    if (amount <= 0) continue;
-    repayments.set(wish.id, roundToSitePrecision(funding.repaidAmount + amount));
-    remaining = roundToSitePrecision(remaining - amount);
     if (remaining <= 0) break;
+    const amount = Math.min(calculateWishFunding(wish).spentAmount, remaining);
+    if (amount <= 0) continue;
+    repayments.set(wish.id, amount);
+    remaining = roundToSitePrecision(remaining - amount);
   }
-  return wishes.map((wish) => repayments.has(wish.id)
-    ? { ...wish, repaidAmount: repayments.get(wish.id) }
-    : wish);
+  return wishes.map((wish) => ({ ...wish, repaidAmount: repayments.get(wish.id) ?? 0 }));
 }
 
 export function wishTravelLifeAmount(wish: WishItem, dailyLifeAmount: number, tripDatesByStart?: Record<string, string[]>) {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { WishItem } from '../models/types';
 import { calculateWishInternPlan, type WishInternPlanOptions } from './wishInternPlan';
 import { calculateWishMilestonePlan } from './wishMilestonePlan';
+import { calculateWishPlan, resolveWishRepayments } from './wishes';
 
 const baseWish: WishItem = {
   id: 'trip', name: '旅行', isActive: true, deadline: '2026-12-01',
@@ -15,6 +16,14 @@ const options: WishInternPlanOptions = {
 };
 
 describe('欠款与实习规划', () => {
+  it('首次录入欠款与明细后，月度、累计与阶段规划共用推算结果，忽略历史已还', () => {
+    const wishes = resolveWishRepayments([{ ...baseWish, repaidAmount: 999 }], 2000);
+    expect(calculateWishPlan(wishes, options).items[0].remainingAmount).toBe(5000);
+    expect(calculateWishInternPlan({ ...options, wishes }).wishAmount).toBe(5000);
+    expect(calculateWishMilestonePlan({ ...options, wishes, repaymentDues: [] })
+      .segmentByWishId.trip.cumulativePlan.wishAmount).toBe(5000);
+  });
+
   it('累计规划只需再攒五千，欠自己两千不另加一遍', () => {
     expect(calculateWishInternPlan(options)).toMatchObject({
       wishAmount: 5000, wishAmountIncludingLife: 5000, requiredIncome: 12500,

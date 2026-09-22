@@ -57,7 +57,6 @@ export default function WishDebtSummary({ wishes, total, onChange }: {
         <span>心愿内 <strong>¥{formatCurrency(summary.assignedAmount)}</strong></span>
         <span>未归属心愿 <strong>¥{formatCurrency(summary.unassignedAmount)}</strong></span>
       </div>
-      {summary.discrepancyAmount > 0 && <div className="wish-money-error" role="status">总欠款待核对 · 相差 ¥{formatCurrency(summary.discrepancyAmount)}</div>}
       {error && <div className="wish-money-error" role="alert">{error}</div>}
     </Card>
   );

@@ -142,7 +142,7 @@ export interface WishItem {
   targetAmount: number;
   savedAmount: number;
   spentItems?: WishSpentItem[];
-  repaidAmount?: number; // 根据总欠款减少额自动分配的已还金额
+  repaidAmount?: number; // 展示和规划时根据当前总欠款与已花重新推算，忽略历史存储值
   deadline?: string | null;
   linkedTripStartDate?: string | null;
   plannedTravelDays?: number;
