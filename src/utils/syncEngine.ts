@@ -10,6 +10,7 @@ import { useSnapshotStore } from '../stores/snapshotStore';
 import { useTripStore } from '../stores/tripStore';
 import { useSyncStatus } from './syncStatus';
 import { loadTickTickSyncStatus, syncTickTickTrips } from './tickTickSync';
+import { normalizeOutlookCalendarState } from './outlookCalendar';
 
 const EXPENSE_SCOPE_SYNC_KEY = 'expense-scope-overrides';
 const LEGACY_EXPENSE_SCOPE_SYNC_KEY = 'life-period-overrides';
@@ -51,11 +52,12 @@ const stores: StoreEntry[] = [
   {
     key: 'calendar-tags',
     getState: () => useCalendarStore.getState(),
-    setState: (p) => useCalendarStore.setState({ ...p, confirmedExpenses: normalizeConfirmedExpenses(p.confirmedExpenses) }),
+    setState: (p) => useCalendarStore.setState({ ...p, ...normalizeOutlookCalendarState(p), confirmedExpenses: normalizeConfirmedExpenses(p.confirmedExpenses) }),
     subscribe: (l) => useCalendarStore.subscribe(l),
     serialize: () => {
       const s = useCalendarStore.getState();
-      return { tagMap: s.tagMap, initializedFromRecords: s.initializedFromRecords, confirmedExpenses: s.confirmedExpenses };
+      return { tagMap: s.tagMap, initializedFromRecords: s.initializedFromRecords, confirmedExpenses: s.confirmedExpenses,
+        outlookApplied: s.outlookApplied, manualTagDates: s.manualTagDates };
     },
   },
   {

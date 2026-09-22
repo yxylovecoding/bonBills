@@ -6,6 +6,7 @@ import backup from './sync-monthly-backup';
 import mail from './latest-bill-attachment';
 import boncv from './boncv-profile';
 import ticktick from './ticktick-trips';
+import outlook from './outlook-calendar';
 import { authOk, readAccount, readSession } from './_auth';
 
 const { data, storage } = vi.hoisted(() => {
@@ -267,7 +268,7 @@ describe('会话与受保护接口', () => {
     expect(await authOk(request('GET', undefined, { cookie: `bonbills-session=${'a'.repeat(64)}` }))).toBe(false);
   });
 
-  it.each([sync, backup, mail, boncv, ticktick])('所有账单相关接口拒绝未认证访问', async (endpoint) => {
+  it.each([sync, backup, mail, boncv, ticktick, outlook])('所有账单相关接口拒绝未认证访问', async (endpoint) => {
     const method = endpoint === backup ? 'POST' : 'GET';
     const result = await call(request(method, undefined, { authorization: 'Bearer arbitrary-key' }), endpoint);
     expect(result.status).toBe(401);

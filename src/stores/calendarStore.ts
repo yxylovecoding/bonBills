@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { TagKind } from '../models/types';
+import { normalizeOutlookCalendarState, reconcileOutlookSnapshot, type OutlookAppliedDays, type OutlookConflictPolicy, type OutlookSnapshot } from '../utils/outlookCalendar';
 
 // tagMap: { "2026-04-11": "school", ... }
 type TagMap = Record<string, TagKind>;
@@ -59,6 +60,9 @@ export function normalizeConfirmedExpenses(input: unknown): Record<string, Confi
 
 interface CalendarStore {
   tagMap: TagMap;
+  outlookApplied: OutlookAppliedDays;
+  manualTagDates: Record<string, true>;
+  applyOutlookSnapshot: (snapshot: OutlookSnapshot, policy: OutlookConflictPolicy) => void;
   initializedFromRecords: boolean; // 防止重复执行一次性初始化
   // confirmedExpenses: 用户在「明细」模式下勾选的「这天确切发生的支出」
   // key: 'YYYY-MM-DD'，value: 已确认状态 + 当日已勾选的 expenseItemId 列表（id 由 importBill.ts 派生）
@@ -82,29 +86,41 @@ export const useCalendarStore = create<CalendarStore>()(
   persist(
     (set, get) => ({
       tagMap: {},
+      outlookApplied: {},
+      manualTagDates: {},
+      applyOutlookSnapshot: (snapshot, policy) => set((s) => {
+        const next = reconcileOutlookSnapshot(s.tagMap, s.outlookApplied, s.manualTagDates, snapshot, policy);
+        return JSON.stringify([s.tagMap, s.outlookApplied, s.manualTagDates]) === JSON.stringify([next.tagMap, next.outlookApplied, next.manualTagDates]) ? s : next;
+      }),
       initializedFromRecords: false,
       confirmedExpenses: {},
 
       setTag: (date, tag) =>
-        set((s) => ({ tagMap: { ...s.tagMap, [date]: tag } })),
+        get().setTags([date], tag),
 
       setTags: (dates, tag) =>
         set((s) => {
           const next = { ...s.tagMap };
+          const manualTagDates = { ...s.manualTagDates };
+          const outlookApplied = { ...s.outlookApplied };
           let changed = false;
           for (const date of dates) {
-            if (next[date] === tag) continue;
+            if (next[date] === tag && manualTagDates[date] && !outlookApplied[date]) continue;
             next[date] = tag;
+            manualTagDates[date] = true;
+            delete outlookApplied[date];
             changed = true;
           }
-          return changed ? { tagMap: next } : s;
+          return changed ? { tagMap: next, manualTagDates, outlookApplied } : s;
         }),
 
       removeTag: (date) =>
         set((s) => {
           const next = { ...s.tagMap };
+          const outlookApplied = { ...s.outlookApplied };
           delete next[date];
-          return { tagMap: next };
+          delete outlookApplied[date];
+          return { tagMap: next, outlookApplied, manualTagDates: { ...s.manualTagDates, [date]: true } };
         }),
 
       toggleTag: (date, tag) => {
@@ -139,7 +155,7 @@ export const useCalendarStore = create<CalendarStore>()(
           const end = new Date(toDate + 'T00:00:00');
           while (cur <= end) {
             const key = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
-            if (!next[key]) next[key] = 'school';
+            if (!next[key] && !s.manualTagDates[key]) next[key] = 'school';
             cur.setDate(cur.getDate() + 1);
           }
           return { tagMap: next };
@@ -212,12 +228,13 @@ export const useCalendarStore = create<CalendarStore>()(
     }),
     {
       name: 'calendar-tags',
-      version: 4,
+      version: 5,
       migrate: (persistedState) => {
         if (!persistedState || typeof persistedState !== 'object') return persistedState;
         const state = persistedState as { confirmedExpenses?: unknown };
         return {
           ...state,
+          ...normalizeOutlookCalendarState(state),
           confirmedExpenses: normalizeConfirmedExpenses(state.confirmedExpenses),
         };
       },
@@ -226,6 +243,7 @@ export const useCalendarStore = create<CalendarStore>()(
         return {
           ...currentState,
           ...persisted,
+          ...normalizeOutlookCalendarState(persisted),
           confirmedExpenses: normalizeConfirmedExpenses(persisted.confirmedExpenses),
         };
       },

@@ -18,6 +18,7 @@ import InvestInstrumentPicker from '../components/InvestInstrumentPicker';
 import FinanceImportPreviewDialog from '../components/FinanceImportPreviewDialog';
 import PendingInvestmentBuyRow from '../components/PendingInvestmentBuyRow';
 import TickTickTripSyncControl from '../components/TickTickTripSyncControl';
+import OutlookCalendarSyncControl from '../components/OutlookCalendarSyncControl';
 import ImportCutoffHint from '../components/ImportCutoffHint';
 import { calcHistoryStats } from '../calculations/history';
 import { buildExpenseScopeStats, suggestScope, isInconsistent, type ExpenseScopeStatRow } from '../calculations/expenseScopeStats';
@@ -4567,6 +4568,7 @@ export default function CalendarPage() {
 
           {/* 本月统计 */}
           <Card title="本月统计" subtitle={`${yearMonth} · 已标记 ${stats.tagged}/${stats.total}`}>
+            <OutlookCalendarSyncControl yearMonth={yearMonth} />
             <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
               <colgroup>
                 <col style={{ width: '20%' }} />

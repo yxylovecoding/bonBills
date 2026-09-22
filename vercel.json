@@ -1,5 +1,6 @@
 {
   "functions": {
+    "api/outlook-calendar.ts": { "maxDuration": 60 },
     "api/ticktick-trips.ts": { "maxDuration": 60 }
   },
   "crons": [

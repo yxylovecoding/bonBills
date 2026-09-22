@@ -83,7 +83,7 @@ export default defineConfig({
           if (/^(SYNC_SECRET|CRON_SECRET|KV_|BILL_|BONCV_)/.test(key)
             && process.env[key] === undefined) process.env[key] = value;
         }
-        const protectedRoutes = new Set(['auth', 'sync', 'sync-monthly-backup', 'ticktick-trips', 'latest-bill-attachment', 'boncv-profile']);
+        const protectedRoutes = new Set(['auth', 'sync', 'sync-monthly-backup', 'ticktick-trips', 'outlook-calendar', 'latest-bill-attachment', 'boncv-profile']);
         server.middlewares.use(async (req, res, next) => {
           const url = new URL(req.url || '/', 'http://localhost');
           const route = url.pathname.replace(/^\/api\//, '');
