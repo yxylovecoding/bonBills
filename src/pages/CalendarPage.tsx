@@ -1797,6 +1797,31 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       [groupKey]: previous[groupKey].filter((item) => item.id !== id),
     }));
   };
+  const movePositionDraft = (sourceGroupKey: InvestPositionGroupKey, id: string, targetGroupKey: InvestKey) => {
+    if (sourceGroupKey === targetGroupKey) return;
+    setPositionDraftGroups((previous) => {
+      const item = previous[sourceGroupKey].find((position) => position.id === id);
+      if (!item) return previous;
+      const quoteCurrency = isInvestPositionSummaryItem(item)
+        ? 'CNY'
+        : item.quoteCurrency || item.lastCurrency || defaultInvestQuoteCurrency(sourceGroupKey) || item.historicalProfitCurrency || 'CNY';
+      const movedItem: InvestPositionDraft = {
+        ...item,
+        quoteCurrency,
+        ...(sourceGroupKey === 'account' ? {
+          status: 'paused' as const,
+          shares: '0',
+          marketValueCny: '0',
+          holdingProfitCny: '0',
+        } : {}),
+      };
+      return {
+        ...previous,
+        [sourceGroupKey]: previous[sourceGroupKey].filter((position) => position.id !== id),
+        [targetGroupKey]: [...previous[targetGroupKey], movedItem],
+      };
+    });
+  };
   const splitPositionAccount = (input: PositionSplitInput) => {
     if (!input.name.trim() || !Number.isFinite(input.splitMarketValueCny) || input.splitMarketValueCny < 0) return;
     if (input.splitMarketValueCny === 0 && input.splitTotalProfitOriginal === 0) return;
@@ -2048,7 +2073,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     getBreakdownMonthlyProfit,
     mainFieldRefs,
     positionDraftGroups, updatePositionDraft, addPositionDraft, removePositionDraft,
-    splitPositionAccount,
+    splitPositionAccount, movePositionDraft,
     positionSummary, positionMonthlyIncome, positionMonthlyProfitById, positionQuotes, positionQuoteErrors, isCurrentRecordMonth,
     handleSave,
     fieldStyle, labelStyle,
@@ -2248,7 +2273,7 @@ function InvestmentMonthlyReturn({ label, profit, marketValue }: { label: string
 function HoldingsSection({ state }: { state: MonthFormState }) {
   const {
     positionDraftGroups, updatePositionDraft, addPositionDraft, removePositionDraft,
-    splitPositionAccount,
+    splitPositionAccount, movePositionDraft,
     positionSummary, positionMonthlyIncome, positionMonthlyProfitById, positionQuotes, positionQuoteErrors, isCurrentRecordMonth,
   } = state;
   const [activeStatus, setActiveStatus] = useState<InvestPositionStatus>('active');
@@ -2505,6 +2530,28 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
 
                         {isExpanded && (
                           <div style={{ marginTop: 8 }}>
+                            <label style={{ display: 'grid', gridTemplateColumns: '1fr minmax(90px, 130px)', gap: 8, alignItems: 'center', marginTop: 8, fontSize: 10, color: C.sub }}>
+                              <span>分类</span>
+                              <select
+                                aria-label={`${item.name}分类`}
+                                value={groupKey}
+                                onChange={(event) => {
+                                  const targetGroupKey = event.target.value as InvestKey;
+                                  movePositionDraft(groupKey, item.id, targetGroupKey);
+                                  setExpandedGroupKeys((current) => new Set(current).add(`${activeStatus}:${targetGroupKey}`));
+                                  setExpandedItemKey(`${targetGroupKey}:${item.id}`);
+                                  setSplitSource(null);
+                                }}
+                                style={{ width: '100%', border: '1px solid #dadce0', borderRadius: 6, padding: '4px 6px', fontSize: 11, color: C.sub, backgroundColor: '#fff', cursor: 'pointer' }}
+                              >
+                                {(groupKey === 'account' || groupKey === 'aggregate') && <option value={groupKey} disabled>{groupLabel}</option>}
+                                {INVESTMENT_GROUPS.map((group) => (
+                                  <optgroup key={group.label} label={group.label}>
+                                    {group.keys.map((key) => <option key={key} value={key}>{investMeta[key].label}</option>)}
+                                  </optgroup>
+                                ))}
+                              </select>
+                            </label>
                             {groupKey === 'account' ? (
                               <label style={{ display: 'grid', gridTemplateColumns: '1fr minmax(90px, 130px)', gap: 8, alignItems: 'center', marginTop: 8, fontSize: 10, color: C.sub }}>
                                 <span>累计收益</span>
