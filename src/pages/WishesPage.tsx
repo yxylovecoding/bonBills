@@ -4,6 +4,9 @@ import Card from '../components/Card';
 import { formatCurrency } from '../components/CurrencyDisplay';
 import WishTimeline from '../components/WishTimeline';
 import WishCompactCalendar from '../components/WishCompactCalendar';
+import WishSpendingEditor from '../components/WishSpendingEditor';
+import WishDebtSummary from '../components/WishDebtSummary';
+import WishActualAmount from '../components/WishActualAmount';
 import { calcHistoryStats } from '../calculations/history';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useCalendarStore } from '../stores/calendarStore';
@@ -18,10 +21,11 @@ import { useHolidayYears } from '../utils/holidays';
 import { detectAllTrips, type TripSegment } from '../utils/trips';
 import { calculateWishInternPlan } from '../utils/wishInternPlan';
 import {
-  calculateTravelWishEstimate,
+  calculateWishFunding,
+  resolveWishTravelBudget,
+  wishTravelLifeAmount,
   calculateWishPlan,
   resolveWishExtraExpenseItems,
-  totalWishExtraExpenseAmount,
 } from '../utils/wishes';
 import { calculateCreditRepaymentPlan } from '../utils/creditRepayment';
 import { roundToSitePrecision } from '../utils/numberInput';
@@ -32,12 +36,6 @@ import {
   repaymentsThroughDeadline,
   type WishRepaymentDue,
 } from '../utils/wishMilestonePlan';
-import {
-  applyPendingWishInternSavings,
-  confirmPendingWishInternSavings,
-  pendingWishInternSavingsByWish,
-} from '../utils/wishInternSavings';
-
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 type LodgingAmountMode = 'daily' | 'total';
 const LIFE_EXPENSE_TOOLTIP_ORDER: Array<{ kind: TagKind; label: string }> = [
@@ -136,17 +134,16 @@ export default function WishesPage() {
   const todayYear = today.getFullYear();
   const todayKey = `${todayYear}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const twoYearsAgo = `${todayYear - 1}-01`;
+  const filteredRecords = useMemo(
+    () => records.filter((record) => record.yearMonth >= twoYearsAgo),
+    [records, twoYearsAgo],
+  );
+  const stats = useMemo(
+    () => calcHistoryStats(filteredRecords, tagMap, confirmedExpenses, expenseItems, overrides, tripTags),
+    [filteredRecords, tagMap, confirmedExpenses, expenseItems, overrides, tripTags],
+  );
   const wishes = config.wishes ?? [];
   const deadlineMilestones = config.wishDeadlineMilestones ?? DEFAULT_WISH_DEADLINE_MILESTONES;
-  const wishInternSavingRecords = config.wishInternSavingRecords ?? [];
-  const pendingInternSavingsByWish = useMemo(
-    () => pendingWishInternSavingsByWish(wishInternSavingRecords, todayKey),
-    [todayKey, wishInternSavingRecords],
-  );
-  const planningWishes = useMemo(
-    () => applyPendingWishInternSavings(wishes, wishInternSavingRecords, todayKey),
-    [todayKey, wishInternSavingRecords, wishes],
-  );
   useEffect(() => {
     let changed = false;
     const normalizedWishes = wishes.map((wish) => {
@@ -173,17 +170,17 @@ export default function WishesPage() {
     [allTripSegments],
   );
   const defaultPlanningDeadline = useMemo(
-    () => planningWishes
-      .filter((wish) => wish.isActive && wish.deadline && wish.deadline >= todayKey && wish.targetAmount > wish.savedAmount)
+    () => wishes
+      .filter((wish) => wish.isActive && wish.deadline && wish.deadline >= todayKey && calculateWishFunding(wish, wishTravelLifeAmount(wish, stats.stateDailyAvg.travel, tripDatesByStart)).remainingAmount > 0)
       .reduce((latest, wish) => wish.deadline && wish.deadline > latest ? wish.deadline : latest, todayKey),
-    [planningWishes, todayKey],
+    [wishes, todayKey, stats.stateDailyAvg.travel, tripDatesByStart],
   );
   const selectedPlanningWish = useMemo(() => {
-    const eligible = planningWishes
-      .filter((wish) => wish.isActive && wish.deadline && wish.deadline >= todayKey && wish.targetAmount > wish.savedAmount)
+    const eligible = wishes
+      .filter((wish) => wish.isActive && wish.deadline && wish.deadline >= todayKey && calculateWishFunding(wish, wishTravelLifeAmount(wish, stats.stateDailyAvg.travel, tripDatesByStart)).remainingAmount > 0)
       .sort((a, b) => (a.deadline ?? '').localeCompare(b.deadline ?? '') || a.id.localeCompare(b.id));
     return eligible.find((wish) => wish.id === activeWishId) ?? eligible[0] ?? null;
-  }, [activeWishId, planningWishes, todayKey]);
+  }, [activeWishId, wishes, todayKey, stats.stateDailyAvg.travel, tripDatesByStart]);
   const selectedWishDeadline = selectedPlanningWish?.deadline && selectedPlanningWish.deadline >= todayKey
     ? selectedPlanningWish.deadline
     : null;
@@ -208,14 +205,6 @@ export default function WishesPage() {
   );
   const { holidayDataByYear } = useHolidayYears(holidayYears);
 
-  const filteredRecords = useMemo(
-    () => records.filter((record) => record.yearMonth >= twoYearsAgo),
-    [records, twoYearsAgo],
-  );
-  const stats = useMemo(
-    () => calcHistoryStats(filteredRecords, tagMap, confirmedExpenses, expenseItems, overrides, tripTags),
-    [filteredRecords, tagMap, confirmedExpenses, expenseItems, overrides, tripTags],
-  );
   const {
     effectiveCreditMonthly: currentCreditDue,
     effectiveCreditNext: nextCreditDue,
@@ -253,20 +242,21 @@ export default function WishesPage() {
     nextDueDate >= todayKey && nextDueDate <= effectivePlanningDeadline ? longBondRepayNext : 0
   );
   const plan = useMemo(
-    () => calculateWishPlan(planningWishes, {
+    () => calculateWishPlan(wishes, {
       today,
       tagMap,
       stateDailyAvg: stats.stateDailyAvg,
       repaymentsByMonth,
+      tripDatesByStart,
     }),
     // todayKey 每日变化一次，避免 Date 实例导致无意义的重复计算。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [planningWishes, tagMap, stats.stateDailyAvg, repaymentsByMonth, todayKey],
+    [wishes, tagMap, stats.stateDailyAvg, repaymentsByMonth, todayKey, tripDatesByStart],
   );
   const milestonePlan = useMemo(
     () => calculateWishMilestonePlan({
       today,
-      wishes: planningWishes,
+      wishes,
       incomeItems: config.incomeItems,
       tagMap,
       stateDailyAvg: stats.stateDailyAvg,
@@ -276,7 +266,7 @@ export default function WishesPage() {
     }),
     // todayKey 每日变化一次，避免 Date 实例导致无意义的重复计算。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [config.incomeItems, holidayDataByYear, planningWishes, repaymentDues, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart],
+    [config.incomeItems, holidayDataByYear, wishes, repaymentDues, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart],
   );
   const activeSegment = selectedPlanningWish
     ? milestonePlan.segmentByWishId[selectedPlanningWish.id]
@@ -304,7 +294,7 @@ export default function WishesPage() {
     () => calculateWishInternPlan({
       today,
       deadline: effectivePlanningDeadline,
-      wishes: planningWishes,
+      wishes,
       incomeItems: config.incomeItems,
       tagMap,
       stateDailyAvg: stats.stateDailyAvg,
@@ -315,7 +305,7 @@ export default function WishesPage() {
     }),
     // todayKey 每日变化一次，避免 Date 实例导致无意义的重复计算。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [config.incomeItems, effectivePlanningDeadline, holidayDataByYear, planningRepaymentsByMonth, planningWishes, selectedCumulativeInternDays, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart],
+    [config.incomeItems, effectivePlanningDeadline, holidayDataByYear, planningRepaymentsByMonth, wishes, selectedCumulativeInternDays, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart],
   );
   const lifeExpenseTooltip = LIFE_EXPENSE_TOOLTIP_ORDER.map(({ kind, label }) => {
     const item = internPlan.lifeExpenseBreakdown[kind];
@@ -470,25 +460,6 @@ export default function WishesPage() {
   const updateWishFields = (id: string, patch: Partial<WishItem>) => {
     setSelectedSegmentDays({});
     syncWishes(wishes.map((item) => item.id === id ? { ...item, ...patch } : item));
-  };
-  const confirmPendingInternSavings = (wishId: string) => {
-    const confirmation = confirmPendingWishInternSavings(
-      wishes,
-      wishInternSavingRecords,
-      wishId,
-      todayKey,
-    );
-    if (confirmation.confirmedAmount <= 0) return;
-    setSelectedSegmentDays({});
-    setAmountDrafts((currentDrafts) => {
-      const nextDrafts = { ...currentDrafts };
-      delete nextDrafts[`${wishId}:savedAmount`];
-      return nextDrafts;
-    });
-    setConfig({
-      wishes: confirmation.wishes,
-      wishInternSavingRecords: confirmation.records,
-    });
   };
   type WishAmountField = 'targetAmount' | 'savedAmount' | 'travelTicketAmount' | 'travelLodgingDailyAmount' | 'travelLifeCorrectionAmount';
   const updateAmount = (id: string, field: WishAmountField, raw: string) => {
@@ -954,6 +925,7 @@ export default function WishesPage() {
         className="wish-list-scroll"
         onScroll={(event) => handleWishListScroll(event.currentTarget)}
       >
+      <WishDebtSummary wishes={wishes} total={config.wishDebtTotal} onChange={(wishDebtTotal) => setConfig({ wishDebtTotal })} />
       <Card title="心愿清单" subtitle={`${wishes.length} 个心愿`}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '0 0 12px', marginBottom: 12, borderBottom: '1px solid #f1f3f4', fontSize: 11 }}>
           <span style={{ color: C.sub }}>心愿罐 ¥{formatCurrency(wishJarBalance)}</span>
@@ -975,8 +947,7 @@ export default function WishesPage() {
           {orderedPlanItems.map((item) => {
             const targetKey = `${item.id}:targetAmount`;
             const savedKey = `${item.id}:savedAmount`;
-            const confirmedSavedAmount = wishes.find((wish) => wish.id === item.id)?.savedAmount ?? 0;
-            const pendingInternSavingAmount = pendingInternSavingsByWish[item.id] ?? 0;
+            const confirmedSavedAmount = item.savedAmount;
             const ticketKey = `${item.id}:travelTicketAmount`;
             const lifeCorrectionKey = `${item.id}:travelLifeCorrectionAmount`;
             const linkedTrip = item.linkedTripStartDate
@@ -998,7 +969,8 @@ export default function WishesPage() {
                 : '';
             const itemTravelDays = linkedTrip?.dates.length ?? Math.max(Math.round(item.plannedTravelDays ?? 0), 0);
             const lodgingNights = Math.max(itemTravelDays - 1, 0);
-            const lodgingAmountMode = lodgingAmountModes[item.id] ?? 'daily';
+            const travelBudget = resolveWishTravelBudget(item, itemTravelDays, stats.stateDailyAvg.travel);
+            const lodgingAmountMode = travelBudget.lodgingActual !== undefined ? 'total' : lodgingAmountModes[item.id] ?? 'daily';
             const lodgingKey = `${item.id}:travelLodging:${lodgingAmountMode}`;
             const itemLodgingDailyAmount = Number.isFinite(item.travelLodgingDailyAmount)
               ? Math.max(item.travelLodgingDailyAmount ?? 0, 0)
@@ -1006,14 +978,7 @@ export default function WishesPage() {
                 ? Math.max(item.travelLodgingAmount ?? 0, 0) / Math.max(itemTravelDays - 1, 1)
                 : 0;
             const itemExtraExpenses = resolveWishExtraExpenseItems(item);
-            const itemExtraExpenseAmount = totalWishExtraExpenseAmount(itemExtraExpenses);
-            const travelEstimate = calculateTravelWishEstimate(
-              itemTravelDays,
-              stats.stateDailyAvg.travel,
-              item.travelTicketAmount,
-              itemLodgingDailyAmount,
-              itemExtraExpenseAmount,
-            );
+            const travelEstimate = travelBudget.estimate;
             const lodgingInputAmount = lodgingAmountMode === 'total'
               ? travelEstimate.lodgingAmount
               : itemLodgingDailyAmount;
@@ -1029,16 +994,10 @@ export default function WishesPage() {
             const roundedTravelTargetAmount = roundToSitePrecision(
               Math.max(travelEstimate.targetAmount - itemTravelLifeCorrectionAmount, 0),
             );
-            const actualWishSavingAmount = roundToSitePrecision(
-              Math.max(item.targetAmount - itemAdjustedTravelLifeAmount, 0),
-            );
-            const remainingActualWishSavingAmount = roundToSitePrecision(
-              Math.max(actualWishSavingAmount - Math.max(item.savedAmount, 0), 0),
-            );
-            const progress = actualWishSavingAmount > 0
-              ? Math.min(Math.max(item.savedAmount, 0) / actualWishSavingAmount, 1)
-              : item.targetAmount > 0 ? 1 : 0;
-            const actualWishSavingCompleted = item.targetAmount > 0
+            const funding = calculateWishFunding(item, itemAdjustedTravelLifeAmount);
+            const remainingActualWishSavingAmount = funding.remainingAmount;
+            const progress = funding.fundingTarget > 0 ? funding.progress : item.targetAmount > 0 ? 1 : 0;
+            const actualWishSavingCompleted = (item.targetAmount > 0 || funding.spentAmount > 0)
               && remainingActualWishSavingAmount <= 0;
             const budgetEstimateVisible = budgetEstimateWishId === item.id;
             const isSelectedPlanningWish = selectedPlanningWish?.id === item.id;
@@ -1102,20 +1061,10 @@ export default function WishesPage() {
                         style={{ width: '100%', minWidth: 0, border: 'none', outline: 'none', background: 'transparent', textAlign: 'right', fontSize: 12, fontWeight: 700, color: C.green }}
                       />
                     </div>
-                    {pendingInternSavingAmount > 0 ? (
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6, marginTop: 4, fontSize: 10, color: C.orange }}>
-                        <span>待确认：¥{formatCurrency(pendingInternSavingAmount)}</span>
-                        <button
-                          type="button"
-                          onClick={() => confirmPendingInternSavings(item.id)}
-                          style={{ border: '1px solid #fdba74', borderRadius: 999, backgroundColor: '#fff7ed', color: C.orange, padding: '2px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}
-                        >
-                          确认
-                        </button>
-                      </div>
-                    ) : null}
                   </div>
                 </div>
+
+                <WishSpendingEditor wish={item} onChange={(patch) => updateWishFields(item.id, patch)} />
 
                 {linkedTripDefaultDeadline ? null : (
                   <div style={{ display: 'block', marginTop: 9 }}>
@@ -1222,18 +1171,20 @@ export default function WishesPage() {
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7 }}>
                         <label>
-                          <span style={{ display: 'block', marginBottom: 3, fontSize: 9, color: C.sub }}>机票</span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 3, borderRadius: 7, backgroundColor: '#fff', padding: '5px 6px' }}>
+                          <span style={{ display: 'block', marginBottom: 3, fontSize: 9, color: C.sub }}>机票/高铁</span>
+                          {travelBudget.ticketActual !== undefined ? (
+                            <WishActualAmount label={`${item.name} 机票/高铁`} original={travelBudget.original.ticketAmount} actual={travelBudget.ticketActual} />
+                          ) : <div style={{ display: 'flex', alignItems: 'center', gap: 3, borderRadius: 7, backgroundColor: '#fff', padding: '5px 6px' }}>
                             <span style={{ fontSize: 10, color: C.sub }}>¥</span>
                             <AmountInput
-                              aria-label={`${item.name} 机票价格`}
+                              aria-label={`${item.name} 机票/高铁价格`}
                               value={amountDrafts[ticketKey] ?? (item.travelTicketAmount ? String(item.travelTicketAmount) : '')}
                               onChange={(raw) => updateAmount(item.id, 'travelTicketAmount', raw)}
                               onBlur={() => finishAmountEdit(item.id, 'travelTicketAmount')}
                               placeholder="0"
                               style={{ width: '100%', minWidth: 0, border: 'none', outline: 'none', backgroundColor: 'transparent', textAlign: 'right', fontSize: 11, fontWeight: 700, color: C.purple }}
                             />
-                          </div>
+                          </div>}
                         </label>
                         <div>
                           <span style={{ display: 'flex', alignItems: 'center', marginBottom: 3, fontSize: 9, color: C.sub }}>
@@ -1242,13 +1193,16 @@ export default function WishesPage() {
                               type="button"
                               aria-label={`${item.name} 酒店价格当前为${lodgingAmountMode === 'daily' ? '每天' : '总价'}，点击切换为${lodgingAmountMode === 'daily' ? '总价' : '每天'}`}
                               aria-pressed={lodgingAmountMode === 'total'}
+                              disabled={travelBudget.lodgingActual !== undefined}
                               onClick={() => toggleLodgingAmountMode(item.id)}
                               style={{ border: 'none', borderBottom: '1px dotted currentColor', backgroundColor: 'transparent', color: C.purple, padding: 0, font: 'inherit', lineHeight: 'inherit', cursor: 'pointer' }}
                             >
                               {lodgingAmountMode === 'daily' ? '/天' : '总价'}
                             </button>
                           </span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 3, borderRadius: 7, backgroundColor: '#fff', padding: '5px 6px' }}>
+                          {travelBudget.lodgingActual !== undefined ? (
+                            <WishActualAmount label={`${item.name} 酒店`} original={travelBudget.original.lodgingAmount} actual={travelBudget.lodgingActual} />
+                          ) : <div style={{ display: 'flex', alignItems: 'center', gap: 3, borderRadius: 7, backgroundColor: '#fff', padding: '5px 6px' }}>
                             <span style={{ fontSize: 10, color: C.sub }}>¥</span>
                             <AmountInput
                               aria-label={`${item.name} 酒店${lodgingAmountMode === 'daily' ? '日均价格' : '总价'}`}
@@ -1258,7 +1212,7 @@ export default function WishesPage() {
                               placeholder="0"
                               style={{ width: '100%', minWidth: 0, border: 'none', outline: 'none', backgroundColor: 'transparent', textAlign: 'right', fontSize: 11, fontWeight: 700, color: C.purple }}
                             />
-                          </div>
+                          </div>}
                         </div>
                         <div style={{ gridColumn: '1 / -1' }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
@@ -1281,18 +1235,21 @@ export default function WishesPage() {
                             </button>
                           ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                              {itemExtraExpenses.map((expense, expenseIndex) => {
+                              {travelBudget.extras.map((expense, expenseIndex) => {
                                 const expenseAmountKey = `${item.id}:extraExpense:${expense.id}:amount`;
                                 return (
                                   <div key={expense.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 92px 18px', alignItems: 'center', gap: 5 }}>
                                     <input
                                       aria-label={`${item.name} 第${expenseIndex + 1}笔额外消费名称`}
                                       value={expense.name}
+                                      disabled={expense.actualAmount !== undefined}
                                       onChange={(event) => updateWishExtraExpense(item.id, itemExtraExpenses, expense.id, { name: event.target.value })}
                                       placeholder="电影票 / 冲浪"
                                       style={{ minWidth: 0, border: 'none', borderRadius: 7, outline: 'none', backgroundColor: '#fff', padding: '6px 7px', fontSize: 10, color: '#202124' }}
                                     />
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 2, borderRadius: 7, backgroundColor: '#fff', padding: '5px 6px' }}>
+                                    {expense.actualAmount !== undefined ? (
+                                      <WishActualAmount label={`${item.name} ${expense.name}`} original={expense.amount} actual={expense.actualAmount} />
+                                    ) : <div style={{ display: 'flex', alignItems: 'center', gap: 2, borderRadius: 7, backgroundColor: '#fff', padding: '5px 6px' }}>
                                       <span style={{ fontSize: 9, color: C.sub }}>¥</span>
                                       <AmountInput
                                         aria-label={`${item.name} 第${expenseIndex + 1}笔额外消费金额`}
@@ -1309,10 +1266,11 @@ export default function WishesPage() {
                                         placeholder="0"
                                         style={{ width: '100%', minWidth: 0, border: 'none', outline: 'none', backgroundColor: 'transparent', textAlign: 'right', fontSize: 10, fontWeight: 700, color: C.purple }}
                                       />
-                                    </div>
+                                    </div>}
                                     <button
                                       type="button"
                                       aria-label={`删除${expense.name || `第${expenseIndex + 1}笔额外消费`}`}
+                                      disabled={expense.actualAmount !== undefined}
                                       onClick={() => setWishExtraExpenses(item.id, itemExtraExpenses.filter((candidate) => candidate.id !== expense.id))}
                                       style={{ border: 'none', backgroundColor: 'transparent', color: '#9ca3af', padding: 0, fontSize: 16, lineHeight: 1, cursor: 'pointer' }}
                                     >
@@ -1377,7 +1335,7 @@ export default function WishesPage() {
 
                 <div style={{ marginTop: 10, borderRadius: 10, padding: '8px 9px', backgroundColor: item.deadlineState === 'overdue' && !actualWishSavingCompleted ? '#fef2f2' : actualWishSavingCompleted ? '#ecfdf5' : '#f5f3ff', color: item.deadlineState === 'overdue' && !actualWishSavingCompleted ? C.red : actualWishSavingCompleted ? C.green : C.purple, fontSize: 11, fontWeight: 700, lineHeight: 1.5 }}>
                   {!item.isActive && '已暂停，不计入最少实习规划'}
-                  {item.isActive && actualWishSavingCompleted && '✓ 心愿已经攒满'}
+                  {item.isActive && actualWishSavingCompleted && (funding.debtAmount > 0 ? `已攒足 · 待还自己 ¥${formatCurrency(funding.debtAmount)}` : '✓ 心愿已经攒满')}
                   {item.isActive && !actualWishSavingCompleted && item.deadlineState === 'none' && (remainingActualWishSavingAmount > 0 ? '无 DDL，按自己的节奏慢慢攒' : '填入目标金额后开始计算')}
                   {item.isActive && !actualWishSavingCompleted && item.deadlineState === 'overdue' && `已超期 · 还需补 ¥${formatCurrency(remainingActualWishSavingAmount)}`}
                   {item.isActive && !actualWishSavingCompleted && item.deadlineState === 'scheduled' && remainingActualWishSavingAmount > 0 && (

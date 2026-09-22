@@ -130,11 +130,19 @@ export interface WishExtraExpenseItem {
   amount: number;
 }
 
+export interface WishSpentItem {
+  id: string;
+  name: string;
+  amount: number;
+}
+
 export interface WishItem {
   id: string;
   name: string;
   targetAmount: number;
   savedAmount: number;
+  spentItems?: WishSpentItem[];
+  repaidAmount?: number;
   deadline?: string | null;
   linkedTripStartDate?: string | null;
   plannedTravelDays?: number;
@@ -215,6 +223,7 @@ export interface AppConfig {
   futureFireExpenses: FutureFireExpense[];
   majorFireWishes?: MajorFireWish[];
   wishes?: WishItem[];
+  wishDebtTotal?: number; // 外部债务账户的当前总欠款；缺省时仅汇总心愿欠款
   wishInternSavingRecords?: WishInternSavingRecord[];
   wishDeadlineMilestones?: WishDeadlineMilestone[];
   majorExpenseThreshold: number; // 大额支出筛选门槛，默认 500

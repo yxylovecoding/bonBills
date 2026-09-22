@@ -1176,3 +1176,33 @@ input[type='number'] { -moz-appearance: textfield; }
 .login-error { margin: 0; color: #c5221f; font-size: 12px; line-height: 1.6; }
 .login-card > .login-error { margin-bottom: 20px; }
 .login-status { color: var(--color-text-sub); font-size: 13px; }
+/* 心愿欠款与已花明细 */
+.wish-debt-total, .wish-debt-breakdown, .wish-money-summary, .wish-spending-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+  color: #5f6368;
+}
+.wish-debt-total > span:last-child { display: flex; align-items: center; gap: 5px; min-width: 0; color: #7c3aed; font-size: 20px; font-weight: 700; }
+.wish-debt-total input { width: 150px; min-width: 0; border: 0; border-bottom: 1px solid #ddd6fe; background: transparent; outline: none; color: inherit; font: inherit; text-align: right; }
+.wish-debt-breakdown { margin-top: 12px; flex-wrap: wrap; }
+.wish-debt-breakdown strong { color: #202124; font-weight: 600; }
+.wish-spending-editor { margin-top: 10px; padding: 10px 0; border-top: 1px solid #ede9fe; border-bottom: 1px solid #ede9fe; }
+.wish-money-summary strong { color: #202124; }
+.wish-money-summary label { display: flex; align-items: center; gap: 6px; }
+.wish-repaid-input, .wish-spent-amount { display: flex; align-items: center; gap: 3px; background: #fff; border-radius: 7px; padding: 5px 6px; }
+.wish-repaid-input { width: 96px; }
+.wish-spent-items { display: grid; gap: 5px; margin-top: 7px; }
+.wish-expense-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(70px, 100px) 18px; align-items: center; gap: 5px; }
+.wish-expense-row > input { padding: 6px 7px; border-radius: 7px; background: #fff !important; }
+.wish-expense-row button { border: 0; background: transparent; color: #9ca3af; padding: 0; font-size: 16px; cursor: pointer; }
+.wish-spending-footer { margin-top: 8px; font-size: 10px; }
+.wish-spending-footer strong { color: #e8710a; }
+.wish-spending-footer button { border: 0; background: transparent; color: #7c3aed; padding: 0; font-size: 10px; font-weight: 700; cursor: pointer; }
+.wish-money-error { margin-top: 6px; font-size: 10px; color: #ea4335; }
+.wish-actual-amount { display: flex; align-items: baseline; justify-content: flex-end; flex-wrap: wrap; gap: 4px; padding: 5px 6px; border-radius: 7px; background: #f3f4f6; font-size: 11px; }
+.wish-actual-amount del { color: #9aa0a6; font-size: 9px; }
+.wish-actual-amount strong { color: #202124; }
+.wish-actual-amount > span { color: #5f6368; font-size: 9px; }

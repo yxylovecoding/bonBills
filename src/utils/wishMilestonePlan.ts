@@ -1,6 +1,7 @@
 import type { IncomeItem, TagKind, WishItem } from '../models/types';
 import type { HolidayDataByYear } from './holidays';
 import { calculateWishInternPlan, type WishInternPlan } from './wishInternPlan';
+import { calculateWishFunding, wishTravelLifeAmount } from './wishes';
 
 export interface WishRepaymentDue {
   date: string;
@@ -151,9 +152,8 @@ export function calculateWishMilestonePlan(options: WishMilestonePlanOptions): W
   const wishesByDeadline = new Map<string, WishItem[]>();
 
   for (const wish of options.wishes) {
-    const target = Number.isFinite(wish.targetAmount) ? Math.max(wish.targetAmount, 0) : 0;
-    const saved = Number.isFinite(wish.savedAmount) ? Math.max(wish.savedAmount, 0) : 0;
-    if (!wish.isActive || !wish.deadline || wish.deadline < todayKey || target <= saved) continue;
+    const funding = calculateWishFunding(wish, wishTravelLifeAmount(wish, options.stateDailyAvg.travel, options.tripDatesByStart));
+    if (!wish.isActive || !wish.deadline || wish.deadline < todayKey || funding.remainingAmount <= 0) continue;
     const group = wishesByDeadline.get(wish.deadline) ?? [];
     group.push(wish);
     wishesByDeadline.set(wish.deadline, group);

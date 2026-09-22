@@ -31,7 +31,7 @@ import { calculateCreditRepaymentPlan } from '../utils/creditRepayment';
 import { getAverageAnnualizedRate } from '../utils/investRecords';
 import { detectAllTrips } from '../utils/trips';
 import { calculateWishMilestonePlan, type WishRepaymentDue } from '../utils/wishMilestonePlan';
-import { applyPendingWishInternSavings, WISH_INTERN_SAVING_START_DATE } from '../utils/wishInternSavings';
+import { calculateWishFunding, wishTravelLifeAmount } from '../utils/wishes';
 import {
   HANGZHOU_EMPLOYEE_SOCIAL_INSURANCE_RATE,
   HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MAX,
@@ -43,7 +43,7 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '场景金额简化';
+const RELEASE_NOTE = '心愿欠款';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -248,24 +248,6 @@ export default function HomePage() {
   const currentYearMonth = todayKey.slice(0, 7);
   const wishes = config.wishes ?? [];
   const wishInternSavingRecords = config.wishInternSavingRecords ?? [];
-  const planningWishes = useMemo(
-    () => applyPendingWishInternSavings(wishes, wishInternSavingRecords, todayKey),
-    [todayKey, wishInternSavingRecords, wishes],
-  );
-  const latestWishDeadline = planningWishes
-    .filter((wish) => wish.isActive && wish.deadline && wish.deadline >= todayKey && wish.targetAmount > wish.savedAmount)
-    .reduce((latest, wish) => wish.deadline && wish.deadline > latest ? wish.deadline : latest, todayKey);
-  const wishPlanningEndYear = Math.max(Number(latestWishDeadline.slice(0, 4)) || currentYear, currentYear);
-  const holidayYears = useMemo(
-    () => Array.from(
-      { length: Math.min(wishPlanningEndYear - currentYear + 2, 21) },
-      (_, index) => currentYear - 1 + index,
-    ),
-    [currentYear, wishPlanningEndYear],
-  );
-  const { holidayDataByYear, holidayWarning } = useHolidayYears(holidayYears);
-  const [wishCalendarMonth, setWishCalendarMonth] = useState(currentYearMonth);
-
   const twoYearsAgo = `${today.getFullYear() - 1}-01`;
   const filteredRecords = useMemo(
     () => records.filter((r) => r.yearMonth >= twoYearsAgo),
@@ -280,6 +262,20 @@ export default function HomePage() {
     () => Object.fromEntries(allTripSegments.map((trip) => [trip.startDate, trip.dates])),
     [allTripSegments],
   );
+  const latestWishDeadline = wishes
+    .filter((wish) => wish.isActive && wish.deadline && wish.deadline >= todayKey && calculateWishFunding(wish, wishTravelLifeAmount(wish, stats.stateDailyAvg.travel, tripDatesByStart)).remainingAmount > 0)
+    .reduce((latest, wish) => wish.deadline && wish.deadline > latest ? wish.deadline : latest, todayKey);
+  const wishPlanningEndYear = Math.max(Number(latestWishDeadline.slice(0, 4)) || currentYear, currentYear);
+  const holidayYears = useMemo(
+    () => Array.from(
+      { length: Math.min(wishPlanningEndYear - currentYear + 2, 21) },
+      (_, index) => currentYear - 1 + index,
+    ),
+    [currentYear, wishPlanningEndYear],
+  );
+  const { holidayDataByYear, holidayWarning } = useHolidayYears(holidayYears);
+  const [wishCalendarMonth, setWishCalendarMonth] = useState(currentYearMonth);
+
   const wishSummaryLabelsById = useMemo(() => Object.fromEntries(wishes.map((wish) => {
     const date = wish.linkedTripStartDate || wish.deadline || '';
     const compactName = wish.name.replace(/^\d{2}\.\d{1,2}(?:\.\d{1,2})?\s*/, '').trim() || wish.name;
@@ -335,7 +331,7 @@ export default function HomePage() {
   const wishMilestonePlan = useMemo(
     () => calculateWishMilestonePlan({
       today,
-      wishes: planningWishes,
+      wishes,
       incomeItems: config.incomeItems,
       tagMap,
       stateDailyAvg: stats.stateDailyAvg,
@@ -345,7 +341,7 @@ export default function HomePage() {
     }),
     // todayKey 每日变化一次，避免 Date 实例导致无意义的重复计算。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [config.incomeItems, holidayDataByYear, planningWishes, repaymentDues, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart],
+    [config.incomeItems, holidayDataByYear, wishes, repaymentDues, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart],
   );
   const maximumWishCalendarMonth = latestWishDeadline.slice(0, 7);
   const visibleWishCalendarMonth = wishCalendarMonth < currentYearMonth
@@ -353,85 +349,11 @@ export default function HomePage() {
     : wishCalendarMonth > maximumWishCalendarMonth
       ? maximumWishCalendarMonth
       : wishCalendarMonth;
-  const internDailySavingAmount = useMemo(
-    () => config.incomeItems.reduce((sum, item) => (
-      item.isActive && item.tagKind === 'intern' && item.dailyRate !== undefined
-        ? sum + Math.max(item.dailyRate, 0)
-        : sum
-    ), 0),
-    [config.incomeItems],
-  );
-  useEffect(() => {
-    const retainedRecords = wishInternSavingRecords
-      .filter((record) => record.confirmed || tagMap[record.date] === 'intern')
-      .map((record) => (
-        !record.confirmed && record.date >= todayKey && internDailySavingAmount > 0
-          ? { ...record, amount: internDailySavingAmount }
-          : record
-      ));
-    const recordedDates = new Set(retainedRecords.map((record) => record.date));
-    const nextRecords = [...retainedRecords];
-    if (internDailySavingAmount > 0) {
-      for (const assignment of wishMilestonePlan.assignments) {
-        const wishId = assignment.wishIds[0];
-        if (!wishId) continue;
-        const theme = assignment.wishNames
-          .map((name) => name.replace(/^\d{2}\.\d{1,2}(?:\.\d{1,2})?\s*/, '').trim() || name)
-          .join('、');
-        if (!theme) continue;
-        for (const date of assignment.dateKeys) {
-          if (
-            date < WISH_INTERN_SAVING_START_DATE
-            || tagMap[date] !== 'intern'
-            || recordedDates.has(date)
-          ) continue;
-          nextRecords.push({
-            date,
-            wishId,
-            theme,
-            amount: internDailySavingAmount,
-            confirmed: false,
-          });
-          recordedDates.add(date);
-        }
-      }
-    }
-    nextRecords.sort((first, second) => first.date.localeCompare(second.date));
-    if (JSON.stringify(nextRecords) !== JSON.stringify(wishInternSavingRecords)) {
-      setConfig({ wishInternSavingRecords: nextRecords });
-    }
-  }, [internDailySavingAmount, setConfig, tagMap, todayKey, wishInternSavingRecords, wishMilestonePlan.assignments]);
-  const toggleWishCalendarWorkingDate = useCallback((
-    date: string,
-    assignment?: { wishId: string; theme: string },
-  ) => {
+  const toggleWishCalendarWorkingDate = useCallback((date: string) => {
     const currentTag = tagMap[date];
     if (currentTag === 'home' || currentTag === 'travel') return;
-    const markingAsIntern = currentTag !== 'intern';
-    const existingDateRecord = wishInternSavingRecords.find((record) => record.date === date);
-    const recordsForOtherDates = wishInternSavingRecords.filter((record) => record.date !== date);
-    if (markingAsIntern && assignment && date >= WISH_INTERN_SAVING_START_DATE && internDailySavingAmount > 0) {
-      setConfig({
-        wishInternSavingRecords: [
-          ...recordsForOtherDates,
-          existingDateRecord?.confirmed ? existingDateRecord : {
-            date,
-            wishId: assignment.wishId,
-            theme: assignment.theme,
-            amount: internDailySavingAmount,
-            confirmed: false,
-          },
-        ].sort((first, second) => first.date.localeCompare(second.date)),
-      });
-    } else if (!markingAsIntern) {
-      setConfig({
-        wishInternSavingRecords: existingDateRecord?.confirmed
-          ? [...recordsForOtherDates, existingDateRecord].sort((first, second) => first.date.localeCompare(second.date))
-          : recordsForOtherDates,
-      });
-    }
-    setTag(date, markingAsIntern ? 'intern' : 'school');
-  }, [internDailySavingAmount, setConfig, setTag, tagMap, wishInternSavingRecords]);
+    setTag(date, currentTag === 'intern' ? 'school' : 'intern');
+  }, [setTag, tagMap]);
 
   // 近一年校园卡日均
   const oneYearAgo = `${today.getFullYear() - 1}-${String(today.getMonth() + 1).padStart(2, '0')}`;

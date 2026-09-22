@@ -1,4 +1,5 @@
 import type { TagKind, WishExtraExpenseItem, WishItem } from '../models/types';
+import { roundToSitePrecision } from './numberInput';
 
 export const POST_LIFE_FLEXIBLE_SHARE = 0.5;
 export const FLEXIBLE_WISH_SHARE = 0.8;
@@ -71,6 +72,95 @@ export function calculateTravelWishEstimate(
   };
 }
 
+export function calculateWishFunding(wish: WishItem, lifeAmount = 0) {
+  const spentAmount = roundToSitePrecision((wish.spentItems ?? []).reduce(
+    (sum, item) => sum + normalizedAmount(item.amount), 0,
+  ));
+  const savedAmount = normalizedAmount(wish.savedAmount);
+  const repaidAmount = Math.min(normalizedAmount(wish.repaidAmount), spentAmount);
+  const fundingTarget = Math.max(normalizedAmount(wish.targetAmount) - normalizedAmount(lifeAmount), spentAmount, 0);
+  const fundedAmount = roundToSitePrecision(savedAmount + repaidAmount);
+  return {
+    spentAmount,
+    savedAmount,
+    repaidAmount,
+    fundingTarget,
+    fundedAmount,
+    debtAmount: roundToSitePrecision(spentAmount - repaidAmount),
+    remainingAmount: roundToSitePrecision(Math.max(fundingTarget - fundedAmount, 0)),
+    progress: fundingTarget > 0 ? Math.min(fundedAmount / fundingTarget, 1) : 0,
+  };
+}
+
+export function calculateWishDebtSummary(wishes: readonly WishItem[], total?: number) {
+  const assignedAmount = roundToSitePrecision(wishes.reduce(
+    (sum, wish) => sum + calculateWishFunding(wish).debtAmount, 0,
+  ));
+  const totalAmount = total === undefined ? assignedAmount : normalizedAmount(total);
+  return {
+    totalAmount,
+    assignedAmount,
+    unassignedAmount: roundToSitePrecision(Math.max(totalAmount - assignedAmount, 0)),
+    discrepancyAmount: roundToSitePrecision(Math.max(assignedAmount - totalAmount, 0)),
+  };
+}
+
+export function wishTravelLifeAmount(wish: WishItem, dailyLifeAmount: number, tripDatesByStart?: Record<string, string[]>) {
+  const days = (wish.linkedTripStartDate ? tripDatesByStart?.[wish.linkedTripStartDate]?.length : undefined)
+    ?? Math.max(Math.round(wish.plannedTravelDays ?? 0), 0);
+  return Math.max(days * normalizedAmount(dailyLifeAmount) - normalizedAmount(wish.travelLifeCorrectionAmount), 0);
+}
+
+function expenseName(value: string) {
+  return value.trim().replace(/\s*[/／]\s*/g, '/');
+}
+
+/** 保留原预估，按名称把同一项目的多笔已花合并覆盖；撤销明细后自然恢复预估。 */
+export function resolveWishTravelBudget(wish: WishItem, days: number, dailyLifeAmount: number) {
+  const actuals = new Map<string, number>();
+  for (const item of wish.spentItems ?? []) {
+    const name = expenseName(item.name);
+    if (!name) continue;
+    const key = ['机票', '高铁', '机票/高铁'].includes(name) ? '机票/高铁' : name;
+    actuals.set(key, roundToSitePrecision((actuals.get(key) ?? 0) + normalizedAmount(item.amount)));
+  }
+  const lodgingDaily = Number.isFinite(wish.travelLodgingDailyAmount)
+    ? normalizedAmount(wish.travelLodgingDailyAmount)
+    : normalizedAmount(wish.travelLodgingAmount) / Math.max(days - 1, 1);
+  const original = calculateTravelWishEstimate(days, dailyLifeAmount, wish.travelTicketAmount, lodgingDaily);
+  const ticketActual = actuals.get('机票/高铁');
+  const lodgingActual = actuals.get('酒店');
+  // 重名额外预算在锁定时合并显示，防止同一笔实际支出被重复计入预估。
+  const extras: Array<WishExtraExpenseItem & { actualAmount?: number; sourceIds: string[] }> = [];
+  for (const item of resolveWishExtraExpenseItems(wish)) {
+    const name = expenseName(item.name);
+    const actualAmount = ['机票/高铁', '机票', '高铁', '酒店'].includes(name) ? undefined : actuals.get(name);
+    const existing = actualAmount !== undefined ? extras.find((extra) => expenseName(extra.name) === name) : undefined;
+    if (existing) {
+      existing.amount += item.amount;
+      existing.sourceIds.push(item.id);
+    } else {
+      extras.push({ ...item, actualAmount, sourceIds: [item.id] });
+    }
+  }
+  const ticketAmount = ticketActual ?? original.ticketAmount;
+  const lodgingAmount = lodgingActual ?? original.lodgingAmount;
+  const extraExpenseAmount = extras.reduce((sum, item) => sum + (item.actualAmount ?? item.amount), 0);
+  return {
+    ticketActual,
+    lodgingActual,
+    original,
+    extras,
+    estimate: {
+      ...original,
+      ticketAmount,
+      lodgingAmount,
+      extraExpenseAmount,
+      targetAmount: roundToSitePrecision(Math.max(ticketAmount + lodgingAmount + extraExpenseAmount + original.lifeAmount, 0)),
+    },
+  };
+}
+
 export type WishDeadlineState = 'none' | 'scheduled' | 'overdue' | 'completed';
 
 export interface WishPlanItem extends WishItem {
@@ -103,6 +193,7 @@ export interface WishPlanOptions {
   tagMap?: Record<string, TagKind>;
   stateDailyAvg?: Record<TagKind, number>;
   repaymentsByMonth?: Record<string, number>;
+  tripDatesByStart?: Record<string, string[]>;
 }
 
 function parseLocalDate(value?: string | null): Date | null {
@@ -189,9 +280,10 @@ export function calculateWishPlan(wishes: WishItem[], options: WishPlanOptions =
   const items = wishes.map<WishPlanItem>((wish) => {
     const targetAmount = Number.isFinite(wish.targetAmount) ? Math.max(wish.targetAmount, 0) : 0;
     const savedAmount = Number.isFinite(wish.savedAmount) ? Math.max(wish.savedAmount, 0) : 0;
-    const remainingAmount = Math.max(targetAmount - savedAmount, 0);
+    const funding = calculateWishFunding(wish, wishTravelLifeAmount(wish, stateDailyAvg.travel, options.tripDatesByStart));
+    const remainingAmount = funding.remainingAmount;
     const monthsRemaining = wish.deadline ? monthsUntilWishDeadline(wish.deadline, today) : null;
-    const completed = remainingAmount <= 0 && targetAmount > 0;
+    const completed = remainingAmount <= 0 && funding.fundingTarget > 0;
     const overdue = monthsRemaining === 0 && !completed;
     const deadlineState: WishDeadlineState = completed
       ? 'completed'

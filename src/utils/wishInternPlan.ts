@@ -12,6 +12,8 @@ import {
   POST_LIFE_CONSUMPTION_SHARE,
   POST_LIFE_INVESTMENT_SHARE,
   POST_LIFE_WISH_SHARE,
+  calculateWishFunding,
+  wishTravelLifeAmount,
 } from './wishes';
 
 export interface WishInternMonthPlan {
@@ -208,9 +210,7 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
 
   const includedWishes = options.wishes.filter((wish) => {
     if (!wish.isActive || !wish.deadline || wish.deadline < startDate || wish.deadline > deadline) return false;
-    const target = Number.isFinite(wish.targetAmount) ? Math.max(wish.targetAmount, 0) : 0;
-    const saved = Number.isFinite(wish.savedAmount) ? Math.max(wish.savedAmount, 0) : 0;
-    return target > saved;
+    return calculateWishFunding(wish, wishTravelLifeAmount(wish, options.stateDailyAvg.travel, options.tripDatesByStart)).remainingAmount > 0;
   }).sort((first, second) => (
     (first.deadline ?? '').localeCompare(second.deadline ?? '') || first.id.localeCompare(second.id)
   ));
@@ -218,41 +218,30 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
   const travelLifeDaily = normalizedDailyAverage(options.stateDailyAvg.travel);
   let requestedManualTravelDays = 0;
   const wishFundingRequirements = includedWishes.map((wish) => {
-    const target = Number.isFinite(wish.targetAmount) ? Math.max(wish.targetAmount, 0) : 0;
-    const saved = Number.isFinite(wish.savedAmount) ? Math.max(wish.savedAmount, 0) : 0;
-    const amountIncludingLife = Math.max(target - saved, 0);
-    const lifeCorrectionAmount = Number.isFinite(wish.travelLifeCorrectionAmount)
-      ? Math.max(wish.travelLifeCorrectionAmount ?? 0, 0)
-      : 0;
+    const amountIncludingLife = calculateWishFunding(wish).remainingAmount;
+    const amount = calculateWishFunding(wish, wishTravelLifeAmount(wish, travelLifeDaily, options.tripDatesByStart)).remainingAmount;
+    const excludedLifeExpense = Math.max(amountIncludingLife - amount, 0);
     const linkedDates = wish.linkedTripStartDate
       ? options.tripDatesByStart?.[wish.linkedTripStartDate]
       : undefined;
     if (linkedDates && linkedDates.length > 0) {
       for (const date of linkedDates) linkedTravelDates.add(date);
-      const excludedLifeExpense = Math.min(Math.max(
-        linkedDates.length * travelLifeDaily - lifeCorrectionAmount,
-        0,
-      ), amountIncludingLife);
       return {
         wish,
         amountIncludingLife,
         excludedLifeExpense,
-        amount: Math.max(amountIncludingLife - excludedLifeExpense, 0),
+        amount,
       };
     }
     const manualDays = Number.isFinite(wish.plannedTravelDays)
       ? Math.max(Math.round(wish.plannedTravelDays ?? 0), 0)
       : 0;
     requestedManualTravelDays += manualDays;
-    const excludedLifeExpense = Math.min(Math.max(
-      manualDays * travelLifeDaily - lifeCorrectionAmount,
-      0,
-    ), amountIncludingLife);
     return {
       wish,
       amountIncludingLife,
       excludedLifeExpense,
-      amount: Math.max(amountIncludingLife - excludedLifeExpense, 0),
+      amount,
     };
   });
   const manualTravelDays = requestedManualTravelDays;
