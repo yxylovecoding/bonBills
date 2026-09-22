@@ -43,7 +43,7 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '场景周期切换';
+const RELEASE_NOTE = '场景金额简化';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -841,7 +841,15 @@ export default function HomePage() {
     ? `(近 ${(filteredRecords.length / 12).toFixed(1)} 年)`
     : `(近 ${filteredRecords.length} 个月)`;
   const scenePeriodConfig = SCENE_PERIODS[scenePeriod];
-  const formatSceneAmount = (dailyAmount: number) => `¥${formatCurrency(dailyAmount * scenePeriodConfig.days)}/${scenePeriodConfig.label}`;
+  const formatSceneAmount = (dailyAmount: number) => {
+    const amount = dailyAmount * scenePeriodConfig.days;
+    const formattedAmount = scenePeriod === 'year'
+      ? `${(amount / 10000).toFixed(1)}万`
+      : scenePeriod === 'month'
+        ? `${(amount / 1000).toFixed(1)}k`
+        : formatCurrency(amount);
+    return `¥${formattedAmount}/${scenePeriodConfig.label}`;
+  };
   const fireProgressPercent = Math.min(Math.max(fire.progress * 100, 0), 100);
   const fireProgressLabel = `${(fire.progress * 100).toFixed(1)}%`;
   const fireProgressGap = Math.max(fire.fireTarget - totalInvest, 0);
