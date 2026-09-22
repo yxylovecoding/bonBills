@@ -416,8 +416,6 @@ export default function WishesPage() {
     () => new Set(Object.keys(milestonePlan.segmentByWishId)),
     [milestonePlan.segmentByWishId],
   );
-  const registeredSavings = wishes.reduce((sum, item) => sum + Math.max(item.savedAmount, 0), 0);
-  const wishJarBalance = Math.max(current.accounts.wishJar ?? 0, 0);
 
   const syncWishes = (items: WishItem[]) => setConfig({ wishes: items });
   const updateDebtTotal = (wishDebtTotal: number | undefined) => {
@@ -937,10 +935,6 @@ export default function WishesPage() {
       >
       <WishDebtSummary wishes={wishes} total={config.wishDebtTotal} onChange={updateDebtTotal} />
       <Card title="心愿清单" subtitle={`${wishes.length} 个心愿`}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '0 0 12px', marginBottom: 12, borderBottom: '1px solid #f1f3f4', fontSize: 11 }}>
-          <span style={{ color: C.sub }}>心愿罐 ¥{formatCurrency(wishJarBalance)}</span>
-          <span style={{ color: C.sub }}>已登记 ¥{formatCurrency(registeredSavings)}</span>
-        </div>
         {wishes.length === 0 && (
           <div style={{ textAlign: 'center', padding: '26px 12px 20px', color: C.sub }}>
             <div style={{ fontSize: 30, marginBottom: 8 }}>♡</div>
