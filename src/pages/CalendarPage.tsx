@@ -2521,9 +2521,9 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                           </div>
                         </div>
 
-                        {(item.pendingBuys?.length ?? 0) > 0 && (
+                        {item.pendingBuys?.some((pending) => !pending.booking) && (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 5 }}>
-                            {item.pendingBuys?.map((pending) => (
+                            {item.pendingBuys?.filter((pending) => !pending.booking).map((pending) => (
                               <PendingInvestmentBuyRow key={pending.id} pending={pending} quoteSource={item.quoteSource} />
                             ))}
                           </div>

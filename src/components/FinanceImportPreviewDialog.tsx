@@ -124,7 +124,7 @@ export default function FinanceImportPreviewDialog({
                         <div style={{ color: '#5f6368', fontSize: 10, marginTop: 2 }}>成本 {number(item.costPrice ?? 0, 4)}</div>
                       </div>
                     </div>
-                    {item.pendingBuys?.map((pending) => (
+                    {item.pendingBuys?.filter((pending) => !pending.booking).map((pending) => (
                       <div key={pending.id} style={{ marginTop: 6 }}>
                         <PendingInvestmentBuyRow pending={pending} quoteSource={item.quoteSource} />
                       </div>

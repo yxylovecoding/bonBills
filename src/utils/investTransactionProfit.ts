@@ -106,7 +106,9 @@ export function inferInvestmentProfitFromBaseline(
       mismatchedItems.push(state.name || key);
       continue;
     }
-    const gross = transaction.shares * transaction.price;
+    const gross = transaction.costFromAmount && transaction.amount !== undefined
+      ? transaction.amount - transaction.fee
+      : transaction.shares * transaction.price;
     state.shares += transaction.side === 'buy' ? transaction.shares : -transaction.shares;
     state.cash += transaction.side === 'buy' ? -(gross + transaction.fee) : gross - transaction.fee;
     states.set(key, state);
@@ -231,7 +233,9 @@ export function inferInvestmentProfitFromTransactions(
       cash: 0,
       currency: transaction.currency.toUpperCase(),
     };
-    const gross = transaction.shares * transaction.price;
+    const gross = transaction.costFromAmount && transaction.amount !== undefined
+      ? transaction.amount - transaction.fee
+      : transaction.shares * transaction.price;
     current.shares += transaction.side === 'buy' ? transaction.shares : -transaction.shares;
     current.cash += transaction.side === 'buy'
       ? -(gross + transaction.fee)

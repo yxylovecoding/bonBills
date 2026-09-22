@@ -34,6 +34,14 @@ export interface PendingInvestmentBuy {
   name: string;
   symbol: string;
   groupKey: InvestKey;
+  booking?: {
+    transactionId: string;
+    date: string;
+    navDate: string;
+    shares: number;
+    price: number;
+    beforeFee: boolean;
+  };
 }
 
 export interface InvestPositionItem {
@@ -81,6 +89,16 @@ export interface InvestmentTransactionRecord {
   pendingMatchKey?: string;
   pendingBaseMatchKey?: string;
   costFromAmount?: boolean;
+  applicationOrder?: number;
+  autoBuy?: {
+    pendingId: string;
+    status: 'estimated' | 'reconciled';
+    navDate: string;
+    beforeFee: boolean;
+    beforeShares: number;
+    beforeCostPrice: number;
+    previousTransactionIds: string[];
+  };
 }
 
 export interface InvestmentProfitBaseline {

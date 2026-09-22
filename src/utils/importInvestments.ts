@@ -19,9 +19,11 @@ import {
   emptyMonthlyRecord,
   hasInvestmentEndingState,
   investmentPositionItemsForRecord,
+  nextInvestmentApplicationOrder,
   replayInvestmentRecord,
 } from './investmentRollover';
 import { triggerUpload } from './syncEngine';
+import { matchesInvestmentOrder, reconcileAutoFundBuy } from './autoFundBuys';
 
 type InvestmentSide = 'buy' | 'sell';
 
@@ -326,10 +328,11 @@ export function formatInvestmentImportSummary(result: {
   newPendingBuys: number;
   resolvedPendingBuys: number;
   remainingPendingBuys: number;
+  reconciledTransactions?: number;
 }) {
-  const skipped = Math.max(result.parsedTransactions - result.eligibleTransactions - result.resolvedPendingBuys, 0);
+  const skipped = Math.max(result.parsedTransactions - result.eligibleTransactions - result.resolvedPendingBuys - (result.reconciledTransactions ?? 0), 0);
   return [
-    `正式 ${result.formalImportedTransactions} 笔`,
+    `正式 ${result.formalImportedTransactions + (result.reconciledTransactions ?? 0)} 笔`,
     result.newPendingBuys > 0 ? `新增待确认 ${result.newPendingBuys} 笔` : '',
     result.resolvedPendingBuys > 0 ? `转正 ${result.resolvedPendingBuys} 笔` : '',
     result.remainingPendingBuys > 0 ? `仍待确认 ${result.remainingPendingBuys} 笔` : '',
@@ -394,7 +397,7 @@ function attachPendingBuy(items: InvestPositionItems, pending: PendingInvestment
     if (baseCandidates.length > 1) return false;
   }
   const nextPending = [...existingPending];
-  if (pendingIndex >= 0) nextPending[pendingIndex] = { ...pending, id: nextPending[pendingIndex].id };
+  if (pendingIndex >= 0) nextPending[pendingIndex] = { ...pending, id: nextPending[pendingIndex].id, booking: nextPending[pendingIndex].booking };
   else nextPending.push({ ...pending });
   group[itemIndex] = { ...item, pendingBuys: nextPending };
   items[pending.groupKey] = group;
@@ -429,7 +432,7 @@ function removePendingMatch(items: InvestPositionItems, match: ReturnType<typeof
 
 function countPending(items: InvestPositionItems | undefined) {
   return Object.values(items ?? {}).reduce(
-    (total, group) => total + (group ?? []).reduce((sum, item) => sum + (item.pendingBuys?.length ?? 0), 0),
+    (total, group) => total + (group ?? []).reduce((sum, item) => sum + (item.pendingBuys?.filter((pending) => !pending.booking).length ?? 0), 0),
     0,
   );
 }
@@ -454,6 +457,7 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
   let newPendingBuys = 0;
   let resolvedPendingBuys = 0;
   let formalImportedTransactions = 0;
+  let reconciledTransactions = 0;
 
   const ensureWorkingRecord = (yearMonth: string) => {
     const existing = workingRecords.get(yearMonth);
@@ -476,6 +480,9 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
   };
 
   for (const parsedPending of parsed.pendingBuys) {
+    // A stale pending export must not resurrect an already booked or confirmed order.
+    if ([...workingRecords.values()].some((record) => record.investmentTransactions?.some((transaction) =>
+      matchesInvestmentOrder(transaction, parsedPending)))) continue;
     const yearMonth = parsedPending.operationAt.slice(0, 7);
     let record = ensureWorkingRecord(yearMonth);
     const items = cloneInvestPositionItems(investmentPositionItemsForRecord(record));
@@ -487,6 +494,17 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
   }
 
   for (const parsedTransaction of parsed.transactions) {
+    if (parsedTransaction.side === 'buy') {
+      const reconciliation = reconcileAutoFundBuy([...workingRecords.values()], parsedTransaction);
+      if (reconciliation.matched) {
+        if (reconciliation.changedMonths.length > 0) {
+          reconciliation.records.forEach((record) => workingRecords.set(record.yearMonth, record));
+          reconciliation.changedMonths.forEach((month) => changedMonths.add(month));
+          reconciledTransactions += 1;
+        }
+        continue;
+      }
+    }
     const yearMonth = parsedTransaction.date.slice(0, 7);
     let record = ensureWorkingRecord(yearMonth);
     const items = cloneInvestPositionItems(investmentPositionItemsForRecord(record));
@@ -521,10 +539,10 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
       const formalTransaction = isUniquePendingResolution
         ? {
             ...transaction,
-            price: (transaction.amount ?? 0) / transaction.shares,
             costFromAmount: true,
+            applicationOrder: nextInvestmentApplicationOrder([...transactionLedger.values()]),
           }
-        : transaction;
+        : { ...transaction, applicationOrder: nextInvestmentApplicationOrder([...transactionLedger.values()]) };
       transactionLedger.set(formalTransaction.id, formalTransaction);
       transactionFingerprints.add(transactionFingerprint(formalTransaction));
       if (!formalTransaction.orderId) legacyTransactionFingerprints.add(legacyTransactionFingerprint(formalTransaction));
@@ -560,9 +578,10 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
     { investmentSource: 'import' },
   );
   const latestChanged = months.at(-1);
-  const remainingPendingBuys = latestChanged
-    ? countPending(useMonthlyStore.getState().records.find((record) => record.yearMonth === latestChanged)?.investPositionItems)
-    : 0;
+  const latestItems = latestChanged
+    ? useMonthlyStore.getState().records.find((record) => record.yearMonth === latestChanged)?.investPositionItems
+    : undefined;
+  const remainingPendingBuys = countPending(latestItems);
   if (!options?.deferUpload) await triggerUpload();
   return {
     fileName: file.name,
@@ -574,6 +593,7 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
     newPendingBuys,
     resolvedPendingBuys,
     remainingPendingBuys,
+    reconciledTransactions,
     updatedMonths: months.length,
     months,
     editedAt,

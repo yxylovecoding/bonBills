@@ -67,7 +67,10 @@ function collectPendingInvestmentBuys(records: MonthlyRecord[]) {
   for (const record of [...records].sort((left, right) => left.yearMonth.localeCompare(right.yearMonth))) {
     for (const group of Object.values(record.investPositionItems ?? {})) {
       for (const position of group ?? []) {
-        for (const pending of position.pendingBuys ?? []) result.set(pending.id, pending);
+        for (const pending of position.pendingBuys ?? []) {
+          if (pending.booking) result.delete(pending.id);
+          else result.set(pending.id, pending);
+        }
       }
     }
   }
@@ -91,7 +94,10 @@ export function diffInvestmentOperations(
   for (const [id, item] of afterTransactions) {
     const before = beforeTransactions.get(id);
     if (!before) changes.push({ kind: 'transaction', change: 'added', item });
-    else if (changed(before, item)) changes.push({ kind: 'transaction', change: 'updated', item });
+    else if (changed(
+      { ...before, autoBuy: undefined, applicationOrder: undefined },
+      { ...item, autoBuy: undefined, applicationOrder: undefined },
+    )) changes.push({ kind: 'transaction', change: 'updated', item });
   }
   for (const [id, item] of afterPending) {
     const before = beforePending.get(id);

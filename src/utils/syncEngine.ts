@@ -253,6 +253,8 @@ export async function triggerUpload() {
   return uploadInFlight;
 }
 
+export function isSyncPaused() { return syncingFromServer || syncPauseDepth > 0; }
+
 export async function runWithSyncPaused<T>(run: () => Promise<T>): Promise<T> {
   syncPauseDepth += 1;
   try {

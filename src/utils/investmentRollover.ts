@@ -68,6 +68,7 @@ export function pendingInvestmentAmounts(
   for (const groupKey of Object.keys(amounts) as InvestKey[]) {
     for (const item of items?.[groupKey] ?? []) {
       for (const pending of item.pendingBuys ?? []) {
+        if (pending.booking) continue;
         if (!(pending.amount && pending.amount > 0)) continue;
         const currency = pending.currency.toUpperCase();
         const fxRate = ['CNY', 'CNH'].includes(currency)
@@ -340,16 +341,16 @@ export function createInvestmentRolloverRecord(
   return replayInvestmentRecord(parent, child);
 }
 
-function removeResolvedPendingBuy(items: InvestPositionItems, transaction: InvestmentTransactionRecord) {
+export function updatePendingBuyFromTransaction(items: InvestPositionItems, transaction: InvestmentTransactionRecord) {
   if (transaction.side !== 'buy' || (!transaction.orderId && !transaction.pendingMatchKey)) return;
   const matches: { groupKey: InvestKey; itemIndex: number; pendingIndex: number }[] = [];
   for (const groupKey of INVEST_POSITION_GROUP_KEYS) {
     if (groupKey === 'account' || groupKey === 'aggregate') continue;
     (items[groupKey] ?? []).forEach((item, itemIndex) => {
       (item.pendingBuys ?? []).forEach((pending, pendingIndex) => {
-        const exact = transaction.orderId
+        const exact = transaction.autoBuy?.pendingId === pending.id || (transaction.orderId
           ? pending.orderId === transaction.orderId
-          : pending.matchKey === transaction.pendingMatchKey;
+          : pending.matchKey === transaction.pendingMatchKey);
         const missingAmountFallback = !transaction.orderId
           && !pending.amount
           && pending.baseMatchKey === transaction.pendingBaseMatchKey;
@@ -361,9 +362,29 @@ function removeResolvedPendingBuy(items: InvestPositionItems, transaction: Inves
   const match = matches[0];
   const group = [...(items[match.groupKey] ?? [])];
   const item = group[match.itemIndex];
-  const pendingBuys = (item.pendingBuys ?? []).filter((_, index) => index !== match.pendingIndex);
+  const pendingBuys = transaction.autoBuy?.status === 'estimated'
+    ? (item.pendingBuys ?? []).map((pending, index) => index === match.pendingIndex ? {
+        ...pending,
+        booking: {
+          transactionId: transaction.id, date: transaction.date, navDate: transaction.autoBuy!.navDate,
+          shares: transaction.shares, price: transaction.price, beforeFee: transaction.autoBuy!.beforeFee,
+        },
+      } : pending)
+    : (item.pendingBuys ?? []).filter((_, index) => index !== match.pendingIndex);
   group[match.itemIndex] = { ...item, pendingBuys: pendingBuys.length > 0 ? pendingBuys : undefined };
   items[match.groupKey] = group;
+}
+
+export function investmentApplicationOrder(left: InvestmentTransactionRecord, right: InvestmentTransactionRecord) {
+  if (left.applicationOrder !== undefined || right.applicationOrder !== undefined) {
+    return (left.applicationOrder ?? 0) - (right.applicationOrder ?? 0)
+      || left.date.localeCompare(right.date) || left.id.localeCompare(right.id);
+  }
+  return left.date.localeCompare(right.date) || left.id.localeCompare(right.id);
+}
+
+export function nextInvestmentApplicationOrder(transactions: InvestmentTransactionRecord[]) {
+  return Math.max(0, ...transactions.map((transaction) => transaction.applicationOrder ?? 0)) + 1;
 }
 
 export function replayInvestmentRecord(parent: MonthlyRecord, child: MonthlyRecord): MonthlyRecord {
@@ -374,23 +395,36 @@ export function replayInvestmentRecord(parent: MonthlyRecord, child: MonthlyReco
       .filter((transaction) => transaction.date.slice(0, 7) === child.yearMonth)
       .map((transaction) => [transaction.id, transaction]),
   ).values()]
-    .sort((left, right) => left.date.localeCompare(right.date) || left.id.localeCompare(right.id));
-  for (const transaction of transactions) {
-    removeResolvedPendingBuy(items, transaction);
+    .sort(investmentApplicationOrder);
+  const replayedLedger = new Map((child.investmentTransactions ?? []).map((transaction) => [transaction.id, transaction]));
+  const appliedIds: string[] = [];
+  for (const original of transactions) {
+    const before = items[original.groupKey]?.find((item) => sameInstrument(item, original));
+    const transaction = original.autoBuy ? {
+      ...original,
+      autoBuy: {
+        ...original.autoBuy, beforeShares: before?.shares ?? 0, beforeCostPrice: before?.costPrice ?? 0,
+        previousTransactionIds: [...appliedIds],
+      },
+    } : original;
+    updatePendingBuyFromTransaction(items, transaction);
     applyInvestmentTransaction(items, transaction);
+    replayedLedger.set(transaction.id, transaction);
+    appliedIds.push(transaction.id);
   }
   const replayed = syncInvestPositionItems(copied, items);
   const candidate: MonthlyRecord = {
     ...replayed,
     accumulatedProfit: copied.accumulatedProfit,
     manualAccumulatedProfit: copied.manualAccumulatedProfit,
-    investmentTransactions: child.investmentTransactions,
+    investmentTransactions: child.investmentTransactions ? [...replayedLedger.values()] : undefined,
     importedInvestmentTransactionIds: child.importedInvestmentTransactionIds,
     lastInvestmentMailUid: child.lastInvestmentMailUid,
     investmentRolledOverFrom: child.investmentRolledOverFrom,
     investmentInheritanceRevision: child.investmentInheritanceRevision,
   };
-  if (investmentStateFingerprint(candidate) === investmentStateFingerprint(child)) return child;
+  if (investmentStateFingerprint(candidate) === investmentStateFingerprint(child)
+    && JSON.stringify(candidate.investmentTransactions) === JSON.stringify(child.investmentTransactions)) return child;
   return {
     ...candidate,
     investmentInheritanceRevision: (child.investmentInheritanceRevision ?? 0) + 1,

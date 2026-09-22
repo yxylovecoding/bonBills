@@ -12,7 +12,7 @@ export default function PendingInvestmentBuyRow({ pending, quoteSource }: {
   const startDate = pendingFundNavStartDate(pending.operationAt);
   const month = startDate?.slice(0, 7) ?? '';
   const canEstimate = isFund && Boolean(startDate) && Number.isFinite(pending.amount) && (pending.amount ?? 0) > 0;
-  const requestKey = canEstimate ? `${symbol}:${month}` : '';
+  const requestKey = canEstimate && !pending.booking ? `${symbol}:${month}` : '';
   const [history, setHistory] = useState<{ key: string; bars?: FundNavBar[]; failed?: boolean }>({ key: '' });
 
   useEffect(() => {
@@ -46,6 +46,7 @@ export default function PendingInvestmentBuyRow({ pending, quoteSource }: {
   const estimate = canEstimate && current?.bars ? estimatePendingFundBuy(pending, current.bars) : null;
   const currency = pending.currency === 'CNY' ? '¥' : pending.currency === 'USD' ? '$' : `${pending.currency} `;
   const status = !startDate ? '时间待补' : current?.failed ? '净值暂未获取' : current?.bars ? '净值待出' : '净值查询中';
+  if (pending.booking) return null;
 
   return (
     <div style={{ borderRadius: 7, backgroundColor: '#fff4e5', padding: '5px 7px', color: '#e8710a', fontSize: 10, fontWeight: 700 }}>

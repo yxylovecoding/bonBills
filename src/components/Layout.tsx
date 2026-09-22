@@ -1,5 +1,6 @@
 import { Outlet, useLocation } from 'react-router-dom';
 import AutoPossessionImporter from './AutoPossessionImporter';
+import AutoFundBuySync from './AutoFundBuySync';
 import BillDropImporter from './BillDropImporter';
 import Nav from './Nav';
 import SyncIndicator from './SyncIndicator';
@@ -17,6 +18,7 @@ export default function Layout() {
     >
       <SyncIndicator />
       <AutoPossessionImporter />
+      <AutoFundBuySync />
       <BillDropImporter />
       <div
         style={{
