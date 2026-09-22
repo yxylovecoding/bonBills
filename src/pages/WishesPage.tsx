@@ -944,6 +944,7 @@ export default function WishesPage() {
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {orderedPlanItems.map((item) => {
+            const daysRemaining = item.deadline ? daysUntilDate(item.deadline, today) : null;
             const targetKey = `${item.id}:targetAmount`;
             const savedKey = `${item.id}:savedAmount`;
             const confirmedSavedAmount = item.savedAmount;
@@ -1337,8 +1338,8 @@ export default function WishesPage() {
                   {item.isActive && actualWishSavingCompleted && (funding.debtAmount > 0 ? '已攒足 · 待还自己' : '✓ 心愿已经攒满')}
                   {item.isActive && !actualWishSavingCompleted && item.deadlineState === 'none' && (remainingActualWishSavingAmount > 0 ? '无 DDL，按自己的节奏慢慢攒' : '填入目标金额后开始计算')}
                   {item.isActive && !actualWishSavingCompleted && item.deadlineState === 'overdue' && `已超期 · 还需补 ¥${formatCurrency(remainingActualWishSavingAmount)}`}
-                  {item.isActive && !actualWishSavingCompleted && item.deadlineState === 'scheduled' && remainingActualWishSavingAmount > 0 && (
-                    `还剩 ${item.monthsRemaining} 个月 · 截止前还需攒 ¥${formatCurrency(remainingActualWishSavingAmount)}`
+                  {item.isActive && !actualWishSavingCompleted && item.deadlineState === 'scheduled' && daysRemaining !== null && remainingActualWishSavingAmount > 0 && (
+                    `${daysRemaining === 0 ? '今天截止' : `还剩 ${daysRemaining.toLocaleString('zh-CN')} 天`} · 截止前还需攒 ¥${formatCurrency(remainingActualWishSavingAmount)}`
                   )}
                   {item.isActive && item.deadlineState === 'scheduled' && item.targetAmount <= 0 && (itemTravelDays > 0 ? '填写机酒价格并采用估算后开始计算' : '填入目标金额后开始计算')}
                 </div>
