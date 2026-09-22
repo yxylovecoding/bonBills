@@ -148,7 +148,7 @@ export default function WishCompactCalendar({
               style={{
                 color: meta.color,
                 backgroundColor,
-                opacity: inInterval ? 1 : 0.32,
+                opacity: inInterval || inHighlightedRange ? 1 : 0.32,
                 boxShadow: inHighlightedRange
                   ? 'inset 0 0 0 1.5px #7c3aed'
                   : isToday
