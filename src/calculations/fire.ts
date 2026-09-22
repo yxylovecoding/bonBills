@@ -75,6 +75,7 @@ export interface FireResult {
   /** 年薪反推有解；在读期间的资金缺口另行提示。 */
   hasSalarySolution: boolean;
   canReachTarget: boolean;
+  salaryComparisonSavingsRates: (number | null)[];
   annualRentExpense: number;
   annualRentTaxDeduction: number;
   talentSubsidyNominalTotal: number;
@@ -100,6 +101,8 @@ export interface FireCalculationOptions {
   now?: Date;
   /** 弹性分配中进入心愿账户的比例；默认沿用“建议转账”的 80%。 */
   wishShare?: number;
+  /** 在当前目标、支出与公积金条件下，比较给定首年年薪对应的储蓄比例。 */
+  salaryComparisonGrossIncomes?: readonly number[];
 }
 
 function normalizeInvestAnnualGrowthRate(rate: number | undefined): number {
@@ -391,6 +394,17 @@ export function calcFire(
   const bridgeReserve = Math.min(fireTarget, majorWishTotal + annualExpense * HOUSING_FUND_EXIT_WAIT_YEARS);
   const liquidAssetsFor = (projection: ReturnType<typeof projectSalary>) => otherLiquidAssets
     + (projection.futureValue - workExpensesFutureValue) * postEssentialSavingsRate;
+  const salaryComparisonSavingsRates = (options?.salaryComparisonGrossIncomes ?? []).map((gross) => {
+    if (!Number.isFinite(gross) || gross < 0 || workingYears <= 0) return null;
+    const projection = projectSalary(gross);
+    if (!projection.coversExpenses) return null;
+    const needed = Math.max(fireTarget - otherLiquidAssets - projection.exitValueAtFire, bridgeReserve - otherLiquidAssets, 0);
+    const surplus = projection.futureValue - workExpensesFutureValue;
+    if (needed === 0) return 0;
+    if (surplus <= 0) return null;
+    // 超过100%表示该年薪无法在分配范围内达到当前目标，不能钳成一个假的同薪刻度。
+    return needed / surplus;
+  });
   const meetsTarget = (firstYearGross: number) => {
     const projection = projectSalary(firstYearGross);
     const liquidAssets = liquidAssetsFor(projection);
@@ -490,6 +504,7 @@ export function calcFire(
     preCareerFundingGap,
     hasSalarySolution,
     canReachTarget: preCareerFundingGap <= 0 && hasSalarySolution,
+    salaryComparisonSavingsRates,
     annualRentExpense,
     annualRentTaxDeduction,
     talentSubsidyNominalTotal: talentSubsidy.nominalTotal,

@@ -7,6 +7,7 @@ import {
 } from 'recharts';
 import Card from '../components/Card';
 import HomeWishInternCalendar from '../components/HomeWishInternCalendar';
+import FireAllocationSlider from '../components/FireAllocationSlider';
 import StatRow from '../components/StatRow';
 import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
 import AmountInput from '../components/AmountInput';
@@ -40,7 +41,7 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '修复年薪显示';
+const RELEASE_NOTE = '双同薪标记';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -541,16 +542,10 @@ export default function HomePage() {
     : futureLifeAnnualExpense + futureConsumptionAnnualExpense;
   const fireExpenseAvg = fireAnnualExpense / 12;
   const fireStats = useMemo(() => ({ ...stats, totalExpenseAvg: fireExpenseAvg }), [stats, fireExpenseAvg]);
-  const fire = useMemo(() => calcFire(
-    fireConfig,
-    fireStats,
-    totalInvest,
-    {
-      essentialExpenseStages: preFireStages,
-      postEssentialSavingsRate: fireMode === 'allocation' ? fireSavingsAllocationRate : 1,
-      wishShare: 0.8,
-    },
-  ), [fireConfig, fireMode, fireSavingsAllocationRate, fireStats, preFireStages, totalInvest]);
+  const fireLife = useMemo(
+    () => calcFire(fireConfig, { ...stats, totalExpenseAvg: futureLifeAnnualExpense / 12 }, totalInvest, { essentialExpenseStages: preFireLifeStages }),
+    [fireConfig, stats, futureLifeAnnualExpense, preFireLifeStages, totalInvest],
+  );
   const fireLivingStats = useMemo(
     () => ({ ...stats, totalExpenseAvg: (futureLifeAnnualExpense + futureConsumptionAnnualExpense) / 12 }),
     [stats, futureConsumptionAnnualExpense, futureLifeAnnualExpense],
@@ -559,15 +554,19 @@ export default function HomePage() {
     () => calcFire(fireConfig, fireLivingStats, totalInvest, { essentialExpenseStages: preFireLivingStages }),
     [fireConfig, fireLivingStats, preFireLivingStages, totalInvest],
   );
-  const fireLivingPostEssentialIncome = Math.max(fireLiving.equivalentAnnualNetIncome - fire.annualEssentialExpense, 0);
-  const fireLivingSalaryMatchRate = fireLivingPostEssentialIncome > 0
-    ? fireLiving.requiredAnnualSavings / fireLivingPostEssentialIncome
-    : 1;
-  const fireLivingSalaryMatchPercent = Math.round(fireLivingSalaryMatchRate * 100);
-  const fireLivingSalaryMatchPosition = (fireLivingSalaryMatchRate - MIN_FIRE_SAVINGS_ALLOCATION_RATE)
-    / (1 - MIN_FIRE_SAVINGS_ALLOCATION_RATE);
-  const fireLivingSalaryMatchVisible = fireLivingSalaryMatchRate >= MIN_FIRE_SAVINGS_ALLOCATION_RATE
-    && fireLivingSalaryMatchRate <= 1;
+  const fire = useMemo(() => calcFire(
+    fireConfig,
+    fireStats,
+    totalInvest,
+    {
+      essentialExpenseStages: preFireStages,
+      postEssentialSavingsRate: fireMode === 'allocation' ? fireSavingsAllocationRate : 1,
+      wishShare: 0.8,
+      salaryComparisonGrossIncomes: fireMode === 'allocation'
+        ? [fireLife.requiredAnnualGrossIncome, fireLiving.requiredAnnualGrossIncome]
+        : undefined,
+    },
+  ), [fireConfig, fireMode, fireSavingsAllocationRate, fireStats, preFireStages, totalInvest, fireLife.requiredAnnualGrossIncome, fireLiving.requiredAnnualGrossIncome]);
   const expectedAnnualWageIncome = config.fireExpectedAnnualWageIncome ?? HANGZHOU_E_TALENT_WAGE_THRESHOLD;
   const expectsETalent = config.fireExpectedTalentClass !== 'none';
   const eTalentIncomeThresholdMet = expectedAnnualWageIncome >= HANGZHOU_E_TALENT_WAGE_THRESHOLD;
@@ -1067,51 +1066,12 @@ export default function HomePage() {
           </div>
         )}
         {fireMode === 'allocation' && (
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14, padding: '9px 11px', borderRadius: 10, backgroundColor: '#f8f5ff', border: '1px solid #ede7f6' }}
-          >
-            <span style={{ fontSize: 12, fontWeight: 700, color: C.purple, whiteSpace: 'nowrap' }}>活后分配</span>
-            <div style={{ position: 'relative', flex: '1 1 110px', minWidth: 90, paddingBottom: fireLivingSalaryMatchVisible ? 15 : 0 }}>
-              <input
-                type="range"
-                min="10"
-                max="100"
-                step="10"
-                value={Math.round(fireSavingsAllocationRate * 100)}
-                onChange={(e) => updateFireSavingsAllocationRate(e.target.value)}
-                aria-label="覆盖活后收入的存入比例"
-                style={{ width: '100%', margin: 0, accentColor: C.purple, cursor: 'pointer' }}
-              />
-              {fireLivingSalaryMatchVisible && (
-                <div
-                  title={`与 FIRE-生活首年最低税前年薪 ${fmt万(fireLiving.requiredAnnualGrossIncome)} 相同`}
-                  style={{
-                    position: 'absolute',
-                    left: `calc(8px + ${(fireLivingSalaryMatchPosition * 100).toFixed(2)}% - ${(fireLivingSalaryMatchPosition * 16).toFixed(2)}px)`,
-                    top: 13,
-                    transform: 'translateX(-50%)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    color: C.purple,
-                    fontSize: 9,
-                    fontWeight: 700,
-                    lineHeight: 1.1,
-                    whiteSpace: 'nowrap',
-                    pointerEvents: 'none',
-                  }}
-                >
-                  <span style={{ width: 2, height: 5, borderRadius: 999, backgroundColor: C.purple }} />
-                  <span>生活同薪 {fireLivingSalaryMatchPercent}%</span>
-                </div>
-              )}
-            </div>
-            <span style={{ fontSize: 12, color: C.sub, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-              存 <strong style={{ color: C.blue }}>{Math.round(fireSavingsAllocationRate * 100)}%</strong>
-              {' · '}消费/心愿 <strong style={{ color: C.purple }}>{Math.round((1 - fireSavingsAllocationRate) * 100)}%</strong>
-            </span>
-          </div>
+          <FireAllocationSlider
+            rate={fireSavingsAllocationRate}
+            onChange={updateFireSavingsAllocationRate}
+            lifeMatch={{ name: '活', emoji: '🛋️', rate: fire.salaryComparisonSavingsRates[0] ?? null, annualGrossIncome: fireLife.requiredAnnualGrossIncome }}
+            livingMatch={{ name: '生活', emoji: '🧳', rate: fire.salaryComparisonSavingsRates[1] ?? null, annualGrossIncome: fireLiving.requiredAnnualGrossIncome }}
+          />
         )}
         <div onClick={() => setFireExpanded((v) => !v)} style={{ cursor: 'pointer', userSelect: 'none' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap' }}>

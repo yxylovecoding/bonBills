@@ -197,3 +197,65 @@ describe('公积金资格日期', () => {
     expect(getFireEmploymentStartYears({ ...config, fireGraduationDate: '2028-02-31' }, now)).toBe(0);
   });
 });
+
+describe('FIRE 双同薪比例', () => {
+  it('按分配模式的目标比较活和生活年薪，活同薪超过100%时保留真实比例', () => {
+    const life = calcFire(config, stats, 0, { now, annualEssentialExpense: 24000 });
+    const livingStats = { ...stats, totalExpenseAvg: 3000 };
+    const living = calcFire(config, livingStats, 0, { now, annualEssentialExpense: 36000 });
+    const comparison = calcFire(config, livingStats, 0, {
+      now, annualEssentialExpense: 24000,
+      salaryComparisonGrossIncomes: [life.requiredAnnualGrossIncome, living.requiredAnnualGrossIncome],
+    });
+    const [lifeRate, livingRate] = comparison.salaryComparisonSavingsRates;
+    expect(lifeRate).toBeGreaterThan(1);
+    expect(livingRate).toBeGreaterThan(0.1);
+    expect(livingRate).toBeLessThan(1);
+    const matched = calcFire(config, livingStats, 0, {
+      now, annualEssentialExpense: 24000, postEssentialSavingsRate: livingRate!,
+    });
+    expect(matched.requiredAnnualGrossIncome).toBeCloseTo(living.requiredAnnualGrossIncome, 2);
+    expect(comparison.requiredAnnualGrossIncome).toBeGreaterThan(life.requiredAnnualGrossIncome);
+  });
+
+  it('在读支出不同且离职有公积金余额时，生活同薪仍对应实际首年年薪', () => {
+    const studentConfig = { ...config, fireGraduationDate: '2029-01-01', fireHasHangzhouHukou: true, birthDate: '1990-01-01' };
+    const highStats = { ...stats, totalExpenseAvg: 10000 };
+    const living = calcFire(studentConfig, highStats, 10000, {
+      now, essentialExpenseStages: [{ endDate: '2029-01-01', annualExpense: 18000 }, { annualExpense: 120000 }],
+    });
+    const allocationOptions = {
+      now, essentialExpenseStages: [{ endDate: '2029-01-01', annualExpense: 12000 }, { annualExpense: 60000 }],
+    };
+    const comparison = calcFire(studentConfig, highStats, 10000, {
+      ...allocationOptions, salaryComparisonGrossIncomes: [living.requiredAnnualGrossIncome],
+    });
+    const rate = comparison.salaryComparisonSavingsRates[0];
+    expect(rate).toBeGreaterThan(0.1);
+    expect(rate).toBeLessThan(1);
+    const matched = calcFire(studentConfig, highStats, 10000, { ...allocationOptions, postEssentialSavingsRate: rate! });
+    expect(matched.housingFundExitWithdrawal).toBeGreaterThan(0);
+    expect(matched.requiredAnnualGrossIncome).toBeCloseTo(living.requiredAnnualGrossIncome, 2);
+    expect(matched.projectedLiquidAssets + matched.housingFundExitValueAtFire).toBeCloseTo(matched.fireTarget, 0);
+  });
+
+  it('两种生活成本相同时允许两个标记在同一百分比，拖动比例不改变标记', () => {
+    const reference = calcFire(config, stats, 0, { now });
+    const comparisons = [0.1, 0.9].map((rate) => calcFire(config, stats, 0, {
+      now, postEssentialSavingsRate: rate,
+      salaryComparisonGrossIncomes: [reference.requiredAnnualGrossIncome, reference.requiredAnnualGrossIncome],
+    }));
+    expect(comparisons[0].salaryComparisonSavingsRates[0]).toBeCloseTo(1, 6);
+    expect(comparisons[0].salaryComparisonSavingsRates[0]).toBe(comparisons[0].salaryComparisonSavingsRates[1]);
+    expect(comparisons[0].salaryComparisonSavingsRates).toEqual(comparisons[1].salaryComparisonSavingsRates);
+  });
+
+  it('无法覆盖工作期支出或目标在就业前时，同薪比例不可用', () => {
+    const working = calcFire(config, stats, 0, { now, salaryComparisonGrossIncomes: [0, NaN] });
+    expect(working.salaryComparisonSavingsRates).toEqual([null, null]);
+    const student = calcFire({ ...config, fireGraduationDate: '2040-01-01' }, stats, 0, {
+      now, salaryComparisonGrossIncomes: [500000],
+    });
+    expect(student.salaryComparisonSavingsRates).toEqual([null]);
+  });
+});
