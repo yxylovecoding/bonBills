@@ -920,6 +920,27 @@ describe('TickTick 出游同步', () => {
     ]);
   });
 
+  it('无账单标签时将 Outlook 日程名称同步到已有任务，选择账单标签后优先使用标签', async () => {
+    const api = new FakeTickTickApi();
+    const template = await discoverTickTickTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    const calendar = { tagMap: { '2026-10-16': 'travel', '2026-10-17': 'travel', '2026-10-18': 'travel' }, outlookTravelTitles: {} as Record<string, string> };
+    const tripState = { tripTags: {} as Record<string, string> };
+    const sync = () => reconcileTickTickTrips({ api, template, state, trips: buildTripSourcesFromSyncState(calendar, tripState), today: '2026-09-22', saveState: async () => undefined });
+    await sync();
+    const rootId = state.instances['2026-10-16'].rootTaskId!;
+    const created = api.createCalls;
+    expect(api.tasks.get(rootId)?.title).toBe('10月16日–10月18日 · 出门todo');
+    calendar.outlookTravelTitles = { '2026-10-16': '南京学术会议', '2026-10-17': '南京学术会议', '2026-10-18': '南京学术会议' };
+    await sync();
+    expect(api.tasks.get(rootId)?.title).toBe('南京学术会议 · 出门todo');
+    tripState.tripTags['2026-10-16'] = '26.10南京出差';
+    await sync();
+    expect(api.tasks.get(rootId)?.title).toBe('南京出差 · 出门todo');
+    expect(api.createCalls).toBe(created);
+    expect(state.instances['2026-10-16'].rootTaskId).toBe(rootId);
+  });
+
   it('当前场景对齐今天，非当前场景对齐下一段开始日', () => {
     const calendarState = { tagMap: {
       '2026-09-01': 'home',

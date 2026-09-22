@@ -279,6 +279,7 @@ function startSubscriptions() {
 
   const readTripSignature = () => JSON.stringify({
     tagMap: useCalendarStore.getState().tagMap,
+    outlookTravelTitles: useCalendarStore.getState().outlookTravelTitles,
     tripTags: useTripStore.getState().tripTags,
     tripNotes: useTripStore.getState().tripNotes,
     tripSplits: useTripStore.getState().tripSplits,

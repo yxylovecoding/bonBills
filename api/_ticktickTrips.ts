@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, createSecretKey, randomBytes, type KeyObject } from 'node:crypto';
 import { Lunar } from 'lunar-typescript';
+import { getTripDisplayTitle, normalizeOutlookTravelTitles } from '../src/utils/outlookCalendar.js';
 
 export const TICKTICK_CONNECTION_KEY = 'ticktick:connection:v1';
 export const TICKTICK_SYNC_STATE_KEY = 'ticktick:trip-sync:v1';
@@ -440,6 +441,7 @@ export function buildTripSourcesFromSyncState(calendarState: unknown, tripState:
   const tripTags = trip.tripTags && typeof trip.tripTags === 'object' ? trip.tripTags as Record<string, string> : {};
   const tripNotes = trip.tripNotes && typeof trip.tripNotes === 'object' ? trip.tripNotes as Record<string, string> : {};
   const tripSplits = trip.tripSplits && typeof trip.tripSplits === 'object' ? trip.tripSplits as Record<string, true> : {};
+  const outlookTravelTitles = normalizeOutlookTravelTitles(calendar.outlookTravelTitles);
   const travelDates = Object.entries(tagMap)
     .filter(([, tag]) => tag === 'travel')
     .map(([date]) => date)
@@ -474,7 +476,7 @@ export function buildTripSourcesFromSyncState(calendarState: unknown, tripState:
       startDate,
       endDate,
       dates,
-      name: normalizedName || (startDate === endDate
+      name: normalizedName || getTripDisplayTitle(undefined, dates, outlookTravelTitles) || (startDate === endDate
         ? formatShortDate(startDate)
         : `${formatShortDate(startDate)}–${formatShortDate(endDate)}`),
       note: tripNotes[startDate]?.trim() ?? '',

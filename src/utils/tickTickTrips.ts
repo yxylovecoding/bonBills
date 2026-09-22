@@ -1,5 +1,6 @@
 import type { TagKind } from '../models/types';
 import { detectAllTrips } from './trips';
+import { getTripDisplayTitle } from './outlookCalendar';
 
 const TRIP_TAG_PREFIX = /^\d{2}\.\d{1,2}(?:\.\d{1,2})?\s*/;
 
@@ -17,9 +18,10 @@ function formatShortDate(date: string): string {
   return `${Number(month)}月${Number(day)}日`;
 }
 
-export function getTickTickTripName(tag: string | undefined, startDate: string, endDate: string): string {
+export function getTickTickTripName(tag: string | undefined, startDate: string, endDate: string, outlookTitle?: string): string {
   const normalized = tag?.trim().replace(TRIP_TAG_PREFIX, '').trim();
   if (normalized) return normalized;
+  if (outlookTitle?.trim()) return outlookTitle.trim();
   if (startDate === endDate) return formatShortDate(startDate);
   return `${formatShortDate(startDate)}–${formatShortDate(endDate)}`;
 }
@@ -29,13 +31,14 @@ export function buildTickTickTripSources(
   tripTags: Record<string, string>,
   tripNotes: Record<string, string>,
   tripSplits: Record<string, true>,
+  outlookTravelTitles: Record<string, string> = {},
 ): TickTickTripSource[] {
   return detectAllTrips(tagMap, tripSplits).map((trip) => ({
     key: trip.startDate,
     startDate: trip.startDate,
     endDate: trip.endDate,
     dates: trip.dates,
-    name: getTickTickTripName(tripTags[trip.startDate], trip.startDate, trip.endDate),
+    name: getTickTickTripName(tripTags[trip.startDate], trip.startDate, trip.endDate, getTripDisplayTitle(undefined, trip.dates, outlookTravelTitles)),
     note: tripNotes[trip.startDate]?.trim() ?? '',
   }));
 }
