@@ -16,6 +16,7 @@ import type { TripGroup } from '../utils/trips';
 import AmountInput from '../components/AmountInput';
 import InvestInstrumentPicker from '../components/InvestInstrumentPicker';
 import FinanceImportPreviewDialog from '../components/FinanceImportPreviewDialog';
+import PendingInvestmentBuyRow from '../components/PendingInvestmentBuyRow';
 import TickTickTripSyncControl from '../components/TickTickTripSyncControl';
 import ImportCutoffHint from '../components/ImportCutoffHint';
 import { calcHistoryStats } from '../calculations/history';
@@ -2497,13 +2498,7 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
                         {(item.pendingBuys?.length ?? 0) > 0 && (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 5 }}>
                             {item.pendingBuys?.map((pending) => (
-                              <div key={pending.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, borderRadius: 7, backgroundColor: '#fff4e5', padding: '5px 7px', color: C.orange, fontSize: 10, fontWeight: 700 }}>
-                                <span>待确认 · {pending.operationAt.slice(5, 16).replace('T', ' ')}</span>
-                                <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                                  {pending.amount ? `${currencyMark(pending.currency)}${formatCurrency(pending.amount)}` : '金额待出'}
-                                  {pending.account ? ` · ${pending.account}` : ''}
-                                </span>
-                              </div>
+                              <PendingInvestmentBuyRow key={pending.id} pending={pending} quoteSource={item.quoteSource} />
                             ))}
                           </div>
                         )}

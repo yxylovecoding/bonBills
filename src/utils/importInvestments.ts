@@ -269,6 +269,9 @@ export async function parseInvestmentFileDetails(file: File): Promise<ParsedInve
           baseMatchKey: keys.baseMatchKey,
           operationAt,
           amount: amount > 0 ? amount : undefined,
+          fee: stringCell(row, header.indexes.fee) !== ''
+            && Number.isFinite(Number(stringCell(row, header.indexes.fee).replace(/[,，￥¥$\s]/g, '')))
+            ? fee : undefined,
           currency,
           account,
           name: name || symbol,

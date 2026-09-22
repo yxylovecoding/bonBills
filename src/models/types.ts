@@ -28,6 +28,7 @@ export interface PendingInvestmentBuy {
   baseMatchKey: string;
   operationAt: string;
   amount?: number;
+  fee?: number;
   currency: string;
   account?: string;
   name: string;

@@ -3,7 +3,21 @@ import * as XLSX from 'xlsx';
 import type { InvestPositionItem, MonthlyRecord } from '../models/types';
 import { normalizeMonthlyRecords, useMonthlyStore } from '../stores/monthlyStore';
 import { confirmFinanceImport, diffInvestmentOperations, prepareFinanceImport } from './importPreview';
-import { importInvestmentFileIntoStores, parseInvestmentFile } from './importInvestments';
+import { importInvestmentFileIntoStores, parseInvestmentFile, parseInvestmentFileDetails } from './importInvestments';
+
+describe('待确认买入手续费', () => {
+  it('保留明确费用并区分零费用、空白和未公布费用', async () => {
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+      ['操作日期', '类型', '基金名称', '基金代码', '总金额', '手续费', '状态'],
+      ...[0.1, 0, '', '--'].map((fee, index) => [`2026-09-17 09:2${index}`, '买入', '摩根标普500指数A', '017641', 10, fee, '待确认']),
+    ]), '理财');
+    const file = new File([XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })], '理财.xlsx');
+    const result = await parseInvestmentFileDetails(file);
+    expect(result.transactions).toHaveLength(0);
+    expect(result.pendingBuys.map((pending) => pending.fee)).toEqual([0.1, 0, undefined, undefined]);
+  });
+});
 
 function moneyWizInvestmentFile() {
   const sheet = XLSX.utils.aoa_to_sheet([

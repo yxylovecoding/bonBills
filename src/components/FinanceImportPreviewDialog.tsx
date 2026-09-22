@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import PendingInvestmentBuyRow from './PendingInvestmentBuyRow';
 import { investMeta } from '../data/mockData';
 import type { AutoAccountBalanceKey, InvestKey } from '../models/types';
 import {
@@ -124,9 +125,8 @@ export default function FinanceImportPreviewDialog({
                       </div>
                     </div>
                     {item.pendingBuys?.map((pending) => (
-                      <div key={pending.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 6, borderRadius: 7, backgroundColor: '#fff4e5', padding: '5px 7px', color: '#e8710a', fontSize: 10, fontWeight: 700 }}>
-                        <span>待确认 · {pending.operationAt.slice(5, 16).replace('T', ' ')}</span>
-                        <span>{pending.amount ? `${pending.currency} ${number(pending.amount)}` : '金额待出'}</span>
+                      <div key={pending.id} style={{ marginTop: 6 }}>
+                        <PendingInvestmentBuyRow pending={pending} quoteSource={item.quoteSource} />
                       </div>
                     ))}
                   </div>

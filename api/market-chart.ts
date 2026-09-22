@@ -32,6 +32,7 @@ type EastmoneyNavResponse = {
     LSJZList?: Array<{
       FSRQ?: string;
       DWJZ?: string;
+      SGZT?: string;
     }>;
   };
   ErrCode?: number;
@@ -99,6 +100,44 @@ async function fetchEastmoneyTrend(symbol: string): Promise<EastmoneyTrendPoint[
   return parseEastmoneyTrend(await response.text());
 }
 
+// Two calendar months cover month-end orders without truncating old orders to the latest ten NAVs.
+export function fundNavMonthRange(month: string) {
+  if (!/^(?:19|20)\d{2}-(?:0[1-9]|1[0-2])$/.test(month)) return null;
+  const [year, monthNumber] = month.split('-').map(Number);
+  return {
+    startDate: `${month}-01`,
+    endDate: new Date(Date.UTC(year, monthNumber + 1, 0)).toISOString().slice(0, 10),
+  };
+}
+
+async function respondFundNavMonth(symbol: string, month: string, res: VercelResponse) {
+  const dates = fundNavMonthRange(month);
+  if (!dates) return res.status(400).json({ error: 'invalid NAV month' });
+  const url = new URL('https://api.fund.eastmoney.com/f10/lsjz');
+  for (const [key, value] of Object.entries({ fundCode: symbol, pageIndex: '1', pageSize: '100', ...dates })) {
+    url.searchParams.set(key, value);
+  }
+  try {
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0', Referer: `https://fundf10.eastmoney.com/jjjz_${symbol}.html`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (!response.ok) throw new Error(`fund NAV ${response.status}`);
+    const payload = await response.json() as EastmoneyNavResponse;
+    if (payload.ErrCode !== 0 || !Array.isArray(payload.Data?.LSJZList)) throw new Error('fund NAV unavailable');
+    const bars = payload.Data.LSJZList.flatMap((item) => {
+      const close = Number(item.DWJZ);
+      if (!item.FSRQ || item.FSRQ < dates.startDate || item.FSRQ > dates.endDate || !Number.isFinite(close) || close <= 0) return [];
+      return [{ date: item.FSRQ, close, purchaseStatus: item.SGZT ?? '' }];
+    }).sort((a, b) => a.date.localeCompare(b.date));
+    res.setHeader('Cache-Control', 's-maxage=900, stale-while-revalidate=900');
+    return res.status(200).json({ symbol, bars, source: 'Eastmoney Fund NAV', ...dates });
+  } catch {
+    // Trend data lacks historical subscription status; do not substitute it for an order's NAV.
+    return res.status(502).json({ error: 'fund NAV history unavailable' });
+  }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'method not allowed' });
@@ -115,6 +154,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (source === 'eastmoney-fund') {
     if (!/^\d{6}$/.test(symbol)) return res.status(400).json({ error: 'invalid fund code' });
+    if (req.query.navMonth !== undefined) return respondFundNavMonth(symbol, String(req.query.navMonth), res);
     const fundCurrency = String(req.query.currency ?? 'CNY').trim().toUpperCase();
     if (!['CNY', 'USD', 'HKD'].includes(fundCurrency)) return res.status(400).json({ error: 'invalid currency' });
     if (range === 'max') {

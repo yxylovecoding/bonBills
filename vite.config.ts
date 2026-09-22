@@ -157,6 +157,16 @@ export default defineConfig({
           const source = requestUrl.searchParams.get('source') ?? 'yahoo';
           const range = requestUrl.searchParams.get('range') ?? '6mo';
           const interval = requestUrl.searchParams.get('interval') ?? '1d';
+          if (requestUrl.searchParams.has('navMonth')) {
+            const handler = await server.ssrLoadModule('/api/market-chart.ts');
+            const request = Object.assign(req, { query: Object.fromEntries(requestUrl.searchParams) }) as VercelRequest;
+            const response = Object.assign(res, {
+              status(code: number) { res.statusCode = code; return response; },
+              json(body: unknown) { sendJson(res, res.statusCode, body); return response; },
+            }) as unknown as VercelResponse;
+            await handler.default(request, response);
+            return;
+          }
           if (!/^[A-Z0-9.^=_-]{1,24}$/i.test(symbol)) return sendJson(res, 400, { error: 'invalid symbol' });
 
           if (source === 'eastmoney-fund') {
