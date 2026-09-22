@@ -40,7 +40,7 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '计入公积金';
+const RELEASE_NOTE = '修复年薪显示';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -1116,22 +1116,22 @@ export default function HomePage() {
         <div onClick={() => setFireExpanded((v) => !v)} style={{ cursor: 'pointer', userSelect: 'none' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap' }}>
             <div style={{ minWidth: 180, flex: '1 1 180px' }}>
-              <div style={{ fontSize: 12, color: C.sub, marginBottom: 3 }}>首年最低税前年薪</div>
-              <div style={{ fontSize: 32, lineHeight: 1.05, fontWeight: 800, color: C.red, fontVariantNumeric: 'tabular-nums' }}>{fire.canReachTarget ? fmt万(fire.requiredAnnualGrossIncome) : '—'}</div>
+              <div style={{ fontSize: 12, color: C.sub, marginBottom: 3 }}>{fire.employmentStartYears > 0 ? '就业首年' : '首年'}最低税前年薪</div>
+              <div style={{ fontSize: 32, lineHeight: 1.05, fontWeight: 800, color: C.red, fontVariantNumeric: 'tabular-nums' }}>{fire.hasSalarySolution ? fmt万(fire.requiredAnnualGrossIncome) : '—'}</div>
               <div style={{ marginTop: 5, fontSize: 12, color: C.sub }}>
-                {!fire.canReachTarget && <span style={{ color: C.orange }}>{fire.preCareerFundingGap > 0 ? `毕业前缺口 ${fmt万(fire.preCareerFundingGap)}` : '就业前未达标'} · </span>}
-                {fire.canReachTarget ? `${fireTargetYearLabel}达标` : `${fireTargetYearLabel}目标`} · 年涨薪 {(fire.salaryAnnualGrowthRate * 100).toFixed(0)}% · 首年到手 {fmt万(fire.requiredAnnualSalaryNetIncome)}
-                {fireMode === 'allocation' && <span style={{ color: C.purple }}> · 消费/心愿 {fmt万(fire.requiredAnnualFlexibleSpending)}</span>}
+                {!fire.canReachTarget && <span style={{ color: C.orange }}>{fire.preCareerFundingGap > 0 ? `在读预计缺口 ${fmt万(fire.preCareerFundingGap)}` : '就业前未达标'} · </span>}
+                {fire.canReachTarget ? `${fireTargetYearLabel}达标` : `${fireTargetYearLabel}目标`} · 年涨薪 {(fire.salaryAnnualGrowthRate * 100).toFixed(0)}% · 首年到手 {fire.hasSalarySolution ? fmt万(fire.requiredAnnualSalaryNetIncome) : '—'}
+                {fireMode === 'allocation' && fire.hasSalarySolution && <span style={{ color: C.purple }}> · 消费/心愿 {fmt万(fire.requiredAnnualFlexibleSpending)}</span>}
                 {fire.requiredAnnualHousingFundRentWithdrawal > 0 && <span style={{ color: C.green }}> · 公积金可提 {fmt万(fire.requiredAnnualHousingFundRentWithdrawal)}</span>}
                 {fire.majorWishTotal > 0 && <span style={{ color: C.purple }}> · 含愿望 {fmtW(fire.majorWishTotal)}</span>}
-                <span style={{ color: expectedWageMargin >= 0 ? C.green : C.orange }}> · 预期 {fmtW(expectedAnnualWageIncome)}</span>
+                <span style={{ color: fire.hasSalarySolution ? (expectedWageMargin >= 0 ? C.green : C.orange) : C.sub }}> · 预期 {fmtW(expectedAnnualWageIncome)}</span>
               </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, flex: '1 1 230px', minWidth: 0 }}>
               {[
                 { label: '目标年数', value: `${fmt年(fire.targetYears)}年`, color: '#202124' },
                 { label: '完成进度', value: fireProgressLabel, color: C.blue },
-                { label: '首年月存入', value: fmt万(fire.monthlyNeeded), color: C.orange },
+                { label: '首年月存入', value: fire.hasSalarySolution ? fmt万(fire.monthlyNeeded) : '—', color: C.orange },
               ].map((item) => (
                 <div key={item.label} style={{ backgroundColor: '#f8f9fa', border: '1px solid #f1f3f4', borderRadius: 10, padding: '8px 10px', minWidth: 0 }}>
                   <div style={{ fontSize: 11, color: C.sub, marginBottom: 3, whiteSpace: 'nowrap' }}>{item.label}</div>
@@ -1253,7 +1253,7 @@ export default function HomePage() {
                     style={{ width: 64, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 12, fontWeight: 700, color: eTalentIncomeThresholdMet ? C.green : C.orange, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
                   />
                   <span style={{ fontSize: 11, color: C.sub }}>w/年</span>
-                  <span style={{ fontSize: 11, color: expectedWageMargin >= 0 ? C.green : C.orange }}>· {expectedWageMargin >= 0 ? '高于' : '低于'}最低 {fmtW(Math.abs(expectedWageMargin))}</span>
+                  {fire.hasSalarySolution && <span style={{ fontSize: 11, color: expectedWageMargin >= 0 ? C.green : C.orange }}>· {expectedWageMargin >= 0 ? '高于' : '低于'}最低 {fmtW(Math.abs(expectedWageMargin))}</span>}
                 </span>
               )} />
               <StatRow label="E 类人才预期" value={(

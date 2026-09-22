@@ -72,6 +72,8 @@ export interface FireResult {
   projectedLiquidAssets: number;
   employmentStartYears: number;
   preCareerFundingGap: number;
+  /** 年薪反推有解；在读期间的资金缺口另行提示。 */
+  hasSalarySolution: boolean;
   canReachTarget: boolean;
   annualRentExpense: number;
   annualRentTaxDeduction: number;
@@ -412,6 +414,7 @@ export function calcFire(
   }
   const requiredIncomeTax = calculateAnnualComprehensiveTax(firstYearGross, contributionPolicy);
   const salaryProjection = projectSalary(firstYearGross);
+  const hasSalarySolution = meetsTarget(firstYearGross);
   const equivalentAnnualNetIncome = salaryProjection.futureValue / savingsFutureValueFactor;
   const requiredAnnualSavings = Math.max(remainingTarget - salaryProjection.exitValueAtFire, bridgeReserve - otherLiquidAssets, 0)
     / savingsFutureValueFactor;
@@ -485,7 +488,8 @@ export function calcFire(
     projectedLiquidAssets: liquidAssetsFor(salaryProjection),
     employmentStartYears,
     preCareerFundingGap,
-    canReachTarget: preCareerFundingGap <= 0 && meetsTarget(firstYearGross),
+    hasSalarySolution,
+    canReachTarget: preCareerFundingGap <= 0 && hasSalarySolution,
     annualRentExpense,
     annualRentTaxDeduction,
     talentSubsidyNominalTotal: talentSubsidy.nominalTotal,

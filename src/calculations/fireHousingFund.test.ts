@@ -43,7 +43,18 @@ describe('在读到就业的公积金测算', () => {
     expect(result.requiredAnnualHousingFundRentWithdrawal).toBe(0);
     expect(result.projectedHousingFundBalance).toBe(0);
     expect(result.projectedLiquidAssets).toBe(50000);
+    expect(result.hasSalarySolution).toBe(false);
     expect(result.canReachTarget).toBe(false);
+  });
+
+  it('毕业前已有足够资产时，零工资也是有效结果', () => {
+    const result = calcFire({ ...config, fireGraduationDate: '2029-01-01', fireTargetYears: 2 }, stats, 600000, {
+      now, annualEssentialExpense: 12000,
+    });
+    expect(result.requiredAnnualGrossIncome).toBe(0);
+    expect(result.projectedLiquidAssets).toBe(result.fireTarget);
+    expect(result.hasSalarySolution).toBe(true);
+    expect(result.canReachTarget).toBe(true);
   });
 
   it('毕业后才开始工资、10%普调和双边缴存，累计资产仍达到目标', () => {
@@ -62,6 +73,7 @@ describe('在读到就业的公积金测算', () => {
     expect(result.housingFundExitWithdrawal).toBeCloseTo(0, 6);
     expect(assets).toBeGreaterThanOrEqual(result.fireTarget - 1e-7);
     expect(assets - result.fireTarget).toBeLessThan(1);
+    expect(result.hasSalarySolution).toBe(true);
     expect(result.canReachTarget).toBe(true);
   });
 
@@ -76,12 +88,15 @@ describe('在读到就业的公积金测算', () => {
     expect(result.housingFundExitWithdrawal).toBeCloseTo(result.requiredAnnualHousingFund * 2 * 0.2, 6);
   });
 
-  it('毕业前的资金缺口不能由毕业后的高工资掩盖', () => {
+  it('保留毕业前缺口，同时返回毕业后可补足目标的年薪结果', () => {
     const result = calcFire({ ...config, fireGraduationDate: '2029-01-01' }, { ...stats, monthlyIncomeAvg: 0 }, 0, {
       now, essentialExpenseStages: [{ endDate: '2029-01-01', annualExpense: 12000 }, { annualExpense: 24000 }],
     });
     expect(result.preCareerFundingGap).toBe(48000);
     expect(Number.isFinite(result.requiredAnnualGrossIncome)).toBe(true);
+    expect(result.requiredAnnualGrossIncome).toBeGreaterThan(0);
+    expect(result.projectedLiquidAssets + result.housingFundExitValueAtFire).toBeCloseTo(result.fireTarget, 0);
+    expect(result.hasSalarySolution).toBe(true);
     expect(result.canReachTarget).toBe(false);
   });
 });
