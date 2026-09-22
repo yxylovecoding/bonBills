@@ -20,6 +20,13 @@ export interface OutlookRules {
 
 export const DEFAULT_OUTLOOK_RULES: OutlookRules = { homeTitles: ['🏠'], ignoredPlayTitles: ['新卡池', '新卡池&新月卡'] };
 
+// Match reminder titles, not arbitrary event titles ending in “节” (e.g. 平遥电影节).
+const HOLIDAY_REMINDER_TITLES = new Set([
+  '元旦', '元旦节', '春节', '除夕', '元宵节', '清明节', '劳动节', '端午节', '中秋节', '国庆节',
+  '七夕', '七夕节', '重阳节', '妇女节', '植树节', '青年节', '儿童节', '建党节', '建军节', '教师节',
+  '情人节', '母亲节', '父亲节', '感恩节', '平安夜', '圣诞', '圣诞节',
+]);
+
 export interface OutlookSnapshot {
   startDate: string;
   endDate: string;
@@ -61,8 +68,9 @@ export function buildOutlookSnapshot(
   for (const event of events) {
     if (!event.allDay || event.cancelled) continue;
     const title = event.title.trim();
+    if (HOLIDAY_REMINDER_TITLES.has(title)) continue;
     const tag: OutlookTag | null = event.calendar === 'class'
-      ? (title === '实习' ? 'intern' : null)
+      ? (title === '实习' ? 'intern' : 'travel')
       : ignoredTitles.has(title) ? null : homeTitles.has(title) ? 'home' : 'travel';
     if (!tag) continue;
     if (!isCalendarDate(event.startDate) || !isCalendarDate(event.endDate) || event.startDate >= event.endDate) {

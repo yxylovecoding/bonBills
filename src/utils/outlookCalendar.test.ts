@@ -8,15 +8,18 @@ const event = (values: Partial<OutlookDayEvent> = {}): OutlookDayEvent => ({ cal
 const snapshot = (events: OutlookDayEvent[]) => buildOutlookSnapshot(events, start, end, DEFAULT_OUTLOOK_RULES);
 
 describe('Outlook 月历映射', () => {
-  it('识别在家、出游、实习，忽略新卡池、普通课程和非全天日程', () => {
+  it('识别在家、玩和课的全天出行、实习，忽略节日提醒、新卡池和非全天日程', () => {
     expect(snapshot([
       event({ title: '🏠', startDate: '2026-08-30', endDate: '2026-09-03' }),
       event({ title: '新卡池', startDate: '2026-09-03', endDate: '2026-09-04' }),
-      event({ calendar: 'class', title: '教师节', startDate: '2026-09-10', endDate: '2026-09-11' }),
+      event({ calendar: 'class', title: '上海出差', startDate: '2026-09-10', endDate: '2026-09-11' }),
+      event({ calendar: 'class', title: '普通课程', allDay: false, startDate: '2026-09-12', endDate: '2026-09-13' }),
+      event({ calendar: 'class', title: '教师节', startDate: '2026-09-14', endDate: '2026-09-15' }),
+      event({ calendar: 'class', title: '平遥电影节', startDate: '2026-09-15', endDate: '2026-09-16' }),
       event({ calendar: 'class', title: ' 实习 ', startDate: '2026-09-20', endDate: '2026-09-21' }),
       event(), event({ allDay: false, startDate: '2026-09-25', endDate: '2026-09-26' }),
       event({ cancelled: true, startDate: '2026-09-27', endDate: '2026-09-28' }),
-    ]).tags).toEqual({ '2026-09-01': 'home', '2026-09-02': 'home', '2026-09-20': 'intern', '2026-09-22': 'travel' });
+    ]).tags).toEqual({ '2026-09-01': 'home', '2026-09-02': 'home', '2026-09-10': 'travel', '2026-09-15': 'travel', '2026-09-20': 'intern', '2026-09-22': 'travel' });
   });
   it('跨月、跨年与闰年按日期展开，不包含结束日', () => {
     expect(buildOutlookSnapshot([event({ startDate: '2028-02-28', endDate: '2028-03-02' })], '2028-02-01', '2028-03-01', DEFAULT_OUTLOOK_RULES).tags)
