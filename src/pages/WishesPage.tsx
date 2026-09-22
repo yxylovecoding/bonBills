@@ -1340,7 +1340,7 @@ export default function WishesPage() {
 
                 <div style={{ marginTop: 10, borderRadius: 10, padding: '8px 9px', backgroundColor: item.deadlineState === 'overdue' && !actualWishSavingCompleted ? '#fef2f2' : actualWishSavingCompleted ? '#ecfdf5' : '#f5f3ff', color: item.deadlineState === 'overdue' && !actualWishSavingCompleted ? C.red : actualWishSavingCompleted ? C.green : C.purple, fontSize: 11, fontWeight: 700, lineHeight: 1.5 }}>
                   {!item.isActive && '已暂停，不计入最少实习规划'}
-                  {item.isActive && actualWishSavingCompleted && (funding.debtAmount > 0 ? `已攒足 · 待还自己 ¥${formatCurrency(funding.debtAmount)}` : '✓ 心愿已经攒满')}
+                  {item.isActive && actualWishSavingCompleted && (funding.debtAmount > 0 ? '已攒足 · 待还自己' : '✓ 心愿已经攒满')}
                   {item.isActive && !actualWishSavingCompleted && item.deadlineState === 'none' && (remainingActualWishSavingAmount > 0 ? '无 DDL，按自己的节奏慢慢攒' : '填入目标金额后开始计算')}
                   {item.isActive && !actualWishSavingCompleted && item.deadlineState === 'overdue' && `已超期 · 还需补 ¥${formatCurrency(remainingActualWishSavingAmount)}`}
                   {item.isActive && !actualWishSavingCompleted && item.deadlineState === 'scheduled' && remainingActualWishSavingAmount > 0 && (

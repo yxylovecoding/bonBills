@@ -78,7 +78,6 @@ export default function WishSpendingEditor({ wish, onChange }: Props) {
         {[...new Set(['机票/高铁', '酒店', ...(wish.travelExtraExpenseItems ?? []).map((item) => item.name.trim()).filter(Boolean)])].map((name) => <option key={name} value={name} />)}
       </datalist>
       <div className="wish-spending-footer">
-        <span>欠自己 <strong>¥{formatCurrency(funding.debtAmount)}</strong></span>
         <button type="button" onClick={() => save({ spentItems: [...items, { id: crypto.randomUUID(), name: '', amount: 0 }] })}>+ 添加已花</button>
       </div>
       {error && <div className="wish-money-error" role="alert">{error}</div>}

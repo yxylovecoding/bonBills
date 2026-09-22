@@ -1198,8 +1198,7 @@ input[type='number'] { -moz-appearance: textfield; }
 .wish-expense-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(70px, 100px) 18px; align-items: center; gap: 5px; }
 .wish-expense-row > input { padding: 6px 7px; border-radius: 7px; background: #fff !important; }
 .wish-expense-row button { border: 0; background: transparent; color: #9ca3af; padding: 0; font-size: 16px; cursor: pointer; }
-.wish-spending-footer { margin-top: 8px; font-size: 10px; }
-.wish-spending-footer strong { color: #e8710a; }
+.wish-spending-footer { margin-top: 8px; font-size: 10px; justify-content: flex-end; }
 .wish-spending-footer button { border: 0; background: transparent; color: #7c3aed; padding: 0; font-size: 10px; font-weight: 700; cursor: pointer; }
 .wish-money-error { margin-top: 6px; font-size: 10px; color: #ea4335; }
 .wish-actual-amount { display: flex; align-items: baseline; justify-content: flex-end; flex-wrap: wrap; gap: 4px; padding: 5px 6px; border-radius: 7px; background: #f3f4f6; font-size: 11px; }
