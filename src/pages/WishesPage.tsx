@@ -22,6 +22,7 @@ import { detectAllTrips, type TripSegment } from '../utils/trips';
 import { calculateWishInternPlan } from '../utils/wishInternPlan';
 import {
   calculateWishFunding,
+  applyWishDebtRepayment,
   resolveWishTravelBudget,
   wishTravelLifeAmount,
   calculateWishPlan,
@@ -415,6 +416,27 @@ export default function WishesPage() {
   const wishJarBalance = Math.max(current.accounts.wishJar ?? 0, 0);
 
   const syncWishes = (items: WishItem[]) => setConfig({ wishes: items });
+  const updateDebtTotal = (wishDebtTotal: number | undefined) => {
+    const previous = useConfigStore.getState().config;
+    const previousWishes = previous.wishes ?? [];
+    const nextWishes = applyWishDebtRepayment(previousWishes, previous.wishDebtTotal, wishDebtTotal);
+    const repaymentChanges = new Map(nextWishes.map((wish, index) => [
+      wish.id,
+      calculateWishFunding(wish).repaidAmount - calculateWishFunding(previousWishes[index]).repaidAmount,
+    ]));
+    setConfig({ wishDebtTotal, wishes: nextWishes });
+    return () => {
+      const latestWishes = useConfigStore.getState().config.wishes ?? [];
+      setConfig({
+        wishDebtTotal: previous.wishDebtTotal,
+        wishes: latestWishes.map((wish) => {
+          const change = repaymentChanges.get(wish.id) ?? 0;
+          if (change <= 0) return wish;
+          return { ...wish, repaidAmount: roundToSitePrecision(Math.max(calculateWishFunding(wish).repaidAmount - change, 0)) };
+        }),
+      });
+    };
+  };
   const syncDeadlineMilestones = (items: WishDeadlineMilestone[]) => setConfig({ wishDeadlineMilestones: items });
   const addDeadlineMilestone = () => syncDeadlineMilestones([
     ...deadlineMilestones,
@@ -925,17 +947,12 @@ export default function WishesPage() {
         className="wish-list-scroll"
         onScroll={(event) => handleWishListScroll(event.currentTarget)}
       >
-      <WishDebtSummary wishes={wishes} total={config.wishDebtTotal} onChange={(wishDebtTotal) => setConfig({ wishDebtTotal })} />
+      <WishDebtSummary wishes={wishes} total={config.wishDebtTotal} onChange={updateDebtTotal} />
       <Card title="心愿清单" subtitle={`${wishes.length} 个心愿`}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '0 0 12px', marginBottom: 12, borderBottom: '1px solid #f1f3f4', fontSize: 11 }}>
           <span style={{ color: C.sub }}>心愿罐 ¥{formatCurrency(wishJarBalance)}</span>
-          <span style={{ color: registeredSavings > wishJarBalance ? C.orange : C.sub }}>已登记 ¥{formatCurrency(registeredSavings)}</span>
+          <span style={{ color: C.sub }}>已登记 ¥{formatCurrency(registeredSavings)}</span>
         </div>
-        {registeredSavings > wishJarBalance && (
-          <div style={{ color: C.orange, backgroundColor: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, fontSize: 11, lineHeight: 1.5, padding: '7px 9px', marginBottom: 10 }}>
-            各心愿的“已攒”合计高于心愿罐余额，请确认是否包含了罐外资金。
-          </div>
-        )}
         {wishes.length === 0 && (
           <div style={{ textAlign: 'center', padding: '26px 12px 20px', color: C.sub }}>
             <div style={{ fontSize: 30, marginBottom: 8 }}>♡</div>

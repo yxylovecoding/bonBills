@@ -10,10 +10,11 @@ import { formatCurrency } from './CurrencyDisplay';
 export default function WishDebtSummary({ wishes, total, onChange }: {
   wishes: WishItem[];
   total?: number;
-  onChange: (value: number | undefined) => void;
+  onChange: (value: number | undefined) => (() => void) | void;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [undo, setUndo] = useState<(() => void) | null>(null);
   const summary = calculateWishDebtSummary(wishes, total);
   const commit = (raw: string) => {
     if (draft === null) return;
@@ -22,17 +23,28 @@ export default function WishDebtSummary({ wishes, total, onChange }: {
       setError('请输入有效的非负金额');
       return;
     }
-    onChange(raw.trim() ? roundToSitePrecision(amount) : undefined);
+    const nextTotal = raw.trim() ? roundToSitePrecision(amount) : undefined;
+    if (nextTotal !== total) {
+      const revert = onChange(nextTotal);
+      setUndo(() => revert ?? null);
+    }
     setDraft(null);
     setError('');
   };
   return (
-    <Card title="还欠自己" className="wish-debt-summary">
+    <Card title="欠自己" className="wish-debt-summary" headerAction={undo ? (
+      <button type="button" className="wish-debt-undo" onClick={() => {
+        undo();
+        setUndo(null);
+        setDraft(null);
+        setError('');
+      }}>撤销</button>
+    ) : undefined}>
       <label className="wish-debt-total">
         <span>总欠款</span>
         <span>¥
           <AmountInput
-            aria-label="还欠自己总额"
+            aria-label="欠自己总额"
             value={draft ?? String(summary.totalAmount)}
             onChange={setDraft}
             onBlur={(event) => commit(event.currentTarget.value)}

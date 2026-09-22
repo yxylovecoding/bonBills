@@ -105,6 +105,31 @@ export function calculateWishDebtSummary(wishes: readonly WishItem[], total?: nu
   };
 }
 
+/** 总欠款下降时才记为还款，先清偿截止日较近的心愿，余款归到未归属部分。 */
+export function applyWishDebtRepayment(wishes: readonly WishItem[], previousTotal: number | undefined, nextTotal: number | undefined): WishItem[] {
+  if (nextTotal === undefined) return [...wishes];
+  let remaining = roundToSitePrecision(Math.max(
+    calculateWishDebtSummary(wishes, previousTotal).totalAmount - normalizedAmount(nextTotal), 0,
+  ));
+  if (remaining === 0) return [...wishes];
+  const repayments = new Map<string, number>();
+  const ordered = [...wishes].sort((first, second) => (
+    (first.deadline || '9999-12-31').localeCompare(second.deadline || '9999-12-31')
+    || first.id.localeCompare(second.id)
+  ));
+  for (const wish of ordered) {
+    const funding = calculateWishFunding(wish);
+    const amount = Math.min(funding.debtAmount, remaining);
+    if (amount <= 0) continue;
+    repayments.set(wish.id, roundToSitePrecision(funding.repaidAmount + amount));
+    remaining = roundToSitePrecision(remaining - amount);
+    if (remaining <= 0) break;
+  }
+  return wishes.map((wish) => repayments.has(wish.id)
+    ? { ...wish, repaidAmount: repayments.get(wish.id) }
+    : wish);
+}
+
 export function wishTravelLifeAmount(wish: WishItem, dailyLifeAmount: number, tripDatesByStart?: Record<string, string[]>) {
   const days = (wish.linkedTripStartDate ? tripDatesByStart?.[wish.linkedTripStartDate]?.length : undefined)
     ?? Math.max(Math.round(wish.plannedTravelDays ?? 0), 0);

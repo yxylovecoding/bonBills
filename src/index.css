@@ -960,7 +960,7 @@ input[type='number'] { -moz-appearance: textfield; }
     scrollbar-gutter: stable;
   }
 
-  .wish-list-scroll > section {
+  .wish-list-scroll > section:last-child {
     margin-bottom: 0 !important;
   }
 
@@ -1191,9 +1191,9 @@ input[type='number'] { -moz-appearance: textfield; }
 .wish-debt-breakdown strong { color: #202124; font-weight: 600; }
 .wish-spending-editor { margin-top: 10px; padding: 10px 0; border-top: 1px solid #ede9fe; border-bottom: 1px solid #ede9fe; }
 .wish-money-summary strong { color: #202124; }
-.wish-money-summary label { display: flex; align-items: center; gap: 6px; }
-.wish-repaid-input, .wish-spent-amount { display: flex; align-items: center; gap: 3px; background: #fff; border-radius: 7px; padding: 5px 6px; }
-.wish-repaid-input { width: 96px; }
+.wish-money-summary .wish-repaid-amount { color: #0d9488; }
+.wish-debt-undo { border: 0; background: transparent; color: #7c3aed; padding: 0; font-size: 11px; cursor: pointer; }
+.wish-spent-amount { display: flex; align-items: center; gap: 3px; background: #fff; border-radius: 7px; padding: 5px 6px; }
 .wish-spent-items { display: grid; gap: 5px; margin-top: 7px; }
 .wish-expense-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(70px, 100px) 18px; align-items: center; gap: 5px; }
 .wish-expense-row > input { padding: 6px 7px; border-radius: 7px; background: #fff !important; }
