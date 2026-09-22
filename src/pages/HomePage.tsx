@@ -30,6 +30,7 @@ import { dateLabel, daysUntilDate, resolveIncomeForMonth } from '../utils/payrol
 import { calculateCreditRepaymentPlan } from '../utils/creditRepayment';
 import { getAverageAnnualizedRate } from '../utils/investRecords';
 import { detectAllTrips } from '../utils/trips';
+import { getTripDisplayTitle } from '../utils/outlookCalendar';
 import { calculateWishMilestonePlan, type WishRepaymentDue } from '../utils/wishMilestonePlan';
 import { calculateWishFunding, resolveWishRepayments, wishTravelLifeAmount } from '../utils/wishes';
 import {
@@ -43,7 +44,7 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '日历忽略修正';
+const RELEASE_NOTE = '出游标题优先';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -236,7 +237,7 @@ export default function HomePage() {
   const { current } = useSnapshotStore();
   const { config, setConfig } = useConfigStore();
   const { records } = useMonthlyStore();
-  const { tagMap, confirmedExpenses, setTag } = useCalendarStore();
+  const { tagMap, confirmedExpenses, setTag, outlookTravelTitles } = useCalendarStore();
   const { expenseItems } = useBillDetailStore();
   const { overrides: expenseScopeOverrides } = useExpenseScopeOverrideStore();
   const { tripTags, tripNotes, tripSplits } = useTripStore();
@@ -298,13 +299,13 @@ export default function HomePage() {
     }
     for (const trip of allTripSegments) {
       const wishLabel = wishesByTripStart.get(trip.startDate)?.join('、') ?? '';
-      const rawTripLabel = tripTags[trip.startDate]?.trim() || tripNotes[trip.startDate]?.trim() || '';
-      const rawLabel = wishLabel || rawTripLabel || '出游';
+      const rawTripLabel = getTripDisplayTitle(tripTags[trip.startDate], trip.dates, outlookTravelTitles);
+      const rawLabel = rawTripLabel || wishLabel || tripNotes[trip.startDate]?.trim() || '出游';
       const compactLabel = rawLabel.replace(/^\d{2}\.\d{1,2}(?:\.\d{1,2})?\s*/, '').trim() || rawLabel;
       for (const date of trip.dates) labels[date] = compactLabel;
     }
     return labels;
-  }, [allTripSegments, tripNotes, tripTags, wishes]);
+  }, [allTripSegments, tripNotes, tripTags, wishes, outlookTravelTitles]);
   const {
     effectiveCreditMonthly: currentCreditDue,
     effectiveCreditNext: nextCreditDue,

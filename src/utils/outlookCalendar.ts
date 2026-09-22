@@ -24,6 +24,7 @@ export interface OutlookSnapshot {
   startDate: string;
   endDate: string;
   tags: Record<string, OutlookTag>;
+  travelTitles?: Record<string, string>;
 }
 
 export interface OutlookAppliedDay {
@@ -53,6 +54,7 @@ export function buildOutlookSnapshot(
     throw new Error('日历同步日期无效');
   }
   const tags: Record<string, OutlookTag> = {};
+  const titlesByDay: Record<string, Set<string>> = {};
   const homeTitles = new Set(rules.homeTitles.map((title) => title.trim()));
   const ignoredTitles = new Set(rules.ignoredPlayTitles.map((title) => title.trim()));
   const priority = { intern: 1, home: 2, travel: 3 };
@@ -70,9 +72,20 @@ export function buildOutlookSnapshot(
     const end = event.endDate < endDate ? event.endDate : endDate;
     for (let day = start; day < end; day = nextCalendarDate(day)) {
       if (!tags[day] || priority[tag] > priority[tags[day]]) tags[day] = tag;
+      if (tag === 'travel' && title) (titlesByDay[day] ??= new Set()).add(title);
     }
   }
-  return { startDate, endDate, tags };
+  const travelTitles = Object.fromEntries(Object.entries(titlesByDay).map(([day, titles]) => [day, [...titles].sort().join('、')]));
+  return { startDate, endDate, tags, travelTitles };
+}
+
+export function normalizeOutlookTravelTitles(input: unknown): Record<string, string> {
+  if (!input || typeof input !== 'object') return {};
+  return Object.fromEntries(Object.entries(input).filter(([day, title]) => isCalendarDate(day) && typeof title === 'string' && title.trim()).map(([day, title]) => [day, (title as string).trim()]));
+}
+
+export function getTripDisplayTitle(billTag: string | undefined, dates: string[], travelTitles: Record<string, string>): string {
+  return billTag?.trim() || [...new Set(dates.map((day) => travelTitles[day]).filter(Boolean))].join('、');
 }
 
 export function reconcileOutlookSnapshot(

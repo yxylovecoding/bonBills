@@ -13,6 +13,7 @@ import { useExpenseScopeOverrideStore, resolveExpenseScope, subcategoryKey, type
 import { useTripStore } from '../stores/tripStore';
 import { detectAllTrips, detectTrips, detectTripGroups, extractCandidateTags, getActiveTripTagsExcept, sumBillsByTag, flattenExpenseItems, isDailyTripTagFormat, tagYearMonthPrefix } from '../utils/trips';
 import type { TripGroup } from '../utils/trips';
+import { getTripDisplayTitle } from '../utils/outlookCalendar';
 import AmountInput from '../components/AmountInput';
 import InvestInstrumentPicker from '../components/InvestInstrumentPicker';
 import FinanceImportPreviewDialog from '../components/FinanceImportPreviewDialog';
@@ -5136,6 +5137,7 @@ function TripsSection({
   onToggleFilterPanel: (startDate: string) => void;
 }) {
   const flatItems = useMemo(() => flattenExpenseItems(allExpenseItems), [allExpenseItems]);
+  const outlookTravelTitles = useCalendarStore((state) => state.outlookTravelTitles);
   if (groups.length === 0) return null;
   return (
     <Card title="本月出游" subtitle="若连续『游』其实是两次，点 ─ 切开">
@@ -5222,7 +5224,7 @@ function TripsSection({
                     }}
                     style={{ width: '100%', padding: '6px 8px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', fontSize: 13, color: '#202124', cursor: 'pointer' }}
                   >
-                    <option value="">未选择</option>
+                    <option value="">{getTripDisplayTitle(undefined, t.dates, outlookTravelTitles) || '未选择'}</option>
                     {optionTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
                   </select>
                   {summary && (

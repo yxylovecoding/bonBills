@@ -44,10 +44,10 @@ describe('Outlook 连接接口', () => {
     expect((await call('POST', { startDate: '2026-02-30', endDate: '2026-03-01' })).status).toBe(400);
     expect(fetch).not.toHaveBeenCalled();
   });
-  it('预览不保存；连接后仅返回状态和日期，不暴露链接', async () => {
+  it('预览不保存；返回日程标题但不暴露订阅链接', async () => {
     const preview = await call('POST', { ...input, action: 'preview' });
     expect(preview.status).toBe(200); expect(data.size).toBe(0);
-    expect(preview.body.snapshot).toEqual({ ...range, tags: { '2026-09-22': 'travel', '2026-09-23': 'travel' } });
+    expect(preview.body.snapshot).toEqual({ ...range, tags: { '2026-09-22': 'travel', '2026-09-23': 'travel' }, travelTitles: { '2026-09-22': '出游', '2026-09-23': '出游' } });
     const connected = await call('PUT', input);
     expect(connected.body.connected).toBe(true);
     expect(JSON.stringify(data.get(key))).not.toContain('https://');
