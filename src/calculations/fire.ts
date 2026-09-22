@@ -1,6 +1,6 @@
 import type { AppConfig, CurrentStats } from '../models/types';
 import {
-  estimateGrossAnnualIncomeForResources,
+  calculateAnnualComprehensiveTax,
   HANGZHOU_DEFAULT_HOUSING_FUND_RATE,
   HANGZHOU_EMPLOYEE_SOCIAL_INSURANCE_RATE,
   HANGZHOU_HOUSING_FUND_MONTHLY_BASE_MAX,
@@ -11,6 +11,7 @@ import {
 
 const DEFAULT_INVEST_ANNUAL_GROWTH_RATE = 0.04;
 const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
+const SALARY_ANNUAL_GROWTH_RATE = 0.1;
 
 export function getAge(birthDate: string, now = new Date()): number {
   const birth = new Date(birthDate);
@@ -32,11 +33,15 @@ export interface FireResult {
   targetYears: number;
   retireYearsLeft: number;
   investAnnualGrowthRate: number;
+  salaryAnnualGrowthRate: number;
   projectedCurrentInvest: number;
   projectedInvestmentGrowth: number;
   monthlyNeeded: number;
   monthlySurplus: number;
   annualEssentialExpense: number;
+  firstYearAnnualEssentialExpense: number;
+  firstYearAnnualSavings: number;
+  /** 用于跨模式比较的等额年储蓄需求。 */
   requiredAnnualSavings: number;
   requiredAnnualSavingsBeforeTalentSubsidy: number;
   postEssentialSavingsRate: number;
@@ -44,6 +49,8 @@ export interface FireResult {
   requiredAnnualWishAllocation: number;
   requiredAnnualConsumptionAllocation: number;
   requiredAnnualNetIncome: number;
+  /** 逐年涨薪后的可用收入，按投资终值权重折成等额年收入。 */
+  equivalentAnnualNetIncome: number;
   requiredAnnualSalaryNetIncome: number;
   requiredAnnualGrossIncome: number;
   requiredAnnualTax: number;
@@ -100,6 +107,7 @@ function calcEssentialExpenses(
   let elapsedYears = 0;
   let futureValue = 0;
   let currentAnnualExpense = fallback;
+  const periods: { startYear: number; endYear: number; annualExpense: number }[] = [];
   for (const stage of stages ?? []) {
     const endDate = stage.endDate ? new Date(`${stage.endDate}T00:00:00`) : null;
     if (endDate && Number.isNaN(endDate.getTime())) continue;
@@ -113,11 +121,13 @@ function calcEssentialExpenses(
     const factor = calcFutureSavingsFactor(annualGrowthRate, targetYears - elapsedYears)
       - calcFutureSavingsFactor(annualGrowthRate, targetYears - endYears);
     futureValue += annualExpense * factor;
+    periods.push({ startYear: elapsedYears, endYear: endYears, annualExpense });
     elapsedYears = endYears;
     if (elapsedYears >= targetYears) break;
   }
   futureValue += fallback * calcFutureSavingsFactor(annualGrowthRate, targetYears - elapsedYears);
-  return { annualExpense: futureValue / totalFactor, currentAnnualExpense };
+  if (elapsedYears < targetYears) periods.push({ startYear: elapsedYears, endYear: targetYears, annualExpense: fallback });
+  return { annualExpense: futureValue / totalFactor, currentAnnualExpense, periods };
 }
 
 const HANGZHOU_ANNUAL_RENT_TAX_DEDUCTION = 1500 * 12;
@@ -231,7 +241,6 @@ export function calcFire(
     ? remainingTargetBeforeTalentSubsidy / savingsFutureValueFactor
     : remainingTargetBeforeTalentSubsidy / targetYears;
   const requiredAnnualSavings = savingsFutureValueFactor > 0 ? remainingTarget / savingsFutureValueFactor : remainingTarget / targetYears;
-  const monthlyNeeded = requiredAnnualSavings / 12;
   const configuredAnnualEssentialExpense = options?.annualEssentialExpense;
   const fallbackAnnualExpense = typeof configuredAnnualEssentialExpense === 'number'
     && Number.isFinite(configuredAnnualEssentialExpense)
@@ -239,6 +248,9 @@ export function calcFire(
     : annualExpense;
   const essentialExpenses = calcEssentialExpenses(fallbackAnnualExpense, options?.essentialExpenseStages, now, targetYears, investAnnualGrowthRate);
   const annualEssentialExpense = essentialExpenses.annualExpense;
+  const firstYearAnnualEssentialExpense = calcEssentialExpenses(
+    fallbackAnnualExpense, options?.essentialExpenseStages, now, Math.min(targetYears, 1), investAnnualGrowthRate,
+  ).annualExpense;
   const monthlySurplus = stats.monthlyIncomeAvg - essentialExpenses.currentAnnualExpense / 12;
   const configuredSavingsRate = options?.postEssentialSavingsRate ?? 1;
   const postEssentialSavingsRate = Number.isFinite(configuredSavingsRate)
@@ -248,13 +260,6 @@ export function calcFire(
   const wishShare = Number.isFinite(configuredWishShare)
     ? Math.min(Math.max(configuredWishShare, 0), 1)
     : 0.8;
-  // “分配”模式先覆盖刚需，再按比例分配剩余收入。为了仍能存下达标所需金额，
-  // 反推覆盖刚需后的总收入，并将非储蓄部分拆给消费/心愿。
-  const requiredAnnualPostEssentialIncome = requiredAnnualSavings / postEssentialSavingsRate;
-  const requiredAnnualFlexibleSpending = Math.max(requiredAnnualPostEssentialIncome - requiredAnnualSavings, 0);
-  const requiredAnnualWishAllocation = requiredAnnualFlexibleSpending * wishShare;
-  const requiredAnnualConsumptionAllocation = requiredAnnualFlexibleSpending - requiredAnnualWishAllocation;
-  const requiredAnnualNetIncome = annualEssentialExpense + requiredAnnualPostEssentialIncome;
   const housingFundRate = typeof config.fireHousingFundRate === 'number'
     && Number.isFinite(config.fireHousingFundRate)
     ? Math.min(Math.max(config.fireHousingFundRate, 0.05), 0.12)
@@ -278,11 +283,51 @@ export function calcFire(
     && annualRentExpense > 0
     ? Math.min(annualRentExpense, housingFundAmount * 2)
     : 0;
-  const requiredIncomeTax = estimateGrossAnnualIncomeForResources(
-    requiredAnnualNetIncome,
-    contributionPolicy,
-    (result) => housingFundRentCredit(result.housingFundAmount),
-  );
+  // 首年工资不涨薪；每满一年增长 10%，逐年重新计算个税、缴存上限与抵租金额。
+  const salaryPeriods = Array.from({ length: Math.ceil(targetYears) }, (_, year) => {
+    const endYear = Math.min(year + 1, targetYears);
+    return {
+      growthFactor: Math.pow(1 + SALARY_ANNUAL_GROWTH_RATE, year),
+      futureValueFactor: calcFutureSavingsFactor(investAnnualGrowthRate, targetYears - year)
+        - calcFutureSavingsFactor(investAnnualGrowthRate, targetYears - endYear),
+      minimumResources: Math.max(0, ...essentialExpenses.periods
+        .filter((period) => period.startYear < endYear && period.endYear > year)
+        .map((period) => period.annualExpense)),
+    };
+  });
+  const projectSalary = (firstYearGross: number) => {
+    let futureValue = 0;
+    let coversExpenses = true;
+    for (const period of salaryPeriods) {
+      const tax = calculateAnnualComprehensiveTax(firstYearGross * period.growthFactor, contributionPolicy);
+      const resources = tax.netAnnualIncome + housingFundRentCredit(tax.housingFundAmount);
+      futureValue += resources * period.futureValueFactor;
+      if (resources < period.minimumResources) coversExpenses = false;
+    }
+    return { futureValue, coversExpenses };
+  };
+  const requiredResourcesFutureValue = annualEssentialExpense * savingsFutureValueFactor
+    + remainingTarget / postEssentialSavingsRate;
+  const meetsTarget = (firstYearGross: number) => {
+    const projection = projectSalary(firstYearGross);
+    return projection.coversExpenses && projection.futureValue >= requiredResourcesFutureValue;
+  };
+  let firstYearGross = 0;
+  if (!meetsTarget(0)) {
+    let low = 0;
+    let high = Math.max(annualEssentialExpense + requiredAnnualSavings / postEssentialSavingsRate, 1);
+    while (!meetsTarget(high)) high *= 2;
+    for (let i = 0; i < 80; i++) {
+      const mid = (low + high) / 2;
+      if (meetsTarget(mid)) high = mid;
+      else low = mid;
+    }
+    firstYearGross = Math.ceil(high * 100) / 100;
+    // 五险一金与税额分别舍入，向上取整后再确认最终报价仍可达标。
+    while (!meetsTarget(firstYearGross)) firstYearGross = Math.round(firstYearGross * 100 + 1) / 100;
+  }
+  const requiredIncomeTax = calculateAnnualComprehensiveTax(firstYearGross, contributionPolicy);
+  const equivalentAnnualNetIncome = projectSalary(firstYearGross).futureValue / savingsFutureValueFactor;
   const requiredAnnualGrossIncome = requiredIncomeTax.grossAnnualIncome;
   const requiredAnnualTax = requiredIncomeTax.taxAmount;
   const requiredAnnualSocialInsurance = requiredIncomeTax.socialInsuranceAmount;
@@ -290,6 +335,13 @@ export function calcFire(
   const requiredAnnualSocialContribution = requiredIncomeTax.socialContributionAmount;
   const requiredAnnualHousingFundRentWithdrawal = housingFundRentCredit(requiredAnnualHousingFund);
   const requiredAnnualSalaryNetIncome = requiredIncomeTax.netAnnualIncome;
+  const requiredAnnualNetIncome = requiredAnnualSalaryNetIncome + requiredAnnualHousingFundRentWithdrawal;
+  const firstYearPostEssentialIncome = Math.max(requiredAnnualNetIncome - firstYearAnnualEssentialExpense, 0);
+  const firstYearAnnualSavings = firstYearPostEssentialIncome * postEssentialSavingsRate;
+  const monthlyNeeded = firstYearAnnualSavings / 12;
+  const requiredAnnualFlexibleSpending = firstYearPostEssentialIncome - firstYearAnnualSavings;
+  const requiredAnnualWishAllocation = requiredAnnualFlexibleSpending * wishShare;
+  const requiredAnnualConsumptionAllocation = requiredAnnualFlexibleSpending - requiredAnnualWishAllocation;
   const requiredMonthlyNetIncome = requiredAnnualSalaryNetIncome / 12;
   const requiredMarginalTaxRate = requiredIncomeTax.marginalTaxRate;
 
@@ -312,11 +364,14 @@ export function calcFire(
     targetYears,
     retireYearsLeft,
     investAnnualGrowthRate,
+    salaryAnnualGrowthRate: SALARY_ANNUAL_GROWTH_RATE,
     projectedCurrentInvest,
     projectedInvestmentGrowth,
     monthlyNeeded,
     monthlySurplus,
     annualEssentialExpense,
+    firstYearAnnualEssentialExpense,
+    firstYearAnnualSavings,
     requiredAnnualSavings,
     requiredAnnualSavingsBeforeTalentSubsidy,
     postEssentialSavingsRate,
@@ -324,6 +379,7 @@ export function calcFire(
     requiredAnnualWishAllocation,
     requiredAnnualConsumptionAllocation,
     requiredAnnualNetIncome,
+    equivalentAnnualNetIncome,
     requiredAnnualSalaryNetIncome,
     requiredAnnualGrossIncome,
     requiredAnnualTax,

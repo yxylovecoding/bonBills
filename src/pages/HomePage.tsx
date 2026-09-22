@@ -44,7 +44,7 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '任务名称同步';
+const RELEASE_NOTE = '计入年薪普调';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -562,9 +562,9 @@ export default function HomePage() {
     () => calcFire(fireConfig, fireLivingStats, totalInvest, { essentialExpenseStages: preFireLivingStages }),
     [fireConfig, fireLivingStats, preFireLivingStages, totalInvest],
   );
-  const preFireConsumptionAnnualExpense = Math.max(fireLiving.annualEssentialExpense - fire.annualEssentialExpense, 0);
-  const fireLivingSalaryMatchRate = fireLiving.requiredAnnualSavings + preFireConsumptionAnnualExpense > 0
-    ? fireLiving.requiredAnnualSavings / (fireLiving.requiredAnnualSavings + preFireConsumptionAnnualExpense)
+  const fireLivingPostEssentialIncome = Math.max(fireLiving.equivalentAnnualNetIncome - fire.annualEssentialExpense, 0);
+  const fireLivingSalaryMatchRate = fireLivingPostEssentialIncome > 0
+    ? fireLiving.requiredAnnualSavings / fireLivingPostEssentialIncome
     : 1;
   const fireLivingSalaryMatchPercent = Math.round(fireLivingSalaryMatchRate * 100);
   const fireLivingSalaryMatchPosition = (fireLivingSalaryMatchRate - MIN_FIRE_SAVINGS_ALLOCATION_RATE)
@@ -1088,7 +1088,7 @@ export default function HomePage() {
               />
               {fireLivingSalaryMatchVisible && (
                 <div
-                  title={`与 FIRE-生活最低税前年薪 ${fmt万(fireLiving.requiredAnnualGrossIncome)} 相同`}
+                  title={`与 FIRE-生活首年最低税前年薪 ${fmt万(fireLiving.requiredAnnualGrossIncome)} 相同`}
                   style={{
                     position: 'absolute',
                     left: `calc(8px + ${(fireLivingSalaryMatchPosition * 100).toFixed(2)}% - ${(fireLivingSalaryMatchPosition * 16).toFixed(2)}px)`,
@@ -1119,10 +1119,10 @@ export default function HomePage() {
         <div onClick={() => setFireExpanded((v) => !v)} style={{ cursor: 'pointer', userSelect: 'none' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap' }}>
             <div style={{ minWidth: 180, flex: '1 1 180px' }}>
-              <div style={{ fontSize: 12, color: C.sub, marginBottom: 3 }}>最低税前年薪</div>
+              <div style={{ fontSize: 12, color: C.sub, marginBottom: 3 }}>首年最低税前年薪</div>
               <div style={{ fontSize: 32, lineHeight: 1.05, fontWeight: 800, color: C.red, fontVariantNumeric: 'tabular-nums' }}>{fmt万(fire.requiredAnnualGrossIncome)}</div>
               <div style={{ marginTop: 5, fontSize: 12, color: C.sub }}>
-                {fireTargetYearLabel}达标 · 工资到手 {fmt万(fire.requiredAnnualSalaryNetIncome)}
+                {fireTargetYearLabel}达标 · 年涨薪 {(fire.salaryAnnualGrowthRate * 100).toFixed(0)}% · 首年到手 {fmt万(fire.requiredAnnualSalaryNetIncome)}
                 {fireMode === 'allocation' && <span style={{ color: C.purple }}> · 消费/心愿 {fmt万(fire.requiredAnnualFlexibleSpending)}</span>}
                 {fire.requiredAnnualHousingFundRentWithdrawal > 0 && <span style={{ color: C.green }}> · 公积金抵租 {fmt万(fire.requiredAnnualHousingFundRentWithdrawal)}</span>}
                 {fire.majorWishTotal > 0 && <span style={{ color: C.purple }}> · 含愿望 {fmtW(fire.majorWishTotal)}</span>}
@@ -1133,7 +1133,7 @@ export default function HomePage() {
               {[
                 { label: '目标年数', value: `${fmt年(fire.targetYears)}年`, color: '#202124' },
                 { label: '完成进度', value: fireProgressLabel, color: C.blue },
-                { label: '月需存入', value: fmt万(fire.monthlyNeeded), color: C.orange },
+                { label: '首年月存入', value: fmt万(fire.monthlyNeeded), color: C.orange },
               ].map((item) => (
                 <div key={item.label} style={{ backgroundColor: '#f8f9fa', border: '1px solid #f1f3f4', borderRadius: 10, padding: '8px 10px', minWidth: 0 }}>
                   <div style={{ fontSize: 11, color: C.sub, marginBottom: 3, whiteSpace: 'nowrap' }}>{item.label}</div>
@@ -1321,11 +1321,11 @@ export default function HomePage() {
               <StatRow label="目标年数" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt年(fire.targetYears)}年 · 最晚{fmt年(fire.retireYearsLeft)}年</span>} />
             </FireDetailGroup>
             <FireDetailGroup title="收入需求">
-              <StatRow label="月需存入" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(fire.monthlyNeeded)}</span>} />
+              <StatRow label="首年月存入" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(fire.monthlyNeeded)}</span>} />
               <StatRow label="估算月结余" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: fire.monthlySurplus >= 0 ? C.green : C.red }}>{fmt万(fire.monthlySurplus)}</span>} />
               {fireMode === 'allocation' && <StatRow label="活后分配" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.purple }}>存 {Math.round(fire.postEssentialSavingsRate * 100)}% · 消费/心愿 {Math.round((1 - fire.postEssentialSavingsRate) * 100)}%</span>} />}
-              <StatRow label={fireMode === 'allocation' ? '活+分配所需' : '年支出+储蓄'} value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(fire.requiredAnnualNetIncome)}</span>} />
-              <StatRow label="预计工资到手" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(fire.requiredAnnualSalaryNetIncome)}</span>} />
+              <StatRow label={fireMode === 'allocation' ? '首年活+分配' : '首年支出+储蓄'} value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(fire.requiredAnnualNetIncome)}</span>} />
+              <StatRow label="首年工资到手" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fmt万(fire.requiredAnnualSalaryNetIncome)}</span>} />
               {fire.talentSubsidyFutureValue > 0 && <StatRow label="人才补贴" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.green }}>合计 {fmt万(fire.talentSubsidyNominalTotal)} · 折到目标 {fmt万(fire.talentSubsidyFutureValue)}</span>} />}
               {fire.graduateLifeSubsidyTotal > 0 && <StatRow indent label="硕士生活补贴" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.green }}>{fmt万(fire.graduateLifeSubsidyTotal)}</span>} />}
               {fire.graduateRentSubsidyTotal > 0 && <StatRow indent label="应届租房补贴" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.green }}>{fmt万(fire.graduateRentSubsidyTotal)}</span>} />}
