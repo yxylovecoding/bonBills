@@ -22,22 +22,21 @@ function SalaryMatchMarker({ match, center, wrapped }: { match: FireSalaryMatch;
   const point = `calc(8px + ${position * 100}% - ${position * 16}px)`;
   const percentage = valid ? `${Math.round(rate * 100)}%` : '—';
   const displayPercentage = valid && rate >= 10 ? '>999%' : percentage;
-  const rangeStatus = valid && !inRange ? (rate > 1 ? ' ↑' : ' ↓') : '';
-  const label = `${match.name}同薪 ${percentage}${rangeStatus}`;
+  const label = `${match.name}同薪 ${percentage}`;
   const title = valid
     ? `${label} · 首年税前年薪 ${(match.annualGrossIncome / 10000).toFixed(2)}万${inRange ? '' : ' · 超出滑条范围'}`
     : `${match.name}同薪暂不可用`;
 
   return (
     <>
-      {inRange && <span aria-hidden="true" style={{ position: 'absolute', left: point, top: 13, width: 2, height: 5, transform: 'translateX(-50%)', backgroundColor: PURPLE, borderRadius: 999, pointerEvents: 'none' }} />}
+      {valid && <span aria-hidden="true" style={{ position: 'absolute', left: point, top: 13, width: 2, height: 5, transform: 'translateX(-50%)', backgroundColor: PURPLE, borderRadius: 999, pointerEvents: 'none' }} />}
       <span
         aria-label={label}
         title={title}
         style={{ position: 'absolute', left: center, top: 18, transform: 'translateX(-50%)', width: wrapped ? 42 : 64, display: 'flex', flexDirection: wrapped ? 'column' : 'row', alignItems: 'center', justifyContent: 'center', color: PURPLE, fontSize: 10, fontWeight: 700, lineHeight: '14px', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}
       >
         <span aria-hidden="true">{match.emoji}</span>
-        <span aria-hidden="true">{displayPercentage}{rangeStatus}</span>
+        <span aria-hidden="true">{displayPercentage}</span>
       </span>
     </>
   );
