@@ -1,4 +1,5 @@
 import type { AppConfig, CurrentStats } from '../models/types';
+import { getFireFixedExpenses } from './fireScenario';
 import {
   getFireEmploymentStartYears,
   getFullHousingFundWithdrawalEndYears,
@@ -168,9 +169,7 @@ function getGraduateLifeSubsidy(config: AppConfig): number {
 }
 
 function getAnnualRentExpense(config: AppConfig): number {
-  return (config.futureFireExpenses ?? [])
-    .filter((item) => item.isActive && /\u79df\u623f|\u623f\u79df|\u4f4f\u623f\u79df\u91d1/.test(item.name))
-    .reduce((sum, item) => sum + Math.max(Number.isFinite(item.monthlyAmount) ? item.monthlyAmount : 0, 0) * 12, 0);
+  return getFireFixedExpenses(config.futureFireExpenses ?? []).rent * 12;
 }
 
 function calcTalentSubsidies(

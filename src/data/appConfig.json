@@ -4,7 +4,7 @@
   "safeWithdrawRate": 0.04,
   "investAnnualGrowthRate": 0.04,
   "fireHousingFundRate": 0.12,
-  "fireExpenseTagKind": "school",
+  "fireExpenseTagKind": "independent",
   "fireSavingsAllocationRate": 0.5,
   "fireTalentDegree": "master",
   "fireProfileSource": "boncv",
