@@ -10,36 +10,12 @@ export interface FireSalaryMatch {
   annualGrossIncome: number;
 }
 
-function markerPosition(rate: number | null) {
-  return rate !== null && Number.isFinite(rate) ? Math.min(Math.max((rate - MIN_RATE) / (1 - MIN_RATE), 0), 1) : 0.5;
+function isInRange(match: FireSalaryMatch) {
+  return match.rate !== null && Number.isFinite(match.rate) && match.rate >= MIN_RATE && match.rate <= 1;
 }
 
-function SalaryMatchMarker({ match, center, wrapped }: { match: FireSalaryMatch; center: number; wrapped: boolean }) {
-  const rate = match.rate;
-  const valid = rate !== null && Number.isFinite(rate);
-  const inRange = valid && rate >= MIN_RATE && rate <= 1;
-  const position = markerPosition(rate);
-  const point = `calc(8px + ${position * 100}% - ${position * 16}px)`;
-  const percentage = valid ? `${Math.round(rate * 100)}%` : '—';
-  const displayPercentage = valid && rate >= 10 ? '>999%' : percentage;
-  const label = `${match.name}同薪 ${percentage}`;
-  const title = valid
-    ? `${label} · 首年税前年薪 ${(match.annualGrossIncome / 10000).toFixed(2)}万${inRange ? '' : ' · 超出滑条范围'}`
-    : `${match.name}同薪暂不可用`;
-
-  return (
-    <>
-      {valid && <span aria-hidden="true" style={{ position: 'absolute', left: point, top: 13, width: 2, height: 5, transform: 'translateX(-50%)', backgroundColor: PURPLE, borderRadius: 999, pointerEvents: 'none' }} />}
-      <span
-        aria-label={label}
-        title={title}
-        style={{ position: 'absolute', left: center, top: 18, transform: 'translateX(-50%)', width: wrapped ? 42 : 64, display: 'flex', flexDirection: wrapped ? 'column' : 'row', alignItems: 'center', justifyContent: 'center', color: PURPLE, fontSize: 10, fontWeight: 700, lineHeight: '14px', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}
-      >
-        <span aria-hidden="true">{match.emoji}</span>
-        <span aria-hidden="true">{displayPercentage}</span>
-      </span>
-    </>
-  );
+function matchTitle(match: FireSalaryMatch) {
+  return `${match.name}同薪 ${Math.round(match.rate! * 100)}% · 首年税前年薪 ${(match.annualGrossIncome / 10000).toFixed(2)}万`;
 }
 
 export default function FireAllocationSlider({ rate, onChange, lifeMatch, livingMatch }: {
@@ -59,41 +35,61 @@ export default function FireAllocationSlider({ rate, onChange, lifeMatch, living
     observer.observe(track);
     return () => observer.disconnect();
   }, []);
-  const point = (match: FireSalaryMatch) => 8 + markerPosition(match.rate) * (trackWidth - 16);
-  const boundedCenter = (center: number, halfWidth: number) => Math.min(Math.max(center, halfWidth), trackWidth - halfWidth);
-  const lifeCenter = boundedCenter(point(lifeMatch), 32);
-  const livingCenter = boundedCenter(point(livingMatch), 32);
-  const wrapped = Math.abs(lifeCenter - livingCenter) < 70;
-  let centers = [lifeCenter, livingCenter];
-  if (wrapped) {
-    centers = [boundedCenter(point(lifeMatch), 21), boundedCenter(point(livingMatch), 21)];
-    if (Math.abs(centers[0] - centers[1]) < 48) {
-      const leftIndex = centers[0] <= centers[1] ? 0 : 1;
-      const middle = (centers[0] + centers[1]) / 2;
-      const left = Math.min(Math.max(middle - 24, 21), trackWidth - 69);
-      centers[leftIndex] = left;
-      centers[1 - leftIndex] = left + 48;
-    }
-  }
+  const matches = [lifeMatch, livingMatch];
+  const visible = matches.filter(isInRange);
+  const unavailable = matches.filter((match) => !isInRange(match));
+  const point = (match: FireSalaryMatch) => 8 + (match.rate! - MIN_RATE) / (1 - MIN_RATE) * (trackWidth - 16);
+  const distance = visible.length === 2 ? Math.abs(point(visible[0]) - point(visible[1])) : Infinity;
+  const wrapped = distance < 44;
+  const samePercent = visible.length === 2 && Math.round(visible[0].rate! * 100) === Math.round(visible[1].rate! * 100);
+  // 极近的刻度共用标签组；短线始终留在实际比例位置，不为文字避让而移动。
+  const groups = distance < 28 ? [visible] : visible.map((match) => [match]);
+
   return (
     <div
       onClick={(event) => event.stopPropagation()}
       style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14, padding: '9px 11px', borderRadius: 10, backgroundColor: '#f8f5ff', border: '1px solid #ede7f6' }}
     >
       <span style={{ fontSize: 12, fontWeight: 700, color: PURPLE, whiteSpace: 'nowrap' }}>活后分配</span>
-      <div ref={trackRef} style={{ position: 'relative', flex: '1 1 110px', minWidth: 110, height: wrapped ? 47 : 32 }}>
-        <input
-          type="range"
-          min="10"
-          max="100"
-          step="10"
-          value={Math.round(rate * 100)}
-          onChange={(event) => onChange(event.target.value)}
-          aria-label="覆盖活后收入的存入比例"
-          style={{ display: 'block', width: '100%', height: 16, margin: 0, accentColor: PURPLE, cursor: 'pointer' }}
-        />
-        <SalaryMatchMarker match={lifeMatch} center={centers[0]} wrapped={wrapped} />
-        <SalaryMatchMarker match={livingMatch} center={centers[1]} wrapped={wrapped} />
+      <div style={{ flex: '1 1 110px', minWidth: 110, padding: '0 20px', boxSizing: 'border-box' }}>
+        <div ref={trackRef} style={{ position: 'relative', height: wrapped ? 47 : 32 }}>
+          <input
+            type="range"
+            min="10"
+            max="100"
+            step="10"
+            value={Math.round(rate * 100)}
+            onChange={(event) => onChange(event.target.value)}
+            aria-label="覆盖活后收入的存入比例"
+            style={{ display: 'block', width: '100%', height: 16, margin: 0, accentColor: PURPLE, cursor: 'pointer' }}
+          />
+          {visible.map((match) => <span key={match.name} aria-hidden="true" style={{ position: 'absolute', left: point(match), top: 13, width: 2, height: 5, transform: 'translateX(-50%)', backgroundColor: PURPLE, borderRadius: 999, pointerEvents: 'none' }} />)}
+          {groups.map((group) => (
+            <span
+              key={group.map((match) => match.name).join('-')}
+              aria-label={group.map((match) => `${match.name}同薪 ${Math.round(match.rate! * 100)}%`).join('，')}
+              title={group.map(matchTitle).join('\n')}
+              style={{ position: 'absolute', left: group.reduce((sum, match) => sum + point(match), 0) / group.length, top: 18, transform: 'translateX(-50%)', display: 'flex', flexDirection: samePercent ? 'column' : 'row', gap: samePercent ? 0 : 6, alignItems: 'center', color: PURPLE, fontSize: 10, fontWeight: 700, lineHeight: '14px', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}
+            >
+              {samePercent ? <>
+                <span aria-hidden="true">{group.map((match) => match.emoji).join(' ')}</span>
+                <span aria-hidden="true">{Math.round(group[0].rate! * 100)}%</span>
+              </> : group.map((match) => (
+                <span key={match.name} aria-hidden="true" style={{ display: 'flex', flexDirection: wrapped ? 'column' : 'row', alignItems: 'center' }}>
+                  <span>{match.emoji}</span>
+                  <span>{Math.round(match.rate! * 100)}%</span>
+                </span>
+              ))}
+            </span>
+          ))}
+        </div>
+        {unavailable.length > 0 && <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, fontSize: 10, color: '#5f6368', lineHeight: '14px', whiteSpace: 'nowrap' }}>
+          {unavailable.map((match) => (
+            <span key={match.name} aria-label={`${match.name}同薪不可达`} title={`${match.name}同薪不在10%–100%的分配范围内`}>
+              {match.emoji}不可达
+            </span>
+          ))}
+        </div>}
       </div>
       <span style={{ fontSize: 12, color: '#5f6368', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
         存 <strong style={{ color: '#1a73e8' }}>{Math.round(rate * 100)}%</strong>

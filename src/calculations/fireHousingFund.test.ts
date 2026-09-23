@@ -199,10 +199,24 @@ describe('公积金资格日期', () => {
 });
 
 describe('FIRE 双同薪比例', () => {
+  it.each([false, true])('在读且公积金提取为%s时，活所需资产和年薪都不高于生活', (enabled) => {
+    const studentConfig = { ...config, fireGraduationDate: '2029-01-01', fireHousingFundRentWithdrawalEnabled: enabled };
+    const life = calcFire(studentConfig, stats, 10000, {
+      now, essentialExpenseStages: [{ endDate: '2029-01-01', annualExpense: 12000 }, { annualExpense: 24000 }],
+    });
+    const living = calcFire(studentConfig, { ...stats, totalExpenseAvg: 3000 }, 10000, {
+      now, essentialExpenseStages: [{ endDate: '2029-01-01', annualExpense: 18000 }, { annualExpense: 36000 }],
+    });
+    expect(life.fireTarget).toBeLessThan(living.fireTarget);
+    expect(life.requiredAnnualGrossIncome).toBeLessThan(living.requiredAnnualGrossIncome);
+  });
+
   it('按分配模式的目标比较活和生活年薪，活同薪超过100%时保留真实比例', () => {
     const life = calcFire(config, stats, 0, { now, annualEssentialExpense: 24000 });
     const livingStats = { ...stats, totalExpenseAvg: 3000 };
     const living = calcFire(config, livingStats, 0, { now, annualEssentialExpense: 36000 });
+    expect(life.requiredAnnualGrossIncome).toBeLessThan(living.requiredAnnualGrossIncome);
+    expect(life.fireTarget).toBeLessThan(living.fireTarget);
     const comparison = calcFire(config, livingStats, 0, {
       now, annualEssentialExpense: 24000,
       salaryComparisonGrossIncomes: [life.requiredAnnualGrossIncome, living.requiredAnnualGrossIncome],
