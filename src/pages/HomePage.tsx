@@ -41,7 +41,7 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '同薪刻度对齐';
+const RELEASE_NOTE = '生活水平标注';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -542,10 +542,6 @@ export default function HomePage() {
     : futureLifeAnnualExpense + futureConsumptionAnnualExpense;
   const fireExpenseAvg = fireAnnualExpense / 12;
   const fireStats = useMemo(() => ({ ...stats, totalExpenseAvg: fireExpenseAvg }), [stats, fireExpenseAvg]);
-  const fireLife = useMemo(
-    () => calcFire(fireConfig, { ...stats, totalExpenseAvg: futureLifeAnnualExpense / 12 }, totalInvest, { essentialExpenseStages: preFireLifeStages }),
-    [fireConfig, stats, futureLifeAnnualExpense, preFireLifeStages, totalInvest],
-  );
   const fireLivingStats = useMemo(
     () => ({ ...stats, totalExpenseAvg: (futureLifeAnnualExpense + futureConsumptionAnnualExpense) / 12 }),
     [stats, futureConsumptionAnnualExpense, futureLifeAnnualExpense],
@@ -563,10 +559,10 @@ export default function HomePage() {
       postEssentialSavingsRate: fireMode === 'allocation' ? fireSavingsAllocationRate : 1,
       wishShare: 0.8,
       salaryComparisonGrossIncomes: fireMode === 'allocation'
-        ? [fireLife.requiredAnnualGrossIncome, fireLiving.requiredAnnualGrossIncome]
+        ? [fireLiving.requiredAnnualGrossIncome]
         : undefined,
     },
-  ), [fireConfig, fireMode, fireSavingsAllocationRate, fireStats, preFireStages, totalInvest, fireLife.requiredAnnualGrossIncome, fireLiving.requiredAnnualGrossIncome]);
+  ), [fireConfig, fireMode, fireSavingsAllocationRate, fireStats, preFireStages, totalInvest, fireLiving.requiredAnnualGrossIncome]);
   const expectedAnnualWageIncome = config.fireExpectedAnnualWageIncome ?? HANGZHOU_E_TALENT_WAGE_THRESHOLD;
   const expectsETalent = config.fireExpectedTalentClass !== 'none';
   const eTalentIncomeThresholdMet = expectedAnnualWageIncome >= HANGZHOU_E_TALENT_WAGE_THRESHOLD;
@@ -1069,8 +1065,7 @@ export default function HomePage() {
           <FireAllocationSlider
             rate={fireSavingsAllocationRate}
             onChange={updateFireSavingsAllocationRate}
-            lifeMatch={{ name: '活', emoji: '🛋️', rate: fire.salaryComparisonSavingsRates[0] ?? null, annualGrossIncome: fireLife.requiredAnnualGrossIncome }}
-            livingMatch={{ name: '生活', emoji: '🧳', rate: fire.salaryComparisonSavingsRates[1] ?? null, annualGrossIncome: fireLiving.requiredAnnualGrossIncome }}
+            livingMatch={{ rate: fire.salaryComparisonSavingsRates[0] ?? null, annualGrossIncome: fireLiving.requiredAnnualGrossIncome }}
           />
         )}
         <div onClick={() => setFireExpanded((v) => !v)} style={{ cursor: 'pointer', userSelect: 'none' }}>
