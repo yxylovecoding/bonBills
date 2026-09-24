@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { TagKind } from '../models/types';
-import { normalizeOutlookCalendarState, normalizeOutlookTravelTitles, reconcileOutlookSnapshot, type OutlookAppliedDays, type OutlookConflictPolicy, type OutlookSnapshot } from '../utils/outlookCalendar';
+import { applyOutlookSnapshotToState, normalizeOutlookCalendarState, normalizeOutlookTravelTitles, type OutlookAppliedDays, type OutlookConflictPolicy, type OutlookSnapshot } from '../utils/outlookCalendar';
 
 // tagMap: { "2026-04-11": "school", ... }
 type TagMap = Record<string, TagKind>;
@@ -91,15 +91,8 @@ export const useCalendarStore = create<CalendarStore>()(
       outlookTravelTitles: {},
       manualTagDates: {},
       applyOutlookSnapshot: (snapshot, policy) => set((s) => {
-        const next = reconcileOutlookSnapshot(s.tagMap, s.outlookApplied, s.manualTagDates, snapshot, policy);
-        const outlookTravelTitles = { ...s.outlookTravelTitles };
-        for (const day of Object.keys(outlookTravelTitles)) {
-          if (day >= snapshot.startDate && day < snapshot.endDate) delete outlookTravelTitles[day];
-        }
-        for (const [day, title] of Object.entries(normalizeOutlookTravelTitles(snapshot.travelTitles))) {
-          if (day >= snapshot.startDate && day < snapshot.endDate && snapshot.tags[day] === 'travel') outlookTravelTitles[day] = title;
-        }
-        return JSON.stringify([s.tagMap, s.outlookApplied, s.manualTagDates, s.outlookTravelTitles]) === JSON.stringify([next.tagMap, next.outlookApplied, next.manualTagDates, outlookTravelTitles]) ? s : { ...next, outlookTravelTitles };
+        const next = applyOutlookSnapshotToState({ ...s }, snapshot, policy);
+        return JSON.stringify([s.tagMap, s.outlookApplied, s.manualTagDates, s.outlookTravelTitles]) === JSON.stringify([next.tagMap, next.outlookApplied, next.manualTagDates, next.outlookTravelTitles]) ? s : next;
       }),
       initializedFromRecords: false,
       confirmedExpenses: {},

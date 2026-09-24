@@ -144,3 +144,18 @@ export function normalizeOutlookCalendarState(state: Record<string, unknown>) {
   }
   return { manualTagDates, outlookApplied };
 }
+
+// Shared by the browser and background sync so cancellations and manual overrides agree.
+export function applyOutlookSnapshotToState(state: Record<string, unknown>, snapshot: OutlookSnapshot, policy: OutlookConflictPolicy) {
+  const source = normalizeOutlookCalendarState(state);
+  const tagMap = state.tagMap && typeof state.tagMap === 'object' ? state.tagMap as Record<string, TagKind> : {};
+  const next = reconcileOutlookSnapshot(tagMap, source.outlookApplied, source.manualTagDates, snapshot, policy);
+  const outlookTravelTitles = normalizeOutlookTravelTitles(state.outlookTravelTitles);
+  for (const day of Object.keys(outlookTravelTitles)) {
+    if (day >= snapshot.startDate && day < snapshot.endDate) delete outlookTravelTitles[day];
+  }
+  for (const [day, title] of Object.entries(normalizeOutlookTravelTitles(snapshot.travelTitles))) {
+    if (day >= snapshot.startDate && day < snapshot.endDate && snapshot.tags[day] === 'travel') outlookTravelTitles[day] = title;
+  }
+  return { ...state, ...next, outlookTravelTitles };
+}

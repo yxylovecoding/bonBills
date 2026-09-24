@@ -7,8 +7,13 @@ const { data, authenticated, sameOrigin } = vi.hoisted(() => ({ data: new Map<st
 vi.mock('./_auth.js', () => ({ authOk: authenticated, sameOrigin }));
 vi.mock('@vercel/kv', () => ({ kv: {
   get: async (key: string) => data.get(key) ?? null,
-  set: async (key: string, value: unknown) => { data.set(key, value); return 'OK'; },
-  del: async (key: string) => data.delete(key),
+  set: async (key: string, value: unknown, options?: { nx?: boolean }) => {
+    if (options?.nx && data.has(key)) return null;
+    data.set(key, value); return 'OK';
+  },
+  mset: async (values: Record<string, unknown>) => { for (const [key, value] of Object.entries(values)) data.set(key, value); return 'OK'; },
+  del: async (...keys: string[]) => keys.forEach((key) => data.delete(key)),
+  eval: async (_script: string, [key]: string[], [token]: string[]) => { if (data.get(key) === token) data.delete(key); },
 } }));
 const key = 'outlook:calendar-connection:v1';
 const range = { startDate: '2026-09-01', endDate: '2026-10-01' };
@@ -55,8 +60,10 @@ describe('Outlook 连接接口', () => {
     expect(status.body.connected).toBe(true);
     expect(JSON.stringify(status)).not.toContain(input.playUrl);
     expect(status.headers['Cache-Control']).toContain('no-store');
+    const calendar = data.get('calendar-tags');
     expect((await call('DELETE')).body.connected).toBe(false);
-    expect(data.size).toBe(0);
+    expect(data.size).toBe(1);
+    expect(data.get('calendar-tags')).toEqual(calendar);
   });
   it('读取失败保留已有连接，错误不包含私密订阅地址', async () => {
     await call('PUT', input);

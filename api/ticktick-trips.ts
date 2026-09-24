@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { kv } from '@vercel/kv';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import type { TickTickConnection, TickTickTripSyncState } from './_ticktickTrips.js';
+import { syncOutlookCalendar } from './_outlookSync.js';
 
 const CONNECTION_KEY = 'ticktick:connection:v1';
 const SYNC_STATE_KEY = 'ticktick:trip-sync:v1';
@@ -39,10 +40,20 @@ async function releaseLock(lockId: string) {
   if (current === lockId) await kv.del(SYNC_LOCK_KEY);
 }
 
-async function runSync() {
+async function runSync(refreshOutlook = false) {
   const lockId = await acquireLock();
   if (!lockId) return { busy: true as const };
   try {
+    const today = shanghaiDate();
+    const secret = getSyncSecret();
+    if (refreshOutlook) {
+      try { await syncOutlookCalendar(today, secret); }
+      catch (error) {
+        const state = await kv.get<TickTickTripSyncState>(SYNC_STATE_KEY);
+        await kv.set(SYNC_STATE_KEY, { ...state, instances: state?.instances ?? {}, lastError: error instanceof Error ? error.message : String(error) });
+        throw error;
+      }
+    }
     const {
       buildTripSourcesFromSyncState,
       decryptTickTickToken,
@@ -53,8 +64,8 @@ async function runSync() {
       syncTickTickRoutines,
       TickTickOpenApiClient,
     } = await import('./_ticktickTrips.js');
-    const secret = getSyncSecret();
     const connection = await kv.get<TickTickConnection>(CONNECTION_KEY);
+    if (!connection && refreshOutlook) return { busy: false as const, connected: false as const };
     if (!connection) throw new Error('TickTick 未连接');
     const token = decryptTickTickToken(connection.encryptedToken, secret);
     const api = new TickTickOpenApiClient(token, (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
@@ -68,7 +79,6 @@ async function runSync() {
       ? { ...savedState, instances: savedState.instances ?? {} }
       : { instances: {} };
     try {
-      const today = shanghaiDate();
       const template = await readConnectedTickTickTemplate(api, connection);
       const routineResult = await syncTickTickRoutines({
         api, calendarState, today,
@@ -164,9 +174,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     if (isCron) {
-      const connection = await kv.get<TickTickConnection>(CONNECTION_KEY);
-      if (!connection) return res.status(200).json({ ok: true, connected: false });
-      const result = await runSync();
+      const result = await runSync(true);
       return res.status(result.busy ? 202 : 200).json({ ok: true, ...result });
     }
     if (req.method === 'GET') return res.status(200).json(await status());

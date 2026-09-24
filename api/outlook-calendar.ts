@@ -3,9 +3,7 @@ import { kv } from '@vercel/kv';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { authOk, sameOrigin } from './_auth.js';
 import { decryptOutlookConnection, encryptOutlookConnection, parseOutlookInput, parseOutlookRange, readOutlookSnapshot } from './_outlookCalendar.js';
-
-const CONNECTION_KEY = 'outlook:calendar-connection:v1';
-interface Connection { id: string; encrypted: string }
+import { disconnectOutlookCalendar, OUTLOOK_CONNECTION_KEY as CONNECTION_KEY, outlookSyncError, saveOutlookSnapshot, type OutlookConnection as Connection } from './_outlookSync.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'private, no-store');
@@ -15,7 +13,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const secret = (process.env.SYNC_SECRET || '').trim();
   try {
     if (req.method === 'DELETE') {
-      await kv.del(CONNECTION_KEY);
+      await disconnectOutlookCalendar();
       return res.status(200).json({ connected: false });
     }
     if (req.method === 'GET') {
@@ -33,6 +31,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: '日历同步日期无效' });
     }
     const { startDate, endDate } = parseOutlookRange(body.startDate, body.endDate);
+    const requestedAt = Date.now();
     if (req.method === 'PUT' || body.action === 'preview') {
       let input;
       try { input = parseOutlookInput(body); }
@@ -40,19 +39,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const snapshot = await readOutlookSnapshot(input, startDate, endDate);
       if (body.action === 'preview' && req.method === 'POST') return res.status(200).json({ snapshot, policy: input.policy });
       const connection: Connection = { id: randomUUID(), encrypted: encryptOutlookConnection(input, secret) };
-      await kv.set(CONNECTION_KEY, connection);
+      await saveOutlookSnapshot(connection, snapshot, input.policy, requestedAt, true);
       return res.status(200).json({ connected: true, connectionId: connection.id, snapshot, policy: input.policy });
     }
     const connection = await kv.get<Connection>(CONNECTION_KEY);
     if (!connection) return res.status(200).json({ connected: false });
     const input = decryptOutlookConnection(connection.encrypted, secret);
     const snapshot = await readOutlookSnapshot(input, startDate, endDate);
-    const latest = await kv.get<Connection>(CONNECTION_KEY);
-    if (latest?.id !== connection.id) return res.status(409).json({ error: '连接已变更，请重新同步' });
+    await saveOutlookSnapshot(connection, snapshot, input.policy, requestedAt);
     return res.status(200).json({ connected: true, connectionId: connection.id, snapshot, policy: input.policy });
   } catch (error) {
-    const message = error instanceof Error && /^「[玩课]」日历读取失败/.test(error.message)
-      ? error.message : 'Outlook 暂不可用，请稍后重试';
-    return res.status(502).json({ error: message });
+    const message = outlookSyncError(error);
+    return res.status(/^(连接已变更|日历已更新|日历正在同步)/.test(message) ? 409 : 502).json({ error: message });
   }
 }

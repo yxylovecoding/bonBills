@@ -4,6 +4,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { MONTHLY_BACKUP_INDEX_KEY, type MonthlyBackupIndexEntry } from './_monthlyBackup.js';
 import { mergeRecoveredMonthlyInvestmentState, restoreMonthlyInvestmentState } from './_restoreMonthlyInvestment.js';
 import { SYNC_STORE_KEYS, type SyncPayload } from './_syncKeys.js';
+import { saveUploadedCalendarState } from './_outlookSync.js';
 
 const AUGUST_INVESTMENT_RECOVERY_MARKER = 'sync-recovery:2026-08-investment:2026-09-03-v1';
 const AUGUST_INVESTMENT_MERGE_MARKER = 'sync-recovery:2026-08-investment:2026-09-03-v2';
@@ -94,7 +95,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'invalid body' });
     }
     await Promise.all(
-      SYNC_STORE_KEYS.filter((k) => k in body).map((k) => kv.set(k, body[k])),
+      SYNC_STORE_KEYS.filter((k) => k in body).map((k) => k === 'calendar-tags' ? saveUploadedCalendarState(body[k]) : kv.set(k, body[k])),
     );
     return res.status(200).json({ ok: true });
   }
