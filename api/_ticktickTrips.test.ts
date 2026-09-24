@@ -481,7 +481,7 @@ describe('出行模板改名', () => {
     api.tasks.set('new-template', { id: 'new-template', projectId: 'play', title: '出门todo模版' });
     expect((await discoverTickTickTemplate(api)).rootTask.id).toBe('new-template');
     api.tasks.set('duplicate', { id: 'duplicate', projectId: 'play', title: '出门todo模板' });
-    await expect(discoverTickTickTemplate(api)).rejects.toThrow('找不到唯一的“出门todo模版”模板');
+    await expect(discoverTickTickTemplate(api)).rejects.toThrow('找到 2 个同名“出门todo模版”模板');
   });
 
   it('只按名字查找，不受清单名称、任务标签、父任务或完成状态限制', async () => {
@@ -506,6 +506,48 @@ describe('出行模板改名', () => {
     expect(template.tasks.find((task) => task.id === 'template-before')?.items).toHaveLength(1);
   });
 
+  it('普通清单和全局筛选都漏掉收集箱时，通过 inbox 入口找到模板而非两个旧模板', async () => {
+    const inboxTasks = [
+      { id: 'root', projectId: 'inbox-user', title: '出门todo模板', tags: ['不关我事', '活'] },
+      { id: 'before', projectId: 'inbox-user', parentId: 'root', title: '出门前一天', items: [{ id: 'pack', title: '随身包', status: 1 }] },
+      { id: 'day', projectId: 'inbox-user', parentId: 'root', title: '出门当天', startDate: '2026-11-20T00:00:00+0800' },
+    ];
+    const oldTasks = ['old-1', 'old-2'].map((id) => ({ id, projectId: 'play', title: '出门todo', status: 2 }));
+    const fetcher = vi.fn<typeof fetch>(async (url) => {
+      const path = new URL(String(url)).pathname;
+      const responses: Record<string, unknown> = {
+        '/project': [{ id: 'play', name: '玩' }],
+        '/task/filter': oldTasks,
+        '/project/play/data': { tasks: oldTasks },
+        '/project/inbox/data': { tasks: inboxTasks },
+      };
+      if (!(path in responses)) throw new Error(`Unexpected request: ${path}`);
+      return new Response(JSON.stringify(responses[path]));
+    });
+    const api = new TickTickOpenApiClient('test-token', 'https://ticktick.test', fetcher);
+    const template = await readConnectedTickTickTemplate(api, { projectId: 'play', templateRootId: 'old-1' });
+    expect(template.projectId).toBe('inbox-user');
+    expect(template.rootTask.id).toBe('root');
+    expect(template.tasks).toEqual(inboxTasks);
+    expect(template.anchorDate).toBe('2026-11-20');
+    expect(fetcher).toHaveBeenCalledWith('https://ticktick.test/project/inbox/data', expect.anything());
+  });
+
+  it('收集箱同时出现在筛选结果中时只计算一个模板，保留收集箱完整字段', async () => {
+    const api = new FakeTickTickApi();
+    for (const task of api.tasks.values()) task.projectId = 'inbox-user';
+    api.tasks.get('template-root')!.title = '出门todo模板';
+    const getData = vi.spyOn(api, 'getProjectData').mockImplementation(async (projectId) => {
+      if (projectId === 'inbox-user') throw new Error('Should use already loaded inbox data');
+      return { tasks: projectId === 'inbox' ? [...api.tasks.values()] : [] };
+    });
+    vi.spyOn(api, 'filterTasks').mockResolvedValue([{ id: 'template-root', projectId: 'inbox-user', title: '出门todo模板' }]);
+    const template = await discoverTickTickTemplate(api);
+    expect(template.tasks).toHaveLength(4);
+    expect(template.rootTask.content).toBe('模板说明');
+    expect(getData).not.toHaveBeenCalledWith('inbox-user');
+  });
+
   it('旧 ID 对应任务仍存在但已改为其他名称时，选中新的同名模板', async () => {
     const api = new FakeTickTickApi();
     api.tasks.get('template-root')!.title = '其他任务';
@@ -518,10 +560,10 @@ describe('出行模板改名', () => {
     const api = new FakeTickTickApi();
     api.tasks.get('template-root')!.title = '出门todo模板';
     api.tasks.set('duplicate', { id: 'duplicate', projectId: 'life', title: '出门todo模版' });
-    await expect(readConnectedTickTickTemplate(api, { projectId: 'play', templateRootId: 'template-root' })).rejects.toThrow('找不到唯一');
+    await expect(readConnectedTickTickTemplate(api, { projectId: 'play', templateRootId: 'template-root' })).rejects.toThrow('找到 2 个同名');
     api.tasks.get('template-root')!.title = '东京 · 出门todo模板';
     api.tasks.get('duplicate')!.title = '清迈 · 出门todo模版';
-    await expect(discoverTickTickTemplate(api)).rejects.toThrow('找不到唯一');
+    await expect(discoverTickTickTemplate(api)).rejects.toThrow('未找到');
   });
 
   it('模板移动并重建后，出行和心愿实例按名称重新关联，保留原清单、任务 ID、完成状态及手动日期', async () => {
@@ -1416,6 +1458,21 @@ describe('TickTick 出游同步', () => {
 
     await expect(syncTickTickRoutines({ api, calendarState, today: '2026-09-07' }))
       .resolves.toMatchObject({ updatedRoutineTasks: 0 });
+  });
+
+  it('全局筛选漏掉收集箱时，自身标签仍排期且重复同步不再更新', async () => {
+    const api = new FakeTickTickApi();
+    const task: TickTickTask = { id: 'inbox-todo', projectId: 'inbox-user', title: '收集箱待办', tags: ['居'], status: 0 };
+    api.tasks.set(task.id, task);
+    const readProject = api.getProjectData.bind(api);
+    vi.spyOn(api, 'getProjectData').mockImplementation(async (projectId) => projectId === 'inbox'
+      ? { tasks: [api.tasks.get(task.id)!] }
+      : readProject(projectId));
+    vi.spyOn(api, 'filterTasks').mockResolvedValue([]);
+    const options = { api, calendarState: { tagMap: { '2026-09-26': 'school' } }, today: '2026-09-25' };
+    await expect(syncTickTickRoutines(options)).resolves.toMatchObject({ updatedRoutineTasks: 1, routineTaskCounts: { home: 0, school: 1, travel: 0 } });
+    expect(api.tasks.get(task.id)).toMatchObject({ projectId: 'inbox-user', startDate: '2026-09-26T00:00:00+0800', isAllDay: true });
+    await expect(syncTickTickRoutines(options)).resolves.toMatchObject({ updatedRoutineTasks: 0 });
   });
 
   it('按上海日期判断全天任务，今天未完成留在今天，今天完成后才排到明天', async () => {

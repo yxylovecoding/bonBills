@@ -382,12 +382,17 @@ function mergeTaskLists(primaryTasks: TickTickTask[], fallbackTasks: TickTickTas
 }
 
 async function readAllTickTickTasks(api: TickTickApi, statuses: number[]) {
-  // The built-in Inbox is absent from /project. Discover it through the unfiltered task query.
-  const [projects, filteredTasks] = await Promise.all([api.listProjects(), api.filterTasks(undefined, statuses)]);
-  const projectIds = [...new Set([...projects.map((project) => project.id), ...filteredTasks.map((task) => task.projectId)])];
+  // Neither /project nor /task/filter reliably includes the built-in Inbox.
+  // Read its reserved alias explicitly, then keep each task's real projectId for writes.
+  const [projects, filteredTasks, inbox] = await Promise.all([
+    api.listProjects(), api.filterTasks(undefined, statuses), api.getProjectData('inbox'),
+  ]);
+  const inboxProjectIds = new Set(['inbox', ...inbox.tasks.map((task) => task.projectId)]);
+  const projectIds = [...new Set([...projects.map((project) => project.id), ...filteredTasks.map((task) => task.projectId)])]
+    .filter((projectId) => !inboxProjectIds.has(projectId));
   const projectData = await Promise.all(projectIds.map((projectId) => api.getProjectData(projectId)));
   // Project data carries hierarchy/checklist fields that /task/filter may omit.
-  return mergeTaskLists(projectData.flatMap((data) => data.tasks), filteredTasks);
+  return mergeTaskLists([...inbox.tasks, ...projectData.flatMap((data) => data.tasks)], filteredTasks);
 }
 
 export async function discoverTickTickTemplate(api: TickTickApi): Promise<TickTickTemplate> {
@@ -395,7 +400,9 @@ export async function discoverTickTickTemplate(api: TickTickApi): Promise<TickTi
   const preferredRoots = allTasks.filter((task) => TEMPLATE_TITLE_VARIANTS.includes(task.title.trim()));
   const roots = preferredRoots.length > 0 ? preferredRoots
     : allTasks.filter((task) => LEGACY_TEMPLATE_TITLES.includes(task.title.trim()));
-  if (roots.length !== 1) throw new Error(`找不到唯一的“${TICKTICK_TEMPLATE_TITLE}”模板`);
+  console.info('[ticktick-template-discovery]', JSON.stringify({ taskCount: allTasks.length, preferredCount: preferredRoots.length, candidateCount: roots.length }));
+  if (roots.length === 0) throw new Error(`未找到“${TICKTICK_TEMPLATE_TITLE}”模板`);
+  if (roots.length > 1) throw new Error(`找到 ${roots.length} 个同名“${TICKTICK_TEMPLATE_TITLE}”模板`);
   const rootTask = roots[0];
   const tasks = [rootTask, ...descendantsOf(allTasks, rootTask.id)];
   const anchors = tasks.filter((task) => task.title.trim() === TICKTICK_ANCHOR_TITLE && taskDate(task));
