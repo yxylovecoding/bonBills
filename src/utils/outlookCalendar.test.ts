@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { applyOutlookSnapshotToState, buildOutlookSnapshot, DEFAULT_OUTLOOK_RULES, normalizeOutlookCalendarState, reconcileOutlookSnapshot, type OutlookDayEvent } from './outlookCalendar';
 import { useCalendarStore } from '../stores/calendarStore';
+import { detectAllTrips } from './trips';
 
 const start = '2026-09-01';
 const end = '2026-10-01';
@@ -40,7 +41,7 @@ describe('Outlook 月历映射', () => {
     });
   });
 
-  it('重新同步撤销假期的旧自动出游标记和标题，恢复原场景并保留手动标记', () => {
+  it('重新同步撤销假期的旧出游标记和标题，恢复原场景', () => {
     const state = {
       tagMap: { '2026-09-01': 'travel', '2026-09-02': 'travel', '2026-09-03': 'travel' },
       outlookApplied: {
@@ -53,7 +54,7 @@ describe('Outlook 月历映射', () => {
     };
     const nextSnapshot = snapshot([event({ title: '暑假', startDate: start, endDate: end })]);
     const result = applyOutlookSnapshotToState(state, nextSnapshot, 'manual');
-    expect(result.tagMap).toEqual({ '2026-09-01': 'home', '2026-09-03': 'travel' });
+    expect(result.tagMap).toEqual({ '2026-09-01': 'home', '2026-09-03': 'school' });
     expect(result.outlookApplied).toEqual({});
     expect(result.outlookTravelTitles).toEqual({});
     expect(applyOutlookSnapshotToState(result, nextSnapshot, 'manual')).toEqual(result);
@@ -91,6 +92,49 @@ describe('Outlook 月历映射', () => {
 
 describe('Outlook 标记来源与手动修改', () => {
   beforeEach(() => useCalendarStore.setState({ tagMap: {}, outlookApplied: {}, manualTagDates: {}, confirmedExpenses: {} }));
+  it('北海道完整日期覆盖工作日周模板、寄、学和手动留空，两个周末合为一段', () => {
+    const dates = Array.from({ length: 9 }, (_, index) => `2027-01-${23 + index}`);
+    const current = {
+      '2027-01-10': 'travel', '2027-01-23': 'travel', '2027-01-24': 'travel',
+      '2027-01-25': 'intern', '2027-01-26': 'intern', '2027-01-27': 'home', '2027-01-28': 'school',
+      '2027-01-30': 'travel', '2027-01-31': 'travel',
+    } as const;
+    const expected = { '2027-01-10': 'travel', ...Object.fromEntries(dates.map((day) => [day, 'travel'])) };
+    const state = { tagMap: current, manualTagDates: Object.fromEntries(dates.map((day) => [day, true])) };
+    const trip = buildOutlookSnapshot([event({ title: '北海道', startDate: '2027-01-23', endDate: '2027-02-01' })], '2027-01-01', '2027-03-01', DEFAULT_OUTLOOK_RULES);
+    const result = applyOutlookSnapshotToState(state, trip, 'manual');
+    expect(result.tagMap).toEqual(expected);
+    expect(result.manualTagDates).toEqual({});
+    expect(detectAllTrips(result.tagMap)).toEqual([
+      { startDate: '2027-01-10', endDate: '2027-01-10', dates: ['2027-01-10'] },
+      { startDate: '2027-01-23', endDate: '2027-01-31', dates },
+    ]);
+    expect(applyOutlookSnapshotToState(result, trip, 'manual')).toEqual(result);
+    const shortened = buildOutlookSnapshot([event({ title: '北海道', startDate: '2027-01-25', endDate: '2027-01-30' })], '2027-01-01', '2027-03-01', DEFAULT_OUTLOOK_RULES);
+    const next = applyOutlookSnapshotToState(result, shortened, 'manual');
+    expect(Object.keys(next.tagMap).sort()).toEqual(['2027-01-10', ...dates.slice(2, 7)]);
+    expect(detectAllTrips(next.tagMap)[1]).toEqual({ startDate: '2027-01-25', endDate: '2027-01-29', dates: dates.slice(2, 7) });
+    const moved = buildOutlookSnapshot([event({ title: '北海道', startDate: '2027-02-05', endDate: '2027-02-07' })], '2027-01-01', '2027-03-01', DEFAULT_OUTLOOK_RULES);
+    const final = applyOutlookSnapshotToState(next, moved, 'manual');
+    expect(final.tagMap).toEqual({
+      '2027-01-10': 'travel', '2027-01-25': 'intern', '2027-01-26': 'intern', '2027-01-27': 'home', '2027-01-28': 'school',
+      '2027-02-05': 'travel', '2027-02-06': 'travel',
+    });
+    expect(final.outlookTravelTitles).toEqual({ '2027-02-05': '北海道', '2027-02-06': '北海道' });
+  });
+  it('行程内手动改班或清空后重新同步仍恢复游，改期后保留相应日常基线', () => {
+    const store = useCalendarStore.getState();
+    store.applyOutlookSnapshot(snapshot([event()]), 'manual');
+    store.setTag('2026-09-22', 'intern');
+    store.applyOutlookSnapshot(snapshot([event()]), 'manual');
+    expect(useCalendarStore.getState().tagMap['2026-09-22']).toBe('travel');
+    store.applyOutlookSnapshot(snapshot([]), 'manual');
+    expect(useCalendarStore.getState().tagMap['2026-09-22']).toBe('intern');
+    store.applyOutlookSnapshot(snapshot([event()]), 'manual');
+    store.removeTag('2026-09-22');
+    store.applyOutlookSnapshot(snapshot([event()]), 'manual');
+    expect(useCalendarStore.getState().tagMap['2026-09-22']).toBe('travel');
+  });
   it('自动标记替换学；改期后恢复原标记，窗口外日期保持不变', () => {
     const first = reconcileOutlookSnapshot({ '2026-09-22': 'school', '2026-08-22': 'home' }, {}, {}, snapshot([event()]), 'manual');
     const second = reconcileOutlookSnapshot(first.tagMap, first.outlookApplied, first.manualTagDates,
@@ -108,32 +152,33 @@ describe('Outlook 标记来源与手动修改', () => {
     store.applyOutlookSnapshot(snapshot([]), 'outlook');
     expect(useCalendarStore.getState().tagMap['2026-09-22']).toBe('home');
   });
-  it('手动点击相同标签也解除自动接管，取消日程不会清除手动结果', () => {
+  it('手动重复标游保留日程来源，取消 Outlook 行程会清理旧日期', () => {
     const store = useCalendarStore.getState();
     store.applyOutlookSnapshot(snapshot([event()]), 'manual');
     store.setTag('2026-09-22', 'travel');
     store.applyOutlookSnapshot(snapshot([]), 'manual');
-    expect(useCalendarStore.getState().tagMap['2026-09-22']).toBe('travel');
+    expect(useCalendarStore.getState().tagMap['2026-09-22']).toBeUndefined();
     expect(useCalendarStore.getState().outlookApplied).toEqual({});
+    expect(useCalendarStore.getState().manualTagDates).toEqual({});
   });
-  it('手动清除不被补学或自动同步重新覆盖', () => {
+  it('日常标记手动清除不被补学或自动同步重新覆盖', () => {
     const store = useCalendarStore.getState();
-    store.applyOutlookSnapshot(snapshot([event()]), 'manual');
+    store.applyOutlookSnapshot(snapshot([event({ title: '🏠' })]), 'manual');
     store.removeTag('2026-09-22');
     store.bulkFillSchool('2026-09-22', '2026-09-22');
-    store.applyOutlookSnapshot(snapshot([event()]), 'manual');
+    store.applyOutlookSnapshot(snapshot([event({ title: '🏠' })]), 'manual');
     expect(useCalendarStore.getState().tagMap).toEqual({});
   });
-  it('首次保护旧非学标记，明确手填学也保留；Outlook 优先可覆盖并恢复', () => {
+  it('日常场景仍按设置保护手动标记，Outlook 优先可覆盖并恢复', () => {
     const store = useCalendarStore.getState();
     useCalendarStore.setState({ tagMap: { '2026-09-22': 'intern' } });
-    store.applyOutlookSnapshot(snapshot([event()]), 'manual');
+    store.applyOutlookSnapshot(snapshot([event({ title: '🏠' })]), 'manual');
     expect(useCalendarStore.getState().tagMap['2026-09-22']).toBe('intern');
     store.setTag('2026-09-22', 'school');
-    store.applyOutlookSnapshot(snapshot([event()]), 'manual');
+    store.applyOutlookSnapshot(snapshot([event({ title: '🏠' })]), 'manual');
     expect(useCalendarStore.getState().tagMap['2026-09-22']).toBe('school');
-    store.applyOutlookSnapshot(snapshot([event()]), 'outlook');
-    expect(useCalendarStore.getState().tagMap['2026-09-22']).toBe('travel');
+    store.applyOutlookSnapshot(snapshot([event({ title: '🏠' })]), 'outlook');
+    expect(useCalendarStore.getState().tagMap['2026-09-22']).toBe('home');
     store.applyOutlookSnapshot(snapshot([]), 'outlook');
     expect(useCalendarStore.getState().tagMap['2026-09-22']).toBe('school');
   });

@@ -167,7 +167,7 @@ export default function OutlookCalendarSyncControl({ yearMonth }: { yearMonth: s
           <label style={{ fontSize: 11, color: '#5f6368' }}>课 · ICS
             <input type="password" autoComplete="off" disabled={busy} aria-label="课日历 ICS 链接" value={classUrl} onChange={(event) => { setClassUrl(event.target.value); setPreview(null); }} style={{ ...INPUT, marginTop: 4 }} />
           </label>
-          <label style={{ fontSize: 11, color: '#5f6368' }}>冲突时
+          <label style={{ fontSize: 11, color: '#5f6368' }}>日常标记冲突时
             <select disabled={busy} aria-label="Outlook 同步优先级" value={policy} onChange={(event) => setPolicy(event.target.value as OutlookConflictPolicy)} style={{ ...INPUT, marginTop: 4 }}>
               <option value="manual">保留手动标记</option><option value="outlook">以 Outlook 为准</option>
             </select>

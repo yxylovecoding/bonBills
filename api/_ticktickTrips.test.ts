@@ -1720,6 +1720,37 @@ describe('TickTick 出游同步', () => {
     expect(updatedBefore.items?.find((item) => item.title === '随身包')?.status).toBe(1);
   });
 
+  it('Outlook 完整行程覆盖本地工作日后，TickTick 两个周末副本合为原来的一套', async () => {
+    const api = new FakeTickTickApi();
+    const template = await discoverTickTickTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    const dates = Array.from({ length: 9 }, (_, index) => `2027-01-${23 + index}`);
+    const oldCalendar = {
+      tagMap: Object.fromEntries(dates.map((day, index) => [day, index < 2 || index > 6 ? 'travel' : 'intern'])),
+      manualTagDates: Object.fromEntries(dates.map((day) => [day, true])),
+      outlookTravelTitles: Object.fromEntries(dates.map((day) => [day, '北海道'])),
+    };
+    const options = { api, template, state, today: '2026-09-25', saveState: async () => undefined };
+    await reconcileTickTickTrips({ ...options, trips: buildTripSourcesFromSyncState(oldCalendar, {}) });
+    const keptIds = { ...state.instances['2027-01-23'].taskIdsByTemplateId };
+    const removedIds = Object.values(state.instances['2027-01-30'].taskIdsByTemplateId);
+    api.tasks.get(keptIds['template-before'])!.status = 2;
+    api.tasks.get(keptIds['template-before'])!.items![0].status = 1;
+    const snapshot = buildOutlookSnapshot([
+      { calendar: 'play', title: '北海道', startDate: '2027-01-23', endDate: '2027-02-01', allDay: true },
+    ], '2027-01-01', '2027-02-01', DEFAULT_OUTLOOK_RULES);
+    const calendar = applyOutlookSnapshotToState(oldCalendar, snapshot, 'manual');
+    const trips = buildTripSourcesFromSyncState(calendar, {});
+    await expect(reconcileTickTickTrips({ ...options, trips })).resolves.toEqual({ createdTrips: 0, updatedTrips: 1, deletedTrips: 1, activeTrips: 1 });
+    expect(Object.keys(state.instances)).toEqual(['2027-01-23']);
+    expect(state.instances['2027-01-23']).toMatchObject({ dates, startDate: '2027-01-23', endDate: '2027-01-31', taskIdsByTemplateId: keptIds });
+    expect(api.tasks.get(keptIds['template-before'])).toMatchObject({ status: 2, items: [{ status: 1 }] });
+    for (const id of removedIds) expect(api.tasks.has(id)).toBe(false);
+    expect(api.createCalls).toBe(8);
+    await expect(reconcileTickTickTrips({ ...options, trips })).resolves.toMatchObject({ createdTrips: 0, deletedTrips: 0, activeTrips: 1 });
+    expect(api.createCalls).toBe(8);
+  });
+
   it('刷新寒假后清理两套已生成待办，具体旅行改名沿用进度，普通同名任务保持不动', async () => {
     const api = new FakeTickTickApi();
     const template = await discoverTickTickTemplate(api);

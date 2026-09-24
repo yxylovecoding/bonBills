@@ -110,7 +110,7 @@ export const useCalendarStore = create<CalendarStore>()(
             if (next[date] === tag && manualTagDates[date] && !outlookApplied[date]) continue;
             next[date] = tag;
             manualTagDates[date] = true;
-            delete outlookApplied[date];
+            if (outlookApplied[date]?.tag !== 'travel') delete outlookApplied[date];
             changed = true;
           }
           return changed ? { tagMap: next, manualTagDates, outlookApplied } : s;
@@ -121,7 +121,7 @@ export const useCalendarStore = create<CalendarStore>()(
           const next = { ...s.tagMap };
           const outlookApplied = { ...s.outlookApplied };
           delete next[date];
-          delete outlookApplied[date];
+          if (outlookApplied[date]?.tag !== 'travel') delete outlookApplied[date];
           return { tagMap: next, outlookApplied, manualTagDates: { ...s.manualTagDates, [date]: true } };
         }),
 

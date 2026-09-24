@@ -111,19 +111,23 @@ export function reconcileOutlookSnapshot(
     const next = snapshot.tags[day];
     const manuallyChanged = Boolean(manualDates[day]) || (previous && current[day] !== previous.tag);
     if (!next) {
-      if (previous && !manuallyChanged && current[day] === previous.tag) {
-        if (previous.previousTag) tagMap[day] = previous.previousTag;
+      if (previous && current[day] === previous.tag && (!manuallyChanged || previous.tag === 'travel')) {
+        if (previous.previousTag && !(previous.tag === 'travel' && previous.previousTag === 'travel')) tagMap[day] = previous.previousTag;
         else delete tagMap[day];
+        if (previous.tag === 'travel') delete manualTagDates[day];
       }
       delete outlookApplied[day];
       continue;
     }
     // Older calendars do not distinguish hand-entered school days from automatic school defaults.
     const legacyManual = !previous && current[day] && current[day] !== 'school';
-    if (policy === 'manual' && (manuallyChanged || legacyManual)) continue;
-    const previousTag = previous && !manuallyChanged ? previous.previousTag : current[day] ?? null;
+    // A trip's full dates come from Outlook; local work/week templates must not split it.
+    const outlookTrip = next === 'travel' || previous?.tag === 'travel';
+    if (!outlookTrip && policy === 'manual' && (manuallyChanged || legacyManual)) continue;
+    const previousTag = previous && (!manuallyChanged || current[day] === previous.tag) ? previous.previousTag : current[day] ?? null;
     tagMap[day] = next;
-    outlookApplied[day] = { tag: next, previousTag };
+    // Do not restore an old local trip date after this Outlook trip moves or is cancelled.
+    outlookApplied[day] = { tag: next, previousTag: outlookTrip && previousTag === 'travel' ? null : previousTag };
     delete manualTagDates[day];
   }
   return { tagMap, outlookApplied, manualTagDates };
