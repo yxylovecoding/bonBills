@@ -6,8 +6,9 @@ export const TICKTICK_CONNECTION_KEY = 'ticktick:connection:v1';
 export const TICKTICK_SYNC_STATE_KEY = 'ticktick:trip-sync:v1';
 export const TICKTICK_SYNC_LOCK_KEY = 'ticktick:trip-sync:lock';
 export const TICKTICK_PROJECT_NAME = '玩';
-export const TICKTICK_TEMPLATE_TITLE = '出行todo模板';
-const LEGACY_TEMPLATE_TITLES = ['出门todo', '出行todo'];
+export const TICKTICK_TEMPLATE_TITLE = '出门todo模版';
+const TEMPLATE_TITLE_VARIANTS = [TICKTICK_TEMPLATE_TITLE, '出门todo模板'];
+const LEGACY_TEMPLATE_TITLES = ['出行todo模板', '出行todo模版', '出门todo', '出行todo'];
 export const TICKTICK_ANCHOR_TITLE = '出门当天';
 export const TICKTICK_WISH_PREPARATION_TITLE = '出门前七个月';
 export const TICKTICK_API_BASE_URL = 'https://api.ticktick.com/open/v1';
@@ -396,7 +397,7 @@ export async function discoverTickTickTemplate(api: TickTickApi): Promise<TickTi
     api.filterTasks(project.id, [0, 2]),
   ]);
   const allTasks = mergeProjectTasks(data, filteredTasks);
-  const preferredRoots = allTasks.filter((task) => task.title.trim() === TICKTICK_TEMPLATE_TITLE);
+  const preferredRoots = allTasks.filter((task) => TEMPLATE_TITLE_VARIANTS.includes(task.title.trim()));
   const roots = preferredRoots.length > 0 ? preferredRoots
     : allTasks.filter((task) => LEGACY_TEMPLATE_TITLES.includes(task.title.trim()));
   if (roots.length !== 1) throw new Error(`找不到唯一的“${TICKTICK_TEMPLATE_TITLE}”模板`);
@@ -885,9 +886,13 @@ function baseTaskPayload(
     ? `${trip.startDate}T00:00:00+0800`
     : shiftTickTickDate(templateTask.dueDate, template.anchorDate, trip.startDate) ?? inferredStageDate;
   const rootContent = [templateTask.content?.trim(), trip.note].filter(Boolean).join('\n\n');
+  const isTripTemplateRoot = isRoot && (
+    TEMPLATE_TITLE_VARIANTS.includes(templateTask.title.trim())
+    || LEGACY_TEMPLATE_TITLES.includes(templateTask.title.trim())
+  );
   return {
     projectId: template.projectId,
-    title: `${trip.name} · ${templateTask.title}`,
+    title: `${trip.name} · ${isTripTemplateRoot ? '出门todo' : templateTask.title}`,
     content: isRoot ? rootContent : (templateTask.content ?? ''),
     desc: templateTask.desc ?? '',
     isAllDay: !legacySchedule || isRoot ? true : (templateTask.isAllDay ?? true),

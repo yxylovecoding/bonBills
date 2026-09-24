@@ -151,7 +151,7 @@ async function status() {
   return {
     connected: Boolean(connection),
     projectName: connection ? '玩' : undefined,
-    templateTitle: connection ? '出行todo模板' : undefined,
+    templateTitle: connection ? '出门todo模版' : undefined,
     lastSyncAt: state?.lastSyncAt,
     error: state?.lastError,
   };

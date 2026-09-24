@@ -441,7 +441,7 @@ describe('寄居旅标签排期', () => {
 });
 
 describe('出行模板改名', () => {
-  it.each(['出行todo模板', '出行todo', '出门todo'])('首次连接识别 %s', async (title) => {
+  it.each(['出门todo模版', '出门todo模板', '出行todo模板', '出行todo模版', '出行todo', '出门todo'])('首次连接识别 %s', async (title) => {
     const api = new FakeTickTickApi();
     api.tasks.get('template-root')!.title = title;
     expect((await discoverTickTickTemplate(api)).rootTask.id).toBe('template-root');
@@ -449,10 +449,10 @@ describe('出行模板改名', () => {
 
   it('优先新名称，新名称重复时明确报错', async () => {
     const api = new FakeTickTickApi();
-    api.tasks.set('new-template', { id: 'new-template', projectId: 'play', title: '出行todo模板' });
+    api.tasks.set('new-template', { id: 'new-template', projectId: 'play', title: '出门todo模版' });
     expect((await discoverTickTickTemplate(api)).rootTask.id).toBe('new-template');
-    api.tasks.set('duplicate', { id: 'duplicate', projectId: 'play', title: '出行todo模板' });
-    await expect(discoverTickTickTemplate(api)).rejects.toThrow('找不到唯一的“出行todo模板”模板');
+    api.tasks.set('duplicate', { id: 'duplicate', projectId: 'play', title: '出门todo模板' });
+    await expect(discoverTickTickTemplate(api)).rejects.toThrow('找不到唯一的“出门todo模版”模板');
   });
 
   it('已连接模板改名沿用原任务 ID 和出行、心愿实例', async () => {
@@ -470,13 +470,61 @@ describe('出行模板改名', () => {
     const tripRoot = state.instances[futureTrip.key].rootTaskId;
     const wishRoot = state.wishInstances![futureWish.id].rootTaskId;
     const created = api.createCalls;
-    api.tasks.get('template-root')!.title = '出行todo模板';
+    api.tasks.get('template-root')!.title = '出门todo模版';
     template = await readConnectedTickTickTemplate(api, { projectId: 'play', templateRootId: 'template-root' });
     await sync();
     expect(api.createCalls).toBe(created);
     expect(state.instances[futureTrip.key].rootTaskId).toBe(tripRoot);
     expect(state.wishInstances![futureWish.id].rootTaskId).toBe(wishRoot);
-    expect(api.tasks.get(tripRoot!)?.title).toBe('东京 · 出行todo模板');
+    expect(api.tasks.get(tripRoot!)?.title).toBe('东京 · 出门todo');
+    expect(api.tasks.get(wishRoot!)?.title).toBe('东京 · 出门前七个月');
+    expect(api.tasks.get('template-root')?.title).toBe('出门todo模版');
+  });
+
+  it.each(['出门todo模版', '出门todo模板', '出行todo模板', '出行todo模版'])('%s 生成的根任务统一叫出门todo，阶段和子任务保留原名', async (title) => {
+    const api = new FakeTickTickApi();
+    api.tasks.get('template-root')!.title = title;
+    api.tasks.set('template-child', {
+      id: 'template-child', projectId: 'play', parentId: 'template-day', title: '检查模版文件', status: 0,
+    });
+    const sourceTasks = structuredClone([...api.tasks.values()]);
+    const template = await discoverTickTickTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    await reconcileTickTickTrips({ api, template, state, trips: [futureTrip], today: '2026-09-04', saveState: async () => undefined });
+    const instance = state.instances[futureTrip.key];
+    expect(api.tasks.get(instance.rootTaskId!)?.title).toBe('东京 · 出门todo');
+    expect(api.tasks.get(instance.taskIdsByTemplateId['template-day'])?.title).toBe('东京 · 出门当天');
+    expect(api.tasks.get(instance.taskIdsByTemplateId['template-child'])?.title).toBe('东京 · 检查模版文件');
+    for (const task of sourceTasks) expect(api.tasks.get(task.id)).toEqual(task);
+  });
+
+  it.each(['出门todo模版', '出门todo模板', '出行todo模板'])('已生成的“行程 · %s”原地更名，保留完成状态、手动日期和任务 ID', async (oldTitle) => {
+    const api = new FakeTickTickApi();
+    api.tasks.get('template-root')!.title = '出门todo模板';
+    const template = await discoverTickTickTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    const sync = () => reconcileTickTickTrips({
+      api, template, state, trips: [futureTrip], today: '2026-09-04', saveState: async () => undefined,
+    });
+    await sync();
+    const instance = state.instances[futureTrip.key];
+    const rootId = instance.rootTaskId!;
+    const ids = { ...instance.taskIdsByTemplateId };
+    Object.assign(api.tasks.get(rootId)!, {
+      title: `东京 · ${oldTitle}`, status: 2,
+      startDate: '2027-01-08T09:00:00+0800', dueDate: '2027-01-09T18:00:00+0800',
+    });
+    const before = structuredClone(api.tasks.get(rootId));
+    const created = api.createCalls;
+    await sync();
+    expect(api.tasks.get(rootId)).toEqual({ ...before, title: '东京 · 出门todo' });
+    expect(instance.rootTaskId).toBe(rootId);
+    expect(instance.taskIdsByTemplateId).toEqual(ids);
+    expect(api.createCalls).toBe(created);
+    expect(api.deleteCalls).toBe(0);
+    await sync();
+    expect(api.tasks.get(rootId)).toEqual({ ...before, title: '东京 · 出门todo' });
+    expect(api.createCalls).toBe(created);
   });
 });
 
