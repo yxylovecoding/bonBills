@@ -7,13 +7,52 @@ import {
   calculateWishPlan,
   resolveWishTravelBudget,
   wishTravelLifeAmount,
+  sortWishesForDisplay,
 } from './wishes';
+import { detectAllTrips } from './trips';
 
 const wish = (patch: Partial<WishItem> = {}): WishItem => ({
   id: 'trip', name: '旅行', targetAmount: 10000, savedAmount: 3000,
   repaidAmount: 2000, deadline: '2026-12-01', isActive: true,
   spentItems: [{ id: 'ticket', name: '机票', amount: 4000 }],
   ...patch,
+});
+
+describe('心愿清单排序', () => {
+  const trips = detectAllTrips(Object.fromEntries(
+    Array.from({ length: 7 }, (_, index) => [`2026-09-${24 + index}`, 'travel' as const]),
+  ));
+  const pingyao = wish({ id: 'pingyao', name: '平遥影展', linkedTripStartDate: '2026-09-24', deadline: '2026-09-23' });
+
+  it.each(['2026-09-24', '2026-09-25', '2026-09-30'])('%s 尚在行程内，攒钱截止日已过仍排在当天和未来心愿之前', (today) => {
+    const wishes = [wish({ id: 'future' }), wish({ id: 'today', deadline: today }), pingyao];
+    const original = structuredClone(wishes);
+    expect(sortWishesForDisplay(wishes, trips, today).map((item) => item.id)).toEqual(['pingyao', 'today', 'future']);
+    expect(wishes).toEqual(original);
+    expect(sortWishesForDisplay(wishes, trips, today)[0]).toBe(pingyao);
+  });
+
+  it('结束次日不再置顶，未开始、已结束和无日期心愿沿用原排序', () => {
+    const wishes = [pingyao, wish({ id: 'future', deadline: '2026-10-05' }), wish({ id: 'undated', deadline: null }),
+      wish({ id: 'earlier', deadline: '2026-10-03' })];
+    expect(sortWishesForDisplay(wishes, trips, '2026-10-01').map((item) => item.id)).toEqual(['earlier', 'future', 'pingyao', 'undated']);
+    expect(sortWishesForDisplay([pingyao, wish({ id: 'nearer', deadline: '2026-09-22' })], trips, '2026-09-21').map((item) => item.id))
+      .toEqual(['nearer', 'pingyao']);
+  });
+
+  it('已攒足不代表旅行结束，只有关联到实际进行中行程的心愿置顶', () => {
+    const funded = { ...pingyao, savedAmount: 10000 };
+    const missing = wish({ id: 'missing', linkedTripStartDate: '2026-09-20', deadline: '2026-09-19', plannedTravelDays: 20 });
+    expect(sortWishesForDisplay([missing, wish({ id: 'future' }), funded], trips, '2026-09-25').map((item) => item.id))
+      .toEqual(['pingyao', 'future', 'missing']);
+  });
+
+  it('行程切分后分别按各自结束日期判断，空清单正常返回', () => {
+    const splitTrips = detectAllTrips(Object.fromEntries(trips[0].dates.map((date) => [date, 'travel' as const])), { '2026-09-27': true });
+    const nextTrip = wish({ id: 'next-trip', linkedTripStartDate: '2026-09-27', deadline: '2026-09-26' });
+    expect(sortWishesForDisplay([pingyao, nextTrip], splitTrips, '2026-09-27').map((item) => item.id)).toEqual(['next-trip', 'pingyao']);
+    expect(sortWishesForDisplay([], trips, '2026-09-25')).toEqual([]);
+  });
 });
 
 describe('心愿资金', () => {

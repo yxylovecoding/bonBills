@@ -1,5 +1,6 @@
 import type { TagKind, WishExtraExpenseItem, WishItem } from '../models/types';
 import { roundToSitePrecision } from './numberInput';
+import type { TripSegment } from './trips';
 
 export const POST_LIFE_FLEXIBLE_SHARE = 0.5;
 export const FLEXIBLE_WISH_SHARE = 0.8;
@@ -127,6 +128,20 @@ export function wishTravelLifeAmount(wish: WishItem, dailyLifeAmount: number, tr
   const days = (wish.linkedTripStartDate ? tripDatesByStart?.[wish.linkedTripStartDate]?.length : undefined)
     ?? Math.max(Math.round(wish.plannedTravelDays ?? 0), 0);
   return Math.max(days * normalizedAmount(dailyLifeAmount) - normalizedAmount(wish.travelLifeCorrectionAmount), 0);
+}
+
+export function sortWishesForDisplay<T extends WishItem>(wishes: readonly T[], trips: readonly TripSegment[], today: string): T[] {
+  const ongoingTrips = new Map(trips
+    .filter((trip) => trip.startDate <= today && trip.endDate >= today)
+    .map((trip) => [trip.startDate, trip]));
+  // A trip's funding deadline is before departure; it does not mark the end of the wish.
+  return wishes.map((wish) => {
+    const ongoingTrip = wish.linkedTripStartDate ? ongoingTrips.get(wish.linkedTripStartDate) : undefined;
+    return { wish, ongoing: Boolean(ongoingTrip), date: ongoingTrip?.endDate
+      ?? (wish.deadline && wish.deadline >= today ? wish.deadline : '9999-12-31') };
+  }).sort((a, b) => Number(b.ongoing) - Number(a.ongoing)
+    || a.date.localeCompare(b.date) || a.wish.id.localeCompare(b.wish.id))
+    .map(({ wish }) => wish);
 }
 
 function expenseName(value: string) {

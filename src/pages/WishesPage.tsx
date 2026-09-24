@@ -27,6 +27,7 @@ import {
   wishTravelLifeAmount,
   calculateWishPlan,
   resolveWishExtraExpenseItems,
+  sortWishesForDisplay,
 } from '../utils/wishes';
 import { calculateCreditRepaymentPlan } from '../utils/creditRepayment';
 import { roundToSitePrecision } from '../utils/numberInput';
@@ -405,12 +406,8 @@ export default function WishesPage() {
     [allTripSegments, scheduledPlanDates, stats.stateDailyAvg, tagMap, timelineEndDate, todayKey, tripTags, wishes],
   );
   const orderedPlanItems = useMemo(
-    () => [...plan.items].sort((a, b) => {
-      const firstDeadline = a.deadline && a.deadline >= todayKey ? a.deadline : '9999-12-31';
-      const secondDeadline = b.deadline && b.deadline >= todayKey ? b.deadline : '9999-12-31';
-      return firstDeadline.localeCompare(secondDeadline) || a.id.localeCompare(b.id);
-    }),
-    [plan.items, todayKey],
+    () => sortWishesForDisplay(plan.items, allTripSegments, todayKey),
+    [plan.items, allTripSegments, todayKey],
   );
   const selectableWishIds = useMemo(
     () => new Set(Object.keys(milestonePlan.segmentByWishId)),
