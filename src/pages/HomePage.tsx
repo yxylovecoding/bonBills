@@ -43,7 +43,7 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '独居场景切换';
+const RELEASE_NOTE = '居寄旅排期';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -504,7 +504,7 @@ export default function HomePage() {
     lifeAnnualExpense: futureLifeAnnualExpense,
     consumptionAnnualExpense: futureConsumptionAnnualExpense,
   } = postFireExpenses;
-  const fireScenarioLabel = `${fireBaseScenario === 'home' ? '家' : '独居'}${fireIncludesTravel ? '＋旅行' : ''}`;
+  const fireScenarioLabel = `${fireBaseScenario === 'home' ? '寄' : '居'}${fireIncludesTravel ? '＋旅' : ''}`;
   const preFireExpenses = useMemo(() => calcPreFireExpenses(stats, activeFutureFireMonthly), [stats, activeFutureFireMonthly]);
   const preFireLifeStages = useMemo(() => [
     { endDate: fireConfig.fireGraduationDate, annualExpense: preFireExpenses.beforeGraduation.lifeAnnualExpense },
@@ -1087,7 +1087,7 @@ export default function HomePage() {
             </FireDetailGroup>
             <FireDetailGroup title="阶段支出">
               <StatRow label="毕业日期" value={fireConfig.fireGraduationDate} />
-              <StatRow label="毕业前 · 学＋班＋家＋游" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(preFireStages[0].annualExpense)}/年</span>} />
+              <StatRow label="毕业前 · 学＋班＋寄＋游" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(preFireStages[0].annualExpense)}/年</span>} />
               <StatRow label="毕业后至 FIRE · 班＋游" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{fmt万(preFireStages[1].annualExpense)}/年{preFireExpenses.workSample !== 'intern' && <span style={{ color: C.sub }}> · 班样本不足</span>}</span>} />
               <StatRow label="FIRE 后场景" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.blue }}>{fireScenarioLabel}{fallbackFireExpenseTagKind !== fireSampleKind ? ` · 暂沿用${fallbackFireExpenseTagKind === 'school' ? '在校' : '旅行'}样本` : ''}</span>} />
               {fireIncludesTravel && <StatRow label="近两年旅行" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.purple }}>{annualizedTravelDays.toFixed(1)}天/年 · {(recentTravelRatio * 100).toFixed(1)}%</span>} />}
@@ -1097,7 +1097,7 @@ export default function HomePage() {
               {fireMode === 'allocation' && <StatRow indent label="心愿 · 80%" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.purple }}>{fmt万(fire.requiredAnnualWishAllocation)}</span>} />}
               {fireMode === 'allocation' && <StatRow indent label="消费 · 20%" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(fire.requiredAnnualConsumptionAllocation)}</span>} />}
               <StatRow label="未来固定支出" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: C.orange }}>{fmt万(postFireExpenses.monthlyFixedExpense * 12)}</span>} />
-              {fireBaseScenario === 'independent' && <StatRow indent label="独居房租" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{postFireExpenses.monthlyRentExpense > 0 ? `${fmt万(postFireExpenses.monthlyRentExpense * 12)}/年` : '未设置'}</span>} />}
+              {fireBaseScenario === 'independent' && <StatRow indent label="房租" value={<span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{postFireExpenses.monthlyRentExpense > 0 ? `${fmt万(postFireExpenses.monthlyRentExpense * 12)}/年` : '未设置'}</span>} />}
             </FireDetailGroup>
             <FireDetailGroup title="杭州未来情景">
               <StatRow label="BonCV 联动" value={(

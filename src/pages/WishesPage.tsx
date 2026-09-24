@@ -40,7 +40,7 @@ import {
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 type LodgingAmountMode = 'daily' | 'total';
 const LIFE_EXPENSE_TOOLTIP_ORDER: Array<{ kind: TagKind; label: string }> = [
-  { kind: 'home', label: '家' },
+  { kind: 'home', label: '寄' },
   { kind: 'travel', label: '游' },
   { kind: 'intern', label: '班' },
   { kind: 'school', label: '学' },
@@ -815,7 +815,7 @@ export default function WishesPage() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7, marginTop: 10 }}>
                 <button
                   type="button"
-                  aria-label="把规划范围内所有非家非游的中国法定工作日设为实习"
+                  aria-label="把规划范围内所有非寄非游的中国法定工作日设为实习"
                   disabled={allInternDaysApplied || availableSelectableInternDays === 0}
                   onClick={applyAllInternDays}
                   style={{ minWidth: 0, border: '1px solid rgba(255,255,255,0.5)', borderRadius: 9, backgroundColor: allInternDaysApplied ? 'rgba(255,255,255,0.12)' : '#fff', color: allInternDaysApplied ? 'rgba(255,255,255,0.68)' : C.purple, padding: '7px 8px', fontSize: 10, fontWeight: 800, cursor: allInternDaysApplied || availableSelectableInternDays === 0 ? 'default' : 'pointer' }}
@@ -828,7 +828,7 @@ export default function WishesPage() {
                 </button>
                 <button
                   type="button"
-                  aria-label="把规划范围内所有非家非游的中国法定工作日设为不实习"
+                  aria-label="把规划范围内所有非寄非游的中国法定工作日设为不实习"
                   disabled={noInternDaysApplied || availableSelectableInternDays === 0}
                   onClick={applyNoInternDays}
                   style={{ minWidth: 0, border: '1px solid rgba(255,255,255,0.5)', borderRadius: 9, backgroundColor: noInternDaysApplied ? 'rgba(255,255,255,0.12)' : '#fff', color: noInternDaysApplied ? 'rgba(255,255,255,0.68)' : C.purple, padding: '7px 8px', fontSize: 10, fontWeight: 800, cursor: noInternDaysApplied || availableSelectableInternDays === 0 ? 'default' : 'pointer' }}
@@ -844,7 +844,7 @@ export default function WishesPage() {
                     <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 5 }}>
                       <button
                         type="button"
-                        aria-label="把规划范围内所有非家非游的中国法定工作日设为实习"
+                        aria-label="把规划范围内所有非寄非游的中国法定工作日设为实习"
                         disabled={allInternDaysApplied || availableSelectableInternDays === 0}
                         onClick={applyAllInternDays}
                         style={{ border: '1px solid rgba(255,255,255,0.42)', borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', padding: '4px 7px', fontSize: 9, fontWeight: 700, cursor: allInternDaysApplied || availableSelectableInternDays === 0 ? 'default' : 'pointer', opacity: allInternDaysApplied ? 0.55 : 1 }}
@@ -853,7 +853,7 @@ export default function WishesPage() {
                       </button>
                       <button
                         type="button"
-                        aria-label="把规划范围内所有非家非游的中国法定工作日设为不实习"
+                        aria-label="把规划范围内所有非寄非游的中国法定工作日设为不实习"
                         disabled={noInternDaysApplied || availableSelectableInternDays === 0}
                         onClick={applyNoInternDays}
                         style={{ border: '1px solid rgba(255,255,255,0.42)', borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', padding: '4px 7px', fontSize: 9, fontWeight: 700, cursor: noInternDaysApplied || availableSelectableInternDays === 0 ? 'default' : 'pointer', opacity: noInternDaysApplied ? 0.55 : 1 }}

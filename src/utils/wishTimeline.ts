@@ -28,10 +28,10 @@ interface TripDayDetail {
 
 const MAX_TIMELINE_DAYS = 3660;
 const ITINERARY_LABELS: Record<TagKind, string> = {
-  school: '在学校',
-  intern: '实习',
-  home: '在家',
-  travel: '出去玩',
+  school: tagMeta.school.label,
+  intern: tagMeta.intern.label,
+  home: tagMeta.home.label,
+  travel: tagMeta.travel.label,
 };
 
 function parseDateKey(value: string): Date | null {

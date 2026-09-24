@@ -46,6 +46,7 @@ async function runSync() {
     const {
       buildTripSourcesFromSyncState,
       decryptTickTickToken,
+      getTickTickRoutineExcludedTaskIds,
       readConnectedTickTickTemplate,
       reconcileTickTickTrips,
       reconcileTickTickWishPreparations,
@@ -68,9 +69,12 @@ async function runSync() {
       : { instances: {} };
     try {
       const today = shanghaiDate();
-      const routineResult = await syncTickTickRoutines({ api, calendarState, today });
-      console.info('[ticktick-routine-sync]', JSON.stringify(routineResult));
       const template = await readConnectedTickTickTemplate(api, connection);
+      const routineResult = await syncTickTickRoutines({
+        api, calendarState, today,
+        excludedTaskIds: getTickTickRoutineExcludedTaskIds(template, state),
+      });
+      console.info('[ticktick-routine-sync]', JSON.stringify(routineResult));
       const trips = buildTripSourcesFromSyncState(calendarState, tripState);
       const result = await reconcileTickTickTrips({
         api,
@@ -147,7 +151,7 @@ async function status() {
   return {
     connected: Boolean(connection),
     projectName: connection ? '玩' : undefined,
-    templateTitle: connection ? '出门todo' : undefined,
+    templateTitle: connection ? '出行todo模板' : undefined,
     lastSyncAt: state?.lastSyncAt,
     error: state?.lastError,
   };

@@ -6,11 +6,10 @@ export const TICKTICK_CONNECTION_KEY = 'ticktick:connection:v1';
 export const TICKTICK_SYNC_STATE_KEY = 'ticktick:trip-sync:v1';
 export const TICKTICK_SYNC_LOCK_KEY = 'ticktick:trip-sync:lock';
 export const TICKTICK_PROJECT_NAME = '玩';
-export const TICKTICK_TEMPLATE_TITLE = '出门todo';
+export const TICKTICK_TEMPLATE_TITLE = '出行todo模板';
+const LEGACY_TEMPLATE_TITLES = ['出门todo', '出行todo'];
 export const TICKTICK_ANCHOR_TITLE = '出门当天';
 export const TICKTICK_WISH_PREPARATION_TITLE = '出门前七个月';
-export const TICKTICK_HOME_ROUTINE_TITLE = '在家routine';
-export const TICKTICK_SCHOOL_ROUTINE_TITLE = '在校routine';
 export const TICKTICK_API_BASE_URL = 'https://api.ticktick.com/open/v1';
 
 const TRIP_TAG_PREFIX = /^\d{2}\.\d{1,2}(?:\.\d{1,2})?\s*/;
@@ -153,13 +152,14 @@ export interface TickTickSyncResult {
 
 export interface TickTickRoutineTargets {
   home: string;
-  school: string;
+  school: string | null;
+  travel: string | null;
 }
 
 export interface TickTickRoutineSyncResult {
   updatedRoutineTasks: number;
   routineTargets: TickTickRoutineTargets;
-  routineTaskCounts: { home: number; school: number };
+  routineTaskCounts: Record<keyof TickTickRoutineTargets, number>;
 }
 
 export interface TickTickApi {
@@ -396,8 +396,10 @@ export async function discoverTickTickTemplate(api: TickTickApi): Promise<TickTi
     api.filterTasks(project.id, [0, 2]),
   ]);
   const allTasks = mergeProjectTasks(data, filteredTasks);
-  const roots = allTasks.filter((task) => task.title.trim() === TICKTICK_TEMPLATE_TITLE);
-  if (roots.length !== 1) throw new Error('找不到唯一的“出门todo”模板');
+  const preferredRoots = allTasks.filter((task) => task.title.trim() === TICKTICK_TEMPLATE_TITLE);
+  const roots = preferredRoots.length > 0 ? preferredRoots
+    : allTasks.filter((task) => LEGACY_TEMPLATE_TITLES.includes(task.title.trim()));
+  if (roots.length !== 1) throw new Error(`找不到唯一的“${TICKTICK_TEMPLATE_TITLE}”模板`);
   const rootTask = roots[0];
   const tasks = [rootTask, ...descendantsOf(allTasks, rootTask.id)];
   const anchors = tasks.filter((task) => task.title.trim() === TICKTICK_ANCHOR_TITLE && taskDate(task));
@@ -420,7 +422,7 @@ export async function readConnectedTickTickTemplate(
   ]);
   const allTasks = mergeProjectTasks(data, filteredTasks);
   const rootTask = allTasks.find((task) => task.id === connection.templateRootId);
-  if (!rootTask) throw new Error('TickTick 中的“出门todo”模板已不存在');
+  if (!rootTask) throw new Error(`TickTick 中的“${TICKTICK_TEMPLATE_TITLE}”模板已不存在`);
   const tasks = [rootTask, ...descendantsOf(allTasks, rootTask.id)];
   const anchors = tasks.filter((task) => task.title.trim() === TICKTICK_ANCHOR_TITLE && taskDate(task));
   return {
@@ -513,7 +515,7 @@ function wishPreparationTemplate(template: TickTickTemplate): TickTickTemplate {
   const roots = template.tasks.filter((task) =>
     task.parentId === template.rootTask.id && isSevenMonthPreparationTask(task),
   );
-  if (roots.length !== 1) throw new Error(`出门todo 模板需要唯一的“${TICKTICK_WISH_PREPARATION_TITLE}”任务`);
+  if (roots.length !== 1) throw new Error(`${TICKTICK_TEMPLATE_TITLE}需要唯一的“${TICKTICK_WISH_PREPARATION_TITLE}”任务`);
   const rootTask = roots[0];
   return {
     projectId: template.projectId,
@@ -537,28 +539,43 @@ function calendarTagMapFromSyncState(calendarState: unknown): Record<string, unk
 
 function findRoutineTargetDate(
   tagMap: Record<string, unknown>,
-  today: string,
+  fromDate: string,
   matches: (tag: unknown) => boolean,
-  includeToday = true,
-): string {
-  if (includeToday && matches(tagMap[today])) return today;
-
-  const nextDate = Object.keys(tagMap)
-    .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date) && date > today && matches(tagMap[date]))
-    .sort()[0];
-  return nextDate ?? nextChineseNewYear(today);
+): string | null {
+  return Object.keys(tagMap)
+    .filter((date) => isValidCalendarDate(date) && date >= fromDate && matches(tagMap[date]))
+    .sort()[0] ?? null;
 }
 
 export function getTickTickRoutineTargetDates(calendarState: unknown, today: string): TickTickRoutineTargets {
   const tagMap = calendarTagMapFromSyncState(calendarState);
   return {
-    home: findRoutineTargetDate(tagMap, today, (tag) => tag === 'home'),
+    home: findRoutineTargetDate(tagMap, today, (tag) => tag === 'home')
+      ?? nextChineseNewYear(addCalendarDays(today, -1)),
     school: findRoutineTargetDate(tagMap, today, (tag) => tag === 'school' || tag === 'intern'),
+    travel: findRoutineTargetDate(tagMap, today, (tag) => tag === 'travel'),
   };
 }
 
-function normalizedRoutineTitle(value: string): string {
-  return value.normalize('NFKC').replace(/\s+/g, '').toLocaleLowerCase();
+function routineScenes(task: TickTickTask): Array<keyof TickTickRoutineTargets> {
+  const scenes = new Set<keyof TickTickRoutineTargets>();
+  for (const tag of task.tags ?? []) {
+    const label = tag.normalize('NFKC').trim();
+    if (label === '寄') scenes.add('home');
+    if (label === '居' || label === '寓') scenes.add('school');
+    if (label === '旅' || label === '游') scenes.add('travel');
+  }
+  return [...scenes];
+}
+
+export function getTickTickRoutineExcludedTaskIds(template: TickTickTemplate, state: TickTickTripSyncState): Set<string> {
+  const ids = new Set(template.tasks.map((task) => task.id));
+  ids.add(template.rootTask.id);
+  for (const instance of [...Object.values(state.instances), ...Object.values(state.wishInstances ?? {})]) {
+    if (instance.rootTaskId) ids.add(instance.rootTaskId);
+    for (const id of Object.values(instance.taskIdsByTemplateId)) ids.add(id);
+  }
+  return ids;
 }
 
 function calendarDateInTimeZone(value: string | undefined, timeZone = 'Asia/Shanghai'): string | null {
@@ -616,15 +633,9 @@ function shiftedRoutineItems(task: TickTickTask, targetDate: string): TickTickCh
   });
 }
 
-function routineTaskHasDate(task: TickTickTask): boolean {
-  return Boolean(routineTaskDate(task)) || Boolean(task.items?.some(
-    (item) => checklistItemStatus(item) === 0 && checklistItemDate(item, task.timeZone),
-  ));
-}
-
 function routineTaskIsAligned(task: TickTickTask, targetDate: string): boolean {
   const date = routineTaskDate(task);
-  if (date && date !== targetDate) return false;
+  if (date !== targetDate) return false;
   return !(task.items ?? []).some(
     (item) => checklistItemStatus(item) === 0
       && checklistItemDate(item, task.timeZone)
@@ -634,22 +645,23 @@ function routineTaskIsAligned(task: TickTickTask, targetDate: string): boolean {
 
 function routineTaskPayload(task: TickTickTask, targetDate: string): Record<string, unknown> {
   const scheduledDate = routineTaskDate(task);
+  const newDate = `${targetDate}T00:00:00+0800`;
   const shiftedStartDate = scheduledDate
     ? shiftTickTickDate(task.startDate, scheduledDate, targetDate)
-    : task.startDate;
+    : newDate;
   const shiftedDueDate = scheduledDate
     ? shiftTickTickDate(task.dueDate, scheduledDate, targetDate)
-    : task.dueDate;
+    : newDate;
   return {
     id: task.id,
     projectId: task.projectId,
     title: task.title,
     ...(task.content !== undefined ? { content: task.content } : {}),
     ...(task.desc !== undefined ? { desc: task.desc } : {}),
-    ...(task.isAllDay !== undefined ? { isAllDay: task.isAllDay } : {}),
+    ...(!scheduledDate ? { isAllDay: true } : task.isAllDay !== undefined ? { isAllDay: task.isAllDay } : {}),
     ...(shiftedStartDate ? { startDate: shiftedStartDate } : {}),
     ...(shiftedDueDate ? { dueDate: shiftedDueDate } : {}),
-    ...(task.timeZone ? { timeZone: task.timeZone } : {}),
+    ...(!scheduledDate ? { timeZone: 'Asia/Shanghai' } : task.timeZone ? { timeZone: task.timeZone } : {}),
     ...(task.reminders !== undefined ? { reminders: task.reminders } : {}),
     ...(task.tags !== undefined ? { tags: task.tags } : {}),
     ...(task.repeatFlag ? { repeatFlag: task.repeatFlag } : {}),
@@ -665,8 +677,9 @@ export async function syncTickTickRoutines(options: {
   api: TickTickApi;
   calendarState: unknown;
   today: string;
+  excludedTaskIds?: ReadonlySet<string>;
 }): Promise<TickTickRoutineSyncResult> {
-  const { api, calendarState, today } = options;
+  const { api, calendarState, today, excludedTaskIds = new Set<string>() } = options;
   const routineTargets = getTickTickRoutineTargetDates(calendarState, today);
   // /project omits the built-in Inbox. Discover tasks without a project filter,
   // then read complete data for every returned project, including the Inbox.
@@ -679,84 +692,71 @@ export async function syncTickTickRoutines(options: {
     ...filteredTasks.map((task) => task.projectId),
   ])];
   const projectData = await Promise.all(projectIds.map((projectId) => api.getProjectData(projectId)));
-  const activeTasks = mergeTaskLists(
+  const allTasks = mergeTaskLists(
     projectData.flatMap((data) => data.tasks),
     filteredTasks,
-  ).filter((task) => (task.status ?? 0) === 0);
-  const specs = [
-    {
-      key: 'home', title: TICKTICK_HOME_ROUTINE_TITLE, targetDate: routineTargets.home,
-      matches: (tag: unknown) => tag === 'home',
-    },
-    {
-      key: 'school', title: TICKTICK_SCHOOL_ROUTINE_TITLE, targetDate: routineTargets.school,
-      matches: (tag: unknown) => tag === 'school' || tag === 'intern',
-    },
-  ] as const;
+  );
+  const tasksById = new Map(allTasks.map((task) => [task.id, task]));
+  const isExcluded = (task: TickTickTask) => {
+    const visited = new Set<string>();
+    let current: TickTickTask | undefined = task;
+    while (current && !visited.has(current.id)) {
+      if (excludedTaskIds.has(current.id)) return true;
+      visited.add(current.id);
+      if (current.parentId && excludedTaskIds.has(current.parentId)) return true;
+      current = current.parentId ? tasksById.get(current.parentId) : undefined;
+    }
+    return false;
+  };
+  const candidates = allTasks
+    .filter((task) => (task.status ?? 0) === 0 && !isExcluded(task))
+    .map((task) => ({ task, scenes: routineScenes(task) }))
+    .filter(({ scenes }) => scenes.length > 0);
   let updatedRoutineTasks = 0;
-  const routineTaskCounts = { home: 0, school: 0 };
-  const scopes = specs.map((spec) => {
-    const normalizedTitle = normalizedRoutineTitle(spec.title);
-    const roots = activeTasks.filter((task) => normalizedRoutineTitle(task.title) === normalizedTitle);
-    if (roots.length > 1) throw new Error(`TickTick 中存在多个“${spec.title}”父任务`);
-    const root = roots[0];
-    const sameNamedProjects = projects.filter(
-      (project) => normalizedRoutineTitle(project.name) === normalizedTitle,
-    );
-    if (!root && sameNamedProjects.length > 1) throw new Error(`TickTick 中存在多个“${spec.title}”清单`);
-    if (!root && !sameNamedProjects[0]) throw new Error(`TickTick 中找不到“${spec.title}”父任务或清单`);
+  const routineTaskCounts = { home: 0, school: 0, travel: 0 };
+  for (const { scenes } of candidates) {
+    for (const scene of scenes) routineTaskCounts[scene] += 1;
+  }
 
-    const scopedTasks = root
-      ? descendantsOf(activeTasks.filter((task) => task.projectId === root.projectId), root.id)
-      : sameNamedProjects[0]
-        ? activeTasks.filter((task) => task.projectId === sameNamedProjects[0].id)
-        : [];
-    const tasks = scopedTasks.filter((task) => routineTaskHasDate(task));
-    routineTaskCounts[spec.key] = tasks.length;
-    return { ...spec, root, tasks };
-  });
-
-  const routineProjectIds = [...new Set(scopes.flatMap((scope) =>
-    scope.root ? [scope.root.projectId] : scope.tasks.map((task) => task.projectId)))];
-  const completedToday = await api.listCompletedTasks(
+  const routineProjectIds = [...new Set(candidates
+    .filter(({ task }) => Boolean(task.repeatFlag)).map(({ task }) => task.projectId))];
+  const completedToday = routineProjectIds.length > 0 ? await api.listCompletedTasks(
     routineProjectIds,
     `${today}T00:00:00+0800`,
     `${today}T23:59:59.999+0800`,
-  );
+  ) : [];
   const completedKeys = new Set(completedToday
     .filter((task) => (task.status ?? 2) === 2
       && calendarDateInTimeZone(task.completedTime, 'Asia/Shanghai') === today)
     .map(routineOccurrenceKey));
-  const tagMap = calendarTagMapFromSyncState(calendarState);
+  const tomorrowTargets = getTickTickRoutineTargetDates(calendarState, addCalendarDays(today, 1));
 
-  for (const spec of scopes) {
-    for (const task of spec.tasks) {
-      const completedThisOccurrence = Boolean(task.repeatFlag)
-        && spec.targetDate === today
-        && completedKeys.has(routineOccurrenceKey(task));
-      const taskTargetDate = completedThisOccurrence
-        ? findRoutineTargetDate(tagMap, today, spec.matches, false)
-        : spec.targetDate;
-      if (routineTaskIsAligned(task, taskTargetDate)) continue;
-      const payload = routineTaskPayload(task, taskTargetDate);
-      await api.updateTask(task.id, payload);
-      const updated = await api.getTask(task.projectId, task.id);
-      const datesPersisted = (['startDate', 'dueDate'] as const).every((key) => {
-        const expected = payload[key];
-        if (typeof expected !== 'string') return true;
-        return updated[key] === expected || Date.parse(updated[key] ?? '') === Date.parse(expected);
-      });
-      const itemsPersisted = !(task.items ?? []).some((item) => {
-        if (checklistItemStatus(item) !== 0 || !checklistItemDate(item, task.timeZone)) return false;
-        const saved = updated.items?.find((candidate) => candidate.id === item.id);
-        return !saved || checklistItemDate(saved, updated.timeZone) !== taskTargetDate;
-      });
-      if (!updated?.id || !datesPersisted || !itemsPersisted
-        || !routineTaskIsAligned(updated, taskTargetDate)) {
-        throw new Error(`TickTick 未正确更新“${task.title}”的日期`);
-      }
-      updatedRoutineTasks += 1;
+  for (const { task, scenes } of candidates) {
+    const completedThisOccurrence = Boolean(task.repeatFlag)
+      && completedKeys.has(routineOccurrenceKey(task));
+    const targets = completedThisOccurrence ? tomorrowTargets : routineTargets;
+    const taskTargetDate = scenes.map((scene) => targets[scene])
+      .filter((date): date is string => date !== null).sort()[0];
+    if (!taskTargetDate || routineTaskIsAligned(task, taskTargetDate)) continue;
+    const payload = routineTaskPayload(task, taskTargetDate);
+    await api.updateTask(task.id, payload);
+    const updated = await api.getTask(task.projectId, task.id);
+    if (!updated?.id) throw new Error(`TickTick 未正确更新“${task.title}”的日期`);
+    const datesPersisted = (['startDate', 'dueDate'] as const).every((key) => {
+      const expected = payload[key];
+      if (typeof expected !== 'string') return true;
+      return updated[key] === expected || Date.parse(updated[key] ?? '') === Date.parse(expected);
+    });
+    const itemsPersisted = !(task.items ?? []).some((item) => {
+      if (checklistItemStatus(item) !== 0 || !checklistItemDate(item, task.timeZone)) return false;
+      const saved = updated.items?.find((candidate) => candidate.id === item.id);
+      return !saved || checklistItemDate(saved, updated.timeZone) !== taskTargetDate;
+    });
+    if (!updated?.id || !datesPersisted || !itemsPersisted
+      || !routineTaskIsAligned(updated, taskTargetDate)) {
+      throw new Error(`TickTick 未正确更新“${task.title}”的日期`);
     }
+    updatedRoutineTasks += 1;
   }
 
   return { updatedRoutineTasks, routineTargets, routineTaskCounts };

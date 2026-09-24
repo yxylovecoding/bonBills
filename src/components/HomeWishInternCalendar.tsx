@@ -204,7 +204,7 @@ export default function HomeWishInternCalendar({
               type="button"
               key={cell.key}
               className="home-wish-calendar-day"
-              aria-label={`${cell.key}，${meta.label}${dateLabel ? `，${dateLabelPrefix}${dateLabel}` : ''}${markerLabel}${canToggleWorkingDate ? `，点击切换为${displayTag === 'intern' ? '上学' : '实习'}` : ''}`}
+              aria-label={`${cell.key}，${meta.label}${dateLabel ? `，${dateLabelPrefix}${dateLabel}` : ''}${markerLabel}${canToggleWorkingDate ? `，点击切换为${displayTag === 'intern' ? tagMeta.school.label : tagMeta.intern.label}` : ''}`}
               title={`${cell.key} · ${meta.label}${dateLabel ? ` · ${dateLabel}` : ''}${holidayMarker ? ` · ${holiday?.name ?? holidayMarker}` : ''}`}
               disabled={!canToggleWorkingDate}
               onClick={() => onToggleWorkingDate(
