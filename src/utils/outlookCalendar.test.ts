@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { buildOutlookSnapshot, DEFAULT_OUTLOOK_RULES, normalizeOutlookCalendarState, reconcileOutlookSnapshot, type OutlookDayEvent } from './outlookCalendar';
+import { applyOutlookSnapshotToState, buildOutlookSnapshot, DEFAULT_OUTLOOK_RULES, normalizeOutlookCalendarState, reconcileOutlookSnapshot, type OutlookDayEvent } from './outlookCalendar';
 import { useCalendarStore } from '../stores/calendarStore';
 
 const start = '2026-09-01';
@@ -8,6 +8,57 @@ const event = (values: Partial<OutlookDayEvent> = {}): OutlookDayEvent => ({ cal
 const snapshot = (events: OutlookDayEvent[]) => buildOutlookSnapshot(events, start, end, DEFAULT_OUTLOOK_RULES);
 
 describe('Outlook 月历映射', () => {
+  it.each([
+    ['play', '寒假'], ['play', '暑假'], ['class', '寒假'], ['class', '暑假'],
+  ] as const)('%s 日历的 %s 不标记出游或保留出游标题，旧连接规则同样生效', (calendar, title) => {
+    const result = buildOutlookSnapshot([
+      event({ calendar, title: ` ${title} `, startDate: '2026-07-01', endDate: '2026-09-01' }),
+    ], '2026-07-01', '2026-09-01', { homeTitles: ['🏠'], ignoredPlayTitles: [] });
+    expect(result.tags).toEqual({});
+    expect(result.travelTitles).toEqual({});
+  });
+
+  it('假期不覆盖寄或班，不延长其中的具体旅行，标题含假期的旅行仍保留', () => {
+    const result = snapshot([
+      event({ title: '暑假', startDate: start, endDate: end }),
+      event({ calendar: 'class', title: '寒假', startDate: start, endDate: end }),
+      event({ title: '🏠', startDate: '2026-09-01', endDate: '2026-09-02' }),
+      event({ calendar: 'class', title: '实习', startDate: '2026-09-02', endDate: '2026-09-03' }),
+      event({ title: '平遥电影节', startDate: '2026-09-25', endDate: end }),
+      event({ title: '寒假旅行' }),
+      event({ title: '暑假旅行', startDate: '2026-09-23', endDate: '2026-09-24' }),
+    ]);
+    expect(result.tags).toEqual({
+      '2026-09-01': 'home', '2026-09-02': 'intern', '2026-09-22': 'travel', '2026-09-23': 'travel',
+      '2026-09-25': 'travel', '2026-09-26': 'travel', '2026-09-27': 'travel',
+      '2026-09-28': 'travel', '2026-09-29': 'travel', '2026-09-30': 'travel',
+    });
+    expect(result.travelTitles).toEqual({
+      '2026-09-22': '寒假旅行', '2026-09-23': '暑假旅行',
+      '2026-09-25': '平遥电影节', '2026-09-26': '平遥电影节', '2026-09-27': '平遥电影节',
+      '2026-09-28': '平遥电影节', '2026-09-29': '平遥电影节', '2026-09-30': '平遥电影节',
+    });
+  });
+
+  it('重新同步撤销假期的旧自动出游标记和标题，恢复原场景并保留手动标记', () => {
+    const state = {
+      tagMap: { '2026-09-01': 'travel', '2026-09-02': 'travel', '2026-09-03': 'travel' },
+      outlookApplied: {
+        '2026-09-01': { tag: 'travel', previousTag: 'home' },
+        '2026-09-02': { tag: 'travel', previousTag: null },
+        '2026-09-03': { tag: 'travel', previousTag: 'school' },
+      },
+      manualTagDates: { '2026-09-03': true },
+      outlookTravelTitles: { '2026-09-01': '暑假', '2026-09-02': '暑假', '2026-09-03': '暑假' },
+    };
+    const nextSnapshot = snapshot([event({ title: '暑假', startDate: start, endDate: end })]);
+    const result = applyOutlookSnapshotToState(state, nextSnapshot, 'manual');
+    expect(result.tagMap).toEqual({ '2026-09-01': 'home', '2026-09-03': 'travel' });
+    expect(result.outlookApplied).toEqual({});
+    expect(result.outlookTravelTitles).toEqual({});
+    expect(applyOutlookSnapshotToState(result, nextSnapshot, 'manual')).toEqual(result);
+  });
+
   it('识别在家、玩和课的全天出行、实习，忽略节日提醒、新卡池和非全天日程', () => {
     expect(snapshot([
       event({ title: '🏠', startDate: '2026-08-30', endDate: '2026-09-03' }),

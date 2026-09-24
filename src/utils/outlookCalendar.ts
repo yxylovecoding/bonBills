@@ -20,8 +20,9 @@ export interface OutlookRules {
 
 export const DEFAULT_OUTLOOK_RULES: OutlookRules = { homeTitles: ['🏠'], ignoredPlayTitles: ['新卡池', '新卡池&新月卡'] };
 
-// Match reminder titles, not arbitrary event titles ending in “节” (e.g. 平遥电影节).
+// Match holiday/break reminders exactly, leaving actual trips such as 平遥电影节 or 寒假旅行 intact.
 const HOLIDAY_REMINDER_TITLES = new Set([
+  '寒假', '暑假',
   '元旦', '元旦节', '春节', '除夕', '元宵节', '清明节', '劳动节', '端午节', '中秋节', '国庆节',
   '七夕', '七夕节', '重阳节', '妇女节', '植树节', '青年节', '儿童节', '建党节', '建军节', '教师节',
   '情人节', '母亲节', '父亲节', '感恩节', '平安夜', '圣诞', '圣诞节',
