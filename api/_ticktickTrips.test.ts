@@ -280,7 +280,6 @@ describe('寄居旅标签排期', () => {
     { tags: ['居'], date: '2026-09-06' },
     { tags: ['旅'], date: '2026-09-08' },
     { tags: ['寓'], date: '2026-09-06' },
-    { tags: ['游'], date: '2026-09-08' },
     { tags: ['寄', '居'], date: '2026-09-06' },
     { tags: ['寄', '旅'], date: '2026-09-08' },
     { tags: ['寄', '居', '旅'], date: '2026-09-06' },
@@ -297,6 +296,35 @@ describe('寄居旅标签排期', () => {
     expect(api.updateCalls).toBe(1);
     expect(result.routineTaskCounts.school).toBe(tags.some((tag) => ['居', '寓'].includes(tag.trim())) ? 1 : 0);
     await expect(syncTickTickRoutines(options)).resolves.toMatchObject({ updatedRoutineTasks: 0 });
+    expect(api.updateCalls).toBe(1);
+  });
+
+  it('游是普通标签，正在出游时也不覆盖手动日期或给无日期待办补期', async () => {
+    const dated = todo(['游', '玩'], {
+      title: '音乐剧&演唱会check',
+      startDate: '2026-09-28T10:00:00+0800', dueDate: '2026-09-28T12:00:00+0800',
+      timeZone: 'Asia/Shanghai', isAllDay: false,
+      items: [{ id: 'check', title: '查演出', status: 0, startDate: '2026-09-28T10:00:00+0800' }],
+    });
+    const api = apiWithTasks([dated, todo(['游'], { id: 'undated' })]);
+    const original = structuredClone([...api.tasks.values()]);
+    const options = { api, calendarState: { tagMap: { '2026-09-25': 'travel' } }, today: '2026-09-25' };
+    for (let index = 0; index < 2; index++) {
+      await expect(syncTickTickRoutines(options)).resolves.toMatchObject({
+        updatedRoutineTasks: 0, routineTaskCounts: { home: 0, school: 0, travel: 0 },
+      });
+      expect([...api.tasks.values()]).toEqual(original);
+    }
+    expect(api.updateCalls).toBe(0);
+  });
+
+  it.each([
+    { tags: ['游', '居'], date: '2026-09-28' },
+    { tags: ['游', '旅'], date: '2026-09-25' },
+  ])('游不提供排期候选，$tags 仍按正式场景标签排到 $date', async ({ tags, date }) => {
+    const api = apiWithTasks([todo(tags)]);
+    await syncTickTickRoutines({ api, today: '2026-09-25', calendarState: { tagMap: { '2026-09-25': 'travel', '2026-09-28': 'intern' } } });
+    expect(api.tasks.get('todo')?.dueDate).toBe(`${date}T00:00:00+0800`);
     expect(api.updateCalls).toBe(1);
   });
 

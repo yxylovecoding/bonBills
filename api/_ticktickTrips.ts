@@ -564,7 +564,7 @@ function routineScenes(task: TickTickTask): Array<keyof TickTickRoutineTargets> 
     const label = tag.normalize('NFKC').trim();
     if (label === '寄') scenes.add('home');
     if (label === '居' || label === '寓') scenes.add('school');
-    if (label === '旅' || label === '游') scenes.add('travel');
+    if (label === '旅') scenes.add('travel');
   }
   return [...scenes];
 }
