@@ -40,19 +40,18 @@ async function releaseLock(lockId: string) {
   if (current === lockId) await kv.del(SYNC_LOCK_KEY);
 }
 
-async function runSync(refreshOutlook = false) {
+async function runSync(allowDisconnected = false) {
   const lockId = await acquireLock();
   if (!lockId) return { busy: true as const };
   try {
     const today = shanghaiDate();
     const secret = getSyncSecret();
-    if (refreshOutlook) {
-      try { await syncOutlookCalendar(today, secret); }
-      catch (error) {
-        const state = await kv.get<TickTickTripSyncState>(SYNC_STATE_KEY);
-        await kv.set(SYNC_STATE_KEY, { ...state, instances: state?.instances ?? {}, lastError: error instanceof Error ? error.message : String(error) });
-        throw error;
-      }
+    // Manual and scheduled runs must use the same fresh calendar window, including future trips.
+    try { await syncOutlookCalendar(today, secret); }
+    catch (error) {
+      const state = await kv.get<TickTickTripSyncState>(SYNC_STATE_KEY);
+      await kv.set(SYNC_STATE_KEY, { ...state, instances: state?.instances ?? {}, lastError: error instanceof Error ? error.message : String(error) });
+      throw error;
     }
     const {
       buildTripSourcesFromSyncState,
@@ -65,7 +64,7 @@ async function runSync(refreshOutlook = false) {
       TickTickOpenApiClient,
     } = await import('./_ticktickTrips.js');
     const connection = await kv.get<TickTickConnection>(CONNECTION_KEY);
-    if (!connection && refreshOutlook) return { busy: false as const, connected: false as const };
+    if (!connection && allowDisconnected) return { busy: false as const, connected: false as const };
     if (!connection) throw new Error('TickTick 未连接');
     const token = decryptTickTickToken(connection.encryptedToken, secret);
     const api = new TickTickOpenApiClient(token, (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
@@ -104,6 +103,7 @@ async function runSync(refreshOutlook = false) {
         legacyProjectId: connection.projectId,
         saveState: (nextState) => kv.set(SYNC_STATE_KEY, nextState).then(() => undefined),
       });
+      console.info('[ticktick-trip-sync]', JSON.stringify({ ...result, ...wishResult }));
       return { busy: false as const, ...result, ...wishResult, ...routineResult, lastSyncAt: state.lastSyncAt };
     } catch (error) {
       state.lastError = error instanceof Error ? error.message : String(error);

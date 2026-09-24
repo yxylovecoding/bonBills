@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { applyOutlookSnapshotToState, buildOutlookSnapshot, DEFAULT_OUTLOOK_RULES } from '../src/utils/outlookCalendar';
 import {
   buildTripSourcesFromSyncState,
   buildWishPreparationSourcesFromSyncState,
@@ -1717,6 +1718,50 @@ describe('TickTick 出游同步', () => {
     expect(updatedBefore.status).toBe(2);
     expect(updatedBefore.items?.map((item) => item.title)).toEqual(['随身包', '相机', '临时增加']);
     expect(updatedBefore.items?.find((item) => item.title === '随身包')?.status).toBe(1);
+  });
+
+  it('刷新寒假后清理两套已生成待办，具体旅行改名沿用进度，普通同名任务保持不动', async () => {
+    const api = new FakeTickTickApi();
+    const template = await discoverTickTickTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    const dates = ['2027-01-23', '2027-01-30', '2027-02-06', '2027-02-13'];
+    const oldCalendar = {
+      tagMap: Object.fromEntries(dates.map((day) => [day, 'travel'])),
+      outlookApplied: Object.fromEntries(dates.map((day) => [day, { tag: 'travel', previousTag: null }])),
+      outlookTravelTitles: Object.fromEntries(dates.map((day, index) => [day, index < 2 ? '北海道、寒假' : '寒假'])),
+    };
+    const options = { api, template, state, today: '2026-09-25', saveState: async () => undefined };
+    await reconcileTickTickTrips({ ...options, trips: buildTripSourcesFromSyncState(oldCalendar, {}) });
+    const originalIds = Object.fromEntries(dates.map((day) => [day, { ...state.instances[day].taskIdsByTemplateId }]));
+    const completedId = originalIds[dates[0]]['template-before'];
+    api.tasks.get(completedId)!.status = 2;
+    api.tasks.get(completedId)!.items![0].status = 1;
+    api.tasks.set('manual', { id: 'manual', projectId: 'play', title: '寒假 · 出门todo', status: 0 });
+    const snapshot = buildOutlookSnapshot([
+      { calendar: 'class', title: '寒假', startDate: '2027-01-20', endDate: '2027-02-20', allDay: true },
+      { calendar: 'play', title: '北海道', startDate: '2027-01-23', endDate: '2027-01-24', allDay: true },
+      { calendar: 'play', title: '北海道', startDate: '2027-01-30', endDate: '2027-01-31', allDay: true },
+    ], '2027-01-01', '2027-03-01', DEFAULT_OUTLOOK_RULES);
+    const calendar = applyOutlookSnapshotToState(oldCalendar, snapshot, 'manual');
+    const trips = buildTripSourcesFromSyncState(calendar, {});
+    await expect(reconcileTickTickTrips({ ...options, trips })).resolves.toEqual({
+      createdTrips: 0, updatedTrips: 2, deletedTrips: 2, activeTrips: 2,
+    });
+    for (const day of dates.slice(0, 2)) {
+      expect(state.instances[day].taskIdsByTemplateId).toEqual(originalIds[day]);
+      expect(api.tasks.get(state.instances[day].rootTaskId!)?.title).toBe('北海道 · 出门todo');
+    }
+    for (const day of dates.slice(2)) {
+      expect(state.instances[day]).toBeUndefined();
+      for (const id of Object.values(originalIds[day])) expect(api.tasks.has(id)).toBe(false);
+    }
+    expect(api.tasks.get(completedId)).toMatchObject({ status: 2, items: [{ status: 1 }] });
+    expect(api.tasks.has('manual')).toBe(true);
+    expect(api.tasks.has(template.rootTask.id)).toBe(true);
+    expect(getTickTickRoutineTargetDates(calendar, '2027-02-01').travel).toBeNull();
+    const writes = [api.createCalls, api.deleteCalls];
+    await expect(reconcileTickTickTrips({ ...options, trips })).resolves.toMatchObject({ createdTrips: 0, deletedTrips: 0 });
+    expect([api.createCalls, api.deleteCalls]).toEqual(writes);
   });
 
   it('取消尚未结束的行程时删除映射任务，历史实例保持不动', async () => {

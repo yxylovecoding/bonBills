@@ -88,6 +88,27 @@ describe('后台 Outlook 拉取与 TickTick 顺序', () => {
     expect(routineSync.mock.calls[0][0].calendarState).toEqual(calendar());
     expect(tripSync.mock.calls[0][0].trips).toEqual(calendar());
   });
+  it('立即同步先刷新未来寒暑假，再把已清理的日历交给待办同步', async () => {
+    auth.mockResolvedValue(true);
+    data.set('ticktick:connection:v1', { encryptedToken: 'encrypted', templateRootId: 'template' });
+    await saveOutlookSnapshot(connection(), {
+      startDate: '2027-01-01', endDate: '2027-09-01',
+      tags: { '2027-01-23': 'travel', '2027-02-06': 'travel', '2027-07-01': 'travel' },
+      travelTitles: { '2027-01-23': '北海道、寒假', '2027-02-06': '寒假', '2027-07-01': '暑假' },
+    }, 'manual', 1);
+    vi.mocked(fetch).mockImplementation(async (url) => {
+      events.push('outlook');
+      return new Response(url === playUrl ? calendarIcs([['20270123', '20270124', '北海道']])
+        : calendarIcs([['20270120', '20270220', '寒假'], ['20270701', '20270901', '暑假']]));
+    });
+    const result = await call(ticktickHandler, 'POST');
+    expect(result.status).toBe(200);
+    expect(events).toEqual(['outlook', 'outlook', 'template']);
+    expect(calendar().tagMap).toEqual({ '2026-09-25': 'school', '2027-01-23': 'travel' });
+    expect(calendar().outlookTravelTitles).toEqual({ '2027-01-23': '北海道' });
+    expect(routineSync.mock.calls[0][0].calendarState).toEqual(calendar());
+    expect(tripSync.mock.calls[0][0].trips).toEqual(calendar());
+  });
   it('未连接 Outlook 时继续原有 TickTick 同步，两者都没连接时正常返回', async () => {
     data.delete(OUTLOOK_CONNECTION_KEY);
     expect((await cron()).body.connected).toBe(false);
@@ -101,7 +122,8 @@ describe('后台 Outlook 拉取与 TickTick 顺序', () => {
     expect((await call(ticktickHandler, 'GET')).status).toBe(200);
     expect(fetch).not.toHaveBeenCalled();
   });
-  it('任一订阅失败保留日历，停止排期并记录不含私密地址的错误', async () => {
+  it.each(['GET', 'POST'])('%s 同步任一订阅失败保留日历和任务，停止排期并记录不含私密地址的错误', async (method) => {
+    auth.mockResolvedValue(true);
     data.set('ticktick:connection:v1', { encryptedToken: 'encrypted' });
     const before = structuredClone(calendar());
     const original = vi.mocked(fetch).getMockImplementation()!;
@@ -109,10 +131,11 @@ describe('后台 Outlook 拉取与 TickTick 顺序', () => {
       if (url === classUrl) throw new Error(classUrl);
       return original(url, init);
     });
-    const result = await cron();
+    const result = await call(ticktickHandler, method, method === 'GET' ? 'Bearer cron-secret' : undefined);
     expect(result.status).toBe(502); expect(result.body.error).toContain('「课」日历读取失败');
     expect(JSON.stringify(result)).not.toContain(classUrl);
     expect(calendar()).toEqual(before); expect(templateRead).not.toHaveBeenCalled();
+    expect(tripSync).not.toHaveBeenCalled();
     expect(data.get('ticktick:trip-sync:v1')).toHaveProperty('lastError', result.body.error);
     expect(data.has('ticktick:trip-sync:lock')).toBe(false);
   });
