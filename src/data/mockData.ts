@@ -198,7 +198,7 @@ export const currentStats: CurrentStats = {
 export const tagMeta = {
   intern: { icon: '💼', label: '班', color: '#16a34a' },
   school: { icon: '📚', label: '学', color: '#3b82f6' },
-  home:   { icon: '🏠', label: '寄', color: '#ca8a04' },
+  home:   { icon: '👨‍👩‍👧', label: '寄', color: '#ca8a04' },
   travel: { icon: '✈️', label: '游', color: '#c026d3' },
 } as const;
 

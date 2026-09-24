@@ -102,7 +102,7 @@ class FakeTickTickApi implements TickTickApi {
   }
 
   async getProjectData(projectId: string): Promise<TickTickProjectData> {
-    return { project: { id: projectId, name: '玩' }, tasks: [...this.tasks.values()] };
+    return { project: { id: projectId, name: '玩' }, tasks: [...this.tasks.values()].filter((task) => task.projectId === projectId) };
   }
 
   async filterTasks(projectIds: string | string[] | undefined, statuses: number[]) {
@@ -119,9 +119,9 @@ class FakeTickTickApi implements TickTickApi {
       && Date.parse(task.completedTime) <= Date.parse(endDate));
   }
 
-  async getTask(_projectId: string, taskId: string) {
+  async getTask(projectId: string, taskId: string) {
     const task = this.tasks.get(taskId);
-    if (!task) throw new Error('TickTick 404');
+    if (!task || task.projectId !== projectId) throw new Error('TickTick 404');
     return task;
   }
 
@@ -151,8 +151,9 @@ class FakeTickTickApi implements TickTickApi {
     return updated;
   }
 
-  async deleteTask(_projectId: string, taskId: string) {
+  async deleteTask(projectId: string, taskId: string) {
     this.deleteCalls += 1;
+    if (this.tasks.get(taskId)?.projectId !== projectId) throw new Error('TickTick 404');
     if (!this.tasks.delete(taskId)) throw new Error('TickTick 404');
   }
 }
@@ -481,6 +482,90 @@ describe('出行模板改名', () => {
     expect((await discoverTickTickTemplate(api)).rootTask.id).toBe('new-template');
     api.tasks.set('duplicate', { id: 'duplicate', projectId: 'play', title: '出门todo模板' });
     await expect(discoverTickTickTemplate(api)).rejects.toThrow('找不到唯一的“出门todo模版”模板');
+  });
+
+  it('只按名字查找，不受清单名称、任务标签、父任务或完成状态限制', async () => {
+    const api = new FakeTickTickApi();
+    vi.spyOn(api, 'listProjects').mockResolvedValue([{ id: 'life', name: '活' }]);
+    for (const task of api.tasks.values()) task.projectId = 'life';
+    Object.assign(api.tasks.get('template-root')!, { title: ' 出门todo模板 ', tags: ['不关我事', '活'], status: 2, parentId: 'container' });
+    const template = await discoverTickTickTemplate(api);
+    expect(template.projectId).toBe('life');
+    expect(template.tasks.map((task) => task.id)).toEqual(['template-root', 'template-month', 'template-before', 'template-day']);
+  });
+
+  it('收集箱不在清单列表中，也能按名字找到完整模板树', async () => {
+    const api = new FakeRoutineTickTickApi();
+    for (const task of api.tasks.values()) if (task.id.startsWith('template-')) task.projectId = 'life';
+    api.tasks.get('template-root')!.title = '出门todo模板';
+    const filter = vi.spyOn(api, 'filterTasks');
+    const template = await readConnectedTickTickTemplate(api, { projectId: 'deleted-project', templateRootId: 'deleted-root' });
+    expect(filter).toHaveBeenCalledWith(undefined, [0, 2]);
+    expect(template.projectId).toBe('life');
+    expect(template.tasks.map((task) => task.id)).toEqual(['template-root', 'template-month', 'template-before', 'template-day']);
+    expect(template.tasks.find((task) => task.id === 'template-before')?.items).toHaveLength(1);
+  });
+
+  it('旧 ID 对应任务仍存在但已改为其他名称时，选中新的同名模板', async () => {
+    const api = new FakeTickTickApi();
+    api.tasks.get('template-root')!.title = '其他任务';
+    api.tasks.set('replacement', { id: 'replacement', projectId: 'play', title: '出门todo模板' });
+    const template = await readConnectedTickTickTemplate(api, { projectId: 'play', templateRootId: 'template-root' });
+    expect(template.rootTask.id).toBe('replacement');
+  });
+
+  it('跨清单同名模板不会用旧 ID 消除歧义，也不会把带行程前缀的副本当模板', async () => {
+    const api = new FakeTickTickApi();
+    api.tasks.get('template-root')!.title = '出门todo模板';
+    api.tasks.set('duplicate', { id: 'duplicate', projectId: 'life', title: '出门todo模版' });
+    await expect(readConnectedTickTickTemplate(api, { projectId: 'play', templateRootId: 'template-root' })).rejects.toThrow('找不到唯一');
+    api.tasks.get('template-root')!.title = '东京 · 出门todo模板';
+    api.tasks.get('duplicate')!.title = '清迈 · 出门todo模版';
+    await expect(discoverTickTickTemplate(api)).rejects.toThrow('找不到唯一');
+  });
+
+  it('模板移动并重建后，出行和心愿实例按名称重新关联，保留原清单、任务 ID、完成状态及手动日期', async () => {
+    const api = new FakeTickTickApi();
+    addWishPreparationTemplate(api);
+    let template = await discoverTickTickTemplate(api);
+    const originalTemplateTasks = structuredClone(template.tasks);
+    const state: TickTickTripSyncState = { instances: {} };
+    const sync = async () => {
+      await reconcileTickTickTrips({ api, template, state, trips: [futureTrip], today: '2026-09-04', legacyProjectId: 'play', saveState: async () => undefined });
+      await reconcileTickTickWishPreparations({ api, template, state, configState: { config: { wishes: [futureWish] } }, today: '2026-09-04', legacyProjectId: 'play', saveState: async () => undefined });
+    };
+    await sync();
+    const tripInstance = state.instances[futureTrip.key];
+    const wishInstance = state.wishInstances![futureWish.id];
+    const tripRoot = tripInstance.rootTaskId;
+    const wishRoot = wishInstance.rootTaskId;
+    const stageId = tripInstance.taskIdsByTemplateId['template-before'];
+    Object.assign(api.tasks.get(stageId)!, { status: 2, startDate: '2026-10-01T09:00:00+0800', dueDate: '2026-10-01T10:00:00+0800' });
+    api.tasks.get(stageId)!.items![0].status = 1;
+    const previousStage = structuredClone(api.tasks.get(stageId)!);
+    const created = api.createCalls;
+    delete tripInstance.projectId;
+    delete wishInstance.projectId;
+    for (const task of originalTemplateTasks) {
+      api.tasks.delete(task.id);
+      api.tasks.set(`new-${task.id}`, { ...task, id: `new-${task.id}`, projectId: 'life',
+        title: task.id === template.rootTask.id ? '出门todo模板' : task.title,
+        parentId: task.parentId ? `new-${task.parentId}` : undefined });
+    }
+    vi.spyOn(api, 'listProjects').mockResolvedValue([{ id: 'play', name: '旧清单' }, { id: 'life', name: '活' }]);
+    template = await readConnectedTickTickTemplate(api, { projectId: 'play', templateRootId: 'template-root' });
+    expect(template.projectId).toBe('life');
+    await sync();
+    await sync();
+    expect(api.createCalls).toBe(created);
+    expect(api.deleteCalls).toBe(0);
+    expect(tripInstance.rootTaskId).toBe(tripRoot);
+    expect(wishInstance.rootTaskId).toBe(wishRoot);
+    expect(tripInstance.taskIdsByTemplateId['new-template-before']).toBe(stageId);
+    expect(api.tasks.get(stageId)).toEqual(previousStage);
+    expect(tripInstance.projectId).toBe('play');
+    expect(wishInstance.projectId).toBe('play');
+    expect(api.tasks.get(tripRoot!)?.projectId).toBe('play');
   });
 
   it('已连接模板改名沿用原任务 ID 和出行、心愿实例', async () => {

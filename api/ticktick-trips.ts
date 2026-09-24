@@ -92,6 +92,7 @@ async function runSync(refreshOutlook = false) {
         trips,
         state,
         today,
+        legacyProjectId: connection.projectId,
         saveState: (nextState) => kv.set(SYNC_STATE_KEY, nextState).then(() => undefined),
       });
       const wishResult = await reconcileTickTickWishPreparations({
@@ -100,6 +101,7 @@ async function runSync(refreshOutlook = false) {
         configState,
         state,
         today,
+        legacyProjectId: connection.projectId,
         saveState: (nextState) => kv.set(SYNC_STATE_KEY, nextState).then(() => undefined),
       });
       return { busy: false as const, ...result, ...wishResult, ...routineResult, lastSyncAt: state.lastSyncAt };
@@ -128,6 +130,7 @@ function parseToken(req: VercelRequest): string {
 async function connect(req: VercelRequest) {
   const {
     discoverTickTickTemplate,
+    decryptTickTickToken,
     encryptTickTickToken,
     TickTickOpenApiClient,
   } = await import('./_ticktickTrips.js');
@@ -139,8 +142,24 @@ async function connect(req: VercelRequest) {
   ]);
   const secret = getSyncSecret();
   const previousConnection = await kv.get<TickTickConnection>(CONNECTION_KEY);
-  const sameTemplate = previousConnection?.projectId === template.projectId
-    && previousConnection.templateRootId === template.rootTask.id;
+  let sameToken = false;
+  if (previousConnection) {
+    try { sameToken = decryptTickTickToken(previousConnection.encryptedToken, secret) === token; }
+    catch { /* A new valid connection can replace credentials encrypted with an old server key. */ }
+  }
+  const sameConnection = previousConnection && (
+    previousConnection.templateRootId === template.rootTask.id
+    || sameToken
+  );
+  if (sameConnection) {
+    const state = await kv.get<TickTickTripSyncState>(SYNC_STATE_KEY);
+    if (state) {
+      for (const instance of [...Object.values(state.instances ?? {}), ...Object.values(state.wishInstances ?? {})]) {
+        instance.projectId ??= previousConnection.projectId;
+      }
+      await kv.set(SYNC_STATE_KEY, state);
+    }
+  }
   const connection: TickTickConnection = {
     encryptedToken: encryptTickTickToken(token, secret),
     projectId: template.projectId,
@@ -149,7 +168,7 @@ async function connect(req: VercelRequest) {
     connectedAt: new Date().toISOString(),
   };
   await kv.set(CONNECTION_KEY, connection);
-  if (!sameTemplate) await kv.set<TickTickTripSyncState>(SYNC_STATE_KEY, { instances: {} });
+  if (!sameConnection) await kv.set<TickTickTripSyncState>(SYNC_STATE_KEY, { instances: {} });
   return { busy: false as const };
 }
 
@@ -160,7 +179,6 @@ async function status() {
   ]);
   return {
     connected: Boolean(connection),
-    projectName: connection ? '玩' : undefined,
     templateTitle: connection ? '出门todo模版' : undefined,
     lastSyncAt: state?.lastSyncAt,
     error: state?.lastError,

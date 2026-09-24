@@ -5,7 +5,6 @@ import { getTripDisplayTitle, normalizeOutlookTravelTitles } from '../src/utils/
 export const TICKTICK_CONNECTION_KEY = 'ticktick:connection:v1';
 export const TICKTICK_SYNC_STATE_KEY = 'ticktick:trip-sync:v1';
 export const TICKTICK_SYNC_LOCK_KEY = 'ticktick:trip-sync:lock';
-export const TICKTICK_PROJECT_NAME = '玩';
 export const TICKTICK_TEMPLATE_TITLE = '出门todo模版';
 const TEMPLATE_TITLE_VARIANTS = [TICKTICK_TEMPLATE_TITLE, '出门todo模板'];
 const LEGACY_TEMPLATE_TITLES = ['出行todo模板', '出行todo模版', '出门todo', '出行todo'];
@@ -125,6 +124,7 @@ interface TickTickDateSyncState {
 }
 
 export interface TickTickTripInstance {
+  projectId?: string;
   tripKey: string;
   startDate: string;
   endDate: string;
@@ -381,22 +381,17 @@ function mergeTaskLists(primaryTasks: TickTickTask[], fallbackTasks: TickTickTas
   return [...tasksById.values()];
 }
 
-function mergeProjectTasks(projectData: TickTickProjectData, filteredTasks: TickTickTask[]) {
+async function readAllTickTickTasks(api: TickTickApi, statuses: number[]) {
+  // The built-in Inbox is absent from /project. Discover it through the unfiltered task query.
+  const [projects, filteredTasks] = await Promise.all([api.listProjects(), api.filterTasks(undefined, statuses)]);
+  const projectIds = [...new Set([...projects.map((project) => project.id), ...filteredTasks.map((task) => task.projectId)])];
+  const projectData = await Promise.all(projectIds.map((projectId) => api.getProjectData(projectId)));
   // Project data carries hierarchy/checklist fields that /task/filter may omit.
-  // Keep it authoritative while using the filter response only to fill missing tasks/fields.
-  return mergeTaskLists(projectData.tasks, filteredTasks);
+  return mergeTaskLists(projectData.flatMap((data) => data.tasks), filteredTasks);
 }
 
 export async function discoverTickTickTemplate(api: TickTickApi): Promise<TickTickTemplate> {
-  const projects = await api.listProjects();
-  const projectsNamedPlay = projects.filter((project) => project.name.trim() === TICKTICK_PROJECT_NAME);
-  if (projectsNamedPlay.length !== 1) throw new Error('找不到唯一的“玩”清单');
-  const project = projectsNamedPlay[0];
-  const [data, filteredTasks] = await Promise.all([
-    api.getProjectData(project.id),
-    api.filterTasks(project.id, [0, 2]),
-  ]);
-  const allTasks = mergeProjectTasks(data, filteredTasks);
+  const allTasks = await readAllTickTickTasks(api, [0, 2]);
   const preferredRoots = allTasks.filter((task) => TEMPLATE_TITLE_VARIANTS.includes(task.title.trim()));
   const roots = preferredRoots.length > 0 ? preferredRoots
     : allTasks.filter((task) => LEGACY_TEMPLATE_TITLES.includes(task.title.trim()));
@@ -405,7 +400,7 @@ export async function discoverTickTickTemplate(api: TickTickApi): Promise<TickTi
   const tasks = [rootTask, ...descendantsOf(allTasks, rootTask.id)];
   const anchors = tasks.filter((task) => task.title.trim() === TICKTICK_ANCHOR_TITLE && taskDate(task));
   return {
-    projectId: project.id,
+    projectId: rootTask.projectId,
     rootTask,
     tasks,
     anchorTask: anchors[0],
@@ -415,24 +410,10 @@ export async function discoverTickTickTemplate(api: TickTickApi): Promise<TickTi
 
 export async function readConnectedTickTickTemplate(
   api: TickTickApi,
-  connection: Pick<TickTickConnection, 'projectId' | 'templateRootId'>,
+  _connection: Pick<TickTickConnection, 'projectId' | 'templateRootId'>,
 ): Promise<TickTickTemplate> {
-  const [data, filteredTasks] = await Promise.all([
-    api.getProjectData(connection.projectId),
-    api.filterTasks(connection.projectId, [0, 2]),
-  ]);
-  const allTasks = mergeProjectTasks(data, filteredTasks);
-  const rootTask = allTasks.find((task) => task.id === connection.templateRootId);
-  if (!rootTask) throw new Error(`TickTick 中的“${TICKTICK_TEMPLATE_TITLE}”模板已不存在`);
-  const tasks = [rootTask, ...descendantsOf(allTasks, rootTask.id)];
-  const anchors = tasks.filter((task) => task.title.trim() === TICKTICK_ANCHOR_TITLE && taskDate(task));
-  return {
-    projectId: connection.projectId,
-    rootTask,
-    tasks,
-    anchorTask: anchors[0],
-    anchorDate: anchors[0] ? taskDate(anchors[0]) ?? undefined : undefined,
-  };
+  // Stored IDs describe the original connection, never which task is the current template.
+  return discoverTickTickTemplate(api);
 }
 
 export function buildTripSourcesFromSyncState(calendarState: unknown, tripState: unknown): TickTickTripSource[] {
@@ -682,21 +663,7 @@ export async function syncTickTickRoutines(options: {
 }): Promise<TickTickRoutineSyncResult> {
   const { api, calendarState, today, excludedTaskIds = new Set<string>() } = options;
   const routineTargets = getTickTickRoutineTargetDates(calendarState, today);
-  // /project omits the built-in Inbox. Discover tasks without a project filter,
-  // then read complete data for every returned project, including the Inbox.
-  const [projects, filteredTasks] = await Promise.all([
-    api.listProjects(),
-    api.filterTasks(undefined, [0]),
-  ]);
-  const projectIds = [...new Set([
-    ...projects.map((project) => project.id),
-    ...filteredTasks.map((task) => task.projectId),
-  ])];
-  const projectData = await Promise.all(projectIds.map((projectId) => api.getProjectData(projectId)));
-  const allTasks = mergeTaskLists(
-    projectData.flatMap((data) => data.tasks),
-    filteredTasks,
-  );
+  const allTasks = await readAllTickTickTasks(api, [0]);
   const tasksById = new Map(allTasks.map((task) => [task.id, task]));
   const isExcluded = (task: TickTickTask) => {
     const visited = new Set<string>();
@@ -1099,6 +1066,33 @@ async function deleteGeneratedTree(
   }
 }
 
+async function rebindTemplateTaskIds(
+  api: TickTickApi, template: TickTickTemplate, instance: TickTickTripInstance,
+  orderedTasks: TickTickTask[], projectTasks: Map<string, TickTickTask>,
+) {
+  const currentIds = new Set(orderedTasks.map((task) => task.id));
+  if (!Object.keys(instance.taskIdsByTemplateId).some((id) => !currentIds.has(id))) return;
+  await Promise.all(Object.values(instance.taskIdsByTemplateId).map((id) => getGeneratedTask(api, template.projectId, id, projectTasks)));
+  const rebind = (oldId: string, newId: string) => {
+    instance.taskIdsByTemplateId[newId] = instance.taskIdsByTemplateId[oldId];
+    if (instance.itemIdsByTemplateTaskId[oldId]) instance.itemIdsByTemplateTaskId[newId] = instance.itemIdsByTemplateTaskId[oldId];
+    delete instance.taskIdsByTemplateId[oldId];
+    delete instance.itemIdsByTemplateTaskId[oldId];
+  };
+  for (const task of orderedTasks) {
+    if (instance.taskIdsByTemplateId[task.id]) continue;
+    const parentId = task.parentId ? instance.taskIdsByTemplateId[task.parentId] : undefined;
+    const candidates = Object.entries(instance.taskIdsByTemplateId).filter(([oldId, generatedId]) => {
+      if (currentIds.has(oldId)) return false;
+      if (task.id === template.rootTask.id) return generatedId === instance.rootTaskId;
+      const generated = projectTasks.get(generatedId);
+      return parentId && generated?.parentId === parentId && generated.title === `${instance.name} · ${task.title}`;
+    });
+    // A recreated template can have new IDs. Reuse unambiguous existing tasks and their progress.
+    if (candidates.length === 1) rebind(candidates[0][0], task.id);
+  }
+}
+
 async function syncTripInstance(
   api: TickTickApi,
   template: TickTickTemplate,
@@ -1120,6 +1114,7 @@ async function syncTripInstance(
 
   // Validate stage names before creating or updating any part of the instance.
   for (const task of orderedTemplateTasks) scheduledTaskDate(task, template, trip);
+  await rebindTemplateTaskIds(api, template, instance, orderedTemplateTasks, projectTasks);
 
   for (const templateTask of orderedTemplateTasks) {
     const parentId = templateTask.parentId ? instance.taskIdsByTemplateId[templateTask.parentId] : undefined;
@@ -1243,14 +1238,17 @@ export async function reconcileTickTickTrips(options: {
   state: TickTickTripSyncState;
   today: string;
   matchByDateOverlap?: boolean;
+  legacyProjectId?: string;
   saveState: (state: TickTickTripSyncState) => Promise<void>;
 }): Promise<TickTickSyncResult> {
   const { api, template, state, today, saveState } = options;
   const activeTrips = options.trips.filter((trip) => trip.endDate >= today);
   const activeKeys = new Set(activeTrips.map((trip) => trip.key));
-  const projectData = await api.getProjectData(template.projectId);
-  const projectTasks = new Map(projectData.tasks.map((task) => [task.id, task]));
   const activeInstances = Object.entries(state.instances).filter(([key, instance]) => instance.endDate >= today || activeKeys.has(key));
+  const originalProjectId = options.legacyProjectId ?? template.projectId;
+  const projectIds = [...new Set([template.projectId, ...activeInstances.map(([, instance]) => instance.projectId ?? originalProjectId)])];
+  const projectData = await Promise.all(projectIds.map((projectId) => api.getProjectData(projectId)));
+  const projectTasks = new Map(projectData.flatMap((data) => data.tasks).map((task) => [task.id, task]));
   const unmatchedInstances = new Map(activeInstances);
   const matches = new Map<string, { oldKey: string; instance: TickTickTripInstance }>();
 
@@ -1283,6 +1281,7 @@ export async function reconcileTickTickTrips(options: {
   for (const trip of activeTrips) {
     const matched = matches.get(trip.key);
     const instance = matched?.instance ?? {
+      projectId: template.projectId,
       tripKey: trip.key,
       startDate: trip.startDate,
       endDate: trip.endDate,
@@ -1291,16 +1290,17 @@ export async function reconcileTickTickTrips(options: {
       taskIdsByTemplateId: {},
       itemIdsByTemplateTaskId: {},
     };
+    instance.projectId ??= originalProjectId;
     if (matched && matched.oldKey !== trip.key) delete state.instances[matched.oldKey];
     state.instances[trip.key] = instance;
     await persist();
-    await syncTripInstance(api, template, projectTasks, trip, instance, persist);
+    await syncTripInstance(api, { ...template, projectId: instance.projectId }, projectTasks, trip, instance, persist);
     if (matched) updatedTrips += 1;
     else createdTrips += 1;
   }
 
   for (const [key, instance] of unmatchedInstances) {
-    await deleteGeneratedTree(api, instance, template.projectId, template.tasks, persist);
+    await deleteGeneratedTree(api, instance, instance.projectId ?? originalProjectId, template.tasks, persist);
     delete state.instances[key];
     deletedTrips += 1;
     await persist();
@@ -1318,6 +1318,7 @@ export async function reconcileTickTickWishPreparations(options: {
   configState: unknown;
   state: TickTickTripSyncState;
   today: string;
+  legacyProjectId?: string;
   saveState: (state: TickTickTripSyncState) => Promise<void>;
 }) {
   const { state, template, today, saveState } = options;
@@ -1334,6 +1335,7 @@ export async function reconcileTickTickWishPreparations(options: {
     trips: wishes,
     state: { instances: state.wishInstances ?? {} },
     today,
+    legacyProjectId: options.legacyProjectId,
     // 同一天的不同心愿不能像日历行程那样凭日期重叠合并。
     matchByDateOverlap: false,
     saveState: async (next) => {
