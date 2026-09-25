@@ -392,11 +392,11 @@ export default function WishesPage() {
     let latest = furthestPlanningDeadline > offsetDateKey(todayKey, 30)
       ? furthestPlanningDeadline
       : offsetDateKey(todayKey, 30);
-    for (const trip of futureTripSegments) {
+    for (const trip of selectableTripSegments) {
       if (trip.endDate > latest) latest = trip.endDate;
     }
     return latest;
-  }, [futureTripSegments, furthestPlanningDeadline, todayKey]);
+  }, [selectableTripSegments, furthestPlanningDeadline, todayKey]);
   const timelineEntries = useMemo(
     () => buildWishTimelineEntries({
       startDate: todayKey,

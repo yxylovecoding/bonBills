@@ -5224,7 +5224,9 @@ function TripsSection({
                     }}
                     style={{ width: '100%', padding: '6px 8px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', fontSize: 13, color: '#202124', cursor: 'pointer' }}
                   >
-                    <option value="">{getTripDisplayTitle(undefined, t.dates, outlookTravelTitles) || '未选择'}</option>
+                    {!selectedTag && (
+                      <option value="" disabled>{getTripDisplayTitle(undefined, t.dates, outlookTravelTitles) || '未选择'}</option>
+                    )}
                     {optionTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
                   </select>
                   {summary && (
