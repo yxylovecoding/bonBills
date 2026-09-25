@@ -1529,6 +1529,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   const [consumption,  setConsumption]   = useState(String(existing?.consumption   ?? ''));
   const [school,       setSchool]        = useState(String(existing?.school        ?? ''));
   const [totalAssets,  setTotalAssets]   = useState(String(existing?.totalAssets   ?? ''));
+  const [savingsNote, setSavingsNote] = useState(existing?.savingsNote ?? '');
   const [accProfit,    setAccProfit]     = useState(String(getManualAccumulatedProfit(existing) || ''));
 
   // 自动保存的跳过标志：声明在同步 effect 之前，便于同步时复位
@@ -1540,6 +1541,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     income: number; totalExpense: number; periodicLife: number;
     volatileLife: number; consumption: number; school: number;
     totalAssets?: number;
+    savingsNote: string;
     manualAccumulatedProfit: number;
   } | null>(null);
 
@@ -1554,6 +1556,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       && our.consumption   === (existing?.consumption   ?? 0)
       && our.school        === (existing?.school        ?? 0)
       && our.totalAssets   === existing?.totalAssets
+      && our.savingsNote   === (existing?.savingsNote ?? '')
       && our.manualAccumulatedProfit === getManualAccumulatedProfit(existing);
     // 自己保存后 store 反弹回来：state 已经是最新值，不要再 setState/复位 flag，
     // 否则用户连续输入会被下一次 sync 触发的 isFirstSave 复位吃掉
@@ -1565,6 +1568,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     setConsumption(String(existing?.consumption ?? ''));
     setSchool(String(existing?.school ?? ''));
     setTotalAssets(String(existing?.totalAssets ?? ''));
+    setSavingsNote(existing?.savingsNote ?? '');
     setAccProfit(String(getManualAccumulatedProfit(existing) || ''));
     // existing 由外部刷新（导入账单 upsert 等）时，跳过下一次由派生依赖触发的自动保存，
     // 避免在 setState 还未应用的闭包里读到空字符串把 store 清零
@@ -1577,6 +1581,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     existing?.consumption,
     existing?.school,
     existing?.totalAssets,
+    existing?.savingsNote,
     existing?.accumulatedProfit,
     existing?.manualAccumulatedProfit,
   ]);
@@ -1992,6 +1997,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       income: incomeNum, totalExpense: totalExpenseNum,
       periodicLife: periodicLifeNum, volatileLife: volatileLifeNum,
       consumption: consumptionNum, school: schoolNum, totalAssets: totalAssetsNum,
+      savingsNote,
       manualAccumulatedProfit: n(accProfit),
     };
     onSave({
@@ -1999,6 +2005,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       periodicLife: periodicLifeNum, volatileLife: volatileLifeNum,
       consumption: consumptionNum, school: schoolNum,
       totalAssets: totalAssetsNum,
+      savingsNote,
       accumulatedProfit: accumulatedProfitValue,
       manualAccumulatedProfit: n(accProfit),
       investTotal,
@@ -2023,11 +2030,11 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
 
   const autoSaveSignature = useMemo(() => JSON.stringify({
     income, totalExpense, periodicLife, volatileLife, consumption, school, totalAssets, accProfit, isAccumulatedProfitAuto,
-    majorExpenses, majorExpensesNote, breakdown, breakdownProfit, usdComponents, sharedUsdRate,
+    majorExpenses, majorExpensesNote, savingsNote, breakdown, breakdownProfit, usdComponents, sharedUsdRate,
     pastBreakdownProfit, pastUsdComponents, positionDraftGroups, positionItemsForSave,
   }), [
     income, totalExpense, periodicLife, volatileLife, consumption, school, totalAssets, accProfit, isAccumulatedProfitAuto,
-    majorExpenses, majorExpensesNote, breakdown, breakdownProfit, usdComponents, sharedUsdRate,
+    majorExpenses, majorExpensesNote, savingsNote, breakdown, breakdownProfit, usdComponents, sharedUsdRate,
     pastBreakdownProfit, pastUsdComponents, positionDraftGroups, positionItemsForSave,
   ]);
   const criticalInvestmentSignature = useMemo(() => JSON.stringify({
@@ -2069,6 +2076,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     volatileLife, setVolatileLife, consumption, setConsumption, school, setSchool,
     totalAssets, setTotalAssets, totalAssetsValue, previousTotalAssets: prevRecord?.totalAssets,
     assetChange, savedAmount, savingsRate, savedAmountTitle,
+    savingsNote, setSavingsNote,
     accProfit, setAccProfit, accumulatedProfitValue, isAccumulatedProfitAuto, hasPositionModel, investTotal,
     majorExpenses, updateMajorExpenseName, majorExpensesNote, setMajorExpensesNote,
     surplus, investIncome, investMonthly, investAnnual, investTotalForRate, investTotalStoredOnly, n,
@@ -2089,6 +2097,7 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
   const {
     income, totalExpense, periodicLife, volatileLife, consumption,
     totalAssets, setTotalAssets, totalAssetsValue, previousTotalAssets, assetChange, savedAmount, savingsRate, savedAmountTitle,
+    savingsNote, setSavingsNote,
     accProfit, setAccProfit, accumulatedProfitValue, isAccumulatedProfitAuto, investTotal,
     surplus, investIncome, investMonthly, investAnnual, investTotalForRate, investTotalStoredOnly, n,
     mainFieldRefs, labelStyle,
@@ -2177,6 +2186,16 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
           <div style={{ marginTop: 5, fontSize: 10, fontWeight: 600, color: savingsRate !== null && savingsRate >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>
             储蓄率 {savingsRate !== null ? `${(savingsRate * 100).toFixed(1)}%` : '—'}
           </div>
+          <label title="" style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 8, minWidth: 0, color: C.sub }}>
+            <span aria-hidden="true" style={{ fontSize: 13 }}>🪿</span>
+            <input
+              aria-label="储蓄备注"
+              value={savingsNote}
+              onChange={(event) => setSavingsNote(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+              style={{ flex: 1, width: '100%', minWidth: 0, border: 'none', borderBottom: '1px solid #9ca3af', borderRadius: 0, padding: '2px 0', fontSize: 11, color: '#202124', outline: 'none', backgroundColor: 'transparent' }}
+            />
+          </label>
         </div>
         <div style={{ minWidth: 0, backgroundColor: '#fffbeb', borderRadius: 10, padding: '10px 14px' }}>
           <div style={{ fontSize: 11, color: C.sub }}>累计盈利</div>

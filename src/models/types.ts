@@ -311,6 +311,7 @@ export interface MonthlyRecord {
   income: number;
   totalExpense: number;
   totalAssets?: number;        // 月末总资产（手动录入）
+  savingsNote?: string;        // 存下卡片的月度备注
   accumulatedProfit: number;   // 截止本月的累计盈利
   manualAccumulatedProfit?: number; // 手填累计盈利备份，自动求和月份也不覆盖
   investTotal: number;          // 本月理财总额

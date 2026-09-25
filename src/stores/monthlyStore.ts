@@ -63,6 +63,7 @@ function mergeMonthlyRecord(a: MonthlyRecord | undefined, b: MonthlyRecord): Mon
     investmentEditedAt: b.investmentEditedAt ?? a.investmentEditedAt,
     majorExpenses: b.majorExpenses?.length ? b.majorExpenses : a.majorExpenses,
     majorExpensesNote: b.majorExpensesNote ?? a.majorExpensesNote,
+    savingsNote: b.savingsNote ?? a.savingsNote,
   };
 }
 
