@@ -8,6 +8,7 @@ import {
   resolveWishTravelBudget,
   wishTravelLifeAmount,
   sortWishesForDisplay,
+  reconcileWishTripLinks,
 } from './wishes';
 import { detectAllTrips } from './trips';
 
@@ -52,6 +53,54 @@ describe('心愿清单排序', () => {
     const nextTrip = wish({ id: 'next-trip', linkedTripStartDate: '2026-09-27', deadline: '2026-09-26' });
     expect(sortWishesForDisplay([pingyao, nextTrip], splitTrips, '2026-09-27').map((item) => item.id)).toEqual(['next-trip', 'pingyao']);
     expect(sortWishesForDisplay([], trips, '2026-09-25')).toEqual([]);
+  });
+});
+
+describe('心愿关联出游日期更新', () => {
+  const trips = detectAllTrips(Object.fromEntries(
+    Array.from({ length: 7 }, (_, index) => [`2026-09-${24 + index}`, 'travel' as const]),
+  ));
+  const pingyao = wish({ id: 'pingyao', name: '平遥影展', linkedTripStartDate: '2026-09-23', deadline: '2026-09-22' });
+  const tripTags = { '2026-09-24': '26.9平遥影展' };
+
+  it.each(['2026-09-24', '2026-09-25', '2026-09-30'])('%s 出发日改动后按同名行程恢复关联，进行中的心愿仍置顶', (today) => {
+    const original = structuredClone(pingyao);
+    const [updated] = reconcileWishTripLinks([pingyao], trips, tripTags);
+    expect(updated).toEqual({ ...pingyao, linkedTripStartDate: '2026-09-24', deadline: '2026-09-23' });
+    expect(pingyao).toEqual(original);
+    expect(sortWishesForDisplay([wish({ id: 'future' }), updated], trips, today).map((item) => item.id))
+      .toEqual(['pingyao', 'future']);
+    expect(sortWishesForDisplay([updated, wish({ id: 'future' })], trips, '2026-10-01').map((item) => item.id))
+      .toEqual(['future', 'pingyao']);
+    expect(reconcileWishTripLinks([updated], trips, tripTags)[0]).toBe(updated);
+  });
+
+  it('提前出发或合并行程后，旧起点落在新行程内也能恢复关联', () => {
+    const [updated] = reconcileWishTripLinks([{ ...pingyao, linkedTripStartDate: '2026-09-25' }], trips);
+    expect(updated.linkedTripStartDate).toBe('2026-09-24');
+    expect(wishTravelLifeAmount(updated, 100, { '2026-09-24': trips[0].dates })).toBe(700);
+  });
+
+  it('没有账单标签时使用 Outlook 行程名称，也支持旧关联标签与心愿名称不同', () => {
+    expect(reconcileWishTripLinks([pingyao], trips, {}, { '2026-09-24': '平遥影展' })[0].linkedTripStartDate)
+      .toBe('2026-09-24');
+    expect(reconcileWishTripLinks([{ ...pingyao, name: '看电影' }], trips,
+      { ...tripTags, '2026-09-23': '26.9.23 平遥影展' })[0].linkedTripStartDate).toBe('2026-09-24');
+  });
+
+  it('已有明确关联保留切分边界，不合并同名行程', () => {
+    const splitTrips = detectAllTrips(Object.fromEntries(trips[0].dates.map((date) => [date, 'travel' as const])), { '2026-09-27': true });
+    const linked = { ...pingyao, linkedTripStartDate: '2026-09-24' };
+    expect(reconcileWishTripLinks([linked], splitTrips, tripTags)[0]).toBe(linked);
+    expect(sortWishesForDisplay([linked, wish({ id: 'future' })], splitTrips, '2026-09-27')[0].id).toBe('future');
+  });
+
+  it('未关联、行程已删除或同名候选不唯一时不自动改动心愿', () => {
+    const unlinked = { ...pingyao, linkedTripStartDate: null, plannedTravelDays: 7 };
+    expect(reconcileWishTripLinks([unlinked], trips, tripTags)[0]).toBe(unlinked);
+    expect(reconcileWishTripLinks([pingyao], [], tripTags)[0]).toBe(pingyao);
+    const duplicateTrips = [...trips, { startDate: '2026-10-24', endDate: '2026-10-24', dates: ['2026-10-24'] }];
+    expect(reconcileWishTripLinks([pingyao], duplicateTrips, { ...tripTags, '2026-10-24': '26.10平遥影展' })[0]).toBe(pingyao);
   });
 });
 

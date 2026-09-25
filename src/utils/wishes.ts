@@ -130,6 +130,33 @@ export function wishTravelLifeAmount(wish: WishItem, dailyLifeAmount: number, tr
   return Math.max(days * normalizedAmount(dailyLifeAmount) - normalizedAmount(wish.travelLifeCorrectionAmount), 0);
 }
 
+export function reconcileWishTripLinks<T extends WishItem>(
+  wishes: readonly T[],
+  trips: readonly TripSegment[],
+  tripTags: Record<string, string> = {},
+  travelTitles: Record<string, string> = {},
+): T[] {
+  const tripName = (value: string) => value.replace(/^\d{2}\.\d{1,2}(?:\.\d{1,2})?\s*/, '').replace(/\s+/g, '').toLowerCase();
+  return wishes.map((wish) => {
+    const previousStart = wish.linkedTripStartDate;
+    if (!previousStart || trips.some((trip) => trip.startDate === previousStart)) return wish;
+    // Outlook 调整出发日或连续出游合并后，旧起点不再是行程的键。
+    let trip = trips.find((candidate) => candidate.dates.includes(previousStart));
+    if (!trip) {
+      const names = new Set([wish.name, tripTags[previousStart] ?? ''].map(tripName).filter(Boolean));
+      const matches = trips.filter((candidate) => [
+        tripTags[candidate.startDate] ?? '',
+        ...candidate.dates.map((date) => travelTitles[date] ?? ''),
+      ].some((name) => names.has(tripName(name))));
+      if (matches.length === 1) trip = matches[0];
+    }
+    if (!trip) return wish;
+    const deadline = new Date(`${trip.startDate}T00:00:00Z`);
+    deadline.setUTCDate(deadline.getUTCDate() - 1);
+    return { ...wish, linkedTripStartDate: trip.startDate, deadline: deadline.toISOString().slice(0, 10) };
+  });
+}
+
 export function sortWishesForDisplay<T extends WishItem>(wishes: readonly T[], trips: readonly TripSegment[], today: string): T[] {
   const ongoingTrips = new Map(trips
     .filter((trip) => trip.startDate <= today && trip.endDate >= today)

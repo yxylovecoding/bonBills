@@ -35,7 +35,7 @@ import { getAverageAnnualizedRate } from '../utils/investRecords';
 import { detectAllTrips } from '../utils/trips';
 import { getTripDisplayTitle } from '../utils/outlookCalendar';
 import { calculateWishMilestonePlan, type WishRepaymentDue } from '../utils/wishMilestonePlan';
-import { calculateWishFunding, resolveWishRepayments, wishTravelLifeAmount } from '../utils/wishes';
+import { calculateWishFunding, reconcileWishTripLinks, resolveWishRepayments, wishTravelLifeAmount } from '../utils/wishes';
 import {
   HANGZHOU_EMPLOYEE_SOCIAL_INSURANCE_RATE,
   TAX_RULE_PRESETS,
@@ -43,7 +43,7 @@ import {
 
 import { version as APP_VERSION } from '../../package.json';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '剩余休息天数';
+const RELEASE_NOTE = '心愿行程关联';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -246,9 +246,13 @@ export default function HomePage() {
   const currentMonth = today.getMonth();
   const todayKey = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const currentYearMonth = todayKey.slice(0, 7);
+  const allTripSegments = useMemo(() => detectAllTrips(tagMap, tripSplits), [tagMap, tripSplits]);
   const wishes = useMemo(
-    () => resolveWishRepayments(config.wishes ?? [], config.wishDebtTotal),
-    [config.wishes, config.wishDebtTotal],
+    () => resolveWishRepayments(
+      reconcileWishTripLinks(config.wishes ?? [], allTripSegments, tripTags, outlookTravelTitles),
+      config.wishDebtTotal,
+    ),
+    [config.wishes, config.wishDebtTotal, allTripSegments, tripTags, outlookTravelTitles],
   );
   const wishInternSavingRecords = config.wishInternSavingRecords ?? [];
   const twoYearsAgo = `${today.getFullYear() - 1}-01`;
@@ -260,7 +264,6 @@ export default function HomePage() {
     () => calcHistoryStats(filteredRecords, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides, tripTags),
     [filteredRecords, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides, tripTags],
   );
-  const allTripSegments = useMemo(() => detectAllTrips(tagMap, tripSplits), [tagMap, tripSplits]);
   const tripDatesByStart = useMemo(
     () => Object.fromEntries(allTripSegments.map((trip) => [trip.startDate, trip.dates])),
     [allTripSegments],
