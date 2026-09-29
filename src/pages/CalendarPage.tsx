@@ -21,6 +21,7 @@ import FinanceImportPreviewDialog from '../components/FinanceImportPreviewDialog
 import PendingInvestmentBuyRow from '../components/PendingInvestmentBuyRow';
 import TickTickTripSyncControl from '../components/TickTickTripSyncControl';
 import OutlookCalendarSyncControl from '../components/OutlookCalendarSyncControl';
+import { useOutlookCalendarSync } from '../hooks/useOutlookCalendarSync';
 import ImportCutoffHint from '../components/ImportCutoffHint';
 import { calcHistoryStats } from '../calculations/history';
 import { buildExpenseScopeStats, suggestScope, isInconsistent, type ExpenseScopeStatRow } from '../calculations/expenseScopeStats';
@@ -1103,6 +1104,7 @@ function ScopeRow({
 
 function SettingsModal({
   onClose,
+  syncControls,
   thresholdInput,
   setThresholdInput,
   autoSumStartMonthInput,
@@ -1126,6 +1128,7 @@ function SettingsModal({
   setOverride,
 }: {
   onClose: () => void;
+  syncControls?: React.ReactNode;
   thresholdInput: string;
   setThresholdInput: (v: string) => void;
   autoSumStartMonthInput: string;
@@ -1250,6 +1253,7 @@ function SettingsModal({
         </div>
         {/* 滚动内容 */}
         <div style={{ overflowY: 'auto', padding: '0 20px', flex: 1 }}>
+          {syncControls}
           {/* 大额阈值 */}
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 12, color: '#5f6368', marginBottom: 6 }}>大额支出筛选门槛（元）</div>
@@ -3921,6 +3925,8 @@ export default function CalendarPage() {
 
   // ── Calendar computed ──
   const yearMonth    = `${year}-${pad(month + 1)}`;
+  // 自动同步跟随月历，打开或关闭设置不会重启同步。
+  const outlookSync = useOutlookCalendarSync(yearMonth, tab === 'month');
   useEffect(() => {
     if (tab !== 'month' || !focusMonthCalendar) return;
     let secondFrame = 0;
@@ -4466,6 +4472,7 @@ export default function CalendarPage() {
               setAutoSumStartMonthInput(config.investAutoSumStartMonth ?? '');
               setSettingsOpen(true);
             }}
+              aria-label="设置"
               style={{ fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', padding: '4px clamp(2px, 1.5vw, 6px)', color: C.sub, lineHeight: 1, flexShrink: 0 }}>
               ⚙️
             </button>
@@ -4486,6 +4493,10 @@ export default function CalendarPage() {
       {settingsOpen && (
         <SettingsModal
           onClose={() => setSettingsOpen(false)}
+          syncControls={tab === 'month' ? <>
+            <OutlookCalendarSyncControl sync={outlookSync} />
+            <TickTickTripSyncControl />
+          </> : undefined}
           thresholdInput={thresholdInput}
           setThresholdInput={setThresholdInput}
           autoSumStartMonthInput={autoSumStartMonthInput}
@@ -4601,7 +4612,6 @@ export default function CalendarPage() {
 
           {/* 本月统计 */}
           <Card title="本月统计" subtitle={`${yearMonth} · 已标记 ${stats.tagged}/${stats.total}`}>
-            <OutlookCalendarSyncControl yearMonth={yearMonth} />
             <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
               <colgroup>
                 <col style={{ width: '20%' }} />
@@ -5173,7 +5183,6 @@ function TripsSection({
   if (groups.length === 0) return null;
   return (
     <Card title="本月出游" subtitle="若连续『游』其实是两次，点 ─ 切开">
-      <TickTickTripSyncControl />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {groups.map((g) => (
           <div key={g.rawDates[0]} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
