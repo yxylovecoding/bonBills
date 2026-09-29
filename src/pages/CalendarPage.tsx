@@ -4197,7 +4197,13 @@ export default function CalendarPage() {
   };
   const handleBillFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) await importBillFromFile(file);
+    if (file) {
+      if (/\.(xlsx?|csv)$/i.test(file.name) || isFinanceScreenshotFile(file)) {
+        await importBillFromFile(file);
+      } else {
+        setBillImportMsg('请选择 Excel、CSV 或图片文件');
+      }
+    }
     if (billFileRef.current) billFileRef.current.value = '';
   };
   const confirmImportDraft = async () => {
@@ -4398,7 +4404,8 @@ export default function CalendarPage() {
   // ── Render ────────────────────────────────────────────────────────
   return (
     <div className={`calendar-page-shell${tab === 'month' && tripFilterLayoutOpen ? ' calendar-page-shell--split' : ''}`}>
-      <input ref={billFileRef} type="file" accept=".xls,.xlsx,.csv,image/*" style={{ display: 'none' }} onChange={handleBillFile} />
+      {/* 不设置 accept，避免微信将混合文件类型的选择入口限制为拍摄和相册；格式在选取后校验。 */}
+      <input ref={billFileRef} type="file" style={{ display: 'none' }} onChange={handleBillFile} />
       {/* 页头 + 胶囊切换 */}
       <div className="calendar-page-header" style={{ margin: '0 0 16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, flexWrap: 'nowrap', minWidth: 0 }}>
