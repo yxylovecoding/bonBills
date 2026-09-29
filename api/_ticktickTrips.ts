@@ -1181,7 +1181,9 @@ async function syncTripInstance(
       && !savedDateState;
     const legacyAuto = baseTaskPayload(templateTask, previousTrip, template, parentId, previousItems, true);
     const matchesLegacyAuto = !savedDateState && sameDateSnapshot(dateSnapshot(generatedTask), dateSnapshot(legacyAuto));
-    const manualTask = !inheritsParent && !isUndatedScheduleMigration && !matchesLegacyAuto && hasManualDates(
+    // Parent dates are the default for descendants, but an individual task's
+    // manual override takes precedence at every depth of the generated tree.
+    const manualTask = !isUndatedScheduleMigration && !matchesLegacyAuto && hasManualDates(
       dateSnapshot(generatedTask), dateSnapshot(previousAuto), savedDateState,
     );
     const automaticPayload = followParentSchedule(baseTaskPayload(templateTask, trip, template, parentId, protectedChecklist.items), scheduledParent);
