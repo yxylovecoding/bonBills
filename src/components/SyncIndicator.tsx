@@ -1,4 +1,5 @@
 import { useSyncStatus } from '../utils/syncStatus';
+import { retrySync } from '../utils/syncEngine';
 
 const META: Record<string, { icon: string; color: string; bg: string; label: string }> = {
   idle:    { icon: '☁️', color: '#5f6368', bg: 'transparent',  label: '已同步' },
@@ -21,12 +22,14 @@ export default function SyncIndicator() {
         backgroundColor: m.bg, color: m.color,
         boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
         display: 'flex', alignItems: 'center', gap: 4,
-        pointerEvents: 'none', userSelect: 'none',
+        pointerEvents: state === 'error' ? 'auto' : 'none', userSelect: 'none',
         maxWidth: 260,
       }}
     >
       <span>{m.icon}</span>
       <span>{m.label}{message ? `: ${message}` : ''}</span>
+      {state === 'error' && <button type="button" onClick={() => { void retrySync().catch(() => undefined); }}
+        style={{ border: 0, background: 'transparent', color: 'inherit', font: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap' }}>重试</button>}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { DEFAULT_OUTLOOK_RULES, reconcileOutlookSnapshot, type OutlookConflictPo
 import { useCalendarStore } from '../stores/calendarStore';
 import { triggerUpload } from '../utils/syncEngine';
 import { tagMeta } from '../data/mockData';
+import { useSyncStatus } from '../utils/syncStatus';
 
 const BUTTON: React.CSSProperties = { border: '1px solid #dadce0', borderRadius: 7, background: '#fff', color: '#1a73e8', cursor: 'pointer', fontSize: 11, padding: '4px 7px' };
 const INPUT: React.CSSProperties = { width: '100%', minWidth: 0, border: '1px solid #dadce0', borderRadius: 7, padding: '6px 8px', fontSize: 12, boxSizing: 'border-box' };
@@ -20,6 +21,7 @@ function monthRange(yearMonth: string) {
 }
 
 export default function OutlookCalendarSyncControl({ yearMonth }: { yearMonth: string }) {
+  const syncReady = useSyncStatus((state) => state.ready);
   const [connected, setConnected] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -56,6 +58,7 @@ export default function OutlookCalendarSyncControl({ yearMonth }: { yearMonth: s
   }
 
   useEffect(() => {
+    if (!syncReady) return;
     let active = true;
     let running = false;
     setPreview(null);
@@ -104,7 +107,7 @@ export default function OutlookCalendarSyncControl({ yearMonth }: { yearMonth: s
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onFocus);
     };
-  }, [yearMonth]); // Only a changed month starts a new subscription read.
+  }, [yearMonth, syncReady]);
 
   const run = async (action: 'preview' | 'connect' | 'sync' | 'disconnect') => {
     // Invalidate background reads, including a response finishing after disconnect.

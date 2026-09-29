@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useSyncStatus } from '../utils/syncStatus';
 import Card from '../components/Card';
 import StatRow from '../components/StatRow';
 import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
@@ -1522,6 +1523,7 @@ type MonthFormProps = {
 };
 
 function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, expenseItems, onSave }: MonthFormProps) {
+  const syncReady = useSyncStatus((state) => state.ready);
   const [income,       setIncome]       = useState(String(existing?.income        ?? ''));
   const [totalExpense, setTotalExpense]  = useState(String(existing?.totalExpense  ?? ''));
   const [periodicLife, setPeriodicLife]  = useState(String(existing?.periodicLife  ?? ''));
@@ -1643,7 +1645,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   const fallbackUsdRate = Number(sharedUsdRate);
   const { quotes: positionQuotes, quoteErrors: positionQuoteErrors, marketsBySymbol } = useInvestPositionMarkets(
     positionItems,
-    isCurrentRecordMonth,
+    isCurrentRecordMonth && syncReady,
     Number.isFinite(fallbackUsdRate) && fallbackUsdRate > 0 ? fallbackUsdRate : null,
   );
   const positionSummary = useMemo(
@@ -3806,6 +3808,8 @@ function YearSection({
 
 // ── Main Page ─────────────────────────────────────────────────────
 export default function CalendarPage() {
+  const syncReady = useSyncStatus((state) => state.ready);
+  const syncRevision = useSyncStatus((state) => state.revision);
   const [searchParams] = useSearchParams();
   const [tab, setTab] = useState<'month' | 'year'>(
     searchParams.get('tab') === 'year' ? 'year' : 'month'
@@ -3854,21 +3858,22 @@ export default function CalendarPage() {
 
   // ── 批量补填"学"：历史未标记天 + 切换月份时自动补当月 ──
   useEffect(() => {
-    if (records.length === 0) return;
+    if (!syncReady || records.length === 0) return;
     const earliest = records[records.length - 1].yearMonth + '-01';
     const todayStr = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`;
     bulkFillSchool(earliest, todayStr);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [syncReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (records.length === 0) return;
+    if (!syncReady || records.length === 0) return;
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const ym = `${year}-${String(month + 1).padStart(2, '0')}`;
     bulkFillSchool(`${ym}-01`, `${ym}-${String(daysInMonth).padStart(2, '0')}`);
-  }, [year, month]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [year, month, syncReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── tagMap → MonthlyRecord 天数字段同步 ──
   useEffect(() => {
+    if (!syncReady) return;
     // 按月聚合 tagMap 中的状态天数
     const countsByMonth: Record<string, { school: number; intern: number; home: number; travel: number }> = {};
     for (const [date, tag] of Object.entries(tagMap)) {
@@ -3894,17 +3899,18 @@ export default function CalendarPage() {
         });
       }
     }
-  }, [tagMap]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tagMap, syncReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 账单明细与月度记录分开持久化。若历史上只同步到了明细，或月度卡片曾把核心字段写成 0，
   // 用账单侧汇总把缺失的字段逐项补回来——总收入/总支出仍在但四项细分丢失的半空状态也覆盖。
   useEffect(() => {
+    if (!syncReady) return;
     for (const [ym, aggregate] of Object.entries(billAggregates)) {
       const prev = records.find((r) => r.yearMonth === ym);
       if (fieldsNeedingRestore(prev, aggregate).length === 0) continue;
       upsert(recordFromBillAggregate(ym, aggregate, prev));
     }
-  }, [billAggregates, records, upsert]);
+  }, [billAggregates, records, upsert, syncReady]);
 
   // ── 历史回归均值（近两年，用作当月按比例拆分的权重）──
   const twoYearsAgo = `${_now.getFullYear() - 1}-01`;
@@ -4796,7 +4802,7 @@ export default function CalendarPage() {
 
           {/* 月度数据 / 大额支出 / 各品类持仓 三张卡片 */}
           <MonthFormCards
-            key={`${yearMonth}:${existingForYearMonth?.lastInvestmentMailUid ?? 0}:${existingForYearMonth?.importedInvestmentTransactionIds?.length ?? 0}:${existingForYearMonth?.investmentInheritanceRevision ?? 0}`}
+            key={`${syncRevision}:${yearMonth}:${existingForYearMonth?.lastInvestmentMailUid ?? 0}:${existingForYearMonth?.importedInvestmentTransactionIds?.length ?? 0}:${existingForYearMonth?.investmentInheritanceRevision ?? 0}`}
             yearMonth={yearMonth}
             existing={existingForYearMonth}
             prevRecord={prevForYearMonth}

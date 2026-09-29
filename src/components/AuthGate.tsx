@@ -2,20 +2,22 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import LoginPage from '../pages/LoginPage';
 import { requestSession, restoreSession, SessionError } from '../utils/authClient';
 
-const App = lazy(() => import('../App'));
+const loadApp = () => import('../App');
+const App = lazy(loadApp);
 let startup: Promise<boolean> | undefined;
 
 async function startApp() {
   const session = await restoreSession();
   if (!session.authenticated) return false;
-  const { initSync, triggerUpload } = await import('../utils/syncEngine');
-  await initSync();
-  const { useMonthlyStore } = await import('../stores/monthlyStore');
-  const now = new Date();
-  const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const investmentMonthChanged = useMonthlyStore.getState().ensureInvestmentMonth(yearMonth);
-  const investmentCutoffChanged = useMonthlyStore.getState().ensureInvestmentImportCutoff();
-  if (investmentMonthChanged || investmentCutoffChanged) await triggerUpload();
+  const [{ initSync, hasSyncCache }] = await Promise.all([
+    import('../utils/syncEngine'),
+    loadApp(),
+  ]);
+  const owner = session.username || 'Key';
+  const cached = hasSyncCache(owner);
+  const sync = initSync(owner);
+  if (cached) void sync.catch(() => undefined); // The existing sync indicator handles background errors.
+  else await sync;
   return true;
 }
 

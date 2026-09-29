@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSyncStatus } from '../utils/syncStatus';
 import AmountInput from '../components/AmountInput';
 import Card from '../components/Card';
 import { formatCurrency } from '../components/CurrencyDisplay';
@@ -114,6 +115,7 @@ function planningDeadlineDistanceLabel(targetDate: string, fromDate: Date, days:
 }
 
 export default function WishesPage() {
+  const syncReady = useSyncStatus((state) => state.ready);
   const { config, setConfig } = useConfigStore();
   const { current } = useSnapshotStore();
   const { records } = useMonthlyStore();
@@ -157,6 +159,7 @@ export default function WishesPage() {
   );
   const deadlineMilestones = config.wishDeadlineMilestones ?? DEFAULT_WISH_DEADLINE_MILESTONES;
   useEffect(() => {
+    if (!syncReady) return;
     let changed = linkedWishes.some((wish, index) => wish !== storedWishes[index]);
     const normalizedWishes = linkedWishes.map((wish) => {
       const linkedTripStart = wish.linkedTripStartDate ?? null;
@@ -167,7 +170,7 @@ export default function WishesPage() {
       return { ...wish, deadline: defaultDeadline };
     });
     if (changed) setConfig({ wishes: normalizedWishes });
-  }, [setConfig, storedWishes, linkedWishes]);
+  }, [setConfig, storedWishes, linkedWishes, syncReady]);
   const selectableTripSegments = useMemo(
     () => allTripSegments.filter((trip) => trip.endDate >= todayKey),
     [allTripSegments, todayKey],

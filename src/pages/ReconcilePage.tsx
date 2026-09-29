@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useState, useMemo, useRef, type PointerEvent } from 'react';
+import { useSyncStatus } from '../utils/syncStatus';
 import Card from '../components/Card';
 import { formatCurrency } from '../components/CurrencyDisplay';
 import AmountInput from '../components/AmountInput';
@@ -527,6 +528,7 @@ const RECONCILE_MODES: { key: ReconcileMode; label: string; hint: string }[] = [
 const defaultReconcileMode = (date: Date): ReconcileMode => (date.getDate() >= 1 && date.getDate() <= 13 ? 'monthStart' : 'monthMiddle');
 
 export default function ReconcilePage() {
+  const syncReady = useSyncStatus((state) => state.ready);
   const { current, updateAccounts, updateTransfers, updateReconcileHoldings, updateUsStockHoldings, restoreCurrent } = useSnapshotStore();
   const { config, setConfig } = useConfigStore();
   const { records } = useMonthlyStore();
@@ -574,10 +576,10 @@ export default function ReconcilePage() {
     ])) as unknown as InvestHoldings;
   }, [current.reconcileInvestHoldings, current.reconcileInvestHoldingsVersion, sourceHoldings, sourceInvestHoldings]);
   useEffect(() => {
-    if (current.reconcileInvestHoldingsVersion !== 2 && currentInvestRecord) {
+    if (syncReady && current.reconcileInvestHoldingsVersion !== 2 && currentInvestRecord) {
       updateReconcileHoldings(reconcileHoldings);
     }
-  }, [current.reconcileInvestHoldingsVersion, currentInvestRecord, reconcileHoldings, updateReconcileHoldings]);
+  }, [current.reconcileInvestHoldingsVersion, currentInvestRecord, reconcileHoldings, updateReconcileHoldings, syncReady]);
   const reconcileTotalHoldings = useMemo(() => Object.fromEntries(INVEST_TARGET_KEYS.map((key) => [
     key, roundMoney(reconcileHoldings[key] + sourceHoldings.past[key]),
   ])) as unknown as InvestHoldings, [reconcileHoldings, sourceHoldings.past]);

@@ -42,8 +42,9 @@ import {
 } from '../utils/tax';
 
 import { version as APP_VERSION } from '../../package.json';
+import { useSyncStatus } from '../utils/syncStatus';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '储蓄备注';
+const RELEASE_NOTE = '缓存快开';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -230,6 +231,7 @@ function TrendCharts({ records }: { records: MonthlyRecord[] }) {
 
 // ── 主页 ──────────────────────────────────────────────────────────
 export default function HomePage() {
+  const syncReady = useSyncStatus((state) => state.ready);
   const navigate = useNavigate();
   const [signingOut, setSigningOut] = useState(false);
   const [logoutError, setLogoutError] = useState('');
@@ -493,10 +495,10 @@ export default function HomePage() {
   };
 
   useEffect(() => {
-    if ((config.fireProfileSource ?? 'boncv') === 'boncv') void refreshBonCv();
+    if (syncReady && (config.fireProfileSource ?? 'boncv') === 'boncv') void refreshBonCv();
     // 仅在来源切换或页面首次进入时同步，避免写回配置后重复请求。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config.fireProfileSource]);
+  }, [config.fireProfileSource, syncReady]);
   const {
     base: fireBaseScenario,
     includesTravel: fireIncludesTravel,
@@ -662,8 +664,8 @@ export default function HomePage() {
   };
 
   // 固定收入编辑
-  const [localIncome, setLocalIncome] = useState<IncomeItem[]>(config.incomeItems);
-  const syncIncome = (items: IncomeItem[]) => { setLocalIncome(items); setConfig({ incomeItems: items }); };
+  const localIncome = config.incomeItems;
+  const syncIncome = (items: IncomeItem[]) => { setConfig({ incomeItems: items }); };
   const updateIncomeField = (id: string, field: keyof IncomeItem, raw: string) => {
     const items = localIncome.map((item) => {
       if (item.id !== id) return item;

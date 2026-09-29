@@ -11,6 +11,7 @@ import { useTripStore } from '../stores/tripStore';
 import { useSyncStatus } from './syncStatus';
 import { loadTickTickSyncStatus, syncTickTickTrips } from './tickTickSync';
 import { normalizeOutlookCalendarState, normalizeOutlookTravelTitles } from './outlookCalendar';
+import { mergeSyncValue, sameSyncValue } from './syncMerge';
 
 const EXPENSE_SCOPE_SYNC_KEY = 'expense-scope-overrides';
 const LEGACY_EXPENSE_SCOPE_SYNC_KEY = 'life-period-overrides';
@@ -173,11 +174,9 @@ async function fetchServer(): Promise<Record<string, unknown> | null> {
   if (res.status === 204) return null;
   if (res.status === 401) throw new Error('UNAUTHORIZED');
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return await res.json();
-}
-
-async function uploadAll() {
-  await uploadStores(stores);
+  const data: unknown = await res.json();
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('同步数据无效');
+  return data as Record<string, unknown>;
 }
 
 function serializeAllStores() {
@@ -191,8 +190,14 @@ async function uploadStores(selectedStores: readonly StoreEntry[]) {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) throw new Error(`upload HTTP ${res.status}`);
+  for (const s of selectedStores) {
+    if (sameSyncValue(s.serialize(), body[s.key])) pending.delete(s.key);
+    else pending.set(s.key, body[s.key] as Record<string, unknown>);
+  }
+  savePending();
 }
 
 function debounce<T extends (...args: never[]) => void>(fn: T, ms: number) {
@@ -203,12 +208,50 @@ function debounce<T extends (...args: never[]) => void>(fn: T, ms: number) {
   };
 }
 
-let syncingFromServer = false; // 防止首次 setState 触发回传
+const CACHE_KEY = 'bonbills-sync-cache-v1';
+const PENDING_KEY = 'bonbills-sync-pending-v1';
+let cacheOwner = '';
+let syncingFromServer = false;
 let syncPauseDepth = 0;
 let activeSession = false;
+let initialSync: Promise<void> | null = null;
+let subscriptionsStarted = false;
 let uploadInFlight: Promise<void> | null = null;
 let uploadQueued = false;
 let tickTickSyncQueued = false;
+// Keep the baseline of unsaved edits, including across reloads and failed fetches.
+const pending = new Map<string, Record<string, unknown>>();
+
+function savePending() {
+  try {
+    if (pending.size) localStorage.setItem(PENDING_KEY, JSON.stringify({ owner: cacheOwner, stores: Object.fromEntries(pending) }));
+    else localStorage.removeItem(PENDING_KEY);
+  } catch { /* In-memory edits still participate in the next retry. */ }
+}
+
+export function hasSyncCache(owner: string) {
+  try {
+    if (!owner || localStorage.getItem(CACHE_KEY) !== owner) return false;
+    return stores.every((store) => {
+      const raw = localStorage.getItem(store.key);
+      if (!raw) return false;
+      const value = JSON.parse(raw);
+      return value?.state && typeof value.state === 'object' && !Array.isArray(value.state)
+        && Object.entries(store.serialize()).every(([key, field]) => field === undefined || key in value.state);
+    });
+  } catch { return false; }
+}
+
+function rememberCache() {
+  try { if (cacheOwner) localStorage.setItem(CACHE_KEY, cacheOwner); } catch { /* Cache is optional. */ }
+}
+
+function setSaved(message = '') {
+  useSyncStatus.getState().setStatus('saved', message);
+  setTimeout(() => {
+    if (useSyncStatus.getState().state === 'saved') useSyncStatus.getState().setStatus('idle');
+  }, 2000);
+}
 
 export async function createManualBackup() {
   if (!activeSession) throw new Error('请先登录');
@@ -224,7 +267,14 @@ export async function createManualBackup() {
 }
 
 export async function triggerUpload() {
-  if (!activeSession) return;
+  if (!activeSession) {
+    // Import confirmation awaits this inside runWithSyncPaused; startup itself
+    // must wait for that transaction to finish. Its edits are already journaled.
+    if (syncPauseDepth > 0) return;
+    if (!initialSync) return;
+    try { await initialSync; } catch { return; }
+  }
+  if (!pending.size) return;
   uploadQueued = true;
   if (uploadInFlight) return uploadInFlight;
   const status = useSyncStatus.getState();
@@ -233,16 +283,14 @@ export async function triggerUpload() {
       status.setStatus('saving');
       while (uploadQueued && activeSession) {
         uploadQueued = false;
-        await uploadAll();
+        await uploadStores(stores.filter((store) => pending.has(store.key)));
+        if (pending.size) uploadQueued = true;
       }
       if (tickTickSyncQueued && activeSession) {
         tickTickSyncQueued = false;
         void syncTickTickTrips();
       }
-      status.setStatus('saved');
-      setTimeout(() => {
-        if (useSyncStatus.getState().state === 'saved') useSyncStatus.getState().setStatus('idle');
-      }, 2000);
+      setSaved();
     } catch (e) {
       status.setStatus('error', e instanceof Error ? e.message : String(e));
     } finally {
@@ -253,7 +301,7 @@ export async function triggerUpload() {
   return uploadInFlight;
 }
 
-export function isSyncPaused() { return syncingFromServer || syncPauseDepth > 0; }
+export function isSyncPaused() { return !activeSession || syncingFromServer || syncPauseDepth > 0; }
 
 export async function runWithSyncPaused<T>(run: () => Promise<T>): Promise<T> {
   syncPauseDepth += 1;
@@ -265,15 +313,23 @@ export async function runWithSyncPaused<T>(run: () => Promise<T>): Promise<T> {
 }
 
 function startSubscriptions() {
+  if (subscriptionsStarted) return;
+  subscriptionsStarted = true;
   const debouncedUpload = debounce(() => {
     if (syncingFromServer) return;
     void triggerUpload();
   }, 2000);
 
   for (const s of stores) {
+    let previous = s.serialize();
     s.subscribe(() => {
-      if (syncingFromServer || syncPauseDepth > 0) return;
-      debouncedUpload();
+      const next = s.serialize();
+      const before = previous;
+      previous = next;
+      if (syncingFromServer || sameSyncValue(before, next)) return;
+      if (!pending.has(s.key)) pending.set(s.key, before);
+      savePending();
+      if (activeSession && syncPauseDepth === 0) debouncedUpload();
     });
   }
 
@@ -304,59 +360,74 @@ async function startTickTickSync() {
   if (connected) await syncTickTickTrips();
 }
 
-export async function initSync() {
-  const status = useSyncStatus.getState();
+export function initSync(owner?: string): Promise<void> {
+  if (initialSync) return initialSync;
+  if (activeSession) return Promise.resolve();
+  if (owner) cacheOwner = owner;
+  if (!subscriptionsStarted) {
+    try {
+      const saved = JSON.parse(localStorage.getItem(PENDING_KEY) || 'null');
+      if (saved?.owner === cacheOwner && saved.stores && typeof saved.stores === 'object') {
+        for (const store of stores) {
+          const base = saved.stores[store.key];
+          if (base && typeof base === 'object' && !Array.isArray(base)) pending.set(store.key, base);
+        }
+      }
+    } catch { /* Invalid metadata must not prevent a fresh cloud sync. */ }
+  }
+  startSubscriptions();
+  initialSync = refreshFromServer().finally(() => { initialSync = null; });
+  return initialSync;
+}
 
+async function refreshFromServer() {
+  const status = useSyncStatus.getState();
   try {
     status.setStatus('loading');
     const serverData = await fetchServer();
+    // Let onBlur saves and import transactions finish before replacing store values.
+    while (syncPauseDepth > 0 || (typeof document !== 'undefined'
+      && (document.activeElement?.matches('input:not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="button"]):not([type="submit"]), textarea, select, [contenteditable="true"]')
+        || document.querySelector('.finance-import-preview-shell')))) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    syncingFromServer = true;
     if (serverData) {
-      // 应用服务端数据到各 store
-      syncingFromServer = true;
-      const storesMissingFromServer: StoreEntry[] = [];
-      const storesNormalizedOnLoad: StoreEntry[] = [];
       for (const s of stores) {
         const legacyVal = s.legacyKeys?.map((key) => serverData[key]).find((val) => val && typeof val === 'object');
         const val = serverData[s.key] ?? legacyVal;
         if (val && typeof val === 'object') {
-          s.setState(val as Record<string, unknown>);
-          if (JSON.stringify(s.serialize()) !== JSON.stringify(val)) storesNormalizedOnLoad.push(s);
+          const next = pending.has(s.key)
+            ? mergeSyncValue(pending.get(s.key), s.serialize(), val)
+            : val;
+          s.setState(next as Record<string, unknown>);
+          if (!sameSyncValue(s.serialize(), val)) pending.set(s.key, val as Record<string, unknown>);
+          else pending.delete(s.key);
         } else {
-          storesMissingFromServer.push(s);
+          s.setState(s.serialize());
+          pending.set(s.key, {});
         }
       }
-      // 新增 Store 或加载时完成数据迁移后，立即把规范化结果固化到云端。
-      const storesToUpload = [...new Set([...storesMissingFromServer, ...storesNormalizedOnLoad])];
-      if (storesToUpload.length > 0) {
-        await uploadStores(storesToUpload);
-      }
-      // 下一个 tick 再开订阅，避免刚 setState 触发回传
-      activeSession = true;
-      setTimeout(() => {
-        syncingFromServer = false;
-        startSubscriptions();
-        void startTickTickSync();
-      }, 100);
-      status.setStatus('saved', '已从云端同步');
-      setTimeout(() => {
-        if (useSyncStatus.getState().state === 'saved') {
-          useSyncStatus.getState().setStatus('idle');
-        }
-      }, 2000);
     } else {
-      // 首次：上传当前 localStorage 数据到服务端
-      status.setStatus('saving', '首次同步，上传本地数据');
-      await uploadAll();
-      activeSession = true;
-      startSubscriptions();
-      void startTickTickSync();
-      status.setStatus('saved', '首次同步完成');
-      setTimeout(() => {
-        if (useSyncStatus.getState().state === 'saved') {
-          useSyncStatus.getState().setStatus('idle');
-        }
-      }, 2000);
+      for (const s of stores) {
+        s.setState(s.serialize());
+        pending.set(s.key, {});
+      }
     }
+    syncingFromServer = false;
+    savePending();
+    const now = new Date();
+    const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    useMonthlyStore.getState().ensureInvestmentMonth(yearMonth);
+    useMonthlyStore.getState().ensureInvestmentImportCutoff();
+    status.markRefreshed();
+    // Subscribe before fetching and keep tracking while uploads are in flight.
+    while (pending.size) await uploadStores(stores.filter((s) => pending.has(s.key)));
+    activeSession = true;
+    rememberCache();
+    status.setReady(true);
+    setSaved();
+    void startTickTickSync();
   } catch (e) {
     activeSession = false;
     syncingFromServer = false;
@@ -364,4 +435,9 @@ export async function initSync() {
     status.setStatus('error', msg);
     throw new Error('账单加载失败，请重试');
   }
+}
+
+export async function retrySync() {
+  if (activeSession) await triggerUpload();
+  else await initSync();
 }

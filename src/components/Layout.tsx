@@ -5,8 +5,10 @@ import BillDropImporter from './BillDropImporter';
 import Nav from './Nav';
 import SyncIndicator from './SyncIndicator';
 import { usePageScrollRestoration } from '../hooks/usePageScrollRestoration';
+import { useSyncStatus } from '../utils/syncStatus';
 
 export default function Layout() {
+  const syncReady = useSyncStatus((state) => state.ready);
   const location = useLocation();
   usePageScrollRestoration(`${location.pathname}${location.search}`);
   const isHomePage = location.pathname === '/';
@@ -17,8 +19,8 @@ export default function Layout() {
       style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', color: '#202124' }}
     >
       <SyncIndicator />
-      <AutoPossessionImporter />
-      <AutoFundBuySync />
+      {syncReady && <AutoPossessionImporter />}
+      {syncReady && <AutoFundBuySync />}
       <BillDropImporter />
       <div
         style={{
