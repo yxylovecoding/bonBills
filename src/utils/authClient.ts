@@ -1,3 +1,5 @@
+import { requestWithRetry } from './requestWithRetry';
+
 export interface SessionStatus {
   authenticated: boolean;
   username?: string;
@@ -8,18 +10,28 @@ export class SessionError extends Error {
 }
 
 export async function requestSession(init: RequestInit = {}): Promise<SessionStatus> {
-  const response = await fetch('/api/auth', {
-    ...init,
-    credentials: 'same-origin',
-    cache: 'no-store',
-    signal: AbortSignal.timeout(15_000),
-    headers: { 'Content-Type': 'application/json', ...init.headers },
+  return requestWithRetry(async (signal) => {
+    const response = await fetch('/api/auth', {
+      ...init,
+      credentials: 'same-origin',
+      cache: 'no-store',
+      signal,
+      headers: { 'Content-Type': 'application/json', ...init.headers },
+    });
+    const body = await response.json().catch((error: unknown) => {
+      if (error instanceof SyntaxError) return null;
+      throw error;
+    }) as (SessionStatus & { error?: string }) | null;
+    if (!response.ok || typeof body?.authenticated !== 'boolean') {
+      throw new SessionError(body?.error || '登录服务暂不可用，请稍后重试', response.status);
+    }
+    return body;
+  }, {
+    signal: init.signal,
+    retry: (init.method || 'GET').toUpperCase() === 'GET',
+    timeoutMessage: '登录连接超时，请重试',
+    networkMessage: '网络连接失败，请重试',
   });
-  const body = await response.json().catch(() => null) as (SessionStatus & { error?: string }) | null;
-  if (!response.ok || typeof body?.authenticated !== 'boolean') {
-    throw new SessionError(body?.error || '登录服务暂不可用，请稍后重试', response.status);
-  }
-  return body;
 }
 
 export function signIn(credentials: { username: string; password: string } | { key: string }) {
@@ -57,9 +69,13 @@ export async function restoreSession() {
   // 旧链接和旧标签页先交换服务端会话，再移除浏览器内的长期密钥。
   if (key) {
     try {
-      return await signIn({ key });
-    } finally {
+      const session = await signIn({ key });
       removeLegacyKey();
+      return session;
+    } catch (error) {
+      // A transient failure must not consume the only credential on an old link.
+      if (error instanceof SessionError && error.status === 401) removeLegacyKey();
+      throw error;
     }
   }
   return requestSession();

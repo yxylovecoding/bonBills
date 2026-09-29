@@ -1,4 +1,5 @@
 import { apiFetch } from './authClient';
+import { requestWithRetry } from './requestWithRetry';
 import { normalizeBillDetailState, useBillDetailStore } from '../stores/billDetailStore';
 import { normalizeConfirmedExpenses, useCalendarStore } from '../stores/calendarStore';
 import { useConfigStore } from '../stores/configStore';
@@ -167,16 +168,19 @@ const stores: StoreEntry[] = [
 ];
 
 async function fetchServer(): Promise<Record<string, unknown> | null> {
-  const res = await apiFetch('/api/sync', {
-    method: 'GET',
-    signal: AbortSignal.timeout(15_000),
+  return requestWithRetry(async (signal) => {
+    const res = await apiFetch('/api/sync', { method: 'GET', signal });
+    if (res.status === 204) return null;
+    if (res.status === 401) throw new Error('UNAUTHORIZED');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data: unknown = await res.json();
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('同步数据无效');
+    return data as Record<string, unknown>;
+  }, {
+    retry: true,
+    timeoutMessage: '账单加载超时，请重试',
+    networkMessage: '网络连接失败，请重试',
   });
-  if (res.status === 204) return null;
-  if (res.status === 401) throw new Error('UNAUTHORIZED');
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data: unknown = await res.json();
-  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('同步数据无效');
-  return data as Record<string, unknown>;
 }
 
 function serializeAllStores() {
@@ -186,11 +190,11 @@ function serializeAllStores() {
 async function uploadStores(selectedStores: readonly StoreEntry[]) {
   const body: Record<string, unknown> = {};
   for (const s of selectedStores) body[s.key] = s.serialize();
-  const res = await apiFetch('/api/sync', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(15_000),
+  const res = await requestWithRetry((signal) => apiFetch('/api/sync', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal,
+  }), {
+    timeoutMessage: '账单保存超时，请重试',
+    networkMessage: '网络连接失败，请重试',
   });
   if (!res.ok) throw new Error(`upload HTTP ${res.status}`);
   for (const s of selectedStores) {
@@ -433,7 +437,7 @@ async function refreshFromServer() {
     syncingFromServer = false;
     const msg = e instanceof Error ? e.message : String(e);
     status.setStatus('error', msg);
-    throw new Error('账单加载失败，请重试');
+    throw new Error(/超时|网络连接失败/.test(msg) ? msg : '账单加载失败，请重试');
   }
 }
 
