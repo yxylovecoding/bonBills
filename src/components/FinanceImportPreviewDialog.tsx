@@ -4,6 +4,8 @@ import { investMeta } from '../data/mockData';
 import type { AutoAccountBalanceKey, InvestKey } from '../models/types';
 import {
   diffInvestmentOperations,
+  financeImportAccountChanges,
+  hasFinanceImportRemainder,
   type FinanceImportPreviewDraft,
   type InvestmentOperationPreviewChange,
 } from '../utils/importPreview';
@@ -51,26 +53,26 @@ export default function FinanceImportPreviewDialog({
   confirming,
   onCancel,
   onConfirm,
+  onConfirmAccount,
 }: {
   draft: FinanceImportPreviewDraft;
   confirming: boolean;
   onCancel: () => void;
   onConfirm: () => void;
+  onConfirmAccount: (key: AutoAccountBalanceKey) => void;
 }) {
   const changesOnly = Boolean(draft.meta.changesOnly);
   const billsAlreadyImported = draft.meta.billMonths.length > 0;
-  const { investmentRecords, accountChanges, holdingChanges, investmentOperationChanges } = useMemo(() => {
-    const accounts = (Object.keys(ACCOUNT_LABELS) as AutoAccountBalanceKey[]).flatMap((key) => {
-      const before = draft.before.snapshot.current.accounts[key];
-      const after = draft.after.snapshot.current.accounts[key];
-      return before === after ? [] : [{ key, before, after }];
-    });
+  const { investmentRecords, accountChanges, holdingChanges, investmentOperationChanges, hasRemainder } = useMemo(() => {
+    const accounts = financeImportAccountChanges(draft);
+    const hasRemainder = hasFinanceImportRemainder(draft);
     if (changesOnly) {
       return {
         investmentRecords: [],
         accountChanges: accounts,
         holdingChanges: [],
         investmentOperationChanges: diffInvestmentOperations(draft.before.records, draft.after.records),
+        hasRemainder,
       };
     }
     return {
@@ -84,6 +86,7 @@ export default function FinanceImportPreviewDialog({
         return before === after ? [] : [{ key, before, after }];
       }),
       investmentOperationChanges: [],
+      hasRemainder,
     };
   }, [changesOnly, draft]);
 
@@ -94,7 +97,7 @@ export default function FinanceImportPreviewDialog({
           <div>
             <div id="finance-import-preview-title" style={{ fontSize: 16, fontWeight: 800, color: '#202124' }}>{draft.meta.title}</div>
             <div style={{ fontSize: 11, color: '#5f6368', marginTop: 3 }}>
-              {billsAlreadyImported ? '账单已导入 · 确认后更新账户和理财' : '确认后才会写入'}
+              {billsAlreadyImported ? '账单已导入' : '导入预览'}
             </div>
           </div>
           <button type="button" onClick={onCancel} disabled={confirming} aria-label="关闭导入预览" style={{ border: 'none', borderRadius: 8, backgroundColor: '#f1f3f4', color: '#5f6368', width: 30, height: 30, fontSize: 16, fontWeight: 800, cursor: confirming ? 'default' : 'pointer' }}>×</button>
@@ -157,12 +160,23 @@ export default function FinanceImportPreviewDialog({
           <section style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 800, color: '#e8710a', marginBottom: 6 }}>{changesOnly ? '账户' : '对账变化'}</div>
             <div style={{ border: '1px solid #e8eaed', borderRadius: 10, overflow: 'hidden' }}>
-              {accountChanges.map(({ key, before, after }) => (
-                <div key={key} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 9px', borderBottom: '1px solid #f1f3f4', fontSize: 12 }}>
-                  <span style={{ fontWeight: 700 }}>{ACCOUNT_LABELS[key]}</span>
-                  <span style={{ fontVariantNumeric: 'tabular-nums' }}>{accountAmount(key, before)} → {accountAmount(key, after)}</span>
-                </div>
-              ))}
+              {accountChanges.map(({ key, before, after }) => {
+                const confirmed = draft.confirmedAccountKeys?.includes(key) ?? false;
+                return (
+                  <div key={key} className="finance-import-account-row">
+                    <span className="finance-import-account-label">{ACCOUNT_LABELS[key]}</span>
+                    <span className="finance-import-account-amount">{before === after ? accountAmount(key, after) : `${accountAmount(key, before)} → ${accountAmount(key, after)}`}</span>
+                    <button
+                      type="button"
+                      className="finance-import-account-confirm"
+                      onClick={() => onConfirmAccount(key)}
+                      disabled={confirming || confirmed}
+                      aria-label={`${ACCOUNT_LABELS[key]}${confirmed ? '已确认' : '确认'}`}
+                      data-confirmed={confirmed}
+                    >{confirmed ? '已确认' : '确认'}</button>
+                  </div>
+                );
+              })}
               {!changesOnly && holdingChanges.map(({ key, before, after }) => (
                 <div key={key} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 9px', borderBottom: '1px solid #f1f3f4', fontSize: 12 }}>
                   <span style={{ fontWeight: 700 }}>{investMeta[key].label}</span>
@@ -202,9 +216,9 @@ export default function FinanceImportPreviewDialog({
           </div>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <button type="button" onClick={onCancel} disabled={confirming} style={{ border: '1px solid #dadce0', borderRadius: 10, backgroundColor: '#fff', color: '#5f6368', padding: '10px 0', fontSize: 13, fontWeight: 800, cursor: confirming ? 'default' : 'pointer' }}>{billsAlreadyImported ? '保持不变' : '取消'}</button>
-          <button type="button" onClick={onConfirm} disabled={confirming} style={{ border: 'none', borderRadius: 10, backgroundColor: confirming ? '#9aa0a6' : '#1a73e8', color: '#fff', padding: '10px 0', fontSize: 13, fontWeight: 800, cursor: confirming ? 'default' : 'pointer' }}>{confirming ? '写入中' : billsAlreadyImported ? '更新账户和理财' : '确认导入'}</button>
+        <div style={{ display: 'grid', gridTemplateColumns: hasRemainder ? '1fr 1fr' : '1fr', gap: 8 }}>
+          <button type="button" onClick={onCancel} disabled={confirming} style={{ border: '1px solid #dadce0', borderRadius: 10, backgroundColor: '#fff', color: '#5f6368', padding: '10px 0', fontSize: 13, fontWeight: 800, cursor: confirming ? 'default' : 'pointer' }}>关闭</button>
+          {hasRemainder && <button type="button" onClick={onConfirm} disabled={confirming} style={{ border: 'none', borderRadius: 10, backgroundColor: confirming ? '#9aa0a6' : '#1a73e8', color: '#fff', padding: '10px 0', fontSize: 13, fontWeight: 800, cursor: confirming ? 'default' : 'pointer' }}>{confirming ? '写入中' : changesOnly || billsAlreadyImported ? '确认理财' : '确认其余导入'}</button>}
         </div>
       </div>
     </aside>

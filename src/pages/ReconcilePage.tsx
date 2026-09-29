@@ -19,7 +19,7 @@ import { calcBudget } from '../calculations/budget';
 import { calcHistoryStats } from '../calculations/history';
 import { calcAllocationRatios, calcRebalance, calcTopUpRebalance } from '../calculations/rebalance';
 import { investMeta, tagMeta } from '../data/mockData';
-import type { AccountSnapshot, AppConfig, DailyTag, InvestAllocTargets, InvestHoldings, InvestKey, TagKind, UsStockHoldingItem } from '../models/types';
+import type { AccountSnapshot, AppConfig, AutoAccountBalanceKey, DailyTag, InvestAllocTargets, InvestHoldings, InvestKey, TagKind, UsStockHoldingItem } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { tryEvalFormula } from '../utils/formula';
@@ -45,6 +45,7 @@ import { accountBalanceUpdatedAt, investmentImportCutoff } from '../utils/import
 import { createManualBackup } from '../utils/syncEngine';
 import {
   confirmFinanceImport,
+  confirmFinanceImportAccount,
   prepareFinanceImport,
   type FinanceImportPreviewDraft,
 } from '../utils/importPreview';
@@ -866,13 +867,17 @@ export default function ReconcilePage() {
     }
   };
 
-  const confirmImportDraft = async () => {
-    if (!financeImportDraft) return;
+  const confirmImportDraft = async (accountKey?: AutoAccountBalanceKey) => {
+    if (!financeImportDraft || financeImportConfirming) return;
     setFinanceImportConfirming(true);
     try {
-      await confirmFinanceImport(financeImportDraft);
-      setScreenshotImportMsg(financeImportDraft.meta.successMessage);
-      setFinanceImportDraft(null);
+      if (accountKey) {
+        setFinanceImportDraft(await confirmFinanceImportAccount(financeImportDraft, accountKey));
+      } else {
+        await confirmFinanceImport(financeImportDraft, { preserveAccounts: true });
+        setFinanceImportDraft({ ...financeImportDraft, remainderConfirmed: true });
+        setScreenshotImportMsg('已保存确认项');
+      }
     } catch (error) {
       setScreenshotImportMsg(`导入失败：${error instanceof Error ? error.message : String(error)}`);
     } finally {
@@ -3191,9 +3196,10 @@ export default function ReconcilePage() {
           confirming={financeImportConfirming}
           onCancel={() => {
             setFinanceImportDraft(null);
-            setScreenshotImportMsg(financeImportDraft.meta.billMonths.length > 0 ? '账单已导入 · 账户和理财未变' : '已取消导入');
+            setScreenshotImportMsg('已关闭导入预览');
           }}
           onConfirm={() => { void confirmImportDraft(); }}
+          onConfirmAccount={(key) => { void confirmImportDraft(key); }}
         />
       )}
 

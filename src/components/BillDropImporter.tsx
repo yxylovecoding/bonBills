@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import type { AutoAccountBalanceKey } from '../models/types';
 import { importBillFileIntoStores } from '../utils/billImportActions';
 import { formatInvestmentImportSummary, importInvestmentFileIntoStores } from '../utils/importInvestments';
 import FinanceImportPreviewDialog from './FinanceImportPreviewDialog';
 import {
   confirmFinanceImport,
+  confirmFinanceImportAccount,
   prepareFinanceImport,
   type FinanceImportPreviewDraft,
 } from '../utils/importPreview';
@@ -134,13 +136,17 @@ export default function BillDropImporter() {
     };
   }, []);
 
-  const confirmDraft = async () => {
-    if (!importDraft) return;
+  const confirmDraft = async (accountKey?: AutoAccountBalanceKey) => {
+    if (!importDraft || confirming) return;
     setConfirming(true);
     try {
-      await confirmFinanceImport(importDraft);
-      showMessage(importDraft.meta.successMessage);
-      setImportDraft(null);
+      if (accountKey) {
+        setImportDraft(await confirmFinanceImportAccount(importDraft, accountKey));
+      } else {
+        await confirmFinanceImport(importDraft, { preserveAccounts: true });
+        setImportDraft({ ...importDraft, remainderConfirmed: true });
+        showMessage('已保存确认项');
+      }
     } catch (error) {
       showMessage(`导入失败：${error instanceof Error ? error.message : String(error)}`, true);
     } finally {
@@ -168,9 +174,10 @@ export default function BillDropImporter() {
           confirming={confirming}
           onCancel={() => {
             setImportDraft(null);
-            showMessage(importDraft.meta.billMonths.length > 0 ? '账单已导入 · 账户和理财未变' : '已取消导入');
+            showMessage('已关闭导入预览');
           }}
           onConfirm={() => { void confirmDraft(); }}
+          onConfirmAccount={(key) => { void confirmDraft(key); }}
         />
       )}
     </>

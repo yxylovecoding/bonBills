@@ -1,5 +1,6 @@
 import type {
   AccountSnapshot,
+  AutoAccountBalanceKey,
   InvestmentTransactionRecord,
   MonthlyRecord,
   PendingInvestmentBuy,
@@ -13,6 +14,8 @@ import { useMonthlyStore } from '../stores/monthlyStore';
 import { usePossessionStore } from '../stores/possessionStore';
 import { useSnapshotStore } from '../stores/snapshotStore';
 import { runWithSyncPaused, triggerUpload } from './syncEngine';
+import { AUTO_ACCOUNT_BALANCE_KEYS } from './accountBalanceImport';
+import { sameSyncValue } from './syncMerge';
 
 export type FinanceImportState = {
   records: MonthlyRecord[];
@@ -48,6 +51,8 @@ export type FinanceImportPreviewDraft = {
   before: FinanceImportState;
   after: FinanceImportState;
   meta: FinanceImportPreviewMeta;
+  confirmedAccountKeys?: AutoAccountBalanceKey[];
+  remainderConfirmed?: boolean;
 };
 
 export type InvestmentOperationPreviewChange =
@@ -226,9 +231,89 @@ export async function prepareFinanceImport(
   return draft;
 }
 
-export async function confirmFinanceImport(draft: FinanceImportPreviewDraft) {
+export function financeImportAccountChanges(draft: FinanceImportPreviewDraft) {
+  return AUTO_ACCOUNT_BALANCE_KEYS.flatMap((key) => {
+    const before = draft.before.snapshot.current;
+    const after = draft.after.snapshot.current;
+    // A cursor can advance even when transactions cancel each other out.
+    const beforeCursor = before.accountBalanceSync?.[key];
+    const afterCursor = after.accountBalanceSync?.[key];
+    const cursorChanged = changed(
+      beforeCursor && { ...beforeCursor, syncedAt: undefined },
+      afterCursor && { ...afterCursor, syncedAt: undefined },
+    );
+    return before.accounts[key] === after.accounts[key] && !cursorChanged
+      ? []
+      : [{ key, before: before.accounts[key], after: after.accounts[key] }];
+  });
+}
+
+function preservingAccounts(state: FinanceImportState, current: AccountSnapshot): FinanceImportState {
+  const accounts = { ...state.snapshot.current.accounts };
+  for (const key of AUTO_ACCOUNT_BALANCE_KEYS) accounts[key] = current.accounts[key];
+  return {
+    ...state,
+    snapshot: {
+      ...state.snapshot,
+      current: {
+        ...state.snapshot.current,
+        accounts,
+        date: current.date,
+        accountBalanceSync: current.accountBalanceSync,
+        accountBalanceUpdatedAt: current.accountBalanceUpdatedAt,
+      },
+    },
+  };
+}
+
+export function hasFinanceImportRemainder(draft: FinanceImportPreviewDraft) {
+  if (draft.remainderConfirmed) return false;
+  const committed = draft.meta.billMonths.length > 0
+    ? stateWithCommittedBills(draft.before, draft.after, draft.meta.billMonths)
+    : draft.before;
+  const comparable = (state: FinanceImportState) => ({
+    ...state,
+    records: state.records.map((record) => ({
+      ...record,
+      importedInvestmentTransactionIds: record.importedInvestmentTransactionIds ?? [],
+    })),
+  });
+  return !sameSyncValue(comparable(committed), comparable(preservingAccounts(draft.after, committed.snapshot.current)));
+}
+
+export async function confirmFinanceImportAccount(
+  draft: FinanceImportPreviewDraft,
+  key: AutoAccountBalanceKey,
+): Promise<FinanceImportPreviewDraft> {
+  if (draft.confirmedAccountKeys?.includes(key)
+    || !financeImportAccountChanges(draft).some((change) => change.key === key)) return draft;
   await runWithSyncPaused(async () => {
-    applyFinanceImportState(draft.after);
+    const after = draft.after.snapshot.current;
+    const current = useSnapshotStore.getState().current;
+    const sync = { ...current.accountBalanceSync };
+    if (after.accountBalanceSync?.[key]) sync[key] = cloneData(after.accountBalanceSync[key]);
+    else delete sync[key];
+    useSnapshotStore.setState({
+      current: {
+        ...current,
+        accounts: { ...current.accounts, [key]: after.accounts[key] },
+        accountBalanceSync: sync,
+        accountBalanceUpdatedAt: new Date().toISOString(),
+      },
+    });
+    await triggerUpload();
+  });
+  return { ...draft, confirmedAccountKeys: [...(draft.confirmedAccountKeys ?? []), key] };
+}
+
+export async function confirmFinanceImport(
+  draft: FinanceImportPreviewDraft,
+  options: { preserveAccounts?: boolean } = {},
+) {
+  await runWithSyncPaused(async () => {
+    applyFinanceImportState(options.preserveAccounts
+      ? preservingAccounts(draft.after, useSnapshotStore.getState().current)
+      : draft.after);
     await triggerUpload();
   });
 }

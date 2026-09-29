@@ -39,6 +39,7 @@ import { classifyTag, type ManualTagCategory } from '../utils/tagCategory';
 import { usePrefsStore, REVIEWABLE_CATEGORIES, type ReviewableCategory } from '../stores/prefsStore';
 import { useDragSort } from '../hooks/useDragSort';
 import type {
+  AutoAccountBalanceKey,
   TagKind,
   MonthlyRecord,
   MajorExpense,
@@ -87,6 +88,7 @@ import { fetchLatestMailAttachments } from '../utils/mailAttachments';
 import { accountBalanceUpdatedAt, investmentImportCutoff } from '../utils/importCutoffs';
 import {
   confirmFinanceImport,
+  confirmFinanceImportAccount,
   prepareFinanceImport,
   type FinanceImportPreviewDraft,
   type FinanceImportPreviewMeta,
@@ -4212,13 +4214,17 @@ export default function CalendarPage() {
     }
     if (billFileRef.current) billFileRef.current.value = '';
   };
-  const confirmImportDraft = async () => {
-    if (!financeImportDraft) return;
+  const confirmImportDraft = async (accountKey?: AutoAccountBalanceKey) => {
+    if (!financeImportDraft || financeImportConfirming) return;
     setFinanceImportConfirming(true);
     try {
-      await confirmFinanceImport(financeImportDraft);
-      setBillImportMsg(financeImportDraft.meta.successMessage);
-      setFinanceImportDraft(null);
+      if (accountKey) {
+        setFinanceImportDraft(await confirmFinanceImportAccount(financeImportDraft, accountKey));
+      } else {
+        await confirmFinanceImport(financeImportDraft, { preserveAccounts: true });
+        setFinanceImportDraft({ ...financeImportDraft, remainderConfirmed: true });
+        setBillImportMsg('已保存确认项');
+      }
     } catch (error) {
       setBillImportMsg(`导入失败：${error instanceof Error ? error.message : String(error)}`);
     } finally {
@@ -5123,9 +5129,10 @@ export default function CalendarPage() {
           confirming={financeImportConfirming}
           onCancel={() => {
             setFinanceImportDraft(null);
-            setBillImportMsg(financeImportDraft.meta.billMonths.length > 0 ? '账单已导入 · 账户和理财未变' : '已取消导入');
+            setBillImportMsg('已关闭导入预览');
           }}
           onConfirm={() => { void confirmImportDraft(); }}
+          onConfirmAccount={(key) => { void confirmImportDraft(key); }}
         />
       )}
     </div>
