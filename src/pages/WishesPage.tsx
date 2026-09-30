@@ -5,7 +5,7 @@ import Card from '../components/Card';
 import { formatCurrency } from '../components/CurrencyDisplay';
 import WishTimeline from '../components/WishTimeline';
 import WishCompactCalendar from '../components/WishCompactCalendar';
-import WishSpendingEditor from '../components/WishSpendingEditor';
+import WishSpendingSummary from '../components/WishSpendingSummary';
 import WishDebtSummary from '../components/WishDebtSummary';
 import WishActualAmount from '../components/WishActualAmount';
 import { calcHistoryStats } from '../calculations/history';
@@ -24,6 +24,7 @@ import { calculateWishInternPlan } from '../utils/wishInternPlan';
 import {
   calculateWishFunding,
   resolveWishRepayments,
+  resolveWishBillSpending,
   reconcileWishTripLinks,
   resolveWishTravelBudget,
   wishTravelLifeAmount,
@@ -154,8 +155,11 @@ export default function WishesPage() {
     [storedWishes, allTripSegments, tripTags, outlookTravelTitles],
   );
   const wishes = useMemo(
-    () => resolveWishRepayments(linkedWishes, config.wishDebtTotal),
-    [linkedWishes, config.wishDebtTotal],
+    () => resolveWishRepayments(
+      resolveWishBillSpending(linkedWishes, allTripSegments, tripTags, expenseItems, todayKey),
+      config.wishDebtTotal,
+    ),
+    [linkedWishes, allTripSegments, tripTags, expenseItems, todayKey, config.wishDebtTotal],
   );
   const deadlineMilestones = config.wishDeadlineMilestones ?? DEFAULT_WISH_DEADLINE_MILESTONES;
   useEffect(() => {
@@ -1003,10 +1007,11 @@ export default function WishesPage() {
             );
             const funding = calculateWishFunding(item, itemAdjustedTravelLifeAmount);
             const remainingActualWishSavingAmount = funding.remainingAmount;
-            const progress = funding.fundingTarget > 0 ? funding.progress : item.targetAmount > 0 ? 1 : 0;
-            const actualWishSavingCompleted = (item.targetAmount > 0 || funding.spentAmount > 0)
+            const hasActualTarget = item.billSpending?.ended === true;
+            const progress = funding.fundingTarget > 0 ? funding.progress : item.targetAmount > 0 || hasActualTarget ? 1 : 0;
+            const actualWishSavingCompleted = (item.targetAmount > 0 || funding.spentAmount > 0 || hasActualTarget)
               && remainingActualWishSavingAmount <= 0;
-            const budgetEstimateVisible = budgetEstimateWishId === item.id;
+            const budgetEstimateVisible = !hasActualTarget && budgetEstimateWishId === item.id;
             const isSelectedPlanningWish = selectedPlanningWish?.id === item.id;
             return (
               <Fragment key={item.id}>
@@ -1039,8 +1044,10 @@ export default function WishesPage() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9, marginTop: 12 }}>
                   <div style={{ display: 'block' }}>
-                    <span style={{ display: 'block', fontSize: 10, color: C.sub, marginBottom: 4 }}>目标金额</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, border: `1px solid ${budgetEstimateWishId === item.id ? '#c4b5fd' : '#e5e7eb'}`, borderRadius: 9, backgroundColor: '#fff', padding: '6px 8px', boxShadow: budgetEstimateWishId === item.id ? '0 0 0 2px #ede9fe' : 'none' }}>
+                    <span style={{ display: 'block', fontSize: 10, color: C.sub, marginBottom: 4 }}>{hasActualTarget ? '实际花销' : '目标金额'}</span>
+                    {hasActualTarget ? (
+                      <WishActualAmount label={`${item.name} 实际花销`} original={item.billSpending!.estimatedTargetAmount} actual={item.targetAmount} />
+                    ) : <div style={{ display: 'flex', alignItems: 'center', gap: 4, border: `1px solid ${budgetEstimateWishId === item.id ? '#c4b5fd' : '#e5e7eb'}`, borderRadius: 9, backgroundColor: '#fff', padding: '6px 8px', boxShadow: budgetEstimateWishId === item.id ? '0 0 0 2px #ede9fe' : 'none' }}>
                       <span style={{ fontSize: 11, color: C.sub }}>¥</span>
                       <AmountInput
                         aria-label="目标金额"
@@ -1053,7 +1060,7 @@ export default function WishesPage() {
                         placeholder="0"
                         style={{ width: '100%', minWidth: 0, border: 'none', outline: 'none', background: 'transparent', textAlign: 'right', fontSize: 12, fontWeight: 700, color: C.purple }}
                       />
-                    </div>
+                    </div>}
                   </div>
                   <div style={{ display: 'block' }}>
                     <span style={{ display: 'block', fontSize: 10, color: C.sub, marginBottom: 4 }}>已经攒下</span>
@@ -1071,7 +1078,7 @@ export default function WishesPage() {
                   </div>
                 </div>
 
-                <WishSpendingEditor wish={item} onChange={(patch) => updateWishFields(item.id, patch)} />
+                <WishSpendingSummary wish={item} />
 
                 {linkedTripDefaultDeadline ? null : (
                   <div style={{ display: 'block', marginTop: 9 }}>
@@ -1336,8 +1343,8 @@ export default function WishesPage() {
                   <div style={{ width: `${progress * 100}%`, height: '100%', borderRadius: 999, backgroundColor: progress >= 1 ? C.green : C.purple, transition: 'width 0.2s' }} />
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 6, fontSize: 10, color: C.sub }}>
-                  <span>{item.targetAmount > 0 ? `完成 ${(progress * 100).toFixed(0)}%` : '等待填写目标'}</span>
-                  {item.targetAmount > 0 && <span>还差 ¥{formatCurrency(remainingActualWishSavingAmount)}</span>}
+                  <span>{item.targetAmount > 0 || hasActualTarget ? `完成 ${(progress * 100).toFixed(0)}%` : '等待填写目标'}</span>
+                  {(item.targetAmount > 0 || hasActualTarget) && <span>还差 ¥{formatCurrency(remainingActualWishSavingAmount)}</span>}
                 </div>
 
                 <div style={{ marginTop: 10, borderRadius: 10, padding: '8px 9px', backgroundColor: isOngoingTrip ? '#f5f3ff' : item.deadlineState === 'overdue' && !actualWishSavingCompleted ? '#fef2f2' : actualWishSavingCompleted ? '#ecfdf5' : '#f5f3ff', color: isOngoingTrip ? C.purple : item.deadlineState === 'overdue' && !actualWishSavingCompleted ? C.red : actualWishSavingCompleted ? C.green : C.purple, fontSize: 11, fontWeight: 700, lineHeight: 1.5 }}>

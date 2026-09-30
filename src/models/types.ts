@@ -160,7 +160,16 @@ export interface WishItem {
   name: string;
   targetAmount: number;
   savedAmount: number;
-  spentItems?: WishSpentItem[];
+  spentItems?: WishSpentItem[]; // 旧版手填数据保留；展示和规划时由匹配账单派生并覆盖。
+  // 从匹配标签的账单实时派生，仅用于展示和规划，不写回配置。
+  billSpending?: {
+    tags: string[];
+    amount: number;
+    count: number;
+    month?: string;
+    ended: boolean;
+    estimatedTargetAmount: number;
+  };
   repaidAmount?: number; // 展示和规划时根据当前总欠款与已花重新推算，忽略历史存储值
   deadline?: string | null;
   linkedTripStartDate?: string | null;

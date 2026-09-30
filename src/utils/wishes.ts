@@ -1,6 +1,7 @@
 import type { TagKind, WishExtraExpenseItem, WishItem } from '../models/types';
 import { roundToSitePrecision } from './numberInput';
-import type { TripSegment } from './trips';
+import type { BillExpenseMonth } from './importBill';
+import { flattenExpenseItems, sumBillsByTag, SYSTEM_BILL_TAGS, tagYearMonthPrefix, type TripSegment } from './trips';
 
 export const POST_LIFE_FLEXIBLE_SHARE = 0.5;
 export const FLEXIBLE_WISH_SHARE = 0.8;
@@ -74,7 +75,7 @@ export function calculateTravelWishEstimate(
 }
 
 export function calculateWishFunding(wish: WishItem, lifeAmount = 0) {
-  const spentAmount = roundToSitePrecision((wish.spentItems ?? []).reduce(
+  const spentAmount = roundToSitePrecision(wish.billSpending?.amount ?? (wish.spentItems ?? []).reduce(
     (sum, item) => sum + normalizedAmount(item.amount), 0,
   ));
   const savedAmount = normalizedAmount(wish.savedAmount);
@@ -125,9 +126,69 @@ export function resolveWishRepayments(wishes: readonly WishItem[], total?: numbe
 }
 
 export function wishTravelLifeAmount(wish: WishItem, dailyLifeAmount: number, tripDatesByStart?: Record<string, string[]>) {
+  if (wish.billSpending?.ended) return 0;
   const days = (wish.linkedTripStartDate ? tripDatesByStart?.[wish.linkedTripStartDate]?.length : undefined)
     ?? Math.max(Math.round(wish.plannedTravelDays ?? 0), 0);
   return Math.max(days * normalizedAmount(dailyLifeAmount) - normalizedAmount(wish.travelLifeCorrectionAmount), 0);
+}
+
+function wishTagName(value: string) {
+  return value.replace(/^\d{2}\.\d{1,2}(?:\.\d{1,2})?\s*/, '').replace(/\s+/g, '').toLowerCase();
+}
+
+/** 出游所选标签优先，否则按心愿名称匹配；已花始终来自账单，不使用旧手填数据。 */
+export function resolveWishBillSpending(
+  wishes: readonly WishItem[],
+  trips: readonly TripSegment[],
+  tripTags: Record<string, string>,
+  expenseItems: Record<string, BillExpenseMonth>,
+  today: string,
+): WishItem[] {
+  const tripsByStart = new Map(trips.map((trip) => [trip.startDate, trip]));
+  const allItems = flattenExpenseItems(expenseItems);
+  const allTags = [...new Set(allItems.flatMap((item) => (item.tags || '').split(',').map((tag) => tag.trim()).filter(Boolean)))];
+  const summaries = new Map<string, ReturnType<typeof sumBillsByTag>>();
+  return wishes.map((wish) => {
+    const trip = wish.linkedTripStartDate ? tripsByStart.get(wish.linkedTripStartDate) : undefined;
+    const selectedTag = trip ? tripTags[trip.startDate] : undefined;
+    const tripMonths = new Set(trip?.dates.map((date) => `${date.slice(2, 4)}.${Number(date.slice(5, 7))}`));
+    const name = wish.name.trim();
+    const exactTag = allTags.find((tag) => tag === name && !SYSTEM_BILL_TAGS.has(tag));
+    const tags = selectedTag ? [selectedTag] : exactTag ? [exactTag] : allTags.filter((tag) => {
+      if (!name || SYSTEM_BILL_TAGS.has(tag)) return false;
+      const tagMonth = tagYearMonthPrefix(tag);
+      return wishTagName(tag) === wishTagName(name)
+        && (!trip || !tagMonth || tripMonths.has(tagMonth));
+    });
+    const items = [...new Set(tags.flatMap((tag) => {
+      let summary = summaries.get(tag);
+      if (!summary) {
+        summary = sumBillsByTag(allItems, tag);
+        summaries.set(tag, summary);
+      }
+      return summary.items;
+    }))];
+    const amount = normalizedAmount(Math.round(items.reduce((sum, item) => sum + item.amount, 0) * 100) / 100);
+    // 尚无匹配账单不等同于零支出；有账单但全额退款则按零元结算。
+    const ended = !!trip && trip.endDate < today && items.length > 0;
+    const categories = new Map<string, number>();
+    for (const item of items) {
+      const category = item.subcategory || item.category;
+      const name = ['住宿', '酒店'].includes(category) ? '酒店'
+        : ['机票', '高铁', '机票/高铁'].includes(category) ? '机票/高铁' : category;
+      categories.set(name, (categories.get(name) ?? 0) + item.amount);
+    }
+    const latestBillDate = items.reduce((latest, item) => item.date > latest ? item.date : latest, '');
+    return {
+      ...wish,
+      targetAmount: ended ? amount : wish.targetAmount,
+      spentItems: [...categories].map(([name, amount]) => ({ id: `bill_${name}`, name, amount: roundToSitePrecision(normalizedAmount(amount)) })),
+      billSpending: {
+        tags, amount, count: items.length, ended, estimatedTargetAmount: wish.targetAmount,
+        month: trip?.startDate.slice(0, 7) || latestBillDate.slice(0, 7) || undefined,
+      },
+    };
+  });
 }
 
 export function reconcileWishTripLinks<T extends WishItem>(
@@ -136,18 +197,17 @@ export function reconcileWishTripLinks<T extends WishItem>(
   tripTags: Record<string, string> = {},
   travelTitles: Record<string, string> = {},
 ): T[] {
-  const tripName = (value: string) => value.replace(/^\d{2}\.\d{1,2}(?:\.\d{1,2})?\s*/, '').replace(/\s+/g, '').toLowerCase();
   return wishes.map((wish) => {
     const previousStart = wish.linkedTripStartDate;
     if (!previousStart || trips.some((trip) => trip.startDate === previousStart)) return wish;
     // Outlook 调整出发日或连续出游合并后，旧起点不再是行程的键。
     let trip = trips.find((candidate) => candidate.dates.includes(previousStart));
     if (!trip) {
-      const names = new Set([wish.name, tripTags[previousStart] ?? ''].map(tripName).filter(Boolean));
+      const names = new Set([wish.name, tripTags[previousStart] ?? ''].map(wishTagName).filter(Boolean));
       const matches = trips.filter((candidate) => [
         tripTags[candidate.startDate] ?? '',
         ...candidate.dates.map((date) => travelTitles[date] ?? ''),
-      ].some((name) => names.has(tripName(name))));
+      ].some((name) => names.has(wishTagName(name))));
       if (matches.length === 1) trip = matches[0];
     }
     if (!trip) return wish;
@@ -343,7 +403,7 @@ export function calculateWishPlan(wishes: WishItem[], options: WishPlanOptions =
     const funding = calculateWishFunding(wish, wishTravelLifeAmount(wish, stateDailyAvg.travel, options.tripDatesByStart));
     const remainingAmount = funding.remainingAmount;
     const monthsRemaining = wish.deadline ? monthsUntilWishDeadline(wish.deadline, today) : null;
-    const completed = remainingAmount <= 0 && funding.fundingTarget > 0;
+    const completed = remainingAmount <= 0 && (funding.fundingTarget > 0 || wish.billSpending?.ended === true);
     const overdue = monthsRemaining === 0 && !completed;
     const deadlineState: WishDeadlineState = completed
       ? 'completed'

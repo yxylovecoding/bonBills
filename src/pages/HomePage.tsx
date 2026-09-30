@@ -35,7 +35,7 @@ import { getAverageAnnualizedRate } from '../utils/investRecords';
 import { detectAllTrips } from '../utils/trips';
 import { getTripDisplayTitle } from '../utils/outlookCalendar';
 import { calculateWishMilestonePlan, type WishRepaymentDue } from '../utils/wishMilestonePlan';
-import { calculateWishFunding, reconcileWishTripLinks, resolveWishRepayments, wishTravelLifeAmount } from '../utils/wishes';
+import { calculateWishFunding, reconcileWishTripLinks, resolveWishRepayments, resolveWishBillSpending, wishTravelLifeAmount } from '../utils/wishes';
 import {
   HANGZHOU_EMPLOYEE_SOCIAL_INSURANCE_RATE,
   TAX_RULE_PRESETS,
@@ -44,7 +44,7 @@ import {
 import { version as APP_VERSION } from '../../package.json';
 import { useSyncStatus } from '../utils/syncStatus';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '逐账户确认';
+const RELEASE_NOTE = '心愿实支联动';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -251,10 +251,13 @@ export default function HomePage() {
   const allTripSegments = useMemo(() => detectAllTrips(tagMap, tripSplits), [tagMap, tripSplits]);
   const wishes = useMemo(
     () => resolveWishRepayments(
-      reconcileWishTripLinks(config.wishes ?? [], allTripSegments, tripTags, outlookTravelTitles),
+      resolveWishBillSpending(
+        reconcileWishTripLinks(config.wishes ?? [], allTripSegments, tripTags, outlookTravelTitles),
+        allTripSegments, tripTags, expenseItems, todayKey,
+      ),
       config.wishDebtTotal,
     ),
-    [config.wishes, config.wishDebtTotal, allTripSegments, tripTags, outlookTravelTitles],
+    [config.wishes, config.wishDebtTotal, allTripSegments, tripTags, outlookTravelTitles, expenseItems, todayKey],
   );
   const wishInternSavingRecords = config.wishInternSavingRecords ?? [];
   const twoYearsAgo = `${today.getFullYear() - 1}-01`;

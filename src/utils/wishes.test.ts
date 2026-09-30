@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WishItem } from '../models/types';
+import type { BillExpenseItem, BillExpenseMonth } from './importBill';
 import {
   resolveWishRepayments,
   calculateWishDebtSummary,
@@ -9,14 +10,156 @@ import {
   wishTravelLifeAmount,
   sortWishesForDisplay,
   reconcileWishTripLinks,
+  resolveWishBillSpending,
 } from './wishes';
-import { detectAllTrips } from './trips';
+import { detectAllTrips, flattenExpenseItems, sumBillsByTag } from './trips';
 
 const wish = (patch: Partial<WishItem> = {}): WishItem => ({
   id: 'trip', name: '旅行', targetAmount: 10000, savedAmount: 3000,
   repaidAmount: 2000, deadline: '2026-12-01', isActive: true,
   spentItems: [{ id: 'ticket', name: '机票', amount: 4000 }],
   ...patch,
+});
+
+describe('心愿按账单标签统计实际支出', () => {
+  const tripTags = { '2026-09-30': '26.9.30 旅行', '2026-10-02': '26.10.2 郊游' };
+  const trips = detectAllTrips({
+    '2026-09-30': 'travel', '2026-10-01': 'travel',
+    '2026-10-02': 'travel', '2026-10-03': 'travel',
+  }, { '2026-10-02': true });
+  const bill = (date: string, amount: number, tags = tripTags['2026-09-30']): BillExpenseItem => ({
+    date, amount, tags, category: '旅行', subcategory: '', note: '', account: '银行卡',
+  });
+  const expenses: Record<string, BillExpenseMonth> = {
+    '2026-08': [bill('2026-08-20', 2000)],
+    '2026-09': [bill('2026-09-30', 800, `消费, ${tripTags['2026-09-30']}, 红`)],
+    '2026-10': [bill('2026-10-01', -300), bill('2026-10-02', 500, tripTags['2026-10-02']), bill('2026-10-01', 90, '26.9.30 旅行其他')],
+  };
+  const linked = wish({ linkedTripStartDate: '2026-09-30', deadline: '2026-09-29', savedAmount: 500 });
+  const resolve = (today = '2026-10-02', items = expenses, value = linked) => (
+    resolveWishBillSpending([value], trips, tripTags, items, today)[0]
+  );
+
+  it('已花与本月出游一致，跨月、行前账单和退款都计入，手填明细不重复累加', () => {
+    const original = structuredClone(linked);
+    const resolved = resolve();
+    const summary = sumBillsByTag(flattenExpenseItems(expenses), tripTags['2026-09-30']);
+    expect(summary.totalAmount).toBe(2500);
+    expect(resolved.billSpending).toMatchObject({ amount: summary.totalAmount, count: summary.count, tags: [tripTags['2026-09-30']] });
+    expect(calculateWishFunding(resolved).spentAmount).toBe(2500);
+    expect(linked).toEqual(original);
+    expect(resolved.spentItems).toEqual([{ id: 'bill_旅行', name: '旅行', amount: 2500 }]);
+    expect(resolved.billSpending?.estimatedTargetAmount).toBe(10000);
+  });
+
+  it.each(['2026-09-29', '2026-09-30', '2026-10-01'])('%s 尚未结束，只联动已花，仍保留目标', (today) => {
+    const resolved = resolve(today);
+    expect(resolved.targetAmount).toBe(10000);
+    expect(resolved.billSpending?.ended).toBe(false);
+    expect(calculateWishFunding(resolved).spentAmount).toBe(2500);
+    expect(wishTravelLifeAmount(resolved, 100, { '2026-09-30': trips[0].dates })).toBe(200);
+  });
+
+  it('结束次日实际替代目标，同步重算已还、剩余和规划，不再扣预估生活费', () => {
+    const [resolved] = resolveWishRepayments([resolve()], 1500);
+    expect(resolved.targetAmount).toBe(2500);
+    expect(wishTravelLifeAmount(resolved, 100, { '2026-09-30': trips[0].dates })).toBe(0);
+    expect(calculateWishFunding(resolved, 200)).toMatchObject({
+      spentAmount: 2500, fundingTarget: 2500, repaidAmount: 1000,
+      debtAmount: 1500, remainingAmount: 1000, progress: 0.6,
+    });
+    const plan = calculateWishPlan([resolved], {
+      today: new Date(2026, 9, 2), stateDailyAvg: { travel: 100, school: 0, home: 0, intern: 0 },
+      tripDatesByStart: { '2026-09-30': trips[0].dates },
+    });
+    expect(plan.items[0]).toMatchObject({ targetAmount: 2500, remainingAmount: 1000, monthlyWishAmount: 1000 });
+    expect(calculateWishDebtSummary([resolved], 1500)).toMatchObject({ assignedAmount: 1500, repaidAmount: 1000 });
+  });
+
+  it('后补账单、退款和账单移除都会重新计算，不固化首次实际金额', () => {
+    const updated = { ...expenses, '2026-11': [bill('2026-11-01', 123.45), bill('2026-11-02', -23.45)] };
+    expect(resolve('2026-11-03', updated).targetAmount).toBe(2600);
+    expect(resolve('2026-11-03').targetAmount).toBe(2500);
+    const empty = resolve('2026-11-03', {});
+    expect(empty.targetAmount).toBe(10000);
+    expect(empty.billSpending).toMatchObject({ amount: 0, count: 0, ended: false });
+    expect(calculateWishFunding(empty).spentAmount).toBe(0);
+  });
+
+  it('实际超预算时使用实际金额，全额退款后的零元行程也能完成', () => {
+    expect(resolve('2026-10-02', expenses, { ...linked, targetAmount: 1000 }).targetAmount).toBe(2500);
+    const refunded = resolve('2026-10-02', { '2026-09': [bill('2026-09-30', 300), bill('2026-09-30', -300)] });
+    expect(refunded.targetAmount).toBe(0);
+    expect(refunded.billSpending).toMatchObject({ amount: 0, count: 2, ended: true });
+    expect(calculateWishFunding(refunded)).toMatchObject({ spentAmount: 0, remainingAmount: 0, debtAmount: 0 });
+    expect(calculateWishPlan([refunded], { today: new Date(2026, 9, 2) }).items[0].deadlineState).toBe('completed');
+  });
+
+  it('没有关联行程时也按心愿名称匹配标签，但不替代目标', () => {
+    const unlinked = { ...linked, linkedTripStartDate: null };
+    expect(resolve('2026-10-02', expenses, unlinked)).toMatchObject({ targetAmount: 10000, billSpending: { amount: 2500, ended: false } });
+    expect(resolveWishBillSpending([linked], [], tripTags, expenses, '2026-10-02')[0]).toMatchObject({ targetAmount: 10000, billSpending: { amount: 2500, ended: false } });
+    expect(resolveWishBillSpending([linked], trips, {}, expenses, '2026-10-02')[0]).toMatchObject({ targetAmount: 2500, billSpending: { amount: 2500, ended: true } });
+  });
+
+  it('无匹配账单时已花为零，忽略历史手填数据并保留目标', () => {
+    const resolved = resolve('2026-10-02', { '2026-10': [bill('2026-10-01', 90, '无关标签')] });
+    expect(resolved).toMatchObject({ targetAmount: 10000, spentItems: [], billSpending: { amount: 0, count: 0, ended: false } });
+    expect(calculateWishFunding(resolved).spentAmount).toBe(0);
+    expect(linked.spentItems?.[0].amount).toBe(4000);
+  });
+
+  it('普通心愿按完整标签名统计，排除相似名称和系统标签', () => {
+    const items = { '2026-10': [bill('2026-10-01', 1200, '消费, 相机'), bill('2026-10-01', 80, '相机包')] };
+    const wishes = [wish({ name: '相机' }), wish({ name: '消费' }), wish({ name: '   ' })];
+    const result = resolveWishBillSpending(wishes, [], {}, items, '2026-10-02');
+    expect(result.map((item) => calculateWishFunding(item).spentAmount)).toEqual([1200, 0, 0]);
+    expect(result[0].billSpending).toMatchObject({ tags: ['相机'], count: 1, month: '2026-10' });
+  });
+
+  it('明确的完整标签优先于同名日期标签，出游所选标签优先于心愿名称', () => {
+    const items = { '2026-10': [bill('2026-10-01', 1200, '相机'), bill('2026-10-01', 600, '26.10相机')] };
+    expect(resolveWishBillSpending([wish({ name: '相机' })], [], {}, items, '2026-10-02')[0].billSpending?.amount).toBe(1200);
+    expect(resolve('2026-10-02', expenses, { ...linked, name: '郊游' }).billSpending?.amount).toBe(2500);
+  });
+
+  it('按名称匹配多个日期标签时同一笔只计一次，独立的相同账单仍分别计入', () => {
+    const entry = bill('2026-10-01', 100, '26.9.30 旅行,26.10旅行');
+    const items = { '2026-10': [entry, { ...entry }, bill('2026-10-01', -20, '26.10旅行')] };
+    const resolved = resolveWishBillSpending([wish()], [], {}, items, '2026-10-02')[0];
+    expect(resolved.billSpending).toMatchObject({ amount: 180, count: 3, tags: ['26.9.30 旅行', '26.10旅行'] });
+  });
+
+  it('关联出游按名称匹配时仅接收行程月份的同名日期标签', () => {
+    const items = { ...expenses, '2026-11': [bill('2026-11-01', 9000, '26.11旅行')] };
+    expect(resolveWishBillSpending([linked], trips, {}, items, '2026-10-02')[0].billSpending?.amount).toBe(2500);
+  });
+
+  it('已花明细按账单分类覆盖预估，退款先抵扣同类费用，旧手填明细不再锁定预估', () => {
+    const items = { '2026-09': [
+      { ...bill('2026-09-24', 2000), subcategory: '机票' },
+      { ...bill('2026-09-24', -300), subcategory: '机票' },
+      { ...bill('2026-09-24', 800), subcategory: '住宿' },
+    ] };
+    const budget = resolveWishTravelBudget(resolve('2026-09-25', items), 7, 100);
+    expect(budget).toMatchObject({ ticketActual: 1700, lodgingActual: 800 });
+    expect(resolveWishTravelBudget(resolve('2026-09-25', {}), 7, 100).ticketActual).toBeUndefined();
+  });
+
+  it('切分的相邻行程各自统计、各自按结束日期结算', () => {
+    const nextWish = { ...linked, id: 'next', linkedTripStartDate: '2026-10-02' };
+    const [first, second] = resolveWishBillSpending([linked, nextWish], trips, tripTags, expenses, '2026-10-02');
+    expect(first).toMatchObject({ targetAmount: 2500, billSpending: { amount: 2500, ended: true } });
+    expect(second).toMatchObject({ targetAmount: 10000, billSpending: { amount: 500, ended: false } });
+    expect(resolveWishBillSpending([nextWish], trips, tripTags, expenses, '2026-10-04')[0].targetAmount).toBe(500);
+  });
+
+  it('行程改期后使用修复后的出游关联和标签', () => {
+    const [relinked] = reconcileWishTripLinks([{ ...linked, linkedTripStartDate: '2026-09-29' }], trips, tripTags);
+    expect(resolve('2026-10-02', expenses, relinked)).toMatchObject({
+      linkedTripStartDate: '2026-09-30', targetAmount: 2500, billSpending: { amount: 2500, ended: true },
+    });
+  });
 });
 
 describe('心愿清单排序', () => {
