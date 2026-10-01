@@ -801,6 +801,13 @@ export default function WishesPage() {
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
               <div style={{ flex: 1, minWidth: 0, fontSize: 24, lineHeight: 1.15, fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: -0.4 }}>
                 {internPlan.shortfall > 0.005 ? '全勤也不够！' : attendanceLabel}
+                {internPlan.shortfall > 0.005 ? (
+                  <div style={{ marginTop: 5, fontSize: 13, lineHeight: 1.4, fontWeight: 600, letterSpacing: 0, opacity: 0.85 }}>
+                    {internPlan.shortfall < 100
+                      ? '还差不足 ¥100'
+                      : `还差约 ¥${(Math.round(internPlan.shortfall / 100) * 100).toLocaleString('zh-CN')}`}
+                  </div>
+                ) : null}
               </div>
               {planningHeadingAside}
             </div>
