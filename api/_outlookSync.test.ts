@@ -6,8 +6,8 @@ import { OUTLOOK_CONNECTION_KEY, saveOutlookSnapshot, saveUploadedCalendarState,
 import ticktickHandler from './ticktick-trips';
 import syncHandler from './sync';
 
-const { data, routineSync, tripSync, templateRead, auth, events } = vi.hoisted(() => ({
-  data: new Map<string, unknown>(), routineSync: vi.fn(), tripSync: vi.fn(), templateRead: vi.fn(), auth: vi.fn(), events: [] as string[],
+const { data, routineSync, tripSync, wishSync, templateRead, auth, events } = vi.hoisted(() => ({
+  data: new Map<string, unknown>(), routineSync: vi.fn(), tripSync: vi.fn(), wishSync: vi.fn(), templateRead: vi.fn(), auth: vi.fn(), events: [] as string[],
 }));
 vi.mock('./_auth.js', () => ({ authOk: auth }));
 vi.mock('@vercel/kv', () => ({ kv: {
@@ -28,7 +28,7 @@ vi.mock('./_ticktickTrips.js', () => ({
   syncTickTickRoutines: routineSync,
   buildTripSourcesFromSyncState: (calendar: unknown) => calendar,
   reconcileTickTickTrips: tripSync,
-  reconcileTickTickWishPreparations: async () => ({}),
+  reconcileTickTickWishPreparations: wishSync,
 }));
 
 const today = '2026-09-25';
@@ -60,6 +60,7 @@ beforeEach(() => {
   data.set('calendar-tags', { tagMap: { '2026-09-25': 'school' }, confirmedExpenses: { '2026-09-25': { localIds: ['bill'], reviewed: true } }, initializedFromRecords: true });
   templateRead.mockImplementation(async () => { events.push('template'); return { id: 'template' }; });
   routineSync.mockResolvedValue({ routineUpdatedTaskCount: 0 }); tripSync.mockResolvedValue({ updatedTaskCount: 0 });
+  wishSync.mockResolvedValue({});
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     events.push('outlook');
     return new Response(url === playUrl
@@ -70,6 +71,18 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe('后台 Outlook 拉取与 TickTick 顺序', () => {
+  it.each(['GET', 'POST'])('%s 在出游和心愿生成完成后才同步日期跟随', async (method) => {
+    auth.mockResolvedValue(true);
+    data.set('ticktick:connection:v1', { encryptedToken: 'encrypted', templateRootId: 'template' });
+    tripSync.mockImplementationOnce(async () => { events.push('trips'); return {}; });
+    wishSync.mockImplementationOnce(async () => { events.push('wishes'); return {}; });
+    routineSync.mockImplementationOnce(async () => { events.push('routines'); return { updatedRoutineTasks: 2 }; });
+    const result = await call(ticktickHandler, method, method === 'GET' ? 'Bearer cron-secret' : undefined);
+    expect(result.status).toBe(200);
+    expect(events).toEqual(['outlook', 'outlook', 'template', 'trips', 'wishes', 'routines']);
+    expect(result.body.updatedRoutineTasks).toBe(2);
+  });
+
   it('上海日期跨日后自动拉取跨月日程；未连接 TickTick 也写入云端且保留账单字段', async () => {
     const expenses = calendar().confirmedExpenses;
     const result = await cron();

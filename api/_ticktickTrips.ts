@@ -705,6 +705,41 @@ function routineTaskPayload(task: TickTickTask, targetDate: string): Record<stri
   };
 }
 
+async function updateRoutineTaskDate(
+  api: TickTickApi, task: TickTickTask, targetDate: string, preserveRepeat: boolean,
+): Promise<TickTickTask | null> {
+  if (routineTaskIsAligned(task, targetDate)) return null;
+  const payload = routineTaskPayload(task, targetDate);
+  await api.updateTask(task.id, payload);
+  const updated = await api.getTask(task.projectId, task.id);
+  if (updated?.id !== task.id) throw new Error(`TickTick 未正确更新“${task.title}”的日期`);
+  const datesPersisted = (['startDate', 'dueDate'] as const).every((key) => {
+    const expected = payload[key];
+    if (typeof expected !== 'string') return true;
+    return updated[key] === expected || Date.parse(updated[key] ?? '') === Date.parse(expected);
+  });
+  const itemsPersisted = !(task.items ?? []).some((item) => {
+    if (checklistItemStatus(item) !== 0 || !checklistItemDate(item, task.timeZone)) return false;
+    const saved = updated.items?.find((candidate) => candidate.id === item.id);
+    return !saved || checklistItemDate(saved, updated.timeZone) !== targetDate;
+  });
+  if (preserveRepeat && (updated.repeatFlag || '') !== (task.repeatFlag || '')) {
+    throw new Error(`TickTick 未正确保留“${task.title}”的重复规则`);
+  }
+  if (!datesPersisted || !itemsPersisted || !routineTaskIsAligned(updated, targetDate)) {
+    throw new Error(`TickTick 未正确更新“${task.title}”的日期`);
+  }
+  return updated;
+}
+
+function isHairWashAnchor(task: TickTickTask): boolean {
+  return task.title.normalize('NFKC').trim() === '洗头';
+}
+
+function followsHairWash(task: TickTickTask): boolean {
+  return !isHairWashAnchor(task) && (task.tags ?? []).some((tag) => tag.normalize('NFKC').trim() === '洗头');
+}
+
 export async function syncTickTickRoutines(options: {
   api: TickTickApi;
   calendarState: unknown;
@@ -717,6 +752,12 @@ export async function syncTickTickRoutines(options: {
   const routineTargets = getTickTickRoutineTargetDates(calendarState, today);
   const allTasks = await readAllTickTickTasks(api, [0]);
   const tasksById = new Map(allTasks.map((task) => [task.id, task]));
+  const pendingTasks = allTasks.filter((task) => (task.status ?? 0) === 0);
+  const hairWashFollowers = pendingTasks.filter(followsHairWash);
+  const hairWashAnchors = pendingTasks.filter(isHairWashAnchor);
+  if (hairWashFollowers.length > 0 && hairWashAnchors.length > 1) {
+    throw new Error(`找到 ${hairWashAnchors.length} 个未完成的“洗头”待办，请保留一个同名待办作为日期来源`);
+  }
   const isExcluded = (task: TickTickTask) => {
     const visited = new Set<string>();
     let current: TickTickTask | undefined = task;
@@ -744,6 +785,9 @@ export async function syncTickTickRoutines(options: {
   }
 
   const schedulingCandidates = candidates.filter(({ task, scenes, recurrence }) => {
+    // Explicit date following takes precedence over every scene / recurrence rule,
+    // including when the anchor is missing or has no usable date.
+    if (followsHairWash(task)) return false;
     if (recurrence === 'unknown') return false;
     if (recurrence !== 'long') return true;
     // In an applicable scene, TickTick owns the next occurrence, even if it is
@@ -773,29 +817,20 @@ export async function syncTickTickRoutines(options: {
         return scene !== null && scenes.includes(scene);
       })
       : scenes.map((scene) => targets[scene]).filter((date): date is string => date !== null).sort()[0];
-    if (!taskTargetDate || routineTaskIsAligned(task, taskTargetDate)) continue;
-    const payload = routineTaskPayload(task, taskTargetDate);
-    await api.updateTask(task.id, payload);
-    const updated = await api.getTask(task.projectId, task.id);
-    if (!updated?.id) throw new Error(`TickTick 未正确更新“${task.title}”的日期`);
-    const datesPersisted = (['startDate', 'dueDate'] as const).every((key) => {
-      const expected = payload[key];
-      if (typeof expected !== 'string') return true;
-      return updated[key] === expected || Date.parse(updated[key] ?? '') === Date.parse(expected);
-    });
-    const itemsPersisted = !(task.items ?? []).some((item) => {
-      if (checklistItemStatus(item) !== 0 || !checklistItemDate(item, task.timeZone)) return false;
-      const saved = updated.items?.find((candidate) => candidate.id === item.id);
-      return !saved || checklistItemDate(saved, updated.timeZone) !== taskTargetDate;
-    });
-    if (recurrence === 'long' && updated.repeatFlag !== task.repeatFlag) {
-      throw new Error(`TickTick 未正确保留“${task.title}”的重复规则`);
-    }
-    if (!updated?.id || !datesPersisted || !itemsPersisted
-      || !routineTaskIsAligned(updated, taskTargetDate)) {
-      throw new Error(`TickTick 未正确更新“${task.title}”的日期`);
-    }
+    if (!taskTargetDate) continue;
+    const updated = await updateRoutineTaskDate(api, task, taskTargetDate, recurrence === 'long');
+    if (!updated) continue;
+    tasksById.set(task.id, updated);
     updatedRoutineTasks += 1;
+  }
+
+  // Read the anchor after its scene schedule has settled in this same sync.
+  const anchor = hairWashAnchors.length === 1 ? tasksById.get(hairWashAnchors[0].id) : undefined;
+  const hairWashDate = anchor ? routineTaskDate(anchor) : null;
+  if (hairWashDate && isValidCalendarDate(hairWashDate)) {
+    for (const task of hairWashFollowers) {
+      if (await updateRoutineTaskDate(api, task, hairWashDate, true)) updatedRoutineTasks += 1;
+    }
   }
 
   return { updatedRoutineTasks, routineTargets, routineTaskCounts };

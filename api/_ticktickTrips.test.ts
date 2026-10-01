@@ -260,6 +260,142 @@ function addWishPreparationTemplate(api: FakeTickTickApi) {
 
 const futureWish = { id: 'wish-tokyo', name: '东京', isActive: true, deadline: '2027-09-30', linkedTripStartDate: null };
 
+describe('洗头标签日期跟随', () => {
+  const source: TickTickTask = { id: 'wash', projectId: 'play', title: '洗头', status: 0,
+    startDate: '2026-09-08T09:00:00+0800', dueDate: '2026-09-08T09:00:00+0800', timeZone: 'Asia/Shanghai' };
+  const follower: TickTickTask = { id: 'follow', projectId: 'life', title: '更换枕套', status: 0,
+    tags: ['洗头'], dueDate: '2026-09-01T21:00:00+0800', timeZone: 'Asia/Shanghai', isAllDay: false };
+  const setup = (...tasks: TickTickTask[]) => {
+    const api = new FakeTickTickApi();
+    api.tasks.clear();
+    for (const task of tasks) api.tasks.set(task.id, structuredClone(task));
+    return api;
+  };
+  const sync = (api: TickTickApi) => syncTickTickRoutines({ api, calendarState: {}, today: '2026-09-04' });
+
+  it('跨清单跟随日期并保留各自时刻，来源和无关任务不改动，重复同步零更新', async () => {
+    const other = { ...follower, id: 'other', tags: ['洗头用品'] };
+    const child = { ...follower, id: 'child', parentId: follower.id, tags: [] };
+    const done = { ...follower, id: 'done', status: 2, completedTime: '2026-09-01T12:00:00Z' };
+    const api = setup(follower, source, other, child, done);
+    expect(await sync(api)).toMatchObject({ updatedRoutineTasks: 1 });
+    expect(api.tasks.get(follower.id)).toMatchObject({ ...follower, dueDate: '2026-09-08T21:00:00+0800' });
+    expect(api.tasks.get(source.id)).toEqual(source);
+    for (const unchanged of [other, child, done]) expect(api.tasks.get(unchanged.id)).toEqual(unchanged);
+    expect(await sync(api)).toMatchObject({ updatedRoutineTasks: 0 });
+    expect(api.updateCalls).toBe(1);
+  });
+
+  it('无日期跟随项补全天，空白标签和来源名称可识别，来源不会自我跟随', async () => {
+    const api = setup({ ...source, title: ' 洗头 ', tags: ['洗头'] }, { ...follower, dueDate: undefined, tags: [' 洗头 '] });
+    await sync(api);
+    expect(api.tasks.get(follower.id)).toMatchObject({ startDate: '2026-09-08T00:00:00+0800',
+      dueDate: '2026-09-08T00:00:00+0800', timeZone: 'Asia/Shanghai', isAllDay: true });
+    expect(api.updatePayloads.has(source.id)).toBe(false);
+  });
+
+  it('以来源本轮场景排期后的日期为准，无论来源在列表中的先后顺序', async () => {
+    const api = setup({ ...follower, tags: ['洗头', '寄'] }, { ...source, tags: ['居'] });
+    const options = { api, calendarState: { tagMap: { '2026-09-05': 'school', '2026-09-09': 'home' } }, today: '2026-09-04' };
+    expect(await syncTickTickRoutines(options)).toMatchObject({ updatedRoutineTasks: 2 });
+    expect(api.tasks.get(source.id)?.dueDate).toBe('2026-09-05T09:00:00+0800');
+    expect(api.tasks.get(follower.id)?.dueDate).toBe('2026-09-05T21:00:00+0800');
+    expect([...api.updatePayloads.keys()]).toEqual([source.id, follower.id]);
+    expect(await syncTickTickRoutines(options)).toMatchObject({ updatedRoutineTasks: 0 });
+  });
+
+  it.each(['RRULE:FREQ=DAILY', 'RRULE:FREQ=DAILY;INTERVAL=7', 'RRULE:FREQ=WEEKLY', 'RRULE:FREQ=MONTHLY', 'CUSTOM:UNKNOWN'])
+   ('跟随优先于自身循环 %s、场景匹配和当天完成记录', async (repeatFlag) => {
+      const recurring = { ...follower, repeatFlag, tags: ['洗头', '居'] };
+      const api = setup(source, recurring, { ...recurring, id: 'history', status: 2, completedTime: '2026-09-04T03:00:00Z' });
+      const completed = vi.spyOn(api, 'listCompletedTasks');
+      await syncTickTickRoutines({ api, calendarState: { tagMap: { '2026-09-04': 'school' } }, today: '2026-09-04' });
+      expect(api.tasks.get(follower.id)).toMatchObject({ repeatFlag, dueDate: '2026-09-08T21:00:00+0800', status: 0 });
+      expect(completed).not.toHaveBeenCalled();
+    });
+
+  it('来源的长周期保持原下一次日期，完成后跟随新生成的未完成来源', async () => {
+    const recurringSource = { ...source, tags: ['居'], repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=3' };
+    const api = setup(recurringSource, follower);
+    const options = { api, calendarState: { tagMap: { '2026-09-04': 'school' } }, today: '2026-09-04' };
+    await syncTickTickRoutines(options);
+    expect(api.tasks.get(source.id)).toEqual(recurringSource);
+    api.tasks.set(source.id, { ...recurringSource, status: 2, completedTime: '2026-09-04T03:00:00Z' });
+    api.tasks.set('next-wash', { ...recurringSource, id: 'next-wash',
+      startDate: '2026-09-11T09:00:00+0800', dueDate: '2026-09-11T09:00:00+0800' });
+    expect(await syncTickTickRoutines(options)).toMatchObject({ updatedRoutineTasks: 1 });
+    expect(api.tasks.get(follower.id)?.dueDate).toBe('2026-09-11T21:00:00+0800');
+    expect(api.tasks.get(source.id)?.status).toBe(2);
+    expect(await syncTickTickRoutines(options)).toMatchObject({ updatedRoutineTasks: 0 });
+  });
+
+  it.each(['missing', 'completed', 'undated', 'invalid', 'similar'] as const)
+   ('%s 来源不猜日期，也不回退到跟随项的场景日期', async (kind) => {
+      const unavailable = { ...source };
+      if (kind === 'completed') unavailable.status = 2;
+      if (kind === 'undated') { delete unavailable.dueDate; delete unavailable.startDate; }
+      if (kind === 'invalid') { unavailable.dueDate = 'invalid'; delete unavailable.startDate; }
+      if (kind === 'similar') unavailable.title = '今晚洗头';
+      const value = { ...follower, tags: ['洗头', '居'] };
+      const api = setup(value, ...(kind === 'missing' ? [] : [unavailable]));
+      expect(await syncTickTickRoutines({ api, calendarState: { tagMap: { '2026-09-04': 'school' } }, today: '2026-09-04' }))
+        .toMatchObject({ updatedRoutineTasks: 0 });
+      expect(api.tasks.get(follower.id)).toEqual(value);
+    });
+
+  it('多个未完成同名来源明确报错，修改前停止；完成历史不造成重名', async () => {
+    const api = setup(source, follower, { ...source, id: 'second', projectId: 'life' });
+    await expect(sync(api)).rejects.toThrow('找到 2 个未完成的“洗头”待办');
+    expect(api.updateCalls).toBe(0);
+    api.tasks.get('second')!.status = 2;
+    expect(await sync(api)).toMatchObject({ updatedRoutineTasks: 1 });
+  });
+
+  it.each(['startDate', 'dueDate'] as const)('来源只有 %s 且 UTC 表示上海全天日期时正确对齐', async (field) => {
+    const api = setup({ ...source, startDate: undefined, dueDate: undefined, [field]: '2026-09-07T16:00:00.000+0000', isAllDay: true },
+      { ...follower, startDate: '2026-08-31T22:00:00+0800', items: [
+        { id: 'open', title: '未完成', status: 0, startDate: '2026-09-01T08:30:00+0800' },
+        { id: 'done', title: '已完成', status: 1, startDate: '2026-09-01T09:30:00+0800' },
+        { id: 'undated', title: '无日期', status: 0 },
+      ] });
+    await sync(api);
+    expect(api.tasks.get(follower.id)).toMatchObject({ startDate: '2026-09-07T22:00:00+0800',
+      dueDate: '2026-09-08T21:00:00+0800', timeZone: 'Asia/Shanghai', isAllDay: false,
+      items: [
+        { id: 'open', status: 0, startDate: '2026-09-08T08:30:00+0800' },
+        { id: 'done', status: 1, startDate: '2026-09-01T09:30:00+0800' },
+        { id: 'undated', status: 0 },
+      ] });
+    expect(await sync(api)).toMatchObject({ updatedRoutineTasks: 0 });
+  });
+
+  it('全局筛选漏掉收集箱时仍找到来源，按任务真实 projectId 写入跟随项', async () => {
+    const api = setup({ ...source, projectId: 'inbox-user' }, { ...follower, projectId: 'inbox-user' });
+    vi.spyOn(api, 'filterTasks').mockResolvedValue([]);
+    vi.spyOn(api, 'getProjectData').mockImplementation(async (id) => ({ tasks: id === 'inbox' ? [...api.tasks.values()] : [] }));
+    await sync(api);
+    expect(api.updatePayloads.get(follower.id)).toMatchObject({ projectId: 'inbox-user', dueDate: '2026-09-08T21:00:00+0800' });
+  });
+
+  it('明确的洗头标签也作用于被排除场景规则的模板或生成待办', async () => {
+    const api = setup(source, follower);
+    await syncTickTickRoutines({ api, calendarState: {}, today: '2026-09-04', excludedTaskIds: new Set([follower.id]) });
+    expect(api.tasks.get(follower.id)?.dueDate).toBe('2026-09-08T21:00:00+0800');
+  });
+
+  it.each(['date', 'repeat'] as const)('远端未正确保存 %s 时不能报告成功', async (field) => {
+    const api = setup(source, { ...follower, repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=2' });
+    const update = api.updateTask.bind(api);
+    vi.spyOn(api, 'updateTask').mockImplementation(async (id, payload) => {
+      const result = await update(id, payload);
+      if (field === 'date') result.dueDate = follower.dueDate;
+      else result.repeatFlag = 'RRULE:FREQ=DAILY';
+      return result;
+    });
+    await expect(sync(api)).rejects.toThrow(field === 'date' ? '未正确更新' : '未正确保留');
+  });
+});
+
 describe('寄居旅标签排期', () => {
   function apiWithTasks(tasks: TickTickTask[]) {
     const api = new FakeRoutineTickTickApi();

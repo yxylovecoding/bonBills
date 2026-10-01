@@ -79,11 +79,6 @@ async function runSync(allowDisconnected = false) {
       : { instances: {} };
     try {
       const template = await readConnectedTickTickTemplate(api, connection);
-      const routineResult = await syncTickTickRoutines({
-        api, calendarState, today,
-        excludedTaskIds: getTickTickRoutineExcludedTaskIds(template, state),
-      });
-      console.info('[ticktick-routine-sync]', JSON.stringify(routineResult));
       const trips = buildTripSourcesFromSyncState(calendarState, tripState);
       const result = await reconcileTickTickTrips({
         api,
@@ -103,6 +98,13 @@ async function runSync(allowDisconnected = false) {
         legacyProjectId: connection.projectId,
         saveState: (nextState) => kv.set(SYNC_STATE_KEY, nextState).then(() => undefined),
       });
+      // Follow explicit task dates after generated trips/wishes have their final
+      // dates, including tasks first created during this sync.
+      const routineResult = await syncTickTickRoutines({
+        api, calendarState, today,
+        excludedTaskIds: getTickTickRoutineExcludedTaskIds(template, state),
+      });
+      console.info('[ticktick-routine-sync]', JSON.stringify(routineResult));
       console.info('[ticktick-trip-sync]', JSON.stringify({ ...result, ...wishResult }));
       return { busy: false as const, ...result, ...wishResult, ...routineResult, lastSyncAt: state.lastSyncAt };
     } catch (error) {
