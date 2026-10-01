@@ -18,6 +18,7 @@ import { usePrefsStore } from '../stores/prefsStore';
 import { calcBudget } from '../calculations/budget';
 import { calcHistoryStats } from '../calculations/history';
 import { calcAllocationRatios, calcRebalance, calcTopUpRebalance } from '../calculations/rebalance';
+import { calcRemainingRecurringInvestments, deductRecurringInvestments } from '../calculations/recurringInvestment';
 import { investMeta, tagMeta } from '../data/mockData';
 import type { AccountSnapshot, AppConfig, AutoAccountBalanceKey, DailyTag, InvestAllocTargets, InvestHoldings, InvestKey, TagKind, UsStockHoldingItem } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
@@ -1279,12 +1280,17 @@ export default function ReconcilePage() {
     () => roundMoney((current.accounts.investCnyBank ?? 0) + (latestUsdRate !== null ? (current.accounts.investUsdBank ?? 0) * latestUsdRate : 0)),
     [current.accounts.investCnyBank, current.accounts.investUsdBank, latestUsdRate],
   );
+  const recurringInvestments = calcRemainingRecurringInvestments(today, holidayDataByYear);
+  const recurringInvestmentTotal = Object.values(recurringInvestments).reduce((sum, amount) => sum + amount, 0);
   const rawRebalanceSuggested = useMemo(() => {
+    let suggested;
     if (!allowRebalanceSell && rebalanceNewFunds > 0) {
-      return calcTopUpRebalance(effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, LONG_BOND_REPAY_THRESHOLD);
+      suggested = calcTopUpRebalance(effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, LONG_BOND_REPAY_THRESHOLD);
+    } else {
+      suggested = calcRebalance(effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell);
     }
-    return calcRebalance(effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell);
-  }, [effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell]);
+    return deductRecurringInvestments(suggested, recurringInvestments);
+  }, [effectiveInvestHoldings, investAllocTargets, rebalanceNewFunds, allowRebalanceSell, recurringInvestments.us, recurringInvestments.asia]);
   const rebalanceSuggested = useMemo(() => {
     const rounded = Object.fromEntries(
       investKeys.map((k) => [k, roundMoney(rawRebalanceSuggested[k] ?? 0)]),
@@ -1293,12 +1299,14 @@ export default function ReconcilePage() {
 
     const isUsdKey = (k: InvestKey) => USD_INVEST_KEYS.includes(k);
     const cnyNeed = investKeys.reduce((s, k) => s + (!isUsdKey(k) ? Math.max(rawRebalanceSuggested[k] ?? 0, 0) : 0), 0);
-    const cnyCapacity = roundMoney(
+    const cnyCapacity = roundMoney(Math.max(
       Math.max(current.accounts.investCnyBank ?? 0, 0)
       + Math.max(current.accounts.livingBank ?? 0, 0)
       + Math.max(current.accounts.consumptionBank ?? 0, 0)
-      + Math.max(current.accounts.wishJar ?? 0, 0),
-    );
+      + Math.max(current.accounts.wishJar ?? 0, 0)
+      - recurringInvestmentTotal,
+      0,
+    ));
     if (cnyNeed <= cnyCapacity || cnyNeed <= 0) return rounded;
 
     const longBondTopUp = Math.max(rawRebalanceSuggested.longBond ?? 0, 0);
@@ -1323,7 +1331,7 @@ export default function ReconcilePage() {
       rounded[largestKey] = roundMoney(Math.max(rounded[largestKey] + drift, 0));
     }
     return rounded;
-  }, [allowRebalanceSell, current.accounts, investKeys, rawRebalanceSuggested, rebalanceNewFunds]);
+  }, [allowRebalanceSell, current.accounts, investKeys, rawRebalanceSuggested, rebalanceNewFunds, recurringInvestmentTotal]);
   const rebalanceCnyGiveUpCny = useMemo(() => {
     if (allowRebalanceSell || rebalanceNewFunds <= 0) return 0;
     const rawCnyNeed = investKeys.reduce((s, k) => s + (!USD_INVEST_KEYS.includes(k) ? Math.max(rawRebalanceSuggested[k] ?? 0, 0) : 0), 0);
@@ -1337,7 +1345,7 @@ export default function ReconcilePage() {
     const isUsdKey = (k: InvestKey) => USD_INVEST_KEYS.includes(k);
     const usdBuyCny = investKeys.reduce((s, k) => s + (isUsdKey(k) ? Math.max(rebalanceSuggested[k], 0) : 0), 0);
     const usdSellCny = investKeys.reduce((s, k) => s + (isUsdKey(k) ? Math.max(-rebalanceSuggested[k], 0) : 0), 0);
-    const cnyBuy = investKeys.reduce((s, k) => s + (!isUsdKey(k) ? Math.max(rebalanceSuggested[k], 0) : 0), 0);
+    const cnyBuy = recurringInvestmentTotal + investKeys.reduce((s, k) => s + (!isUsdKey(k) ? Math.max(rebalanceSuggested[k], 0) : 0), 0);
     const cnySell = investKeys.reduce((s, k) => s + (!isUsdKey(k) ? Math.max(-rebalanceSuggested[k], 0) : 0), 0);
     const usdInvestCny = latestUsdRate !== null ? (current.accounts.investUsdBank ?? 0) * latestUsdRate : 0;
     const investCny = current.accounts.investCnyBank ?? 0;
@@ -1435,7 +1443,7 @@ export default function ReconcilePage() {
       cnyCashNeeded: roundMoney(cnyCashNeeded),
       cnyCashAfter: roundMoney(cnyCashAfter),
     };
-  }, [allowRebalanceSell, current.accounts, investKeys, latestUsdRate, rebalanceCnyGiveUpCny, rebalanceSuggested]);
+  }, [allowRebalanceSell, current.accounts, investKeys, latestUsdRate, rebalanceCnyGiveUpCny, rebalanceSuggested, recurringInvestmentTotal]);
 
   useEffect(() => {
     if (!rebalanceFunding.needConsumption && !rebalanceFunding.needWish) return;
@@ -2921,9 +2929,10 @@ export default function ReconcilePage() {
                 && groupTargetGap >= INVEST_GROUP_WARNING_THRESHOLD - 1e-9;
               const groupTargetDirection = groupRatio !== null && groupRatio > groupTargetRatio ? '偏高' : '偏低';
               const suggested = Math.round(rebalanceSuggested[k]);
+              const recurring = recurringInvestments[k] ?? 0;
               const showUsd = (USD_INVEST_KEYS.includes(k) || usdRebalanceCells.has(k)) && latestUsdRate !== null;
               const remainingLabel = suggested === 0
-                ? '—'
+                ? recurring > 0 ? showUsd ? '$0' : '0' : '—'
                 : showUsd
                   ? fmtUsd(suggested / latestUsdRate)
                   : suggested > 0
@@ -3011,6 +3020,11 @@ export default function ReconcilePage() {
                     style={{ padding: '8px 0', textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: suggested > 0 ? C.orange : suggested < 0 ? C.blue : C.sub, cursor: latestUsdRate !== null && suggested !== 0 ? 'pointer' : 'default', userSelect: 'none' }}
                   >
                     {remainingLabel}
+                    {recurring > 0 && (
+                      <span style={{ display: 'inline-block', marginLeft: 2, fontSize: 10, fontWeight: 400, color: C.sub, whiteSpace: 'nowrap' }}>
+                        (定投{fmtInt(recurring)})
+                      </span>
+                    )}
                   </td>
                 </tr>
                 {false && (
