@@ -1237,6 +1237,13 @@ input[type='number'] { -moz-appearance: textfield; }
 .wish-spending-summary { margin-top: 10px; padding: 10px 0; border-top: 1px solid #ede9fe; border-bottom: 1px solid #ede9fe; }
 .wish-money-summary strong { color: #202124; }
 .wish-money-summary .wish-repaid-amount { color: #0d9488; }
+.wish-bills-toggle { flex-shrink: 0; border: 0; padding: 0; background: transparent; color: #7c3aed; font: inherit; cursor: pointer; }
+.wish-bills-toggle[aria-expanded="true"] { text-decoration: underline; text-underline-offset: 3px; }
+.wish-bill-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.wish-bill-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 7px 0; border-top: 1px solid #ede9fe; font-size: 11px; color: #202124; }
+.wish-bill-description { min-width: 0; overflow-wrap: anywhere; }
+.wish-bill-meta { margin-top: 3px; color: #5f6368; font-size: 10px; }
+.wish-bill-amount { flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .wish-debt-undo { border: 0; background: transparent; color: #7c3aed; padding: 0; font-size: 11px; cursor: pointer; }
 .wish-spending-footer { margin-top: 8px; font-size: 10px; justify-content: flex-end; }
 .wish-money-error { margin-top: 6px; font-size: 10px; color: #ea4335; }
