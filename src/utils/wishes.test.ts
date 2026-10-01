@@ -13,6 +13,7 @@ import {
   resolveWishBillSpending,
   reconcileTripWishes,
   updateTripWishDismissals,
+  classifyWishBill,
 } from './wishes';
 import { detectAllTrips, flattenExpenseItems, sumBillsByTag } from './trips';
 
@@ -129,7 +130,7 @@ describe('心愿按账单标签统计实际支出', () => {
     '2026-10-02': 'travel', '2026-10-03': 'travel',
   }, { '2026-10-02': true });
   const bill = (date: string, amount: number, tags = tripTags['2026-09-30']): BillExpenseItem => ({
-    date, amount, tags, category: '旅行', subcategory: '', note: '', account: '银行卡',
+    date, amount, tags: `消费,${tags}`, category: '旅行', subcategory: '', note: '', account: '银行卡',
   });
   const expenses: Record<string, BillExpenseMonth> = {
     '2026-08': [bill('2026-08-20', 2000)],
@@ -260,6 +261,97 @@ describe('心愿按账单标签统计实际支出', () => {
     expect(resolve('2026-10-02', expenses, relinked)).toMatchObject({
       linkedTripStartDate: '2026-09-30', targetAmount: 2500, billSpending: { amount: 2500, ended: true },
     });
+  });
+});
+
+describe('心愿只为消费攒款', () => {
+  const tag = '26.9.30 旅行';
+  const trips = detectAllTrips({ '2026-09-30': 'travel', '2026-10-01': 'travel' });
+  const stored = wish({ savedAmount: 100, repaidAmount: 0, targetAmount: 1500, linkedTripStartDate: '2026-09-30' });
+  const bill = (amount: number, kind: string, subcategory = '机票'): BillExpenseItem => ({
+    date: '2026-09-30', amount, tags: `${tag},${kind}`, category: '旅行', subcategory, note: '', account: '银行卡',
+  });
+  const mixedBills = [bill(1000, '消费'), bill(-100, '消费'), bill(300, '周期生活', '酒店'),
+    bill(200, '波动生活', '餐饮'), bill(-50, '波动生活', '餐饮')];
+  const resolve = (items = mixedBills, today = '2026-10-02', source = stored) => resolveWishBillSpending(
+    [source], trips, { '2026-09-30': tag }, { '2026-09': items }, today,
+  )[0];
+
+  it.each([
+    ['消费', 'consumption'], [' 消费 , 消费 ', 'consumption'], ['周期生活', 'life'], ['波动生活', 'life'],
+    ['生活', 'life'], ['周期生活,波动生活', 'life'], ['', 'unclassified'], ['消费,波动生活', 'unclassified'],
+    ['消费,周期生活', 'unclassified'], ['吃好喝好', 'unclassified'], ['非消费', 'unclassified'],
+  ])('账单标签 %s 按 %s 展示和计算', (tags, kind) => {
+    expect(classifyWishBill({ tags: `${tag},${tags}` })).toBe(kind);
+  });
+
+  it('已花与实际花销保留全部账单，仅消费增加欠款和待攒额', () => {
+    const resolved = resolve();
+    expect(resolved.targetAmount).toBe(1350);
+    expect(resolved.billSpending).toMatchObject({ amount: 1350, consumptionAmount: 900, lifeAmount: 450,
+      count: 5, unclassifiedAmount: 0, unclassifiedCount: 0 });
+    expect(calculateWishFunding(resolved, 9999)).toMatchObject({ spentAmount: 1350, consumptionSpentAmount: 900,
+      fundingTarget: 900, debtAmount: 900, remainingAmount: 800 });
+    expect(calculateWishDebtSummary([resolved])).toMatchObject({ totalAmount: 900, assignedAmount: 900 });
+    expect(stored).not.toHaveProperty('billSpending');
+  });
+
+  it('已还按消费分配，生活不会制造还款或挤占其他心愿的还款', () => {
+    const [resolved] = resolveWishRepayments([resolve()], 400);
+    expect(resolved.repaidAmount).toBe(500);
+    expect(calculateWishFunding(resolved)).toMatchObject({ debtAmount: 400, remainingAmount: 300 });
+    const life = resolve([bill(600, '周期生活')], '2026-10-02', { ...stored, id: 'life', deadline: '2026-01-01' });
+    const repayments = resolveWishRepayments([life, resolve()], 400);
+    expect(repayments.map((item) => item.repaidAmount)).toEqual([0, 500]);
+    expect(calculateWishDebtSummary([resolve()], 1400)).toMatchObject({ assignedAmount: 900, unassignedAmount: 500 });
+  });
+
+  it('全部是生活的已结束行程无需攒钱，完成状态和月度规划一致', () => {
+    const resolved = resolve([bill(500, '波动生活')]);
+    expect(resolved.targetAmount).toBe(500);
+    expect(calculateWishFunding(resolved)).toMatchObject({ fundingTarget: 0, remainingAmount: 0, debtAmount: 0 });
+    expect(calculateWishPlan([resolved], { today: new Date(2026, 9, 2) }).items[0])
+      .toMatchObject({ monthlyWishAmount: 0, remainingAmount: 0, deadlineState: 'completed' });
+  });
+
+  it('生活退款不能抵消费欠款，消费全退也不能把生活变成待攒额', () => {
+    const lifeRefund = resolve([bill(1000, '消费'), bill(-100, '波动生活')]);
+    expect(lifeRefund.billSpending).toMatchObject({ amount: 900, consumptionAmount: 1000, lifeAmount: -100 });
+    expect(calculateWishFunding(lifeRefund).fundingTarget).toBe(1000);
+    const consumerRefund = resolve([bill(1000, '消费'), bill(-1000, '消费'), bill(300, '周期生活')]);
+    expect(calculateWishFunding(consumerRefund)).toMatchObject({ fundingTarget: 0, remainingAmount: 0, debtAmount: 0 });
+  });
+
+  it('未结束时预估生活与实际生活取较高值扣除，消费支出仍为攒款下限', () => {
+    const resolved = resolve(mixedBills, '2026-09-29');
+    expect(resolved.targetAmount).toBe(1500);
+    expect(calculateWishFunding(resolved, 200)).toMatchObject({ fundingTarget: 1050, remainingAmount: 950 });
+    expect(calculateWishFunding(resolved, 500)).toMatchObject({ fundingTarget: 1000, remainingAmount: 900 });
+    expect(calculateWishFunding(resolved, 1000).fundingTarget).toBe(900);
+  });
+
+  it('无行程普通心愿的已知生活支出同样不进入欠款及待攒金额', () => {
+    const resolved = resolve([bill(800, '消费'), bill(300, '周期生活')], '2026-10-02', { ...stored, linkedTripStartDate: null, targetAmount: 1100 });
+    expect(resolved.billSpending?.ended).toBe(false);
+    expect(calculateWishFunding(resolved)).toMatchObject({ consumptionSpentAmount: 800, fundingTarget: 800, remainingAmount: 700 });
+  });
+
+  it('未分类和冲突账单仍显示总花销，不直接加入实际消费攒款', () => {
+    const resolved = resolve([bill(800, '消费'), bill(100, ''), bill(200, '消费,周期生活')]);
+    expect(resolved.billSpending).toMatchObject({ amount: 1100, consumptionAmount: 800, lifeAmount: 0,
+      unclassifiedAmount: 300, unclassifiedCount: 2, count: 3 });
+    expect(calculateWishFunding(resolved)).toMatchObject({ fundingTarget: 800, debtAmount: 800, remainingAmount: 700 });
+  });
+
+  it('修改核心标签即刻重算，只有消费实际账单锁定机酒预算', () => {
+    const expense = bill(800, '消费', '酒店');
+    const before = resolve([expense]);
+    const after = resolve([{ ...expense, tags: `${tag},周期生活` }]);
+    expect(before.spentItems).toEqual([{ id: 'bill_酒店', name: '酒店', amount: 800 }]);
+    expect(after.spentItems).toEqual([]);
+    expect(resolveWishTravelBudget(before, 2, 100).lodgingActual).toBe(800);
+    expect(resolveWishTravelBudget(after, 2, 100).lodgingActual).toBeUndefined();
+    expect(calculateWishFunding(after).remainingAmount).toBe(0);
   });
 });
 

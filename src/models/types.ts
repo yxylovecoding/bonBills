@@ -165,6 +165,10 @@ export interface WishItem {
   billSpending?: {
     tags: string[];
     amount: number;
+    consumptionAmount: number;
+    lifeAmount: number;
+    unclassifiedAmount: number;
+    unclassifiedCount: number;
     count: number;
     month?: string;
     ended: boolean;

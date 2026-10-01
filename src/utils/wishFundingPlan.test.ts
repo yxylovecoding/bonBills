@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { WishItem } from '../models/types';
 import { calculateWishInternPlan, type WishInternPlanOptions } from './wishInternPlan';
 import { calculateWishMilestonePlan } from './wishMilestonePlan';
-import { calculateWishPlan, resolveWishRepayments } from './wishes';
+import { calculateWishPlan, resolveWishRepayments, resolveWishBillSpending } from './wishes';
 
 const baseWish: WishItem = {
   id: 'trip', name: '旅行', isActive: true, deadline: '2026-12-01',
@@ -16,6 +16,18 @@ const options: WishInternPlanOptions = {
 };
 
 describe('欠款与实习规划', () => {
+  it('生活账单不抬高首页及心愿的月度、累计、阶段攒款需求', () => {
+    const bill = (amount: number, tags: string) => ({ date: '2026-09-21', amount, tags, category: '旅行', subcategory: '', note: '', account: '银行卡' });
+    const source = { ...baseWish, targetAmount: 1500, savedAmount: 100, repaidAmount: 0 };
+    const wishes = resolveWishRepayments(resolveWishBillSpending([source], [], {}, {
+      '2026-09': [bill(1000, '旅行,消费'), bill(500, '旅行,周期生活')],
+    }, '2026-09-22'), 400);
+    expect(calculateWishPlan(wishes, options).items[0].remainingAmount).toBe(300);
+    expect(calculateWishInternPlan({ ...options, wishes }).wishAmount).toBe(300);
+    expect(calculateWishMilestonePlan({ ...options, wishes, repaymentDues: [] })
+      .segmentByWishId.trip.cumulativePlan.wishAmount).toBe(300);
+  });
+
   it('首次录入欠款与明细后，月度、累计与阶段规划共用推算结果，忽略历史已还', () => {
     const wishes = resolveWishRepayments([{ ...baseWish, repaidAmount: 999 }], 2000);
     expect(calculateWishPlan(wishes, options).items[0].remainingAmount).toBe(5000);

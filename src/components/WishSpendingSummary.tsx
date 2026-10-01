@@ -2,8 +2,11 @@ import { useId, useMemo, useState } from 'react';
 import type { WishItem } from '../models/types';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { flattenExpenseItems } from '../utils/trips';
-import { calculateWishFunding } from '../utils/wishes';
+import { calculateWishFunding, classifyWishBill } from '../utils/wishes';
 import { formatCurrency } from './CurrencyDisplay';
+
+const BILL_KIND_LABELS = { consumption: '消费', life: '生活', unclassified: '待分类' };
+const signedCurrency = (amount: number) => `${amount < 0 ? '−' : ''}¥${formatCurrency(amount)}`;
 
 export default function WishSpendingSummary({ wish }: { wish: WishItem }) {
   const funding = calculateWishFunding(wish);
@@ -25,6 +28,13 @@ export default function WishSpendingSummary({ wish }: { wish: WishItem }) {
         <span>已花 <strong>¥{formatCurrency(funding.spentAmount)}</strong></span>
         <span>已还 <strong className="wish-repaid-amount">¥{formatCurrency(funding.repaidAmount)}</strong></span>
       </div>
+      {spending && spending.count > 0 ? (
+        <div className="wish-spending-breakdown">
+          <span>消费 <strong>{signedCurrency(spending.consumptionAmount)}</strong></span>
+          <span>生活 <strong>{signedCurrency(spending.lifeAmount)}</strong></span>
+          {spending.unclassifiedCount > 0 ? <span>待分类 <strong>{signedCurrency(spending.unclassifiedAmount)}</strong></span> : null}
+        </div>
+      ) : null}
       {spending && spending.count > 0 ? (
         <div className="wish-money-summary" style={{ marginTop: 7 }}>
           <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{spending.tags.join('、')}</span>
@@ -49,6 +59,8 @@ export default function WishSpendingSummary({ wish }: { wish: WishItem }) {
               <div className="wish-bill-description">
                 <div>{item.note || item.subcategory || item.category || '账单'}</div>
                 <div className="wish-bill-meta">
+                  <span className={`wish-bill-kind wish-bill-kind--${classifyWishBill(item)}`}>{BILL_KIND_LABELS[classifyWishBill(item)]}</span>
+                  {' · '}
                   <time dateTime={item.date}>{item.date}</time>
                   {item.account ? ` · ${item.account}` : ''}
                 </div>

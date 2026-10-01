@@ -1237,6 +1237,11 @@ input[type='number'] { -moz-appearance: textfield; }
 .wish-spending-summary { margin-top: 10px; padding: 10px 0; border-top: 1px solid #ede9fe; border-bottom: 1px solid #ede9fe; }
 .wish-money-summary strong { color: #202124; }
 .wish-money-summary .wish-repaid-amount { color: #0d9488; }
+.wish-spending-breakdown { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 7px; font-size: 11px; color: #5f6368; }
+.wish-spending-breakdown strong { font-weight: 500; }
+.wish-bill-kind--consumption { color: #7c3aed; }
+.wish-bill-kind--life { color: #1a73e8; }
+.wish-bill-kind--unclassified { color: #e8710a; }
 .wish-bills-toggle { flex-shrink: 0; border: 0; padding: 0; background: transparent; color: #7c3aed; font: inherit; cursor: pointer; }
 .wish-bills-toggle[aria-expanded="true"] { text-decoration: underline; text-underline-offset: 3px; }
 .wish-bill-list { list-style: none; margin: 8px 0 0; padding: 0; }

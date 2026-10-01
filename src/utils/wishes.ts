@@ -1,6 +1,6 @@
 import type { TagKind, WishExtraExpenseItem, WishItem } from '../models/types';
 import { roundToSitePrecision } from './numberInput';
-import type { BillExpenseMonth } from './importBill';
+import type { BillExpenseItem, BillExpenseMonth } from './importBill';
 import { flattenExpenseItems, sumBillsByTag, SYSTEM_BILL_TAGS, tagYearMonthPrefix, type TripSegment } from './trips';
 import { getTripDisplayTitle } from './outlookCalendar';
 
@@ -79,17 +79,22 @@ export function calculateWishFunding(wish: WishItem, lifeAmount = 0) {
   const spentAmount = roundToSitePrecision(wish.billSpending?.amount ?? (wish.spentItems ?? []).reduce(
     (sum, item) => sum + normalizedAmount(item.amount), 0,
   ));
+  const consumptionSpentAmount = roundToSitePrecision(normalizedAmount(wish.billSpending?.consumptionAmount ?? spentAmount));
+  const lifeSpentAmount = normalizedAmount(wish.billSpending?.lifeAmount);
   const savedAmount = normalizedAmount(wish.savedAmount);
-  const repaidAmount = Math.min(normalizedAmount(wish.repaidAmount), spentAmount);
-  const fundingTarget = Math.max(normalizedAmount(wish.targetAmount) - normalizedAmount(lifeAmount), spentAmount, 0);
+  const repaidAmount = Math.min(normalizedAmount(wish.repaidAmount), consumptionSpentAmount);
+  // 行程结束后只需覆盖实际消费；未结束时，预估生活费与已知生活支出不重复扣除。
+  const fundingTarget = wish.billSpending?.ended ? consumptionSpentAmount
+    : Math.max(normalizedAmount(wish.targetAmount) - Math.max(normalizedAmount(lifeAmount), lifeSpentAmount), consumptionSpentAmount, 0);
   const fundedAmount = roundToSitePrecision(savedAmount + repaidAmount);
   return {
     spentAmount,
+    consumptionSpentAmount,
     savedAmount,
     repaidAmount,
     fundingTarget,
     fundedAmount,
-    debtAmount: roundToSitePrecision(spentAmount - repaidAmount),
+    debtAmount: roundToSitePrecision(consumptionSpentAmount - repaidAmount),
     remainingAmount: roundToSitePrecision(Math.max(fundingTarget - fundedAmount, 0)),
     progress: fundingTarget > 0 ? Math.min(fundedAmount / fundingTarget, 1) : 0,
   };
@@ -97,7 +102,7 @@ export function calculateWishFunding(wish: WishItem, lifeAmount = 0) {
 
 export function calculateWishDebtSummary(wishes: readonly WishItem[], total?: number) {
   const spentAmount = roundToSitePrecision(wishes.reduce(
-    (sum, wish) => sum + calculateWishFunding(wish).spentAmount, 0,
+    (sum, wish) => sum + calculateWishFunding(wish).consumptionSpentAmount, 0,
   ));
   const totalAmount = total === undefined ? spentAmount : roundToSitePrecision(normalizedAmount(total));
   return {
@@ -118,7 +123,7 @@ export function resolveWishRepayments(wishes: readonly WishItem[], total?: numbe
   ));
   for (const wish of ordered) {
     if (remaining <= 0) break;
-    const amount = Math.min(calculateWishFunding(wish).spentAmount, remaining);
+    const amount = Math.min(calculateWishFunding(wish).consumptionSpentAmount, remaining);
     if (amount <= 0) continue;
     repayments.set(wish.id, amount);
     remaining = roundToSitePrecision(remaining - amount);
@@ -135,6 +140,15 @@ export function wishTravelLifeAmount(wish: WishItem, dailyLifeAmount: number, tr
 
 function wishTagName(value: string) {
   return value.trim().replace(/^\d{2}\.\d{1,2}(?:\.\d{1,2})?\s*/, '').replace(/\s+/g, '').toLowerCase();
+}
+
+export function classifyWishBill(item: Pick<BillExpenseItem, 'tags'>): 'consumption' | 'life' | 'unclassified' {
+  const tags = new Set((item.tags || '').split(',').map((tag) => tag.trim()));
+  const consumption = tags.has('消费');
+  const life = tags.has('生活') || tags.has('周期生活') || tags.has('波动生活');
+  if (consumption && !life) return 'consumption';
+  if (life && !consumption) return 'life';
+  return 'unclassified';
 }
 
 /** 出游所选标签优先，否则按心愿名称匹配；已花始终来自账单，不使用旧手填数据。 */
@@ -172,8 +186,15 @@ export function resolveWishBillSpending(
     const amount = normalizedAmount(Math.round(items.reduce((sum, item) => sum + item.amount, 0) * 100) / 100);
     // 尚无匹配账单不等同于零支出；有账单但全额退款则按零元结算。
     const ended = !!trip && trip.endDate < today && items.length > 0;
+    const amounts = { consumption: 0, life: 0, unclassified: 0 };
+    let unclassifiedCount = 0;
     const categories = new Map<string, number>();
     for (const item of items) {
+      const kind = classifyWishBill(item);
+      amounts[kind] += item.amount;
+      if (kind === 'unclassified') unclassifiedCount += 1;
+      // 只有消费账单才能覆盖机酒及额外消费的攒款预估。
+      if (kind !== 'consumption') continue;
       const category = item.subcategory || item.category;
       const name = ['住宿', '酒店'].includes(category) ? '酒店'
         : ['机票', '高铁', '机票/高铁'].includes(category) ? '机票/高铁' : category;
@@ -186,6 +207,10 @@ export function resolveWishBillSpending(
       spentItems: [...categories].map(([name, amount]) => ({ id: `bill_${name}`, name, amount: roundToSitePrecision(normalizedAmount(amount)) })),
       billSpending: {
         tags, amount, count: items.length, ended, estimatedTargetAmount: wish.targetAmount,
+        consumptionAmount: roundToSitePrecision(amounts.consumption),
+        lifeAmount: roundToSitePrecision(amounts.life),
+        unclassifiedAmount: roundToSitePrecision(amounts.unclassified),
+        unclassifiedCount,
         month: trip?.startDate.slice(0, 7) || latestBillDate.slice(0, 7) || undefined,
       },
     };

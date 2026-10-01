@@ -993,7 +993,7 @@ export default function WishesPage() {
             const remainingActualWishSavingAmount = funding.remainingAmount;
             const hasActualTarget = item.billSpending?.ended === true;
             const progress = funding.fundingTarget > 0 ? funding.progress : item.targetAmount > 0 || hasActualTarget ? 1 : 0;
-            const actualWishSavingCompleted = (item.targetAmount > 0 || funding.spentAmount > 0 || hasActualTarget)
+            const actualWishSavingCompleted = (item.targetAmount > 0 || funding.consumptionSpentAmount > 0 || hasActualTarget)
               && remainingActualWishSavingAmount <= 0;
             const budgetEstimateVisible = !hasActualTarget && budgetEstimateWishId === item.id;
             const isSelectedPlanningWish = selectedPlanningWish?.id === item.id;
