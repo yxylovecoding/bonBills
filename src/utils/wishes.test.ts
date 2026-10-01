@@ -11,6 +11,8 @@ import {
   sortWishesForDisplay,
   reconcileWishTripLinks,
   resolveWishBillSpending,
+  reconcileTripWishes,
+  updateTripWishDismissals,
 } from './wishes';
 import { detectAllTrips, flattenExpenseItems, sumBillsByTag } from './trips';
 
@@ -19,6 +21,105 @@ const wish = (patch: Partial<WishItem> = {}): WishItem => ({
   repaidAmount: 2000, deadline: '2026-12-01', isActive: true,
   spentItems: [{ id: 'ticket', name: '机票', amount: 4000 }],
   ...patch,
+});
+
+describe('本月出游自动创建并关联心愿', () => {
+  const trips = detectAllTrips({ '2027-03-22': 'travel', '2027-03-23': 'travel' });
+  const titles = { '2027-03-22': '釜山樱花季', '2027-03-23': '釜山樱花季' };
+
+  it('没有账单标签也用 Outlook 名称创建，日期关联并在出发前一天截止', () => {
+    const result = reconcileTripWishes([], trips, {}, titles);
+    expect(result).toEqual([{
+      id: 'wish_trip_2027-03-22', name: '釜山樱花季', linkedTripStartDate: '2027-03-22',
+      deadline: '2027-03-21', targetAmount: 0, savedAmount: 0, plannedTravelDays: 0, isActive: true,
+    }]);
+    expect(reconcileTripWishes(result, trips, {}, titles)).toBe(result);
+    expect(reconcileTripWishes([], trips, {}, titles)).toEqual(result);
+  });
+
+  it('账单标签优先命名，展示名称移除日期前缀', () => {
+    const result = reconcileTripWishes([], trips, { '2027-03-22': '27.3.22 韩国赏樱' }, titles);
+    expect(result[0].name).toBe('韩国赏樱');
+  });
+
+  it('唯一同名心愿自动复用，保留所有财务字段和停用状态', () => {
+    const original = wish({ name: ' 27.3 釜山 樱花季 ', isActive: false, plannedTravelDays: 8 });
+    const result = reconcileTripWishes([original], trips, {}, titles);
+    expect(result).toEqual([{ ...original, linkedTripStartDate: '2027-03-22', deadline: '2027-03-21' }]);
+    expect(original.linkedTripStartDate).toBeUndefined();
+  });
+
+  it('选了不同的账单标签也能复用原 Outlook 同名心愿', () => {
+    const result = reconcileTripWishes([wish({ name: '釜山樱花季' })], trips,
+      { '2027-03-22': '27.3 韩国' }, titles);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ id: 'trip', name: '釜山樱花季', linkedTripStartDate: '2027-03-22' });
+  });
+
+  it('已关联的手动改名心愿不重复创建，补齐截止日', () => {
+    const original = wish({ name: '和朋友一起', linkedTripStartDate: '2027-03-22' });
+    const result = reconcileTripWishes([original], trips, {}, titles);
+    expect(result).toEqual([{ ...original, deadline: '2027-03-21' }]);
+  });
+
+  it('行程改期后复用原心愿和金额，不重复创建', () => {
+    const original = wish({ name: '釜山樱花季', linkedTripStartDate: '2027-03-20' });
+    expect(reconcileTripWishes([original], trips, {}, titles)).toEqual([
+      { ...original, linkedTripStartDate: '2027-03-22', deadline: '2027-03-21' },
+    ]);
+  });
+
+  it('跨月连续行程只建一项，切成两次后分别关联', () => {
+    const dates = { '2027-03-31': 'travel', '2027-04-01': 'travel' } as const;
+    const names = { '2027-03-31': '赏樱', '2027-04-01': '赏樱' };
+    const first = reconcileTripWishes([], detectAllTrips(dates), {}, names);
+    expect(first).toHaveLength(1);
+    const split = reconcileTripWishes(first, detectAllTrips(dates, { '2027-04-01': true }), {}, names);
+    expect(split.map((item) => item.linkedTripStartDate)).toEqual(['2027-03-31', '2027-04-01']);
+    expect(new Set(split.map((item) => item.id)).size).toBe(2);
+    expect(split[1].deadline).toBe('2027-03-31');
+  });
+
+  it('只含无名出游或孤立的标题标签时不创建，行程取消也不删除已有心愿', () => {
+    const previous = [wish()];
+    expect(reconcileTripWishes(previous, trips)).toBe(previous);
+    expect(reconcileTripWishes(previous, [], { '2027-03-22': '赏樱' }, titles)).toBe(previous);
+  });
+
+  it('多个未关联同名心愿时不擅自覆盖其中任意一个', () => {
+    const previous = [wish({ id: 'a', name: '釜山樱花季' }), wish({ id: 'b', name: '釜山樱花季' })];
+    const result = reconcileTripWishes(previous, trips, {}, titles);
+    expect(result).toHaveLength(3);
+    expect(result.slice(0, 2)).toEqual(previous);
+    expect(result[2].linkedTripStartDate).toBe('2027-03-22');
+  });
+
+  it('已结束行程自动关联后，已花和目标按标签直接取实际支出', () => {
+    const tag = '27.3.22 釜山樱花季';
+    const created = reconcileTripWishes([], trips, {}, titles);
+    const expenses = { '2027-02': [{ date: '2027-02-15', amount: 1200, tags: tag,
+      category: '旅行', subcategory: '机票', note: '', account: '银行卡' }] };
+    const [result] = resolveWishBillSpending(created, trips, {}, expenses, '2027-03-24');
+    expect(result.targetAmount).toBe(1200);
+    expect(result.billSpending).toMatchObject({ tags: [tag], amount: 1200, ended: true });
+    expect(created[0]).not.toHaveProperty('billSpending');
+    expect(created[0].targetAmount).toBe(0);
+  });
+
+  it.each(['delete', 'unlink', 'move'] as const)('手动 %s 后保留决定，再同步不补回', (action) => {
+    const previous = reconcileTripWishes([], trips, {}, titles);
+    const next = action === 'delete' ? [] : [{ ...previous[0], linkedTripStartDate: action === 'move' ? '2027-05-01' : null }];
+    const dismissed = updateTripWishDismissals(previous, next);
+    expect(dismissed).toEqual({ '2027-03-22': true });
+    const result = reconcileTripWishes(next, trips, {}, titles, dismissed);
+    expect(result.some((item) => item.linkedTripStartDate === '2027-03-22')).toBe(false);
+  });
+
+  it('手动重新关联可取消忽略，其他心愿编辑不产生忽略', () => {
+    const linked = reconcileTripWishes([], trips, {}, titles);
+    expect(updateTripWishDismissals([], linked, { '2027-03-22': true })).toEqual({});
+    expect(updateTripWishDismissals(linked, [{ ...linked[0], savedAmount: 1000 }])).toEqual({});
+  });
 });
 
 describe('心愿按账单标签统计实际支出', () => {

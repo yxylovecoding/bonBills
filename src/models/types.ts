@@ -254,6 +254,7 @@ export interface AppConfig {
   futureFireExpenses: FutureFireExpense[];
   majorFireWishes?: MajorFireWish[];
   wishes?: WishItem[];
+  dismissedTripWishStarts?: Record<string, true>; // 主动删除或解除关联的出游不再自动补建心愿
   wishDebtTotal?: number; // 外部债务账户的当前总欠款；缺省时仅汇总心愿欠款
   wishInternSavingRecords?: WishInternSavingRecord[];
   wishDeadlineMilestones?: WishDeadlineMilestone[];

@@ -29,7 +29,7 @@ async function loadStores() {
     const key = store.persist.getOptions().name!;
     return [key, JSON.parse(localStorage.getItem(key)!).state];
   }));
-  return { config: useConfigStore, monthly: useMonthlyStore, status: useSyncStatus, cloud };
+  return { config: useConfigStore, monthly: useMonthlyStore, calendar: useCalendarStore, trips: useTripStore, status: useSyncStatus, cloud };
 }
 
 let state: Awaited<ReturnType<typeof loadStores>>;
@@ -58,6 +58,74 @@ afterEach(() => {
 });
 
 describe('cached startup synchronization', () => {
+  const namedTrip = {
+    tagMap: { '2027-03-22': 'travel' as const, '2027-03-23': 'travel' as const },
+    outlookTravelTitles: { '2027-03-22': '釜山樱花季', '2027-03-23': '釜山樱花季' },
+  };
+
+  it('loads every cloud store before creating wishes and uploads the reused association', async () => {
+    state.cloud['calendar-tags'] = { ...state.cloud['calendar-tags'], ...namedTrip };
+    const original = { id: 'manual', name: '釜山樱花季', targetAmount: 8000, savedAmount: 1000, isActive: true };
+    state.cloud['app-config'].config.wishes = [original];
+    await engine.initSync('bon');
+    const wishes = state.config.getState().config.wishes;
+    expect(wishes).toEqual([{ ...original, linkedTripStartDate: '2027-03-22', deadline: '2027-03-21' }]);
+    expect(JSON.parse(uploads().at(-1)![1].body)['app-config'].config.wishes).toEqual(wishes);
+  });
+
+  it('creates from a local Outlook refresh without opening wishes, saves and avoids duplicates after reload', async () => {
+    await engine.initSync('bon');
+    mocks.apiFetch.mockClear();
+    state.calendar.setState(namedTrip);
+    const wishes = state.config.getState().config.wishes;
+    expect(wishes).toHaveLength(1);
+    expect(wishes![0]).toMatchObject({ name: '釜山樱花季', linkedTripStartDate: '2027-03-22' });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(JSON.parse(uploads().at(-1)![1].body)['app-config'].config.wishes).toEqual(wishes);
+    vi.resetModules();
+    state = await loadStores();
+    engine = await import('./syncEngine');
+    await engine.initSync('bon');
+    expect(state.config.getState().config.wishes).toEqual(wishes);
+  });
+
+  it('waits for a bill tag on unnamed dates and retains edits during later calendar changes', async () => {
+    await engine.initSync('bon');
+    state.calendar.setState({ tagMap: namedTrip.tagMap });
+    expect(state.config.getState().config.wishes).toEqual([]);
+    state.trips.getState().setTripTag('2027-03-22', '27.3.22 釜山樱花季');
+    const [wish] = state.config.getState().config.wishes!;
+    state.config.getState().setConfig({ wishes: [{ ...wish, name: '春游', targetAmount: 6000, savedAmount: 800 }] });
+    state.calendar.setState(namedTrip);
+    expect(state.config.getState().config.wishes).toEqual([{ ...wish, name: '春游', targetAmount: 6000, savedAmount: 800 }]);
+  });
+
+  it('defers creation until an import transaction has loaded calendar, tag and wishes', async () => {
+    await engine.initSync('bon');
+    await engine.runWithSyncPaused(async () => {
+      state.calendar.setState(namedTrip);
+      expect(state.config.getState().config.wishes).toEqual([]);
+      state.trips.getState().setTripTag('2027-03-22', '27.3.22 韩国');
+    });
+    expect(state.config.getState().config.wishes).toHaveLength(1);
+    expect(state.config.getState().config.wishes![0].name).toBe('韩国');
+  });
+
+  it('does not create from stale local calendar data before the cloud is loaded', async () => {
+    state.calendar.setState(namedTrip);
+    await engine.initSync('bon');
+    expect(state.config.getState().config.wishes).toEqual([]);
+  });
+
+  it('keeps explicit deletion across calendar edits and cloud reload', async () => {
+    state.cloud['calendar-tags'] = { ...state.cloud['calendar-tags'], ...namedTrip };
+    state.cloud['app-config'].config.dismissedTripWishStarts = { '2027-03-22': true };
+    await engine.initSync('bon');
+    state.calendar.setState(namedTrip);
+    state.config.getState().setConfig({ retireAge: 60 });
+    expect(state.config.getState().config.wishes).toEqual([]);
+  });
+
   it('creates a complete local cache when the cloud is empty', async () => {
     localStorage.clear();
     mocks.apiFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));

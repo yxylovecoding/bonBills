@@ -1,5 +1,4 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSyncStatus } from '../utils/syncStatus';
 import AmountInput from '../components/AmountInput';
 import Card from '../components/Card';
 import { formatCurrency } from '../components/CurrencyDisplay';
@@ -25,7 +24,7 @@ import {
   calculateWishFunding,
   resolveWishRepayments,
   resolveWishBillSpending,
-  reconcileWishTripLinks,
+  updateTripWishDismissals,
   resolveWishTravelBudget,
   wishTravelLifeAmount,
   calculateWishPlan,
@@ -116,11 +115,10 @@ function planningDeadlineDistanceLabel(targetDate: string, fromDate: Date, days:
 }
 
 export default function WishesPage() {
-  const syncReady = useSyncStatus((state) => state.ready);
   const { config, setConfig } = useConfigStore();
   const { current } = useSnapshotStore();
   const { records } = useMonthlyStore();
-  const { tagMap, confirmedExpenses, setTags, outlookTravelTitles } = useCalendarStore();
+  const { tagMap, confirmedExpenses, setTags } = useCalendarStore();
   const { expenseItems } = useBillDetailStore();
   const { overrides } = useExpenseScopeOverrideStore();
   const { tripTags, tripSplits } = useTripStore();
@@ -150,31 +148,14 @@ export default function WishesPage() {
   );
   const storedWishes = useMemo(() => config.wishes ?? [], [config.wishes]);
   const allTripSegments = useMemo(() => detectAllTrips(tagMap, tripSplits), [tagMap, tripSplits]);
-  const linkedWishes = useMemo(
-    () => reconcileWishTripLinks(storedWishes, allTripSegments, tripTags, outlookTravelTitles),
-    [storedWishes, allTripSegments, tripTags, outlookTravelTitles],
-  );
   const wishes = useMemo(
     () => resolveWishRepayments(
-      resolveWishBillSpending(linkedWishes, allTripSegments, tripTags, expenseItems, todayKey),
+      resolveWishBillSpending(storedWishes, allTripSegments, tripTags, expenseItems, todayKey),
       config.wishDebtTotal,
     ),
-    [linkedWishes, allTripSegments, tripTags, expenseItems, todayKey, config.wishDebtTotal],
+    [storedWishes, allTripSegments, tripTags, expenseItems, todayKey, config.wishDebtTotal],
   );
   const deadlineMilestones = config.wishDeadlineMilestones ?? DEFAULT_WISH_DEADLINE_MILESTONES;
-  useEffect(() => {
-    if (!syncReady) return;
-    let changed = linkedWishes.some((wish, index) => wish !== storedWishes[index]);
-    const normalizedWishes = linkedWishes.map((wish) => {
-      const linkedTripStart = wish.linkedTripStartDate ?? null;
-      if (!linkedTripStart) return wish;
-      const defaultDeadline = offsetDateKey(linkedTripStart, -1);
-      if (wish.deadline === defaultDeadline) return wish;
-      changed = true;
-      return { ...wish, deadline: defaultDeadline };
-    });
-    if (changed) setConfig({ wishes: normalizedWishes });
-  }, [setConfig, storedWishes, linkedWishes, syncReady]);
   const selectableTripSegments = useMemo(
     () => allTripSegments.filter((trip) => trip.endDate >= todayKey),
     [allTripSegments, todayKey],
@@ -426,7 +407,10 @@ export default function WishesPage() {
     [milestonePlan.segmentByWishId],
   );
 
-  const syncWishes = (items: WishItem[]) => setConfig({ wishes: items });
+  const syncWishes = (items: WishItem[]) => setConfig({
+    wishes: items,
+    dismissedTripWishStarts: updateTripWishDismissals(storedWishes, items, config.dismissedTripWishStarts),
+  });
   const updateDebtTotal = (wishDebtTotal: number | undefined) => {
     const previousTotal = useConfigStore.getState().config.wishDebtTotal;
     setConfig({ wishDebtTotal });

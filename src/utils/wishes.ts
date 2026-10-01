@@ -2,6 +2,7 @@ import type { TagKind, WishExtraExpenseItem, WishItem } from '../models/types';
 import { roundToSitePrecision } from './numberInput';
 import type { BillExpenseMonth } from './importBill';
 import { flattenExpenseItems, sumBillsByTag, SYSTEM_BILL_TAGS, tagYearMonthPrefix, type TripSegment } from './trips';
+import { getTripDisplayTitle } from './outlookCalendar';
 
 export const POST_LIFE_FLEXIBLE_SHARE = 0.5;
 export const FLEXIBLE_WISH_SHARE = 0.8;
@@ -133,7 +134,7 @@ export function wishTravelLifeAmount(wish: WishItem, dailyLifeAmount: number, tr
 }
 
 function wishTagName(value: string) {
-  return value.replace(/^\d{2}\.\d{1,2}(?:\.\d{1,2})?\s*/, '').replace(/\s+/g, '').toLowerCase();
+  return value.trim().replace(/^\d{2}\.\d{1,2}(?:\.\d{1,2})?\s*/, '').replace(/\s+/g, '').toLowerCase();
 }
 
 /** 出游所选标签优先，否则按心愿名称匹配；已花始终来自账单，不使用旧手填数据。 */
@@ -215,6 +216,66 @@ export function reconcileWishTripLinks<T extends WishItem>(
     deadline.setUTCDate(deadline.getUTCDate() - 1);
     return { ...wish, linkedTripStartDate: trip.startDate, deadline: deadline.toISOString().slice(0, 10) };
   });
+}
+
+/** 有名称的出游自动进入心愿；仅补关联，不覆盖已有心愿的预算、名称或启用状态。 */
+export function reconcileTripWishes(
+  wishes: WishItem[],
+  trips: readonly TripSegment[],
+  tripTags: Record<string, string> = {},
+  travelTitles: Record<string, string> = {},
+  dismissedStarts: Record<string, true> = {},
+): WishItem[] {
+  const beforeDeparture = (start: string) => {
+    const day = new Date(`${start}T00:00:00Z`);
+    day.setUTCDate(day.getUTCDate() - 1);
+    return day.toISOString().slice(0, 10);
+  };
+  const eligibleTrips = trips.filter((trip) => !dismissedStarts[trip.startDate]);
+  const next = reconcileWishTripLinks(wishes, eligibleTrips, tripTags, travelTitles).map((wish) => {
+    if (!wish.linkedTripStartDate) return wish;
+    const deadline = beforeDeparture(wish.linkedTripStartDate);
+    return wish.deadline === deadline ? wish : { ...wish, deadline };
+  });
+  for (const trip of [...trips].sort((a, b) => a.startDate.localeCompare(b.startDate))) {
+    if (dismissedStarts[trip.startDate] || next.some((wish) => wish.linkedTripStartDate === trip.startDate)) continue;
+    const title = getTripDisplayTitle(tripTags[trip.startDate], trip.dates, travelTitles).trim();
+    if (!title) continue;
+    const names = new Set([title, getTripDisplayTitle(undefined, trip.dates, travelTitles)]
+      .map(wishTagName).filter(Boolean));
+    const candidates = next.filter((wish) => !wish.linkedTripStartDate && names.has(wishTagName(wish.name)));
+    const deadline = beforeDeparture(trip.startDate);
+    if (candidates.length === 1) {
+      const existing = candidates[0];
+      next[next.indexOf(existing)] = { ...existing, linkedTripStartDate: trip.startDate, deadline };
+    } else {
+      // 固定 ID 让多个设备同时补建同一行程时仍能按 ID 合并。
+      const baseId = `wish_trip_${trip.startDate}`;
+      let id = baseId;
+      for (let suffix = 2; next.some((wish) => wish.id === id); suffix += 1) id = `${baseId}_${suffix}`;
+      next.push({
+        id, name: title.replace(/^\d{2}\.\d{1,2}(?:\.\d{1,2})?\s*/, '').trim() || title,
+        targetAmount: 0, savedAmount: 0, plannedTravelDays: 0, isActive: true,
+        linkedTripStartDate: trip.startDate, deadline,
+      });
+    }
+  }
+  return next.length === wishes.length && next.every((wish, index) => wish === wishes[index]) ? wishes : next;
+}
+
+/** 主动删除或解除关联后不重新补建；手动重新关联则解除该行程的忽略状态。 */
+export function updateTripWishDismissals(
+  previous: readonly WishItem[],
+  next: readonly WishItem[],
+  dismissedStarts: Record<string, true> = {},
+): Record<string, true> {
+  const dismissed = { ...dismissedStarts };
+  const linkedStarts = new Set(next.map((wish) => wish.linkedTripStartDate).filter(Boolean));
+  for (const wish of previous) {
+    if (wish.linkedTripStartDate && !linkedStarts.has(wish.linkedTripStartDate)) dismissed[wish.linkedTripStartDate] = true;
+  }
+  for (const start of linkedStarts) if (start) delete dismissed[start];
+  return dismissed;
 }
 
 export function sortWishesForDisplay<T extends WishItem>(wishes: readonly T[], trips: readonly TripSegment[], today: string): T[] {

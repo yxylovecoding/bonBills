@@ -13,6 +13,8 @@ import { useSyncStatus } from './syncStatus';
 import { loadTickTickSyncStatus, syncTickTickTrips } from './tickTickSync';
 import { normalizeOutlookCalendarState, normalizeOutlookTravelTitles } from './outlookCalendar';
 import { mergeSyncValue, sameSyncValue } from './syncMerge';
+import { detectAllTrips } from './trips';
+import { reconcileTripWishes } from './wishes';
 
 const EXPENSE_SCOPE_SYNC_KEY = 'expense-scope-overrides';
 const LEGACY_EXPENSE_SCOPE_SYNC_KEY = 'life-period-overrides';
@@ -313,7 +315,19 @@ export async function runWithSyncPaused<T>(run: () => Promise<T>): Promise<T> {
     return await run();
   } finally {
     syncPauseDepth = Math.max(0, syncPauseDepth - 1);
+    if (activeSession && syncPauseDepth === 0) syncTripWishes();
   }
+}
+
+function syncTripWishes() {
+  if (syncingFromServer || syncPauseDepth > 0) return;
+  const { config, setConfig } = useConfigStore.getState();
+  const { tagMap, outlookTravelTitles } = useCalendarStore.getState();
+  const { tripTags, tripSplits } = useTripStore.getState();
+  const previous = config.wishes ?? [];
+  const wishes = reconcileTripWishes(previous, detectAllTrips(tagMap, tripSplits), tripTags,
+    outlookTravelTitles, config.dismissedTripWishStarts);
+  if (wishes !== previous) setConfig({ wishes });
 }
 
 function startSubscriptions() {
@@ -357,6 +371,12 @@ function startSubscriptions() {
   useCalendarStore.subscribe(markTickTickSyncNeeded);
   useTripStore.subscribe(markTickTickSyncNeeded);
   useConfigStore.subscribe(markTickTickSyncNeeded);
+
+  // 云端的日历、标签、心愿全部合并后再补建；日常本地编辑则即时关联。
+  const updateTripWishes = () => { if (activeSession) syncTripWishes(); };
+  useCalendarStore.subscribe(updateTripWishes);
+  useTripStore.subscribe(updateTripWishes);
+  useConfigStore.subscribe(updateTripWishes);
 }
 
 async function startTickTickSync() {
@@ -419,6 +439,7 @@ async function refreshFromServer() {
       }
     }
     syncingFromServer = false;
+    syncTripWishes();
     savePending();
     const now = new Date();
     const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
