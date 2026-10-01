@@ -54,6 +54,7 @@ import type {
 } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { sanitizeDecimalNumberInput } from '../utils/numberInput';
+import { tryEvalFormula } from '../utils/formula';
 import { getPayrollScheduleForMonth } from '../utils/payroll';
 import {
   applyInvestAutoSumStartMonth,
@@ -2200,7 +2201,13 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
               aria-label="储蓄备注"
               value={savingsNote}
               onChange={(event) => setSavingsNote(event.target.value)}
-              onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' || event.nativeEvent.isComposing || event.keyCode === 229) return;
+                event.preventDefault();
+                const evaluated = tryEvalFormula(event.currentTarget.value);
+                if (evaluated !== null) setSavingsNote(evaluated);
+                event.currentTarget.blur();
+              }}
               style={{ flex: 1, width: '100%', minWidth: 0, border: 'none', borderBottom: '1px solid #9ca3af', borderRadius: 0, padding: '2px 0', fontSize: 11, color: '#202124', outline: 'none', backgroundColor: 'transparent' }}
             />
           </label>
