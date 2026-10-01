@@ -437,6 +437,224 @@ describe('寄居旅标签排期', () => {
     expect(api.tasks.get('todo')?.dueDate).toBe('2028-01-26T00:00:00+0800');
   });
 
+  describe('居与旅的长周期任务', () => {
+    const recurringTask = (tags: string[], fields: Partial<TickTickTask> = {}) => todo(tags, {
+      repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=7',
+      startDate: '2026-09-20T09:00:00+0800', dueDate: '2026-09-20T18:00:00+0800',
+      timeZone: 'Asia/Shanghai', isAllDay: false, content: '保留备注', priority: 5,
+      reminders: ['TRIGGER:PT0S'],
+      items: [
+        { id: 'pending', title: '待处理', status: 0, startDate: '2026-09-19T10:00:00+0800' },
+        { id: 'done', title: '已处理', status: 1, startDate: '2026-09-19T10:00:00+0800' },
+        { id: 'undated', title: '备选', status: 0 },
+      ],
+      ...fields,
+    });
+    const rules = [
+      { repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=2', nextDate: '2026-09-08' },
+      { repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=7', nextDate: '2026-09-13' },
+      { repeatFlag: 'RRULE:FREQ=WEEKLY', nextDate: '2026-09-13' },
+      { repeatFlag: 'RRULE:FREQ=WEEKLY;BYDAY=MO,FR', nextDate: '2026-09-07' },
+      { repeatFlag: 'RRULE:FREQ=MONTHLY;BYMONTHDAY=6', nextDate: '2026-10-06' },
+      { repeatFlag: 'RRULE:FREQ=YEARLY;BYMONTH=9;BYMONTHDAY=6', nextDate: '2027-09-06' },
+      { repeatFlag: 'RRULE:FREQ=DAILY;BYDAY=MO,WE,FR', nextDate: '2026-09-07' },
+      { repeatFlag: 'RRULE:FREQ=DAILY;BYMONTHDAY=15', nextDate: '2026-09-15' },
+    ];
+    const scenes = [
+      { tag: '居', away: 'travel', current: 'school', following: 'intern' },
+      { tag: '旅', away: 'home', current: 'travel', following: 'travel' },
+    ];
+
+    it.each(scenes.flatMap((scene) => rules.map((rule) => ({ ...scene, ...rule }))))(
+      '$tag 的 $repeatFlag 离开时统一移到场景首日，进入并完成后恢复原周期',
+      async ({ tag, away, current, following, repeatFlag, nextDate }) => {
+        const task = recurringTask([tag], { repeatFlag });
+        const api = apiWithTasks([task]);
+        const calendarState = { tagMap: {
+          '2026-09-04': away, '2026-09-05': away,
+          '2026-09-06': current, '2026-09-07': following, '2026-09-08': following,
+        } };
+        await expect(syncTickTickRoutines({ api, calendarState, today: '2026-09-04' }))
+          .resolves.toMatchObject({ updatedRoutineTasks: 1 });
+        expect(api.tasks.get('todo')).toEqual({
+          ...task, startDate: '2026-09-06T09:00:00+0800', dueDate: '2026-09-06T18:00:00+0800',
+          items: [{ ...task.items![0], startDate: '2026-09-06T10:00:00+0800' }, ...task.items!.slice(1)],
+        });
+        for (const today of ['2026-09-04', '2026-09-05', '2026-09-06']) {
+          await expect(syncTickTickRoutines({ api, calendarState, today }))
+            .resolves.toMatchObject({ updatedRoutineTasks: 0 });
+        }
+        // 模拟滴答完成当前待办后保留历史记录并生成下一次日期。
+        const completed = { ...api.tasks.get('todo')!, id: 'history', status: 2, completedTime: '2026-09-06T10:00:00+0800' };
+        api.tasks.set(completed.id, completed);
+        const next = { ...task, startDate: `${nextDate}T09:00:00+0800`, dueDate: `${nextDate}T18:00:00+0800` };
+        api.tasks.set(next.id, next);
+        for (const today of ['2026-09-06', '2026-09-06', '2026-09-07', '2026-09-08']) {
+          await expect(syncTickTickRoutines({ api, calendarState, today }))
+            .resolves.toMatchObject({ updatedRoutineTasks: 0 });
+          expect(api.tasks.get('todo')).toEqual(next);
+          expect(api.tasks.get('history')).toEqual(completed);
+        }
+        expect(api.updateCalls).toBe(1);
+      },
+    );
+
+    it.each(scenes.flatMap((scene) => ['2026-09-01', '2026-09-06', '2026-09-20']
+      .map((date) => ({ ...scene, date }))))('$tag 在适用场景内保留 $date 的原日期和未对齐的清单项', async ({ tag, current, date }) => {
+      const task = recurringTask([tag], { startDate: undefined, dueDate: `${date}T18:00:00+0800` });
+      const api = apiWithTasks([task]);
+      const completed = vi.spyOn(api, 'listCompletedTasks').mockRejectedValue(new Error('完成记录不可用'));
+      await expect(syncTickTickRoutines({ api, calendarState: { tagMap: { '2026-09-06': current } }, today: '2026-09-06' }))
+        .resolves.toMatchObject({ updatedRoutineTasks: 0 });
+      expect(api.tasks.get('todo')).toEqual(task);
+      expect(completed).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { tags: ['寄', '居'], current: 'home' },
+      { tags: ['寄', '旅'], current: 'home' },
+      { tags: ['居', '旅'], current: 'school' },
+      { tags: ['居', '旅'], current: 'travel' },
+      { tags: ['寄', '居', '旅'], current: 'intern' },
+      { tags: ['其他', ' 寓 '], current: 'intern' },
+    ])('$tags 只要匹配当前 $current 场景就保留周期', async ({ tags, current }) => {
+      const task = recurringTask(tags);
+      const api = apiWithTasks([task]);
+      await expect(syncTickTickRoutines({ api, calendarState: { tagMap: { '2026-09-06': current } }, today: '2026-09-06' }))
+        .resolves.toMatchObject({ updatedRoutineTasks: 0 });
+      expect(api.tasks.get('todo')).toEqual(task);
+    });
+
+    it.each([
+      { tags: ['居', '旅'], current: 'home', earlier: 'travel', later: 'school' },
+      { tags: ['寄', '居'], current: 'travel', earlier: 'home', later: 'intern' },
+    ])('$tags 离开所有适用场景后取最早的适用首日', async ({ tags, current, earlier, later }) => {
+      const task = recurringTask(tags);
+      const api = apiWithTasks([task]);
+      const calendarState = { tagMap: { '2026-09-04': current, '2026-09-06': earlier, '2026-09-09': later } };
+      await syncTickTickRoutines({ api, calendarState, today: '2026-09-04' });
+      expect(api.tasks.get('todo')?.dueDate).toBe('2026-09-06T18:00:00+0800');
+      expect(api.tasks.get('todo')?.repeatFlag).toBe(task.repeatFlag);
+    });
+
+    it('旅任务在连续旅行期间不改期，旅行结束后移到下一次出游首日', async () => {
+      const task = recurringTask(['旅']);
+      const api = apiWithTasks([task]);
+      const calendarState = { tagMap: {
+        '2026-09-06': 'travel', '2026-09-07': 'travel', '2026-09-08': 'home',
+        '2026-09-09': 'intern', '2026-09-12': 'travel', '2026-09-13': 'travel',
+      } };
+      for (const today of ['2026-09-06', '2026-09-07']) {
+        await syncTickTickRoutines({ api, calendarState, today });
+        expect(api.tasks.get('todo')).toEqual(task);
+      }
+      await syncTickTickRoutines({ api, calendarState, today: '2026-09-08' });
+      expect(api.tasks.get('todo')?.dueDate).toBe('2026-09-12T18:00:00+0800');
+      for (const today of ['2026-09-09', '2026-09-12', '2026-09-13']) {
+        await expect(syncTickTickRoutines({ api, calendarState, today })).resolves.toMatchObject({ updatedRoutineTasks: 0 });
+      }
+      expect(api.updateCalls).toBe(1);
+    });
+
+    it.each(scenes.flatMap((scene) => [true, false].map((matching) => ({ ...scene, matching }))))(
+      '$tag 无日期且当前场景匹配为 $matching 时补最近适用日期，后续不滚动',
+      async ({ tag, current, away, matching }) => {
+        const task = recurringTask([tag], { startDate: undefined, dueDate: undefined, items: [] });
+        const api = apiWithTasks([task]);
+        const calendarState = { tagMap: { '2026-09-04': matching ? current : away, '2026-09-06': current, '2026-09-07': current } };
+        const targetDate = matching ? '2026-09-04' : '2026-09-06';
+        await syncTickTickRoutines({ api, calendarState, today: '2026-09-04' });
+        expect(api.tasks.get('todo')).toMatchObject({
+          startDate: `${targetDate}T00:00:00+0800`, dueDate: `${targetDate}T00:00:00+0800`,
+          isAllDay: true, timeZone: 'Asia/Shanghai', repeatFlag: task.repeatFlag,
+        });
+        await expect(syncTickTickRoutines({ api, calendarState, today: '2026-09-07' })).resolves.toMatchObject({ updatedRoutineTasks: 0 });
+      },
+    );
+
+    it.each([
+      {}, { '2026-09-06': 'school', '2026-09-07': 'travel' },
+      { '2026-09-04': 'unknown', '2026-09-06': 'school' }, { '2026-09-04': 'home' },
+      { '2026-09-04': 'home', '2026-09-31': 'school', '2026-13-01': 'travel' },
+    ])('今日场景缺失或无未来适用日时保留原有日期和无日期任务：%j', async (tagMap) => {
+      const tasks = [recurringTask(['居']), recurringTask(['旅'], { id: 'travel', startDate: undefined, dueDate: undefined })];
+      const api = apiWithTasks(tasks);
+      await expect(syncTickTickRoutines({ api, calendarState: { tagMap }, today: '2026-09-04' })).resolves.toMatchObject({ updatedRoutineTasks: 0 });
+      expect([...api.tasks.values()]).toEqual(tasks);
+    });
+
+    it('长周期多标签任务没有明确的适用日时不使用春节兜底', async () => {
+      const task = recurringTask(['寄', '居']);
+      const api = apiWithTasks([task]);
+      await expect(syncTickTickRoutines({ api, calendarState: { tagMap: { '2026-09-04': 'travel' } }, today: '2026-09-04' }))
+        .resolves.toMatchObject({ updatedRoutineTasks: 0 });
+      expect(api.tasks.get('todo')).toEqual(task);
+    });
+
+    it.each([
+      'not-a-rule', 'RRULE:INTERVAL=7', 'RRULE:FREQ=LUNAR', 'RRULE:FREQ=DAILY;INTERVAL=0',
+      'RRULE:FREQ=DAILY;INTERVAL=-1', 'RRULE:FREQ=DAILY;INTERVAL=1.5', 'RRULE:FREQ=DAILY;COUNT=0',
+      'RRULE:FREQ=DAILY;INTERVAL=7;X-CUSTOM=1', 'RRULE:FREQ=WEEKLY;BYDAY=NOTADAY',
+      'RRULE:FREQ=MONTHLY;BYMONTHDAY=32', 'RRULE:FREQ=DAILY;FREQ=WEEKLY', 'RRULE:FREQ=DAILY;',
+    ])('无法识别的规则 %s 在场景内外均不改期', async (repeatFlag) => {
+      const tasks = [recurringTask(['居'], { repeatFlag }), recurringTask(['旅'], { id: 'travel', repeatFlag, startDate: undefined, dueDate: undefined })];
+      const api = apiWithTasks(tasks);
+      const calendarState = { tagMap: { '2026-09-04': 'home', '2026-09-06': 'school', '2026-09-07': 'travel' } };
+      for (const today of ['2026-09-04', '2026-09-06', '2026-09-07']) {
+        await expect(syncTickTickRoutines({ api, calendarState, today })).resolves.toMatchObject({ updatedRoutineTasks: 0 });
+      }
+      expect([...api.tasks.values()]).toEqual(tasks);
+    });
+
+    it('UTC 表示的全天长周期任务仅离开场景时改期，只有开始日期也能保护', async () => {
+      const task = recurringTask(['居'], { startDate: '2026-09-19T16:00:00.000+0000', dueDate: undefined, isAllDay: true });
+      const api = apiWithTasks([task]);
+      const calendarState = { tagMap: { '2026-09-04': 'travel', '2026-09-06': 'intern', '2026-09-07': 'school' } };
+      await syncTickTickRoutines({ api, calendarState, today: '2026-09-04' });
+      const moved = structuredClone(api.tasks.get('todo'));
+      expect(moved).toMatchObject({ startDate: '2026-09-05T16:00:00.000+0000', dueDate: undefined, repeatFlag: task.repeatFlag });
+      for (const today of ['2026-09-06', '2026-09-07']) {
+        await syncTickTickRoutines({ api, calendarState, today });
+        expect(api.tasks.get('todo')).toEqual(moved);
+      }
+    });
+
+    it('改期后远端丢失重复规则时不能报告成功', async () => {
+      const api = apiWithTasks([recurringTask(['旅'])]);
+      const update = api.updateTask.bind(api);
+      api.updateTask = async (id, payload) => {
+        const result = await update(id, payload);
+        delete api.tasks.get(id)!.repeatFlag;
+        return result;
+      };
+      await expect(syncTickTickRoutines({ api, calendarState: { tagMap: { '2026-09-04': 'home', '2026-09-06': 'travel' } }, today: '2026-09-04' }))
+        .rejects.toThrow('未正确保留');
+    });
+
+    it.each([
+      'RRULE:FREQ=DAILY', 'RRULE:FREQ=DAILY;INTERVAL=1',
+      'RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR,SA,SU',
+      'RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR,SA,SU',
+    ])('每天重复的 %s 沿用当天执行、完成后排明天的规则', async (repeatFlag) => {
+      const task = recurringTask(['居', '旅'], { repeatFlag });
+      const api = apiWithTasks([task]);
+      const calendarState = { tagMap: { '2026-09-04': 'school', '2026-09-05': 'travel' } };
+      await syncTickTickRoutines({ api, calendarState, today: '2026-09-04' });
+      expect(api.tasks.get('todo')?.dueDate).toBe('2026-09-04T18:00:00+0800');
+      api.tasks.set('history', { ...task, id: 'history', status: 2, completedTime: '2026-09-04T18:00:00+0800' });
+      await syncTickTickRoutines({ api, calendarState, today: '2026-09-04' });
+      expect(api.tasks.get('todo')?.dueDate).toBe('2026-09-05T18:00:00+0800');
+    });
+
+    it('仅寄标签沿用原排期，普通游标签仍不参与场景同步', async () => {
+      const tasks = [recurringTask(['寄']), recurringTask(['游'], { id: 'ordinary' })];
+      const api = apiWithTasks(tasks);
+      await syncTickTickRoutines({ api, calendarState: { tagMap: { '2026-09-04': 'home' } }, today: '2026-09-04' });
+      expect(api.tasks.get('todo')?.dueDate).toBe('2026-09-04T18:00:00+0800');
+      expect(api.tasks.get('ordinary')).toEqual(tasks[1]);
+    });
+  });
+
   it('新补日期的待办远端未保存日期时不能报告成功', async () => {
     const api = apiWithTasks([todo(['寄'])]);
     api.getTask = async () => todo(['寄']);

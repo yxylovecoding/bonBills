@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, createSecretKey, randomBytes, type KeyObject } from 'node:crypto';
 import { Lunar } from 'lunar-typescript';
+import ICAL from 'ical.js';
 import { getTripDisplayTitle, normalizeOutlookTravelTitles } from '../src/utils/outlookCalendar.js';
 
 export const TICKTICK_CONNECTION_KEY = 'ticktick:connection:v1';
@@ -557,6 +558,48 @@ function routineScenes(task: TickTickTask): Array<keyof TickTickRoutineTargets> 
   return [...scenes];
 }
 
+function routineCalendarScene(tag: unknown): keyof TickTickRoutineTargets | null {
+  if (tag === 'home') return 'home';
+  if (tag === 'school' || tag === 'intern') return 'school';
+  if (tag === 'travel') return 'travel';
+  return null;
+}
+
+const ROUTINE_REPEAT_PARTS = new Set([
+  'FREQ', 'INTERVAL', 'COUNT', 'UNTIL', 'WKST', 'BYDAY', 'BYMONTHDAY', 'BYYEARDAY',
+  'BYWEEKNO', 'BYMONTH', 'BYSETPOS', 'BYHOUR', 'BYMINUTE', 'BYSECOND',
+]);
+const ROUTINE_WEEKDAYS = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+
+function routineRecurrence(repeatFlag: string | undefined): 'none' | 'daily' | 'long' | 'unknown' {
+  if (!repeatFlag?.trim()) return 'none';
+  const rule = repeatFlag.trim().toUpperCase().replace(/^RRULE:/, '');
+  const parts = new Map<string, string>();
+  for (const part of rule.split(';')) {
+    const match = /^([A-Z]+)=([^;=\s]+)$/.exec(part);
+    if (!match || !ROUTINE_REPEAT_PARTS.has(match[1]) || parts.has(match[1])) return 'unknown';
+    parts.set(match[1], match[2]);
+  }
+  // ICAL accepts unknown fields and coerces invalid intervals; do not let those
+  // defaults turn an unsupported TickTick repeat rule into a daily task.
+  for (const key of ['INTERVAL', 'COUNT']) {
+    const value = parts.get(key);
+    if (value !== undefined && (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) < 1)) return 'unknown';
+  }
+  if (!['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'].includes(parts.get('FREQ') ?? '')) return 'unknown';
+  try {
+    const recurrence = ICAL.Recur.fromString(rule);
+    if (recurrence.interval > 1 || recurrence.freq === 'MONTHLY' || recurrence.freq === 'YEARLY') return 'long';
+    if (['BYMONTHDAY', 'BYYEARDAY', 'BYWEEKNO', 'BYMONTH', 'BYSETPOS'].some((key) => parts.has(key))) return 'long';
+    const weekdays = new Set(parts.get('BYDAY')?.split(',') ?? []);
+    const everyWeekday = ROUTINE_WEEKDAYS.every((day) => weekdays.has(day));
+    if (recurrence.freq === 'WEEKLY') return everyWeekday ? 'daily' : 'long';
+    return weekdays.size > 0 && !everyWeekday ? 'long' : 'daily';
+  } catch {
+    return 'unknown';
+  }
+}
+
 export function getTickTickRoutineExcludedTaskIds(template: TickTickTemplate, state: TickTickTripSyncState): Set<string> {
   const ids = new Set(template.tasks.map((task) => task.id));
   ids.add(template.rootTask.id);
@@ -669,6 +712,8 @@ export async function syncTickTickRoutines(options: {
   excludedTaskIds?: ReadonlySet<string>;
 }): Promise<TickTickRoutineSyncResult> {
   const { api, calendarState, today, excludedTaskIds = new Set<string>() } = options;
+  const tagMap = calendarTagMapFromSyncState(calendarState);
+  const currentScene = routineCalendarScene(tagMap[today]);
   const routineTargets = getTickTickRoutineTargetDates(calendarState, today);
   const allTasks = await readAllTickTickTasks(api, [0]);
   const tasksById = new Map(allTasks.map((task) => [task.id, task]));
@@ -685,7 +730,12 @@ export async function syncTickTickRoutines(options: {
   };
   const candidates = allTasks
     .filter((task) => (task.status ?? 0) === 0 && !isExcluded(task))
-    .map((task) => ({ task, scenes: routineScenes(task) }))
+    .map((task) => {
+      const scenes = routineScenes(task);
+      const recurrence = scenes.includes('school') || scenes.includes('travel')
+        ? routineRecurrence(task.repeatFlag) : 'none';
+      return { task, scenes, recurrence };
+    })
     .filter(({ scenes }) => scenes.length > 0);
   let updatedRoutineTasks = 0;
   const routineTaskCounts = { home: 0, school: 0, travel: 0 };
@@ -693,7 +743,14 @@ export async function syncTickTickRoutines(options: {
     for (const scene of scenes) routineTaskCounts[scene] += 1;
   }
 
-  const routineProjectIds = [...new Set(candidates
+  const schedulingCandidates = candidates.filter(({ task, scenes, recurrence }) => {
+    if (recurrence === 'unknown') return false;
+    if (recurrence !== 'long') return true;
+    // In an applicable scene, TickTick owns the next occurrence, even if it is
+    // overdue or was just generated after completion. Do not realign checklist dates either.
+    return currentScene !== null && !(scenes.includes(currentScene) && routineTaskDate(task));
+  });
+  const routineProjectIds = [...new Set(schedulingCandidates
     .filter(({ task }) => Boolean(task.repeatFlag)).map(({ task }) => task.projectId))];
   const completedToday = routineProjectIds.length > 0 ? await api.listCompletedTasks(
     routineProjectIds,
@@ -706,12 +763,16 @@ export async function syncTickTickRoutines(options: {
     .map(routineOccurrenceKey));
   const tomorrowTargets = getTickTickRoutineTargetDates(calendarState, addCalendarDays(today, 1));
 
-  for (const { task, scenes } of candidates) {
+  for (const { task, scenes, recurrence } of schedulingCandidates) {
     const completedThisOccurrence = Boolean(task.repeatFlag)
       && completedKeys.has(routineOccurrenceKey(task));
     const targets = completedThisOccurrence ? tomorrowTargets : routineTargets;
-    const taskTargetDate = scenes.map((scene) => targets[scene])
-      .filter((date): date is string => date !== null).sort()[0];
+    const taskTargetDate = recurrence === 'long'
+      ? findRoutineTargetDate(tagMap, completedThisOccurrence ? addCalendarDays(today, 1) : today, (tag) => {
+        const scene = routineCalendarScene(tag);
+        return scene !== null && scenes.includes(scene);
+      })
+      : scenes.map((scene) => targets[scene]).filter((date): date is string => date !== null).sort()[0];
     if (!taskTargetDate || routineTaskIsAligned(task, taskTargetDate)) continue;
     const payload = routineTaskPayload(task, taskTargetDate);
     await api.updateTask(task.id, payload);
@@ -727,6 +788,9 @@ export async function syncTickTickRoutines(options: {
       const saved = updated.items?.find((candidate) => candidate.id === item.id);
       return !saved || checklistItemDate(saved, updated.timeZone) !== taskTargetDate;
     });
+    if (recurrence === 'long' && updated.repeatFlag !== task.repeatFlag) {
+      throw new Error(`TickTick 未正确保留“${task.title}”的重复规则`);
+    }
     if (!updated?.id || !datesPersisted || !itemsPersisted
       || !routineTaskIsAligned(updated, taskTargetDate)) {
       throw new Error(`TickTick 未正确更新“${task.title}”的日期`);
