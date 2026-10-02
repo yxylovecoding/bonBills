@@ -3,7 +3,10 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 
 const isLife = window.location.hostname === 'life.bonbills.cn' || /^\/life(?:\/|$)/.test(window.location.pathname);
-const Root = React.lazy(() => isLife ? import('./life/BonLife') : import('./components/AuthGate'));
+// Keep loaders separate so Vite attaches each app's CSS to its own import.
+const Root = isLife
+  ? React.lazy(() => import('./life/BonLife'))
+  : React.lazy(() => import('./components/AuthGate'));
 if (isLife) {
   document.title = 'BonLife';
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#f6f5f3');
