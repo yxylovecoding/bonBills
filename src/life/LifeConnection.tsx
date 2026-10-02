@@ -25,7 +25,7 @@ export default function LifeConnection({ year, connected, onChanged, onClose }: 
       <label className="life-connection-label" htmlFor="life-ics">日历 · ICS 订阅链接</label>
       <input id="life-ics" type="password" autoComplete="off" spellCheck={false} value={url} disabled={busy}
         placeholder="https://outlook…/calendar.ics" onChange={(event) => setUrl(event.target.value)} />
-      <a className="life-help" href="https://outlook.live.com/calendar/0/options/calendar/sharedCalendars" target="_blank" rel="noreferrer">Outlook 日历设置 ↗</a>
+      <a className="life-help" href="https://outlook.live.com/calendar/0/options/calendar/SharedCalendars" target="_blank" rel="noreferrer">Outlook 日历设置 ↗</a>
       {error && <p className="life-error" role="alert">{error}</p>}
       <div className="life-editor-actions">
         {connected && <button type="button" disabled={busy} onClick={() => void change('DELETE')}>断开</button>}
