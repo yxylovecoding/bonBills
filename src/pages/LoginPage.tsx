@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { register, removeLegacyKey, signIn } from '../utils/authClient';
 
-export default function LoginPage({ initialError = '' }: { initialError?: string }) {
+export default function LoginPage({ initialError = '', title = '盘账助手' }: { initialError?: string; title?: string }) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [key, setKey] = useState('');
   const [username, setUsername] = useState('');
@@ -42,7 +42,7 @@ export default function LoginPage({ initialError = '' }: { initialError?: string
             <path d="M9 8h6M9 12h6M9 16h3" />
           </svg>
         </div>
-        <h1 id="login-title">{registering ? '注册账号' : '盘账助手'}</h1>
+        <h1 id="login-title">{registering ? '注册账号' : title}</h1>
         <form onSubmit={submit} className="login-form" aria-busy={busy}>
           {registering && (
             <label htmlFor="login-key">现有 Key

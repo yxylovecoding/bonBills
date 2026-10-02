@@ -1,0 +1,130 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import handler from './bonlife';
+import { entriesKey, LIFE_CONNECTION_KEY, parsePeriodCalendar, periodsKey, syncLifePeriods } from './_bonLife';
+import { encryptOutlookConnection } from './_outlookCalendar';
+import { DEFAULT_OUTLOOK_RULES } from '../src/utils/outlookCalendar';
+
+const { data, auth, origin, evalMock, getHash, set } = vi.hoisted(() => ({
+  data: new Map<string, unknown>(), auth: vi.fn(), origin: vi.fn(), evalMock: vi.fn(), getHash: vi.fn(), set: vi.fn(),
+}));
+vi.mock('./_auth.js', () => ({ authOk: auth, sameOrigin: origin }));
+vi.mock('@vercel/kv', () => ({ kv: {
+  get: async (key: string) => data.get(key) ?? null, hgetall: getHash, eval: evalMock,
+  set, del: async (key: string) => data.delete(key),
+} }));
+const calendar = (events: string[]) => `BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${events.join('\r\n')}\r\nEND:VCALENDAR\r\n`;
+const event = (uid: string, title: string, start = '20260929', end = '20261003', extra = '') =>
+  `BEGIN:VEVENT\r\nUID:${uid}\r\nDTSTART;VALUE=DATE:${start}\r\nDTEND;VALUE=DATE:${end}\r\nSUMMARY:${title}\r\n${extra}END:VEVENT`;
+const url = 'https://outlook.live.com/owa/calendar/private/published/calendar.ics';
+function connection() {
+  return { id: 'connection-1', encrypted: encryptOutlookConnection({ playUrl: url, classUrl: '', policy: 'manual', rules: DEFAULT_OUTLOOK_RULES }, 'secret') };
+}
+async function call(method: string, body?: unknown, year = '2026') {
+  const result = { status: 200, body: {} as Record<string, any>, headers: {} as Record<string, string> };
+  const res = { setHeader: (key: string, value: string) => { result.headers[key] = value; },
+    status: (status: number) => { result.status = status; return res; },
+    json: (value: Record<string, unknown>) => { result.body = value; return res; } };
+  await handler({ method, body, query: { year }, headers: {} } as VercelRequest, res as unknown as VercelResponse);
+  return result;
+}
+beforeEach(() => {
+  data.clear(); vi.clearAllMocks(); auth.mockResolvedValue(true); origin.mockReturnValue(true);
+  getHash.mockResolvedValue(null); evalMock.mockResolvedValue(1);
+  set.mockImplementation(async (key: string, value: unknown) => { data.set(key, value); return 'OK'; });
+  vi.stubEnv('SYNC_SECRET', 'secret');
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(calendar([event('period', '月经')]))));
+});
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+
+describe('经期 Outlook 解析', () => {
+  it('只选标题包含月经或血滴的全天事件，同时识别被取消或更名的 UID', () => {
+    const parsed = parsePeriodCalendar(calendar([
+      event('a', '月经第1天'), event('b', '🩸 经期'), event('renamed', '其他日程'), event('cancel', '月经', undefined, undefined, 'STATUS:CANCELLED\r\n'),
+      'BEGIN:VEVENT\r\nUID:timed\r\nDTSTART:20261001T100000Z\r\nDTEND:20261001T110000Z\r\nSUMMARY:月经\r\nEND:VEVENT',
+    ]), 2026);
+    expect(parsed.events.map((value) => value.uid)).toEqual(['a', 'b']);
+    expect(parsed.seenUids).toEqual(['a', 'b', 'renamed', 'cancel', 'timed']);
+    expect(parsed.events[0]).toMatchObject({ startDate: '2026-09-29', endDate: '2026-10-03' });
+  });
+  it('重复日程保留 EXDATE 与改期，跨年仍能查询往年', () => {
+    const parsed = parsePeriodCalendar(calendar([
+      event('recurring', '🩸', '20231229', '20240102', 'RRULE:FREQ=MONTHLY;COUNT=3\r\nEXDATE;VALUE=DATE:20240129\r\n'),
+    ]), 2024);
+    expect(parsed.events).toEqual([{ uid: 'recurring', startDate: '2023-12-29', endDate: '2024-01-02' },
+      { uid: 'recurring', startDate: '2024-02-29', endDate: '2024-03-04' }]);
+  });
+  it('读取失败不写快照，也不泄露订阅地址', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error(url); }));
+    await expect(syncLifePeriods(connection(), 2026)).rejects.toThrow('Outlook 日历读取失败');
+    expect(evalMock).not.toHaveBeenCalled();
+  });
+  it('同步完整经期范围，保存历史快照且不改财务日历', async () => {
+    const saved = { events: [{ uid: 'old', startDate: '2026-01-01', endDate: '2026-01-03' }] };
+    data.set(periodsKey(2026), saved);
+    const result = await syncLifePeriods(connection(), 2026);
+    expect(result.periodDays).toEqual(['2026-01-01', '2026-01-02', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02']);
+    expect(evalMock.mock.calls[0][1]).toEqual([LIFE_CONNECTION_KEY, periodsKey(2026)]);
+    expect(set).not.toHaveBeenCalled();
+  });
+  it('连接变更或较新的同步先完成时拒绝旧结果', async () => {
+    for (const result of [0, -1]) {
+      evalMock.mockResolvedValueOnce(result);
+      await expect(syncLifePeriods(connection(), 2026)).rejects.toThrow('日历连接或内容已更新');
+    }
+  });
+});
+
+describe('BonLife 接口', () => {
+  it.each(['GET', 'POST', 'PUT', 'DELETE'])('未登录 %s 不读写状态记录', async (method) => {
+    auth.mockResolvedValue(false);
+    expect((await call(method)).status).toBe(401);
+    expect(getHash).not.toHaveBeenCalled(); expect(evalMock).not.toHaveBeenCalled(); expect(set).not.toHaveBeenCalled();
+  });
+  it('拒绝跨来源和无效年份', async () => {
+    origin.mockReturnValue(false); expect((await call('GET')).status).toBe(403);
+    origin.mockReturnValue(true); expect((await call('GET', undefined, '2026x')).status).toBe(400);
+    expect(getHash).not.toHaveBeenCalled();
+  });
+  it('往年读取两个独立状态，返回私有缓存头，不读取账本键', async () => {
+    getHash.mockResolvedValue({ 'skin:2020-02-29': { text: '皮肤', revision: 'a' }, 'mood:2020-02-29': { text: '心情', revision: 'b' } });
+    const result = await call('GET', undefined, '2020');
+    expect(result.body.year).toBe(2020); expect(Object.keys(result.body.entries)).toHaveLength(2);
+    expect(getHash).toHaveBeenCalledWith(entriesKey(2020));
+    expect(result.headers['Cache-Control']).toBe('private, no-store');
+  });
+  it('正确处理 Redis SDK 已解码的写入结果，逐日提交不覆盖整年', async () => {
+    const entry = { text: '今天很好', revision: 'mutation-123456789' };
+    evalMock.mockResolvedValueOnce([1, entry]);
+    const result = await call('POST', { action: 'save', kind: 'mood', date: '2026-10-01', text: entry.text, revision: '', mutationId: entry.revision });
+    expect(result.body.entry).toEqual(entry);
+    expect(evalMock.mock.calls[0][1]).toEqual([entriesKey(2026)]);
+    expect(evalMock.mock.calls[0][2].slice(0, 3)).toEqual(['mood:2026-10-01', '', entry.revision]);
+  });
+  it('返回冲突的云端文字，非法日期与过长内容不进入存储', async () => {
+    const edit = { action: 'save', kind: 'skin', date: '2026-10-01', text: 'draft', revision: 'old', mutationId: 'mutation-123456789' };
+    evalMock.mockResolvedValueOnce([0, { text: '另一处的记录', revision: 'new' }]);
+    const result = await call('POST', edit);
+    expect(result.status).toBe(409); expect(result.body.current.text).toBe('另一处的记录');
+    expect((await call('POST', { ...edit, date: '2026-02-30' })).status).toBe(400);
+    expect((await call('POST', { ...edit, text: 'a'.repeat(2001) })).status).toBe(400);
+    expect(evalMock).toHaveBeenCalledTimes(1);
+  });
+  it('单独加密经期订阅，不替换 BonBills 的订阅；断开不删除历史', async () => {
+    data.set('outlook:calendar-connection:v1', { id: 'bills' });
+    data.set(periodsKey(2026), { events: [] });
+    const result = await call('PUT', { year: 2026, url });
+    expect(result.body.connected).toBe(true);
+    expect(JSON.stringify(data.get(LIFE_CONNECTION_KEY))).not.toContain(url);
+    expect(data.get('outlook:calendar-connection:v1')).toEqual({ id: 'bills' });
+    expect((await call('DELETE')).body.connected).toBe(false);
+    expect(data.has(periodsKey(2026))).toBe(true);
+  });
+  it('新连接读取失败时保留原连接，不透露私密地址', async () => {
+    data.set(LIFE_CONNECTION_KEY, { id: 'old' });
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error(url); }));
+    const result = await call('PUT', { year: 2026, url });
+    expect(result.status).toBe(502); expect(JSON.stringify(result.body)).not.toContain(url);
+    expect(data.get(LIFE_CONNECTION_KEY)).toEqual({ id: 'old' });
+  });
+});

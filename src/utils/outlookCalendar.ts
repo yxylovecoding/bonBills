@@ -5,6 +5,7 @@ export type OutlookTag = Extract<TagKind, 'travel' | 'intern' | 'home'>;
 export type OutlookConflictPolicy = 'manual' | 'outlook';
 
 export interface OutlookDayEvent {
+  uid?: string;
   calendar: OutlookCalendarKind;
   title: string;
   startDate: string;

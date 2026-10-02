@@ -69,7 +69,7 @@ export function decryptOutlookConnection(value: string, secret: string): Outlook
   return parseOutlookInput(JSON.parse(Buffer.from(new Uint8Array([...decipher.update(data), ...decipher.final()])).toString('utf8')));
 }
 
-async function fetchCalendar(url: string): Promise<string> {
+export async function fetchCalendar(url: string): Promise<string> {
   const response = await fetch(validateOutlookUrl(url), {
     redirect: 'error', signal: AbortSignal.timeout(15_000), headers: { Accept: 'text/calendar' },
   });
@@ -104,7 +104,7 @@ function isAllDay(event: IcalEvent) {
   return event.startDate?.isDate || String(event.component.getFirstPropertyValue('x-microsoft-cdo-alldayevent')).toUpperCase() === 'TRUE';
 }
 
-export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind, startDate: string, endDate: string): OutlookDayEvent[] {
+export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind, startDate: string, endDate: string, includeUid = false): OutlookDayEvent[] {
   if (!/^\s*BEGIN:VCALENDAR\r?\n/i.test(text) || !/END:VCALENDAR\s*$/i.test(text)) throw new Error('订阅内容不是完整日历');
   const root = new ICAL.Component(ICAL.parse(text));
   const components = root.getAllSubcomponents('vevent');
@@ -124,7 +124,8 @@ export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind
     if (!isAllDay(event) || isCancelled(event)) return;
     const from = dayOf(start);
     const to = dayOf(end);
-    if (from < endDate && to > startDate) result.push({ calendar, title: event.summary || '', startDate: from, endDate: to, allDay: true });
+    if (from < endDate && to > startDate) result.push({ calendar, title: event.summary || '', startDate: from, endDate: to, allDay: true,
+      ...(includeUid ? { uid: event.uid } : {}) });
   };
   let iterations = 0;
   const deadline = Date.now() + 2500;
