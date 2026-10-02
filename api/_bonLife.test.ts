@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import handler from './bonlife';
+import handler from './outlook-calendar';
 import { entriesKey, LIFE_CONNECTION_KEY, parsePeriodCalendar, periodsKey, syncLifePeriods } from './_bonLife';
 import { encryptOutlookConnection } from './_outlookCalendar';
 import { DEFAULT_OUTLOOK_RULES } from '../src/utils/outlookCalendar';
@@ -25,7 +25,7 @@ async function call(method: string, body?: unknown, year = '2026') {
   const res = { setHeader: (key: string, value: string) => { result.headers[key] = value; },
     status: (status: number) => { result.status = status; return res; },
     json: (value: Record<string, unknown>) => { result.body = value; return res; } };
-  await handler({ method, body, query: { year }, headers: {} } as VercelRequest, res as unknown as VercelResponse);
+  await handler({ method, body, query: { year, app: 'bonlife' }, headers: {} } as VercelRequest, res as unknown as VercelResponse);
   return result;
 }
 beforeEach(() => {

@@ -1,6 +1,5 @@
 {
   "functions": {
-    "api/bonlife.ts": { "maxDuration": 60 },
     "api/outlook-calendar.ts": { "maxDuration": 60 },
     "api/ticktick-trips.ts": { "maxDuration": 300 }
   },
@@ -9,6 +8,7 @@
     { "path": "/api/ticktick-trips", "schedule": "20 1 * * *" }
   ],
   "rewrites": [
+    { "source": "/api/bonlife", "destination": "/api/outlook-calendar?app=bonlife" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }

@@ -105,7 +105,7 @@ export default defineConfig({
               json(body: unknown) { sendJson(res, res.statusCode, body); return response; },
               send(body: string | Buffer) { res.end(body); return response; },
             }) as unknown as VercelResponse;
-            const module = await server.ssrLoadModule(`/api/${route}.ts`);
+            const module = await server.ssrLoadModule(`/api/${route === 'bonlife' ? '_bonLifeRoute' : route}.ts`);
             await module.default(request, response);
           } catch {
             if (!res.headersSent) sendJson(res, 503, { error: '服务暂不可用，请稍后重试' });

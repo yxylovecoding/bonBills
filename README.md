@@ -24,7 +24,7 @@ npm run build     # 生产构建
 
 经期快照按年保留。仍在订阅中的事件以最新内容为准，包括更名、改期和取消；已从订阅范围消失的历史日程保留过去部分，未来部分不沿用。同步失败时保留上次完整快照，断开连接也保留历史标记。首次导入只能取得 Outlook 当前发布范围内的历史事件；尚未被订阅提供过的往年经期无法凭空补齐。
 
-本地 `/life` 复用与生产一致的 `/api/bonlife`；需要现有 `SYNC_SECRET` 和 Vercel KV 环境变量。BonLife 的经期与文字不进入财务账本的上传、合并或自动入账。
+本地 `/life` 复用与生产一致的 `/api/bonlife`；需要现有 `SYNC_SECRET` 和 Vercel KV 环境变量。生产将此地址重写到 `/api/outlook-calendar?app=bonlife`，分派到独立处理器，以沿用现有部署函数数量；本地开发直接分派到同一处理器。BonLife 的经期与文字不进入财务账本的上传、合并或自动入账。
 
 本地登录需要在 `.env.local` 配置 `SYNC_SECRET`、`KV_REST_API_URL`、`KV_REST_API_TOKEN`，建议连接开发用 KV。Vite 会转发登录及账单相关接口到同一份服务端实现。
 
