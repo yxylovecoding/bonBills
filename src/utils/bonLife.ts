@@ -1,4 +1,4 @@
-import { isCalendarDate, nextCalendarDate } from './outlookCalendar';
+import { isCalendarDate, nextCalendarDate } from './outlookCalendar.js';
 
 export type LifeKind = 'skin' | 'mood';
 export const LIFE_LABELS: Record<LifeKind, string> = { skin: '皮肤', mood: '情绪' };
