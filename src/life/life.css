@@ -1,4 +1,4 @@
-.bonlife { --life-ink: #353633; --life-muted: #83847e; --life-line: #e7e6e1; --life-accent: #586851; min-height: 100vh; background: #f6f5f3; color: var(--life-ink); }
+.bonlife { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; --life-ink: #353633; --life-muted: #83847e; --life-line: #e7e6e1; --life-accent: #586851; min-height: 100vh; background: #f6f5f3; color: var(--life-ink); }
 .bonlife button, .bonlife select { cursor: pointer; }
 .bonlife button { border: 0; background: transparent; border-radius: 8px; }
 .bonlife button:disabled { cursor: default; opacity: .5; }
