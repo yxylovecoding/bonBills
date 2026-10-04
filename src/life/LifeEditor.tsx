@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { BODY_FIELDS, SKIN_FIELDS, entrySummary, parseLifeEdit, LIFE_LABELS, LIFE_TEXT_LIMIT, type BodyRecord, type CycleSettings, type LifeEntry, type SkinRecord } from '../utils/bonLife';
-import { CYCLE_GUIDANCE, visibleCycleDay, suggestedTraining } from '../utils/lifeCycle';
+import { CYCLE_GUIDANCE, visibleCycleDay } from '../utils/lifeCycle';
 import { draftKey, LifeError, lifeRequest, type LifeDraft } from './client';
-import { personalTraining, type TrainingTask } from '../utils/lifeTraining';
+import { automaticTraining, plannedTraining, type TrainingTask } from '../utils/lifeTraining';
 
 export default function LifeEditor({ initial, owner, cycle, periodDays, trainingTasks, onSave, onClose, onExpired }: {
   initial: LifeDraft; owner: string; cycle: CycleSettings; periodDays: string[];
@@ -19,6 +19,8 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial) || Boolean(localStorageSafeRead());
   const phase = visibleCycleDay(draft.date, cycle, periodDays);
   const guidance = phase ? CYCLE_GUIDANCE[phase.phase] : null;
+  const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date());
+  const training = draft.kind === 'training' ? plannedTraining(draft.date, today, trainingTasks, cycle, periodDays, draft.training) : undefined;
 
   function localStorageSafeRead() {
     try { return localStorage.getItem(draftKey(owner)); } catch { return null; }
@@ -49,10 +51,11 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
     attempted.current = true;
     setBusy(true); setError(''); persist(draft);
     try {
-      parseLifeEdit(draft);
-      const { entry } = await lifeRequest<{ entry: LifeEntry }>('POST', { action: 'save', ...draft });
+      const savedDraft = training ? { ...draft, training } : draft;
+      parseLifeEdit(savedDraft);
+      const { entry } = await lifeRequest<{ entry: LifeEntry }>('POST', { action: 'save', ...savedDraft });
       try { localStorage.removeItem(draftKey(owner)); } catch { /* Server save succeeded. */ }
-      onSave(entry, draft);
+      onSave(entry, savedDraft);
     } catch (cause) {
       if (cause instanceof LifeError && cause.status === 401) onExpired();
       else if (cause instanceof LifeError && cause.current) setConflict(cause.current);
@@ -79,14 +82,17 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
             {task.links.length > 0 && <div className="life-training-links">{task.links.map((link) => <a href={link.url} key={link.url} target="_blank" rel="noreferrer">{link.title} ↗</a>)}</div>}</div>)}
         </details>}
         {guidance && <div className="life-guidance"><p><span>运动</span>{guidance.exercise}</p><p><span>饮食</span>{guidance.food}</p></div>}
-        <label className="life-field">今日强度<select disabled={busy} value={draft.training?.effort ?? 'normal'} onChange={(event) => {
+        <div className="life-training-mode"><span>{training?.mode === 'auto' ? '经期自动安排' : '手动安排'}</span>
+          {training?.mode !== 'auto' && !training?.completed && <button type="button" disabled={busy} onClick={() => change({ training: automaticTraining(draft.date, trainingTasks, cycle, periodDays, training?.effort) })}>恢复自动安排</button>}
+        </div>
+        <label className="life-field">当日强度<select disabled={busy} value={training?.effort ?? 'normal'} onChange={(event) => {
           const effort = event.target.value as 'normal' | 'easy' | 'rest';
-          change({ training: { plan: trainingTasks ? personalTraining(draft.date, trainingTasks, cycle, periodDays, effort) : suggestedTraining(draft.date, cycle, periodDays, effort), effort, completed: draft.training?.completed ?? false } });
+          change({ training: { ...automaticTraining(draft.date, trainingTasks, cycle, periodDays, effort), completed: training?.completed ?? false } });
         }}><option value="normal">按计划</option><option value="easy">轻量</option><option value="rest">休息</option></select></label>
-        <label className="life-field">训练计划<textarea rows={3} maxLength={1000} disabled={busy} value={draft.training?.plan ?? ''}
-          onChange={(event) => change({ training: { effort: 'normal', completed: false, ...draft.training, plan: event.target.value } })} /></label>
-        <label className="life-check"><input type="checkbox" disabled={busy} checked={draft.training?.completed ?? false} onChange={(event) =>
-          change({ training: { plan: '', effort: 'normal', ...draft.training, completed: event.target.checked } })} />已完成</label>
+        <label className="life-field">训练计划<textarea aria-label="训练计划" rows={3} maxLength={1000} disabled={busy} value={training?.plan ?? ''}
+          onChange={(event) => change({ training: { effort: 'normal', completed: false, ...training, plan: event.target.value, mode: 'manual' } })} /></label>
+        <label className="life-check"><input type="checkbox" disabled={busy} checked={training?.completed ?? false} onChange={(event) =>
+          change({ training: { plan: '', effort: 'normal', ...training, completed: event.target.checked } })} />已完成</label>
       </div>}
       <label className="life-field">{draft.kind === 'skin' ? '皮肤状态' : draft.kind === 'mood' ? '情绪' : '备注'}
       <textarea aria-label={`${LIFE_LABELS[draft.kind]}记录`} autoFocus rows={7} maxLength={LIFE_TEXT_LIMIT}

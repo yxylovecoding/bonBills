@@ -94,7 +94,17 @@
 .life-fields input, .life-field input, .life-field textarea, .life-field select { color: var(--life-ink); }
 .life-field select { background: #fdfdfb; border: 1px solid var(--life-line); border-radius: 8px; padding: 10px; }
 .life-training-editor textarea { min-height: 84px; }
+.life-training-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 20px 0; border-top: 1px solid var(--life-line); }
+.life-training-heading h2 { margin: 0; font-size: 21px; font-weight: 500; }
+.life-training-heading p { margin: 7px 0 0; color: var(--life-muted); font-size: 12px; }
+.life-training-heading button { color: var(--life-accent); font-size: 12px; padding: 6px 0; }
+.life-training-mode { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; margin-bottom: 16px; color: var(--life-muted); }
+.life-training-mode button { color: var(--life-accent); padding: 0; }
+.bonlife .life-training-calendar .life-day, .life-training-calendar .life-empty-day { height: auto; min-height: 170px; }
+.life-training-calendar .life-day-text { display: block; overflow: visible; }
+.life-plan-status { margin-top: auto; padding-top: 6px; color: var(--life-muted); font-size: 10px; }
 .life-training-source { margin-bottom: 16px; }
+.life-training-source .life-training-details { margin: 4px 0 0; }
 .life-training-source .life-done-toolbar { padding: 0 0 10px; }
 .life-training-schedule { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 0; font-size: 12px; }
 .life-training-details { font-size: 12px; margin-bottom: 18px; }
@@ -133,32 +143,37 @@
 .life-done-toolbar button { color: var(--life-accent); padding: 5px 0; }
 .life-done-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-top: 24px; }
 .life-done-heading h2 { margin: 0; font-size: 21px; font-weight: 500; letter-spacing: -.4px; }
-.life-done-heading p { margin: 7px 0 0; color: var(--life-muted); font-size: 12px; }
-.life-done-total { display: flex; align-items: baseline; gap: 7px; color: var(--life-accent); }
-.life-done-total strong { font-size: 30px; line-height: 1; font-weight: 500; font-variant-numeric: tabular-nums; }
-.life-done-total span { font-size: 11px; color: var(--life-muted); }
-.life-done-categories { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
-.life-done-category { background: #fff; border: 1px solid var(--life-line); border-radius: 12px; overflow: hidden; min-width: 0; }
-.life-done-category h3 { display: flex; align-items: center; justify-content: space-between; margin: 0; padding: 15px 16px; border-bottom: 1px solid var(--life-line); font-size: 15px; font-weight: 500; background: #fcfcfa; }
-.life-done-category h3 span { font-size: 11px; font-weight: 400; color: var(--life-muted); font-variant-numeric: tabular-nums; }
-.life-done-category ul { margin: 0; padding: 0 16px; list-style: none; }
-.life-done-category li { display: flex; align-items: baseline; gap: 12px; padding: 14px 0; font-size: 13px; line-height: 1.7; border-bottom: 1px solid var(--life-line); }
-.life-done-category li:last-child { border-bottom: 0; }
+.life-week-navigation { display: flex; align-items: center; gap: 4px; }
+.life-week-navigation .life-today { margin: 0; }
+.life-week-strip { display: flex; gap: 24px; align-items: flex-start; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; overflow-anchor: none; padding: 2px 0 16px; scrollbar-width: thin; scrollbar-color: #d5d3ca transparent; }
+.life-week-page { flex: 0 0 calc((100% - 24px) / 2); min-width: 450px; padding: 26px 24px 18px; background: #fdfcf8; border: 1px solid #e6e3d9; border-bottom: 2px solid #b9aa94; scroll-snap-align: end; }
+.life-week-page-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding-bottom: 18px; }
+.life-week-page-heading > div { display: flex; align-items: baseline; gap: 12px; }
+.life-week-page-heading h3 { margin: 0; font-size: 27px; font-weight: 300; color: #77786d; letter-spacing: 1px; }
+.life-week-page-heading span { font-size: 10px; color: #8e8e80; white-space: nowrap; }
+.life-week-day { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 14px; min-height: 88px; padding: 16px 0; border-top: 1px solid #e8e5dd; }
+.life-week-day.is-today { background: #f3f5ec; margin: 0 -10px; padding-left: 10px; padding-right: 10px; }
+.life-week-day.is-future { opacity: .6; }
+.life-week-day-heading { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; color: #909185; }
+.life-week-day-heading > time { font-size: 21px; line-height: 1.15; font-weight: 300; font-variant-numeric: tabular-nums; }
+.life-week-day-heading > span { font-size: 9px; letter-spacing: .5px; }
+.life-week-day-heading > .life-week-today { margin-top: 4px; color: var(--life-accent); letter-spacing: 0; font-size: 10px; }
+.life-week-day-content { min-width: 0; }
+.life-week-day-summary { display: flex; flex-wrap: wrap; gap: 10px 18px; padding-top: 4px; color: #838478; font-size: 11px; }
+.life-week-day-summary > span { display: flex; gap: 8px; }
+.life-week-day-summary > span > span { color: #aaa99e; font-variant-numeric: tabular-nums; }
+.life-week-expand { margin-top: 12px; color: var(--life-accent); font-size: 10px; padding: 0; }
+.life-week-empty { margin: 4px 0 0; color: var(--life-muted); font-size: 11px; }
+.life-week-categories { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.life-week-category { min-width: 0; }
+.life-week-category h3 { display: flex; align-items: baseline; gap: 8px; margin: 1px 0 12px; color: #72776a; font-size: 12px; font-weight: 400; }
+.life-week-category h3 span { font-size: 9px; color: #a0a094; }
+.life-week-category ul { margin: 0; padding: 0; list-style: none; }
+.life-week-category li { display: flex; flex-direction: column; gap: 3px; margin-bottom: 12px; font-size: 11px; line-height: 1.8; }
+.life-week-category li:last-child { margin-bottom: 0; }
 .life-done-task-title { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
-.life-done-category time { flex-shrink: 0; margin-left: auto; color: var(--life-muted); font-size: 10px; font-variant-numeric: tabular-nums; }
-.life-done-category-empty { margin: 0; padding: 28px 16px; color: var(--life-muted); font-size: 12px; }
-.life-done-category.is-unclassified { grid-column: 1 / -1; }
-.life-done-history { margin-top: 32px; }
-.life-done-history > h2 { display: flex; align-items: baseline; gap: 10px; margin: 0 0 10px; color: var(--life-muted); font-size: 13px; font-weight: 400; }
-.life-done-history > h2 span { font-size: 11px; }
-.life-done-history-day { border-top: 1px solid var(--life-line); }
-.life-done-history-day:last-child { border-bottom: 1px solid var(--life-line); }
-.life-done-history-day > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; padding: 17px 0; font-size: 13px; }
-.life-done-history-day > summary::-webkit-details-marker { display: none; }
-.life-done-history-count { display: flex; align-items: center; gap: 18px; color: var(--life-muted); font-size: 11px; }
-.life-done-chevron { font-size: 15px; }
-.life-done-history-day[open] .life-done-chevron { transform: rotate(180deg); }
-.life-done-history-day > .life-done-categories { padding-bottom: 20px; }
+.life-week-category time { color: #a3a397; font-size: 9px; font-variant-numeric: tabular-nums; }
+.life-week-category-empty { margin: 0; color: #b3b1a5; font-size: 11px; }
 .life-empty-state { color: var(--life-muted); font-size: 12px; padding: 14px 0; }
 .life-empty-state a { color: var(--life-accent); }
 .life-body-trends { margin-bottom: 24px; border-top: 1px solid var(--life-line); }
@@ -179,7 +194,17 @@
 .life-body-plot, .life-body-chart-empty { height: 144px; }
 .life-body-chart-empty { display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--life-muted); }
 @media (max-width: 600px) {
-  .life-done-categories { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .life-training-calendar .life-days { grid-template-columns: minmax(0, 1fr); }
+  .life-training-calendar .life-weekdays, .life-training-calendar .life-empty-day { display: none; }
+  .bonlife .life-training-calendar .life-day { min-height: 0; padding: 14px 16px; border-right: 0; border-bottom: 1px solid var(--life-line); gap: 8px; }
+  .life-training-calendar .life-day:last-child { border-bottom: 0; }
+  .life-training-calendar .life-day-heading { flex-direction: row; align-items: center; }
+  .life-training-calendar .life-day-text { font-size: 12px; }
+  .life-training-calendar .life-period-mark { font-size: 10px; }
+  .life-week-page { flex-basis: 100%; min-width: 0; padding: 20px 14px 14px; }
+  .life-week-day { grid-template-columns: 32px minmax(0, 1fr); gap: 10px; }
+  .life-week-categories { gap: 10px; }
+  .life-week-page-heading > div { gap: 8px; }
   .life-done-heading h2 { font-size: 19px; }
   .life-body-charts { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .life-tabs { width: 100%; }

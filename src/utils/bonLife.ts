@@ -21,7 +21,7 @@ export type BodyMetric = keyof typeof BODY_FIELDS;
 export const CIRCUMFERENCE_FIELDS = ['chest', 'waist', 'hips', 'upperArm', 'thigh', 'calf'] as const;
 export type SkinRecord = Partial<Record<keyof typeof SKIN_FIELDS, string>>;
 export type BodyRecord = Partial<Record<keyof typeof BODY_FIELDS, number>>;
-export interface TrainingRecord { plan: string; effort: 'normal' | 'easy' | 'rest'; completed: boolean }
+export interface TrainingRecord { plan: string; effort: 'normal' | 'easy' | 'rest'; completed: boolean; mode?: 'auto' | 'manual' }
 export interface LifeEntry { text: string; revision: string; skin?: SkinRecord; body?: BodyRecord; training?: TrainingRecord }
 export type LifeEntries = Record<string, LifeEntry>;
 export interface LifeYear {
@@ -83,8 +83,10 @@ export function parseLifeEdit(value: unknown) {
   if (edit.training !== undefined) {
     const training = edit.training as TrainingRecord | null;
     if (!training || typeof training.plan !== 'string' || training.plan.length > 1000
-      || !['normal', 'easy', 'rest'].includes(training.effort) || typeof training.completed !== 'boolean') throw new Error('训练记录无效');
-    details.training = { plan: training.plan, effort: training.effort, completed: training.completed };
+      || !['normal', 'easy', 'rest'].includes(training.effort) || typeof training.completed !== 'boolean'
+      || (training.mode !== undefined && !['auto', 'manual'].includes(training.mode))) throw new Error('训练记录无效');
+    details.training = { plan: training.plan, effort: training.effort, completed: training.completed,
+      ...(training.mode ? { mode: training.mode } : {}) };
   }
   const year = lifeYear(edit.date.slice(0, 4));
   return { year, kind: edit.kind as LifeKind, date: edit.date, text: edit.text,

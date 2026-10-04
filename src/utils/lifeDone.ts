@@ -1,4 +1,5 @@
 import type { DoneItem } from './bonLife';
+import { isCalendarDate } from './outlookCalendar.js';
 
 export const DONE_CATEGORIES = ['课', '活', '玩'] as const;
 export type DoneCategory = typeof DONE_CATEGORIES[number] | '未分类';
@@ -35,4 +36,34 @@ export function splitDoneDays(items: DoneItem[], month: string, today: string) {
     else { const group = history.get(item.date) ?? []; group.push(item); history.set(item.date, group); }
   }
   return { current, history: [...history].sort(([a], [b]) => b.localeCompare(a)) };
+}
+
+export function doneWeekDates(date: string): string[] {
+  if (!isCalendarDate(date)) return [];
+  const anchor = new Date(`${date}T00:00:00Z`);
+  const monday = anchor.getTime() - ((anchor.getUTCDay() + 6) % 7) * 86_400_000;
+  return Array.from({ length: 7 }, (_, index) => new Date(monday + index * 86_400_000).toISOString().slice(0, 10));
+}
+
+export function doneWeekMonths(date: string, today: string): string[] {
+  return [...new Set(doneWeekDates(date).filter((day) => day >= '1900-01-01' && day <= today).map((day) => day.slice(0, 7)))];
+}
+
+export function groupDoneWeek(items: DoneItem[], date: string, today: string) {
+  const days = new Map(doneWeekDates(date).map((day) => [day, new Map<string, DoneItem>()]));
+  for (const item of items) if (item.date <= today) days.get(item.date)?.set(item.id, item);
+  return [...days].map(([day, entries]) => ({ date: day, items: [...entries.values()] }));
+}
+
+export function shiftDoneDate(date: string, days: number): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+export function earlierDoneWeeks(before: string, count = 4): string[] {
+  return Array.from({ length: count }, (_, index) => shiftDoneDate(before, -7 * (count - index))).filter((date) => date >= '1900-01-01');
+}
+
+export function doneWeekNumber(date: string): number {
+  const thursday = new Date(`${doneWeekDates(date)[3]}T00:00:00Z`);
+  return Math.ceil(((thursday.getTime() - Date.UTC(thursday.getUTCFullYear(), 0, 1)) / 86_400_000 + 1) / 7);
 }

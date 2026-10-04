@@ -1,9 +1,44 @@
 import { describe, expect, it } from 'vitest';
 import type { DoneItem } from './bonLife';
-import { classifyDoneCategory, groupDoneCategories, splitDoneDays } from './lifeDone';
+import { classifyDoneCategory, doneWeekDates, doneWeekMonths, doneWeekNumber, earlierDoneWeeks, groupDoneCategories, groupDoneWeek, shiftDoneDate, splitDoneDays } from './lifeDone';
 
 const item = (id: string, date: string, category?: DoneItem['category']): DoneItem => ({
   id, taskId: id, projectId: 'inbox', title: id, date, completedAt: `${date}T09:00:00Z`, category,
+});
+
+describe('连续周本', () => {
+  it('每页从周一到周日，跨月跨年均为连续七天', () => {
+    expect(doneWeekDates('2026-10-04')).toEqual(['2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04']);
+    expect(doneWeekDates('2027-01-01')).toEqual(['2026-12-28', '2026-12-29', '2026-12-30', '2026-12-31', '2027-01-01', '2027-01-02', '2027-01-03']);
+    expect(doneWeekDates('2028-03-01')).toContain('2028-02-29');
+    expect(doneWeekDates('not-a-date')).toEqual([]);
+  });
+  it('向左追加的周页保持时间递增，与已有首周无断层', () => {
+    const weeks = [...earlierDoneWeeks('2026-09-28'), '2026-09-28'];
+    expect(weeks).toEqual(['2026-08-31', '2026-09-07', '2026-09-14', '2026-09-21', '2026-09-28']);
+    for (let index = 1; index < weeks.length; index++) expect(shiftDoneDate(weeks[index - 1], 7)).toBe(weeks[index]);
+    expect(earlierDoneWeeks('1900-01-08')).toEqual(['1900-01-01']);
+  });
+  it('读取跨月两端数据，不向未来月份请求完成记录', () => {
+    expect(doneWeekMonths('2026-10-04', '2026-10-04')).toEqual(['2026-09', '2026-10']);
+    expect(doneWeekMonths('2026-12-31', '2026-12-31')).toEqual(['2026-12']);
+    expect(doneWeekMonths('2027-01-03', '2027-01-03')).toEqual(['2026-12', '2027-01']);
+  });
+  it('归入真实完成日，每项仅一次，保留空白日和所有今天的完成项', () => {
+    const history = item('history', '2026-09-30', '课');
+    const today = item('today', '2026-10-04', '玩');
+    const week = groupDoneWeek([history, today, today, item('outside', '2026-09-27'), item('future', '2026-10-05')], '2026-10-04', '2026-10-04');
+    expect(week).toHaveLength(7);
+    expect(week[0].items).toEqual([]);
+    expect(week[2].items).toEqual([history]);
+    expect(week[6].items).toEqual([today]);
+    expect(week.flatMap((day) => day.items)).toHaveLength(2);
+  });
+  it('年末周次正确，元旦可属于上一年的第 53 周', () => {
+    expect(doneWeekNumber('2026-10-04')).toBe(40);
+    expect(doneWeekNumber('2027-01-01')).toBe(53);
+    expect(doneWeekNumber('2027-01-04')).toBe(1);
+  });
 });
 describe('DoneList 分类与日期分组', () => {
   it('标签优先、清单兜底，兼容前后符号但不猜测含义', () => {
