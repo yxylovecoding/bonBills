@@ -1,4 +1,4 @@
-name: TickTick night routine visibility
+name: TickTick evening cleanup
 
 on:
   schedule:
@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Update night routine visibility
+      - name: Update night routine and skip missed workouts
         env:
           CRON_SECRET: ${{ secrets.BONBILLS_CRON_SECRET }}
         shell: bash
@@ -43,11 +43,11 @@ jobs:
             }
             const result = await response.json().catch(() => null);
             if (response.status !== 200 || result?.ok !== true || result.busy || result.error
-                || (result.connected !== false && !result.nightRoutine)) {
+                || (result.connected !== false && (!result.nightRoutine || !result.exercise))) {
               throw new Error(`Night routine sync did not complete (HTTP ${response.status})`);
             }
             // Public logs contain no credentials, task titles, tags or dates.
-            console.log('Night routine visibility sync completed successfully.');
+            console.log('Evening cleanup completed successfully.');
             process.exit(0);
           }
           NODE

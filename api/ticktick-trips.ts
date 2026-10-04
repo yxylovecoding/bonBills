@@ -10,6 +10,7 @@ import type { OutlookAvailability } from '../src/utils/outlookCalendar.js';
 import { acquireTickTickLock, releaseTickTickLock } from './_ticktickLock.js';
 import { syncSwimmingSchedule } from './_lifeSwimming.js';
 import { syncNightRoutineVisibility } from './_ticktickNightRoutine.js';
+import { syncExerciseSchedule } from './_ticktickExercise.js';
 
 const CONNECTION_KEY = 'ticktick:connection:v1';
 const SYNC_STATE_KEY = 'ticktick:trip-sync:v1';
@@ -109,9 +110,11 @@ async function runSync(allowDisconnected = false) {
       });
       // Follow explicit task dates after generated trips/wishes have their final
       // dates, including tasks first created during this sync.
+      const excludedTaskIds = getTickTickRoutineExcludedTaskIds(template, state);
+      const exercise = await syncExerciseSchedule(api, { connectionId, calendarState, excludedTaskIds });
       const routineResult = await syncTickTickRoutines({
         api, calendarState, today,
-        excludedTaskIds: getTickTickRoutineExcludedTaskIds(template, state),
+        excludedTaskIds, minimumTaskDates: exercise.minimumDates,
         planDay: !availability && dailyBudget(settings?.budgetMinutes) === null ? undefined : async (tasks) => {
           const plan = planTickTickDay({ tasks, calendarState, today, state: dailyPlan,
             budgetMinutes: settings?.budgetMinutes, availability, availabilityProfile: availabilityProfile(settings?.availabilityProfile),
@@ -124,7 +127,7 @@ async function runSync(allowDisconnected = false) {
       await kv.set(DAILY_PLAN_KEY, dailyPlan);
       console.info('[ticktick-routine-sync]', JSON.stringify(routineResult));
       console.info('[ticktick-trip-sync]', JSON.stringify({ ...result, ...wishResult }));
-      return { busy: false as const, ...result, ...wishResult, ...routineResult, dailyPlan: dailyPlan.summary, budgetMinutes: dailyBudget(settings?.budgetMinutes),
+      return { busy: false as const, ...result, ...wishResult, ...routineResult, exercise: { updated: exercise.updated }, dailyPlan: dailyPlan.summary, budgetMinutes: dailyBudget(settings?.budgetMinutes),
         availabilityProfile: availabilityProfile(settings?.availabilityProfile), lastSyncAt: state.lastSyncAt };
     } catch (error) {
       state.lastError = error instanceof Error ? error.message : String(error);
@@ -146,10 +149,13 @@ async function runNightRoutineSync() {
     const connection = await kv.get<TickTickConnection>(CONNECTION_KEY);
     if (!connection) return { busy: false as const, connected: false as const };
     const { decryptTickTickToken, TickTickOpenApiClient } = await import('./_ticktickTrips.js');
-    const api = new TickTickOpenApiClient(decryptTickTickToken(connection.encryptedToken, getSyncSecret()),
+    const token = decryptTickTickToken(connection.encryptedToken, getSyncSecret());
+    const api = new TickTickOpenApiClient(token,
       (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
     const nightRoutine = await syncNightRoutineVisibility(api, { timeZone: connection.timeZone });
-    return { busy: false as const, connected: true as const, nightRoutine };
+    const exercise = await syncExerciseSchedule(api, { connectionId: createHash('sha256').update(token).digest('hex'),
+      templateRootId: connection.templateRootId });
+    return { busy: false as const, connected: true as const, nightRoutine, exercise: { updated: exercise.updated } };
   } finally {
     await releaseTickTickLock(lockId);
   }

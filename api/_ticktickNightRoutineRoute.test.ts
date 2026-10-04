@@ -2,12 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from './ticktick-trips';
 
-const { auth, lock, release, sync, data, outlook, archive } = vi.hoisted(() => ({ auth: vi.fn(), lock: vi.fn(), release: vi.fn(),
-  sync: vi.fn(), data: new Map<string, unknown>(), outlook: vi.fn(), archive: vi.fn() }));
+const { auth, lock, release, sync, exercise, data, outlook, archive } = vi.hoisted(() => ({ auth: vi.fn(), lock: vi.fn(), release: vi.fn(),
+  sync: vi.fn(), exercise: vi.fn(), data: new Map<string, unknown>(), outlook: vi.fn(), archive: vi.fn() }));
 vi.mock('./_auth.js', () => ({ authOk: auth }));
 vi.mock('./_ticktickLock.js', () => ({ acquireTickTickLock: lock, releaseTickTickLock: release }));
 vi.mock('@vercel/kv', () => ({ kv: { get: async (key: string) => data.get(key) } }));
 vi.mock('./_ticktickNightRoutine.js', () => ({ syncNightRoutineVisibility: sync }));
+vi.mock('./_ticktickExercise.js', () => ({ syncExerciseSchedule: exercise }));
 vi.mock('./_outlookSync.js', () => ({ syncOutlookCalendar: outlook }));
 vi.mock('./_lifeDone.js', () => ({ syncRecentLifeDone: archive }));
 vi.mock('./_ticktickTrips.js', async (original) => ({ ...await original<typeof import('./_ticktickTrips')>(),
@@ -23,14 +24,16 @@ async function request(method = 'GET', authorization?: string) {
 beforeEach(() => {
   vi.clearAllMocks(); data.clear(); vi.stubEnv('CRON_SECRET', 'cron-secret'); auth.mockResolvedValue(false);
   lock.mockResolvedValue('lock'); sync.mockResolvedValue({ matched: 1, updated: 1, visible: 1, hidden: 0, skipped: 0 });
+  exercise.mockResolvedValue({ updated: 1, minimumDates: new Map() });
   data.set('ticktick:connection:v1', { encryptedToken: {}, timeZone: 'Asia/Shanghai' });
 });
 afterEach(() => vi.unstubAllEnvs());
 
 describe('夜间显隐轻量入口', () => {
-  it('有效 cron 鉴权只切换标签，不读取 Outlook、归档或重新排期', async () => {
+  it('有效 cron 鉴权切换标签和跳过运动，不读取 Outlook 或归档', async () => {
     const result = await request('GET', 'Bearer cron-secret');
-    expect(result).toMatchObject({ status: 200, body: { ok: true, connected: true, nightRoutine: { updated: 1 } } });
+    expect(result).toMatchObject({ status: 200, body: { ok: true, connected: true, nightRoutine: { updated: 1 }, exercise: { updated: 1 } } });
+    expect(exercise).toHaveBeenCalledOnce();
     expect(sync).toHaveBeenCalledWith(expect.anything(), { timeZone: 'Asia/Shanghai' });
     expect(outlook).not.toHaveBeenCalled(); expect(archive).not.toHaveBeenCalled();
     expect(release).toHaveBeenCalledWith('lock');
