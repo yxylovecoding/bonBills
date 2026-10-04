@@ -7,7 +7,7 @@ import { encryptOutlookConnection, validateOutlookUrl } from './_outlookCalendar
 import { DEFAULT_OUTLOOK_RULES } from '../src/utils/outlookCalendar.js';
 import { DEFAULT_CYCLE, lifeYear, parseCycleSettings, parseLifeEdit, type CycleSettings, type LifeEntries, type LifeEntry } from '../src/utils/bonLife.js';
 import { LIFE_CONNECTION_KEY, SAVE_LIFE_ENTRY, entriesKey, periodsKey, readPeriodCalendar, syncLifePeriods,
-  LIFE_SETTINGS_KEY, LIFE_TRAINING_ENTRIES_KEY, readPeriodDays, type LifeConnection, type PeriodSnapshot } from './_bonLife.js';
+  LIFE_SETTINGS_KEY, LIFE_TRAINING_ENTRIES_KEY, LIFE_SYMPTOM_ENTRIES_KEY, readPeriodDays, type LifeConnection, type PeriodSnapshot } from './_bonLife.js';
 import { doneMonth, readDoneMonth, syncDoneMonth } from './_lifeDone.js';
 import { readTrainingSource, syncTrainingSource } from './_lifeTraining.js';
 import { swimmingSyncWarning } from './_lifeSwimming.js';
@@ -37,13 +37,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         try { month = doneMonth(year, req.query.month); } catch { return res.status(400).json({ error: '月份无效' }); }
         return res.status(200).json(await readDoneMonth(month));
       }
-      const [entries, periods, connection, days, settings, previousEntries] = await Promise.all([
+      const [entries, periods, connection, days, settings, previousEntries, symptoms] = await Promise.all([
         kv.hgetall<LifeEntries>(entriesKey(year)), kv.get<PeriodSnapshot>(periodsKey(year)), kv.get<LifeConnection>(LIFE_CONNECTION_KEY),
         readPeriodDays(year), kv.hgetall<{ cycle: CycleSettings; skin?: SkinSettings }>(LIFE_SETTINGS_KEY),
         year > 1900 ? kv.hgetall<LifeEntries>(entriesKey(year - 1)) : null,
+        kv.hgetall<LifeEntries>(LIFE_SYMPTOM_ENTRIES_KEY),
       ]);
       return res.status(200).json({ year, entries: entries ?? {}, periodDays: days, cycle: settings?.cycle ?? DEFAULT_CYCLE,
         skinSettings: settings?.skin ?? DEFAULT_SKIN_SETTINGS,
+        symptomHistory: Object.fromEntries(Object.entries({ ...symptoms, ...previousEntries, ...entries })
+          .filter(([key]) => key.startsWith('eyes:') || key.startsWith('discomfort:'))),
         skinHistory: Object.fromEntries(Object.entries(previousEntries ?? {}).filter(([key]) => key.startsWith(`skin:${year - 1}-`))), syncedAt: periods?.syncedAt ?? null, connected: Boolean(connection) });
     }
     if (req.method === 'PUT') {
@@ -117,7 +120,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ...(edit.skin ? { skin: edit.skin } : {}), ...(edit.eyes ? { eyes: edit.eyes } : {}), ...(edit.discomfort ? { discomfort: edit.discomfort } : {}),
       ...(edit.body ? { body: edit.body } : {}), ...(edit.training ? { training: edit.training } : {}) };
     const [ok, raw] = await kv.eval<string[], [number, string | LifeEntry]>(SAVE_LIFE_ENTRY,
-      [entriesKey(edit.year), ...(edit.kind === 'training' ? [LIFE_TRAINING_ENTRIES_KEY] : [])],
+      [entriesKey(edit.year), ...(edit.kind === 'training' ? [LIFE_TRAINING_ENTRIES_KEY]
+        : edit.kind === 'eyes' || edit.kind === 'discomfort' ? [LIFE_SYMPTOM_ENTRIES_KEY] : [])],
       [`${edit.kind}:${edit.date}`, edit.revision, edit.mutationId, JSON.stringify(entry)]);
     const stored = typeof raw === 'string' ? (raw ? JSON.parse(raw) : { text: '', revision: '' }) : raw;
     if (!ok) return res.status(409).json({ error: '这一天的记录已在其他页面更新', current: stored });

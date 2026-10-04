@@ -1,5 +1,6 @@
 import { requestWithRetry } from '../utils/requestWithRetry';
 import { LIFE_KINDS, parseLifeEdit, type LifeEntry, type LifeKind } from '../utils/bonLife';
+import { parseSymptomNames, type SymptomNames } from '../utils/lifeSymptoms';
 
 export class LifeError extends Error {
   constructor(message: string, public status: number, public current?: LifeEntry) { super(message); }
@@ -23,7 +24,7 @@ export async function lifeRequest<T>(method: string, body?: Record<string, unkno
   }, { signal, retry: method === 'GET', timeoutMessage: '连接超时，请重试', networkMessage: '网络连接失败，请重试' });
 }
 
-export interface LifeDraft extends LifeEntry { date: string; kind: LifeKind; mutationId: string }
+export interface LifeDraft extends LifeEntry { date: string; kind: LifeKind; mutationId: string; symptomNames?: SymptomNames }
 export function draftKey(owner: string) { return `bonlife:draft:v1:${encodeURIComponent(owner)}`; }
 type DraftDate = Pick<LifeDraft, 'date' | 'kind'>;
 function datedDraftKey(owner: string, draft: DraftDate) { return `${draftKey(owner)}:${draft.kind}:${draft.date}`; }
@@ -42,6 +43,10 @@ export function readDraft(owner: string, date?: DraftDate): LifeDraft | null {
     const value = JSON.parse((date && localStorage.getItem(datedDraftKey(owner, date))) || localStorage.getItem(draftKey(owner)) || 'null') as LifeDraft | null;
     if (!value || !LIFE_KINDS.includes(value.kind) || (date && !sameDraft(value, date))) return null;
     parseLifeEdit(value);
+    if (value.symptomNames !== undefined) {
+      if (value.kind !== 'eyes' && value.kind !== 'discomfort') return null;
+      parseSymptomNames(value.symptomNames, value.kind);
+    }
     return value;
   } catch { return null; }
 }

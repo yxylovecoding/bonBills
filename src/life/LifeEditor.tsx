@@ -1,17 +1,17 @@
 import LifeSkinFields from './LifeSkinFields';
 import LifeSymptomFields from './LifeSymptomFields';
-import { DISCOMFORT_FIELDS, EYE_FIELDS } from '../utils/lifeSymptoms';
+import { reusableSymptom, symptomHistory, symptomKey, symptomObservations, type SymptomArea } from '../utils/lifeSymptoms';
 import { DEFAULT_SKIN_SETTINGS, type SkinSettings } from '../utils/lifeSkin';
 import { resolveSkinRecord } from '../utils/lifeSkinProgress';
-import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { BODY_FIELDS, entrySummary, parseLifeEdit, LIFE_LABELS, LIFE_TEXT_LIMIT, type BodyRecord, type CycleSettings, type LifeEntry, type LifeEntries } from '../utils/bonLife';
 import { CYCLE_GUIDANCE, visibleCycleDay } from '../utils/lifeCycle';
 import { readDraft, saveDraft, removeDraft, LifeError, lifeRequest, type LifeDraft } from './client';
 import { automaticTraining, plannedTraining, recordedTrainingProjects, reuseTrainingProjects, trainingIdentity, type TrainingTask } from '../utils/lifeTraining';
 
-export default function LifeEditor({ initial, owner, cycle, periodDays, trainingTasks, trainingLibrary = [], skinSettings = DEFAULT_SKIN_SETTINGS, skinEntries, onSave, onClose, onExpired }: {
+export default function LifeEditor({ initial, owner, cycle, periodDays, trainingTasks, trainingLibrary = [], skinSettings = DEFAULT_SKIN_SETTINGS, skinEntries, symptomEntries, onSave, onClose, onExpired }: {
   initial: LifeDraft; owner: string; cycle: CycleSettings; periodDays: string[];
-  trainingTasks?: TrainingTask[]; trainingLibrary?: TrainingTask[]; skinSettings?: SkinSettings; skinEntries: LifeEntries;
+  trainingTasks?: TrainingTask[]; trainingLibrary?: TrainingTask[]; skinSettings?: SkinSettings; skinEntries: LifeEntries; symptomEntries: LifeEntries;
   onSave: (entry: LifeEntry, draft: LifeDraft) => void; onClose: () => void; onExpired: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -31,6 +31,7 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
   const chosenProjects = training ? recordedTrainingProjects(training, trainingLibrary) : [];
   const chosenTasks = trainingLibrary.filter((task) => chosenProjects.includes(trainingIdentity(task)));
   const isSymptom = draft.kind === 'eyes' || draft.kind === 'discomfort';
+  const history = useMemo(() => initial.kind === 'eyes' || initial.kind === 'discomfort' ? symptomHistory(initial.kind, symptomEntries) : [], [initial.kind, symptomEntries]);
 
   function persist(next: LifeDraft) {
     try { saveDraft(owner, next); return true; }
@@ -67,7 +68,16 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
     attempted.current = true;
     setBusy(true); setError(''); persist(draft);
     try {
-      const savedDraft = skin ? { ...draft, skin } : training ? { ...draft, training } : draft;
+      let savedDraft = skin ? { ...draft, skin } : training ? { ...draft, training } : draft;
+      if (draft.kind === 'eyes' || draft.kind === 'discomfort') {
+        const symptoms = { ...symptomObservations(draft.kind, draft[draft.kind]) };
+        for (const [area, name] of Object.entries(draft.symptomNames ?? {})) {
+          if (!name?.trim()) continue;
+          const key = symptomKey(area as SymptomArea, name);
+          symptoms[key] ??= reusableSymptom(area as SymptomArea, name, draft.date, history);
+        }
+        savedDraft = { ...draft, [draft.kind]: { symptoms }, symptomNames: undefined };
+      }
       parseLifeEdit(savedDraft);
       const { entry } = await lifeRequest<{ entry: LifeEntry }>('POST', { action: 'save', ...savedDraft });
       try { removeDraft(owner, draft); } catch { /* Server save succeeded. */ }
@@ -90,10 +100,9 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
       <div className="life-editor-heading"><h2 id="life-editor-title">{LIFE_LABELS[draft.kind]} <span>{draft.date.replace(/-/g, '.')}</span></h2>
         {guidance && <span className={`life-period-label phase-${phase?.phase}`}>{phase?.estimated ? '预计·' : ''}{guidance.label}</span>}</div>
       {draft.kind === 'skin' && <LifeSkinFields date={draft.date} value={skin} entries={skinEntries} settings={skinSettings} busy={busy} onChange={(skin) => change({ skin })} />}
-      {draft.kind === 'eyes' && <LifeSymptomFields fields={EYE_FIELDS} value={draft.eyes} busy={busy}
-        placeholder="如：瞳孔周围一圈红血丝" onChange={(eyes) => change({ eyes })} />}
-      {draft.kind === 'discomfort' && <LifeSymptomFields fields={DISCOMFORT_FIELDS} value={draft.discomfort} busy={busy}
-        placeholder="记录感受…" onChange={(discomfort) => change({ discomfort })} />}
+      {(draft.kind === 'eyes' || draft.kind === 'discomfort') && <LifeSymptomFields kind={draft.kind}
+        value={symptomObservations(draft.kind, draft[draft.kind])} names={draft.symptomNames ?? {}} history={history} date={draft.date} busy={busy}
+        onChange={(symptoms, symptomNames) => change({ [draft.kind]: { symptoms }, symptomNames })} />}
       {draft.kind === 'body' && <div className="life-fields">{Object.entries(BODY_FIELDS).map(([key, { label, unit, max }]) =>
         <label key={key}>{label}{unit && ` · ${unit}`}<input type="number" min="0.01" max={max} step="any" inputMode="decimal" disabled={busy}
           value={draft.body?.[key as keyof BodyRecord] ?? ''} onChange={(event) => {

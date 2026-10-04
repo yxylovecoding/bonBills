@@ -2,7 +2,7 @@ import { parseSkinRecord, SKIN_FIELDS, SKIN_STATES, type SkinField, type SkinRec
 export { SKIN_FIELDS } from './lifeSkin.js';
 export type { SkinRecord } from './lifeSkin.js';
 import { isCalendarDate, nextCalendarDate } from './outlookCalendar.js';
-import { DISCOMFORT_FIELDS, EYE_FIELDS, parseSymptomRecord, type DiscomfortRecord, type EyeRecord } from './lifeSymptoms.js';
+import { parseSymptomRecord, symptomSummary, type DiscomfortRecord, type EyeRecord } from './lifeSymptoms.js';
 
 export const LIFE_KINDS = ['skin', 'eyes', 'discomfort', 'mood', 'body', 'training'] as const;
 export type LifeKind = typeof LIFE_KINDS[number];
@@ -35,6 +35,7 @@ export interface LifeYear {
   cycle?: CycleSettings;
   skinSettings?: SkinSettings;
   skinHistory?: LifeEntries;
+  symptomHistory?: LifeEntries;
 }
 export interface CycleSettings {
   lastPeriodStart: string;
@@ -69,8 +70,8 @@ export function parseLifeEdit(value: unknown) {
     if (edit[field] !== undefined && edit.kind !== field) throw new Error('记录类型不匹配');
   }
   if (edit.skin !== undefined) details.skin = parseSkinRecord(edit.skin);
-  if (edit.eyes !== undefined) details.eyes = parseSymptomRecord(edit.eyes, EYE_FIELDS);
-  if (edit.discomfort !== undefined) details.discomfort = parseSymptomRecord(edit.discomfort, DISCOMFORT_FIELDS);
+  if (edit.eyes !== undefined) details.eyes = parseSymptomRecord(edit.eyes, 'eyes');
+  if (edit.discomfort !== undefined) details.discomfort = parseSymptomRecord(edit.discomfort, 'discomfort');
   if (edit.body !== undefined) {
     if (!edit.body || typeof edit.body !== 'object' || Array.isArray(edit.body)) throw new Error('身体数据无效');
     details.body = {};
@@ -111,11 +112,8 @@ export function entrySummary(kind: LifeKind, entry?: LifeEntry): string {
   if (!entry) return '';
   const details = kind === 'skin' ? Object.entries(SKIN_FIELDS).flatMap(([key, label]) => {
     const value = entry.skin?.[key as SkinField]; return value ? [`${label} · ${value}`] : [];
-  }) : kind === 'eyes' ? Object.entries(EYE_FIELDS).flatMap(([key, label]) => {
-    const value = entry.eyes?.[key as keyof EyeRecord]; return value?.trim() ? [`${label} · ${value}`] : [];
-  }) : kind === 'discomfort' ? Object.entries(DISCOMFORT_FIELDS).flatMap(([key, label]) => {
-    const value = entry.discomfort?.[key as keyof DiscomfortRecord]; return value?.trim() ? [`${label} · ${value}`] : [];
-  }) : kind === 'body' ? Object.entries(BODY_FIELDS).flatMap(([key, { label, unit }]) => {
+  }) : kind === 'eyes' || kind === 'discomfort' ? symptomSummary(kind, entry[kind])
+    : kind === 'body' ? Object.entries(BODY_FIELDS).flatMap(([key, { label, unit }]) => {
     const value = entry.body?.[key as BodyMetric]; return isBodyValue(key as BodyMetric, value) ? [`${label} ${value}${unit ? ` ${unit}` : ''}`] : [];
   }) : kind === 'training' && entry.training ? [`${entry.training.completed ? '✓ ' : ''}${entry.training.plan}`] : [];
   const skinState = kind === 'skin' && entry.skin?.status ? `${SKIN_STATES[entry.skin.status]}${entry.skin.planDay ? ` · 第 ${entry.skin.planDay} 天` : ''}` : '';

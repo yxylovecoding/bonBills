@@ -288,6 +288,33 @@
   .life-skin-product-toolbar > button { width: 100%; text-align: left; }
   .life-skin-product-actions { flex-direction: column; gap: 14px; }
 }
+.life-symptom-area { min-width: 0; margin: 0 0 20px; padding: 0; border: 0; }
+.life-symptom-area legend { margin-bottom: 10px; font-size: 12px; color: var(--life-muted); }
+.life-symptom-choices { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.life-symptom-choices button { max-width: 100%; padding: 6px 10px; background: #f3f4f0; font-size: 12px; color: var(--life-accent); text-align: left; overflow-wrap: anywhere; }
+.life-symptom-item { margin-bottom: 10px; padding: 10px 0; border-bottom: 1px solid var(--life-line); }
+.life-symptom-item-heading { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+.life-symptom-item-heading > span { flex: 1; min-width: 0; font-size: 13px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.life-symptom-item-heading select { flex-shrink: 0; max-width: 90px; border: 0; border-radius: 6px; background: #f3f4f0; padding: 5px; color: var(--life-accent); font-size: 12px; }
+.life-symptom-item-heading button { padding: 0 5px; font-size: 20px; line-height: 1.4; color: var(--life-muted); }
+.life-symptom-add { display: flex; gap: 8px; align-items: center; }
+.life-symptom-add input { min-width: 0; flex: 1; }
+.life-symptom-add button { padding: 8px 2px; flex-shrink: 0; color: var(--life-accent); font-size: 12px; }
+.life-symptom-history { margin: 0 0 18px; padding: 12px 0; border-top: 1px solid var(--life-line); border-bottom: 1px solid var(--life-line); font-size: 12px; }
+.life-symptom-history summary { cursor: pointer; color: var(--life-accent); }
+.life-symptom-history summary > span { color: var(--life-muted); margin-left: 8px; }
+.life-symptom-history[open] summary { margin-bottom: 16px; }
+.life-symptom-history select { width: 100%; max-width: 100%; }
+.life-symptom-stats { display: flex; flex-wrap: wrap; gap: 8px 20px; color: var(--life-muted); }
+.life-symptom-timeline { list-style: none; margin: 12px 0 0; padding: 0; }
+.life-symptom-timeline li + li { border-top: 1px solid var(--life-line); }
+.life-symptom-timeline button { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 14px; width: 100%; padding: 12px 0; text-align: left; color: var(--life-ink); font-size: 12px; }
+.life-symptom-timeline time { color: var(--life-muted); font-variant-numeric: tabular-nums; }
+.life-symptom-timeline button > span:last-child { margin-left: auto; color: var(--life-muted); }
+.life-symptom-status { color: var(--life-accent); }
+.life-symptom-status.is-resolved { color: var(--life-muted); }
+.life-symptom-note { flex: 1; min-width: 100px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.life-symptom-more { margin-top: 8px; padding: 6px 0; color: var(--life-accent); }
 
 .life-project-list { padding: 0; margin: 0 0 16px; list-style: none; }
 .life-project-list li { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--life-line); }

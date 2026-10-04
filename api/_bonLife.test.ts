@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from './outlook-calendar';
-import { entriesKey, LIFE_CONNECTION_KEY, LIFE_SETTINGS_KEY, LIFE_TRAINING_ENTRIES_KEY, parsePeriodCalendar, periodsKey, syncLifePeriods } from './_bonLife';
+import { entriesKey, LIFE_CONNECTION_KEY, LIFE_SETTINGS_KEY, LIFE_TRAINING_ENTRIES_KEY, LIFE_SYMPTOM_ENTRIES_KEY, parsePeriodCalendar, periodsKey, syncLifePeriods } from './_bonLife';
 import { DEFAULT_CYCLE } from '../src/utils/bonLife';
 import { encryptOutlookConnection } from './_outlookCalendar';
 import { DEFAULT_OUTLOOK_RULES } from '../src/utils/outlookCalendar';
@@ -93,6 +93,31 @@ describe('经期 Outlook 解析', () => {
 });
 
 describe('BonLife 接口', () => {
+  it('症状历史合并跨年索引及旧记录，当年清空覆盖旧索引', async () => {
+    const old = { text: '', revision: 'old', eyes: { leftEye: '红血丝' } };
+    const cleared = { text: '', revision: 'cleared', eyes: { symptoms: {} } };
+    getHash.mockImplementation(async (key: string) => key === LIFE_SYMPTOM_ENTRIES_KEY ? {
+      'eyes:2024-10-01': old, 'eyes:2026-10-01': old,
+    } : key === entriesKey(2025) ? { 'eyes:2025-12-31': old, 'mood:2025-12-31': old }
+      : key === entriesKey(2026) ? { 'eyes:2026-10-01': cleared } : null);
+    const result = await call('GET');
+    expect(result.body.symptomHistory).toEqual({ 'eyes:2024-10-01': old, 'eyes:2025-12-31': old, 'eyes:2026-10-01': cleared });
+  });
+  it.each(['eyes', 'discomfort'])('%s 保存和清空与跨年索引原子更新，保留冲突检查', async (kind) => {
+    const area = kind === 'eyes' ? 'eye' : 'lowerBack';
+    const record = { symptoms: { [`${area}:酸胀`]: { area, name: '酸胀', status: 'ongoing', note: '' } } };
+    const input = { action: 'save', kind, date: '2026-10-05', text: '', revision: '', mutationId: 'symptom-check-123456', [kind]: record };
+    const saved = { text: '', revision: input.mutationId, [kind]: record };
+    evalMock.mockResolvedValueOnce([1, saved]);
+    expect((await call('POST', input)).body.entry).toEqual(saved);
+    expect(evalMock.mock.calls[0][1]).toEqual([entriesKey(2026), LIFE_SYMPTOM_ENTRIES_KEY]);
+    expect(JSON.parse(evalMock.mock.calls[0][2][3])).toEqual(saved);
+    evalMock.mockResolvedValueOnce([0, saved]);
+    expect((await call('POST', input)).status).toBe(409);
+    evalMock.mockResolvedValueOnce([1, { ...saved, [kind]: { symptoms: {} } }]);
+    expect((await call('POST', { ...input, revision: saved.revision, mutationId: 'symptom-clear-123456', [kind]: { symptoms: {} } })).status).toBe(200);
+    expect(JSON.parse(evalMock.mock.calls[2][2][3])[kind]).toEqual({ symptoms: {} });
+  });
   it('补入上一年皮肤记录供年初接续，不混入其他状态记录', async () => {
     const old = { text: '', revision: 'yesterday', skin: { status: 'acne', medication: '炉甘石' } };
     getHash.mockImplementation(async (key: string) => key === entriesKey(2025) ? {

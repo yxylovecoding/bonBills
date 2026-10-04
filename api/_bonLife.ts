@@ -10,6 +10,7 @@ export const entriesKey = (year: number) => `bonlife:entries:v1:${year}`;
 export const periodsKey = (year: number) => `bonlife:periods:v1:${year}`;
 export const LIFE_SETTINGS_KEY = 'bonlife:settings:v1';
 export const LIFE_TRAINING_ENTRIES_KEY = 'bonlife:training-entries:v1';
+export const LIFE_SYMPTOM_ENTRIES_KEY = 'bonlife:symptom-entries:v1';
 
 export async function readPeriodDays(year: number) {
   const years = [year - 1, year, year + 1].filter((value) => value >= 1900 && value <= 2200);
