@@ -116,7 +116,8 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
         <button onClick={() => void logout()} disabled={loggingOut}>{loggingOut ? '退出中…' : '退出'}</button></div></header>
     <div className="life-toolbar">
       <nav className="life-tabs" aria-label="状态日历">{([...LIFE_KINDS, 'done'] as const).map((value) => <button key={value}
-        aria-pressed={kind === value} onClick={() => { setSelection((previous) => ({ ...previous, kind: value })); setSaved(false); }}>{LIFE_LABELS[value]}</button>)}</nav>
+        aria-pressed={kind === value} onClick={() => { setSelection((previous) => ({ ...previous, kind: value,
+          ...(value === 'done' && previous.kind !== 'done' ? { year: Number(now.slice(0, 4)), month: Number(now.slice(5, 7)) } : {}) })); setSaved(false); }}>{LIFE_LABELS[value]}</button>)}</nav>
       <div className="life-date-controls">
         <button className="life-arrow" aria-label="上个月" disabled={year === 1900 && month === 1} onClick={() => shiftMonth(-1)}>‹</button>
         <select aria-label="年份" value={year} onChange={(event) => setSelection((previous) => ({ ...previous, year: Number(event.target.value) }))}>
@@ -148,7 +149,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
     {kind === 'body' && !error && <Suspense fallback={<p className="life-empty-state" role="status">曲线读取中…</p>}>
       <LifeBodyTrends year={year} month={month} entries={current?.entries} loading={loading} />
     </Suspense>}
-    {kind === 'done' ? <LifeDoneList year={year} month={month} onExpired={onExpired} /> : <section className="life-calendar" aria-label={`${year}年${month}月${LIFE_LABELS[kind]}日历`} aria-busy={loading}>
+    {kind === 'done' ? <LifeDoneList key={`${year}-${month}`} year={year} month={month} onExpired={onExpired} /> : <section className="life-calendar" aria-label={`${year}年${month}月${LIFE_LABELS[kind]}日历`} aria-busy={loading}>
       <div className="life-weekdays">{WEEKDAYS.map((day) => <span key={day}>{day}</span>)}</div>
       <div className="life-days">{cells.map((date, index) => {
         if (!date) return <div className="life-empty-day" key={`empty-${index}`} aria-hidden="true" />;

@@ -41,7 +41,7 @@ export interface CycleSettings {
   periodStarts?: string[];
 }
 export const DEFAULT_CYCLE: CycleSettings = { lastPeriodStart: '', cycleLength: 28, periodLength: 5, trainingDays: [1, 3, 5], revision: '' };
-export interface DoneItem { id: string; taskId: string; projectId: string; title: string; completedAt: string; date: string }
+export interface DoneItem { id: string; taskId: string; projectId: string; title: string; completedAt: string; date: string; category?: '课' | '活' | '玩' | '未分类'; projectName?: string }
 export interface DoneMonth { month: string; items: DoneItem[]; connected: boolean; syncedAt: string | null }
 export interface PeriodEvent { uid: string; startDate: string; endDate: string }
 

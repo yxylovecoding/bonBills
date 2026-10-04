@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { collectCompleted, completedItems, doneKey, doneMonth, doneSyncKey, readDoneMonth, syncDoneMonth, syncRecentLifeDone } from './_lifeDone';
+import { collectCompleted, completedItems, DONE_PROJECT_NAMES_KEY, doneKey, doneMonth, doneSyncKey, readDoneMonth, syncDoneMonth, syncRecentLifeDone } from './_lifeDone';
 import { encryptTickTickToken, TICKTICK_CONNECTION_KEY } from './_ticktickTrips';
 
 const { data, evalMock } = vi.hoisted(() => ({ data: new Map<string, any>(), evalMock: vi.fn() }));
@@ -15,7 +15,8 @@ beforeEach(() => {
   data.set(TICKTICK_CONNECTION_KEY, { encryptedToken: encryptTickTickToken('private-token', 'secret') });
   evalMock.mockImplementation(async (_script, keys, args) => {
     data.set(keys[1], { ...data.get(keys[1]), ...Object.fromEntries(JSON.parse(args[1]).map((item: any) => [item.id, item])) });
-    data.set(keys[2], args[2]); return 1;
+    data.set(keys[2], args[2]);
+    data.set(keys[3], { ...data.get(keys[3]), ...JSON.parse(args[3]) }); return 1;
   });
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     if (url.endsWith('/project')) return new Response(JSON.stringify([{ id: 'work', name: '工作' }]));
@@ -26,6 +27,23 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe('TickTick DoneList', () => {
+  it('保存标签优先的分类和清单名称，不根据标题猜测', () => {
+    const items = completedItems([
+      { ...task('tagged'), projectId: 'play', tags: ['活'], title: '运动' },
+      { ...task('project'), projectId: 'study', tags: ['当天'] },
+      { ...task('unknown'), title: '上课学习' },
+    ], '2026-10-01', '2026-10-04', { play: '玩', study: '课' });
+    expect(items.map((item) => item.category)).toEqual(['活', '课', '未分类']);
+    expect(items[0].projectName).toBe('玩');
+  });
+  it('历史快照缺少分类时用已知清单补齐，已有标签分类保持不变', async () => {
+    const old = { ...task(), id: 'old', taskId: 'old', projectId: 'play', date: '2026-10-03', completedAt: '2026-10-03T09:00:00Z' };
+    data.set(doneKey('2026-10'), { old, tagged: { ...old, id: 'tagged', category: '活' } });
+    data.set(DONE_PROJECT_NAMES_KEY, { play: '玩' });
+    const result = await readDoneMonth('2026-10');
+    expect(result.items.map((item) => item.category)).toEqual(['玩', '活']);
+    expect(result.items.every((item) => item.projectName === '玩')).toBe(true);
+  });
   it('按上海完成日期归档，同一实例去重，保留重复任务的多次完成', () => {
     const items = completedItems([task(), task(), task('task', '2026-10-03T15:59:59Z'), task('task', '2026-10-03T16:00:00Z')], '2026-10-03', '2026-10-04');
     expect(items).toHaveLength(3);

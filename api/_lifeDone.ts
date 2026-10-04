@@ -2,9 +2,11 @@ import { kv } from '@vercel/kv';
 import { createHash } from 'node:crypto';
 import { decryptTickTickToken, TICKTICK_CONNECTION_KEY, TickTickOpenApiClient, type TickTickApi, type TickTickConnection, type TickTickTask } from './_ticktickTrips.js';
 import { lifeYear, type DoneItem, type DoneMonth } from '../src/utils/bonLife.js';
+import { classifyDoneCategory } from '../src/utils/lifeDone.js';
 
 export const doneKey = (month: string) => `bonlife:done:v1:${month}`;
 export const doneSyncKey = (month: string) => `bonlife:done-sync:v1:${month}`;
+export const DONE_PROJECT_NAMES_KEY = 'bonlife:done-project-names:v1';
 export function doneMonth(year: unknown, month: unknown) {
   const y = lifeYear(year);
   if (!/^\d{1,2}$/.test(String(month)) || Number(month) < 1 || Number(month) > 12) throw new Error('月份无效');
@@ -12,7 +14,7 @@ export function doneMonth(year: unknown, month: unknown) {
 }
 export const shanghaiDay = (date = new Date()) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(date);
 
-export function completedItems(tasks: TickTickTask[], from: string, until: string): DoneItem[] {
+export function completedItems(tasks: TickTickTask[], from: string, until: string, projectNames: Record<string, string> = {}): DoneItem[] {
   const result = new Map<string, DoneItem>();
   for (const task of tasks) {
     if ((task.status ?? 2) !== 2) continue;
@@ -24,7 +26,10 @@ export function completedItems(tasks: TickTickTask[], from: string, until: strin
     const date = shanghaiDay(timestamp);
     if (date < from || date > until) continue;
     const id = createHash('sha256').update(JSON.stringify([task.projectId, task.id, completedAt])).digest('hex');
-    result.set(id, { id, taskId: task.id, projectId: task.projectId, title: task.title, completedAt, date });
+    const projectName = projectNames[task.projectId];
+    const category = classifyDoneCategory(task.tags, projectName);
+    result.set(id, { id, taskId: task.id, projectId: task.projectId, title: task.title, completedAt, date, category,
+      ...(projectName ? { projectName } : {}) });
   }
   return [...result.values()];
 }
@@ -43,11 +48,17 @@ export async function collectCompleted(api: Pick<TickTickApi, 'listCompletedTask
 }
 
 export async function readDoneMonth(month: string): Promise<DoneMonth> {
-  const [items, syncedAt, connection] = await Promise.all([
+  const [items, syncedAt, connection, projectNames] = await Promise.all([
     kv.hgetall<Record<string, DoneItem>>(doneKey(month)), kv.get<string>(doneSyncKey(month)),
     kv.get<TickTickConnection>(TICKTICK_CONNECTION_KEY),
+    kv.hgetall<Record<string, string>>(DONE_PROJECT_NAMES_KEY),
   ]);
-  return { month, items: Object.values(items ?? {}).sort((a, b) => b.completedAt.localeCompare(a.completedAt)),
+  return { month, items: Object.values(items ?? {}).map((item) => {
+    // Older snapshots predate category metadata. Recover their original list when known.
+    const projectName = item.projectName || projectNames?.[item.projectId];
+    return { ...item, ...(projectName ? { projectName } : {}),
+      category: item.category ?? classifyDoneCategory([], projectName) };
+  }).sort((a, b) => b.completedAt.localeCompare(a.completedAt)),
     syncedAt, connected: Boolean(connection) };
 }
 
@@ -61,23 +72,26 @@ export async function syncDoneMonth(month: string, now = new Date()): Promise<Do
     const api = new TickTickOpenApiClient(decryptTickTickToken(connection.encryptedToken, secret), (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
     const [projects, inbox] = await Promise.all([api.listProjects(), api.getProjectData('inbox')]);
     const projectIds = [...new Set([...projects.map((project) => project.id), inbox.project?.id || 'inbox', ...inbox.tasks.map((task) => task.projectId)])];
+    const projectNames = Object.fromEntries([...projects, ...(inbox.project ? [inbox.project] : [])]
+      .filter((project) => typeof project.name === 'string').map((project) => [project.id, project.name]));
     const [year, number] = month.split('-').map(Number);
     const lastDay = new Date(Date.UTC(year, number, 0)).getUTCDate();
     const from = `${month}-01`;
     const until = month === today.slice(0, 7) ? today : `${month}-${lastDay}`;
     const tasks = await collectCompleted(api, projectIds, Date.parse(`${from}T00:00:00+08:00`),
       Math.min(now.getTime(), Date.parse(`${until}T23:59:59.999+08:00`)), Date.now() + 35_000);
-    const items = completedItems(tasks, from, until);
+    const items = completedItems(tasks, from, until, projectNames);
     const syncedAt = now.toISOString();
     const stored = await kv.eval<string[], number>(`
       local connection = redis.call('get', KEYS[1])
       if not connection or cjson.decode(connection).encryptedToken.data ~= ARGV[1] then return 0 end
       local items = cjson.decode(ARGV[2])
       for _, item in ipairs(items) do redis.call('hset', KEYS[2], item.id, cjson.encode(item)) end
+      for id, name in pairs(cjson.decode(ARGV[4])) do redis.call('hset', KEYS[4], id, name) end
       local previous = redis.call('get', KEYS[3])
       if not previous or cjson.decode(previous) < ARGV[3] then redis.call('set', KEYS[3], cjson.encode(ARGV[3])) end
       return 1
-    `, [TICKTICK_CONNECTION_KEY, doneKey(month), doneSyncKey(month)], [connection.encryptedToken.data, JSON.stringify(items), syncedAt]);
+    `, [TICKTICK_CONNECTION_KEY, doneKey(month), doneSyncKey(month), DONE_PROJECT_NAMES_KEY], [connection.encryptedToken.data, JSON.stringify(items), syncedAt, JSON.stringify(projectNames)]);
     if (stored !== 1) throw new Error('连接已变更');
     return await readDoneMonth(month);
   } catch {
