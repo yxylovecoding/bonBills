@@ -291,14 +291,14 @@ function RebalanceSettingsModal({
   return (
     <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={onClose}>
-      <div style={{ backgroundColor: '#fff', borderRadius: 16, width: '100%', maxWidth: 380, boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}
+      <div className="reconcile-settings" role="dialog" aria-modal="true" aria-label="再平衡设置" style={{ backgroundColor: '#fff', borderRadius: 16, width: '100%', maxWidth: 380, boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}
         onClick={(e) => e.stopPropagation()}>
         <div style={{ padding: '20px 20px 12px' }}>
           <div style={{ fontSize: 16, fontWeight: 700 }}>再平衡设置</div>
         </div>
         <div style={{ padding: '0 20px 4px' }}>
           <div style={{ border: '1px solid #f1f3f4', borderRadius: 10, padding: '9px 10px', backgroundColor: '#fafafa', marginBottom: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+            <div className="reconcile-settings-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#202124' }}>账户显示</div>
                 <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>消费、心愿美元为 0 时默认隐藏</div>
@@ -322,7 +322,7 @@ function RebalanceSettingsModal({
             </div>
           </div>
           <div style={{ border: '1px solid #f1f3f4', borderRadius: 10, padding: '9px 10px', backgroundColor: '#fafafa', marginBottom: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+            <div className="reconcile-settings-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#202124' }}>长债自动还债线</div>
                 <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>超过此金额的部分用于偿还本期待还</div>
@@ -377,7 +377,7 @@ function RebalanceSettingsModal({
                     />
                     <span style={{ fontSize: 11, color: C.sub }}>%</span>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div className="reconcile-settings-assets">
                     {group.keys.map((k) => (
                       <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 6, backgroundColor: '#f8f9fa', borderRadius: 8, padding: '6px 8px' }}>
                         <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: investMeta[k].color, flexShrink: 0 }} />
@@ -1997,8 +1997,8 @@ export default function ReconcilePage() {
       ? { bg: '#e6f4ea', border: '#ceead6', color: C.green, name: '人民币理财' }
       : { bg: '#e8f0fe', border: '#d2e3fc', color: C.blue, name: '美元理财' };
     return (
-      <div style={{ backgroundColor: s.bg, border: `1px solid ${s.border}`, borderRadius: 12, padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
+      <div className="reconcile-funding-block" style={{ backgroundColor: s.bg, border: `1px solid ${s.border}`, borderRadius: 12, padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div className="reconcile-wrap-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
           <span style={{ fontSize: 12, fontWeight: 800, color: s.color }}>{s.name}</span>
           <span style={{ fontSize: 11, fontWeight: 700, color: s.color }}>{dir === 'in' ? '↑ 转入理财' : '↓ 转出理财'}</span>
         </div>
@@ -2006,7 +2006,7 @@ export default function ReconcilePage() {
           const remain = Math.max(leg.amountCny - parseAmountPart(fundingLegValue(leg.key)), 0);
           return (
             <div key={leg.key} style={{ backgroundColor: '#fff', borderRadius: 8, padding: '5px 7px' }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 4, marginBottom: 3 }}>
+              <div className="reconcile-wrap-row" style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 4, marginBottom: 3 }}>
                 <span style={{ fontSize: 11, color: C.sub, fontWeight: 600 }}>{label}</span>
                 <span style={{ fontSize: 12, fontWeight: 700, color: s.color, fontVariantNumeric: 'tabular-nums' }}>{fmtLegNeed(leg)}</span>
               </div>
@@ -2022,7 +2022,7 @@ export default function ReconcilePage() {
   const renderForexArrow = (leg: FundingLeg, refs: { current: (HTMLInputElement | null)[] }, refIndex: number) => {
     const remain = Math.max(leg.amountCny - parseAmountPart(fundingLegValue(leg.key)), 0);
     return (
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', columnGap: 8 }}>
+      <div className="reconcile-forex">
         <div style={{ backgroundColor: '#e6f4ea', border: '1px solid #ceead6', borderRadius: 12, padding: 8 }}>
           <div style={{ fontSize: 12, fontWeight: 800, color: C.green, marginBottom: 4 }}>人民币理财</div>
           {renderLegInput(leg, refs, refIndex)}
@@ -2200,6 +2200,7 @@ export default function ReconcilePage() {
 
   return (
     <div
+      className="reconcile-page"
       onPointerDownCapture={armUndoCheckpoint}
       onPointerUpCapture={armUndoCheckpoint}
       onClickCapture={armUndoCheckpoint}
@@ -2211,7 +2212,7 @@ export default function ReconcilePage() {
         armUndoCheckpoint();
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, margin: '0 0 4px' }}>
+      <div className="reconcile-page-heading" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, margin: '0 0 4px' }}>
         <div style={{ minWidth: 0 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>对账 / 转账</h1>
           {screenshotImportMsg && <div style={{ marginTop: 4, fontSize: 11, lineHeight: 1.35, color: C.sub, overflowWrap: 'anywhere' }}>{screenshotImportMsg}</div>}
@@ -2311,9 +2312,9 @@ export default function ReconcilePage() {
 
       {/* 账户余额 */}
       <div id="sec-accounts">
-      <Card title="账户余额" subtitle="账单自动更新，可直接校准">
+      <Card className="reconcile-card" title="账户余额" subtitle="账单自动更新，可直接校准">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: C.sub, backgroundColor: '#f8f9fa', borderRadius: 8, padding: '6px 10px' }}>
+          <div className="reconcile-wrap-row reconcile-rate" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: C.sub, backgroundColor: '#f8f9fa', borderRadius: 8, padding: '6px 10px' }}>
             <span>美元汇率</span>
             <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
               {latestUsdRate !== null ? `$1 ≈ ¥${latestUsdRate.toFixed(2)} · ${usdRateLabel}` : usdRateLabel}
@@ -2329,24 +2330,26 @@ export default function ReconcilePage() {
                 ...(showCreditMonthlyInput ? [{ key: 'creditMonthly', label: '本期待还', idx: 1 } as const] : []),
                 { key: 'savingsCard',   label: '储蓄卡',   idx: 2 },
               ] as const).map(({ key, label, idx }) => (
-                <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div key={key} className="reconcile-account-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: 13, color: '#5f6368' }}>{label}</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <div className="reconcile-credit-value" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     {key === 'savingsCard' ? (
                       <span style={{ marginRight: 8, color: C.sub, fontSize: 11, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                         长债可还 ¥{fmtInt(longBondExcess)}
                       </span>
                     ) : null}
-                    <span style={{ fontSize: 14, fontWeight: 600, color: '#c5221f' }}>¥</span>
-                    <AmountInput
-                      ref={(el) => { accountInputRefs.current[idx] = el; }}
-                      value={localAccounts[key]}
-                      onChange={(v) => setLocalAccounts((p) => ({ ...p, [key]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }))}
-                      onFocus={(e) => e.target.select()}
-                      onBlur={() => syncAccounts()}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(idx); } }}
-                      style={{ width: 100, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#c5221f', textAlign: 'right' }}
-                    />
+                    <div className="reconcile-currency-value">
+                      <span style={{ fontSize: 14, fontWeight: 600, color: '#c5221f' }}>¥</span>
+                      <AmountInput
+                        ref={(el) => { accountInputRefs.current[idx] = el; }}
+                        value={localAccounts[key]}
+                        onChange={(v) => setLocalAccounts((p) => ({ ...p, [key]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }))}
+                        onFocus={(e) => e.target.select()}
+                        onBlur={() => syncAccounts()}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(idx); } }}
+                        style={{ width: 100, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: '#c5221f', textAlign: 'right' }}
+                      />
+                    </div>
                   </div>
                 </div>
               ))}
@@ -2373,14 +2376,14 @@ export default function ReconcilePage() {
           {([
             { cnyKey: 'livingBank', usdKey: 'usdLivingBank', label: '🏦 生活', cnyIdx: 4, usdIdx: 5, color: '#1a73e8', bg: '#e8f0fe', border: '#a8c7fa' },
           ] as const).map(({ cnyKey, usdKey, label, cnyIdx, usdIdx, color, bg, border }) => (
-            <div key={cnyKey} {...makeUsdSwipeHandlers(usdKey)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: bg, borderRadius: 12, padding: '10px 14px', border: `1.5px solid ${border}`, touchAction: 'pan-y' }}>
+            <div key={cnyKey} className="reconcile-account-row" {...makeUsdSwipeHandlers(usdKey)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: bg, borderRadius: 12, padding: '10px 14px', border: `1.5px solid ${border}`, touchAction: 'pan-y' }}>
               <div>
                 <div style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>{label}</div>
                 <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
                   {latestUsdRate !== null ? `$≈¥${fmtInt((current.accounts[usdKey] ?? 0) * latestUsdRate)}` : '暂无汇率'}
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+              <div className="reconcile-currency-fields">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                   <span style={{ fontSize: 14, fontWeight: 600, color }}>¥</span>
                   <AmountInput
@@ -2390,10 +2393,9 @@ export default function ReconcilePage() {
                     onFocus={(e) => e.target.select()}
                     onBlur={() => syncAccounts()}
                     onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(cnyIdx); } }}
-                    style={{ width: 74, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${color}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color, textAlign: 'right' }}
+                    style={{ width: 86, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${color}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color, textAlign: 'right' }}
                   />
                 </div>
-                {showUsdAccount(usdKey) && <span style={{ color: C.sub, fontSize: 13 }}>·</span>}
                 {showUsdAccount(usdKey) && <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                   <span style={{ fontSize: 14, fontWeight: 600, color: C.blue }}>$</span>
                   <AmountInput
@@ -2403,7 +2405,7 @@ export default function ReconcilePage() {
                     onFocus={(e) => e.target.select()}
                     onBlur={() => { syncAccounts(); hideUsdAccount(usdKey); }}
                     onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(usdIdx); } }}
-                    style={{ width: 68, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
+                    style={{ width: 86, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
                   />
                 </div>}
               </div>
@@ -2432,7 +2434,7 @@ export default function ReconcilePage() {
           ] as const).map(({ usdKey, label, usdIdx, bg, border }) => (
             (showUsdAccount(usdKey) || showUsdAccount('usdWishJar')) && (
             <Fragment key={usdKey}>
-              <div {...makeUsdSwipeHandlers(usdKey)} style={{ touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: bg, borderRadius: 12, padding: '10px 14px', border: `1.5px solid ${border}` }}>
+              <div className="reconcile-account-row" {...makeUsdSwipeHandlers(usdKey)} style={{ touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: bg, borderRadius: 12, padding: '10px 14px', border: `1.5px solid ${border}` }}>
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ fontSize: 14, color: '#202124', fontWeight: 500 }}>{label}</span>
@@ -2449,7 +2451,7 @@ export default function ReconcilePage() {
                     {latestUsdRate !== null ? `$≈¥${fmtInt((current.accounts[usdKey] ?? 0) * latestUsdRate)}` : '暂无汇率'}
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                <div className="reconcile-currency-fields">
                   {showUsdAccount(usdKey) && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                       <span style={{ fontSize: 14, fontWeight: 600, color: C.blue }}>$</span>
@@ -2467,7 +2469,7 @@ export default function ReconcilePage() {
                 </div>
               </div>
               {(consumptionWishOpen || showUsdAccount('usdWishJar')) && (
-                <div {...makeUsdSwipeHandlers('usdWishJar')} style={{ marginTop: -4, marginLeft: 16, touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: '#fff7ed', borderRadius: 10, padding: '8px 12px', border: '1px solid #fed7aa' }}>
+                <div className="reconcile-account-row" {...makeUsdSwipeHandlers('usdWishJar')} style={{ marginTop: -4, marginLeft: 16, touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: '#fff7ed', borderRadius: 10, padding: '8px 12px', border: '1px solid #fed7aa' }}>
                   <div>
                     <div style={{ fontSize: 13, color: '#202124', fontWeight: 500 }}>🏺 心愿</div>
                     <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
@@ -2498,12 +2500,12 @@ export default function ReconcilePage() {
 
       {/* Step 1: 预算计算 */}
       <div id="sec-budget">
-      <Card title="① 预算计算" subtitle="点击行查看明细">
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: C.sub, marginBottom: 12 }}>
+      <Card className="reconcile-card" title="① 预算计算" subtitle="点击行查看明细">
+        <div className="reconcile-wrap-row" style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: C.sub, marginBottom: 12 }}>
           <span>本月剩余 {budget.daysLeftInMonth} 天</span>
-          <span>
-            {(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k, i) => (
-              <span key={k}>{i > 0 ? ' · ' : ''}{tagMeta[k].icon}{tagMeta[k].label} {budget.stateDaysLeft[k]}</span>
+          <span className="reconcile-budget-days">
+            {(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => (
+              <span key={k}>{tagMeta[k].icon}{tagMeta[k].label} {budget.stateDaysLeft[k]}</span>
             ))}
           </span>
         </div>
@@ -2522,23 +2524,22 @@ export default function ReconcilePage() {
           return (
             <div key={row.key} style={{ marginBottom: 4 }}>
               <button
+                className="reconcile-budget-row"
+                aria-expanded={isOpen}
                 onClick={() => setExpandedBudget(isOpen ? null : row.key)}
-                style={{
-                  width: '100%', display: 'grid', gridTemplateColumns: '1fr minmax(0, 70px) minmax(0, 70px) 1px minmax(0, 80px) 20px',
-                  alignItems: 'center', gap: 4, padding: '10px 10px', borderRadius: 10,
-                  border: 'none', cursor: 'pointer', textAlign: 'left',
-                  backgroundColor: isOpen ? '#e8f0fe' : i % 2 === 0 ? '#fafafa' : '#fff',
-                  transition: 'background-color 0.15s',
-                }}
+                style={{ backgroundColor: isOpen ? '#e8f0fe' : i % 2 === 0 ? '#fafafa' : '#fff' }}
               >
-                <span style={{ fontSize: 13, fontWeight: 600, color: isOpen ? C.blue : '#202124' }}>{row.name}</span>
-                <span style={{ fontSize: 12, color: C.red, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>+¥{formatCurrency(row.inc)}</span>
-                <span style={{ fontSize: 12, color: C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>-¥{formatCurrency(row.exp)}</span>
-                <span style={{ width: 1, height: 16, backgroundColor: '#dadce0', justifySelf: 'center' }} />
-                <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums', textAlign: 'right', color: balance >= 0 ? C.red : C.green }}>
-                  {balance >= 0 ? '+' : '-'}¥{formatCurrency(Math.abs(balance))}
+                <span className="reconcile-budget-heading">
+                  <span style={{ fontSize: 13, fontWeight: 600, color: isOpen ? C.blue : '#202124' }}>{row.name}</span>
+                  <span className="reconcile-budget-balance" style={{ color: balance >= 0 ? C.red : C.green }}>
+                    {balance >= 0 ? '+' : '-'}¥{formatCurrency(Math.abs(balance))}
+                    <span style={{ fontSize: 11, color: C.sub, display: 'inline-block', transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>
+                  </span>
                 </span>
-                <span style={{ fontSize: 11, color: C.sub, textAlign: 'center', display: 'inline-block', transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>
+                <span className="reconcile-budget-flows">
+                  <span style={{ color: C.red }}>收入 +¥{formatCurrency(row.inc)}</span>
+                  <span style={{ color: C.green }}>支出 -¥{formatCurrency(row.exp)}</span>
+                </span>
               </button>
 
               {isOpen && (
@@ -2547,14 +2548,14 @@ export default function ReconcilePage() {
                     <div style={{ padding: '10px 14px 6px' }}>
                       <div style={{ fontSize: 11, fontWeight: 600, color: C.red, marginBottom: 6 }}>收入来源</div>
                       {detail.income.map((item) => (
-                        <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                        <div key={item.label} className="reconcile-detail-row" style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
                           <div><span style={{ fontSize: 13 }}>{item.icon} {item.label}</span>
-                            {item.note && <span style={{ fontSize: 11, color: C.sub, marginLeft: 6 }}>{item.note}</span>}
+                            {item.note && <span className="reconcile-detail-note" style={{ fontSize: 11, color: C.sub }}>{item.note}</span>}
                           </div>
                           <span style={{ fontSize: 13, fontWeight: 500, color: C.red, fontVariantNumeric: 'tabular-nums' }}>+¥{formatCurrency(item.amount)}</span>
                         </div>
                       ))}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5, paddingTop: 7, borderTop: '1px solid #dbe8fb', fontSize: 13, fontWeight: 700 }}>
+                      <div className="reconcile-wrap-row" style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5, paddingTop: 7, borderTop: '1px solid #dbe8fb', fontSize: 13, fontWeight: 700 }}>
                         <span style={{ color: C.sub }}>总收入</span>
                         <span style={{ color: C.red, fontVariantNumeric: 'tabular-nums' }}>+¥{formatCurrency(incomeTotal)}</span>
                       </div>
@@ -2565,7 +2566,7 @@ export default function ReconcilePage() {
                     <div style={{ padding: '6px 14px 10px' }}>
                       <div style={{ fontSize: 11, fontWeight: 600, color: C.green, marginBottom: 6 }}>支出去向</div>
                       {detail.expense.map((item, itemIndex) => (
-                        <div key={item.label} style={{
+                        <div key={item.label} className="reconcile-detail-row" style={{
                           display: 'flex',
                           justifyContent: 'space-between',
                           padding: itemIndex === livingExpenseStartIndex && itemIndex > 0 ? '10px 0 4px' : '4px 0',
@@ -2573,20 +2574,20 @@ export default function ReconcilePage() {
                           borderTop: itemIndex === livingExpenseStartIndex && itemIndex > 0 ? '1px solid #dbe8fb' : 'none',
                         }}>
                           <div><span style={{ fontSize: 13 }}>{item.icon} {item.label}</span>
-                            {item.note && <span style={{ fontSize: 11, color: C.sub, marginLeft: 6 }}>{item.note}</span>}
+                            {item.note && <span className="reconcile-detail-note" style={{ fontSize: 11, color: C.sub }}>{item.note}</span>}
                           </div>
                           <span style={{ fontSize: 13, fontWeight: 500, color: C.green, fontVariantNumeric: 'tabular-nums' }}>-¥{formatCurrency(item.amount)}</span>
                         </div>
                       ))}
                       {livingExpenseTotal > 0 && (
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5, paddingTop: 7, borderTop: '1px solid #dbe8fb', fontSize: 13, fontWeight: 700 }}>
+                        <div className="reconcile-wrap-row" style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5, paddingTop: 7, borderTop: '1px solid #dbe8fb', fontSize: 13, fontWeight: 700 }}>
                           <span style={{ color: C.sub }}>生活总支出</span>
                           <span style={{ color: C.green, fontVariantNumeric: 'tabular-nums' }}>-¥{formatCurrency(livingExpenseTotal)}</span>
                         </div>
                       )}
                     </div>
                   )}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 14px', backgroundColor: balance >= 0 ? '#fce8e6' : '#e6f4ea', fontSize: 13, fontWeight: 600 }}>
+                  <div className="reconcile-wrap-row" style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 14px', backgroundColor: balance >= 0 ? '#fce8e6' : '#e6f4ea', fontSize: 13, fontWeight: 600 }}>
                     <span style={{ color: C.sub }}>本层结余</span>
                     <span style={{ color: balance >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>
                       {balance >= 0 ? '+' : '-'}¥{formatCurrency(Math.abs(balance))}
@@ -2602,7 +2603,7 @@ export default function ReconcilePage() {
 
       {/* Step 2: 建议转账 */}
       <div id="sec-transfer">
-      <Card title="② 建议转账" subtitle="收入优先补齐必要账户，剩余转入人民币理财账户">
+      <Card className="reconcile-card" title="② 建议转账" subtitle="收入优先补齐必要账户，剩余转入人民币理财账户">
 
         {/* 收入资金流向概览 */}
         {needsRedemptionForTransfer > 0 ? (
@@ -2669,23 +2670,32 @@ export default function ReconcilePage() {
                   </div>
                 )}
               <div style={{ backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff', borderRadius: 10, padding: '10px 12px', marginBottom: 4 }}>
-                {/* 第一行：名称 | 需转 | 还需 | 已转 | 输入（grid 固定列宽） */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(40px, 1fr) minmax(0, 90px) minmax(0, 80px) 26px minmax(60px, 80px)', alignItems: 'center', columnGap: 4 }}>
-                  <span style={{ fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap' }}>{TRANSFER_META[row.key].label}</span>
-                  <span
-                    onClick={() => setExpandedTransfer((prev) => (prev === row.key ? null : row.key))}
-                    style={{ fontSize: 12, color: C.blue, fontWeight: 600, fontVariantNumeric: 'tabular-nums', cursor: 'pointer', userSelect: 'none', textAlign: 'right', whiteSpace: 'nowrap' }}
-                  >需¥{fmtInt(row.rec)} {expandedTransfer === row.key ? '▾' : '▸'}</span>
-                  <span style={{ fontSize: 12, color: C.orange, fontWeight: 600, fontVariantNumeric: 'tabular-nums', textAlign: 'right', whiteSpace: 'nowrap' }}>还需¥{fmtInt(remain)}</span>
-                  <span style={{ fontSize: 12, color: C.sub, textAlign: 'right' }}>已转</span>
-                  <AmountInput
-                    ref={(el) => { transferInputRefs.current[i] = el; }}
-                    value={localTransferred[row.key]}
-                    onChange={(v) => setLocalTransferred((p) => ({ ...p, [row.key]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }))}
-                    onFocus={(e) => e.target.select()}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); transferInputRefs.current[i + 1]?.focus(); } }}
-                    style={{ width: '100%', border: `1.5px solid ${transferred > 0 ? '#81c995' : '#dadce0'}`, borderRadius: 8, padding: '5px 8px', fontSize: 13, fontWeight: 600, textAlign: 'right', outline: 'none', backgroundColor: transferred > 0 ? '#e6f4ea' : '#fff', color: transferred > 0 ? C.green : '#202124', boxSizing: 'border-box' }}
-                  />
+                {/* 名称与建议金额、剩余金额与录入各自成组 */}
+                <div className="reconcile-transfer-row">
+                  <div className="reconcile-wrap-row">
+                    <span style={{ fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap' }}>{TRANSFER_META[row.key].label}</span>
+                    <button
+                      type="button"
+                      aria-expanded={expandedTransfer === row.key}
+                      onClick={() => setExpandedTransfer((prev) => (prev === row.key ? null : row.key))}
+                      style={{ border: 'none', background: 'transparent', padding: 0, fontSize: 12, color: C.blue, fontWeight: 600, fontVariantNumeric: 'tabular-nums', cursor: 'pointer', userSelect: 'none', textAlign: 'right', whiteSpace: 'nowrap' }}
+                    >需¥{fmtInt(row.rec)} {expandedTransfer === row.key ? '▾' : '▸'}</button>
+                  </div>
+                  <div className="reconcile-wrap-row">
+                    <span style={{ fontSize: 12, color: C.orange, fontWeight: 600, fontVariantNumeric: 'tabular-nums', textAlign: 'right', whiteSpace: 'nowrap' }}>还需¥{fmtInt(remain)}</span>
+                    <label className="reconcile-transfer-input">
+                      <span style={{ fontSize: 12, color: C.sub }}>已转</span>
+                      <AmountInput
+                        ref={(el) => { transferInputRefs.current[i] = el; }}
+                        value={localTransferred[row.key]}
+                        onChange={(v) => setLocalTransferred((p) => ({ ...p, [row.key]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }))}
+                        onFocus={(e) => e.target.select()}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); transferInputRefs.current[i + 1]?.focus(); } }}
+                        aria-label={`${TRANSFER_META[row.key].label}已转`}
+                        style={{ width: 100, minWidth: 0, border: `1.5px solid ${transferred > 0 ? '#81c995' : '#dadce0'}`, borderRadius: 8, padding: '5px 8px', fontSize: 13, fontWeight: 600, textAlign: 'right', outline: 'none', backgroundColor: transferred > 0 ? '#e6f4ea' : '#fff', color: transferred > 0 ? C.green : '#202124', boxSizing: 'border-box' }}
+                      />
+                    </label>
+                  </div>
                 </div>
                 {/* 第二行：计算说明（点击"需¥"展开） */}
                 {expandedTransfer === row.key && (
@@ -2693,7 +2703,7 @@ export default function ReconcilePage() {
                 )}
                 {/* 长债超过阈值部分赎回还款：一键 长债↓ → 储蓄卡↑ */}
                 {row.key === 'repayment' && longBondRepay > 0 && (
-                  <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: '#e6f4ea', border: '1px solid #81c995', borderRadius: 8, padding: '8px 10px' }}>
+                  <div className="reconcile-wrap-row" style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: '#e6f4ea', border: '1px solid #81c995', borderRadius: 8, padding: '8px 10px' }}>
                     <span style={{ fontSize: 12, color: '#188038', lineHeight: 1.4 }}>
                       🟢 赎回长债 <b style={{ fontVariantNumeric: 'tabular-nums' }}>¥{fmtInt(longBondRepay)}</b> → 储蓄卡<br />
                       <span style={{ fontSize: 11, color: C.sub }}>长债¥{fmtInt(longBondTotalForRepay)}超过¥{fmtInt(LONG_BOND_REPAY_THRESHOLD)}的部分</span>
@@ -2730,12 +2740,12 @@ export default function ReconcilePage() {
 
       {/* Step 3: 理财配置 & 再平衡 */}
       <div id="sec-invest">
-      <Card title="③ 理财配置 & 再平衡">
+      <Card className="reconcile-card" title="③ 理财配置 & 再平衡">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 14 }}>
           <span style={{ fontSize: 13, fontWeight: 600 }}>总金额 ¥{formatCurrency(investKeys.reduce((sum, key) => sum + reconcileTotalHoldings[key], 0))}</span>
         </div>
         {/* 本次投入 */}
-        <div {...makeUsdSwipeHandlers('investUsdBank')} style={{ touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, border: '1.5px solid #fbbf24', borderRadius: 10, padding: '10px 12px', backgroundColor: '#fffbeb', marginBottom: 14 }}>
+        <div className="reconcile-account-row" {...makeUsdSwipeHandlers('investUsdBank')} style={{ touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, border: '1.5px solid #fbbf24', borderRadius: 10, padding: '10px 12px', backgroundColor: '#fffbeb', marginBottom: 14 }}>
           {([
             { cnyKey: 'investCnyBank', usdKey: 'investUsdBank', cnyIdx: 10, usdIdx: 11, color: C.orange },
           ] as const).map(({ cnyKey, usdKey, cnyIdx, usdIdx, color }) => (
@@ -2746,7 +2756,7 @@ export default function ReconcilePage() {
                   合计 ¥{fmtInt(rebalanceNewFunds)}
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <div className="reconcile-currency-fields">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: C.sub }}>境内</span>
                   <span style={{ fontSize: 14, fontWeight: 600, color }}>¥</span>
@@ -2757,11 +2767,10 @@ export default function ReconcilePage() {
                     onFocus={(e) => e.target.select()}
                     onBlur={() => syncAccounts()}
                     onKeyDown={(e) => { if (e.key === 'Enter') { syncAccounts(); focusNextAccount(cnyIdx); } }}
-                    style={{ width: 74, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${color}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color, textAlign: 'right' }}
+                    style={{ width: 86, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${color}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color, textAlign: 'right' }}
                   />
                 </div>
                 <>
-                  <span style={{ color: C.sub, fontSize: 13 }}>·</span>
                   {investUsdInputMode === 'usd' ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: C.sub }}>境外</span>
@@ -2780,7 +2789,7 @@ export default function ReconcilePage() {
                           onFocus={(e) => e.target.select()}
                           onBlur={() => syncAccounts()}
                           onKeyDown={(e) => { if (e.key === 'Enter') syncAccounts(); }}
-                          style={{ width: 68, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
+                          style={{ width: 86, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
                         />
                       </div>
                   ) : (
@@ -2803,7 +2812,7 @@ export default function ReconcilePage() {
                             onFocus={(e) => e.target.select()}
                             onBlur={() => commitInvestUsdCnyInput()}
                             onKeyDown={(e) => { if (e.key === 'Enter') commitInvestUsdCnyInput(); }}
-                            style={{ width: 74, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
+                            style={{ width: 86, border: 'none', outline: 'none', backgroundColor: 'transparent', borderBottom: `1px solid ${C.blue}`, fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.blue, textAlign: 'right' }}
                           />
                         ) : (
                           <button
@@ -2832,13 +2841,13 @@ export default function ReconcilePage() {
         </label>
         {!allowRebalanceSell && latestUsdRate !== null && cnyFundingLegs.length > 0 && (
           <div style={{ border: '1px solid #e8eaed', borderRadius: 10, padding: '9px 10px', backgroundColor: '#fff', marginBottom: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, fontSize: 12, color: C.sub, fontWeight: 700 }}>
+            <div className="reconcile-wrap-row" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, fontSize: 12, color: C.sub, fontWeight: 700 }}>
               <span>理财调拨 · 美元 → 人民币</span>
               <span style={{ color: C.orange, fontVariantNumeric: 'tabular-nums' }}>¥{fmtInt(rebalanceFunding.cnyFromRmbBuffer)}</span>
               <SwapTag />
               <div style={{ flex: 1, borderBottom: '1px dashed #dadce0' }} />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
               {renderBigBlock('cny', 'in', cnyFundingRows.map((r) => ({ label: r.label, leg: r.cnyLeg })), cnyFundingInputRefs, 0)}
               {renderBigBlock('usd', 'out', cnyFundingRows.map((r) => ({ label: r.label, leg: r.usdLeg })), cnyFundingInputRefs, cnyFundingRows.length)}
             </div>
@@ -2861,14 +2870,14 @@ export default function ReconcilePage() {
         )}
         {!allowRebalanceSell && latestUsdRate !== null && usdFundingLegs.length > 0 && (
           <div style={{ border: '1px solid #e8eaed', borderRadius: 10, padding: '9px 10px', backgroundColor: '#fff', marginBottom: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, fontSize: 12, color: C.sub, fontWeight: 700 }}>
+            <div className="reconcile-wrap-row" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, fontSize: 12, color: C.sub, fontWeight: 700 }}>
               <span>理财调拨 · 人民币 → 美元</span>
               <span style={{ color: C.orange, fontVariantNumeric: 'tabular-nums' }}>¥{fmtInt(rebalanceFunding.usdReplaceUseCny + rebalanceFunding.cnyToUsdCny)}</span>
               {usdFundingRows.length > 0 && <SwapTag />}
               <div style={{ flex: 1, borderBottom: '1px dashed #dadce0' }} />
             </div>
             {usdFundingRows.length > 0 && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 10, marginBottom: forexLeg ? 8 : 0 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginBottom: forexLeg ? 8 : 0 }}>
                 {renderBigBlock('cny', 'out', usdFundingRows.map((r) => ({ label: r.label, leg: r.cnyLeg })), usdFundingInputRefs, 0)}
                 {renderBigBlock('usd', 'in', usdFundingRows.map((r) => ({ label: r.label, leg: r.usdLeg })), usdFundingInputRefs, usdFundingRows.length)}
               </div>
@@ -2899,7 +2908,7 @@ export default function ReconcilePage() {
         </div>
 
         {/* 持仓表（固定列宽） */}
-        <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse', marginBottom: 16, tableLayout: 'fixed' }}>
+        <table className="reconcile-holdings" style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse', marginBottom: 16, tableLayout: 'fixed' }}>
           <colgroup>
             <col style={{ width: '20%' }} />
             <col style={{ width: '26%' }} />
@@ -2970,13 +2979,13 @@ export default function ReconcilePage() {
                     </td>
                   </tr>
                 )}
-                <tr style={{ backgroundColor: groupTone.surface, borderBottom: `1px solid ${groupTone.border}` }}>
+                <tr className="reconcile-holding-row" style={{ backgroundColor: groupTone.surface, borderBottom: `1px solid ${groupTone.border}` }}>
                   <td style={{ padding: '8px 0', paddingRight: 8, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', position: 'relative' }}>
                     <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', backgroundColor: investMeta[k].color, marginRight: 4, verticalAlign: 'middle', flexShrink: 0 }} />
                     {investMeta[k].label}
 
                   </td>
-                  <td style={{ padding: '4px 0', textAlign: 'right' }}>
+                  <td className="reconcile-holding-now" data-label="now" style={{ padding: '4px 0', textAlign: 'right' }}>
                     <AmountInput
                       ref={(element) => { holdingInputRefs.current[i] = element; }}
                       aria-label={`${investMeta[k].label} now`}
@@ -3002,11 +3011,13 @@ export default function ReconcilePage() {
                       </div>
                     )}
                   </td>
-                  <td style={{ padding: '8px 0 8px 8px', textAlign: 'right', color: C.sub, fontSize: 12, fontVariantNumeric: 'tabular-nums', overflowWrap: 'anywhere' }}>
+                  <td className="reconcile-holding-total" data-label="总金额" style={{ padding: '8px 0 8px 8px', textAlign: 'right', color: C.sub, fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
                     ¥{reconcileTotalHoldings[k].toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   {/* 需加/需赎建议；正=加仓，负=赎回 */}
                   <td
+                    className="reconcile-holding-suggestion"
+                    data-label={allowRebalanceSell ? '需加/赎' : '需加'}
                     onClick={() => {
                       if (latestUsdRate === null || suggested === 0) return;
                       setUsdRebalanceCells((prev) => {
@@ -3021,7 +3032,7 @@ export default function ReconcilePage() {
                   >
                     {remainingLabel}
                     {recurring > 0 && (
-                      <span style={{ display: 'inline-block', marginLeft: 2, fontSize: 10, fontWeight: 400, color: C.sub, whiteSpace: 'nowrap' }}>
+                      <span style={{ display: 'block', fontSize: 10, fontWeight: 400, color: C.sub, whiteSpace: 'nowrap' }}>
                         (定投{fmtInt(recurring)})
                       </span>
                     )}
