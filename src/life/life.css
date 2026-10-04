@@ -98,6 +98,8 @@
 .life-training-heading h2 { margin: 0; font-size: 21px; font-weight: 500; }
 .life-training-heading p { margin: 7px 0 0; color: var(--life-muted); font-size: 12px; }
 .life-training-heading button { color: var(--life-accent); font-size: 12px; padding: 6px 0; }
+.life-training-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px 16px; }
+.life-training-actions button { white-space: nowrap; }
 .life-training-mode { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; margin-bottom: 16px; color: var(--life-muted); }
 .life-training-mode button { color: var(--life-accent); padding: 0; }
 .bonlife .life-training-calendar .life-day, .life-training-calendar .life-empty-day { height: auto; min-height: 170px; }
@@ -183,6 +185,17 @@
 .life-body-scope { display: flex; gap: 4px; }
 .life-body-scope button { padding: 5px 10px; color: var(--life-muted); font-size: 11px; }
 .life-body-scope button[aria-pressed="true"] { color: var(--life-accent); background: #e8ebe3; }
+.life-body-toolbar { flex-wrap: wrap; }
+.life-body-filters, .life-body-record-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.life-body-filters select { border: 0; background: transparent; color: var(--life-muted); font-size: 12px; padding: 5px 0; }
+.life-body-record-actions input { min-width: 0; border: 1px solid var(--life-line); border-radius: 8px; padding: 7px 8px; color: var(--life-ink); background: #fff; font-size: 12px; }
+.life-body-record-actions button { padding: 8px 12px; font-size: 12px; }
+.life-body-records { margin: 0; padding: 0; list-style: none; }
+.life-body-records li { border-bottom: 1px solid var(--life-line); }
+.life-body-records button { display: flex; align-items: center; gap: 20px; width: 100%; padding: 16px 0; text-align: left; color: var(--life-ink); font-size: 12px; }
+.life-body-records time { flex-shrink: 0; color: var(--life-muted); font-variant-numeric: tabular-nums; }
+.life-body-records button > span:first-of-type { flex: 1; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+.life-body-records button > span:last-child { color: var(--life-muted); }
 .life-body-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 28px; }
 .life-body-chart { min-width: 0; border-bottom: 1px solid var(--life-line); padding-bottom: 12px; }
 .life-body-chart-heading { display: flex; align-items: center; gap: 8px; min-height: 26px; }

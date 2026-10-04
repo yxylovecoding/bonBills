@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { BODY_FIELDS, CIRCUMFERENCE_FIELDS, type BodyMetric, type LifeEntries } from '../utils/bonLife';
+import { BODY_FIELDS, CIRCUMFERENCE_FIELDS, entrySummary, type BodyMetric, type LifeEntries } from '../utils/bonLife';
 import { bodyDateLabel, bodySeries, type BodyPoint } from '../utils/lifeBody';
 
 const EMPTY_ENTRIES: LifeEntries = {};
@@ -35,15 +35,31 @@ function BodyChart({ metric, points, loading, control }: { metric: BodyMetric; p
   </section>;
 }
 
-export default function LifeBodyTrends({ year, month, entries = EMPTY_ENTRIES, loading }: {
+export default function LifeBodyTrends({ year, month, entries = EMPTY_ENTRIES, loading, onPeriodChange, onEdit }: {
   year: number; month: number; entries?: LifeEntries; loading: boolean;
+  onPeriodChange: (period: { year: number; month: number }) => void;
+  onEdit: (date: string) => void;
 }) {
   const [scope, setScope] = useState<'month' | 'year'>('year');
   const [circumference, setCircumference] = useState<typeof CIRCUMFERENCE_FIELDS[number]>('waist');
-  return <section className="life-body-trends" aria-label="身体趋势" aria-busy={loading}>
-    <div className="life-body-toolbar"><h2>身体趋势 <span>{year} 年{scope === 'month' ? ` ${month} 月` : ''}</span></h2>
+  const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date());
+  const defaultDate = today.startsWith(`${year}-`) ? today : `${year}-${String(month).padStart(2, '0')}-01`;
+  const prefix = scope === 'month' ? `body:${year}-${String(month).padStart(2, '0')}-` : `body:${year}-`;
+  const records = Object.entries(entries).filter(([key, entry]) => key.startsWith(prefix) && entrySummary('body', entry))
+    .sort(([a], [b]) => b.localeCompare(a));
+  return <>
+    <section className="life-body-trends" aria-label="身体趋势" aria-busy={loading}>
+    <div className="life-body-toolbar"><h2>身体趋势</h2>
+      <div className="life-body-filters">
+        <select aria-label="数据年份" value={year} onChange={(event) => onPeriodChange({ year: Number(event.target.value), month })}>
+          {Array.from({ length: 301 }, (_, i) => 2200 - i).map((value) => <option key={value} value={value}>{value} 年</option>)}
+        </select>
+        {scope === 'month' && <select aria-label="数据月份" value={month} onChange={(event) => onPeriodChange({ year, month: Number(event.target.value) })}>
+          {Array.from({ length: 12 }, (_, i) => i + 1).map((value) => <option key={value} value={value}>{value} 月</option>)}
+        </select>}
       <div className="life-body-scope" aria-label="曲线范围">{(['month', 'year'] as const).map((value) =>
-        <button key={value} aria-pressed={scope === value} onClick={() => setScope(value)}>{value === 'month' ? '本月' : '全年'}</button>)}</div>
+        <button key={value} aria-pressed={scope === value} onClick={() => setScope(value)}>{value === 'month' ? '按月' : '全年'}</button>)}</div>
+      </div>
     </div>
     <div className="life-body-charts">{(['weight', 'bmi', 'bodyFat', circumference] as const).map((metric) =>
       <BodyChart key={metric} metric={metric} loading={loading} points={bodySeries(entries, metric, year, scope === 'month' ? month : undefined)}
@@ -51,5 +67,21 @@ export default function LifeBodyTrends({ year, month, entries = EMPTY_ENTRIES, l
           onChange={(event) => setCircumference(event.target.value as typeof circumference)}>
           {CIRCUMFERENCE_FIELDS.map((field) => <option key={field} value={field}>{BODY_FIELDS[field].label}</option>)}
         </select> : undefined} />)}</div>
-  </section>;
+    </section>
+    <section className="life-body-history" aria-label="身体数据记录" aria-busy={loading}>
+      <div className="life-body-toolbar"><h2>记录</h2><form className="life-body-record-actions" onSubmit={(event) => {
+        event.preventDefault();
+        if (!loading) onEdit(String(new FormData(event.currentTarget).get('date')));
+      }}>
+        <input key={year} name="date" aria-label="记录日期" type="date" required defaultValue={defaultDate} min={`${year}-01-01`} max={`${year}-12-31`} />
+        <button type="submit" className="life-primary" disabled={loading}>记录数据</button>
+      </form></div>
+      {loading ? <p className="life-empty-state" role="status">读取中…</p> : records.length ? <ul className="life-body-records">{records.map(([key, entry]) => {
+        const date = key.slice(5);
+        return <li key={key}><button aria-label={`编辑 ${date} 身体数据`} onClick={() => onEdit(date)}>
+          <time dateTime={date}>{date.replace(/-/g, '.')}</time><span>{entrySummary('body', entry)}</span><span aria-hidden="true">›</span>
+        </button></li>;
+      })}</ul> : <p className="life-empty-state">暂无记录</p>}
+    </section>
+  </>;
 }

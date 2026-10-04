@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_SKIN_SETTINGS } from '../utils/lifeSkin';
 import LifeSkinSettings from './LifeSkinSettings';
-import { calendarCells, DEFAULT_CYCLE, entrySummary, LIFE_KINDS, LIFE_LABELS, type LifeView, type LifeYear, type TrainingRecord } from '../utils/bonLife';
+import { calendarCells, DEFAULT_CYCLE, entrySummary, LIFE_LABELS, type LifeView, type LifeYear, type TrainingRecord } from '../utils/bonLife';
 import { CYCLE_GUIDANCE, cycleDay, cyclePhaseRanges, visibleCycleDay } from '../utils/lifeCycle';
 import { requestSession } from '../utils/authClient';
 import { LifeError, lifeRequest, readDraft, type LifeDraft } from './client';
@@ -124,10 +124,10 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
       <div className="life-header-actions"><button disabled={!current || loading} onClick={() => setCycleSettings(true)}>经期设置</button><button onClick={() => setSettings(true)}>Outlook<span className={`life-connection-dot${current?.connected ? ' connected' : ''}`} /></button>
         <button onClick={() => void logout()} disabled={loggingOut}>{loggingOut ? '退出中…' : '退出'}</button></div></header>
     <div className="life-toolbar">
-      <nav className="life-tabs" aria-label="状态日历">{([...LIFE_KINDS, 'done'] as const).map((value) => <button key={value}
-        aria-pressed={kind === value} onClick={() => { setSelection((previous) => ({ ...previous, kind: value,
+      <nav className="life-tabs" aria-label="状态日历">{(['skin', 'mood', 'training', 'done'] as const).map((value) => <button key={value}
+        aria-pressed={(kind === 'body' ? 'training' : kind) === value} onClick={() => { setSelection((previous) => ({ ...previous, kind: value,
           ...(value === 'done' && previous.kind !== 'done' ? { year: Number(now.slice(0, 4)), month: Number(now.slice(5, 7)) } : {}) })); setSaved(false); }}>{LIFE_LABELS[value]}</button>)}</nav>
-      {kind !== 'done' && <div className="life-date-controls">
+      {kind !== 'done' && kind !== 'body' && <div className="life-date-controls">
         <button className="life-arrow" aria-label="上个月" disabled={year === 1900 && month === 1} onClick={() => shiftMonth(-1)}>‹</button>
         <select aria-label="年份" value={year} onChange={(event) => setSelection((previous) => ({ ...previous, year: Number(event.target.value) }))}>
           {Array.from({ length: 301 }, (_, i) => 2200 - i).map((value) => <option key={value} value={value}>{value} 年</option>)}
@@ -142,7 +142,11 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
     {kind === 'skin' && <div className="life-skin-toolbar"><span>皮肤状态 · 日常护理</span><button disabled={loading || !current || Boolean(error)} onClick={() => setSkinSettingsOpen(true)}>护理方案与在用清单 ↗</button></div>}
     {kind === 'training' && <div className="life-training-heading"><div><h2>{month} 月训练计划</h2>
       <p role="status">{loading || trainingSource.busy ? '安排中…' : rolling ? `近 7 天 · 已练 ${rolling.coverage.filter((item) => item.completed).length} / ${rolling.coverage.length} 项` : !hasCycle ? '待设置经期' : futurePlanCount ? `后续 ${futurePlanCount} 天已安排 · 按体感调整` : '历史训练'}</p></div>
-      <button disabled={loading || !current} onClick={() => setCycleSettings(true)}>{hasCycle ? '调整经期' : '设置经期'}</button>
+      <div className="life-training-actions"><button onClick={() => { setSelection((previous) => ({ ...previous, kind: 'body' })); setSaved(false); }}>身体数据 <span aria-hidden="true">›</span></button>
+        <button disabled={loading || !current} onClick={() => setCycleSettings(true)}>{hasCycle ? '调整经期' : '设置经期'}</button></div>
+    </div>}
+    {kind === 'body' && <div className="life-training-heading"><h2>身体数据</h2>
+      <button onClick={() => { setSelection((previous) => ({ ...previous, kind: 'training' })); setSaved(false); }}><span aria-hidden="true">‹ </span>返回训练</button>
     </div>}
     {kind === 'training' && <section className="life-training-source" aria-label="TickTick 训练计划" aria-busy={trainingSource.busy}>
       <div className="life-done-toolbar"><span role="status">{trainingSource.busy ? '读取训练计划…' : trainingSource.current?.syncedAt ? 'TickTick · 已同步' : 'TickTick · 尚未同步'}</span>
@@ -161,9 +165,11 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
       {!cycle.lastPeriodStart && !current?.periodDays.length && <button onClick={() => setCycleSettings(true)} disabled={loading}>设置经期，生成训练计划</button>}
     </details>}
     {kind === 'body' && !error && <Suspense fallback={<p className="life-empty-state" role="status">曲线读取中…</p>}>
-      <LifeBodyTrends year={year} month={month} entries={current?.entries} loading={loading} />
+      <LifeBodyTrends year={year} month={month} entries={current?.entries} loading={loading || !current}
+        onPeriodChange={(period) => setSelection((previous) => ({ ...previous, ...period }))}
+        onEdit={(date) => setDraft({ date, kind: 'body', text: '', revision: '', ...current?.entries[`body:${date}`], mutationId: crypto.randomUUID() })} />
     </Suspense>}
-    {kind === 'done' ? <LifeDoneList onExpired={onExpired} /> : <section className={`life-calendar${kind === 'training' ? ' life-training-calendar' : ''}`} aria-label={`${year}年${month}月${LIFE_LABELS[kind]}日历`} aria-busy={loading}>
+    {kind === 'done' ? <LifeDoneList onExpired={onExpired} /> : kind !== 'body' && <section className={`life-calendar${kind === 'training' ? ' life-training-calendar' : ''}`} aria-label={`${year}年${month}月${LIFE_LABELS[kind]}日历`} aria-busy={loading}>
       <div className="life-weekdays">{WEEKDAYS.map((day) => <span key={day}>{day}</span>)}</div>
       <div className="life-days">{cells.map((date, index) => {
         if (!date) return <div className="life-empty-day" key={`empty-${index}`} aria-hidden="true" />;
@@ -186,7 +192,8 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
         </button>;
       })}</div>
     </section>}
-    {kind !== 'done' && <footer className="life-footer"><div className="life-footer-left"><div className="life-cycle-key" aria-label="周期阶段">{cyclePhaseRanges(cycle).map(({ phase }) =>
+    {kind === 'body' && saved && <p className="life-empty-state" role="status">已保存</p>}
+    {kind !== 'done' && kind !== 'body' && <footer className="life-footer"><div className="life-footer-left"><div className="life-cycle-key" aria-label="周期阶段">{cyclePhaseRanges(cycle).map(({ phase }) =>
         <span key={phase} className={`life-period-key phase-${phase}`}><i aria-hidden="true" />{CYCLE_GUIDANCE[phase].label}</span>)}</div>
       <button disabled={year <= 1900} onClick={() => setSelection((previous) => ({ ...previous, year: previous.year - 1 }))}>往年同月</button></div>
       <div className="life-sync-status" role="status">{loading ? '读取中…' : saved ? '已保存' : ''}
