@@ -757,6 +757,7 @@ export async function syncTickTickRoutines(options: {
   calendarState: unknown;
   today: string;
   excludedTaskIds?: ReadonlySet<string>;
+  minimumTaskDates?: ReadonlyMap<string, string>;
   planDay?: (tasks: TickTickTask[]) => Promise<ReadonlyMap<string, string>>;
 }): Promise<TickTickRoutineSyncResult> {
   const { api, calendarState, today, excludedTaskIds = new Set<string>() } = options;
@@ -821,6 +822,15 @@ export async function syncTickTickRoutines(options: {
   const tomorrowTargets = getTickTickRoutineTargetDates(calendarState, addCalendarDays(today, 1));
 
   const targetDates = new Map<string, string>();
+  const boundedDate = (task: TickTickTask, date: string): string | null => {
+    const minimum = options.minimumTaskDates?.get(task.id);
+    if (!minimum) return date;
+    const from = date < minimum ? minimum : date;
+    const scenes = routineScenes(task);
+    if (!scenes.length) return from;
+    const targets = getTickTickRoutineTargetDates(calendarState, from);
+    return scenes.map(scene => targets[scene]).filter((day): day is string => day !== null).sort()[0] ?? null;
+  };
   for (const { task, scenes, recurrence } of schedulingCandidates) {
     const completedThisOccurrence = Boolean(task.repeatFlag)
       && completedKeys.has(routineOccurrenceKey(task));
@@ -844,7 +854,9 @@ export async function syncTickTickRoutines(options: {
   }
   for (const [id, date] of targetDates) {
     const task = tasksById.get(id)!;
-    const updated = await updateRoutineTaskDate(api, task, date, true);
+    const target = boundedDate(task, date);
+    if (!target) continue;
+    const updated = await updateRoutineTaskDate(api, task, target, true);
     if (!updated) continue;
     tasksById.set(task.id, updated);
     updatedRoutineTasks += 1;
@@ -855,7 +867,8 @@ export async function syncTickTickRoutines(options: {
   const hairWashDate = anchor ? routineTaskDate(anchor) : null;
   if (hairWashDate && isValidCalendarDate(hairWashDate)) {
     for (const task of hairWashFollowers) {
-      if (await updateRoutineTaskDate(api, task, hairWashDate, true)) updatedRoutineTasks += 1;
+      const target = boundedDate(task, hairWashDate);
+      if (target && await updateRoutineTaskDate(api, task, target, true)) updatedRoutineTasks += 1;
     }
   }
 
