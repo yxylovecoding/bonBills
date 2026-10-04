@@ -11,6 +11,7 @@ import { LIFE_CONNECTION_KEY, SAVE_LIFE_ENTRY, entriesKey, periodsKey, readPerio
 import { doneMonth, readDoneMonth, syncDoneMonth } from './_lifeDone.js';
 import { readTrainingSource, syncTrainingSource } from './_lifeTraining.js';
 import { swimmingSyncWarning } from './_lifeSwimming.js';
+import { parseTrainingSettings, type TrainingSettings } from '../src/utils/lifeTraining.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'private, no-store');
@@ -70,6 +71,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json(await syncDoneMonth(month));
     }
     if (body.action === 'sync-training') return res.status(200).json(await syncTrainingSource(year));
+    if (body.action === 'save-training-settings') {
+      let settings: TrainingSettings;
+      try {
+        settings = parseTrainingSettings(body.settings);
+        if (typeof body.mutationId !== 'string' || !/^[a-zA-Z0-9-]{16,80}$/.test(body.mutationId)) throw new Error();
+      } catch { return res.status(400).json({ error: '训练项目设置无效' }); }
+      const next = { ...settings, revision: body.mutationId };
+      const [ok, raw] = await kv.eval<string[], [number, string | TrainingSettings]>(SAVE_LIFE_ENTRY, [LIFE_SETTINGS_KEY],
+        ['trainingProjects', settings.revision, body.mutationId as string, JSON.stringify(next), 'training-settings']);
+      if (!ok) return res.status(409).json({ error: '训练项目已在其他页面更新，请重新打开后修改' });
+      return res.status(200).json({ settings: typeof raw === 'string' ? JSON.parse(raw) : raw });
+    }
     if (body.action === 'save-cycle') {
       let cycle: CycleSettings;
       try {

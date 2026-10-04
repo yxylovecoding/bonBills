@@ -12,7 +12,8 @@ import LifeConnection from './LifeConnection';
 import LifeCycleSettings from './LifeCycleSettings';
 import LifeDoneList from './LifeDoneList';
 import { useLifeTraining } from './useLifeTraining';
-import { monthlyTrainingPlan, rollingTrainingPlan } from '../utils/lifeTraining';
+import { DEFAULT_TRAINING_SETTINGS, monthlyTrainingPlan, rollingTrainingPlan, trainingLibrary } from '../utils/lifeTraining';
+import LifeTrainingSettings from './LifeTrainingSettings';
 
 const LifeBodyTrends = lazy(() => import('./LifeBodyTrends'));
 
@@ -42,6 +43,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
   const [settings, setSettings] = useState(false);
   const [skinSettingsOpen, setSkinSettingsOpen] = useState(false);
   const [cycleSettings, setCycleSettings] = useState(false);
+  const [trainingSettingsOpen, setTrainingSettingsOpen] = useState(false);
   const [retry, setRetry] = useState(0);
   const [loggingOut, setLoggingOut] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -56,9 +58,10 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
   const now = today();
   const trainingSource = useLifeTraining(year, !loading && !syncing && Boolean(current)
     && (kind === 'training' || draft?.kind === 'training' || cycleSettings), onExpired);
-  const hasTrainingSource = Boolean(trainingSource.current?.tasks.length);
-  const rolling = useMemo(() => hasTrainingSource ? rollingTrainingPlan(year, month, now, trainingSource.current!,
-    cycle, current?.periodDays ?? [], current?.entries ?? {}) : null, [hasTrainingSource, year, month, now, trainingSource.current, cycle, current]);
+  const library = useMemo(() => trainingLibrary(trainingSource.current?.tasks ?? [], trainingSource.current?.settings), [trainingSource.current]);
+  const hasTrainingSource = Boolean(trainingSource.current && (trainingSource.current.tasks.length || trainingSource.current.settings?.projects.length));
+  const rolling = useMemo(() => hasTrainingSource ? rollingTrainingPlan(year, month, now, { ...trainingSource.current!, tasks: library },
+    cycle, current?.periodDays ?? [], current?.entries ?? {}) : null, [hasTrainingSource, year, month, now, trainingSource.current, library, cycle, current]);
   const trainingPlan = kind === 'training' ? rolling?.plans ?? monthlyTrainingPlan(year, month, now,
     undefined, cycle, current?.periodDays ?? [], current?.entries ?? {}) : new Map<string, TrainingRecord>();
   const futurePlanCount = [...trainingPlan].filter(([date, record]) => date >= now && record.plan).length;
@@ -157,7 +160,8 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
     </div>}
     {kind === 'training' && <section className="life-training-source" aria-label="TickTick 训练计划" aria-busy={trainingSource.busy}>
       <div className="life-done-toolbar"><span role="status">{trainingSource.busy ? '读取训练计划…' : trainingSource.current?.syncedAt ? 'TickTick · 已同步' : 'TickTick · 尚未同步'}</span>
-        <button disabled={trainingSource.busy} onClick={() => void trainingSource.refresh(true)}>同步训练</button></div>
+        <div className="life-training-actions"><button disabled={trainingSource.busy || !trainingSource.current} onClick={() => setTrainingSettingsOpen(true)}>管理项目</button>
+          <button disabled={trainingSource.busy} onClick={() => void trainingSource.refresh(true)}>同步训练</button></div></div>
       {rolling && <details className="life-training-details"><summary>训练项目</summary><p className="life-training-schedule">{rolling.coverage.map(({ task, completed, lastCompleted }) => <span key={task.id}>{task.name} · {completed ? '已练' : '待练'}{lastCompleted ? ` · 上次 ${lastCompleted.slice(5).replace('-', '.')}` : ''}</span>)}</p></details>}
       {trainingSource.error && <p className="life-error" role="alert">{trainingSource.error}</p>}
       {!trainingSource.busy && trainingSource.current && !hasTrainingSource && <p className="life-empty-state">{trainingSource.current.connected ? '未找到训练待办' : <>TickTick 未连接 · <a href="https://bonbills.cn/calendar" target="_blank" rel="noreferrer">连接 TickTick ↗</a></>}</p>}
@@ -213,6 +217,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
     {periodError && <div className="life-error-banner" role="alert">{periodError}<button onClick={() => void syncPeriods(year, generation.current)}>重试</button></div>}
     {draft && current && !loading && <LifeEditor key={`${draft.kind}:${draft.date}`} initial={draft} owner={owner} skinSettings={skinSettings} skinEntries={skinEntries} cycle={cycle} periodDays={current.periodDays} onExpired={onExpired}
       trainingTasks={rolling ? rolling.byDate.get(draft.date) ?? [] : undefined}
+      trainingLibrary={library}
       onClose={() => setDraft(null)} onSave={(entry, savedDraft) => {
         setData((previous) => previous ? { ...previous, entries: { ...previous.entries, [`${savedDraft.kind}:${savedDraft.date}`]: entry } } : previous);
         setDraft(null); setSaved(true);
@@ -226,6 +231,11 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
       if (connected) void syncPeriods(year, generation.current);
       else { activeSync.current?.abort(); setSyncing(false); setPeriodError(''); }
     }} />}
+    {trainingSettingsOpen && trainingSource.current && <LifeTrainingSettings initial={trainingSource.current.settings ?? DEFAULT_TRAINING_SETTINGS}
+      tasks={trainingSource.current.tasks} year={year} onExpired={onExpired}
+      onClose={() => { setTrainingSettingsOpen(false); void trainingSource.refresh(); }} onSave={(settings) => {
+        trainingSource.updateSettings(settings); setTrainingSettingsOpen(false); setSaved(true);
+      }} />}
     {cycleSettings && <LifeCycleSettings initial={cycle} year={year} tickTickTraining={hasTrainingSource} onExpired={onExpired} onClose={() => { setCycleSettings(false); setRetry((value) => value + 1); }} onSave={(savedCycle, swimmingError) => {
       setData((previous) => previous ? { ...previous, cycle: savedCycle } : previous); setCycleSettings(false); setSaved(true);
       setPeriodError(swimmingError ?? ''); void trainingSource.refresh(true);

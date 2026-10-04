@@ -7,11 +7,11 @@ import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { BODY_FIELDS, entrySummary, parseLifeEdit, LIFE_LABELS, LIFE_TEXT_LIMIT, type BodyRecord, type CycleSettings, type LifeEntry, type LifeEntries } from '../utils/bonLife';
 import { CYCLE_GUIDANCE, visibleCycleDay } from '../utils/lifeCycle';
 import { readDraft, saveDraft, removeDraft, LifeError, lifeRequest, type LifeDraft } from './client';
-import { automaticTraining, plannedTraining, type TrainingTask } from '../utils/lifeTraining';
+import { automaticTraining, plannedTraining, recordedTrainingProjects, reuseTrainingProjects, trainingIdentity, type TrainingTask } from '../utils/lifeTraining';
 
-export default function LifeEditor({ initial, owner, cycle, periodDays, trainingTasks, skinSettings = DEFAULT_SKIN_SETTINGS, skinEntries, onSave, onClose, onExpired }: {
+export default function LifeEditor({ initial, owner, cycle, periodDays, trainingTasks, trainingLibrary = [], skinSettings = DEFAULT_SKIN_SETTINGS, skinEntries, onSave, onClose, onExpired }: {
   initial: LifeDraft; owner: string; cycle: CycleSettings; periodDays: string[];
-  trainingTasks?: TrainingTask[]; skinSettings?: SkinSettings; skinEntries: LifeEntries;
+  trainingTasks?: TrainingTask[]; trainingLibrary?: TrainingTask[]; skinSettings?: SkinSettings; skinEntries: LifeEntries;
   onSave: (entry: LifeEntry, draft: LifeDraft) => void; onClose: () => void; onExpired: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -28,6 +28,8 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
   const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date());
   const skin = draft.kind === 'skin' ? resolveSkinRecord(draft.date, skinSettings, skinEntries, draft.skin) : undefined;
   const training = draft.kind === 'training' ? plannedTraining(draft.date, today, trainingTasks, cycle, periodDays, draft.training) : undefined;
+  const chosenProjects = training ? recordedTrainingProjects(training, trainingLibrary) : [];
+  const chosenTasks = trainingLibrary.filter((task) => chosenProjects.includes(trainingIdentity(task)));
   const isSymptom = draft.kind === 'eyes' || draft.kind === 'discomfort';
 
   function persist(next: LifeDraft) {
@@ -100,8 +102,15 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
             change({ body });
           }} /></label>)}</div>}
       {draft.kind === 'training' && <div className="life-training-editor">
-        {Boolean(trainingTasks?.length) && <details className="life-training-details"><summary>训练内容</summary>
-          {trainingTasks!.map((task) => <div key={task.id}><p>{task.name}</p>{task.notes && <p className="life-training-notes">{task.notes}</p>}
+        <fieldset className="life-skin-choices" disabled={busy}><legend>训练项目</legend><div>{trainingLibrary.map((task) => <button type="button" key={trainingIdentity(task)}
+          aria-pressed={chosenProjects.includes(trainingIdentity(task))} onClick={() => {
+            const key = trainingIdentity(task);
+            const keys = chosenProjects.includes(key) ? chosenProjects.filter((value) => value !== key) : [...chosenProjects, key];
+            try { change({ training: reuseTrainingProjects(trainingLibrary.filter((value) => keys.includes(trainingIdentity(value)))) }); setError(''); }
+            catch (cause) { setError(cause instanceof Error ? cause.message : '训练项目选择失败'); }
+          }}>{task.name}</button>)}</div></fieldset>
+        {Boolean(chosenTasks.length) && <details className="life-training-details"><summary>训练内容</summary>
+          {chosenTasks.map((task) => <div key={task.id}><p>{task.name}</p>{task.notes && <p className="life-training-notes">{task.notes}</p>}
             {task.links.length > 0 && <div className="life-training-links">{task.links.map((link) => <a href={link.url} key={link.url} target="_blank" rel="noreferrer">{link.title} ↗</a>)}</div>}</div>)}
         </details>}
         {guidance && <div className="life-guidance"><p><span>运动</span>{guidance.exercise}</p><p><span>饮食</span>{guidance.food}</p></div>}
@@ -110,7 +119,8 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
         </div>
         <label className="life-field">当日强度<select disabled={busy} value={training?.effort ?? 'normal'} onChange={(event) => {
           const effort = event.target.value as 'normal' | 'easy' | 'rest';
-          change({ training: { ...automaticTraining(draft.date, trainingTasks, cycle, periodDays, effort), completed: training?.completed ?? false } });
+          change({ training: { ...automaticTraining(draft.date, training?.mode === 'manual' ? chosenTasks : trainingTasks, cycle, periodDays, effort),
+            mode: training?.mode ?? 'auto', completed: training?.completed ?? false } });
         }}><option value="normal">按计划</option><option value="easy">轻量</option><option value="rest">休息</option></select></label>
         <label className="life-field">训练计划<textarea aria-label="训练计划" rows={3} maxLength={1000} disabled={busy} value={training?.plan ?? ''}
           onChange={(event) => change({ training: { effort: 'normal', completed: false, ...training, plan: event.target.value, mode: 'manual', projects: undefined } })} /></label>

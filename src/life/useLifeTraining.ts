@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { TrainingSource } from '../utils/lifeTraining';
+import type { TrainingSettings, TrainingSource } from '../utils/lifeTraining';
 import { LifeError, lifeRequest } from './client';
 
 export function useLifeTraining(year: number, active: boolean, onExpired: () => void) {
@@ -30,5 +30,6 @@ export function useLifeTraining(year: number, active: boolean, onExpired: () => 
     if (active) void refresh();
     return () => controller.current?.abort();
   }, [active, refresh]);
-  return { current, busy, error, refresh };
+  const updateSettings = (settings: TrainingSettings) => setData((previous) => previous ? { ...previous, settings } : previous);
+  return { current, busy, error, refresh, updateSettings };
 }

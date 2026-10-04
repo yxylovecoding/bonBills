@@ -33,7 +33,7 @@ export default function LifeCycleSettings({ initial, year, tickTickTraining, onS
         onChange={(event) => change({ cycleLength: Number(event.target.value) })} /></label>
         <label>经期 · 天<input type="number" required min="1" max="10" value={draft.periodLength} disabled={busy}
           onChange={(event) => change({ periodLength: Number(event.target.value) })} /></label></div>
-      {tickTickTraining ? <p className="life-empty-state">训练日 · TickTick 已同步</p> : <fieldset className="life-training-days"><legend>训练日</legend><div>{[1, 2, 3, 4, 5, 6, 0].map((day, index) =>
+      {tickTickTraining ? <p className="life-empty-state">训练安排 · 自动轮换</p> : <fieldset className="life-training-days"><legend>训练日</legend><div>{[1, 2, 3, 4, 5, 6, 0].map((day, index) =>
         <button key={day} type="button" disabled={busy} aria-pressed={draft.trainingDays.includes(day)} aria-label={`周${'一二三四五六日'[index]}`}
           onClick={() => change({ trainingDays: draft.trainingDays.includes(day) ? draft.trainingDays.filter((value) => value !== day) : [...draft.trainingDays, day] })}>{'一二三四五六日'[index]}</button>)}</div></fieldset>}
       {error && <p className="life-error" role="alert">{error}</p>}

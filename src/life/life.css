@@ -288,3 +288,11 @@
   .life-skin-product-toolbar > button { width: 100%; text-align: left; }
   .life-skin-product-actions { flex-direction: column; gap: 14px; }
 }
+
+.life-project-list { padding: 0; margin: 0 0 16px; list-style: none; }
+.life-project-list li { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--life-line); }
+.life-project-list li > div { min-width: 0; }
+.life-project-list strong { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
+.life-project-list span { margin-left: 12px; font-size: 11px; color: var(--life-muted); }
+.life-project-list p { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--life-muted); font-size: 12px; line-height: 1.6; margin: 6px 0 0; }
+.life-project-list button, .life-project-add { flex-shrink: 0; color: var(--life-accent); font-size: 12px; padding: 4px 0; }
