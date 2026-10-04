@@ -64,8 +64,8 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
     && (kind === 'training' || draft?.kind === 'training' || cycleSettings), onExpired);
   const library = useMemo(() => trainingLibrary(trainingSource.current?.tasks ?? [], trainingSource.current?.settings), [trainingSource.current]);
   const hasTrainingSource = Boolean(trainingSource.current && (trainingSource.current.tasks.length || trainingSource.current.settings?.projects.length));
-  const rolling = useMemo(() => hasTrainingSource ? rollingTrainingPlan(year, month, now, { ...trainingSource.current!, tasks: library },
-    cycle, current?.periodDays ?? [], current?.entries ?? {}) : null, [hasTrainingSource, year, month, now, trainingSource.current, library, cycle, current]);
+  const rolling = useMemo(() => hasTrainingSource ? rollingTrainingPlan(year, month, now, trainingSource.current!,
+    cycle, current?.periodDays ?? [], current?.entries ?? {}) : null, [hasTrainingSource, year, month, now, trainingSource.current, cycle, current]);
   const trainingPlan = kind === 'training' ? rolling?.plans ?? monthlyTrainingPlan(year, month, now,
     undefined, cycle, current?.periodDays ?? [], current?.entries ?? {}) : new Map<string, TrainingRecord>();
   const futurePlanCount = [...trainingPlan].filter(([date, record]) => date >= now && record.plan).length;
@@ -74,10 +74,10 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
     const periods = [...new Set([...(trainingSource.current?.periodDays ?? []), ...(current?.periodDays ?? [])])];
     const entries = { ...trainingSource.current?.entries, ...current?.entries };
     const training = hasTrainingSource ? rollingTrainingPlan(Number(now.slice(0, 4)), Number(now.slice(5, 7)), now,
-      { ...trainingSource.current!, tasks: library }, cycle, periods, entries).plans.get(now)
+      trainingSource.current!, cycle, periods, entries).plans.get(now)
       : plannedTraining(now, now, undefined, cycle, periods, entries[`training:${now}`]?.training);
     return { phase: cycleDay(now, cycle, periods), training };
-  }, [now, trainingSource.current, current, hasTrainingSource, library, cycle]);
+  }, [now, trainingSource.current, current, hasTrainingSource, cycle]);
   const todayAdvice = todayOverview.phase ? CYCLE_GUIDANCE[todayOverview.phase.phase] : null;
   const todayLoading = loading || syncing || trainingSource.busy;
 
@@ -180,7 +180,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
       <div className="life-done-toolbar"><span role="status">{trainingSource.busy ? '读取训练计划…' : trainingSource.current?.syncedAt ? 'TickTick · 已同步' : 'TickTick · 尚未同步'}</span>
         <div className="life-training-actions"><button disabled={trainingSource.busy || !trainingSource.current} onClick={() => setTrainingSettingsOpen(true)}>管理项目</button>
           <button disabled={trainingSource.busy} onClick={() => void trainingSource.refresh(true)}>同步训练</button></div></div>
-      {rolling && <details className="life-training-details"><summary>训练项目</summary><p className="life-training-schedule">{rolling.coverage.map(({ task, completed, lastCompleted }) => <span key={task.id}>{task.name} · {completed ? '已练' : '待练'}{lastCompleted ? ` · 上次 ${lastCompleted.slice(5).replace('-', '.')}` : ''}</span>)}</p></details>}
+      {rolling && <details className="life-training-details"><summary>训练项目</summary><p className="life-training-schedule">{rolling.coverage.map(({ task, completed, lastCompleted }) => <span key={task.id}>{task.name}{task.tags?.length ? <small className="life-training-tags">{task.tags.join(' · ')}</small> : null} · {completed ? '已练' : '待练'}{lastCompleted ? ` · 上次 ${lastCompleted.slice(5).replace('-', '.')}` : ''}</span>)}</p></details>}
       {trainingSource.error && <p className="life-error" role="alert">{trainingSource.error}</p>}
       {!trainingSource.busy && trainingSource.current && !hasTrainingSource && <p className="life-empty-state">{trainingSource.current.connected ? '未找到训练待办' : <>TickTick 未连接 · <a href="https://bonbills.cn/calendar" target="_blank" rel="noreferrer">连接 TickTick ↗</a></>}</p>}
     </section>}

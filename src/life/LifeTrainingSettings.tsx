@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { parseTrainingSettings, trainingIdentity, trainingLibrary, trainingProjectKey,
+import { isTrainingCategory, parseTrainingSettings, TRAINING_TAGS, trainingIdentity, trainingLibrary, trainingProjectKey, trainingTags,
   type TrainingProject, type TrainingSettings, type TrainingTask } from '../utils/lifeTraining';
 import { LifeError, lifeRequest } from './client';
 
@@ -31,6 +31,7 @@ export default function LifeTrainingSettings({ initial, tasks, year, onSave, onC
   function finish() {
     if (!item) return;
     try {
+      if (isTrainingCategory(item.name)) throw new Error('有氧、力量是标签，请填写具体项目名称');
       if (library.some((task) => trainingIdentity(task) !== item.key && trainingProjectKey(task.name) === trainingProjectKey(item.name))) throw new Error('已存在同名训练项目');
       update(item); setItem(null);
     } catch (cause) { setError(cause instanceof Error ? cause.message : '训练项目信息无效'); }
@@ -52,14 +53,19 @@ export default function LifeTrainingSettings({ initial, tasks, year, onSave, onC
       <div className="life-editor-heading"><h2 id="life-training-settings-title">训练项目</h2><span>{dirty ? '未保存' : '常用项目'}</span></div>
       {item ? <>
         <label className="life-field">项目名称<input autoFocus required maxLength={60} value={item.name} disabled={busy} onChange={(event) => setItem({ ...item, name: event.target.value })} /></label>
+        <fieldset className="life-skin-choices" disabled={busy}><legend>标签</legend><div>{TRAINING_TAGS.map((tag) => <button key={tag} type="button"
+          aria-pressed={trainingTags(item).includes(tag)} onClick={() => {
+            const tags = trainingTags(item);
+            setItem({ ...item, tags: tags.includes(tag) ? tags.filter((value) => value !== tag) : [...tags, tag] });
+          }}>{tag}</button>)}</div></fieldset>
         <label className="life-field">训练内容<textarea rows={3} maxLength={500} value={item.notes} disabled={busy} placeholder="时长、组数或跟练内容" onChange={(event) => setItem({ ...item, notes: event.target.value })} /></label>
         <label className="life-check"><input type="checkbox" checked={item.rotation} disabled={busy} onChange={(event) => setItem({ ...item, rotation: event.target.checked })} />加入轮换</label>
         <div className="life-editor-actions"><button type="button" onClick={() => { setItem(null); setError(''); }}>取消编辑</button><button type="submit" className="life-primary">完成编辑</button></div>
       </> : <>
         <ul className="life-project-list">{library.map((task) => <li key={trainingIdentity(task)}>
-          <div><strong>{task.name}</strong><span>{task.rotation ? '参与轮换' : '按需选择'}</span>{task.notes && <p>{task.notes}</p>}</div>
+          <div><strong>{task.name}</strong>{task.tags?.length ? <small className="life-training-tags">{task.tags.join(' · ')}</small> : null}<span>{task.rotation ? '参与轮换' : '按需选择'}</span>{task.notes && <p>{task.notes}</p>}</div>
           <button type="button" disabled={busy} aria-label={`编辑${task.name}`} onClick={() => {
-            setItem({ key: trainingIdentity(task), name: task.name, notes: task.notes, rotation: task.rotation ?? true }); setError(''); setDiscarding(false);
+            setItem({ key: trainingIdentity(task), name: task.name, notes: task.notes, rotation: task.rotation ?? true, tags: task.tags }); setError(''); setDiscarding(false);
           }}>编辑</button>
         </li>)}</ul>
         <button type="button" className="life-project-add" disabled={busy || draft.projects.length >= 60} onClick={() => {

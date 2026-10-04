@@ -8,7 +8,7 @@ const { auth, origin, evalMock, data } = vi.hoisted(() => ({ auth: vi.fn(), orig
 vi.mock('./_auth.js', () => ({ authOk: auth, sameOrigin: origin }));
 vi.mock('@vercel/kv', () => ({ kv: { get: async (key: string) => data.get(key) ?? null,
   hgetall: async (key: string) => data.get(key) ?? null, eval: evalMock } }));
-const settings = { revision: '', projects: [{ key: '爬坡', name: '爬坡', notes: '30 分钟', rotation: true }] };
+const settings = { revision: '', projects: [{ key: '爬坡', name: '爬坡', notes: '30 分钟', rotation: true, tags: ['有氧'] }] };
 const input = { year: 2026, action: 'save-training-settings', settings, mutationId: 'training-123456789' };
 async function call(method = 'POST', body: unknown = input) {
   const result = { status: 200, body: {} as Record<string, any> };
@@ -41,6 +41,7 @@ describe('训练项目保存与复用接口', () => {
     expect((await call('POST', { ...input, mutationId: 'training-987654321' })).status).toBe(409);
   });
   it('拒绝无效设置、未登录和跨来源写入', async () => {
+    expect((await call('POST', { ...input, settings: { ...settings, projects: [{ ...settings.projects[0], tags: ['无效标签'] }] } })).status).toBe(400);
     expect((await call('POST', { ...input, settings: { ...settings, projects: [{}] } })).status).toBe(400);
     expect(evalMock).not.toHaveBeenCalled();
     auth.mockResolvedValue(false); expect((await call()).status).toBe(401);

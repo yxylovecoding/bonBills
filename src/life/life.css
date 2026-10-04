@@ -334,3 +334,5 @@
 .life-project-list span { margin-left: 12px; font-size: 11px; color: var(--life-muted); }
 .life-project-list p { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--life-muted); font-size: 12px; line-height: 1.6; margin: 6px 0 0; }
 .life-project-list button, .life-project-add { flex-shrink: 0; color: var(--life-accent); font-size: 12px; padding: 4px 0; }
+.life-training-tags { display: inline-block; margin-left: 8px; font-size: 10px; font-weight: 400; color: var(--life-muted); }
+.life-skin-choices button[aria-pressed="true"] .life-training-tags { color: inherit; opacity: .8; }

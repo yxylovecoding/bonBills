@@ -19,7 +19,7 @@ describe('按个人训练分化调整经期计划', () => {
     expect(personalTraining('2026-10-08', [task('上半身')], cycle, [], 'rest')).toBe('休息');
   });
   it('同日多个任务都保留，已记录的经期覆盖估计阶段', () => {
-    expect(personalTraining('2026-10-08', [task('上半身'), task('有氧')], cycle, [])).toBe('上半身 · 常规强度\n有氧 · 常规强度');
+    expect(personalTraining('2026-10-08', [task('上半身'), task('爬坡')], cycle, [])).toBe('上半身 · 常规强度\n爬坡 · 常规强度');
     expect(personalTraining('2026-10-14', [task('HIIT')], cycle, ['2026-10-14'])).toContain('轻松散步');
   });
   it('经期初段把同日多个训练合并为一次恢复训练', () => {
@@ -28,7 +28,7 @@ describe('按个人训练分化调整经期计划', () => {
 });
 
 describe('按实际完成滚动轮换', () => {
-  const names = ['有氧', '上半身', '臀腿', '全身力训', 'HIIT', '游泳'];
+  const names = ['爬坡', '上半身', '臀腿', '全身力训', 'HIIT', '游泳'];
   const source = (completed: [string, string][] = [], tasks = names.map(task)): TrainingSource => ({ year: 2026, tasks,
     connected: true, syncedAt: '2026-10-14T00:00:00Z', completions: completed.map(([name, date]) => ({ project: trainingProjectKey(name), date })) });
   const record = (plan: string, extra: Partial<TrainingRecord> = {}) => ({ text: '', revision: 'saved', training: {
@@ -37,13 +37,13 @@ describe('按实际完成滚动轮换', () => {
     rollingTrainingPlan(year, month, today, input, settings, [], entries);
   const project = (result: ReturnType<typeof run>, date: string) => result.plans.get(date)?.projects?.[0];
 
-  it('上周三有氧后停一周，下周三接漏练项目，不按原星期重置', () => {
-    const input = source([['有氧', '2026-10-07']], names.map((name) => ({ ...task(name), schedule: '每周三', dates: ['2026-10-14'] })));
+  it('上周三爬坡后停一周，下周三接漏练项目，不按原星期重置', () => {
+    const input = source([['爬坡', '2026-10-07']], names.map((name) => ({ ...task(name), schedule: '每周三', dates: ['2026-10-14'] })));
     const result = run('2026-10-14', input);
     expect(project(result, '2026-10-14')).toBeTruthy();
-    expect(project(result, '2026-10-14')).not.toBe('有氧');
+    expect(project(result, '2026-10-14')).not.toBe('爬坡');
     expect(result.coverage.every((item) => !item.completed)).toBe(true);
-    expect(result.coverage.find((item) => item.task.name === '有氧')?.lastCompleted).toBe('2026-10-07');
+    expect(result.coverage.find((item) => item.task.name === '爬坡')?.lastCompleted).toBe('2026-10-07');
     const week = Array.from({ length: 6 }, (_, i) => project(result, `2026-10-${14 + i}`));
     expect(new Set(week)).toEqual(new Set(names.map(trainingProjectKey)));
   });
@@ -62,20 +62,20 @@ describe('按实际完成滚动轮换', () => {
     expect(first.plans.get('2026-10-20')?.plan).toContain('休息');
     expect(project(first, '2026-10-21')).toBe(project(first, '2026-10-14'));
     const history = names.map((name, i): [string, string] => [name, `2026-10-${String(2 + i).padStart(2, '0')}`]);
-    expect(project(run('2026-10-14', source(history)), '2026-10-14')).toBe('有氧');
+    expect(project(run('2026-10-14', source(history)), '2026-10-14')).toBe('爬坡');
   });
   it('Web 和 TickTick 完成记录共同推进，项目改 ID、重复实例和重复完成不重复计数', () => {
-    const input = source([['有氧', '2026-10-13'], ['有氧', '2026-10-13'], ['上半身', '2026-10-20']], [...names.map(task), { ...task('有氧'), id: 'other-id' }]);
-    const result = run('2026-10-14', input, { 'training:2026-10-13': record('有氧'), 'training:2026-10-12': record('上半身 · 常规强度') });
+    const input = source([['爬坡', '2026-10-13'], ['爬坡', '2026-10-13'], ['上半身', '2026-10-20']], [...names.map(task), { ...task('爬坡'), id: 'other-id' }]);
+    const result = run('2026-10-14', input, { 'training:2026-10-13': record('爬坡'), 'training:2026-10-12': record('上半身 · 常规强度') });
     expect(result.coverage).toHaveLength(6);
     expect(result.coverage.filter((item) => item.completed)).toHaveLength(2);
     expect(result.plans.get('2026-10-13')?.completed).toBe(true);
-    expect(['有氧', '上半身']).not.toContain(project(result, '2026-10-14'));
+    expect(['爬坡', '上半身']).not.toContain(project(result, '2026-10-14'));
   });
   it('今天在 TickTick 已练就展示完成记录，明天接着排', () => {
-    const result = run('2026-10-14', source([['有氧', '2026-10-14']]));
-    expect(result.plans.get('2026-10-14')).toMatchObject({ completed: true, projects: ['有氧'] });
-    expect(project(result, '2026-10-15')).not.toBe('有氧');
+    const result = run('2026-10-14', source([['爬坡', '2026-10-14']]));
+    expect(result.plans.get('2026-10-14')).toMatchObject({ completed: true, projects: ['爬坡'] });
+    expect(project(result, '2026-10-15')).not.toBe('爬坡');
   });
   it('休息日和轻量日不消耗项目，恢复按计划时仍能取回待练内容', () => {
     const first = project(run('2026-10-14'), '2026-10-14');
@@ -85,8 +85,8 @@ describe('按实际完成滚动轮换', () => {
       expect(project(result, '2026-10-15')).toBe(first);
       expect(automaticTraining('2026-10-14', result.byDate.get('2026-10-14'), DEFAULT_CYCLE, []).projects).toEqual([first]);
     }
-    expect(recordedTrainingProjects({ plan: '有氧', effort: 'rest', completed: true, projects: ['有氧'] }, names.map(task))).toEqual([]);
-    expect(recordedTrainingProjects({ plan: '今天没练有氧', effort: 'normal', completed: true }, names.map(task))).toEqual([]);
+    expect(recordedTrainingProjects({ plan: '爬坡', effort: 'rest', completed: true, projects: ['爬坡'] }, names.map(task))).toEqual([]);
+    expect(recordedTrainingProjects({ plan: '今天没练爬坡', effort: 'normal', completed: true }, names.map(task))).toEqual([]);
   });
   it('经期前三天暂停轮换，游泳和间歇延后，不把替代训练记成原项目', () => {
     const input = source([], [task('游泳'), task('HIIT')]);
@@ -101,16 +101,16 @@ describe('按实际完成滚动轮换', () => {
   });
   it('跨年衔接历史完成，并保留手动计划与完成快照', () => {
     const manual = record('上半身', { mode: 'manual', completed: false });
-    const input = { ...source([['有氧', '2026-12-31']]), entries: { 'training:2026-12-30': record('臀腿') } };
+    const input = { ...source([['爬坡', '2026-12-31']]), entries: { 'training:2026-12-30': record('臀腿') } };
     const result = run('2027-01-01', input, { 'training:2027-01-01': manual }, DEFAULT_CYCLE, 2027, 1);
     expect(result.plans.get('2027-01-01')).toBe(manual.training);
     expect(result.coverage.filter((item) => item.completed)).toHaveLength(2);
-    expect(['有氧', '臀腿', '上半身']).not.toContain(project(result, '2027-01-02'));
+    expect(['爬坡', '臀腿', '上半身']).not.toContain(project(result, '2027-01-02'));
   });
   it('项目标识可保存、去重；非法项目数据拒绝写入', () => {
-    const edit = { kind: 'training', date: '2026-10-14', text: '', revision: '', mutationId: 'mutation-123456789', training: record('有氧').training };
-    expect(parseLifeEdit({ ...edit, training: { ...edit.training, projects: ['有氧', '有氧'] } }).training?.projects).toEqual(['有氧']);
-    for (const projects of ['有氧', [4], [''], Array(31).fill('有氧')]) {
+    const edit = { kind: 'training', date: '2026-10-14', text: '', revision: '', mutationId: 'mutation-123456789', training: record('爬坡').training };
+    expect(parseLifeEdit({ ...edit, training: { ...edit.training, projects: ['爬坡', '爬坡'] } }).training?.projects).toEqual(['爬坡']);
+    for (const projects of ['爬坡', [4], [''], Array(31).fill('爬坡')]) {
       expect(() => parseLifeEdit({ ...edit, training: { ...edit.training, projects } })).toThrow();
     }
   });

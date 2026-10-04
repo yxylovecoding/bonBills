@@ -117,7 +117,7 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
             const keys = chosenProjects.includes(key) ? chosenProjects.filter((value) => value !== key) : [...chosenProjects, key];
             try { change({ training: reuseTrainingProjects(trainingLibrary.filter((value) => keys.includes(trainingIdentity(value)))) }); setError(''); }
             catch (cause) { setError(cause instanceof Error ? cause.message : '训练项目选择失败'); }
-          }}>{task.name}</button>)}</div></fieldset>
+          }}>{task.name}{task.tags?.length ? <small className="life-training-tags">{task.tags.join(' · ')}</small> : null}</button>)}</div></fieldset>
         {Boolean(chosenTasks.length) && <details className="life-training-details"><summary>训练内容</summary>
           {chosenTasks.map((task) => <div key={task.id}><p>{task.name}</p>{task.notes && <p className="life-training-notes">{task.notes}</p>}
             {task.links.length > 0 && <div className="life-training-links">{task.links.map((link) => <a href={link.url} key={link.url} target="_blank" rel="noreferrer">{link.title} ↗</a>)}</div>}</div>)}

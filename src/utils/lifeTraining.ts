@@ -8,10 +8,21 @@ export const isTrainingTitle = (title: string) => trainingProjectKey(title).incl
   && trainingProjectKey(title) !== TRAINING_MARKER;
 export const trainingName = (title: string) => (title.includes('运动') ? title.slice(0, title.indexOf('运动')).replace(/[\s·—\-:：]+$/u, '').trim() : title) || title;
 
+export const TRAINING_TAGS = ['有氧', '力量'] as const;
+export type TrainingTag = typeof TRAINING_TAGS[number];
+export const isTrainingCategory = (name: string) => /^(有氧|力量)(运动|训练)?$/.test(trainingProjectKey(name));
+export function trainingTags(project: { name: string; tags?: TrainingTag[] }): TrainingTag[] {
+  if (project.tags) return project.tags;
+  if (/爬坡|游泳|跑步|骑行|单车|椭圆机|有氧|HIIT/i.test(project.name)) return ['有氧'];
+  if (/力量|力训|臀|腿|上半身|下半身|背|胸|哑铃/.test(project.name)) return ['力量'];
+  return [];
+}
+
 export interface TrainingTask {
   id: string;
   key?: string;
   rotation?: boolean;
+  tags?: TrainingTag[];
   name: string;
   title: string;
   schedule: string;
@@ -26,7 +37,7 @@ export interface TrainingSource {
   settings?: TrainingSettings;
 }
 
-export interface TrainingProject { key: string; name: string; notes: string; rotation: boolean }
+export interface TrainingProject { key: string; name: string; notes: string; rotation: boolean; tags?: TrainingTag[] }
 export interface TrainingSettings { projects: TrainingProject[]; revision: string }
 export const DEFAULT_TRAINING_SETTINGS: TrainingSettings = { projects: [], revision: '' };
 export const trainingIdentity = (task: TrainingTask) => task.key ?? trainingProjectKey(task.name);
@@ -40,10 +51,13 @@ export function parseTrainingSettings(value: unknown): TrainingSettings {
     if (!project || typeof project.key !== 'string' || !project.key || project.key.length > 120
       || typeof project.name !== 'string' || !project.name.trim() || project.name.length > 60 || !trainingProjectKey(project.name)
       || typeof project.notes !== 'string' || project.notes.length > 500 || typeof project.rotation !== 'boolean') throw new Error('训练项目信息无效');
+    if (project.tags !== undefined && (!Array.isArray(project.tags) || project.tags.length > TRAINING_TAGS.length
+      || project.tags.some((tag) => !TRAINING_TAGS.includes(tag)))) throw new Error('训练项目标签无效');
     const name = trainingProjectKey(project.name);
     if (keys.has(project.key) || names.has(name)) throw new Error('训练项目不能重复');
     keys.add(project.key); names.add(name);
-    return { key: project.key, name: project.name.trim(), notes: project.notes.trim(), rotation: project.rotation };
+    return { key: project.key, name: project.name.trim(), notes: project.notes.trim(), rotation: project.rotation,
+      ...(project.tags !== undefined ? { tags: TRAINING_TAGS.filter((tag) => project.tags!.includes(tag)) } : {}) };
   });
   return { projects, revision: input.revision };
 }
@@ -57,7 +71,7 @@ export function trainingLibrary(tasks: TrainingTask[], settings = DEFAULT_TRAINI
     const previous = library.get(project.key);
     library.set(project.key, { ...(previous ?? reusable(project.name)), ...project, id: previous?.id ?? `template:${project.key}` });
   }
-  return [...library.values()];
+  return [...library.values()].filter((task) => !isTrainingCategory(task.name)).map((task) => ({ ...task, tags: trainingTags(task) }));
 }
 
 export function reuseTrainingProjects(tasks: TrainingTask[]): TrainingRecord {
@@ -89,7 +103,7 @@ export function personalTraining(date: string, tasks: TrainingTask[], settings: 
       if (/HIIT|间歇/i.test(task.name)) return '低强度有氧 20 分钟';
       return `${task.name} · 轻量，减少训练量`;
     }
-    if (phase.phase === 'earlyLuteal' && /力量|力训|臀|腿|上半身|下半身|背|胸|哑铃/.test(task.name)) return `${task.name} · 常规力量，按体感加量`;
+    if (phase.phase === 'earlyLuteal' && trainingTags(task).includes('力量')) return `${task.name} · 常规力量，按体感加量`;
     return `${task.name} · 常规强度`;
   }))].join('\n');
 }
@@ -118,7 +132,20 @@ const shiftDay = (date: string, days: number) => new Date(Date.parse(`${date}T00
 
 export function rollingTrainingPlan(year: number, month: number, today: string, source: TrainingSource,
   settings: CycleSettings, periods: string[], localEntries: LifeEntries) {
-  const tasks = [...new Map([...source.tasks].sort((a, b) => a.id.localeCompare(b.id))
+  // Category-only TickTick tasks remain readable as history, but cannot become
+  // a selectable project or count as a completed climb/swim session.
+  const categoryHistory: TrainingTask[] = [
+    ...source.tasks.filter((task) => isTrainingCategory(task.name)),
+    ...(source.settings?.projects ?? []).filter((project) => isTrainingCategory(project.name)).map((project) => ({
+      ...project, id: `history:${project.key}`, title: project.name, schedule: '', dates: [], links: [],
+    })),
+    ...(source.completions ?? []).filter((completion) => isTrainingCategory(completion.project)).map((completion) => ({
+      id: `history:${completion.project}`, key: completion.project, name: completion.project, title: completion.project,
+      notes: '', schedule: '', dates: [], links: [],
+    })),
+  ];
+  const tasks = [...new Map([...categoryHistory.map((task) => ({ ...task, rotation: false })),
+    ...trainingLibrary([...source.tasks].sort((a, b) => a.id.localeCompare(b.id)), source.settings)]
     .map((task) => [trainingIdentity(task), task])).values()];
   const byKey = new Map(tasks.map((task) => [trainingIdentity(task), task]));
   const entries = { ...source.entries, ...localEntries };

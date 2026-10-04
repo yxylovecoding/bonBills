@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CYCLE } from './bonLife';
-import { automaticTraining, parseTrainingSettings, recordedTrainingProjects, reuseTrainingProjects, rollingTrainingPlan, trainingIdentity, trainingLibrary,
+import { automaticTraining, parseTrainingSettings, recordedTrainingProjects, reuseTrainingProjects, rollingTrainingPlan, trainingIdentity, trainingLibrary, trainingTags,
   type TrainingSettings, type TrainingTask } from './lifeTraining';
 
 const source = (name: string): TrainingTask => ({ id: name, name, title: `${name}-运动💪🏻是生活的第一个锚点🪝`, notes: '原有跟练', links: [{ title: '跟练', url: 'https://example.com/workout' }], schedule: '每周三', dates: [] });
@@ -8,12 +8,47 @@ const settings: TrainingSettings = { revision: '', projects: [{ key: '爬坡', n
 const roll = (tasks: TrainingTask[], entries = {}) => rollingTrainingPlan(2026, 10, '2026-10-05', { year: 2026, tasks, connected: false, syncedAt: null }, DEFAULT_CYCLE, [], entries);
 
 describe('可复用训练项目', () => {
+  it('有氧、力量只作标签，爬坡和游泳仍是各自独立的项目', () => {
+    const tasks = [source('有氧'), source('力量'), source('上半身'), source('游泳')];
+    const library = trainingLibrary(tasks);
+    expect(library.map(({ name, tags }) => ({ name, tags }))).toEqual([
+      { name: '爬坡', tags: ['有氧'] }, { name: '游泳', tags: ['有氧'] }, { name: '上半身', tags: ['力量'] },
+    ]);
+    const result = rollingTrainingPlan(2026, 10, '2026-10-05', { year: 2026, tasks, settings, connected: false, syncedAt: null,
+      completions: [{ project: '爬坡', date: '2026-10-04' }] }, DEFAULT_CYCLE, [], {});
+    expect(result.coverage.find(({ task }) => task.name === '爬坡')?.completed).toBe(true);
+    expect(result.coverage.find(({ task }) => task.name === '游泳')?.completed).toBe(false);
+    expect(result.coverage.map(({ task }) => task.name).sort()).toEqual(['上半身', '游泳', '爬坡'].sort());
+    expect([...result.byDate.values()].flat().some((task) => ['有氧', '力量'].includes(task.name))).toBe(false);
+  });
+  it('保留 TickTick 旧有氧完成记录，但不冒充任何具体项目的完成', () => {
+    const result = rollingTrainingPlan(2026, 10, '2026-10-05', { year: 2026, tasks: [source('有氧'), source('游泳')], settings,
+      connected: false, syncedAt: null, completions: [{ project: '有氧', date: '2026-10-04' }] }, DEFAULT_CYCLE, [], {});
+    expect(result.plans.get('2026-10-04')).toMatchObject({ plan: '有氧', completed: true, projects: ['有氧'] });
+    expect(result.coverage.every((item) => !item.completed)).toBe(true);
+    expect(result.plans.get('2026-10-05')?.projects).not.toContain('有氧');
+    const withoutPending = rollingTrainingPlan(2026, 10, '2026-10-05', { year: 2026, tasks: [], connected: false, syncedAt: null,
+      completions: [{ project: '力量', date: '2026-10-05' }] }, DEFAULT_CYCLE, [], {});
+    expect(withoutPending.plans.get('2026-10-05')).toMatchObject({ plan: '力量', completed: true });
+    expect(withoutPending.coverage).toEqual([]);
+  });
+  it('标签可保存、取消或多选，旧设置兼容，改名仍保留明确标签', () => {
+    const tagged: TrainingSettings = { ...settings, projects: [{ ...settings.projects[0], name: '我的训练', tags: ['有氧', '力量'] }] };
+    expect(parseTrainingSettings(tagged)).toEqual(tagged);
+    expect(trainingLibrary([], tagged).find((task) => task.key === '爬坡')?.tags).toEqual(['有氧', '力量']);
+    expect(trainingTags({ name: '游泳', tags: [] })).toEqual([]);
+    expect(trainingTags({ name: '游泳' })).toEqual(['有氧']);
+    expect(parseTrainingSettings(settings)).toEqual(settings);
+    for (const tags of ['有氧', null, ['其他'], [1], ['有氧', '力量', '有氧']]) {
+      expect(() => parseTrainingSettings({ ...settings, projects: [{ ...settings.projects[0], tags }] })).toThrow('标签无效');
+    }
+  });
   it('预置爬坡、游泳，TickTick 同名游泳只出现一次且保留轮换和跟练', () => {
     const library = trainingLibrary([source('游泳'), source('有氧')]);
-    expect(library.map((task) => task.name)).toEqual(['爬坡', '游泳', '有氧']);
+    expect(library.map((task) => task.name)).toEqual(['爬坡', '游泳']);
     expect(library[0].rotation).toBe(false);
     expect(library[1]).toMatchObject({ rotation: true, notes: '原有跟练', links: source('游泳').links });
-    expect(roll(library).coverage.map(({ task }) => task.name)).toEqual(['有氧', '游泳']);
+    expect(roll(library).coverage.map(({ task }) => task.name)).toEqual(['游泳']);
   });
   it('保存的名称与内容可跨日复用，修改项目不会改写已保存的记录', () => {
     const library = trainingLibrary([], settings);
@@ -38,7 +73,7 @@ describe('可复用训练项目', () => {
     expect(paused.some((task) => task.name === '瑜伽')).toBe(true);
   });
   it('手动选择后恢复自动安排仍使用轮换建议，游泳项目继续避开经期', () => {
-    const tasks = trainingLibrary([source('有氧')], settings);
+    const tasks = trainingLibrary([source('上半身')], settings);
     const picked = reuseTrainingProjects([tasks.find((task) => task.name === '爬坡')!]);
     const entries = { 'training:2026-10-05': { text: '', revision: '', training: picked } };
     expect(roll(tasks, entries).plans.get('2026-10-05')).toBe(picked);
