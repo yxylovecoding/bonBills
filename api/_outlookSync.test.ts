@@ -6,9 +6,10 @@ import { OUTLOOK_CONNECTION_KEY, saveOutlookSnapshot, saveUploadedCalendarState,
 import ticktickHandler from './ticktick-trips';
 import syncHandler from './sync';
 
-const { data, routineSync, tripSync, wishSync, templateRead, auth, events, doneSync } = vi.hoisted(() => ({
-  data: new Map<string, unknown>(), routineSync: vi.fn(), tripSync: vi.fn(), wishSync: vi.fn(), templateRead: vi.fn(), auth: vi.fn(), events: [] as string[], doneSync: vi.fn(),
+const { data, routineSync, tripSync, wishSync, templateRead, auth, events, doneSync, swimmingSync } = vi.hoisted(() => ({
+  data: new Map<string, unknown>(), routineSync: vi.fn(), tripSync: vi.fn(), wishSync: vi.fn(), templateRead: vi.fn(), auth: vi.fn(), events: [] as string[], doneSync: vi.fn(), swimmingSync: vi.fn(),
 }));
+vi.mock('./_lifeSwimming.js', () => ({ syncSwimmingSchedule: swimmingSync }));
 vi.mock('./_lifeDone.js', () => ({ syncRecentLifeDone: doneSync }));
 vi.mock('./_auth.js', () => ({ authOk: auth }));
 vi.mock('@vercel/kv', () => ({ kv: {
@@ -63,6 +64,7 @@ beforeEach(() => {
   routineSync.mockResolvedValue({ routineUpdatedTaskCount: 0 }); tripSync.mockResolvedValue({ updatedTaskCount: 0 });
   wishSync.mockResolvedValue({});
   doneSync.mockResolvedValue(undefined);
+  swimmingSync.mockResolvedValue({ updated: 0 });
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     events.push('outlook');
     return new Response(url === playUrl
@@ -77,6 +79,7 @@ describe('后台 Outlook 拉取与 TickTick 顺序', () => {
     vi.mocked(fetch).mockRejectedValue(new Error('calendar unavailable'));
     expect((await cron()).status).toBe(502);
     expect(doneSync).toHaveBeenCalledOnce();
+    expect(swimmingSync).toHaveBeenCalledWith({ lockHeld: true, refreshPeriods: true });
   });
   it('完成记录失败仍更新 Outlook，最后报告归档失败', async () => {
     doneSync.mockRejectedValueOnce(new Error('unavailable'));
@@ -91,9 +94,10 @@ describe('后台 Outlook 拉取与 TickTick 顺序', () => {
     tripSync.mockImplementationOnce(async () => { events.push('trips'); return {}; });
     wishSync.mockImplementationOnce(async () => { events.push('wishes'); return {}; });
     routineSync.mockImplementationOnce(async () => { events.push('routines'); return { updatedRoutineTasks: 2 }; });
+    swimmingSync.mockImplementationOnce(async () => { events.push('swimming'); return { updated: 1 }; });
     const result = await call(ticktickHandler, method, method === 'GET' ? 'Bearer cron-secret' : undefined);
     expect(result.status).toBe(200);
-    expect(events).toEqual(['outlook', 'outlook', 'template', 'trips', 'wishes', 'routines']);
+    expect(events).toEqual(['outlook', 'outlook', 'template', 'trips', 'wishes', 'routines', 'swimming']);
     expect(result.body.updatedRoutineTasks).toBe(2);
   });
 

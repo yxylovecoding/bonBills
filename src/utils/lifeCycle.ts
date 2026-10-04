@@ -49,6 +49,16 @@ export function visibleCycleDay(date: string, settings: CycleSettings, periodDay
   return date < today && phase?.estimated ? null : phase;
 }
 
+// User preference: swimming resumes on the first day outside the menstrual band.
+export function afterMenstrualPeriod(date: string, settings: CycleSettings, periods: string[]): string {
+  let next = date;
+  for (let count = 0; count < 90; count++) {
+    if (cycleDay(next, settings, periods)?.phase !== 'menstrual') return next;
+    next = new Date(Date.parse(`${next}T00:00:00Z`) + DAY).toISOString().slice(0, 10);
+  }
+  throw new Error('经期日期过长，请检查经期记录');
+}
+
 export function suggestedTraining(date: string, settings: CycleSettings, periods: string[], effort: TrainingRecord['effort'] = 'normal'): string {
   const phase = cycleDay(date, settings, periods);
   if (!phase) return '';

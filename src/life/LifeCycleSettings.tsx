@@ -3,7 +3,7 @@ import { parseCycleSettings, type CycleSettings } from '../utils/bonLife';
 import { LifeError, lifeRequest } from './client';
 
 export default function LifeCycleSettings({ initial, year, tickTickTraining, onSave, onClose, onExpired }: {
-  initial: CycleSettings; year: number; tickTickTraining?: boolean; onSave: (settings: CycleSettings) => void; onClose: () => void; onExpired: () => void;
+  initial: CycleSettings; year: number; tickTickTraining?: boolean; onSave: (settings: CycleSettings, swimmingError?: string) => void; onClose: () => void; onExpired: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [draft, setDraft] = useState(initial);
@@ -17,8 +17,8 @@ export default function LifeCycleSettings({ initial, year, tickTickTraining, onS
     setBusy(true); setError('');
     try {
       const cycle = parseCycleSettings(draft);
-      const result = await lifeRequest<{ cycle: CycleSettings }>('POST', { action: 'save-cycle', year, cycle, mutationId: mutationId.current });
-      onSave(result.cycle);
+      const result = await lifeRequest<{ cycle: CycleSettings; swimmingError?: string }>('POST', { action: 'save-cycle', year, cycle, mutationId: mutationId.current });
+      onSave(result.cycle, result.swimmingError);
     } catch (cause) {
       if (cause instanceof LifeError && cause.status === 401) onExpired();
       setError(cause instanceof Error ? cause.message : '保存失败，请重试');

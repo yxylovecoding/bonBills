@@ -1,13 +1,13 @@
 import { authOk } from './_auth.js';
-import { randomUUID } from 'node:crypto';
 import { kv } from '@vercel/kv';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import type { TickTickConnection, TickTickTripSyncState } from './_ticktickTrips.js';
 import { syncOutlookCalendar } from './_outlookSync.js';
+import { acquireTickTickLock, releaseTickTickLock } from './_ticktickLock.js';
+import { syncSwimmingSchedule } from './_lifeSwimming.js';
 
 const CONNECTION_KEY = 'ticktick:connection:v1';
 const SYNC_STATE_KEY = 'ticktick:trip-sync:v1';
-const SYNC_LOCK_KEY = 'ticktick:trip-sync:lock';
 
 function getSyncSecret() {
   return (process.env.SYNC_SECRET || '').trim();
@@ -29,19 +29,8 @@ function shanghaiDate() {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
-async function acquireLock() {
-  const lockId = randomUUID();
-  const acquired = await kv.set(SYNC_LOCK_KEY, lockId, { nx: true, ex: 330 });
-  return acquired ? lockId : null;
-}
-
-async function releaseLock(lockId: string) {
-  const current = await kv.get<string>(SYNC_LOCK_KEY);
-  if (current === lockId) await kv.del(SYNC_LOCK_KEY);
-}
-
 async function runSync(allowDisconnected = false) {
-  const lockId = await acquireLock();
+  const lockId = await acquireTickTickLock();
   if (!lockId) return { busy: true as const };
   try {
     const today = shanghaiDate();
@@ -113,7 +102,10 @@ async function runSync(allowDisconnected = false) {
       throw error;
     }
   } finally {
-    await releaseLock(lockId);
+    // Apply the period rule last, even if unrelated calendar/template sync failed.
+    // Share the write lock so routines cannot put swimming back into a period.
+    try { await syncSwimmingSchedule({ lockHeld: true, refreshPeriods: true }); }
+    finally { await releaseTickTickLock(lockId); }
   }
 }
 

@@ -1,9 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readTrainingSource, selectTrainingTasks, syncTrainingSource, trainingTask, TRAINING_SOURCE_KEY } from './_lifeTraining';
 import { encryptTickTickToken, TICKTICK_CONNECTION_KEY, type TickTickTask } from './_ticktickTrips';
+import { LIFE_SETTINGS_KEY } from './_bonLife';
+import { DEFAULT_CYCLE } from '../src/utils/bonLife';
+import { afterMenstrualPeriod } from '../src/utils/lifeCycle';
 
 const { data, evalMock } = vi.hoisted(() => ({ data: new Map<string, any>(), evalMock: vi.fn() }));
-vi.mock('@vercel/kv', () => ({ kv: { get: async (key: string) => data.get(key) ?? null, eval: evalMock } }));
+vi.mock('@vercel/kv', () => ({ kv: {
+  get: async (key: string) => data.get(key) ?? null, hgetall: async (key: string) => data.get(key) ?? null, eval: evalMock,
+  set: async (key: string, value: unknown, options?: { nx?: boolean }) => {
+    if (options?.nx && data.has(key)) return null;
+    data.set(key, value); return 'OK';
+  },
+} }));
 const title = '上半身-运动💪🏻是生活的第一个锚点🪝';
 const task = (fields: Partial<TickTickTask> = {}): TickTickTask => ({ id: 'upper', projectId: 'play', title, status: 0,
   startDate: '2026-10-08T01:00:00.000+0000', timeZone: 'Asia/Shanghai', repeatFlag: 'RRULE:FREQ=WEEKLY;BYDAY=TH', ...fields });
@@ -11,7 +20,10 @@ const task = (fields: Partial<TickTickTask> = {}): TickTickTask => ({ id: 'upper
 beforeEach(() => {
   data.clear(); vi.clearAllMocks(); vi.stubEnv('SYNC_SECRET', 'secret');
   data.set(TICKTICK_CONNECTION_KEY, { encryptedToken: encryptTickTickToken('private-token', 'secret') });
-  evalMock.mockImplementation(async (_script, keys, args) => { data.set(keys[1], JSON.parse(args[1])); return 1; });
+  evalMock.mockImplementation(async (_script, keys, args) => {
+    if (keys.length === 1) { if (data.get(keys[0]) === args[0]) data.delete(keys[0]); return 1; }
+    data.set(keys[1], JSON.parse(args[1])); return 1;
+  });
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     if (url.endsWith('/project')) return new Response(JSON.stringify([{ id: 'play', name: '玩' }]));
     if (url.endsWith('/filter')) return new Response(JSON.stringify([task(), task({ id: 'completed', status: 2 })]));
@@ -56,7 +68,7 @@ describe('TickTick 训练来源', () => {
     }
     expect(() => trainingTask(task({ timeZone: 'invalid' }), 2026)).toThrow();
   });
-  it('只读 TickTick，合并清单和筛选返回的详情，保存最小快照', async () => {
+  it('没有经期游泳冲突时只读 TickTick，合并清单详情，保存最小快照', async () => {
     const result = await syncTrainingSource(2026);
     expect(result.tasks).toHaveLength(1); expect(result.tasks[0].notes).toBe('轻量哑铃');
     expect(result.connected).toBe(true); expect(result.syncedAt).toBeTruthy();
@@ -70,7 +82,7 @@ describe('TickTick 训练来源', () => {
     await syncTrainingSource(2026);
     const saved = data.get(TRAINING_SOURCE_KEY);
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('private-token'); }));
-    await expect(syncTrainingSource(2026)).rejects.toThrow('已保留原计划');
+    await expect(syncTrainingSource(2026)).rejects.toThrow('游泳待办顺延失败');
     expect(data.get(TRAINING_SOURCE_KEY)).toEqual(saved);
     data.set(TICKTICK_CONNECTION_KEY, { encryptedToken: encryptTickTickToken('other-token', 'secret') });
     expect((await readTrainingSource(2026)).tasks).toEqual([]);
@@ -78,7 +90,23 @@ describe('TickTick 训练来源', () => {
     expect(await readTrainingSource(2026)).toMatchObject({ connected: false, tasks: [expect.objectContaining({ name: '上半身' })] });
   });
   it('较新同步或断开连接导致的提交冲突不会报告成功', async () => {
-    evalMock.mockResolvedValueOnce(0);
+    evalMock.mockResolvedValue(0);
     await expect(syncTrainingSource(2026)).rejects.toThrow('已保留原计划');
+  });
+  it('未来游泳顺延，重复日期去重且跨年不遗漏；其他训练不受影响', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-01T00:00:00Z'));
+    try {
+      await syncTrainingSource(2026);
+      const snapshot = data.get(TRAINING_SOURCE_KEY);
+      const swim = task({ title: '游泳-运动💪🏻是生活的第一个锚点🪝', startDate: '2026-12-29', repeatFlag: 'FREQ=DAILY;INTERVAL=2;COUNT=5' });
+      const cycle = { ...DEFAULT_CYCLE, lastPeriodStart: '2026-12-29' };
+      data.set(TRAINING_SOURCE_KEY, { ...snapshot, tasks: [swim, task()] });
+      data.set(LIFE_SETTINGS_KEY, { cycle });
+      const result = await readTrainingSource(2027);
+      expect(result.tasks[0].dates).toEqual(['2027-01-05', '2027-01-06']);
+      expect((await readTrainingSource(2026)).tasks[0].dates).toEqual([]);
+      expect(trainingTask(swim, 2027, (date) => afterMenstrualPeriod(date, cycle, [])).dates).toEqual(result.tasks[0].dates);
+      expect((await readTrainingSource(2026)).tasks[1].dates).toContain('2026-12-31');
+    } finally { vi.useRealTimers(); }
   });
 });

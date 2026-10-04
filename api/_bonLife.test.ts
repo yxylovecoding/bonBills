@@ -5,6 +5,7 @@ import { entriesKey, LIFE_CONNECTION_KEY, LIFE_SETTINGS_KEY, parsePeriodCalendar
 import { DEFAULT_CYCLE } from '../src/utils/bonLife';
 import { encryptOutlookConnection } from './_outlookCalendar';
 import { DEFAULT_OUTLOOK_RULES } from '../src/utils/outlookCalendar';
+import { encryptTickTickToken, TICKTICK_CONNECTION_KEY } from './_ticktickTrips';
 
 const { data, auth, origin, evalMock, getHash, set } = vi.hoisted(() => ({
   data: new Map<string, unknown>(), auth: vi.fn(), origin: vi.fn(), evalMock: vi.fn(), getHash: vi.fn(), set: vi.fn(),
@@ -99,6 +100,21 @@ describe('BonLife 接口', () => {
     evalMock.mockResolvedValueOnce([0, { ...cycle, revision: 'newer' }]);
     expect((await call('POST', { year: 2026, action: 'save-cycle', cycle, mutationId: 'mutation-123456789' })).status).toBe(409);
     expect((await call('POST', { year: 2026, action: 'sync-done', month: 13 })).status).toBe(400);
+  });
+  it('经期保存成功后触发游泳顺延；TickTick 失败保留设置并返回可重试状态', async () => {
+    data.set(TICKTICK_CONNECTION_KEY, { encryptedToken: encryptTickTickToken('test-token', 'secret') });
+    const cycle = { ...DEFAULT_CYCLE, lastPeriodStart: '2026-10-07' };
+    evalMock.mockResolvedValueOnce([1, { ...cycle, revision: 'mutation-123456789' }]);
+    vi.mocked(fetch).mockRejectedValue(new Error('test-token'));
+    const result = await call('POST', { year: 2026, action: 'save-cycle', cycle, mutationId: 'mutation-123456789' });
+    expect(result.status).toBe(200);
+    expect(result.body.cycle.lastPeriodStart).toBe('2026-10-07');
+    expect(result.body.swimmingError).toBe('TickTick 游泳待办顺延失败，请重新同步');
+    expect(fetch).toHaveBeenCalled();
+    vi.mocked(fetch).mockClear();
+    evalMock.mockResolvedValueOnce([0, cycle]);
+    expect((await call('POST', { year: 2026, action: 'save-cycle', cycle, mutationId: 'mutation-123456789' })).status).toBe(409);
+    expect(fetch).not.toHaveBeenCalled();
   });
   it.each(['GET', 'POST', 'PUT', 'DELETE'])('未登录 %s 不读写状态记录', async (method) => {
     auth.mockResolvedValue(false);

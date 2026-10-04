@@ -5,6 +5,8 @@ import { decryptTickTickToken, readAllTickTickTasks, routineRecurrence, TICKTICK
   type TickTickConnection, type TickTickTask } from './_ticktickTrips.js';
 import { isCalendarDate } from '../src/utils/outlookCalendar.js';
 import type { TrainingSource, TrainingTask } from '../src/utils/lifeTraining.js';
+import { afterMenstrualPeriod } from '../src/utils/lifeCycle.js';
+import { readSwimmingCycle, syncSwimmingSchedule } from './_lifeSwimming.js';
 
 export const TRAINING_SOURCE_KEY = 'bonlife:training-source:v1';
 const MARKER = '运动是生活的第一个锚点';
@@ -29,7 +31,7 @@ function taskDate(task: TickTickTask): string | null {
   return new Intl.DateTimeFormat('sv-SE', { timeZone: task.timeZone || 'Asia/Shanghai' }).format(date);
 }
 
-export function trainingTask(task: TickTickTask, year: number): TrainingTask {
+export function trainingTask(task: TickTickTask, year: number, adjustDate: (date: string) => string = (date) => date): TrainingTask {
   const date = taskDate(task);
   const name = task.title.slice(0, task.title.indexOf('运动')).replace(/[\s·—\-:：]+$/u, '').trim() || task.title;
   const notes = [...new Set([task.content, task.desc, ...(task.items ?? []).map((item) => item.title)].filter((value): value is string => Boolean(value)))].join('\n');
@@ -57,22 +59,30 @@ export function trainingTask(task: TickTickTask, year: number): TrainingTask {
       if (++iterations > 150_000 || Date.now() > deadline) throw new Error('训练重复日期过多');
       const occurrence = next.toString().slice(0, 10);
       if (occurrence >= `${year + 1}-01-01`) break;
-      if (occurrence >= `${year}-01-01`) dates.add(occurrence);
+      const adjusted = adjustDate(occurrence);
+      if (adjusted.startsWith(`${year}-`)) dates.add(adjusted);
     }
-  } else if (date?.startsWith(`${year}-`)) dates.add(date);
+  } else if (date) {
+    const adjusted = adjustDate(date);
+    if (adjusted.startsWith(`${year}-`)) dates.add(adjusted);
+  }
   return { id: `${task.projectId}:${task.id}`, title: task.title, name, schedule, dates: [...dates].sort(), notes, links };
 }
 
 export async function readTrainingSource(year: number): Promise<TrainingSource> {
-  const [snapshot, connection] = await Promise.all([kv.get<TrainingSnapshot>(TRAINING_SOURCE_KEY), kv.get<TickTickConnection>(TICKTICK_CONNECTION_KEY)]);
+  const [snapshot, connection, { cycle, periods }] = await Promise.all([kv.get<TrainingSnapshot>(TRAINING_SOURCE_KEY), kv.get<TickTickConnection>(TICKTICK_CONNECTION_KEY), readSwimmingCycle([year])]);
   const current = snapshot && (!connection || snapshot.connectionId === connectionId(connection)) ? snapshot : null;
-  return { year, tasks: (current?.tasks ?? []).map((task) => trainingTask(task, year)), connected: Boolean(connection), syncedAt: current?.syncedAt ?? null };
+  const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date());
+  return { year, tasks: (current?.tasks ?? []).map((task) => trainingTask(task, year,
+    (date) => task.title.includes('游泳') && date >= today ? afterMenstrualPeriod(date, cycle, periods) : date)),
+    connected: Boolean(connection), syncedAt: current?.syncedAt ?? null };
 }
 
 export async function syncTrainingSource(year: number): Promise<TrainingSource> {
   const requestedAt = Date.now();
   const connection = await kv.get<TickTickConnection>(TICKTICK_CONNECTION_KEY);
   if (!connection) return readTrainingSource(year);
+  await syncSwimmingSchedule();
   try {
     const api = new TickTickOpenApiClient(decryptTickTickToken(connection.encryptedToken, (process.env.SYNC_SECRET || '').trim()), (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
     const tasks = selectTrainingTasks(await readAllTickTickTasks(api, [0]));

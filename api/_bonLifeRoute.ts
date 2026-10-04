@@ -9,6 +9,7 @@ import { LIFE_CONNECTION_KEY, SAVE_LIFE_ENTRY, entriesKey, periodsKey, readPerio
   LIFE_SETTINGS_KEY, readPeriodDays, type LifeConnection, type PeriodSnapshot } from './_bonLife.js';
 import { doneMonth, readDoneMonth, syncDoneMonth } from './_lifeDone.js';
 import { readTrainingSource, syncTrainingSource } from './_lifeTraining.js';
+import { swimmingSyncWarning } from './_lifeSwimming.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'private, no-store');
@@ -56,9 +57,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (body.action === 'sync-periods') {
       const connection = await kv.get<LifeConnection>(LIFE_CONNECTION_KEY);
-      if (!connection) return res.status(200).json({ connected: false });
+      if (!connection) return res.status(200).json({ connected: false, swimmingError: await swimmingSyncWarning() });
       const result = await syncLifePeriods(connection, year);
-      return res.status(200).json({ connected: true, ...result, periodDays: await readPeriodDays(year) });
+      return res.status(200).json({ connected: true, ...result, periodDays: await readPeriodDays(year), swimmingError: await swimmingSyncWarning() });
     }
     if (body.action === 'sync-done') {
       let month: string;
@@ -78,7 +79,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const [ok, raw] = await kv.eval<string[], [number, string | CycleSettings]>(SAVE_LIFE_ENTRY, [LIFE_SETTINGS_KEY],
         ['cycle', cycle.revision, body.mutationId as string, JSON.stringify(next), 'cycle']);
       if (!ok) return res.status(409).json({ error: '经期设置已在其他页面更新，请重新打开设置' });
-      return res.status(200).json({ cycle: typeof raw === 'string' ? JSON.parse(raw) : raw });
+      return res.status(200).json({ cycle: typeof raw === 'string' ? JSON.parse(raw) : raw, swimmingError: await swimmingSyncWarning() });
     }
     if (body.action !== 'save') return res.status(400).json({ error: '操作无效' });
     let edit;
@@ -97,6 +98,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (message.startsWith('Outlook 日历读取失败')) return res.status(502).json({ error: message });
     if (message.startsWith('TickTick 完成记录同步失败')) return res.status(502).json({ error: message });
     if (message.startsWith('TickTick 训练计划同步失败')) return res.status(502).json({ error: message });
+    if (message.startsWith('TickTick 游泳') || message.startsWith('TickTick 正在同步')) return res.status(502).json({ error: message });
     return res.status(503).json({ error: '暂时无法保存或读取，请重试' });
   }
 }

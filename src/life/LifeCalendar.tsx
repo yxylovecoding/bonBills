@@ -47,7 +47,8 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
   const cycle = current?.cycle ?? DEFAULT_CYCLE;
   const cells = calendarCells(year, month);
   const now = today();
-  const trainingSource = useLifeTraining(year, kind === 'training' || draft?.kind === 'training' || cycleSettings, onExpired);
+  const trainingSource = useLifeTraining(year, !loading && !syncing && Boolean(current)
+    && (kind === 'training' || draft?.kind === 'training' || cycleSettings), onExpired);
   const hasTrainingSource = Boolean(trainingSource.current?.tasks.length);
   const trainingPlan = kind === 'training' ? monthlyTrainingPlan(year, month, now,
     hasTrainingSource ? trainingSource.byDate : undefined, cycle, current?.periodDays ?? [], current?.entries ?? {}) : new Map<string, TrainingRecord>();
@@ -60,9 +61,12 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
     activeSync.current = controller;
     setSyncing(true); setPeriodError('');
     try {
-      const result = await lifeRequest<Pick<LifeYear, 'connected'> & Partial<Pick<LifeYear, 'periodDays' | 'syncedAt'>>>(
+      const result = await lifeRequest<Pick<LifeYear, 'connected'> & Partial<Pick<LifeYear, 'periodDays' | 'syncedAt'>> & { swimmingError?: string }>(
         'POST', { action: 'sync-periods', year: selectedYear }, controller.signal);
-      if (token === generation.current && !controller.signal.aborted) setData((previous) => previous?.year === selectedYear ? { ...previous, ...result } : previous);
+      if (token === generation.current && !controller.signal.aborted) {
+        setData((previous) => previous?.year === selectedYear ? { ...previous, ...result } : previous);
+        setPeriodError(result.swimmingError ?? '');
+      }
     } catch (cause) {
       if (controller.signal.aborted || token !== generation.current) return;
       if (cause instanceof LifeError && cause.status === 401) onExpired();
@@ -195,8 +199,9 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
       if (connected) void syncPeriods(year, generation.current);
       else { activeSync.current?.abort(); setSyncing(false); setPeriodError(''); }
     }} />}
-    {cycleSettings && <LifeCycleSettings initial={cycle} year={year} tickTickTraining={hasTrainingSource} onExpired={onExpired} onClose={() => { setCycleSettings(false); setRetry((value) => value + 1); }} onSave={(savedCycle) => {
+    {cycleSettings && <LifeCycleSettings initial={cycle} year={year} tickTickTraining={hasTrainingSource} onExpired={onExpired} onClose={() => { setCycleSettings(false); setRetry((value) => value + 1); }} onSave={(savedCycle, swimmingError) => {
       setData((previous) => previous ? { ...previous, cycle: savedCycle } : previous); setCycleSettings(false); setSaved(true);
+      setPeriodError(swimmingError ?? ''); void trainingSource.refresh(true);
     }} />}
   </main>;
 }
