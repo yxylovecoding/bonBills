@@ -54,11 +54,11 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
       const store = (value: DoneMonth) => { cache.current[key] = value; setData((previous) => ({ ...previous, [key]: value })); };
       try {
         const local = cache.current[key];
-        if (!force && local?.syncedAt && Date.now() - Date.parse(local.syncedAt) < 300_000) return;
+        if (!force && local?.syncedAt && !local.needsTagSync && Date.now() - Date.parse(local.syncedAt) < 300_000) return;
         const cached = await lifeRequest<DoneMonth>('GET', { view: 'done', year, month }, request.signal);
         if (request.signal.aborted) return;
         store(cached);
-        if (cached.connected && (force || !cached.syncedAt || Date.now() - Date.parse(cached.syncedAt) > 300_000)) {
+        if (cached.connected && (force || cached.needsTagSync || !cached.syncedAt || Date.now() - Date.parse(cached.syncedAt) > 300_000)) {
           const result = await lifeRequest<DoneMonth>('POST', { action: 'sync-done', year, month }, request.signal);
           if (!request.signal.aborted) store(result);
         }

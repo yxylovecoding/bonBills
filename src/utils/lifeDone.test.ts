@@ -39,6 +39,16 @@ describe('连续周本', () => {
     expect(doneWeekNumber('2027-01-01')).toBe(53);
     expect(doneWeekNumber('2027-01-04')).toBe(1);
   });
+  it('今天和历史都排除 routine 标签，分类数量仅包含可见项，不按标题或标签子串排除', () => {
+    const keep = [item('普通完成', '2026-10-04', '课'), { ...item('routine 写在标题里', '2026-09-30', '活'), tags: ['my-routine'] }];
+    const hidden = ['routine', ' Routine ', '#routine', 'ｒｏｕｔｉｎｅ'].map((tag, index) => ({
+      ...item(`hidden-${index}`, index % 2 ? '2026-09-30' : '2026-10-04', '玩'), tags: ['玩', tag],
+    }));
+    const week = groupDoneWeek([...keep, ...hidden], '2026-10-04', '2026-10-04');
+    expect(week.flatMap((day) => day.items).map((entry) => entry.id).sort()).toEqual(keep.map((entry) => entry.id).sort());
+    expect(groupDoneCategories(week[6].items).map((group) => group.items.length)).toEqual([1, 0, 0]);
+    expect(week[2].items).toHaveLength(1);
+  });
 });
 describe('DoneList 分类与日期分组', () => {
   it('标签优先、清单兜底，兼容前后符号但不猜测含义', () => {

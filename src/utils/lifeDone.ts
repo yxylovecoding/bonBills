@@ -51,7 +51,10 @@ export function doneWeekMonths(date: string, today: string): string[] {
 
 export function groupDoneWeek(items: DoneItem[], date: string, today: string) {
   const days = new Map(doneWeekDates(date).map((day) => [day, new Map<string, DoneItem>()]));
-  for (const item of items) if (item.date <= today) days.get(item.date)?.set(item.id, item);
+  for (const item of items) {
+    const routine = item.tags?.some((tag) => tag.normalize('NFKC').trim().replace(/^#/, '').trim().toLowerCase() === 'routine');
+    if (item.date <= today && !routine) days.get(item.date)?.set(item.id, item);
+  }
   return [...days].map(([day, entries]) => ({ date: day, items: [...entries.values()] }));
 }
 

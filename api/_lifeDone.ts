@@ -28,7 +28,7 @@ export function completedItems(tasks: TickTickTask[], from: string, until: strin
     const id = createHash('sha256').update(JSON.stringify([task.projectId, task.id, completedAt])).digest('hex');
     const projectName = projectNames[task.projectId];
     const category = classifyDoneCategory(task.tags, projectName);
-    result.set(id, { id, taskId: task.id, projectId: task.projectId, title: task.title, completedAt, date, category,
+    result.set(id, { id, taskId: task.id, projectId: task.projectId, title: task.title, completedAt, date, category, tags: task.tags ?? [],
       ...(projectName ? { projectName } : {}) });
   }
   return [...result.values()];
@@ -57,9 +57,9 @@ export async function readDoneMonth(month: string): Promise<DoneMonth> {
     // Older snapshots predate category metadata. Recover their original list when known.
     const projectName = item.projectName || projectNames?.[item.projectId];
     return { ...item, ...(projectName ? { projectName } : {}),
-      category: item.category ?? classifyDoneCategory([], projectName) };
+      category: item.category ?? classifyDoneCategory(item.tags, projectName) };
   }).sort((a, b) => b.completedAt.localeCompare(a.completedAt)),
-    syncedAt, connected: Boolean(connection) };
+    syncedAt, connected: Boolean(connection), needsTagSync: Object.values(items ?? {}).some((item) => !Array.isArray(item.tags)) };
 }
 
 export async function syncDoneMonth(month: string, now = new Date()): Promise<DoneMonth> {

@@ -70,6 +70,23 @@ describe('TickTick DoneList', () => {
     expect(JSON.parse(calls[0][1]?.body as string).projectIds).toEqual(['work', 'inbox-real']);
     expect(calls.every(([, init]) => init?.method === 'POST')).toBe(true);
   });
+  it('旧历史要求补同步标签，原地补齐 routine 标签且保留归档；移除标签可恢复显示', async () => {
+    const original = completedItems([task()], '2026-10-01', '2026-10-04')[0];
+    const { tags: _tags, ...legacy } = original;
+    data.set(doneKey('2026-10'), { [original.id]: legacy });
+    data.set(doneSyncKey('2026-10'), now.toISOString());
+    expect((await readDoneMonth('2026-10')).needsTagSync).toBe(true);
+    const originalFetch = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => String(url).endsWith('/task/completed')
+      ? new Response(JSON.stringify([{ ...task(), tags: ['routine', '活'] }])) : originalFetch(url, options)));
+    const result = await syncDoneMonth('2026-10', now);
+    expect(result.needsTagSync).toBe(false);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({ id: original.id, tags: ['routine', '活'], category: '活' });
+    expect(data.get(doneKey('2026-10'))[original.id].tags).toEqual(['routine', '活']);
+    vi.stubGlobal('fetch', originalFetch);
+    expect((await syncDoneMonth('2026-10', now)).items[0].tags).toEqual([]);
+  });
   it('接口失败保留旧记录与同步时间，不暴露令牌；断开后历史可读', async () => {
     const old = completedItems([task()], '2026-10-01', '2026-10-04')[0];
     data.set(doneKey('2026-10'), { [old.id]: old }); data.set(doneSyncKey('2026-10'), 'old-sync');
