@@ -30,8 +30,17 @@ async function request(method: string, body?: unknown) {
   return result;
 }
 beforeEach(() => { data.clear(); auth.ok = true; failHistory.value = false; failWrite.value = false; data.set('ticktick:connection:v1', { encryptedToken: {} }); });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 describe('每日安排接口', () => {
+  it('手动和后台共用的同步入口按执行时刻返回剩余额度', async () => {
+    vi.useFakeTimers();
+    for (const [hour, minutes] of [[5, 330], [12, 240], [17, 120], [20, 60], [23, 0]]) {
+      vi.setSystemTime(new Date(`2026-10-04T${String(hour).padStart(2, '0')}:00:00+08:00`));
+      const result = await request('POST');
+      expect(result.status).toBe(200);
+      expect(result.body.dailyPlan.availableMinutes).toBe(minutes);
+    }
+  });
   it('读取默认用时并校验修改范围，未认证不能更改', async () => {
     expect((await request('GET')).body.budgetMinutes).toBeNull();
     for (const value of [0, 9, 241, 30.5, '30']) expect((await request('PATCH', { budgetMinutes: value })).status).toBe(400);

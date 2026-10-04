@@ -56,6 +56,7 @@ export function dayAvailability(options: {
   if (day < calendar.startDate || day >= calendar.endDate) throw new Error('Outlook 日程范围不足，未调整每日安排');
   const profile = options.profile ?? 'day';
   const at = (hour: number) => Date.parse(`${day}T00:00:00+08:00`) + hour * 60 * minute;
+  const now = day === today ? (options.now?.getTime() ?? Date.now()) : at(0);
   const windows: TimeSlot[] = (profile === 'calendar' ? [[0, 24]] : profile === 'evening' ? [[19, 22]] : [[9, 12], [13, 18], [19, 22]])
     .map(([start, end]) => [at(start), at(end)]);
   const events = calendar.events.filter((event) => Date.parse(event.start) < at(24) && Date.parse(event.end) > at(0));
@@ -84,22 +85,24 @@ export function dayAvailability(options: {
     const interval = taskInterval(task, estimate);
     if (interval && !matchingEvent(task)) busy.push(interval);
   }
-  const uncovered = (task: TickTickTask) => {
-    if (matchingEvent(task)) return 0;
+  const uncovered = (task: TickTickTask, from = at(0)) => {
+    const event = matchingEvent(task);
+    if (event && Date.parse(event.end) > from) return 0;
     const interval = taskInterval(task, estimate);
-    // A past overdue appointment still needs time today unless today's Outlook already contains it.
-    if (interval && interval[0] < at(24) && interval[1] > at(0)) return 0;
+    // A missed appointment is still unfinished work. Only an ongoing/future
+    // reservation covers it when computing the time left in this run.
+    if (!event && interval && interval[0] < at(24) && interval[1] > from) return 0;
     return estimate(task);
   };
-  const reserved = commitments.reduce((sum, task) => sum + uncovered(task), 0);
+  const reserved = commitments.reduce((sum, task) => sum + uncovered(task, now), 0);
+  const fullDayReserved = commitments.reduce((sum, task) => sum + uncovered(task), 0);
   const completedMinutes = completed.reduce((sum, task) => sum + uncovered(task), 0);
   const full = freeSlots(windows, busy);
-  const now = day === today ? (options.now?.getTime() ?? Date.now()) : at(0);
   const slots = full.map(([start, end]): TimeSlot => [Math.max(start, now), end]).filter(([start, end]) => end > start);
   // Important/fixed tasks consume time once, before leaving room for rest and unrecorded transitions.
   occupySlots(slots, reserved, false);
   const share = profile === 'calendar' ? 1 : 0.5;
-  const totalMinutes = Math.floor(Math.max(0, slotMinutes(full) - reserved) * share);
+  const totalMinutes = Math.floor(Math.max(0, slotMinutes(full) - fullDayReserved) * share);
   const remainingMinutes = Math.floor(slotMinutes(slots) * share);
   return { totalMinutes, remainingMinutes, completedMinutes, slots };
 }
