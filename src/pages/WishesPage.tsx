@@ -365,6 +365,12 @@ export default function WishesPage() {
     && selectedIntervalInternDays >= availableSelectableInternDays
     ? '全勤'
     : `${compactAttendanceDays / attendanceDivisor}/${compactAttendanceTotal / attendanceDivisor}勤`;
+  const planningShortfallLabel = internPlan.shortfall > 0.005
+    ? internPlan.shortfall < 100
+      ? '还差不足 ¥100'
+      : `还差约 ¥${(Math.round(internPlan.shortfall / 100) * 100).toLocaleString('zh-CN')}`
+    : null;
+  const planningAttendanceLabel = planningShortfallLabel ? '全勤也不够！' : attendanceLabel;
   const selectedSegmentLabel = activeSegment?.wishNames.join('、') || selectedPlanningWish?.name || '当前心愿';
   const selectedIntervalStartDate = activeSegment?.intervalStartDate ?? todayKey;
   const minimumPlanningMonth = selectedIntervalStartDate.slice(0, 7);
@@ -690,7 +696,12 @@ export default function WishesPage() {
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
         <span style={{ fontSize: 10, opacity: 0.8 }}>
           截至 {effectivePlanningDeadline} · 累计 {internPlan.selectedInternDays} 天
-          <span className="wish-mobile-attendance">{attendanceLabel}</span>
+          <span className="wish-mobile-attendance" style={{ color: planningShortfallLabel ? '#fde68a' : undefined, fontSize: planningShortfallLabel ? 12 : undefined }}>
+            {planningAttendanceLabel}
+            {planningShortfallLabel ? (
+              <span style={{ display: 'block', marginTop: 2, fontSize: 11, fontWeight: 600 }}>{planningShortfallLabel}</span>
+            ) : null}
+          </span>
         </span>
         <span style={{ fontSize: 19, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedTotalSaving)}</span>
       </div>
@@ -811,12 +822,10 @@ export default function WishesPage() {
           <>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
               <div style={{ flex: 1, minWidth: 0, fontSize: 24, lineHeight: 1.15, fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: -0.4 }}>
-                {internPlan.shortfall > 0.005 ? '全勤也不够！' : attendanceLabel}
-                {internPlan.shortfall > 0.005 ? (
+                {planningAttendanceLabel}
+                {planningShortfallLabel ? (
                   <div style={{ marginTop: 5, fontSize: 13, lineHeight: 1.4, fontWeight: 600, letterSpacing: 0, opacity: 0.85 }}>
-                    {internPlan.shortfall < 100
-                      ? '还差不足 ¥100'
-                      : `还差约 ¥${(Math.round(internPlan.shortfall / 100) * 100).toLocaleString('zh-CN')}`}
+                    {planningShortfallLabel}
                   </div>
                 ) : null}
               </div>
