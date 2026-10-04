@@ -6,6 +6,7 @@ import { decryptOutlookConnection, encryptOutlookConnection, parseOutlookInput, 
 import { disconnectOutlookCalendar, OUTLOOK_CONNECTION_KEY as CONNECTION_KEY, outlookSyncError, saveOutlookSnapshot, type OutlookConnection as Connection } from './_outlookSync.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.query?.app === 'bonclothes') return (await import('./_bonClothesRoute.js')).default(req, res);
   if (req.query?.app === 'bonlife') return (await import('./_bonLifeRoute.js')).default(req, res);
   res.setHeader('Cache-Control', 'private, no-store');
   if (!sameOrigin(req)) return res.status(403).json({ error: '请求来源无效' });

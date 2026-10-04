@@ -7,6 +7,7 @@
     { "path": "/api/sync-monthly-backup", "schedule": "10 0 1 * *" }
   ],
   "rewrites": [
+    { "source": "/api/bonclothes", "destination": "/api/outlook-calendar?app=bonclothes" },
     { "source": "/api/bonlife", "destination": "/api/outlook-calendar?app=bonlife" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]

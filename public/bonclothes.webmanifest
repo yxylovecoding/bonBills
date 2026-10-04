@@ -1,0 +1,15 @@
+{
+  "id": "/clothes",
+  "name": "BonClothes",
+  "short_name": "BonClothes",
+  "lang": "zh-CN",
+  "start_url": "/clothes",
+  "scope": "/clothes",
+  "display": "standalone",
+  "theme_color": "#f6f5f3",
+  "background_color": "#f6f5f3",
+  "icons": [
+    { "src": "/icons/bonclothes-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/bonclothes-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

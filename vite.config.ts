@@ -83,7 +83,7 @@ export default defineConfig({
           if (/^(SYNC_SECRET|CRON_SECRET|KV_|BILL_|BONCV_)/.test(key)
             && process.env[key] === undefined) process.env[key] = value;
         }
-        const protectedRoutes = new Set(['auth', 'sync', 'sync-monthly-backup', 'ticktick-trips', 'outlook-calendar', 'latest-bill-attachment', 'boncv-profile', 'bonlife']);
+        const protectedRoutes = new Set(['auth', 'sync', 'sync-monthly-backup', 'ticktick-trips', 'outlook-calendar', 'latest-bill-attachment', 'boncv-profile', 'bonlife', 'bonclothes']);
         server.middlewares.use(async (req, res, next) => {
           const url = new URL(req.url || '/', 'http://localhost');
           const route = url.pathname.replace(/^\/api\//, '');
@@ -105,7 +105,7 @@ export default defineConfig({
               json(body: unknown) { sendJson(res, res.statusCode, body); return response; },
               send(body: string | Buffer) { res.end(body); return response; },
             }) as unknown as VercelResponse;
-            const module = await server.ssrLoadModule(`/api/${route === 'bonlife' ? '_bonLifeRoute' : route}.ts`);
+            const module = await server.ssrLoadModule(`/api/${route === 'bonlife' ? '_bonLifeRoute' : route === 'bonclothes' ? '_bonClothesRoute' : route}.ts`);
             await module.default(request, response);
           } catch {
             if (!res.headersSent) sendJson(res, 503, { error: '服务暂不可用，请稍后重试' });

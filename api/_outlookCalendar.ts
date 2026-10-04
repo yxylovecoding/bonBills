@@ -1,4 +1,5 @@
 import ICAL from 'ical.js';
+import { wallTimeInstant } from './_calendarTimezone.js';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { buildOutlookSnapshot, isCalendarDate, type OutlookCalendarKind, type OutlookConflictPolicy, type OutlookDayEvent, type OutlookRules } from '../src/utils/outlookCalendar.js';
 
@@ -104,7 +105,8 @@ function isAllDay(event: IcalEvent) {
   return event.startDate?.isDate || String(event.component.getFirstPropertyValue('x-microsoft-cdo-alldayevent')).toUpperCase() === 'TRUE';
 }
 
-export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind, startDate: string, endDate: string, includeUid = false, includeTimed = false): OutlookDayEvent[] {
+export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind, startDate: string, endDate: string, includeUid = false, includeTimed = false,
+  options?: { includeLocation?: boolean; timezone?: string; includeFree?: boolean }): OutlookDayEvent[] {
   if (!/^\s*BEGIN:VCALENDAR\r?\n/i.test(text) || !/END:VCALENDAR\s*$/i.test(text)) throw new Error('订阅内容不是完整日历');
   const root = new ICAL.Component(ICAL.parse(text));
   const components = root.getAllSubcomponents('vevent');
@@ -124,6 +126,12 @@ export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind
     if (time.zone.tzid !== 'floating') return time.toJSDate().toISOString();
     const zone = event.component.getFirstProperty(property)?.getParameter('tzid')
       ?? event.component.getFirstProperty('dtstart')?.getParameter('tzid');
+    if (options?.timezone) {
+      const aliases: Record<string, string> = { 'China Standard Time': 'Asia/Shanghai', 'Pacific Standard Time': 'America/Los_Angeles',
+        'Eastern Standard Time': 'America/New_York', 'GMT Standard Time': 'Europe/London' };
+      const timezone = zone ? aliases[String(zone)] ?? String(zone) : options.timezone;
+      return wallTimeInstant(time.toString(), timezone);
+    }
     // Unqualified local times use the account's Shanghai planning timezone.
     // Outlook normally includes VTIMEZONE; never silently interpret an unknown TZID as UTC.
     if (zone && !['China Standard Time', 'Asia/Shanghai', 'Asia/Chongqing'].includes(String(zone))) {
@@ -133,21 +141,24 @@ export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind
   };
   const append = (event: IcalEvent, start: IcalTime, end: IcalTime) => {
     if (isCancelled(event)) return;
+    const location = options?.includeLocation ? { location: String(event.component.getFirstPropertyValue('location') || '').slice(0, 500) } : {};
     if (!isAllDay(event)) {
-      if (!includeTimed || String(event.component.getFirstPropertyValue('transp')).toUpperCase() === 'TRANSPARENT'
-        || String(event.component.getFirstPropertyValue('x-microsoft-cdo-busystatus')).toUpperCase() === 'FREE') return;
+      if (!includeTimed || (!options?.includeFree && (String(event.component.getFirstPropertyValue('transp')).toUpperCase() === 'TRANSPARENT'
+        || String(event.component.getFirstPropertyValue('x-microsoft-cdo-busystatus')).toUpperCase() === 'FREE'))) return;
       const from = instant(start, event, 'dtstart'), to = instant(end, event, 'dtend');
       if (to <= from) throw new Error('日程时段无效');
-      if (from < new Date(`${endDate}T00:00:00+08:00`).toISOString() && to > new Date(`${startDate}T00:00:00+08:00`).toISOString()) {
+      const rangeStart = options?.timezone ? wallTimeInstant(`${startDate}T00:00:00`, options.timezone) : new Date(`${startDate}T00:00:00+08:00`).toISOString();
+      const rangeEnd = options?.timezone ? wallTimeInstant(`${endDate}T00:00:00`, options.timezone) : new Date(`${endDate}T00:00:00+08:00`).toISOString();
+      if (from < rangeEnd && to > rangeStart) {
         result.push({ calendar, title: event.summary || '', startDate: from, endDate: to, allDay: false,
-          ...(includeUid ? { uid: event.uid } : {}) });
+          ...location, ...(includeUid ? { uid: event.uid } : {}) });
       }
       return;
     }
     const from = dayOf(start);
     const to = dayOf(end);
     if (from < endDate && to > startDate) result.push({ calendar, title: event.summary || '', startDate: from, endDate: to, allDay: true,
-      ...(includeUid ? { uid: event.uid } : {}) });
+      ...location, ...(includeUid ? { uid: event.uid } : {}) });
   };
   let iterations = 0;
   const deadline = Date.now() + 2500;
