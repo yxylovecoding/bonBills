@@ -4,9 +4,10 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { authOk, sameOrigin } from './_auth.js';
 import { encryptOutlookConnection, validateOutlookUrl } from './_outlookCalendar.js';
 import { DEFAULT_OUTLOOK_RULES } from '../src/utils/outlookCalendar.js';
-import { lifeYear, parseLifeEdit, periodDays, type LifeEntries, type LifeEntry } from '../src/utils/bonLife.js';
+import { DEFAULT_CYCLE, lifeYear, parseCycleSettings, parseLifeEdit, type CycleSettings, type LifeEntries, type LifeEntry } from '../src/utils/bonLife.js';
 import { LIFE_CONNECTION_KEY, SAVE_LIFE_ENTRY, entriesKey, periodsKey, readPeriodCalendar, syncLifePeriods,
-  type LifeConnection, type PeriodSnapshot } from './_bonLife.js';
+  LIFE_SETTINGS_KEY, readPeriodDays, type LifeConnection, type PeriodSnapshot } from './_bonLife.js';
+import { doneMonth, readDoneMonth, syncDoneMonth } from './_lifeDone.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'private, no-store');
@@ -26,10 +27,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       year = lifeYear(req.method === 'GET' ? req.query.year : body?.year ?? String(body?.date).slice(0, 4));
     } catch { return res.status(400).json({ error: '请求内容或年份无效' }); }
     if (req.method === 'GET') {
-      const [entries, periods, connection] = await Promise.all([
+      if (req.query.view === 'done') {
+        let month: string;
+        try { month = doneMonth(year, req.query.month); } catch { return res.status(400).json({ error: '月份无效' }); }
+        return res.status(200).json(await readDoneMonth(month));
+      }
+      const [entries, periods, connection, days, settings] = await Promise.all([
         kv.hgetall<LifeEntries>(entriesKey(year)), kv.get<PeriodSnapshot>(periodsKey(year)), kv.get<LifeConnection>(LIFE_CONNECTION_KEY),
+        readPeriodDays(year), kv.hgetall<{ cycle: CycleSettings }>(LIFE_SETTINGS_KEY),
       ]);
-      return res.status(200).json({ year, entries: entries ?? {}, periodDays: periodDays(periods?.events ?? [], year),
+      return res.status(200).json({ year, entries: entries ?? {}, periodDays: days, cycle: settings?.cycle ?? DEFAULT_CYCLE,
         syncedAt: periods?.syncedAt ?? null, connected: Boolean(connection) });
     }
     if (req.method === 'PUT') {
@@ -48,13 +55,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (body.action === 'sync-periods') {
       const connection = await kv.get<LifeConnection>(LIFE_CONNECTION_KEY);
       if (!connection) return res.status(200).json({ connected: false });
-      return res.status(200).json({ connected: true, ...await syncLifePeriods(connection, year) });
+      const result = await syncLifePeriods(connection, year);
+      return res.status(200).json({ connected: true, ...result, periodDays: await readPeriodDays(year) });
+    }
+    if (body.action === 'sync-done') {
+      let month: string;
+      try { month = doneMonth(year, body.month); } catch { return res.status(400).json({ error: '月份无效' }); }
+      return res.status(200).json(await syncDoneMonth(month));
+    }
+    if (body.action === 'save-cycle') {
+      let cycle: CycleSettings;
+      try {
+        cycle = parseCycleSettings(body.cycle);
+        if (typeof body.mutationId !== 'string' || !/^[a-zA-Z0-9-]{16,80}$/.test(body.mutationId)) throw new Error();
+      } catch { return res.status(400).json({ error: '经期设置无效' }); }
+      const previous = (await kv.hgetall<{ cycle: CycleSettings }>(LIFE_SETTINGS_KEY))?.cycle;
+      const periodStarts = [...new Set([...(previous?.periodStarts ?? []), previous?.lastPeriodStart, cycle.lastPeriodStart].filter((date): date is string => Boolean(date)))].sort();
+      const next = { ...cycle, periodStarts, revision: body.mutationId };
+      const [ok, raw] = await kv.eval<string[], [number, string | CycleSettings]>(SAVE_LIFE_ENTRY, [LIFE_SETTINGS_KEY],
+        ['cycle', cycle.revision, body.mutationId as string, JSON.stringify(next), 'cycle']);
+      if (!ok) return res.status(409).json({ error: '经期设置已在其他页面更新，请重新打开设置' });
+      return res.status(200).json({ cycle: typeof raw === 'string' ? JSON.parse(raw) : raw });
     }
     if (body.action !== 'save') return res.status(400).json({ error: '操作无效' });
     let edit;
     try { edit = parseLifeEdit(body); }
     catch { return res.status(400).json({ error: '记录内容无效' }); }
-    const entry = { text: edit.text, revision: edit.mutationId };
+    const entry: LifeEntry = { text: edit.text, revision: edit.mutationId,
+      ...(edit.skin ? { skin: edit.skin } : {}), ...(edit.body ? { body: edit.body } : {}), ...(edit.training ? { training: edit.training } : {}) };
     const [ok, raw] = await kv.eval<string[], [number, string | LifeEntry]>(SAVE_LIFE_ENTRY, [entriesKey(edit.year)],
       [`${edit.kind}:${edit.date}`, edit.revision, edit.mutationId, JSON.stringify(entry)]);
     const stored = typeof raw === 'string' ? (raw ? JSON.parse(raw) : { text: '', revision: '' }) : raw;
@@ -64,6 +92,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const message = error instanceof Error ? error.message : '';
     if (message === '日历连接或内容已更新，请重新同步') return res.status(409).json({ error: message });
     if (message.startsWith('Outlook 日历读取失败')) return res.status(502).json({ error: message });
+    if (message.startsWith('TickTick 完成记录同步失败')) return res.status(502).json({ error: message });
     return res.status(503).json({ error: '暂时无法保存或读取，请重试' });
   }
 }

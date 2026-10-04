@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from './outlook-calendar';
-import { entriesKey, LIFE_CONNECTION_KEY, parsePeriodCalendar, periodsKey, syncLifePeriods } from './_bonLife';
+import { entriesKey, LIFE_CONNECTION_KEY, LIFE_SETTINGS_KEY, parsePeriodCalendar, periodsKey, syncLifePeriods } from './_bonLife';
+import { DEFAULT_CYCLE } from '../src/utils/bonLife';
 import { encryptOutlookConnection } from './_outlookCalendar';
 import { DEFAULT_OUTLOOK_RULES } from '../src/utils/outlookCalendar';
 
@@ -76,6 +77,27 @@ describe('经期 Outlook 解析', () => {
 });
 
 describe('BonLife 接口', () => {
+  it('保存早晚字段和体围，旧文字不丢失，禁止类型交叉', async () => {
+    for (const details of [{ kind: 'skin', skin: { morningMedication: '药 A', eveningProducts: '面霜' } }, { kind: 'body', body: { waist: 66.5 } },
+      { kind: 'training', training: { plan: '快走', effort: 'easy', completed: true } }]) {
+      const input = { action: 'save', date: '2026-10-04', text: '备注', revision: '', mutationId: 'mutation-123456789', ...details };
+      evalMock.mockResolvedValueOnce([1, { text: input.text, revision: input.mutationId, ...details }]);
+      expect((await call('POST', input)).status).toBe(200);
+      expect(JSON.parse(evalMock.mock.calls.at(-1)![2][3])).toMatchObject({ text: '备注', [details.kind]: details[details.kind as keyof typeof details] });
+    }
+    expect((await call('POST', { action: 'save', date: '2026-10-04', kind: 'mood', text: '', revision: '', mutationId: 'mutation-123456789', body: { waist: 60 } })).status).toBe(400);
+  });
+  it('经期设置保留过去开始日期，版本冲突不覆盖', async () => {
+    getHash.mockResolvedValue({ cycle: { ...DEFAULT_CYCLE, lastPeriodStart: '2026-09-01', revision: 'old' } });
+    const cycle = { ...DEFAULT_CYCLE, lastPeriodStart: '2026-10-01', trainingDays: [], revision: 'old' };
+    evalMock.mockResolvedValueOnce([1, { ...cycle, revision: 'mutation-123456789' }]);
+    expect((await call('POST', { year: 2026, action: 'save-cycle', cycle, mutationId: 'mutation-123456789' })).status).toBe(200);
+    expect(evalMock.mock.calls[0][1]).toEqual([LIFE_SETTINGS_KEY]);
+    expect(JSON.parse(evalMock.mock.calls[0][2][3])).toMatchObject({ trainingDays: [], periodStarts: ['2026-09-01', '2026-10-01'] });
+    evalMock.mockResolvedValueOnce([0, { ...cycle, revision: 'newer' }]);
+    expect((await call('POST', { year: 2026, action: 'save-cycle', cycle, mutationId: 'mutation-123456789' })).status).toBe(409);
+    expect((await call('POST', { year: 2026, action: 'sync-done', month: 13 })).status).toBe(400);
+  });
   it.each(['GET', 'POST', 'PUT', 'DELETE'])('未登录 %s 不读写状态记录', async (method) => {
     auth.mockResolvedValue(false);
     expect((await call(method)).status).toBe(401);

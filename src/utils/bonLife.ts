@@ -1,9 +1,16 @@
 import { isCalendarDate, nextCalendarDate } from './outlookCalendar.js';
 
-export type LifeKind = 'skin' | 'mood';
-export const LIFE_LABELS: Record<LifeKind, string> = { skin: '皮肤', mood: '情绪' };
+export const LIFE_KINDS = ['skin', 'mood', 'body', 'training'] as const;
+export type LifeKind = typeof LIFE_KINDS[number];
+export type LifeView = LifeKind | 'done';
+export const LIFE_LABELS: Record<LifeView, string> = { skin: '皮肤', mood: '情绪', body: '体围', training: '训练', done: 'DoneList' };
 export const LIFE_TEXT_LIMIT = 2000;
-export interface LifeEntry { text: string; revision: string }
+export const SKIN_FIELDS = { morningMedication: '早间用药', morningProducts: '早间护肤品', eveningMedication: '晚间用药', eveningProducts: '晚间护肤品' } as const;
+export const BODY_FIELDS = { chest: '胸围', waist: '腰围', hips: '臀围', upperArm: '上臂围', thigh: '大腿围', calf: '小腿围' } as const;
+export type SkinRecord = Partial<Record<keyof typeof SKIN_FIELDS, string>>;
+export type BodyRecord = Partial<Record<keyof typeof BODY_FIELDS, number>>;
+export interface TrainingRecord { plan: string; effort: 'normal' | 'easy' | 'rest'; completed: boolean }
+export interface LifeEntry { text: string; revision: string; skin?: SkinRecord; body?: BodyRecord; training?: TrainingRecord }
 export type LifeEntries = Record<string, LifeEntry>;
 export interface LifeYear {
   year: number;
@@ -11,7 +18,19 @@ export interface LifeYear {
   periodDays: string[];
   syncedAt: string | null;
   connected: boolean;
+  cycle?: CycleSettings;
 }
+export interface CycleSettings {
+  lastPeriodStart: string;
+  cycleLength: number;
+  periodLength: number;
+  trainingDays: number[];
+  revision: string;
+  periodStarts?: string[];
+}
+export const DEFAULT_CYCLE: CycleSettings = { lastPeriodStart: '', cycleLength: 28, periodLength: 5, trainingDays: [1, 3, 5], revision: '' };
+export interface DoneItem { id: string; taskId: string; projectId: string; title: string; completedAt: string; date: string }
+export interface DoneMonth { month: string; items: DoneItem[]; connected: boolean; syncedAt: string | null }
 export interface PeriodEvent { uid: string; startDate: string; endDate: string }
 
 export function lifeYear(value: unknown): number {
@@ -23,15 +42,64 @@ export function lifeYear(value: unknown): number {
 
 export function parseLifeEdit(value: unknown) {
   const edit = value as Record<string, unknown> | null;
-  if (!edit || !['skin', 'mood'].includes(String(edit.kind)) || typeof edit.date !== 'string'
+  if (!edit || !LIFE_KINDS.includes(edit.kind as LifeKind) || typeof edit.date !== 'string'
     || !isCalendarDate(edit.date) || typeof edit.text !== 'string' || edit.text.length > LIFE_TEXT_LIMIT
     || typeof edit.revision !== 'string' || edit.revision.length > 80
     || typeof edit.mutationId !== 'string' || !/^[a-zA-Z0-9-]{16,80}$/.test(edit.mutationId)) {
     throw new Error('记录内容无效');
   }
+  const details: Pick<LifeEntry, 'skin' | 'body' | 'training'> = {};
+  for (const field of ['skin', 'body', 'training']) {
+    if (edit[field] !== undefined && edit.kind !== field) throw new Error('记录类型不匹配');
+  }
+  if (edit.skin !== undefined) {
+    if (!edit.skin || typeof edit.skin !== 'object' || Array.isArray(edit.skin)) throw new Error('护肤记录无效');
+    details.skin = {};
+    for (const [key, value] of Object.entries(edit.skin)) {
+      if (!Object.prototype.hasOwnProperty.call(SKIN_FIELDS, key) || typeof value !== 'string' || value.length > 500) throw new Error('护肤记录无效');
+      details.skin[key as keyof SkinRecord] = value;
+    }
+  }
+  if (edit.body !== undefined) {
+    if (!edit.body || typeof edit.body !== 'object' || Array.isArray(edit.body)) throw new Error('体围记录无效');
+    details.body = {};
+    for (const [key, value] of Object.entries(edit.body)) {
+      if (!Object.prototype.hasOwnProperty.call(BODY_FIELDS, key) || typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value > 300) throw new Error('体围记录无效');
+      details.body[key as keyof BodyRecord] = value;
+    }
+  }
+  if (edit.training !== undefined) {
+    const training = edit.training as TrainingRecord | null;
+    if (!training || typeof training.plan !== 'string' || training.plan.length > 1000
+      || !['normal', 'easy', 'rest'].includes(training.effort) || typeof training.completed !== 'boolean') throw new Error('训练记录无效');
+    details.training = { plan: training.plan, effort: training.effort, completed: training.completed };
+  }
   const year = lifeYear(edit.date.slice(0, 4));
   return { year, kind: edit.kind as LifeKind, date: edit.date, text: edit.text,
-    revision: edit.revision, mutationId: edit.mutationId };
+    revision: edit.revision, mutationId: edit.mutationId, ...details };
+}
+
+export function parseCycleSettings(value: unknown): CycleSettings {
+  const input = value as CycleSettings | null;
+  if (!input || typeof input.lastPeriodStart !== 'string'
+    || (input.lastPeriodStart !== '' && !isCalendarDate(input.lastPeriodStart))
+    || !Number.isInteger(input.cycleLength) || input.cycleLength < 21 || input.cycleLength > 45
+    || !Number.isInteger(input.periodLength) || input.periodLength < 1 || input.periodLength > 10
+    || !Array.isArray(input.trainingDays) || input.trainingDays.some((day) => !Number.isInteger(day) || day < 0 || day > 6)
+    || typeof input.revision !== 'string' || input.revision.length > 80) throw new Error('经期设置无效');
+  if (input.lastPeriodStart) lifeYear(input.lastPeriodStart.slice(0, 4));
+  return { lastPeriodStart: input.lastPeriodStart, cycleLength: input.cycleLength, periodLength: input.periodLength,
+    trainingDays: [...new Set(input.trainingDays)].sort(), revision: input.revision };
+}
+
+export function entrySummary(kind: LifeKind, entry?: LifeEntry): string {
+  if (!entry) return '';
+  const details = kind === 'skin' ? Object.entries(SKIN_FIELDS).flatMap(([key, label]) => {
+    const value = entry.skin?.[key as keyof SkinRecord]; return value ? [`${label} · ${value}`] : [];
+  }) : kind === 'body' ? Object.entries(BODY_FIELDS).flatMap(([key, label]) => {
+    const value = entry.body?.[key as keyof BodyRecord]; return value ? [`${label} ${value} cm`] : [];
+  }) : kind === 'training' && entry.training ? [`${entry.training.completed ? '✓ ' : ''}${entry.training.plan}`] : [];
+  return [...details, entry.text].filter(Boolean).join('\n');
 }
 
 export function calendarCells(year: number, month: number): (string | null)[] {

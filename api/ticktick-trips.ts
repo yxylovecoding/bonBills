@@ -194,7 +194,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     if (isCron) {
+      const { syncRecentLifeDone } = await import('./_lifeDone.js');
+      // Archive completions even when Outlook or trip scheduling is unavailable.
+      let doneError = false;
+      try { await syncRecentLifeDone(); } catch { doneError = true; }
       const result = await runSync(true);
+      if (doneError) return res.status(502).json({ ...result, error: 'TickTick 完成记录同步失败，已保留历史' });
       return res.status(result.busy ? 202 : 200).json({ ok: true, ...result });
     }
     if (req.method === 'GET') return res.status(200).json(await status());

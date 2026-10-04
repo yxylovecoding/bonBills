@@ -8,9 +8,17 @@ export interface LifeConnection { id: string; encrypted: string }
 export interface PeriodSnapshot { connectionId: string; requestedAt: number; syncedAt: string; events: PeriodEvent[] }
 export const entriesKey = (year: number) => `bonlife:entries:v1:${year}`;
 export const periodsKey = (year: number) => `bonlife:periods:v1:${year}`;
+export const LIFE_SETTINGS_KEY = 'bonlife:settings:v1';
+
+export async function readPeriodDays(year: number) {
+  const years = [year - 1, year, year + 1].filter((value) => value >= 1900 && value <= 2200);
+  const snapshots = await Promise.all(years.map((value) => kv.get<PeriodSnapshot>(periodsKey(value))));
+  const events = snapshots.flatMap((snapshot) => snapshot?.events ?? []);
+  return [...new Set(years.flatMap((value) => periodDays(events, value)))].sort();
+}
 
 export function parsePeriodCalendar(text: string, year: number) {
-  const events = parseOutlookCalendar(text, 'play', `${year}-01-01`, `${year + 1}-01-01`, true);
+  const events = parseOutlookCalendar(text, 'play', `${year - 1}-11-01`, `${year + 1}-01-01`, true);
   const root = new ICAL.Component(ICAL.parse(text));
   const seenUids = root.getAllSubcomponents('vevent').map((event) => String(event.getFirstPropertyValue('uid') || '')).filter(Boolean);
   return { seenUids, events: events.filter((event) => /月经|🩸/u.test(event.title)).map((event) => {
@@ -54,6 +62,14 @@ export const SAVE_LIFE_ENTRY = `
   local current = raw and cjson.decode(raw) or {revision = '', text = ''}
   if current.revision == ARGV[3] then return {1, raw} end
   if current.revision ~= ARGV[2] then return {0, raw or ''} end
-  redis.call('hset', KEYS[1], ARGV[1], ARGV[4])
-  return {1, ARGV[4]}
+  local encoded = ARGV[4]
+  if ARGV[5] ~= 'cycle' then
+    local next = cjson.decode(ARGV[4])
+    for _, field in ipairs({'skin', 'body', 'training'}) do
+      if next[field] == nil then next[field] = current[field] end
+    end
+    encoded = cjson.encode(next)
+  end
+  redis.call('hset', KEYS[1], ARGV[1], encoded)
+  return {1, encoded}
 `;

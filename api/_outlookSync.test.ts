@@ -6,9 +6,10 @@ import { OUTLOOK_CONNECTION_KEY, saveOutlookSnapshot, saveUploadedCalendarState,
 import ticktickHandler from './ticktick-trips';
 import syncHandler from './sync';
 
-const { data, routineSync, tripSync, wishSync, templateRead, auth, events } = vi.hoisted(() => ({
-  data: new Map<string, unknown>(), routineSync: vi.fn(), tripSync: vi.fn(), wishSync: vi.fn(), templateRead: vi.fn(), auth: vi.fn(), events: [] as string[],
+const { data, routineSync, tripSync, wishSync, templateRead, auth, events, doneSync } = vi.hoisted(() => ({
+  data: new Map<string, unknown>(), routineSync: vi.fn(), tripSync: vi.fn(), wishSync: vi.fn(), templateRead: vi.fn(), auth: vi.fn(), events: [] as string[], doneSync: vi.fn(),
 }));
+vi.mock('./_lifeDone.js', () => ({ syncRecentLifeDone: doneSync }));
 vi.mock('./_auth.js', () => ({ authOk: auth }));
 vi.mock('@vercel/kv', () => ({ kv: {
   get: async (key: string) => structuredClone(data.get(key) ?? null),
@@ -61,6 +62,7 @@ beforeEach(() => {
   templateRead.mockImplementation(async () => { events.push('template'); return { id: 'template' }; });
   routineSync.mockResolvedValue({ routineUpdatedTaskCount: 0 }); tripSync.mockResolvedValue({ updatedTaskCount: 0 });
   wishSync.mockResolvedValue({});
+  doneSync.mockResolvedValue(undefined);
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     events.push('outlook');
     return new Response(url === playUrl
@@ -71,6 +73,18 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe('后台 Outlook 拉取与 TickTick 顺序', () => {
+  it('后台独立归档完成记录，Outlook 失败不跳过归档', async () => {
+    vi.mocked(fetch).mockRejectedValue(new Error('calendar unavailable'));
+    expect((await cron()).status).toBe(502);
+    expect(doneSync).toHaveBeenCalledOnce();
+  });
+  it('完成记录失败仍更新 Outlook，最后报告归档失败', async () => {
+    doneSync.mockRejectedValueOnce(new Error('unavailable'));
+    const result = await cron();
+    expect(result.status).toBe(502);
+    expect(result.body.error).toContain('完成记录同步失败');
+    expect(calendar().tagMap['2026-09-25']).toBe('home');
+  });
   it.each(['GET', 'POST'])('%s 在出游和心愿生成完成后才同步日期跟随', async (method) => {
     auth.mockResolvedValue(true);
     data.set('ticktick:connection:v1', { encryptedToken: 'encrypted', templateRootId: 'template' });
