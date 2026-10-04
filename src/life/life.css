@@ -336,3 +336,5 @@
 .life-project-list button, .life-project-add { flex-shrink: 0; color: var(--life-accent); font-size: 12px; padding: 4px 0; }
 .life-training-tags { display: inline-block; margin-left: 8px; font-size: 10px; font-weight: 400; color: var(--life-muted); }
 .life-skin-choices button[aria-pressed="true"] .life-training-tags { color: inherit; opacity: .8; }
+.life-cycle-auto { display: flex; align-items: center; gap: 8px; margin: 16px 0; color: var(--life-muted); font-size: 14px; }
+.life-dialog .life-cycle-auto input { width: auto; flex: 0 0 auto; accent-color: var(--life-accent); }

@@ -15,13 +15,13 @@ describe('经期与训练计划', () => {
     expect(phases.slice(1).every((value) => value?.estimated)).toBe(true);
     expect(cycleDay('2026-10-04', cycle, ['2026-10-04'])).toEqual({ phase: 'menstrual', day: 1, estimated: false });
   });
-  it('28 天模板在第 8、14、20 天切换，每一天恰好属于一个阶段', () => {
+  it('5 天经期在第 6 天切换，后两段仍按 28 天模板，每一天恰好属于一个阶段', () => {
     expect(cyclePhaseRanges(cycle)).toEqual([
-      { phase: 'menstrual', start: 1, end: 7 }, { phase: 'ovulatory', start: 8, end: 13 },
+      { phase: 'menstrual', start: 1, end: 5 }, { phase: 'ovulatory', start: 6, end: 13 },
       { phase: 'earlyLuteal', start: 14, end: 19 }, { phase: 'lateLuteal', start: 20, end: 28 },
     ]);
     const settings = { ...cycle, lastPeriodStart: '2026-10-01' };
-    for (const [start, end, phase] of [[1, 7, 'menstrual'], [8, 13, 'ovulatory'], [14, 19, 'earlyLuteal'], [20, 28, 'lateLuteal']] as const) {
+    for (const [start, end, phase] of [[1, 5, 'menstrual'], [6, 13, 'ovulatory'], [14, 19, 'earlyLuteal'], [20, 28, 'lateLuteal']] as const) {
       for (let day = start; day <= end; day++) expect(cycleDay(`2026-10-${String(day).padStart(2, '0')}`, settings, [])?.phase).toBe(phase);
     }
   });
@@ -86,7 +86,7 @@ describe('日历经期显示', () => {
 
   it('当月昨天的预测隐藏，今天和未来仍保留预计状态', () => {
     expect(visibleCycleDay('2026-10-03', cycle, [], today)).toBeNull();
-    expect(visibleCycleDay(today, cycle, [], today)).toMatchObject({ phase: 'menstrual', estimated: true });
+    expect(visibleCycleDay(today, cycle, [], today)).toMatchObject({ phase: 'ovulatory', estimated: true });
     expect(visibleCycleDay('2026-10-05', cycle, [], today)).toMatchObject({ phase: 'ovulatory', estimated: true });
     expect(visibleCycleDay('2026-10-26', cycle, [], today)).toMatchObject({ phase: 'menstrual', estimated: true });
   });

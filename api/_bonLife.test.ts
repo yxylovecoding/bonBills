@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from './outlook-calendar';
-import { entriesKey, LIFE_CONNECTION_KEY, LIFE_SETTINGS_KEY, LIFE_TRAINING_ENTRIES_KEY, LIFE_SYMPTOM_ENTRIES_KEY, parsePeriodCalendar, periodsKey, syncLifePeriods } from './_bonLife';
+import { entriesKey, LIFE_CONNECTION_KEY, LIFE_SETTINGS_KEY, LIFE_TRAINING_ENTRIES_KEY, LIFE_SYMPTOM_ENTRIES_KEY, parsePeriodCalendar, periodsKey, readPeriodDays, syncLifePeriods } from './_bonLife';
 import { DEFAULT_CYCLE } from '../src/utils/bonLife';
+import { estimateCycle } from '../src/utils/lifeCycle';
 import { encryptOutlookConnection } from './_outlookCalendar';
 import { DEFAULT_OUTLOOK_RULES } from '../src/utils/outlookCalendar';
 import { encryptTickTickToken, TICKTICK_CONNECTION_KEY } from './_ticktickTrips';
@@ -40,6 +41,26 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe('经期 Outlook 解析', () => {
+  it('预计经期不是实际记录，但保留 UID 以便清除旧快照中的预测', () => {
+    const parsed = parsePeriodCalendar(calendar([
+      event('actual', '月经'), event('predicted', '预计月经'), event('forecast', '🩸 预测'), event('estimate', '预估月经'),
+    ]), 2026);
+    expect(parsed.events.map((value) => value.uid)).toEqual(['actual']);
+    expect(parsed.seenUids).toEqual(['actual', 'predicted', 'forecast', 'estimate']);
+  });
+  it('浏览远期年份也带上当前记录，日历和服务端能采用同一估算', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-09-10T00:00:00+08:00'));
+      data.set(periodsKey(2026), { events: [
+        { uid: 'one', startDate: '2026-07-01', endDate: '2026-07-05' },
+        { uid: 'two', startDate: '2026-08-01', endDate: '2026-08-05' },
+      ] });
+      const current = await readPeriodDays(2026);
+      expect(await readPeriodDays(2030)).toEqual(current);
+      expect(estimateCycle(DEFAULT_CYCLE, current)).toMatchObject({ cycleLength: 31, periodLength: 4 });
+    } finally { vi.useRealTimers(); }
+  });
   it('只选标题包含月经或血滴的全天事件，同时识别被取消或更名的 UID', () => {
     const parsed = parsePeriodCalendar(calendar([
       event('a', '月经第1天'), event('b', '🩸 经期'), event('renamed', '其他日程'), event('cancel', '月经', undefined, undefined, 'STATUS:CANCELLED\r\n'),
@@ -149,7 +170,7 @@ describe('BonLife 接口', () => {
     evalMock.mockResolvedValueOnce([1, { ...cycle, revision: 'mutation-123456789' }]);
     expect((await call('POST', { year: 2026, action: 'save-cycle', cycle, mutationId: 'mutation-123456789' })).status).toBe(200);
     expect(evalMock.mock.calls[0][1]).toEqual([LIFE_SETTINGS_KEY]);
-    expect(JSON.parse(evalMock.mock.calls[0][2][3])).toMatchObject({ trainingDays: [], periodStarts: ['2026-09-01', '2026-10-01'] });
+    expect(JSON.parse(evalMock.mock.calls[0][2][3])).toMatchObject({ trainingDays: [], automatic: true, periodStarts: ['2026-09-01', '2026-10-01'] });
     evalMock.mockResolvedValueOnce([0, { ...cycle, revision: 'newer' }]);
     expect((await call('POST', { year: 2026, action: 'save-cycle', cycle, mutationId: 'mutation-123456789' })).status).toBe(409);
     expect((await call('POST', { year: 2026, action: 'sync-done', month: 13 })).status).toBe(400);

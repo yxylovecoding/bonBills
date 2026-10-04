@@ -44,8 +44,9 @@ export interface CycleSettings {
   trainingDays: number[];
   revision: string;
   periodStarts?: string[];
+  automatic?: boolean;
 }
-export const DEFAULT_CYCLE: CycleSettings = { lastPeriodStart: '', cycleLength: 28, periodLength: 5, trainingDays: [1, 3, 5], revision: '' };
+export const DEFAULT_CYCLE: CycleSettings = { lastPeriodStart: '', cycleLength: 28, periodLength: 5, trainingDays: [1, 3, 5], revision: '', automatic: true };
 export interface DoneItem { id: string; taskId: string; projectId: string; title: string; completedAt: string; date: string; tags?: string[]; category?: '课' | '活' | '玩' | '未分类'; projectName?: string }
 export interface DoneMonth { month: string; items: DoneItem[]; connected: boolean; syncedAt: string | null; needsTagSync?: boolean }
 export interface PeriodEvent { uid: string; startDate: string; endDate: string }
@@ -101,11 +102,12 @@ export function parseCycleSettings(value: unknown): CycleSettings {
     || (input.lastPeriodStart !== '' && !isCalendarDate(input.lastPeriodStart))
     || !Number.isInteger(input.cycleLength) || input.cycleLength < 21 || input.cycleLength > 45
     || !Number.isInteger(input.periodLength) || input.periodLength < 1 || input.periodLength > 10
+    || (input.automatic !== undefined && typeof input.automatic !== 'boolean')
     || !Array.isArray(input.trainingDays) || input.trainingDays.some((day) => !Number.isInteger(day) || day < 0 || day > 6)
     || typeof input.revision !== 'string' || input.revision.length > 80) throw new Error('经期设置无效');
   if (input.lastPeriodStart) lifeYear(input.lastPeriodStart.slice(0, 4));
   return { lastPeriodStart: input.lastPeriodStart, cycleLength: input.cycleLength, periodLength: input.periodLength,
-    trainingDays: [...new Set(input.trainingDays)].sort(), revision: input.revision };
+    trainingDays: [...new Set(input.trainingDays)].sort(), revision: input.revision, automatic: input.automatic !== false };
 }
 
 export function entrySummary(kind: LifeKind, entry?: LifeEntry): string {

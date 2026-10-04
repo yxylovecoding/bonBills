@@ -13,7 +13,9 @@ export const LIFE_TRAINING_ENTRIES_KEY = 'bonlife:training-entries:v1';
 export const LIFE_SYMPTOM_ENTRIES_KEY = 'bonlife:symptom-entries:v1';
 
 export async function readPeriodDays(year: number) {
-  const years = [year - 1, year, year + 1].filter((value) => value >= 1900 && value <= 2200);
+  const currentYear = Number(new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date()).slice(0, 4));
+  const years = [...new Set([year - 1, year, year + 1, currentYear - 1, currentYear, currentYear + 1])]
+    .filter((value) => value >= 1900 && value <= 2200);
   const snapshots = await Promise.all(years.map((value) => kv.get<PeriodSnapshot>(periodsKey(value))));
   const events = snapshots.flatMap((snapshot) => snapshot?.events ?? []);
   return [...new Set(years.flatMap((value) => periodDays(events, value)))].sort();
@@ -23,7 +25,7 @@ export function parsePeriodCalendar(text: string, year: number) {
   const events = parseOutlookCalendar(text, 'play', `${year - 1}-11-01`, `${year + 1}-01-01`, true);
   const root = new ICAL.Component(ICAL.parse(text));
   const seenUids = root.getAllSubcomponents('vevent').map((event) => String(event.getFirstPropertyValue('uid') || '')).filter(Boolean);
-  return { seenUids, events: events.filter((event) => /月经|🩸/u.test(event.title)).map((event) => {
+  return { seenUids, events: events.filter((event) => /月经|🩸/u.test(event.title) && !/预计|预测|预估/u.test(event.title)).map((event) => {
     if (!event.uid) throw new Error('日程标识缺失');
     return { uid: event.uid, startDate: event.startDate, endDate: event.endDate };
   }) };
