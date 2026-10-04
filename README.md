@@ -14,6 +14,10 @@ npm run dev       # 开发模式 (http://localhost:5173)
 npm run build     # 生产构建
 ```
 
+## 安装为应用
+
+BonBills 和 BonLife 均提供应用名称、独立图标和 Web App Manifest，可通过 Chrome 的「安装」入口以独立窗口打开。BonBills 从 `/` 启动；BonLife 子域名从 `/` 启动，主站 `/life` 安装后仍从 `/life` 启动。清单在 `src/main.tsx` 根据当前域名和路径选择，图标与清单位于 `public/`。此配置不提供离线缓存。
+
 ## BonLife 状态日历
 
 `life.bonbills.cn` 使用同一 Vercel 项目提供独立的 BonLife 首页、图标和皮肤／情绪日历；主站的 `/life` 也可访问。子域名需要绑定到该 Vercel 项目，并在 DNS 中添加 Vercel 指定的 CNAME。沿用已有账号密码，子域名登录状态单独保存，不加载账本及其同步任务。
