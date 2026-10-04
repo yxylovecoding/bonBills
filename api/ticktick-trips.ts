@@ -9,6 +9,7 @@ import { availabilityProfile } from './_dailyAvailability.js';
 import type { OutlookAvailability } from '../src/utils/outlookCalendar.js';
 import { acquireTickTickLock, releaseTickTickLock } from './_ticktickLock.js';
 import { syncSwimmingSchedule } from './_lifeSwimming.js';
+import { syncNightRoutineVisibility } from './_ticktickNightRoutine.js';
 
 const CONNECTION_KEY = 'ticktick:connection:v1';
 const SYNC_STATE_KEY = 'ticktick:trip-sync:v1';
@@ -79,6 +80,7 @@ async function runSync(allowDisconnected = false) {
         kv.get<{ budgetMinutes?: number | null; availabilityProfile?: string }>(DAILY_PLAN_SETTINGS_KEY),
         readAllTickTickTasks(api, [0]),
       ]);
+      const nightRoutine = await syncNightRoutineVisibility(api, { tasks: sourceTasks, timeZone: connection.timeZone });
       const dailyPlan: DailyPlanState = savedPlan?.connectionId === connectionId
         ? { ...savedPlan, history: [...savedPlan.history], deadlines: { ...savedPlan.deadlines } }
         : { connectionId, history: [], deadlines: {} };
@@ -123,7 +125,7 @@ async function runSync(allowDisconnected = false) {
       await kv.set(DAILY_PLAN_KEY, dailyPlan);
       console.info('[ticktick-routine-sync]', JSON.stringify(routineResult));
       console.info('[ticktick-trip-sync]', JSON.stringify({ ...result, ...wishResult }));
-      return { busy: false as const, ...result, ...wishResult, ...routineResult, dailyPlan: dailyPlan.summary, budgetMinutes: dailyBudget(settings?.budgetMinutes),
+      return { busy: false as const, ...result, ...wishResult, ...routineResult, nightRoutine, dailyPlan: dailyPlan.summary, budgetMinutes: dailyBudget(settings?.budgetMinutes),
         availabilityProfile: availabilityProfile(settings?.availabilityProfile), lastSyncAt: state.lastSyncAt };
     } catch (error) {
       state.lastError = error instanceof Error ? error.message : String(error);
@@ -135,6 +137,22 @@ async function runSync(allowDisconnected = false) {
     // Share the write lock so routines cannot put swimming back into a period.
     try { await syncSwimmingSchedule({ lockHeld: true, refreshPeriods: true }); }
     finally { await releaseTickTickLock(lockId); }
+  }
+}
+
+async function runNightRoutineSync() {
+  const lockId = await acquireTickTickLock();
+  if (!lockId) return { busy: true as const };
+  try {
+    const connection = await kv.get<TickTickConnection>(CONNECTION_KEY);
+    if (!connection) return { busy: false as const, connected: false as const };
+    const { decryptTickTickToken, TickTickOpenApiClient } = await import('./_ticktickTrips.js');
+    const api = new TickTickOpenApiClient(decryptTickTickToken(connection.encryptedToken, getSyncSecret()),
+      (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
+    const nightRoutine = await syncNightRoutineVisibility(api, { timeZone: connection.timeZone });
+    return { busy: false as const, connected: true as const, nightRoutine };
+  } finally {
+    await releaseTickTickLock(lockId);
   }
 }
 
@@ -222,6 +240,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!isCron && !await authOk(req)) return res.status(401).json({ error: 'unauthorized' });
 
   try {
+    if (req.query?.action === 'night-routine') {
+      if (!isCron && req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
+      const result = await runNightRoutineSync();
+      return res.status(result.busy ? 202 : 200).json({ ok: true, ...result });
+    }
     if (isCron) {
       const { syncRecentLifeDone } = await import('./_lifeDone.js');
       // Archive completions even when Outlook or trip scheduling is unavailable.
