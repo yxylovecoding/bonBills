@@ -15,7 +15,7 @@ concurrency:
 jobs:
   recalculate:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 20
     steps:
       - name: Refresh Outlook and recalculate TickTick
         env:
@@ -25,7 +25,8 @@ jobs:
           node --input-type=module <<'NODE'
           const secret = process.env.CRON_SECRET?.trim();
           if (!secret) throw new Error('Missing BONBILLS_CRON_SECRET');
-          for (let attempt = 0; attempt < 3; attempt++) {
+          let busyAttempts = 0;
+          for (let batch = 0; batch < 40; batch++) {
             let response;
             try {
               response = await fetch('https://www.bonbills.cn/api/ticktick-trips', {
@@ -37,16 +38,18 @@ jobs:
               // Never log the secret, provider error body or private task data.
               throw new Error('Scheduling request failed or timed out');
             }
-            if (response.status === 202 && attempt < 2) {
-              await response.body?.cancel();
+            const result = await response.json().catch(() => null);
+            // Resume persisted tag-restoration batches before planning starts.
+            if (response.status === 202 && result?.sleepTags?.complete === false) continue;
+            if (response.status === 202 && busyAttempts++ < 2) {
               await new Promise(resolve => setTimeout(resolve, 30_000));
               continue;
             }
-            const result = await response.json().catch(() => null);
             if (response.status !== 200 || result?.ok !== true || result.busy || result.error || !result.dailyPlan) {
               throw new Error(`Scheduling did not complete (HTTP ${response.status})`);
             }
             console.log('Outlook and TickTick planning completed successfully.');
             process.exit(0);
           }
+          throw new Error('Routine tag restoration still has pending batches');
           NODE

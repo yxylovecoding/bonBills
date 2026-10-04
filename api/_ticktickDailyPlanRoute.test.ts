@@ -2,10 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from './ticktick-trips';
 import { DAILY_PLAN_KEY, DAILY_PLAN_SETTINGS_KEY } from './_ticktickDailyPlan';
-const { data, auth, failHistory, failWrite } = vi.hoisted(() => ({ data: new Map<string, any>(), auth: { ok: true }, failHistory: { value: false }, failWrite: { value: false } }));
+const { data, auth, failHistory, failWrite, sleepTags } = vi.hoisted(() => ({ data: new Map<string, any>(), auth: { ok: true }, failHistory: { value: false }, failWrite: { value: false }, sleepTags: vi.fn() }));
 vi.mock('./_auth.js', () => ({ authOk: async () => auth.ok }));
 vi.mock('./_outlookSync.js', () => ({ syncOutlookCalendar: async () => ({ connected: true,
   availability: { startDate: '2020-01-01', endDate: '2030-01-01', events: [] } }) }));
+vi.mock('./_ticktickSleepTags.js', () => ({ syncSleepRoutineTags: sleepTags }));
 vi.mock('./_lifeSwimming.js', () => ({ syncSwimmingSchedule: async () => undefined }));
 vi.mock('./_ticktickLock.js', () => ({ acquireTickTickLock: async () => 'lock', releaseTickTickLock: async () => undefined }));
 vi.mock('@vercel/kv', () => ({ kv: { get: async (key: string) => structuredClone(data.get(key) ?? null),
@@ -29,9 +30,19 @@ async function request(method: string, body?: unknown) {
   await handler({ method, headers: {}, body, query: {} } as VercelRequest, res as unknown as VercelResponse);
   return result;
 }
-beforeEach(() => { data.clear(); auth.ok = true; failHistory.value = false; failWrite.value = false; data.set('ticktick:connection:v1', { encryptedToken: {} }); });
+beforeEach(() => { data.clear(); auth.ok = true; failHistory.value = false; failWrite.value = false;
+  sleepTags.mockResolvedValue({ mode: 'restore', updated: 0, remaining: 0, complete: true });
+  data.set('ticktick:connection:v1', { encryptedToken: {} }); });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 describe('每日安排接口', () => {
+  it('凌晨临时标签未恢复完时不发布计划，恢复完成后再计算', async () => {
+    sleepTags.mockResolvedValueOnce({ mode: 'restore', updated: 20, remaining: 5, complete: false });
+    expect(await request('POST')).toMatchObject({ status: 202, body: { busy: true, sleepTags: { remaining: 5 } } });
+    expect(data.has(DAILY_PLAN_KEY)).toBe(false);
+    expect((await request('POST')).status).toBe(200);
+    expect(data.has(DAILY_PLAN_KEY)).toBe(true);
+    expect(sleepTags).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ restoreOnly: true }));
+  });
   it('手动和后台共用的同步入口按执行时刻返回剩余额度', async () => {
     vi.useFakeTimers();
     for (const [hour, minutes] of [[5, 330], [12, 240], [17, 120], [20, 60], [23, 0]]) {

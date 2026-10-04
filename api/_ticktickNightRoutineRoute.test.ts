@@ -7,7 +7,8 @@ const { auth, lock, release, sync, daily, exercise, data, outlook, archive } = v
 vi.mock('./_auth.js', () => ({ authOk: auth }));
 vi.mock('./_ticktickLock.js', () => ({ acquireTickTickLock: lock, releaseTickTickLock: release }));
 vi.mock('@vercel/kv', () => ({ kv: { get: async (key: string) => data.get(key) } }));
-vi.mock('./_ticktickNightRoutine.js', () => ({ syncNightRoutineVisibility: sync, syncDailyRoutineVisibility: daily }));
+vi.mock('./_ticktickNightRoutine.js', () => ({ syncNightRoutineVisibility: sync }));
+vi.mock('./_ticktickSleepTags.js', () => ({ syncSleepRoutineTags: daily }));
 vi.mock('./_ticktickExercise.js', () => ({ syncExerciseSchedule: exercise }));
 vi.mock('./_outlookSync.js', () => ({ syncOutlookCalendar: outlook }));
 vi.mock('./_lifeDone.js', () => ({ syncRecentLifeDone: archive }));
@@ -25,8 +26,8 @@ beforeEach(() => {
   vi.clearAllMocks(); data.clear(); vi.stubEnv('CRON_SECRET', 'cron-secret'); auth.mockResolvedValue(false);
   lock.mockResolvedValue('lock'); sync.mockResolvedValue({ matched: 1, updated: 1, visible: 1, hidden: 0, skipped: 0 });
   exercise.mockResolvedValue({ updated: 1, minimumDates: new Map() });
-  daily.mockResolvedValue({ matched: 1, updated: 1, visible: 1, hidden: 0, skipped: 0 });
-  data.set('ticktick:connection:v1', { encryptedToken: {}, timeZone: 'Asia/Shanghai' });
+  daily.mockResolvedValue({ mode: 'restore', updated: 1, remaining: 0, complete: true });
+  data.set('ticktick:connection:v1', { projectId: 'life', encryptedToken: {}, timeZone: 'Asia/Shanghai' });
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -50,13 +51,22 @@ describe('夜间显隐轻量入口', () => {
     expect((await request('POST', undefined, action)).status).toBe(200);
   });
   it('零点入口只切换日常任务；五点入口在同一把锁内处理两种 routine 和运动', async () => {
-    expect(await request('GET', 'Bearer cron-secret', 'daily-routine')).toMatchObject({ status: 200, body: { dailyRoutine: { updated: 1 } } });
+    expect(await request('GET', 'Bearer cron-secret', 'daily-routine')).toMatchObject({ status: 200, body: { sleepTags: { updated: 1, complete: true } } });
     expect(sync).not.toHaveBeenCalled(); expect(exercise).not.toHaveBeenCalled();
     expect(outlook).not.toHaveBeenCalled(); expect(archive).not.toHaveBeenCalled();
     expect(await request('GET', 'Bearer cron-secret', 'routine-visibility')).toMatchObject({ status: 200,
-      body: { dailyRoutine: { updated: 1 }, nightRoutine: { updated: 1 }, exercise: { updated: 1 } } });
+      body: { sleepTags: { updated: 1, complete: true }, nightRoutine: { updated: 1 }, exercise: { updated: 1 } } });
     expect(daily).toHaveBeenCalledTimes(2); expect(sync).toHaveBeenCalledOnce(); expect(exercise).toHaveBeenCalledOnce();
     expect(lock).toHaveBeenCalledTimes(2); expect(release).toHaveBeenCalledTimes(2);
+  });
+  it('五点分批恢复完成后才继续夜间显隐和运动收尾', async () => {
+    daily.mockResolvedValueOnce({ mode: 'restore', updated: 20, remaining: 30, complete: false });
+    expect(await request('GET', 'Bearer cron-secret', 'routine-visibility')).toMatchObject({ status: 200,
+      body: { sleepTags: { remaining: 30, complete: false } } });
+    expect(sync).not.toHaveBeenCalled(); expect(exercise).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledOnce();
+    expect((await request('GET', 'Bearer cron-secret', 'routine-visibility')).status).toBe(200);
+    expect(sync).toHaveBeenCalledOnce(); expect(exercise).toHaveBeenCalledOnce();
   });
   it('共用写锁，失败仍释放，断开连接不继续访问 TickTick', async () => {
     lock.mockResolvedValueOnce(null);

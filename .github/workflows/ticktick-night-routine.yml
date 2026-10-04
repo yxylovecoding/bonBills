@@ -2,7 +2,7 @@ name: TickTick routine visibility
 
 on:
   schedule:
-    # Asia/Shanghai: night at 22:00, daily at 00:00, both at 05:00.
+    # Asia/Shanghai: night at 22:00, temporary tags at 00:00, restore + night at 05:00.
     - cron: '0 14 * * *'
     - cron: '0 16 * * *'
     - cron: '0 21 * * *'
@@ -23,7 +23,7 @@ concurrency:
 jobs:
   visibility:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 20
     steps:
       - name: Update scheduled routine visibility
         env:
@@ -39,7 +39,8 @@ jobs:
             : process.env.ROUTINE_SCHEDULE === '0 16 * * *' ? 'daily'
             : process.env.ROUTINE_SCHEDULE ? 'all' : process.env.ROUTINE_SCOPE || 'all';
           const action = scope === 'daily' ? 'daily-routine' : scope === 'night' ? 'night-routine' : 'routine-visibility';
-          for (let attempt = 0; attempt < 3; attempt++) {
+          let busyAttempts = 0;
+          for (let batch = 0; batch < 40; batch++) {
             let response;
             try {
               response = await fetch(`https://www.bonbills.cn/api/ticktick-trips?action=${action}`, {
@@ -50,19 +51,22 @@ jobs:
             } catch {
               throw new Error('Routine visibility request failed or timed out');
             }
-            if (response.status === 202 && attempt < 2) {
+            if (response.status === 202 && busyAttempts++ < 2) {
               await response.body?.cancel();
               await new Promise(resolve => setTimeout(resolve, 30_000));
               continue;
             }
             const result = await response.json().catch(() => null);
+            if (response.status === 200 && result?.ok === true && !result.busy && !result.error
+                && result.sleepTags?.complete === false) continue;
             if (response.status !== 200 || result?.ok !== true || result.busy || result.error
                 || (result.connected !== false && ((scope !== 'daily' && (!result.nightRoutine || !result.exercise))
-                  || (scope !== 'night' && !result.dailyRoutine)))) {
+                  || (scope !== 'night' && result.sleepTags?.complete !== true)))) {
               throw new Error(`Routine visibility sync did not complete (HTTP ${response.status})`);
             }
             // Public logs contain no credentials, task titles, tags or dates.
             console.log('Scheduled routine visibility sync completed successfully.');
             process.exit(0);
           }
+          throw new Error('Routine visibility still has pending batches');
           NODE

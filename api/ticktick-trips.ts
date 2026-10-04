@@ -9,7 +9,8 @@ import { availabilityProfile } from './_dailyAvailability.js';
 import type { OutlookAvailability } from '../src/utils/outlookCalendar.js';
 import { acquireTickTickLock, releaseTickTickLock } from './_ticktickLock.js';
 import { syncSwimmingSchedule } from './_lifeSwimming.js';
-import { syncDailyRoutineVisibility, syncNightRoutineVisibility } from './_ticktickNightRoutine.js';
+import { syncNightRoutineVisibility } from './_ticktickNightRoutine.js';
+import { syncSleepRoutineTags } from './_ticktickSleepTags.js';
 import { syncExerciseSchedule } from './_ticktickExercise.js';
 
 const CONNECTION_KEY = 'ticktick:connection:v1';
@@ -38,9 +39,21 @@ function shanghaiDate() {
 async function runSync(allowDisconnected = false) {
   const lockId = await acquireTickTickLock();
   if (!lockId) return { busy: true as const };
+  let scheduleStarted = false;
   try {
     const today = shanghaiDate();
     const secret = getSyncSecret();
+    const { decryptTickTickToken, TickTickOpenApiClient } = await import('./_ticktickTrips.js');
+    const connection = await kv.get<TickTickConnection>(CONNECTION_KEY);
+    if (!connection && allowDisconnected) return { busy: false as const, connected: false as const };
+    if (!connection) throw new Error('TickTick 未连接');
+    const token = decryptTickTickToken(connection.encryptedToken, secret);
+    const api = new TickTickOpenApiClient(token, (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
+    // Whichever 05:00 workflow runs first must restore temporary tags before
+    // calculating availability; otherwise every masked task looks like routine.
+    const sleepTags = await syncSleepRoutineTags(api, { projectId: connection.projectId, restoreOnly: true });
+    if (!sleepTags.complete) return { busy: true as const, sleepTags };
+    scheduleStarted = true;
     // Manual and scheduled runs must use the same fresh calendar window, including future trips.
     let availability: OutlookAvailability | undefined;
     try { availability = (await syncOutlookCalendar(today, secret))?.availability; }
@@ -51,20 +64,13 @@ async function runSync(allowDisconnected = false) {
     }
     const {
       buildTripSourcesFromSyncState,
-      decryptTickTickToken,
       getTickTickRoutineExcludedTaskIds,
       readConnectedTickTickTemplate,
       readAllTickTickTasks,
       reconcileTickTickTrips,
       reconcileTickTickWishPreparations,
       syncTickTickRoutines,
-      TickTickOpenApiClient,
     } = await import('./_ticktickTrips.js');
-    const connection = await kv.get<TickTickConnection>(CONNECTION_KEY);
-    if (!connection && allowDisconnected) return { busy: false as const, connected: false as const };
-    if (!connection) throw new Error('TickTick 未连接');
-    const token = decryptTickTickToken(connection.encryptedToken, secret);
-    const api = new TickTickOpenApiClient(token, (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
     const [calendarState, tripState, configState, savedState] = await Promise.all([
       kv.get('calendar-tags'),
       kv.get('trip-tags'),
@@ -137,7 +143,7 @@ async function runSync(allowDisconnected = false) {
   } finally {
     // Apply the period rule last, even if unrelated calendar/template sync failed.
     // Share the write lock so routines cannot put swimming back into a period.
-    try { await syncSwimmingSchedule({ lockHeld: true, refreshPeriods: true }); }
+    try { if (scheduleStarted) await syncSwimmingSchedule({ lockHeld: true, refreshPeriods: true }); }
     finally { await releaseTickTickLock(lockId); }
   }
 }
@@ -152,13 +158,13 @@ async function runRoutineVisibilitySync(kind: 'night' | 'daily' | 'all') {
     const token = decryptTickTickToken(connection.encryptedToken, getSyncSecret());
     const api = new TickTickOpenApiClient(token,
       (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
-    const dailyRoutine = kind !== 'night' ? await syncDailyRoutineVisibility(api) : undefined;
-    if (kind === 'daily') return { busy: false as const, connected: true as const, dailyRoutine };
+    const sleepTags = kind !== 'night' ? await syncSleepRoutineTags(api, { projectId: connection.projectId }) : undefined;
+    if (kind === 'daily' || sleepTags?.complete === false) return { busy: false as const, connected: true as const, sleepTags };
     const nightRoutine = await syncNightRoutineVisibility(api, { timeZone: connection.timeZone });
     const exercise = await syncExerciseSchedule(api, { connectionId: createHash('sha256').update(token).digest('hex'),
       templateRootId: connection.templateRootId });
     return { busy: false as const, connected: true as const, nightRoutine, exercise: { updated: exercise.updated },
-      ...(dailyRoutine ? { dailyRoutine } : {}) };
+      ...(sleepTags ? { sleepTags } : {}) };
   } finally {
     await releaseTickTickLock(lockId);
   }
