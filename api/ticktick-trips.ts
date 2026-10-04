@@ -9,6 +9,7 @@ import { availabilityProfile } from './_dailyAvailability.js';
 import type { OutlookAvailability } from '../src/utils/outlookCalendar.js';
 import { acquireTickTickLock, releaseTickTickLock } from './_ticktickLock.js';
 import { syncSwimmingSchedule } from './_lifeSwimming.js';
+import { syncNightRoutineVisibility } from './_ticktickNightRoutine.js';
 
 const CONNECTION_KEY = 'ticktick:connection:v1';
 const SYNC_STATE_KEY = 'ticktick:trip-sync:v1';
@@ -138,6 +139,22 @@ async function runSync(allowDisconnected = false) {
   }
 }
 
+async function runNightRoutineSync() {
+  const lockId = await acquireTickTickLock();
+  if (!lockId) return { busy: true as const };
+  try {
+    const connection = await kv.get<TickTickConnection>(CONNECTION_KEY);
+    if (!connection) return { busy: false as const, connected: false as const };
+    const { decryptTickTickToken, TickTickOpenApiClient } = await import('./_ticktickTrips.js');
+    const api = new TickTickOpenApiClient(decryptTickTickToken(connection.encryptedToken, getSyncSecret()),
+      (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
+    const nightRoutine = await syncNightRoutineVisibility(api, { timeZone: connection.timeZone });
+    return { busy: false as const, connected: true as const, nightRoutine };
+  } finally {
+    await releaseTickTickLock(lockId);
+  }
+}
+
 function parseToken(req: VercelRequest): string {
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
@@ -222,6 +239,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!isCron && !await authOk(req)) return res.status(401).json({ error: 'unauthorized' });
 
   try {
+    if (req.query?.action === 'night-routine') {
+      if (!isCron && req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
+      const result = await runNightRoutineSync();
+      return res.status(result.busy ? 202 : 200).json({ ok: true, ...result });
+    }
     if (isCron) {
       const { syncRecentLifeDone } = await import('./_lifeDone.js');
       // Archive completions even when Outlook or trip scheduling is unavailable.

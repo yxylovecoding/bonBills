@@ -1,0 +1,53 @@
+name: TickTick night routine visibility
+
+on:
+  schedule:
+    # Asia/Shanghai: 22:00 and 05:00. GitHub cron uses UTC.
+    - cron: '0 14,21 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ticktick-daily-planning
+  cancel-in-progress: false
+
+jobs:
+  visibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Update night routine visibility
+        env:
+          CRON_SECRET: ${{ secrets.BONBILLS_CRON_SECRET }}
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const secret = process.env.CRON_SECRET?.trim();
+          if (!secret) throw new Error('Missing BONBILLS_CRON_SECRET');
+          for (let attempt = 0; attempt < 3; attempt++) {
+            let response;
+            try {
+              response = await fetch('https://www.bonbills.cn/api/ticktick-trips?action=night-routine', {
+                headers: { Authorization: `Bearer ${secret}` },
+                redirect: 'error',
+                signal: AbortSignal.timeout(150_000),
+              });
+            } catch {
+              throw new Error('Night routine request failed or timed out');
+            }
+            if (response.status === 202 && attempt < 2) {
+              await response.body?.cancel();
+              await new Promise(resolve => setTimeout(resolve, 30_000));
+              continue;
+            }
+            const result = await response.json().catch(() => null);
+            if (response.status !== 200 || result?.ok !== true || result.busy || result.error
+                || (result.connected !== false && !result.nightRoutine)) {
+              throw new Error(`Night routine sync did not complete (HTTP ${response.status})`);
+            }
+            // Public logs contain no credentials, task titles, tags or dates.
+            console.log('Night routine visibility sync completed successfully.');
+            process.exit(0);
+          }
+          NODE
