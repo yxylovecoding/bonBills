@@ -104,7 +104,7 @@ function isAllDay(event: IcalEvent) {
   return event.startDate?.isDate || String(event.component.getFirstPropertyValue('x-microsoft-cdo-alldayevent')).toUpperCase() === 'TRUE';
 }
 
-export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind, startDate: string, endDate: string, includeUid = false): OutlookDayEvent[] {
+export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind, startDate: string, endDate: string, includeUid = false, includeTimed = false): OutlookDayEvent[] {
   if (!/^\s*BEGIN:VCALENDAR\r?\n/i.test(text) || !/END:VCALENDAR\s*$/i.test(text)) throw new Error('订阅内容不是完整日历');
   const root = new ICAL.Component(ICAL.parse(text));
   const components = root.getAllSubcomponents('vevent');
@@ -120,8 +120,30 @@ export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind
   }
   const cancelledSeries = new Set(events.filter((event) => !event.isRecurrenceException() && isCancelled(event)).map((event) => event.uid));
   const result: OutlookDayEvent[] = [];
+  const instant = (time: IcalTime, event: IcalEvent, property: string) => {
+    if (time.zone.tzid !== 'floating') return time.toJSDate().toISOString();
+    const zone = event.component.getFirstProperty(property)?.getParameter('tzid')
+      ?? event.component.getFirstProperty('dtstart')?.getParameter('tzid');
+    // Unqualified local times use the account's Shanghai planning timezone.
+    // Outlook normally includes VTIMEZONE; never silently interpret an unknown TZID as UTC.
+    if (zone && !['China Standard Time', 'Asia/Shanghai', 'Asia/Chongqing'].includes(String(zone))) {
+      throw new Error('日程时区缺失');
+    }
+    return new Date(`${time.toString()}+08:00`).toISOString();
+  };
   const append = (event: IcalEvent, start: IcalTime, end: IcalTime) => {
-    if (!isAllDay(event) || isCancelled(event)) return;
+    if (isCancelled(event)) return;
+    if (!isAllDay(event)) {
+      if (!includeTimed || String(event.component.getFirstPropertyValue('transp')).toUpperCase() === 'TRANSPARENT'
+        || String(event.component.getFirstPropertyValue('x-microsoft-cdo-busystatus')).toUpperCase() === 'FREE') return;
+      const from = instant(start, event, 'dtstart'), to = instant(end, event, 'dtend');
+      if (to <= from) throw new Error('日程时段无效');
+      if (from < new Date(`${endDate}T00:00:00+08:00`).toISOString() && to > new Date(`${startDate}T00:00:00+08:00`).toISOString()) {
+        result.push({ calendar, title: event.summary || '', startDate: from, endDate: to, allDay: false,
+          ...(includeUid ? { uid: event.uid } : {}) });
+      }
+      return;
+    }
     const from = dayOf(start);
     const to = dayOf(end);
     if (from < endDate && to > startDate) result.push({ calendar, title: event.summary || '', startDate: from, endDate: to, allDay: true,
@@ -130,7 +152,7 @@ export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind
   let iterations = 0;
   const deadline = Date.now() + 2500;
   for (const event of events) {
-    if (cancelledSeries.has(event.uid) || isCancelled(event) || !isAllDay(event)) continue;
+    if (cancelledSeries.has(event.uid) || isCancelled(event) || (!includeTimed && !isAllDay(event))) continue;
     if (!event.startDate || !event.endDate) throw new Error('日程日期缺失');
     if (!event.isRecurring() || event.isRecurrenceException()) {
       append(event, event.startDate, event.endDate);
@@ -143,7 +165,8 @@ export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind
     const duration = event.duration;
     for (let occurrence = iterator.next(); occurrence; occurrence = iterator.next()) {
       if (++iterations > 30_000 || Date.now() > deadline) throw new Error('日历重复日程过多，请缩小订阅范围');
-      if (dayOf(occurrence) >= endDate) break;
+      // UTC/foreign-zone occurrences can cross a Shanghai date boundary.
+      if (dayOf(occurrence) > endDate) break;
       // Detached exceptions are included separately, including ones moved into this window.
       if (exceptions.get(event.uid)?.has(occurrence.toString())) continue;
       const end = occurrence.clone();
@@ -154,15 +177,21 @@ export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind
   return result;
 }
 
-export async function readOutlookSnapshot(input: OutlookConnectionInput, startDate: string, endDate: string) {
+export async function readOutlookSnapshot(input: OutlookConnectionInput, startDate: string, endDate: string,
+  availabilityRange?: { startDate: string; endDate: string }) {
   const sources = [{ calendar: 'play' as const, url: input.playUrl }, { calendar: 'class' as const, url: input.classUrl }].filter((item) => item.url);
   const events = await Promise.all(sources.map(async ({ calendar, url }) => {
     try {
-      return parseOutlookCalendar(await fetchCalendar(url), calendar, startDate, endDate);
+      const text = await fetchCalendar(url);
+      return { days: parseOutlookCalendar(text, calendar, startDate, endDate), timed: availabilityRange
+        ? parseOutlookCalendar(text, calendar, availabilityRange.startDate, availabilityRange.endDate, false, true).filter((event) => !event.allDay) : [] };
     } catch {
       // Never forward upstream errors: they can contain the private subscription URL.
       throw new Error(`「${calendar === 'play' ? '玩' : '课'}」日历读取失败，请检查订阅链接与共享范围`);
     }
   }));
-  return buildOutlookSnapshot(events.flat(), startDate, endDate, input.rules);
+  const snapshot = buildOutlookSnapshot(events.flatMap((source) => source.days), startDate, endDate, input.rules);
+  if (availabilityRange) snapshot.availability = { ...availabilityRange, events: events.flatMap((source) => source.timed)
+    .map((event) => ({ title: event.title, start: event.startDate, end: event.endDate })) };
+  return snapshot;
 }

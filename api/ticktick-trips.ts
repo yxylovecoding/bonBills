@@ -5,6 +5,8 @@ import { kv } from '@vercel/kv';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import type { TickTickConnection, TickTickTripSyncState } from './_ticktickTrips.js';
 import { syncOutlookCalendar } from './_outlookSync.js';
+import { availabilityProfile } from './_dailyAvailability.js';
+import type { OutlookAvailability } from '../src/utils/outlookCalendar.js';
 import { acquireTickTickLock, releaseTickTickLock } from './_ticktickLock.js';
 import { syncSwimmingSchedule } from './_lifeSwimming.js';
 
@@ -38,7 +40,8 @@ async function runSync(allowDisconnected = false) {
     const today = shanghaiDate();
     const secret = getSyncSecret();
     // Manual and scheduled runs must use the same fresh calendar window, including future trips.
-    try { await syncOutlookCalendar(today, secret); }
+    let availability: OutlookAvailability | undefined;
+    try { availability = (await syncOutlookCalendar(today, secret))?.availability; }
     catch (error) {
       const state = await kv.get<TickTickTripSyncState>(SYNC_STATE_KEY);
       await kv.set(SYNC_STATE_KEY, { ...state, instances: state?.instances ?? {}, lastError: error instanceof Error ? error.message : String(error) });
@@ -73,7 +76,7 @@ async function runSync(allowDisconnected = false) {
       const connectionId = createHash('sha256').update(token).digest('hex');
       const [savedPlan, settings, sourceTasks] = await Promise.all([
         kv.get<DailyPlanState>(DAILY_PLAN_KEY),
-        kv.get<{ budgetMinutes?: number }>(DAILY_PLAN_SETTINGS_KEY),
+        kv.get<{ budgetMinutes?: number | null; availabilityProfile?: string }>(DAILY_PLAN_SETTINGS_KEY),
         readAllTickTickTasks(api, [0]),
       ]);
       const dailyPlan: DailyPlanState = savedPlan?.connectionId === connectionId
@@ -82,6 +85,7 @@ async function runSync(allowDisconnected = false) {
       // Read history before any scene/date writes; a failed read is never "never done".
       await refreshDailyHistory(api, sourceTasks, dailyPlan);
       await kv.set(DAILY_PLAN_KEY, dailyPlan);
+      if (!availability && dailyBudget(settings?.budgetMinutes) === null) dailyPlan.summary = undefined;
       const template = await readConnectedTickTickTemplate(api, connection);
       const trips = buildTripSourcesFromSyncState(calendarState, tripState);
       const result = await reconcileTickTickTrips({
@@ -107,9 +111,10 @@ async function runSync(allowDisconnected = false) {
       const routineResult = await syncTickTickRoutines({
         api, calendarState, today,
         excludedTaskIds: getTickTickRoutineExcludedTaskIds(template, state),
-        planDay: async (tasks) => {
+        planDay: !availability && dailyBudget(settings?.budgetMinutes) === null ? undefined : async (tasks) => {
           const plan = planTickTickDay({ tasks, calendarState, today, state: dailyPlan,
-            budgetMinutes: settings?.budgetMinutes, excludedTaskIds: getTickTickRoutineExcludedTaskIds(template, state) });
+            budgetMinutes: settings?.budgetMinutes, availability, availabilityProfile: availabilityProfile(settings?.availabilityProfile),
+            excludedTaskIds: getTickTickRoutineExcludedTaskIds(template, state) });
           // Save cycle anchors before writes so a partially failed run can be retried.
           await kv.set(DAILY_PLAN_KEY, { ...dailyPlan, summary: savedPlan?.summary });
           return plan.dates;
@@ -118,7 +123,8 @@ async function runSync(allowDisconnected = false) {
       await kv.set(DAILY_PLAN_KEY, dailyPlan);
       console.info('[ticktick-routine-sync]', JSON.stringify(routineResult));
       console.info('[ticktick-trip-sync]', JSON.stringify({ ...result, ...wishResult }));
-      return { busy: false as const, ...result, ...wishResult, ...routineResult, dailyPlan: dailyPlan.summary, budgetMinutes: dailyBudget(settings?.budgetMinutes), lastSyncAt: state.lastSyncAt };
+      return { busy: false as const, ...result, ...wishResult, ...routineResult, dailyPlan: dailyPlan.summary, budgetMinutes: dailyBudget(settings?.budgetMinutes),
+        availabilityProfile: availabilityProfile(settings?.availabilityProfile), lastSyncAt: state.lastSyncAt };
     } catch (error) {
       state.lastError = error instanceof Error ? error.message : String(error);
       await kv.set(SYNC_STATE_KEY, state);
@@ -197,12 +203,13 @@ async function status() {
     kv.get<TickTickConnection>(CONNECTION_KEY),
     kv.get<TickTickTripSyncState>(SYNC_STATE_KEY),
     kv.get<DailyPlanState>(DAILY_PLAN_KEY),
-    kv.get<{ budgetMinutes?: number }>(DAILY_PLAN_SETTINGS_KEY),
+    kv.get<{ budgetMinutes?: number | null; availabilityProfile?: string }>(DAILY_PLAN_SETTINGS_KEY),
   ]);
   return {
     connected: Boolean(connection),
     dailyPlan: connection ? plan?.summary : undefined,
     budgetMinutes: dailyBudget(settings?.budgetMinutes),
+    availabilityProfile: availabilityProfile(settings?.availabilityProfile),
     templateTitle: connection ? '出门todo模版' : undefined,
     lastSyncAt: state?.lastSyncAt,
     error: state?.lastError,
@@ -229,10 +236,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       let body;
       try { body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body; }
       catch { return res.status(400).json({ error: '日常用时格式无效' }); }
-      if (!Number.isInteger(body?.budgetMinutes) || body.budgetMinutes < 10 || body.budgetMinutes > 240) {
-        return res.status(400).json({ error: '日常用时须为 10 至 240 分钟' });
+      if (body?.budgetMinutes !== null && (!Number.isInteger(body?.budgetMinutes) || body.budgetMinutes < 10 || body.budgetMinutes > 240)) {
+        return res.status(400).json({ error: '每日上限须为自动或 10 至 240 分钟' });
       }
-      await kv.set(DAILY_PLAN_SETTINGS_KEY, { budgetMinutes: body.budgetMinutes });
+      if (body.availabilityProfile !== undefined && !['day', 'evening', 'calendar'].includes(body.availabilityProfile)) {
+        return res.status(400).json({ error: '可用时段无效' });
+      }
+      const previous = await kv.get<Record<string, unknown>>(DAILY_PLAN_SETTINGS_KEY);
+      await kv.set(DAILY_PLAN_SETTINGS_KEY, { ...previous, budgetMinutes: body.budgetMinutes,
+        ...(body.availabilityProfile !== undefined ? { availabilityProfile: body.availabilityProfile } : {}) });
       return res.status(200).json({ ok: true, ...await status() });
     }
     if (req.method === 'PUT') {

@@ -1,4 +1,6 @@
 import ICAL from 'ical.js';
+import type { OutlookAvailability } from '../src/utils/outlookCalendar.js';
+import { dayAvailability, occupySlots, type AvailabilityProfile } from './_dailyAvailability.js';
 import { collectCompleted } from './_lifeDone.js';
 import { calendarDateInTimeZone, getTickTickRoutineTargetDates, routineOccurrenceKey, routineRecurrence,
   routineScenes, routineTaskDate, type TickTickApi, type TickTickTask } from './_ticktickTrips.js';
@@ -32,18 +34,19 @@ export interface DailyPlanState {
   summary?: DailyPlanSummary;
 }
 export const dailyBudget = (value: unknown) => typeof value === 'number' && Number.isFinite(value)
-  ? Math.max(10, Math.min(240, Math.round(value))) : 30;
+  ? Math.max(10, Math.min(240, Math.round(value))) : null;
 
 export function estimateTaskMinutes(task: TickTickTask): number {
-  const explicit = `${task.title} ${(task.tags ?? []).join(' ')}`.match(/(?:^|\s|[（(])([1-9]\d{0,2})\s*(?:分钟|min(?:utes)?|m)(?:\b|\s|[）)]|$)/i);
+  const explicit = `${task.title} ${(task.tags ?? []).join(' ')}`.match(/(?:^|[^\d])([1-9]\d{0,2})\s*(?:分钟|minutes?|mins?|m)(?![a-z0-9])/i);
   if (explicit) return Math.min(480, Number(explicit[1]));
   if (task.isAllDay === false && task.startDate && task.dueDate) {
     const duration = (Date.parse(task.dueDate) - Date.parse(task.startDate)) / 60_000;
     if (duration > 0 && Number.isFinite(duration)) return Math.min(480, Math.ceil(duration));
   }
-  if (/喷雾|浇水|倒垃圾|换枕套|剪指甲/.test(task.title)) return 5;
+  if (/喷雾|浇水|倒垃圾|换枕套|剪指甲|补剂|签到|红包|价保|预约|check\b/i.test(task.title)) return 5;
   if (/徒步|出去玩|音乐剧|讲座|电影|ktv/i.test(task.title)) return 90;
-  return (task.priority ?? 0) >= 5 ? 45 : 15;
+  if (/运动|力训|游泳|力扣/.test(task.title)) return 45;
+  return 15;
 }
 
 // The next interval starts at the last actual completion, never at a date we moved.
@@ -109,7 +112,10 @@ export function planTickTickDay(options: {
   calendarState: unknown;
   today: string;
   state: DailyPlanState;
-  budgetMinutes?: number;
+  budgetMinutes?: number | null;
+  availability?: OutlookAvailability;
+  availabilityProfile?: AvailabilityProfile;
+  now?: Date;
   excludedTaskIds?: ReadonlySet<string>;
 }): { dates: Map<string, string>; summary: DailyPlanSummary } {
   const { tasks, calendarState, today, state, excludedTaskIds = new Set<string>() } = options;
@@ -197,30 +203,50 @@ export function planTickTickDay(options: {
   const importantMinutes = important.reduce((sum, task) => sum + estimateTaskMinutes(task), 0);
   const fixed = open.filter((task) => ordinary(task) && !candidateIds.has(task.id) && !dates.has(task.id) && routineTaskDate(task) === today);
   const fixedMinutes = fixed.reduce((sum, task) => sum + estimateTaskMinutes(task), 0);
-  const historyByDay = new Map<string, number>();
+  const completedToday: TickTickTask[] = [];
   const seenHistory = new Set<string>();
   for (const task of state.history) {
     const day = calendarDateInTimeZone(task.completedTime);
-    if (!day || !ordinary(task) || day < addDays(today, -14) || day > today) continue;
+    if (day !== today || !ordinary(task)) continue;
     const key = JSON.stringify([identity(task), task.completedTime]);
     if (seenHistory.has(key)) continue;
     seenHistory.add(key);
-    historyByDay.set(day, (historyByDay.get(day) ?? 0) + estimateTaskMinutes(task));
+    completedToday.push(task);
   }
   const base = dailyBudget(options.budgetMinutes);
-  const completedDays = [...historyByDay].filter(([day]) => day < today).map(([, minutes]) => minutes).sort((a, b) => a - b);
-  const typical = completedDays.length >= 4 ? completedDays[Math.floor((completedDays.length - 1) / 2)] : base;
-  // The chosen budget is a ceiling; history may lower it, never inflate it.
-  const learned = Math.min(base, Math.max(base / 2, typical));
-  const capacity = Math.floor(learned / (1 + importantMinutes / 90));
-  const alreadyDone = historyByDay.get(today) ?? 0;
-  const available = Math.max(0, capacity - fixedMinutes - alreadyDone);
+  const alreadyDone = completedToday.reduce((sum, task) => sum + estimateTaskMinutes(task), 0);
+  const calendarTagMap = (calendarState as { tagMap?: Record<string, string> } | null)?.tagMap ?? {};
+  const calendarDays = new Map<string, ReturnType<typeof dayAvailability>>();
+  const getDay = (day: string) => {
+    if (!options.availability) return undefined;
+    if (!calendarDays.has(day)) calendarDays.set(day, dayAvailability({ calendar: options.availability, day, today,
+      now: options.now, profile: options.availabilityProfile, scene: calendarTagMap[day], tasks: open,
+      fixed: day === today ? fixed : [], completed: day === today ? completedToday : [], estimate: estimateTaskMinutes }));
+    return calendarDays.get(day)!;
+  };
+  const calendarDay = getDay(today);
+  if (!calendarDay && base === null) throw new Error('请连接 Outlook 后自动安排每日待办');
+  // A manual limit is optional. Automatic capacity comes from actual free time,
+  // never from a fixed 30-minute cap or a multiplier based on task count.
+  const capacity = calendarDay ? Math.min(base ?? Infinity, calendarDay.totalMinutes + fixedMinutes) : Math.max(0, base! - importantMinutes);
+  const available = calendarDay ? Math.max(0, Math.min(calendarDay.remainingMinutes,
+    calendarDay.totalMinutes - calendarDay.completedMinutes, (base ?? Infinity) - fixedMinutes - alreadyDone))
+    : Math.max(0, capacity - fixedMinutes - alreadyDone);
+  const remainingSlots = calendarDay?.slots.map(([start, end]) => [start, end] as [number, number]);
   const demand = candidates.reduce((sum, candidate) => {
     const remaining = Math.max(1, Math.min(candidate.cycleDays, daysBetween(today, candidate.deadline) + 1));
     // Count only usable scene dates remaining in the cycle.
-    let usable = 0;
-    for (let i = 0; i < Math.min(remaining, 30); i++) if (candidate.members.every((task) => sceneDate(task, addDays(today, i)) === addDays(today, i))) usable++;
-    return sum + candidate.minutes / Math.max(1, usable);
+    let usable = 0, usableMinutes = 0;
+    for (let i = 0; i < Math.min(remaining, 30); i++) {
+      const day = addDays(today, i);
+      if (!candidate.members.every((task) => sceneDate(task, day) === day)) continue;
+      const free = getDay(day);
+      if (free && !free.slots.some(([start, end]) => end - start >= candidate.minutes * 60_000)) continue;
+      usable++;
+      usableMinutes += i === 0 ? available : Math.min(base ?? Infinity, free?.totalMinutes ?? capacity);
+    }
+    // Busy future days get less of the cycle's work; a free day can take more.
+    return sum + candidate.minutes * (calendarDay ? available / Math.max(1, usableMinutes) : 1 / Math.max(1, usable));
   }, 0);
   const target = Math.min(available, Math.ceil(demand));
   candidates.sort((a, b) => {
@@ -232,8 +258,10 @@ export function planTickTickDay(options: {
   let used = 0, selected = 0, deferred = 0, cycleRiskCount = 0, oversizedCount = 0;
   for (const candidate of candidates) {
     // A task larger than the remaining budget is reported instead of silently overbooking.
-    const choose = !candidate.next || (used < target && used + candidate.minutes <= available);
+    const fits = !remainingSlots || remainingSlots.some(([start, end]) => end - start >= candidate.minutes * 60_000);
+    const choose = !candidate.next || (used < target && used + candidate.minutes <= available && fits);
     if (choose) {
+      if (remainingSlots) occupySlots(remainingSlots, candidate.minutes);
       used += candidate.minutes; selected += candidate.members.length;
       for (const member of candidate.members) dates.set(member.id, today);
     } else {
@@ -242,7 +270,7 @@ export function planTickTickDay(options: {
         deferred += candidate.members.length;
       }
       if (candidate.task.repeatFlag && (!candidate.next || candidate.next > candidate.deadline)) cycleRiskCount++;
-      if (candidate.minutes > capacity) oversizedCount++;
+      if (candidate.minutes > capacity || !fits) oversizedCount++;
     }
   }
   for (const id of Object.keys(state.deadlines)) if (!byId.has(id)) delete state.deadlines[id];

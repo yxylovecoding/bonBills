@@ -11,6 +11,38 @@ const input = { playUrl, classUrl, policy: 'manual' as const, rules: DEFAULT_OUT
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Outlook ICS 解析', () => {
+  it('忙闲读取保留具体时刻、上海跨日、循环例外；空闲和取消日程不占用', () => {
+    const ics = calendar([
+      event('UID:timed\nDTSTART:20261003T163000Z\nDTEND:20261003T173000Z\nRRULE:FREQ=DAILY;COUNT=3\nEXDATE:20261004T163000Z\nSUMMARY:课程'),
+      event('UID:timed\nRECURRENCE-ID:20261005T163000Z\nDTSTART:20261004T020000Z\nDTEND:20261004T030000Z\nSUMMARY:改期课程'),
+      event('UID:free\nDTSTART:20261004T030000Z\nDTEND:20261004T040000Z\nTRANSP:TRANSPARENT\nSUMMARY:提醒'),
+      event('UID:cancel\nDTSTART:20261004T030000Z\nDTEND:20261004T040000Z\nSTATUS:CANCELLED\nSUMMARY:取消'),
+    ].join('\r\n'));
+    const result = parseOutlookCalendar(ics, 'class', '2026-10-04', '2026-10-06', false, true);
+    expect(result.map(({ title, startDate, endDate }) => [title, startDate, endDate])).toEqual([
+      ['课程', '2026-10-03T16:30:00.000Z', '2026-10-03T17:30:00.000Z'],
+      ['改期课程', '2026-10-04T02:00:00.000Z', '2026-10-04T03:00:00.000Z'],
+    ]);
+  });
+  it('具体时刻读取 VTIMEZONE 的偏移，没有定义的未知时区不当作 UTC', () => {
+    const zone = ['BEGIN:VTIMEZONE', 'TZID:China Standard Time', 'BEGIN:STANDARD', 'DTSTART:16010101T000000',
+      'TZOFFSETFROM:+0800', 'TZOFFSETTO:+0800', 'END:STANDARD', 'END:VTIMEZONE'].join('\r\n');
+    const timed = event('UID:class\nDTSTART;TZID=China Standard Time:20261004T090000\nDTEND;TZID=China Standard Time:20261004T100000\nSUMMARY:课');
+    const result = parseOutlookCalendar(calendar(`${zone}\r\n${timed}`), 'class', '2026-10-04', '2026-10-05', false, true);
+    expect(result[0].startDate).toBe('2026-10-04T01:00:00.000Z');
+    expect(() => parseOutlookCalendar(calendar(timed.replaceAll('China Standard Time', 'Unknown/Zone')), 'class', '2026-10-04', '2026-10-05', false, true)).toThrow('时区缺失');
+  });
+  it('一次订阅读取同时提供全天场景和独立的忙闲窗口', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(calendar([
+      event('UID:trip\nDTSTART;VALUE=DATE:20261004\nDTEND;VALUE=DATE:20261005\nSUMMARY:出游'),
+      event('UID:class\nDTSTART:20261004T010000Z\nDTEND:20261004T020000Z\nSUMMARY:课'),
+      event('UID:far\nDTSTART:20261104T010000Z\nDTEND:20261104T020000Z\nSUMMARY:远期'),
+    ].join('\r\n')))));
+    const result = await readOutlookSnapshot({ ...input, classUrl: '' }, '2026-10-01', '2026-12-01', { startDate: '2026-10-04', endDate: '2026-10-05' });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(result.tags).toEqual({ '2026-10-04': 'travel' });
+    expect(result.availability?.events).toEqual([{ title: '课', start: '2026-10-04T01:00:00.000Z', end: '2026-10-04T02:00:00.000Z' }]);
+  });
   it('展开重复实习，排除 EXDATE、已取消单次日程，并应用改期与标题变更', () => {
     const ics = calendar([
       event('UID:intern\nDTSTART;VALUE=DATE:20260901\nDTEND;VALUE=DATE:20260902\nSUMMARY:实习\nRRULE:FREQ=DAILY;COUNT=5\nEXDATE;VALUE=DATE:20260902'),

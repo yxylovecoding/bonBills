@@ -76,6 +76,17 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe('后台 Outlook 拉取与 TickTick 顺序', () => {
+  it('同一次新鲜订阅的具体时段确实传入每日容量计算', async () => {
+    data.set('ticktick:connection:v1', { encryptedToken: 'encrypted', templateRootId: 'template' });
+    // Each fetch needs its own readable response body.
+    vi.mocked(fetch).mockImplementation(async () => new Response(['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:busy',
+      'DTSTART:20260925T010000Z', 'DTEND:20260925T140000Z', 'SUMMARY:整天有课', 'END:VEVENT', 'END:VCALENDAR', ''].join('\r\n')));
+    routineSync.mockImplementationOnce(async (options) => { await options.planDay([]); return {}; });
+    const result = await cron();
+    expect(result.status).toBe(200);
+    expect(result.body.dailyPlan).toMatchObject({ availableMinutes: 0, todayCount: 0 });
+    expect(result.body.budgetMinutes).toBeNull();
+  });
   it('后台独立归档完成记录，Outlook 失败不跳过归档', async () => {
     vi.mocked(fetch).mockRejectedValue(new Error('calendar unavailable'));
     expect((await cron()).status).toBe(502);

@@ -111,9 +111,9 @@ export async function syncOutlookCalendar(today: string, secret: string) {
     const input = decryptOutlookConnection(connection.encrypted, secret);
     const date = Date.parse(`${today}T00:00:00Z`);
     const day = (offset: number) => new Date(date + offset * 86_400_000).toISOString().slice(0, 10);
-    const snapshot = await readOutlookSnapshot(input, day(-30), day(700));
+    const snapshot = await readOutlookSnapshot(input, day(-30), day(700), { startDate: day(-14), endDate: day(31) });
     await saveOutlookSnapshot(connection, snapshot, input.policy, requestedAt);
-    return { connected: true as const };
+    return { connected: true as const, availability: snapshot.availability };
   } catch (error) {
     throw new Error(outlookSyncError(error));
   }

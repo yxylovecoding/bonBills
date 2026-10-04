@@ -17,7 +17,8 @@ export interface TickTickDailyPlan {
 
 interface TickTickStatusResponse {
   dailyPlan?: TickTickDailyPlan;
-  budgetMinutes?: number;
+  budgetMinutes?: number | null;
+  availabilityProfile?: 'day' | 'evening' | 'calendar';
   connected: boolean;
   lastSyncAt?: string;
   error?: string;
@@ -25,7 +26,8 @@ interface TickTickStatusResponse {
 
 interface TickTickSyncStore {
   dailyPlan?: TickTickDailyPlan;
-  budgetMinutes?: number;
+  budgetMinutes?: number | null;
+  availabilityProfile?: 'day' | 'evening' | 'calendar';
   connection: TickTickConnectionState;
   operation: TickTickOperationState;
   message: string;
@@ -67,6 +69,7 @@ export async function loadTickTickSyncStatus() {
       lastSyncAt: body?.lastSyncAt,
       dailyPlan: body?.dailyPlan,
       budgetMinutes: body?.budgetMinutes,
+      availabilityProfile: body?.availabilityProfile,
     });
     return Boolean(body?.connected);
   } catch (error) {
@@ -87,6 +90,7 @@ export async function connectTickTick(token: string) {
       lastSyncAt: body?.lastSyncAt,
       dailyPlan: body?.dailyPlan,
       budgetMinutes: body?.budgetMinutes,
+      availabilityProfile: body?.availabilityProfile,
     });
   } catch (error) {
     store.setStatus({
@@ -111,6 +115,7 @@ export async function syncTickTickTrips() {
       lastSyncAt: body?.lastSyncAt,
       dailyPlan: body?.dailyPlan,
       budgetMinutes: body?.budgetMinutes,
+      availabilityProfile: body?.availabilityProfile,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -128,12 +133,12 @@ export async function disconnectTickTick() {
   store.setStatus({ connection: 'disconnected', operation: 'idle', message: '', lastSyncAt: undefined });
 }
 
-export async function saveTickTickDailyBudget(budgetMinutes: number) {
+export async function saveTickTickDailyBudget(budgetMinutes: number | null, availabilityProfile: 'day' | 'evening' | 'calendar') {
   const store = useTickTickSyncStatus.getState();
   store.setStatus({ operation: 'syncing', message: '' });
   try {
-    const body = await requestTickTick({ method: 'PATCH', body: JSON.stringify({ budgetMinutes }) });
-    store.setStatus({ budgetMinutes: body?.budgetMinutes, dailyPlan: body?.dailyPlan });
+    const body = await requestTickTick({ method: 'PATCH', body: JSON.stringify({ budgetMinutes, availabilityProfile }) });
+    store.setStatus({ budgetMinutes: body?.budgetMinutes, availabilityProfile: body?.availabilityProfile, dailyPlan: body?.dailyPlan });
     await syncTickTickTrips();
   } catch (error) {
     store.setStatus({ operation: 'error', message: error instanceof Error ? error.message : String(error) });

@@ -9,7 +9,7 @@ export interface OutlookDayEvent {
   calendar: OutlookCalendarKind;
   title: string;
   startDate: string;
-  endDate: string; // Exclusive, preserving the calendar's all-day date (never UTC-converted).
+  endDate: string; // Exclusive. All-day dates stay local; timed dates are ISO instants.
   allDay: boolean;
   cancelled?: boolean;
 }
@@ -34,6 +34,13 @@ export interface OutlookSnapshot {
   endDate: string;
   tags: Record<string, OutlookTag>;
   travelTitles?: Record<string, string>;
+  availability?: OutlookAvailability;
+}
+
+export interface OutlookAvailability {
+  startDate: string;
+  endDate: string;
+  events: { title: string; start: string; end: string }[];
 }
 
 export interface OutlookAppliedDay {

@@ -16,7 +16,7 @@ describe('每日待办动态安排', () => {
   it('同周期按实际最近完成排序，识别重复任务新 ID，并给重要事项留量', () => {
     const newer = task('mite', { title: '除螨喷雾', repeatFlag: 'RRULE:FREQ=WEEKLY' });
     const older = task('fragrance', { title: '香香喷雾', repeatFlag: 'RRULE:FREQ=WEEKLY' });
-    const p = run([newer, older, task('important', { priority: 5 })], { budgetMinutes: 10,
+    const p = run([newer, older, task('important', { priority: 5, title: '重要事项 45分钟' })], { budgetMinutes: 50,
       state: state([done(newer, '2026-09-27', 'old-id1'), done(older, '2026-09-20', 'old-id2')]) });
     expect(p.dates.get(older.id)).toBe(today);
     expect(p.dates.get(newer.id)).toBe('2026-10-05');
@@ -103,6 +103,9 @@ describe('每日待办动态安排', () => {
     expect(cycleEnd(task('x', { repeatFlag: 'RRULE:FREQ=MONTHLY' }), '2026-09-04')).toBe(today);
     expect(cycleEnd(task('x', { repeatFlag: 'LUNAR:FREQ=YEARLY' }), today)).toBeNull();
     expect(estimateTaskMinutes(task('x', { title: '学习 25分钟' }))).toBe(25);
+    expect(estimateTaskMinutes(task('x', { title: '看剧📺15m', priority: 5 }))).toBe(15);
+    expect(estimateTaskMinutes(task('x', { title: '签到', priority: 5 }))).toBe(5);
+    expect(estimateTaskMinutes(task('x', { priority: 5 }))).toBe(15);
   });
   it('完成记录读取失败时不推进检查点，成功后保留过去已知最后完成', async () => {
     const s = state([done(task('old'), '2020-01-01')]);
