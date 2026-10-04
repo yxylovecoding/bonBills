@@ -9,7 +9,7 @@ import { availabilityProfile } from './_dailyAvailability.js';
 import type { OutlookAvailability } from '../src/utils/outlookCalendar.js';
 import { acquireTickTickLock, releaseTickTickLock } from './_ticktickLock.js';
 import { syncSwimmingSchedule } from './_lifeSwimming.js';
-import { syncNightRoutineVisibility } from './_ticktickNightRoutine.js';
+import { syncDailyRoutineVisibility, syncNightRoutineVisibility } from './_ticktickNightRoutine.js';
 import { syncExerciseSchedule } from './_ticktickExercise.js';
 
 const CONNECTION_KEY = 'ticktick:connection:v1';
@@ -142,7 +142,7 @@ async function runSync(allowDisconnected = false) {
   }
 }
 
-async function runNightRoutineSync() {
+async function runRoutineVisibilitySync(kind: 'night' | 'daily' | 'all') {
   const lockId = await acquireTickTickLock();
   if (!lockId) return { busy: true as const };
   try {
@@ -152,10 +152,13 @@ async function runNightRoutineSync() {
     const token = decryptTickTickToken(connection.encryptedToken, getSyncSecret());
     const api = new TickTickOpenApiClient(token,
       (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
+    const dailyRoutine = kind !== 'night' ? await syncDailyRoutineVisibility(api) : undefined;
+    if (kind === 'daily') return { busy: false as const, connected: true as const, dailyRoutine };
     const nightRoutine = await syncNightRoutineVisibility(api, { timeZone: connection.timeZone });
     const exercise = await syncExerciseSchedule(api, { connectionId: createHash('sha256').update(token).digest('hex'),
       templateRootId: connection.templateRootId });
-    return { busy: false as const, connected: true as const, nightRoutine, exercise: { updated: exercise.updated } };
+    return { busy: false as const, connected: true as const, nightRoutine, exercise: { updated: exercise.updated },
+      ...(dailyRoutine ? { dailyRoutine } : {}) };
   } finally {
     await releaseTickTickLock(lockId);
   }
@@ -245,9 +248,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!isCron && !await authOk(req)) return res.status(401).json({ error: 'unauthorized' });
 
   try {
-    if (req.query?.action === 'night-routine') {
+    if (req.query?.action === 'night-routine' || req.query?.action === 'daily-routine' || req.query?.action === 'routine-visibility') {
       if (!isCron && req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
-      const result = await runNightRoutineSync();
+      const result = await runRoutineVisibilitySync(req.query.action === 'daily-routine' ? 'daily'
+        : req.query.action === 'night-routine' ? 'night' : 'all');
       return res.status(result.busy ? 202 : 200).json({ ok: true, ...result });
     }
     if (isCron) {

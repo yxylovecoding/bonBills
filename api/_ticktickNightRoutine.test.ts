@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { nightRoutineHidden, syncNightRoutineVisibility } from './_ticktickNightRoutine';
+import { dailyRoutineHidden, nightRoutineHidden, syncDailyRoutineVisibility, syncNightRoutineVisibility } from './_ticktickNightRoutine';
 import type { TickTickApi, TickTickTask } from './_ticktickTrips';
 
 const task = (fields: Partial<TickTickTask> = {}): TickTickTask => ({ id: 'night', projectId: 'inbox-real', title: '夜间routine ',
@@ -88,5 +88,45 @@ describe('夜间 routine 标签同步', () => {
     await expect(syncNightRoutineVisibility(api)).rejects.toThrow('offline');
     api.getTask.mockResolvedValue(task());
     await expect(syncNightRoutineVisibility(api, { tasks: [task()], now: at('22:00:00') })).rejects.toThrow('未保存');
+  });
+});
+
+describe('🐦日常任务凌晨标签窗口', () => {
+  const daily = (fields: Partial<TickTickTask> = {}) => task({ id: 'daily', title: '🐦日常任务 ', priority: 1,
+    isAllDay: true, startDate: undefined, dueDate: undefined, tags: ['活', '居'], ...fields });
+  it.each([['23:59:59', false], ['00:00:00', true], ['04:59:59', true], ['05:00:00', false], ['22:00:00', false]])(
+    '%s 按上海时间切换，支持无日期及全天任务', (time, hidden) => {
+      expect(dailyRoutineHidden(daily(), at(time))).toBe(hidden);
+      expect(dailyRoutineHidden(daily({ timeZone: 'America/New_York' }), at(time))).toBe(hidden);
+    },
+  );
+  it('只匹配指定任务，已完成和同名准备任务不修改', () => {
+    for (const fields of [{ status: 2 }, { title: '日常任务' }, { title: '🐦日常任务准备' }, { title: '夜间routine' }]) {
+      expect(dailyRoutineHidden(daily(fields), at('00:00:00'))).toBeNull();
+    }
+    expect(dailyRoutineHidden(daily({ title: ' 🐦️ 日常任务 ' }), at('00:00:00'))).toBe(true);
+  });
+  it('零点加标签、五点去掉；保留优先级、日期、重复、清单和其他标签，重跑不重复写', async () => {
+    const original = daily({ startDate: '2026-10-03T16:00:00.000+0000', dueDate: '2026-10-03T16:00:00.000+0000',
+      parentId: 'parent', reminders: ['TRIGGER:PT0S'], items: [{ id: 'done', title: 'done', status: 1 }] });
+    const { api, current } = client(original);
+    expect(await syncDailyRoutineVisibility(api, { now: at('00:00:00') })).toMatchObject({ matched: 1, hidden: 1, updated: 1 });
+    expect(current()).toEqual({ ...original, tags: [...original.tags!, 'routine'] });
+    expect(await syncDailyRoutineVisibility(api, { now: at('04:59:59') })).toMatchObject({ updated: 0 });
+    expect(await syncDailyRoutineVisibility(api, { now: at('05:00:00') })).toMatchObject({ visible: 1, updated: 1 });
+    expect(current()).toEqual(original);
+    expect(api.updateTask).toHaveBeenCalledTimes(2);
+    for (const [, payload] of api.updateTask.mock.calls) expect(payload).not.toHaveProperty('status');
+  });
+  it('五点去掉所有 routine 大小写变体，复读已完成或改名后不写', async () => {
+    const { api, current } = client(daily({ tags: ['routine', ' Routine ', '居'] }));
+    await syncDailyRoutineVisibility(api, { now: at('05:00:00') });
+    expect(current().tags).toEqual(['居']);
+    api.updateTask.mockClear();
+    for (const change of [{ status: 2 }, { title: '其他任务' }]) {
+      api.getTask.mockResolvedValueOnce(daily(change));
+      expect(await syncDailyRoutineVisibility(api, { tasks: [daily()], now: at('00:00:00') })).toMatchObject({ updated: 0, skipped: 1 });
+    }
+    expect(api.updateTask).not.toHaveBeenCalled();
   });
 });

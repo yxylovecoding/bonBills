@@ -2,6 +2,7 @@ import type { TickTickApi, TickTickTask } from './_ticktickTrips.js';
 
 const normalized = (value: string) => value.normalize('NFKC').trim().toLowerCase();
 const isNightRoutine = (task: TickTickTask) => normalized(task.title).replace(/\s+/g, '') === '夜间routine';
+const isDailyRoutine = (task: TickTickTask) => normalized(task.title).replace(/[\s\uFE0F]+/g, '') === '🐦日常任务';
 const hasRoutine = (task: TickTickTask) => (task.tags ?? []).some(tag => normalized(tag) === 'routine');
 
 function localTime(date: Date, timeZone: string) {
@@ -27,11 +28,31 @@ export function nightRoutineHidden(task: TickTickTask, now = new Date(), fallbac
   }
 }
 
-export async function syncNightRoutineVisibility(api: TickTickApi, options: {
+export function dailyRoutineHidden(task: TickTickTask, now = new Date()): boolean | null {
+  if (!isDailyRoutine(task) || (task.status ?? 0) !== 0) return null;
+  // This fixed window follows the Shanghai cron schedule, including all-day
+  // and undated daily-task parents. Task dates and priority stay unchanged.
+  return localTime(now, 'Asia/Shanghai').time < '05:00:00';
+}
+
+interface VisibilityOptions {
   tasks?: TickTickTask[];
   now?: Date;
   timeZone?: string;
-} = {}) {
+}
+
+export function syncNightRoutineVisibility(api: TickTickApi, options: VisibilityOptions = {}) {
+  return syncRoutineVisibility(api, options, isNightRoutine,
+    task => nightRoutineHidden(task, options.now ?? new Date(), options.timeZone), 5);
+}
+
+export function syncDailyRoutineVisibility(api: TickTickApi, options: VisibilityOptions = {}) {
+  return syncRoutineVisibility(api, options, isDailyRoutine,
+    task => dailyRoutineHidden(task, options.now ?? new Date()));
+}
+
+async function syncRoutineVisibility(api: TickTickApi, options: VisibilityOptions,
+  matches: (task: TickTickTask) => boolean, hiddenFor: (task: TickTickTask) => boolean | null, priorityOverride?: number) {
   let tasks = options.tasks;
   if (!tasks) {
     // The filter endpoint omits the built-in Inbox on some accounts.
@@ -39,22 +60,24 @@ export async function syncNightRoutineVisibility(api: TickTickApi, options: {
     tasks = [...new Map([...filtered, ...inbox.tasks].map(task => [task.id, task])).values()];
   }
   const result = { matched: 0, updated: 0, hidden: 0, visible: 0, skipped: 0 };
-  for (const candidate of tasks.filter(task => isNightRoutine(task) && (task.status ?? 0) === 0)) {
+  for (const candidate of tasks.filter(task => matches(task) && (task.status ?? 0) === 0)) {
     // Re-read only matching tasks, preserving edits and repeat occurrences
     // created since the list was fetched.
     const task = await api.getTask(candidate.projectId, candidate.id);
-    if (!task || task.id !== candidate.id) throw new Error('无法读取夜间 routine，未修改标签');
-    const hidden = nightRoutineHidden(task, options.now ?? new Date(), options.timeZone);
+    if (!task || task.id !== candidate.id || task.projectId !== candidate.projectId) throw new Error('无法读取 routine 任务，未修改标签');
+    const hidden = hiddenFor(task);
     if (hidden === null) { result.skipped++; continue; }
     result.matched++;
     result[hidden ? 'hidden' : 'visible']++;
-    // bon's "今天重要之事" filter also requires high priority.
-    if (hasRoutine(task) === hidden && task.priority === 5) continue;
+    // Only the night routine needs high priority for "今天重要之事".
+    const priority = priorityOverride ?? task.priority;
+    if (hasRoutine(task) === hidden && task.priority === priority) continue;
     const tags = (task.tags ?? []).filter(tag => normalized(tag) !== 'routine');
     if (hidden) tags.push('routine');
     // Keep all existing writable fields; status is deliberately omitted so
     // a concurrent completion cannot be reopened by a tag update.
-    const payload: Record<string, unknown> = { id: task.id, projectId: task.projectId, title: task.title, tags, priority: 5 };
+    const payload: Record<string, unknown> = { id: task.id, projectId: task.projectId, title: task.title, tags };
+    if (priority !== undefined) payload.priority = priority;
     for (const key of ['content', 'desc', 'isAllDay', 'startDate', 'dueDate', 'timeZone', 'reminders',
       'repeatFlag', 'repeatFrom', 'sortOrder', 'kind', 'parentId', 'items'] as const) {
       if (task[key] !== undefined) payload[key] = task[key];
@@ -62,12 +85,13 @@ export async function syncNightRoutineVisibility(api: TickTickApi, options: {
     await api.updateTask(task.id, payload);
     const saved = await api.getTask(task.projectId, task.id);
     const savedTags = [...(saved?.tags ?? [])].sort();
-    if (saved?.id !== task.id || saved.priority !== 5 || JSON.stringify(savedTags) !== JSON.stringify([...tags].sort())) {
-      throw new Error('TickTick 未保存夜间 routine 标签或优先级');
+    if (saved?.id !== task.id || (priority !== undefined && saved.priority !== priority)
+      || JSON.stringify(savedTags) !== JSON.stringify([...tags].sort())) {
+      throw new Error('TickTick 未保存 routine 标签或优先级');
     }
     if ((saved.repeatFlag ?? '') !== (task.repeatFlag ?? '') || String(saved.repeatFrom ?? '') !== String(task.repeatFrom ?? '')
       || (['startDate', 'dueDate'] as const).some(key => task[key] !== saved[key] && Date.parse(task[key] ?? '') !== Date.parse(saved[key] ?? ''))) {
-      throw new Error('TickTick 未保留夜间 routine 日期或重复规则');
+      throw new Error('TickTick 未保留 routine 日期或重复规则');
     }
     result.updated++;
   }

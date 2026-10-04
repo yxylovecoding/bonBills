@@ -1,10 +1,18 @@
-name: TickTick evening cleanup
+name: TickTick routine visibility
 
 on:
   schedule:
-    # Asia/Shanghai: 22:00 and 05:00. GitHub cron uses UTC.
-    - cron: '0 14,21 * * *'
+    # Asia/Shanghai: night at 22:00, daily at 00:00, both at 05:00.
+    - cron: '0 14 * * *'
+    - cron: '0 16 * * *'
+    - cron: '0 21 * * *'
   workflow_dispatch:
+    inputs:
+      scope:
+        description: Routine visibility to reconcile
+        type: choice
+        default: all
+        options: [all, night, daily]
 
 permissions: {}
 
@@ -17,24 +25,30 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Update night routine and skip missed workouts
+      - name: Update scheduled routine visibility
         env:
           CRON_SECRET: ${{ secrets.BONBILLS_CRON_SECRET }}
+          ROUTINE_SCHEDULE: ${{ github.event.schedule }}
+          ROUTINE_SCOPE: ${{ inputs.scope }}
         shell: bash
         run: |
           node --input-type=module <<'NODE'
           const secret = process.env.CRON_SECRET?.trim();
           if (!secret) throw new Error('Missing BONBILLS_CRON_SECRET');
+          const scope = process.env.ROUTINE_SCHEDULE === '0 14 * * *' ? 'night'
+            : process.env.ROUTINE_SCHEDULE === '0 16 * * *' ? 'daily'
+            : process.env.ROUTINE_SCHEDULE ? 'all' : process.env.ROUTINE_SCOPE || 'all';
+          const action = scope === 'daily' ? 'daily-routine' : scope === 'night' ? 'night-routine' : 'routine-visibility';
           for (let attempt = 0; attempt < 3; attempt++) {
             let response;
             try {
-              response = await fetch('https://www.bonbills.cn/api/ticktick-trips?action=night-routine', {
+              response = await fetch(`https://www.bonbills.cn/api/ticktick-trips?action=${action}`, {
                 headers: { Authorization: `Bearer ${secret}` },
                 redirect: 'error',
                 signal: AbortSignal.timeout(150_000),
               });
             } catch {
-              throw new Error('Night routine request failed or timed out');
+              throw new Error('Routine visibility request failed or timed out');
             }
             if (response.status === 202 && attempt < 2) {
               await response.body?.cancel();
@@ -43,11 +57,12 @@ jobs:
             }
             const result = await response.json().catch(() => null);
             if (response.status !== 200 || result?.ok !== true || result.busy || result.error
-                || (result.connected !== false && (!result.nightRoutine || !result.exercise))) {
-              throw new Error(`Night routine sync did not complete (HTTP ${response.status})`);
+                || (result.connected !== false && ((scope !== 'daily' && (!result.nightRoutine || !result.exercise))
+                  || (scope !== 'night' && !result.dailyRoutine)))) {
+              throw new Error(`Routine visibility sync did not complete (HTTP ${response.status})`);
             }
             // Public logs contain no credentials, task titles, tags or dates.
-            console.log('Evening cleanup completed successfully.');
+            console.log('Scheduled routine visibility sync completed successfully.');
             process.exit(0);
           }
           NODE
