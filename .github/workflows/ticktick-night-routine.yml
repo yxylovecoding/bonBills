@@ -2,8 +2,8 @@ name: TickTick night routine visibility
 
 on:
   schedule:
-    # Follow the task's actual start time, including later edits and new repeats.
-    - cron: '*/5 * * * *'
+    # Asia/Shanghai: 22:00 and 05:00. GitHub cron uses UTC.
+    - cron: '0 14,21 * * *'
   workflow_dispatch:
 
 permissions: {}

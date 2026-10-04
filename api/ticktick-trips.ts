@@ -80,7 +80,6 @@ async function runSync(allowDisconnected = false) {
         kv.get<{ budgetMinutes?: number | null; availabilityProfile?: string }>(DAILY_PLAN_SETTINGS_KEY),
         readAllTickTickTasks(api, [0]),
       ]);
-      const nightRoutine = await syncNightRoutineVisibility(api, { tasks: sourceTasks, timeZone: connection.timeZone });
       const dailyPlan: DailyPlanState = savedPlan?.connectionId === connectionId
         ? { ...savedPlan, history: [...savedPlan.history], deadlines: { ...savedPlan.deadlines } }
         : { connectionId, history: [], deadlines: {} };
@@ -125,7 +124,7 @@ async function runSync(allowDisconnected = false) {
       await kv.set(DAILY_PLAN_KEY, dailyPlan);
       console.info('[ticktick-routine-sync]', JSON.stringify(routineResult));
       console.info('[ticktick-trip-sync]', JSON.stringify({ ...result, ...wishResult }));
-      return { busy: false as const, ...result, ...wishResult, ...routineResult, nightRoutine, dailyPlan: dailyPlan.summary, budgetMinutes: dailyBudget(settings?.budgetMinutes),
+      return { busy: false as const, ...result, ...wishResult, ...routineResult, dailyPlan: dailyPlan.summary, budgetMinutes: dailyBudget(settings?.budgetMinutes),
         availabilityProfile: availabilityProfile(settings?.availabilityProfile), lastSyncAt: state.lastSyncAt };
     } catch (error) {
       state.lastError = error instanceof Error ? error.message : String(error);
