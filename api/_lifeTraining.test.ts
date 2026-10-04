@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { readTrainingSource, selectTrainingTasks, syncTrainingSource, trainingTask, TRAINING_SOURCE_KEY } from './_lifeTraining';
+import { readTrainingSource, selectTrainingTasks, syncTrainingSource, trainingCompletions, trainingTask, TRAINING_SOURCE_KEY } from './_lifeTraining';
 import { encryptTickTickToken, TICKTICK_CONNECTION_KEY, type TickTickTask } from './_ticktickTrips';
-import { LIFE_SETTINGS_KEY } from './_bonLife';
+import { entriesKey, LIFE_SETTINGS_KEY, LIFE_TRAINING_ENTRIES_KEY } from './_bonLife';
+import { createHash } from 'node:crypto';
+import { DAILY_PLAN_KEY } from './_ticktickDailyPlan';
 import { DEFAULT_CYCLE } from '../src/utils/bonLife';
 import { afterMenstrualPeriod } from '../src/utils/lifeCycle';
 
@@ -27,6 +29,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     if (url.endsWith('/project')) return new Response(JSON.stringify([{ id: 'play', name: '玩' }]));
     if (url.endsWith('/filter')) return new Response(JSON.stringify([task(), task({ id: 'completed', status: 2 })]));
+    if (url.endsWith('/task/completed')) return new Response('[]');
     if (url.endsWith('/inbox/data')) return new Response(JSON.stringify({ project: { id: 'inbox-real' }, tasks: [] }));
     if (url.endsWith('/play/data')) return new Response(JSON.stringify({ tasks: [task({ content: '轻量哑铃' })] }));
     throw new Error('unexpected request');
@@ -73,10 +76,46 @@ describe('TickTick 训练来源', () => {
     expect(result.tasks).toHaveLength(1); expect(result.tasks[0].notes).toBe('轻量哑铃');
     expect(result.connected).toBe(true); expect(result.syncedAt).toBeTruthy();
     const calls = vi.mocked(fetch).mock.calls;
-    expect(calls.every(([url, options]) => !options?.method || (options.method === 'POST' && String(url).endsWith('/task/filter')))).toBe(true);
+    expect(calls.every(([url, options]) => !options?.method || (options.method === 'POST' && /\/task\/(filter|completed)$/.test(String(url))))).toBe(true);
     expect(calls.some(([url]) => String(url).endsWith('/inbox/data'))).toBe(true);
     expect(JSON.stringify(result)).not.toContain('private-token');
     expect(data.get(TRAINING_SOURCE_KEY).tasks[0].status).toBeUndefined();
+  });
+  it('完成历史按项目和上海日期识别，忽略未来、父标题和非训练任务', () => {
+    const done = (completedTime: string, fields: Partial<TickTickTask> = {}) => task({ status: 2, completedTime, ...fields });
+    expect(trainingCompletions([done('2026-10-06T17:00:00Z'), done('2026-10-07T01:00:00Z'),
+      done('2026-10-08T01:00:00Z'), done('2026-10-06T01:00:00Z', { title: '运动💪🏻是生活的第一个锚点🪝' }),
+      task({ title: '普通待办', completedTime: 'bad' })], '2026-10-07')).toEqual([{ project: '上半身', date: '2026-10-07' }]);
+    expect(() => trainingCompletions([done('bad')], '2026-10-07')).toThrow('训练完成日期无效');
+  });
+  it('复用同账户历史并增量同步，长期停练仍保留最近完成顺序', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-14T02:00:00Z'));
+    try {
+      data.set(DAILY_PLAN_KEY, { connectionId: createHash('sha256').update('private-token').digest('hex'),
+        historyThrough: '2026-10-14T00:00:00Z', history: [task({ status: 2, completedTime: '2026-08-01T01:00:00Z' })] });
+      const original = fetch;
+      vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => url.endsWith('/task/completed')
+        ? new Response(JSON.stringify([task({ title: '有氧-运动💪🏻是生活的第一个锚点🪝', status: 2, completedTime: '2026-10-13T01:00:00Z' })])) : original(url, options)));
+      expect((await syncTrainingSource(2026)).completions).toEqual([
+        { project: '上半身', date: '2026-08-01' }, { project: '有氧', date: '2026-10-13' },
+      ]);
+      const query = vi.mocked(fetch).mock.calls.find(([url]) => String(url).endsWith('/task/completed'))!;
+      expect(Date.parse(JSON.parse(query[1]!.body as string).startDate)).toBe(Date.parse('2026-10-13T00:00:00Z'));
+      data.delete(DAILY_PLAN_KEY);
+      vi.stubGlobal('fetch', original);
+      expect((await syncTrainingSource(2026)).completions).toHaveLength(2);
+    } finally { vi.useRealTimers(); }
+  });
+  it('跨年索引与旧记录共同读取，其他健康字段不混进训练来源', async () => {
+    const entry = { text: '', revision: 'saved', training: { plan: '有氧', effort: 'normal', completed: true } };
+    data.set(LIFE_TRAINING_ENTRIES_KEY, { 'training:2024-12-31': entry });
+    data.set(entriesKey(2026), { 'training:2026-10-07': entry, 'body:2026-10-07': { body: { weight: 50 } } });
+    expect((await readTrainingSource(2026)).entries).toEqual({ 'training:2024-12-31': entry, 'training:2026-10-07': entry });
+  });
+  it('不同账户的每日历史不能影响新连接的轮换', async () => {
+    data.set(DAILY_PLAN_KEY, { connectionId: 'another-account', historyThrough: new Date().toISOString(),
+      history: [task({ status: 2, completedTime: '2026-01-01T01:00:00Z' })] });
+    expect((await syncTrainingSource(2026)).completions).toEqual([]);
   });
   it('同步失败和连接切换时保留原计划，错误中不泄露令牌', async () => {
     await syncTrainingSource(2026);

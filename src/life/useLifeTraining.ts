@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { TrainingSource, TrainingTask } from '../utils/lifeTraining';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { TrainingSource } from '../utils/lifeTraining';
 import { LifeError, lifeRequest } from './client';
 
 export function useLifeTraining(year: number, active: boolean, onExpired: () => void) {
@@ -16,7 +16,7 @@ export function useLifeTraining(year: number, active: boolean, onExpired: () => 
       const cached = await lifeRequest<TrainingSource>('GET', { view: 'training', year }, request.signal);
       if (request.signal.aborted) return;
       setData(cached);
-      if (cached.connected && (force || !cached.syncedAt || Date.now() - Date.parse(cached.syncedAt) > 300_000)) {
+      if (cached.connected && (force || !cached.completions || !cached.syncedAt || Date.now() - Date.parse(cached.syncedAt) > 300_000)) {
         const result = await lifeRequest<TrainingSource>('POST', { action: 'sync-training', year }, request.signal);
         if (!request.signal.aborted) setData(result);
       }
@@ -30,10 +30,5 @@ export function useLifeTraining(year: number, active: boolean, onExpired: () => 
     if (active) void refresh();
     return () => controller.current?.abort();
   }, [active, refresh]);
-  const byDate = useMemo(() => {
-    const result = new Map<string, TrainingTask[]>();
-    for (const task of current?.tasks ?? []) for (const date of task.dates) result.set(date, [...(result.get(date) ?? []), task]);
-    return result;
-  }, [current]);
-  return { current, byDate, busy, error, refresh };
+  return { current, busy, error, refresh };
 }

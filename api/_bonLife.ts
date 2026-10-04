@@ -9,6 +9,7 @@ export interface PeriodSnapshot { connectionId: string; requestedAt: number; syn
 export const entriesKey = (year: number) => `bonlife:entries:v1:${year}`;
 export const periodsKey = (year: number) => `bonlife:periods:v1:${year}`;
 export const LIFE_SETTINGS_KEY = 'bonlife:settings:v1';
+export const LIFE_TRAINING_ENTRIES_KEY = 'bonlife:training-entries:v1';
 
 export async function readPeriodDays(year: number) {
   const years = [year - 1, year, year + 1].filter((value) => value >= 1900 && value <= 2200);
@@ -71,5 +72,6 @@ export const SAVE_LIFE_ENTRY = `
     encoded = cjson.encode(next)
   end
   redis.call('hset', KEYS[1], ARGV[1], encoded)
+  if KEYS[2] then redis.call('hset', KEYS[2], ARGV[1], encoded) end
   return {1, encoded}
 `;

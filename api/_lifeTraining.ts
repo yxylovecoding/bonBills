@@ -4,20 +4,21 @@ import { createHash } from 'node:crypto';
 import { decryptTickTickToken, readAllTickTickTasks, routineRecurrence, TICKTICK_CONNECTION_KEY, TickTickOpenApiClient,
   type TickTickConnection, type TickTickTask } from './_ticktickTrips.js';
 import { isCalendarDate } from '../src/utils/outlookCalendar.js';
-import type { TrainingSource, TrainingTask } from '../src/utils/lifeTraining.js';
+import { isTrainingTitle, trainingName, trainingProjectKey, type TrainingCompletion, type TrainingSource, type TrainingTask } from '../src/utils/lifeTraining.js';
+import type { LifeEntries } from '../src/utils/bonLife.js';
 import { afterMenstrualPeriod } from '../src/utils/lifeCycle.js';
 import { readSwimmingCycle, syncSwimmingSchedule } from './_lifeSwimming.js';
+import { entriesKey, LIFE_TRAINING_ENTRIES_KEY } from './_bonLife.js';
+import { collectCompleted, shanghaiDay } from './_lifeDone.js';
+import { DAILY_PLAN_KEY, type DailyPlanState } from './_ticktickDailyPlan.js';
 
 export const TRAINING_SOURCE_KEY = 'bonlife:training-source:v1';
-const MARKER = '运动是生活的第一个锚点';
-const normalizeTitle = (title: string) => title.normalize('NFKC').replace(/[^\p{L}\p{N}]/gu, '');
 const WEEKDAYS: Record<string, string> = { MO: '一', TU: '二', WE: '三', TH: '四', FR: '五', SA: '六', SU: '日' };
-interface TrainingSnapshot { tasks: TickTickTask[]; syncedAt: string; requestedAt: number; connectionId: string }
+interface TrainingSnapshot { tasks: TickTickTask[]; syncedAt: string; requestedAt: number; connectionId: string; completions?: TrainingCompletion[] }
 const connectionId = (connection: TickTickConnection) => createHash('sha256').update(connection.encryptedToken.data).digest('hex');
 
 export function selectTrainingTasks(tasks: TickTickTask[]): TickTickTask[] {
-  return tasks.filter((task) => typeof task.title === 'string' && normalizeTitle(task.title).includes(MARKER)
-    && normalizeTitle(task.title) !== MARKER && (task.status ?? 0) === 0 && !task.completedTime)
+  return tasks.filter((task) => typeof task.title === 'string' && isTrainingTitle(task.title) && (task.status ?? 0) === 0 && !task.completedTime)
     .map(({ id, projectId, title, startDate, dueDate, timeZone, repeatFlag, content, desc, items }) =>
       ({ id, projectId, title, startDate, dueDate, timeZone, repeatFlag, content, desc, items }));
 }
@@ -33,7 +34,7 @@ function taskDate(task: TickTickTask): string | null {
 
 export function trainingTask(task: TickTickTask, year: number, adjustDate: (date: string) => string = (date) => date): TrainingTask {
   const date = taskDate(task);
-  const name = task.title.slice(0, task.title.indexOf('运动')).replace(/[\s·—\-:：]+$/u, '').trim() || task.title;
+  const name = trainingName(task.title);
   const notes = [...new Set([task.content, task.desc, ...(task.items ?? []).map((item) => item.title)].filter((value): value is string => Boolean(value)))].join('\n');
   const links: TrainingTask['links'] = [];
   for (const match of notes.matchAll(/https:\/\/[^\s<>\[\]()（）]+/g)) {
@@ -70,12 +71,32 @@ export function trainingTask(task: TickTickTask, year: number, adjustDate: (date
 }
 
 export async function readTrainingSource(year: number): Promise<TrainingSource> {
-  const [snapshot, connection, { cycle, periods }] = await Promise.all([kv.get<TrainingSnapshot>(TRAINING_SOURCE_KEY), kv.get<TickTickConnection>(TICKTICK_CONNECTION_KEY), readSwimmingCycle([year])]);
+  const today = shanghaiDay();
+  const currentYear = Number(today.slice(0, 4));
+  const years = [...new Set([currentYear - 1, currentYear, year])].filter((value) => value >= 1900);
+  const [snapshot, connection, { cycle, periods }, indexed, oldEntries] = await Promise.all([
+    kv.get<TrainingSnapshot>(TRAINING_SOURCE_KEY), kv.get<TickTickConnection>(TICKTICK_CONNECTION_KEY), readSwimmingCycle([year]),
+    kv.hgetall<LifeEntries>(LIFE_TRAINING_ENTRIES_KEY), Promise.all(years.map((value) => kv.hgetall<LifeEntries>(entriesKey(value)))),
+  ]);
   const current = snapshot && (!connection || snapshot.connectionId === connectionId(connection)) ? snapshot : null;
-  const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date());
+  const entries = Object.fromEntries(Object.entries(Object.assign({}, ...oldEntries, indexed)).filter(([key]) => key.startsWith('training:'))) as LifeEntries;
   return { year, tasks: (current?.tasks ?? []).map((task) => trainingTask(task, year,
     (date) => task.title.includes('游泳') && date >= today ? afterMenstrualPeriod(date, cycle, periods) : date)),
-    connected: Boolean(connection), syncedAt: current?.syncedAt ?? null };
+    completions: current?.completions, entries, connected: Boolean(connection), syncedAt: current?.syncedAt ?? null };
+}
+
+export function trainingCompletions(tasks: TickTickTask[], today: string): TrainingCompletion[] {
+  const result = new Map<string, TrainingCompletion>();
+  for (const task of tasks) {
+    if (typeof task.title !== 'string' || !isTrainingTitle(task.title) || (task.status ?? 2) !== 2) continue;
+    if (!task.completedTime || !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(task.completedTime)
+      || !Number.isFinite(Date.parse(task.completedTime))) throw new Error('训练完成日期无效');
+    const date = shanghaiDay(new Date(task.completedTime));
+    if (date > today) continue;
+    const project = trainingProjectKey(trainingName(task.title));
+    result.set(`${project}:${date}`, { project, date });
+  }
+  return [...result.values()];
 }
 
 export async function syncTrainingSource(year: number): Promise<TrainingSource> {
@@ -84,11 +105,21 @@ export async function syncTrainingSource(year: number): Promise<TrainingSource> 
   if (!connection) return readTrainingSource(year);
   await syncSwimmingSchedule();
   try {
-    const api = new TickTickOpenApiClient(decryptTickTickToken(connection.encryptedToken, (process.env.SYNC_SECRET || '').trim()), (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
+    const token = decryptTickTickToken(connection.encryptedToken, (process.env.SYNC_SECRET || '').trim());
+    const api = new TickTickOpenApiClient(token, (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
     const tasks = selectTrainingTasks(await readAllTickTickTasks(api, [0]));
     // Validate all dates/rules before replacing a working snapshot.
     tasks.forEach((task) => trainingTask(task, year));
-    const snapshot: TrainingSnapshot = { tasks, requestedAt, syncedAt: new Date().toISOString(), connectionId: connectionId(connection) };
+    const [saved, daily] = await Promise.all([kv.get<TrainingSnapshot>(TRAINING_SOURCE_KEY), kv.get<DailyPlanState>(DAILY_PLAN_KEY)]);
+    const previous = saved?.connectionId === connectionId(connection) ? saved : null;
+    const history = daily?.connectionId === createHash('sha256').update(token).digest('hex') ? daily : null;
+    const now = new Date();
+    const through = Math.max(previous?.completions ? Date.parse(previous.syncedAt) || 0 : 0, history?.historyThrough ? Date.parse(history.historyThrough) || 0 : 0);
+    const from = Math.max(now.getTime() - 60 * 86_400_000, through - 86_400_000);
+    const rows = tasks.length ? await collectCompleted(api, [...new Set(tasks.map((task) => task.projectId))], from, now.getTime(), Date.now() + 25_000) : [];
+    const completions = [...new Map([...(previous?.completions ?? []), ...trainingCompletions([...(history?.history ?? []), ...rows], shanghaiDay(now))]
+      .map((completion) => [`${completion.project}:${completion.date}`, completion])).values()];
+    const snapshot: TrainingSnapshot = { tasks, completions, requestedAt, syncedAt: now.toISOString(), connectionId: connectionId(connection) };
     const stored = await kv.eval<string[], number>(`
       local connection = redis.call('get', KEYS[1])
       if not connection or cjson.decode(connection).encryptedToken.data ~= ARGV[1] then return 0 end

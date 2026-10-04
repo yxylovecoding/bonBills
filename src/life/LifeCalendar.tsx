@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { calendarCells, DEFAULT_CYCLE, entrySummary, LIFE_KINDS, LIFE_LABELS, type LifeView, type LifeYear, type TrainingRecord } from '../utils/bonLife';
 import { CYCLE_GUIDANCE, cycleDay, cyclePhaseRanges, visibleCycleDay } from '../utils/lifeCycle';
 import { requestSession } from '../utils/authClient';
@@ -8,7 +8,7 @@ import LifeConnection from './LifeConnection';
 import LifeCycleSettings from './LifeCycleSettings';
 import LifeDoneList from './LifeDoneList';
 import { useLifeTraining } from './useLifeTraining';
-import { monthlyTrainingPlan } from '../utils/lifeTraining';
+import { monthlyTrainingPlan, rollingTrainingPlan } from '../utils/lifeTraining';
 
 const LifeBodyTrends = lazy(() => import('./LifeBodyTrends'));
 
@@ -50,8 +50,10 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
   const trainingSource = useLifeTraining(year, !loading && !syncing && Boolean(current)
     && (kind === 'training' || draft?.kind === 'training' || cycleSettings), onExpired);
   const hasTrainingSource = Boolean(trainingSource.current?.tasks.length);
-  const trainingPlan = kind === 'training' ? monthlyTrainingPlan(year, month, now,
-    hasTrainingSource ? trainingSource.byDate : undefined, cycle, current?.periodDays ?? [], current?.entries ?? {}) : new Map<string, TrainingRecord>();
+  const rolling = useMemo(() => hasTrainingSource ? rollingTrainingPlan(year, month, now, trainingSource.current!,
+    cycle, current?.periodDays ?? [], current?.entries ?? {}) : null, [hasTrainingSource, year, month, now, trainingSource.current, cycle, current]);
+  const trainingPlan = kind === 'training' ? rolling?.plans ?? monthlyTrainingPlan(year, month, now,
+    undefined, cycle, current?.periodDays ?? [], current?.entries ?? {}) : new Map<string, TrainingRecord>();
   const futurePlanCount = [...trainingPlan].filter(([date, record]) => date >= now && record.plan).length;
   const hasCycle = cells.some((date) => date && cycleDay(date, cycle, current?.periodDays ?? []));
 
@@ -135,13 +137,13 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
       </div>}
     </div>
     {kind === 'training' && <div className="life-training-heading"><div><h2>{month} 月训练计划</h2>
-      <p role="status">{loading || trainingSource.busy ? '安排中…' : !hasCycle ? '待设置经期' : futurePlanCount ? `后续 ${futurePlanCount} 天已安排 · 按体感调整` : '历史训练'}</p></div>
+      <p role="status">{loading || trainingSource.busy ? '安排中…' : rolling ? `近 7 天 · 已练 ${rolling.coverage.filter((item) => item.completed).length} / ${rolling.coverage.length} 项` : !hasCycle ? '待设置经期' : futurePlanCount ? `后续 ${futurePlanCount} 天已安排 · 按体感调整` : '历史训练'}</p></div>
       <button disabled={loading || !current} onClick={() => setCycleSettings(true)}>{hasCycle ? '调整经期' : '设置经期'}</button>
     </div>}
     {kind === 'training' && <section className="life-training-source" aria-label="TickTick 训练计划" aria-busy={trainingSource.busy}>
       <div className="life-done-toolbar"><span role="status">{trainingSource.busy ? '读取训练计划…' : trainingSource.current?.syncedAt ? 'TickTick · 已同步' : 'TickTick · 尚未同步'}</span>
         <button disabled={trainingSource.busy} onClick={() => void trainingSource.refresh(true)}>同步训练</button></div>
-      {hasTrainingSource && <details className="life-training-details"><summary>每周训练基础</summary><p className="life-training-schedule">{trainingSource.current!.tasks.map((task) => <span key={task.id}>{task.schedule} · {task.name}</span>)}</p></details>}
+      {rolling && <details className="life-training-details"><summary>训练项目</summary><p className="life-training-schedule">{rolling.coverage.map(({ task, completed, lastCompleted }) => <span key={task.id}>{task.name} · {completed ? '已练' : '待练'}{lastCompleted ? ` · 上次 ${lastCompleted.slice(5).replace('-', '.')}` : ''}</span>)}</p></details>}
       {trainingSource.error && <p className="life-error" role="alert">{trainingSource.error}</p>}
       {!trainingSource.busy && trainingSource.current && !hasTrainingSource && <p className="life-empty-state">{trainingSource.current.connected ? '未找到训练待办' : <>TickTick 未连接 · <a href="https://bonbills.cn/calendar" target="_blank" rel="noreferrer">连接 TickTick ↗</a></>}</p>}
     </section>}
@@ -168,7 +170,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
         const planned = kind === 'training' ? trainingPlan.get(date) : undefined;
         const summary = entrySummary(kind, planned ? { ...entry, text: entry?.text ?? '', revision: entry?.revision ?? '', training: planned } : entry);
         const planStatus = planned?.completed ? '已完成' : entry?.training && planned?.mode !== 'auto' ? '手动安排' : date >= now && planned?.plan ? '自动计划' : '';
-        return <button type="button" key={date} disabled={loading || !current || Boolean(error) || (kind === 'training' && trainingSource.busy && !trainingSource.current?.syncedAt)}
+        return <button type="button" key={date} disabled={loading || !current || Boolean(error) || (kind === 'training' && trainingSource.busy && !trainingSource.current?.completions)}
           className={`life-day${phase ? ` phase-${phase.phase}` : period ? ' phase-menstrual' : ''}${date === now ? ' is-today' : ''}`}
           aria-label={`${date} ${LIFE_LABELS[kind]} ${phaseLabel}${planStatus ? ` ${planStatus}` : ''}${summary ? `：${summary}` : '：未记录'}`}
           onClick={() => setDraft({ date, kind, text: '', revision: '', ...entry,
@@ -189,7 +191,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
     {error && <div className="life-error-banner" role="alert">{error}<button onClick={() => setRetry((value) => value + 1)}>重试</button></div>}
     {periodError && <div className="life-error-banner" role="alert">{periodError}<button onClick={() => void syncPeriods(year, generation.current)}>重试</button></div>}
     {draft && current && !loading && <LifeEditor key={`${draft.kind}:${draft.date}`} initial={draft} owner={owner} cycle={cycle} periodDays={current.periodDays} onExpired={onExpired}
-      trainingTasks={hasTrainingSource ? trainingSource.byDate.get(draft.date) ?? [] : undefined}
+      trainingTasks={rolling ? rolling.byDate.get(draft.date) ?? [] : undefined}
       onClose={() => setDraft(null)} onSave={(entry, savedDraft) => {
         setData((previous) => previous ? { ...previous, entries: { ...previous.entries, [`${savedDraft.kind}:${savedDraft.date}`]: entry } } : previous);
         setDraft(null); setSaved(true);

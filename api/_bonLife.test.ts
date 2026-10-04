@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from './outlook-calendar';
-import { entriesKey, LIFE_CONNECTION_KEY, LIFE_SETTINGS_KEY, parsePeriodCalendar, periodsKey, syncLifePeriods } from './_bonLife';
+import { entriesKey, LIFE_CONNECTION_KEY, LIFE_SETTINGS_KEY, LIFE_TRAINING_ENTRIES_KEY, parsePeriodCalendar, periodsKey, syncLifePeriods } from './_bonLife';
 import { DEFAULT_CYCLE } from '../src/utils/bonLife';
 import { encryptOutlookConnection } from './_outlookCalendar';
 import { DEFAULT_OUTLOOK_RULES } from '../src/utils/outlookCalendar';
@@ -87,6 +87,7 @@ describe('BonLife 接口', () => {
       evalMock.mockResolvedValueOnce([1, { text: input.text, revision: input.mutationId, ...details }]);
       expect((await call('POST', input)).status).toBe(200);
       expect(JSON.parse(evalMock.mock.calls.at(-1)![2][3])).toMatchObject({ text: '备注', [details.kind]: details[details.kind as keyof typeof details] });
+      expect(evalMock.mock.calls.at(-1)![1]).toEqual([entriesKey(2026), ...(details.kind === 'training' ? [LIFE_TRAINING_ENTRIES_KEY] : [])]);
     }
     expect((await call('POST', { action: 'save', date: '2026-10-04', kind: 'mood', text: '', revision: '', mutationId: 'mutation-123456789', body: { waist: 60 } })).status).toBe(400);
   });

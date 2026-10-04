@@ -6,7 +6,7 @@ import { encryptOutlookConnection, validateOutlookUrl } from './_outlookCalendar
 import { DEFAULT_OUTLOOK_RULES } from '../src/utils/outlookCalendar.js';
 import { DEFAULT_CYCLE, lifeYear, parseCycleSettings, parseLifeEdit, type CycleSettings, type LifeEntries, type LifeEntry } from '../src/utils/bonLife.js';
 import { LIFE_CONNECTION_KEY, SAVE_LIFE_ENTRY, entriesKey, periodsKey, readPeriodCalendar, syncLifePeriods,
-  LIFE_SETTINGS_KEY, readPeriodDays, type LifeConnection, type PeriodSnapshot } from './_bonLife.js';
+  LIFE_SETTINGS_KEY, LIFE_TRAINING_ENTRIES_KEY, readPeriodDays, type LifeConnection, type PeriodSnapshot } from './_bonLife.js';
 import { doneMonth, readDoneMonth, syncDoneMonth } from './_lifeDone.js';
 import { readTrainingSource, syncTrainingSource } from './_lifeTraining.js';
 import { swimmingSyncWarning } from './_lifeSwimming.js';
@@ -87,7 +87,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     catch { return res.status(400).json({ error: '记录内容无效' }); }
     const entry: LifeEntry = { text: edit.text, revision: edit.mutationId,
       ...(edit.skin ? { skin: edit.skin } : {}), ...(edit.body ? { body: edit.body } : {}), ...(edit.training ? { training: edit.training } : {}) };
-    const [ok, raw] = await kv.eval<string[], [number, string | LifeEntry]>(SAVE_LIFE_ENTRY, [entriesKey(edit.year)],
+    const [ok, raw] = await kv.eval<string[], [number, string | LifeEntry]>(SAVE_LIFE_ENTRY,
+      [entriesKey(edit.year), ...(edit.kind === 'training' ? [LIFE_TRAINING_ENTRIES_KEY] : [])],
       [`${edit.kind}:${edit.date}`, edit.revision, edit.mutationId, JSON.stringify(entry)]);
     const stored = typeof raw === 'string' ? (raw ? JSON.parse(raw) : { text: '', revision: '' }) : raw;
     if (!ok) return res.status(409).json({ error: '这一天的记录已在其他页面更新', current: stored });

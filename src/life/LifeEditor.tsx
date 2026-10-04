@@ -77,12 +77,12 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
             change({ body });
           }} /></label>)}</div>}
       {draft.kind === 'training' && <div className="life-training-editor">
-        {Boolean(trainingTasks?.length) && <details className="life-training-details"><summary>TickTick 原计划</summary>
+        {Boolean(trainingTasks?.length) && <details className="life-training-details"><summary>训练内容</summary>
           {trainingTasks!.map((task) => <div key={task.id}><p>{task.name}</p>{task.notes && <p className="life-training-notes">{task.notes}</p>}
             {task.links.length > 0 && <div className="life-training-links">{task.links.map((link) => <a href={link.url} key={link.url} target="_blank" rel="noreferrer">{link.title} ↗</a>)}</div>}</div>)}
         </details>}
         {guidance && <div className="life-guidance"><p><span>运动</span>{guidance.exercise}</p><p><span>饮食</span>{guidance.food}</p></div>}
-        <div className="life-training-mode"><span>{training?.mode === 'auto' ? '经期自动安排' : '手动安排'}</span>
+        <div className="life-training-mode"><span>{training?.mode === 'auto' ? '自动轮换' : '手动安排'}</span>
           {training?.mode !== 'auto' && !training?.completed && <button type="button" disabled={busy} onClick={() => change({ training: automaticTraining(draft.date, trainingTasks, cycle, periodDays, training?.effort) })}>恢复自动安排</button>}
         </div>
         <label className="life-field">当日强度<select disabled={busy} value={training?.effort ?? 'normal'} onChange={(event) => {
@@ -90,7 +90,7 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
           change({ training: { ...automaticTraining(draft.date, trainingTasks, cycle, periodDays, effort), completed: training?.completed ?? false } });
         }}><option value="normal">按计划</option><option value="easy">轻量</option><option value="rest">休息</option></select></label>
         <label className="life-field">训练计划<textarea aria-label="训练计划" rows={3} maxLength={1000} disabled={busy} value={training?.plan ?? ''}
-          onChange={(event) => change({ training: { effort: 'normal', completed: false, ...training, plan: event.target.value, mode: 'manual' } })} /></label>
+          onChange={(event) => change({ training: { effort: 'normal', completed: false, ...training, plan: event.target.value, mode: 'manual', projects: undefined } })} /></label>
         <label className="life-check"><input type="checkbox" disabled={busy} checked={training?.completed ?? false} onChange={(event) =>
           change({ training: { plan: '', effort: 'normal', ...training, completed: event.target.checked } })} />已完成</label>
       </div>}
