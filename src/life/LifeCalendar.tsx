@@ -159,7 +159,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
         const phaseLabel = phase ? `${phase.estimated ? '预计·' : ''}${CYCLE_GUIDANCE[phase.phase].label}` : '';
         const summary = entrySummary(kind, entry) || (kind === 'training' ? trainingPlan(date) : '');
         return <button type="button" key={date} disabled={loading || !current || Boolean(error) || (kind === 'training' && trainingSource.busy && !trainingSource.current?.syncedAt)}
-          className={`life-day${period || phase?.phase === 'menstrual' ? ' is-period' : ''}${date === now ? ' is-today' : ''}`}
+          className={`life-day${phase ? ` phase-${phase.phase}` : period ? ' phase-menstrual' : ''}${date === now ? ' is-today' : ''}`}
           aria-label={`${date} ${LIFE_LABELS[kind]} ${phaseLabel}${summary ? `：${summary}` : '：未记录'}`}
           onClick={() => setDraft({ date, kind, text: '', revision: '', ...entry,
             ...(kind === 'training' && !entry?.training ? { training: { plan: trainingPlan(date), effort: 'normal', completed: false } } : {}),
@@ -169,7 +169,8 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
         </button>;
       })}</div>
     </section>}
-    <footer className="life-footer"><div className="life-footer-left">{kind !== 'done' && <span className="life-period-key"><i />经期</span>}
+    <footer className="life-footer"><div className="life-footer-left">{kind !== 'done' && <div className="life-cycle-key" aria-label="周期阶段">{cyclePhaseRanges(cycle).map(({ phase }) =>
+        <span key={phase} className={`life-period-key phase-${phase}`}><i aria-hidden="true" />{CYCLE_GUIDANCE[phase].label}</span>)}</div>}
       <button disabled={year <= 1900} onClick={() => setSelection((previous) => ({ ...previous, year: previous.year - 1 }))}>往年同月</button></div>
       {kind !== 'done' && <div className="life-sync-status" role="status">{loading ? '读取中…' : saved ? '已保存' : ''}
         {current?.connected ? <button disabled={syncing} onClick={() => void syncPeriods(year, generation.current)}>{syncing ? '经期同步中…' : '同步经期'}</button>

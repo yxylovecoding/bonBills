@@ -62,7 +62,7 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
   return <dialog className="life-dialog" ref={dialog} onCancel={(event) => { event.preventDefault(); close(); }} aria-labelledby="life-editor-title">
     <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
       <div className="life-editor-heading"><h2 id="life-editor-title">{LIFE_LABELS[draft.kind]} <span>{draft.date.replace(/-/g, '.')}</span></h2>
-        {guidance && <span className="life-period-label">{phase?.estimated ? '预计·' : ''}{guidance.label}</span>}</div>
+        {guidance && <span className={`life-period-label phase-${phase?.phase}`}>{phase?.estimated ? '预计·' : ''}{guidance.label}</span>}</div>
       {draft.kind === 'skin' && <div className="life-fields">{Object.entries(SKIN_FIELDS).map(([key, label]) =>
         <label key={key}>{label}<input maxLength={500} disabled={busy} value={draft.skin?.[key as keyof SkinRecord] ?? ''}
           onChange={(event) => change({ skin: { ...draft.skin, [key]: event.target.value } })} /></label>)}</div>}

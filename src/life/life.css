@@ -24,23 +24,23 @@
 .life-weekdays { background: #fcfcfa; border-bottom: 1px solid var(--life-line); }
 .life-weekdays span { padding: 13px 0; font-size: 11px; text-align: center; color: #91938c; }
 .bonlife .life-day, .life-empty-day { min-width: 0; height: 146px; border-radius: 0; border-right: 1px solid var(--life-line); border-bottom: 1px solid var(--life-line); }
-.bonlife .life-day { padding: 11px 12px; text-align: left; display: flex; flex-direction: column; gap: 10px; transition: background .12s; overflow: hidden; }
+.bonlife .life-day { background: var(--phase-bg, transparent); padding: 11px 12px; text-align: left; display: flex; flex-direction: column; gap: 10px; transition: background .12s; overflow: hidden; }
 .life-days > :nth-child(7n) { border-right: 0; }
 .life-days > :nth-last-child(-n + 7) { border-bottom: 0; }
 .life-empty-day { background: #fcfcfa; }
-.bonlife .life-day:hover { background: #f7f8f4; }
-.bonlife .life-day.is-period { background: #fbf0f0; }
-.bonlife .life-day.is-period:hover { background: #f7e9e9; }
+.bonlife .life-day:hover { background: var(--phase-hover, #f7f8f4); }
 .bonlife .life-day:focus-visible { outline-offset: -3px; }
 .life-day-heading { display: flex; align-items: center; justify-content: space-between; gap: 2px; width: 100%; }
 .life-day-number { display: inline-flex; align-items: center; justify-content: center; width: 25px; height: 25px; font-size: 12px; font-variant-numeric: tabular-nums; border-radius: 50%; flex-shrink: 0; }
 .is-today .life-day-number { background: #5e6d55; color: white; }
-.life-period-mark { color: #b27a7e; font-size: 10px; }
+.life-period-mark { color: var(--phase-ink, #9b6369); font-size: 10px; }
 .life-day-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.8; color: #545850; }
-.life-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 18px; color: var(--life-muted); font-size: 11px; }
+.life-footer { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-top: 18px; color: var(--life-muted); font-size: 11px; }
 .life-footer-left, .life-sync-status { display: flex; align-items: center; gap: 18px; }
-.life-period-key { display: inline-flex; align-items: center; gap: 6px; }
-.life-period-key i { width: 8px; height: 8px; background: #ead0d2; border-radius: 3px; }
+.life-footer-left { flex-wrap: wrap; }
+.life-cycle-key { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+.life-period-key { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.life-period-key i { width: 8px; height: 8px; background: var(--phase-line); border-radius: 3px; }
 .life-footer button { padding: 4px 0; font-size: 11px; color: var(--life-muted); }
 .life-error-banner { display: flex; gap: 14px; font-size: 12px; color: #a95555; margin-top: 18px; }
 .life-error-banner button { text-decoration: underline; }
@@ -50,7 +50,7 @@
 .life-editor-heading h2 { margin: 0; font-size: 16px; font-weight: 500; }
 .life-editor-heading h2 span { margin-left: 10px; font-size: 12px; color: var(--life-muted); font-weight: 400; }
 .life-editor-heading > span { font-size: 11px; color: var(--life-muted); }
-.life-editor-heading > .life-period-label { background: #fbf0f0; color: #b27a7e; padding: 3px 7px; border-radius: 5px; }
+.life-editor-heading > .life-period-label { background: var(--phase-bg); color: var(--phase-ink); padding: 3px 7px; border-radius: 5px; }
 .life-dialog textarea { width: 100%; resize: vertical; min-height: 160px; max-height: 45dvh; border: 1px solid var(--life-line); border-radius: 9px; padding: 12px; font-size: 14px; line-height: 1.8; background: #fdfdfb; }
 .life-editor-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 .life-editor-actions button { padding: 8px 16px; font-size: 12px; color: var(--life-muted); }
@@ -124,11 +124,10 @@
 .life-phase-guide > button { color: var(--life-accent); margin-top: 12px; padding: 0; text-decoration: underline; }
 .life-guidance { margin-bottom: 18px; font-size: 12px; }
 .life-guidance p + p { margin-top: 8px; }
-.phase-menstrual { --phase-line: #b2d2df; }
-.phase-ovulatory { --phase-line: #dec887; }
-.phase-earlyLuteal { --phase-line: #dfd6aa; }
-.phase-lateLuteal { --phase-line: #d3bfd9; }
-.life-period-mark.phase-ovulatory, .life-period-mark.phase-earlyLuteal, .life-period-mark.phase-lateLuteal { color: #7d8873; }
+.phase-menstrual { --phase-bg: #fbf0f0; --phase-hover: #f7e9e9; --phase-line: #e4bfc4; --phase-ink: #9b6369; }
+.phase-ovulatory { --phase-bg: #edf5ef; --phase-hover: #e2eee5; --phase-line: #bdd4c3; --phase-ink: #55745b; }
+.phase-earlyLuteal { --phase-bg: #fbf5e7; --phase-hover: #f5ecd6; --phase-line: #dfc98e; --phase-ink: #87703f; }
+.phase-lateLuteal { --phase-bg: #f3eef7; --phase-hover: #eae1f1; --phase-line: #d3bfd9; --phase-ink: #7b648a; }
 .life-done { border-top: 1px solid var(--life-line); }
 .life-done-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 16px 0; font-size: 11px; color: var(--life-muted); }
 .life-done-toolbar button { color: var(--life-accent); padding: 5px 0; }
