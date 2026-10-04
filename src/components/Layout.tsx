@@ -3,6 +3,7 @@ import AutoPossessionImporter from './AutoPossessionImporter';
 import AutoFundBuySync from './AutoFundBuySync';
 import BillDropImporter from './BillDropImporter';
 import Nav from './Nav';
+import InstallApp from './InstallApp';
 import SyncIndicator from './SyncIndicator';
 import { usePageScrollRestoration } from '../hooks/usePageScrollRestoration';
 import { useSyncStatus } from '../utils/syncStatus';
@@ -36,6 +37,7 @@ export default function Layout() {
           overflowX: 'clip',
         }}
       >
+        {isHomePage && <div className="app-install-toolbar"><InstallApp app="bills" /></div>}
         <Outlet />
       </div>
       <Nav />

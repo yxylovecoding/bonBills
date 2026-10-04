@@ -1,28 +1,26 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
-import './clothes/install';
+import './utils/appInstall';
+import { appIdentity } from './utils/apps';
 
-const isLifeHost = window.location.hostname === 'life.bonbills.cn';
-const isClothesHost = window.location.hostname === 'clothes.bonbills.cn';
-const isClothes = isClothesHost || /^\/clothes(?:\/|$)/.test(window.location.pathname);
-const isLife = isLifeHost || /^\/life(?:\/|$)/.test(window.location.pathname);
-// Keep loaders separate so Vite attaches each app's CSS to its own import.
+const identity = appIdentity(window.location.hostname, window.location.pathname);
+const isClothes = identity.kind === 'clothes', isLife = identity.kind === 'log';
+// Keep loaders separate so each app loads only its own styles and data.
 const Root = isClothes ? React.lazy(() => import('./clothes/BonClothes')) : isLife
   ? React.lazy(() => import('./life/BonLife'))
   : React.lazy(() => import('./components/AuthGate'));
-const appName = isClothes ? 'BonClothes' : isLife ? 'BonLife' : 'BonBills';
-const appIcon = isClothes ? 'bonclothes' : isLife ? 'bonlife' : 'bonbills';
+const appName = identity.name, appIcon = identity.icon;
 document.title = appName;
 document.querySelector('meta[name="application-name"]')?.setAttribute('content', appName);
 document.querySelector('meta[name="apple-mobile-web-app-title"]')?.setAttribute('content', appName);
 document.querySelector('meta[name="theme-color"]')?.setAttribute('content', isLife || isClothes ? '#f6f5f3' : '#f0f2f5');
 document.querySelector('link[rel="icon"]')?.setAttribute('href', `/${appIcon}.svg`);
 document.querySelector('link[rel="apple-touch-icon"]')?.setAttribute('href', `/icons/${appIcon}-180.png`);
-// Select one manifest before attaching it: /life must launch BonLife on the main host too.
+// Preserve legacy path identities while independent domains launch from their own roots.
 const manifest = document.createElement('link');
 manifest.rel = 'manifest';
-manifest.href = isClothes ? (isClothesHost ? '/bonclothes-root.webmanifest' : '/bonclothes.webmanifest') : isLife ? (isLifeHost ? '/bonlife.webmanifest' : '/bonlife-path.webmanifest') : '/bonbills.webmanifest';
+manifest.href = identity.manifest;
 document.head.appendChild(manifest);
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

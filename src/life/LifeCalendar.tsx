@@ -1,3 +1,4 @@
+import InstallApp from '../components/InstallApp';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { resolveSkinRecord } from '../utils/lifeSkinProgress';
 import { skinPlanValues, skinSeason } from '../utils/lifeSkin';
@@ -144,8 +145,8 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
   }
 
   return <main className="life-shell">
-    <header className="life-header"><h1><span className="life-brand-dot" />BonLife</h1>
-      <div className="life-header-actions"><button disabled={!current || loading} onClick={() => setCycleSettings(true)}>经期设置</button><button onClick={() => setSettings(true)}>Outlook<span className={`life-connection-dot${current?.connected ? ' connected' : ''}`} /></button>
+    <header className="life-header"><h1><span className="life-brand-dot" />BonLog</h1>
+      <div className="life-header-actions"><InstallApp app="log" /><button disabled={!current || loading} onClick={() => setCycleSettings(true)}>经期设置</button><button onClick={() => setSettings(true)}>Outlook<span className={`life-connection-dot${current?.connected ? ' connected' : ''}`} /></button>
         <button onClick={() => void logout()} disabled={loggingOut}>{loggingOut ? '退出中…' : '退出'}</button></div></header>
     <div className="life-toolbar">
       <nav className="life-tabs" aria-label="状态日历">{(['skin', 'eyes', 'discomfort', 'mood', 'training', 'done'] as const).map((value) => <button key={value}
@@ -182,7 +183,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
           <button disabled={trainingSource.busy} onClick={() => void trainingSource.refresh(true)}>同步训练</button></div></div>
       {rolling && <details className="life-training-details"><summary>训练项目</summary><p className="life-training-schedule">{rolling.coverage.map(({ task, completed, lastCompleted }) => <span key={task.id}>{task.name}{task.tags?.length ? <small className="life-training-tags">{task.tags.join(' · ')}</small> : null} · {completed ? '已练' : '待练'}{lastCompleted ? ` · 上次 ${lastCompleted.slice(5).replace('-', '.')}` : ''}</span>)}</p></details>}
       {trainingSource.error && <p className="life-error" role="alert">{trainingSource.error}</p>}
-      {!trainingSource.busy && trainingSource.current && !hasTrainingSource && <p className="life-empty-state">{trainingSource.current.connected ? '未找到训练待办' : <>TickTick 未连接 · <a href="https://bonbills.cn/calendar" target="_blank" rel="noreferrer">连接 TickTick ↗</a></>}</p>}
+      {!trainingSource.busy && trainingSource.current && !hasTrainingSource && <p className="life-empty-state">{trainingSource.current.connected ? '未找到训练待办' : <>TickTick 未连接 · <a href="https://bill.bonbills.cn/calendar" target="_blank" rel="noreferrer">连接 TickTick ↗</a></>}</p>}
     </section>}
     {kind === 'training' && <details className="life-phase-guide"><summary>
       <span className="life-guide-heading">运动与饮食 <span>今天 {now.slice(5).replace('-', '.')}{!todayLoading && todayOverview.phase ? ` · ${todayOverview.phase.estimated ? '预计·' : ''}${todayAdvice!.label}` : ''}</span></span>

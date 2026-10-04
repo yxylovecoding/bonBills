@@ -127,7 +127,7 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
     <div className="life-done-toolbar"><span role="status">{busy ? '同步中…' : syncedAt ? `${completionTime.format(new Date(syncedAt))} 已同步` : '尚未同步'}</span>
       <button disabled={busy} onClick={() => void refresh(true)}>同步 TickTick</button></div>
     {Object.entries(errors).map(([key, error]) => <p className="life-error" role="alert" key={key}>{key.replace('-', ' 年 ')} 月 · {error}</p>)}
-    {months.some((value) => value && !value.connected) && <p className="life-empty-state">TickTick 未连接 · <a href="https://bonbills.cn/calendar" target="_blank" rel="noreferrer">连接 TickTick ↗</a></p>}
+    {months.some((value) => value && !value.connected) && <p className="life-empty-state">TickTick 未连接 · <a href="https://bill.bonbills.cn/calendar" target="_blank" rel="noreferrer">连接 TickTick ↗</a></p>}
     <div ref={strip} className="life-week-strip" role="region" aria-label="连续周本，向左查看更早记录" tabIndex={0} onScroll={(event) => {
       const element = event.currentTarget;
       setAtLatest(element.scrollWidth - element.clientWidth - element.scrollLeft < 8);

@@ -1,10 +1,10 @@
 {
-  "id": "/",
+  "id": "/log",
   "name": "BonLog",
   "short_name": "BonLog",
   "lang": "zh-CN",
-  "start_url": "/",
-  "scope": "/",
+  "start_url": "/log",
+  "scope": "/log",
   "display": "standalone",
   "theme_color": "#f6f5f3",
   "background_color": "#f6f5f3",

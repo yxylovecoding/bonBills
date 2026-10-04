@@ -27,7 +27,7 @@
 .clothes-calendar-status > div { display: flex; gap: 16px; }
 .bonclothes .clothes-save { background: #edf0e9; padding: 7px 12px; font-size: 12px; color: var(--life-accent); }
 .clothes-status { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: var(--life-muted); font-size: 12px; margin: 12px 0; }
-.clothes-status button, .clothes-install button { color: var(--life-accent); text-decoration: underline; }
+.clothes-status button { color: var(--life-accent); text-decoration: underline; }
 .clothes-error { color: #a95555; }
 .clothes-destinations { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; font-size: 12px; margin-top: 14px; }
 .clothes-destinations button { color: var(--life-accent); padding: 3px 0; overflow-wrap: anywhere; text-align: left; }
@@ -81,7 +81,6 @@
 .clothes-city-results { display: flex; flex-direction: column; gap: 6px; margin-top: 16px; }
 .clothes-city-results button { text-align: left; padding: 12px; color: var(--life-ink); font-size: 13px; }
 .clothes-city-results button:hover { background: #f5f5f1; }
-.clothes-install { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: -20px 0 24px; font-size: 12px; color: var(--life-muted); }
 @media (max-width: 600px) {
   .clothes-shell { padding: 24px 18px 36px; }
   .bonclothes .life-header { padding: 0; }
@@ -98,11 +97,6 @@
   .clothes-dialog .clothes-checks input { width: 15px; }
 }
 
-.clothes-install-control { position: relative; }
-.clothes-install-control .clothes-install { position: absolute; right: 0; top: 32px; z-index: 20; width: min(330px, calc(100vw - 44px)); display: block; padding: 16px; margin: 0; border-radius: 10px; background: #fdfdfb; box-shadow: 0 6px 24px #0001; border: 1px solid #e1e3df; }
-.clothes-install p { margin: 8px 0 12px; white-space: normal; line-height: 1.6; }
-.clothes-install small { display: block; margin-top: 8px; color: #7a807b; }
-.clothes-login-install { position: fixed; top: 24px; right: 24px; }
 .clothes-trip-content { padding-top: 20px; }
 .clothes-trip-select { display: grid; gap: 8px; margin: 18px 0; color: #757b75; font-size: 12px; }
 .clothes-trip-select select { width: 100%; min-width: 0; background: #fdfdfb; color: var(--life-ink); border: 1px solid var(--life-line); border-radius: 8px; padding: 9px 10px; min-height: 40px; font-size: 16px; }

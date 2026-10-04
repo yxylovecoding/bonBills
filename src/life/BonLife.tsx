@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import LoginPage from '../pages/LoginPage';
+import InstallApp from '../components/InstallApp';
 import { requestSession, restoreSession } from '../utils/authClient';
 import LifeCalendar from './LifeCalendar';
 import './life.css';
@@ -42,7 +43,7 @@ export default function BonLife() {
 
   return <div className="bonlife">
     {status === 'loading' ? <main className="life-loading" role="status">加载中…</main>
-      : status === 'login' ? <LoginPage title="BonLife" />
+      : status === 'login' ? <><LoginPage title="BonLog" icon="/bonlife.svg" /><div className="app-login-install"><InstallApp app="log" /></div></>
       : status === 'error' ? <main className="life-loading"><p role="alert">{error}</p><button onClick={() => window.location.reload()}>重试</button></main>
       : <LifeCalendar owner={owner!} onExpired={expired} />}
   </div>;

@@ -1,7 +1,7 @@
 {
   "id": "/life",
-  "name": "BonLife",
-  "short_name": "BonLife",
+  "name": "BonLog",
+  "short_name": "BonLog",
   "lang": "zh-CN",
   "start_url": "/life",
   "scope": "/life",

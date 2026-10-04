@@ -1,0 +1,12 @@
+.app-install-control { position: relative; color: var(--life-muted, #5f6368); font-size: 12px; }
+.app-install-control button { border: 0; padding: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.app-install-help { position: absolute; right: 0; top: 32px; z-index: 120; width: min(330px, calc(100vw - 44px)); padding: 16px; margin: 0; border-radius: 10px; background: #fdfdfb; box-shadow: 0 6px 24px #0001; border: 1px solid #e1e3df; }
+.app-install-help p { margin: 8px 0 12px; white-space: normal; line-height: 1.6; }
+.app-install-help small { display: block; margin-top: 8px; color: #7a807b; }
+.app-install-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.app-install-actions a, .app-install-actions button { color: var(--life-accent, #1a73e8); text-decoration: underline; }
+.app-login-install { position: fixed; top: 24px; right: 24px; z-index: 10; }
+.app-install-toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+@media (max-width: 560px) {
+  .app-install-help { position: fixed; top: 64px; right: 18px; width: calc(100vw - 36px); max-width: 330px; box-sizing: border-box; }
+}

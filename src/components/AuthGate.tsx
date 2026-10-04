@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import LoginPage from '../pages/LoginPage';
+import InstallApp from './InstallApp';
 import { requestSession, restoreSession, SessionError } from '../utils/authClient';
 
 const loadApp = () => import('../App');
@@ -62,7 +63,7 @@ export default function AuthGate() {
   }, [state]);
 
   if (state === 'loading') return <Loading />;
-  if (state === 'login') return <LoginPage initialError={error} />;
+  if (state === 'login') return <><LoginPage initialError={error} title="BonBills" icon="/bonbills.svg" /><div className="app-login-install"><InstallApp app="bills" /></div></>;
   if (state === 'error') return (
     <main className="login-shell">
       <section className="login-card">
