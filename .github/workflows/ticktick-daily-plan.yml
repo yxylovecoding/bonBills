@@ -1,0 +1,52 @@
+name: TickTick daily planning
+
+on:
+  schedule:
+    # Asia/Shanghai: 05:00, 12:00, 17:00, 20:00. GitHub cron uses UTC.
+    - cron: '0 4,9,12,21 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ticktick-daily-planning
+  cancel-in-progress: false
+
+jobs:
+  recalculate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Refresh Outlook and recalculate TickTick
+        env:
+          CRON_SECRET: ${{ secrets.BONBILLS_CRON_SECRET }}
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const secret = process.env.CRON_SECRET?.trim();
+          if (!secret) throw new Error('Missing BONBILLS_CRON_SECRET');
+          for (let attempt = 0; attempt < 3; attempt++) {
+            let response;
+            try {
+              response = await fetch('https://www.bonbills.cn/api/ticktick-trips', {
+                headers: { Authorization: `Bearer ${secret}` },
+                redirect: 'error',
+                signal: AbortSignal.timeout(320_000),
+              });
+            } catch {
+              // Never log the secret, provider error body or private task data.
+              throw new Error('Scheduling request failed or timed out');
+            }
+            if (response.status === 202 && attempt < 2) {
+              await response.body?.cancel();
+              await new Promise(resolve => setTimeout(resolve, 30_000));
+              continue;
+            }
+            const result = await response.json().catch(() => null);
+            if (response.status !== 200 || result?.ok !== true || result.busy || result.error || !result.dailyPlan) {
+              throw new Error(`Scheduling did not complete (HTTP ${response.status})`);
+            }
+            console.log('Outlook and TickTick planning completed successfully.');
+            process.exit(0);
+          }
+          NODE
