@@ -1,10 +1,15 @@
-name: TickTick daily planning
+name: Daily calendar sync and planning
 
 on:
   schedule:
     # Asia/Shanghai: 05:00, 12:00, 17:00, 20:00. GitHub cron uses UTC.
     - cron: '0 4,9,12,21 * * *'
   workflow_dispatch:
+    inputs:
+      periods_only:
+        description: Only import and archive Outlook periods
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -13,7 +18,40 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  archive-periods:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Import and save Outlook periods
+        env:
+          CRON_SECRET: ${{ secrets.BONBILLS_CRON_SECRET }}
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const secret = process.env.CRON_SECRET?.trim();
+          if (!secret) throw new Error('Missing BONBILLS_CRON_SECRET');
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              const response = await fetch('https://www.bonbills.cn/api/ticktick-trips?action=life-periods', {
+                headers: { Authorization: `Bearer ${secret}` },
+                redirect: 'error',
+                signal: AbortSignal.timeout(80_000),
+              });
+              const result = await response.json().catch(() => null);
+              if (response.status === 200 && result?.ok === true
+                && (result.connected === false || (result.connected === true && typeof result.syncedAt === 'string'))) {
+                console.log(result.connected ? 'Outlook periods archived successfully.' : 'Period calendar is not connected.');
+                process.exit(0);
+              }
+              if (response.status === 401 || response.status === 403) break;
+            } catch { /* Keep subscription URLs, provider bodies and health data out of logs. */ }
+            if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 10_000));
+          }
+          throw new Error('Period calendar import did not complete; saved history is retained.');
+          NODE
   recalculate:
+    needs: archive-periods
+    if: ${{ always() && inputs.periods_only != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

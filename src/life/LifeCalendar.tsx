@@ -247,6 +247,9 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
         <span key={phase} className={`life-period-key phase-${phase}`}><i aria-hidden="true" />{CYCLE_GUIDANCE[phase].label}</span>)}</div>
       <button disabled={year <= 1900} onClick={() => setSelection((previous) => ({ ...previous, year: previous.year - 1 }))}>往年同月</button></div>
       <div className="life-sync-status" role="status">{loading ? '读取中…' : saved ? '已保存' : ''}
+        {!loading && current?.syncedAt && <span>经期已保存 · {new Date(current.syncedAt).toLocaleString('zh-CN', {
+          timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+        })}</span>}
         {current?.connected ? <button disabled={syncing} onClick={() => void syncPeriods(year, generation.current)}>{syncing ? '经期同步中…' : '同步经期'}</button>
           : <button onClick={() => setSettings(true)}>连接经期日历</button>}</div></footer>}
     {error && <div className="life-error-banner" role="alert">{error}<button onClick={() => setRetry((value) => value + 1)}>重试</button></div>}

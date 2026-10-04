@@ -25,19 +25,24 @@ export function parsePeriodCalendar(text: string, year: number) {
   const events = parseOutlookCalendar(text, 'play', `${year - 1}-11-01`, `${year + 1}-01-01`, true);
   const root = new ICAL.Component(ICAL.parse(text));
   const seenUids = root.getAllSubcomponents('vevent').map((event) => String(event.getFirstPropertyValue('uid') || '')).filter(Boolean);
-  return { seenUids, events: events.filter((event) => /月经|🩸/u.test(event.title) && !/预计|预测|预估/u.test(event.title)).map((event) => {
+  return { seenUids, events: events.filter((event) => /月经|经期|例假|大姨妈|🩸/u.test(event.title) && !/预计|预测|预估/u.test(event.title)).map((event) => {
     if (!event.uid) throw new Error('日程标识缺失');
     return { uid: event.uid, startDate: event.startDate, endDate: event.endDate };
   }) };
 }
 
-export async function readPeriodCalendar(connection: LifeConnection, year: number) {
+async function readPeriodCalendarText(connection: LifeConnection) {
   try {
     const input = decryptOutlookConnection(connection.encrypted, (process.env.SYNC_SECRET || '').trim());
-    return parsePeriodCalendar(await fetchCalendar(input.playUrl), year);
+    return await fetchCalendar(input.playUrl);
   } catch {
     throw new Error('Outlook 日历读取失败，请检查订阅链接与共享范围');
   }
+}
+
+export async function readPeriodCalendar(connection: LifeConnection, year: number) {
+  try { return parsePeriodCalendar(await readPeriodCalendarText(connection), year); }
+  catch { throw new Error('Outlook 日历读取失败，请检查订阅链接与共享范围'); }
 }
 
 export async function syncLifePeriods(connection: LifeConnection, year: number) {
@@ -45,6 +50,12 @@ export async function syncLifePeriods(connection: LifeConnection, year: number) 
   const [parsed, previous] = await Promise.all([
     readPeriodCalendar(connection, year), kv.get<PeriodSnapshot>(periodsKey(year)),
   ]);
+  return saveLifePeriods(connection, year, parsed, previous, requestedAt);
+}
+
+async function saveLifePeriods(connection: LifeConnection, year: number, parsed: ReturnType<typeof parsePeriodCalendar>,
+  previous: PeriodSnapshot | null, requestedAt: number) {
+  if (previous && previous.requestedAt > requestedAt) throw new Error('日历连接或内容已更新，请重新同步');
   const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date());
   const snapshot: PeriodSnapshot = { connectionId: connection.id, requestedAt, syncedAt: new Date().toISOString(),
     events: reconcilePeriodEvents(previous?.events ?? [], parsed.events, parsed.seenUids, today) };
@@ -59,6 +70,31 @@ export async function syncLifePeriods(connection: LifeConnection, year: number) 
   `, [LIFE_CONNECTION_KEY, periodsKey(year)], [connection.id, requestedAt, JSON.stringify(snapshot), previous?.requestedAt ?? 0]);
   if (result !== 1) throw new Error('日历连接或内容已更新，请重新同步');
   return { periodDays: periodDays(snapshot.events, year), syncedAt: snapshot.syncedAt };
+}
+
+// Calendar archiving must work without a browser, TickTick connection, or task write lock.
+export async function syncRecentLifePeriods(now = new Date()) {
+  try {
+    const connection = await kv.get<LifeConnection>(LIFE_CONNECTION_KEY);
+    if (!connection) return { connected: false as const };
+    const year = Number(new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(now).slice(0, 4));
+    const years = [year - 1, year, year + 1].filter((value) => value >= 1900 && value <= 2200);
+    const requestedAt = Date.now();
+    const [text, previous] = await Promise.all([
+      readPeriodCalendarText(connection), Promise.all(years.map((value) => kv.get<PeriodSnapshot>(periodsKey(value)))),
+    ]);
+    // Fetch once and validate every window before writing any snapshots. Previous-year
+    // storage preserves late edits in January; next-year storage covers December crossings.
+    const parsed = years.map((value) => parsePeriodCalendar(text, value));
+    const settled = await Promise.allSettled(years.map((value, index) => saveLifePeriods(connection, value, parsed[index], previous[index], requestedAt)));
+    const results = settled.map((result) => {
+      if (result.status === 'rejected') throw result.reason;
+      return result.value;
+    });
+    return { connected: true as const, syncedAt: results[years.indexOf(year)].syncedAt };
+  } catch {
+    throw new Error('Outlook 经期同步失败，已保留历史，请重试');
+  }
 }
 
 export const SAVE_LIFE_ENTRY = `
