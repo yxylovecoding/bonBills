@@ -97,3 +97,17 @@
   .clothes-confirm { flex-wrap: wrap; }
   .clothes-dialog .clothes-checks input { width: 15px; }
 }
+
+.clothes-install-control { position: relative; }
+.clothes-install-control .clothes-install { position: absolute; right: 0; top: 32px; z-index: 20; width: min(330px, calc(100vw - 44px)); display: block; padding: 16px; margin: 0; border-radius: 10px; background: #fdfdfb; box-shadow: 0 6px 24px #0001; border: 1px solid #e1e3df; }
+.clothes-install p { margin: 8px 0 12px; white-space: normal; line-height: 1.6; }
+.clothes-install small { display: block; margin-top: 8px; color: #7a807b; }
+.clothes-login-install { position: fixed; top: 24px; right: 24px; }
+.clothes-trip-content { padding-top: 20px; }
+.clothes-trip-select { display: grid; gap: 8px; margin: 18px 0; color: #757b75; font-size: 12px; }
+.clothes-trip-select select { width: 100%; min-width: 0; background: #fdfdfb; color: var(--life-ink); border: 1px solid var(--life-line); border-radius: 8px; padding: 9px 10px; min-height: 40px; font-size: 16px; }
+.clothes-trip-editor fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
+.clothes-trip-editor h3 { font-size: 15px; margin: 0; }
+.clothes-trip-save { padding-top: 18px; }
+.clothes-trips .clothes-outfit-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 560px) { .clothes-trips .clothes-outfit-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

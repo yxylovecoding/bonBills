@@ -11,16 +11,17 @@ export function inferActivities(events: ClothesCalendar['events']): { scene: Sce
   let scene: Scene | null = null;
   let active: boolean | null = null;
   for (const event of events) {
-    const title = event.title;
+    const title = event.title.replace(/(?:不|没有|无需|无)(?:运动|健身|多走路|走很多路)/g, '');
     const long = /徒步|登山|爬山|露营|滑雪|马拉松|骑行|hiking|camping|skiing/i.test(title);
     const outdoor = /散步|公园|户外|室外|动物园|游园|海滩|outdoor|walking/i.test(title);
-    const sport = /运动|健身|跑步|球|瑜伽|游泳|舞蹈|gym|workout|running/i.test(title);
-    const indoor = /上课|课程|课$|讲座|会议|办公室|居家|电影|展览|博物馆|图书馆|室内|实习|lecture|meeting/i.test(title);
+    const sport = /运动|健身|跑步|打球|篮球|足球|羽毛球|乒乓球|网球|排球|高尔夫|瑜伽|普拉提|游泳|舞蹈|跳舞|攀岩|滑雪|滑冰|骑行|马拉松|gym|workout|running|cycling|swimming|yoga/i.test(title);
+    const walking = /徒步|登山|爬山|暴走|健走|走很多路|多走路|长距离步行|万步|hiking|trekking|long walk/i.test(title);
+    const indoor = /上课|课程|课$|讲座|会议|办公室|居家|电影|展览|博物馆|图书馆|室内|实习|健身房|gym|lecture|meeting/i.test(title);
     if (long) scene = '长时间室外';
     else if ((outdoor || /跑步|running/i.test(title)) && scene !== '长时间室外') scene = '有室外';
-    else if ((indoor || sport) && !scene) scene = '基本室内';
-    if (long || outdoor || sport) active = true;
-    else if (indoor && active === null) active = false;
+    else if (indoor && !scene) scene = '基本室内';
+    if (walking || sport) active = true;
+    else if ((indoor || outdoor || long) && active === null) active = false;
   }
   return { scene, active };
 }

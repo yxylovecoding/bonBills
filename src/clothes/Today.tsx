@@ -4,6 +4,7 @@ import { SCENES } from './types';
 import { calendarDestinations, chooseLocation, effectiveContext, recommend, replacePiece, replacements, weatherFor } from './rules';
 import { ClothesError, clothesRequest, photoUrl, readLocal, writeLocal } from './client';
 import CityPicker from './CityPicker';
+import TripPlanner from './TripPlanner';
 
 interface WeatherResult { weather: WeatherSnapshot | null; stale: boolean; error?: string }
 interface Props {
@@ -106,13 +107,16 @@ export default function Today({ owner, items, initial, records, onContext, onRec
   }, [storageKey, preferenceKey]);
   useEffect(() => {
     let active = true;
-    const auto = () => {
+    let attempted = false;
+    const auto = async () => {
       if (contextRef.current.location && contextRef.current.location.source !== 'geo') return;
-      void navigator.permissions?.query({ name: 'geolocation' }).then((permission) => {
-        if (active && permission.state === 'granted') locate(false);
-      }).catch(() => undefined);
+      let permission: PermissionState | undefined;
+      try { permission = (await navigator.permissions?.query({ name: 'geolocation' }))?.state; } catch { /* Safari may not expose Permissions API. */ }
+      if (!active) return;
+      if (permission === 'denied') { setGeoError('定位未授权，请选择城市'); return; }
+      if (permission === 'granted' || !attempted) { attempted = true; locate(false); }
     };
-    auto(); window.addEventListener('focus', auto);
+    void auto(); window.addEventListener('focus', auto);
     return () => { active = false; geoRequest.current++; window.removeEventListener('focus', auto); };
   }, [locate]);
   useEffect(() => {
@@ -196,7 +200,7 @@ export default function Today({ owner, items, initial, records, onContext, onRec
       {weather && <div className="clothes-updated">{weatherState.stale ? '旧天气 · ' : ''}{new Date(weather.fetchedAt).toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} 更新</div>}
       <fieldset disabled={busy} className="clothes-fields clothes-context-fields">
         <label>场景<select aria-label="场景" value={effective.scene ?? ''} onChange={(e) => changeContext({ scene: e.target.value as ClothesDayContext['scene'] || null })}><option value="">待选择</option>{SCENES.map((scene) => <option key={scene}>{scene}</option>)}</select></label>
-        <label>行动需求<select aria-label="行动需求" value={effective.active === null ? '' : String(effective.active)} onChange={(e) => changeContext({ active: e.target.value === '' ? null : e.target.value === 'true' })}><option value="">待选择</option><option value="false">日常活动</option><option value="true">需方便活动</option></select></label>
+        <label>运动／多走路<select aria-label="运动或多走路" value={effective.active === null ? '' : String(effective.active)} onChange={(e) => changeContext({ active: e.target.value === '' ? null : e.target.value === 'true' })}><option value="">待选择</option><option value="false">没有</option><option value="true">有运动或走很多路</option></select></label>
         <label className="clothes-check clothes-full"><input type="checkbox" checked={Boolean(context.manualWeather)} onChange={(e) => changeContext({ manualWeather: e.target.checked ? { temperature: Number(manualTemperature), rain: false } : null })} />手填天气</label>
         {context.manualWeather && <><label>温度 °C<input aria-label="温度" type="number" min={-60} max={60} value={manualTemperature} onChange={(e) => { setManualTemperature(e.target.value); if (e.target.value !== '' && Number.isFinite(Number(e.target.value))) changeContext({ manualWeather: { ...context.manualWeather!, temperature: Number(e.target.value) } }); }} /></label><label>雨况<select aria-label="雨况" value={String(context.manualWeather.rain)} onChange={(e) => changeContext({ manualWeather: { ...context.manualWeather!, rain: e.target.value === 'true' } })}><option value="false">无雨</option><option value="true">有雨</option></select></label></>}
       </fieldset>
@@ -219,6 +223,7 @@ export default function Today({ owner, items, initial, records, onContext, onRec
       else { revisionOverride.current = conflict.revision; setPending(null); writeLocal(confirmKey, null); }
       setConflict(null); setError('');
     }}>保留当前内容，重新保存</button></div>}
+    <TripPlanner owner={owner} date={initial.date} timezone={initial.timezone} items={items} records={records} onExpired={onExpired} onRefresh={onRefresh} />
     <section className="clothes-history"><button className="clothes-row" aria-expanded={history} onClick={() => setHistory(!history)}><span>穿搭历史</span><span>{history ? '−' : '+'}</span></button>
       {history && <div>{historyRecords.length ? historyRecords.map((record) => <article key={record.date}><div className="clothes-row"><strong>{record.date}</strong><span>{record.context.location?.name}</span></div><div className="clothes-history-pieces">{record.items.map((item) => <figure key={item.id}><img loading="lazy" src={photoUrl(item.photoId)} alt={item.name} /><figcaption>{item.name}</figcaption></figure>)}</div></article>) : <p className="clothes-muted">暂无记录</p>}{moreHistory && historyRecords.length >= 30 && <button disabled={busy} onClick={() => void loadHistory()}>更早记录</button>}</div>}
     </section>

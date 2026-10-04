@@ -4,6 +4,9 @@ import handler from './_bonClothesRoute';
 import dispatcher from './outlook-calendar';
 import { ITEMS_KEY, CONTEXTS_KEY, WEAR_KEY, SAVE_CLOTHES, readClothesCalendar, readWeather, receiptKey } from './_bonClothes';
 import { photoInput } from './_clothesValidation';
+import { readClothesTrips, readTripForecast, TRIP_PLANS_KEY } from './_clothesTrips';
+import { encryptOutlookConnection } from './_outlookCalendar';
+import { OUTLOOK_CONNECTION_KEY } from './_outlookSync';
 import { parseOutlookCalendar } from './_outlookCalendar';
 import { emptyContext } from '../src/clothes/rules';
 import type { ClothesItem } from '../src/clothes/types';
@@ -139,5 +142,55 @@ describe('天气、Outlook 和设备时区', () => {
     const text = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:a\r\nDTSTART:20260308T033000\r\nDTEND:20260308T043000\r\nSUMMARY:课程\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:b\r\nDTSTART;VALUE=DATE:20260308\r\nDTEND;VALUE=DATE:20260309\r\nSUMMARY:徒步\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n';
     const events = parseOutlookCalendar(text, 'class', '2026-03-08', '2026-03-09', false, true, { timezone: 'America/New_York' });
     expect(events[0].startDate).toBe('2026-03-08T07:30:00.000Z'); expect(events[1].startDate).toBe('2026-03-08');
+  });
+});
+
+describe('出行预报与计划接口', () => {
+  const city = { name: '杭州', latitude: 30, longitude: 120, source: 'manual' as const, timezone: 'Asia/Shanghai' };
+  const plan = { tripId: 'trip:2026-10-05', revision: '', title: '杭州', startDate: '2026-10-05', endDate: '2026-10-06', location: city,
+    days: { '2026-10-05': { scene: '基本室内', active: false, itemIds: [item.id] } } };
+  it('未来使用逐日预报，只查询16天范围，缓存与失败回退独立于今日天气', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-05T01:00:00Z'));
+    const fetchMock = vi.fn(async (_url: URL) => new Response(JSON.stringify({ current: { temperature_2m: 40 }, daily: {
+      time: ['2026-10-19', '2026-10-20'], temperature_2m_min: [10, 11], temperature_2m_max: [20, 21], apparent_temperature_min: [9, 10], apparent_temperature_max: [19, 20], precipitation_sum: [0, 3], wind_speed_10m_max: [12, 20],
+    } })));
+    vi.stubGlobal('fetch', fetchMock);
+    const first = await readTripForecast(city, '2026-10-19', '2026-10-25', city.timezone);
+    expect(Object.keys(first.days)).toEqual(['2026-10-19', '2026-10-20']); expect(first.days['2026-10-19'].temperature).toBe(20);
+    const url = String(fetchMock.mock.calls[0][0]); expect(url).toContain('end_date=2026-10-20'); expect(url).not.toContain('current=');
+    await readTripForecast(city, '2026-10-19', '2026-10-25', city.timezone); expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect((await readTripForecast(city, '2026-11-01', '2026-11-03', city.timezone)).days).toEqual({}); expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(new Date('2026-10-05T01:31:00Z')); fetchMock.mockRejectedValue(new Error('offline'));
+    expect(await readTripForecast(city, '2026-10-19', '2026-10-25', city.timezone)).toMatchObject({ days: first.days, stale: true });
+    expect((await readTripForecast({ ...city, latitude: 40 }, '2026-10-19', '2026-10-20', city.timezone)).days).toEqual({});
+  });
+  it('保存计划独立 CAS、幂等，并不确认实际穿搭或写入日历', async () => {
+    hashes.set(ITEMS_KEY, { [item.id]: item });
+    const body = { action: 'save-trip-plan', plan, mutationId: uid('trip-save') };
+    const saved = await call('POST', {}, body); expect(saved.status).toBe(200); expect(saved.body.value.location.timezone).toBe(city.timezone);
+    expect((await call('POST', {}, body)).body).toEqual(saved.body); expect(evalMock).toHaveBeenCalledTimes(1);
+    expect((await call('POST', {}, { ...body, mutationId: uid('trip-conflict') })).status).toBe(409);
+    expect(hashes.has(TRIP_PLANS_KEY)).toBe(true); expect(hashes.has(WEAR_KEY)).toBe(false);
+    expect(evalMock.mock.calls.every((call) => call[1].every((key: string) => !key || key.startsWith('bonclothes:')))).toBe(true);
+  });
+  it('不接受待洗、不方便运动的单品或超出行程日期的计划', async () => {
+    hashes.set(ITEMS_KEY, { [item.id]: { ...item, status: '待洗' } });
+    const body = { action: 'save-trip-plan', plan, mutationId: uid('trip-save') };
+    expect((await call('POST', {}, body)).status).toBe(409);
+    hashes.set(ITEMS_KEY, { [item.id]: { ...item, active: false } });
+    expect((await call('POST', {}, { ...body, plan: { ...plan, days: { '2026-10-05': { ...plan.days['2026-10-05'], active: true } } } })).status).toBe(400);
+    expect((await call('POST', {}, { ...body, plan: { ...plan, endDate: '2026-10-04' } })).status).toBe(400);
+    expect(evalMock).not.toHaveBeenCalled();
+  });
+  it('行程消失保留计划，Outlook 失败仍能读取已有出游', async () => {
+    data.set('calendar-tags', { tagMap: { '2026-10-06': 'travel' } }); data.set('trip-tags', { tripTags: { '2026-10-06': '杭州' } });
+    hashes.set(TRIP_PLANS_KEY, { [plan.tripId]: plan });
+    vi.stubEnv('SYNC_SECRET', 'test-only-secret');
+    data.set(OUTLOOK_CONNECTION_KEY, { id: 'test', encrypted: encryptOutlookConnection({ playUrl: 'https://outlook.live.com/owa/calendar/example/test.ics', classUrl: '', policy: 'manual', rules: { homeTitles: [], ignoredPlayTitles: [] } }, 'test-only-secret') });
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+    const result = await readClothesTrips('2026-10-05', 'Asia/Shanghai');
+    expect(result.calendarError).toBe('日历更新失败'); expect(result.trips.find((trip) => trip.id === plan.tripId)?.archived).toBe(true);
+    expect(result.trips.some((trip) => trip.title === '杭州')).toBe(true); expect(evalMock).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
   });
 });

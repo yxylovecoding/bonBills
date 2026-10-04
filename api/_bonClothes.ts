@@ -39,7 +39,7 @@ redis.call('SET', KEYS[2], cjson.encode({signature=ARGV[7], value=cjson.decode(A
 return {1, ARGV[4]}
 `;
 
-async function upstream(url: URL) {
+export async function upstream(url: URL) {
   const result = await fetch(url, { signal: AbortSignal.timeout(12000), redirect: 'error' });
   if (!result.ok) throw new Error('天气服务暂不可用');
   return result.json();
@@ -47,10 +47,10 @@ async function upstream(url: URL) {
 export async function searchCities(query: string): Promise<ClothesLocation[]> {
   const url = new URL('https://geocoding-api.open-meteo.com/v1/search');
   url.search = new URLSearchParams({ name: query, count: '10', language: 'zh', format: 'json' }).toString();
-  const result = await upstream(url) as { results?: { name: string; admin1?: string; country?: string; latitude: number; longitude: number }[] };
+  const result = await upstream(url) as { results?: { name: string; admin1?: string; country?: string; latitude: number; longitude: number; timezone?: string }[] };
   return (result.results ?? []).filter((city) => Number.isFinite(city.latitude) && Number.isFinite(city.longitude))
     .map((city) => ({ name: [...new Set([city.name, city.admin1, city.country].filter(Boolean))].join(' · '),
-      latitude: city.latitude, longitude: city.longitude, source: 'manual' as const }));
+      latitude: city.latitude, longitude: city.longitude, timezone: city.timezone, source: 'manual' as const }));
 }
 export async function readWeather(location: ClothesLocation, date: string, timezone: string) {
   const latitude = Number(location.latitude.toFixed(3)), longitude = Number(location.longitude.toFixed(3));

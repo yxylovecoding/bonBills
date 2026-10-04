@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { register, removeLegacyKey, signIn } from '../utils/authClient';
 
-export default function LoginPage({ initialError = '', title = '盘账助手' }: { initialError?: string; title?: string }) {
+export default function LoginPage({ initialError = '', title = '盘账助手', icon }: { initialError?: string; title?: string; icon?: string }) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [key, setKey] = useState('');
   const [username, setUsername] = useState('');
@@ -37,10 +37,10 @@ export default function LoginPage({ initialError = '', title = '盘账助手' }:
     <main className="login-shell">
       <section className="login-card" aria-labelledby="login-title">
         <div className="login-mark" aria-hidden="true">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          {icon ? <img src={icon} alt="" width="44" height="44" /> : <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <rect x="5" y="3" width="14" height="18" rx="3" />
             <path d="M9 8h6M9 12h6M9 16h3" />
-          </svg>
+          </svg>}
         </div>
         <h1 id="login-title">{registering ? '注册账号' : title}</h1>
         <form onSubmit={submit} className="login-form" aria-busy={busy}>

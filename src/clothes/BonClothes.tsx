@@ -7,10 +7,11 @@ import { deviceDate, emptyContext } from './rules';
 import { ClothesError, clothesRequest, photoUrl } from './client';
 import ItemEditor, { newItem, readItemDraft, type ItemDraft } from './ItemEditor';
 import Today from './Today';
+import InstallClothes from './InstallClothes';
+import { isClothesHost } from './install';
 import '../life/life.css';
 import './clothes.css';
 
-interface InstallPrompt extends Event { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> }
 let sessionPromise: ReturnType<typeof restoreSession> | undefined;
 export default function BonClothes() {
   const [status, setStatus] = useState<'loading' | 'login' | 'ready' | 'error'>('loading');
@@ -33,7 +34,7 @@ export default function BonClothes() {
     window.addEventListener('focus', check); window.addEventListener('storage', storage);
     return () => { active = false; window.removeEventListener('focus', check); window.removeEventListener('storage', storage); };
   }, [status, owner, expired]);
-  return <div className="bonlife bonclothes">{status === 'login' ? <LoginPage title="BonClothes" /> : status === 'ready'
+  return <div className="bonlife bonclothes">{status === 'login' ? <><LoginPage title="BonClothes" icon="/bonclothes.svg" /><div className="clothes-login-install"><InstallClothes /></div></> : status === 'ready'
     ? <ClothesApp owner={owner} onExpired={expired} />
     : <main className="life-loading" role="status">{status === 'loading' ? '加载中…' : <>暂时无法连接<button onClick={() => window.location.reload()}>重试</button></>}</main>}</div>;
 }
@@ -46,14 +47,11 @@ function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void
   const [data, setData] = useState<ClothesData | null>(null), [error, setError] = useState(''), [loading, setLoading] = useState(false);
   const [refresh, setRefresh] = useState(0), [editor, setEditor] = useState<ItemDraft | null>(null);
   const [hasDraft, setHasDraft] = useState(() => Boolean(readItemDraft(owner)));
-  const [installPrompt, setInstallPrompt] = useState<InstallPrompt | null>(null), [installHelp, setInstallHelp] = useState(false);
   useEffect(() => {
     const tick = () => { const next = { date: deviceDate(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
       setClock((current) => current.date === next.date && current.timezone === next.timezone ? current : next); };
     const timer = window.setInterval(tick, 30000); window.addEventListener('focus', tick);
-    const install = (event: Event) => { event.preventDefault(); setInstallPrompt(event as InstallPrompt); };
-    window.addEventListener('beforeinstallprompt', install);
-    return () => { clearInterval(timer); window.removeEventListener('focus', tick); window.removeEventListener('beforeinstallprompt', install); };
+    return () => { clearInterval(timer); window.removeEventListener('focus', tick); };
   }, []);
   useEffect(() => {
     const abort = new AbortController(); let active = true;
@@ -74,13 +72,10 @@ function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void
   }
   const items = (data?.items ?? []).filter((item) => (category === '全部' || item.category === category) && (status === '全部状态' || item.status === status));
   return <main className="life-shell clothes-shell">
-    <header className="life-header"><h1><img src="/bonclothes.svg" alt="" width="27" height="27" />BonClothes</h1><div className="life-header-actions"><a href="/life">BonLife</a><button onClick={async () => {
-      if (installPrompt) { await installPrompt.prompt(); await installPrompt.userChoice; setInstallPrompt(null); } else setInstallHelp(!installHelp);
-    }}>安装</button><button onClick={async () => {
+    <header className="life-header"><h1><img src="/bonclothes.svg" alt="" width="27" height="27" />BonClothes</h1><div className="life-header-actions"><a href={isClothesHost() ? "https://www.bonbills.cn/life" : "/life"}>BonLife</a><InstallClothes /><button onClick={async () => {
       try { await requestSession({ method: 'DELETE' }); localStorage.setItem('bonclothes-logout-at', String(Date.now())); onExpired(); }
       catch { setError('退出失败，请重试'); }
     }}>退出</button></div></header>
-    {installHelp && <div className="clothes-install" role="status">在浏览器菜单选择“添加到主屏幕”或“安装应用”。<button onClick={() => setInstallHelp(false)}>关闭</button></div>}
     <div className="life-toolbar"><nav className="life-tabs" aria-label="BonClothes"><button aria-pressed={tab === 'today'} onClick={() => setTab('today')}>今日</button><button aria-pressed={tab === 'wardrobe'} onClick={() => setTab('wardrobe')}>衣柜</button></nav><span className="clothes-date">{date.replace(/-/g, '.')}</span></div>
     {error && <div className="life-error-banner" role="alert">{error}<button onClick={() => setRefresh((v) => v + 1)}>重试</button></div>}
     {!data ? <div className="clothes-empty" role="status">{loading ? '加载中…' : '暂无数据'}</div>
@@ -94,7 +89,7 @@ function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void
           }}><img loading="lazy" src={photoUrl(item.photoId)} alt={item.name} /><div className="clothes-card-caption"><strong>{item.name}</strong><span>{item.status}</span></div></button>)}</div>
           {!items.length && <div className="clothes-empty">{data.items.length ? '暂无符合条件的衣物' : '添加第一件衣物'}</div>}
         </section>}
-    <footer className="clothes-footer"><a href="/">BonBills</a><button disabled={loading} onClick={() => setRefresh((v) => v + 1)}>{loading ? '刷新中…' : '刷新'}</button></footer>
+    <footer className="clothes-footer"><a href={isClothesHost() ? "https://www.bonbills.cn/" : "/"}>BonBills</a><button disabled={loading} onClick={() => setRefresh((v) => v + 1)}>{loading ? '刷新中…' : '刷新'}</button></footer>
     {editor && <ItemEditor initial={editor} owner={owner} onClose={() => { setEditor(null); setHasDraft(Boolean(readItemDraft(owner))); }} onSaved={saved} onExpired={onExpired} />}
   </main>;
 }

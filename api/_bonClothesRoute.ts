@@ -4,6 +4,7 @@ import { authOk, sameOrigin } from './_auth.js';
 import { CONTEXTS_KEY, ITEMS_KEY, WEAR_KEY, SAVE_CLOTHES, photoKey, receiptKey, signature, readClothesCalendar, readWeather, searchCities } from './_bonClothes.js';
 import { ClothesInputError, contextInput, dateInput, id, itemInput, locationInput, photoInput, requireInput, timezoneInput } from './_clothesValidation.js';
 import type { ClothesDayContext, ClothesItem, WearRecord, WeatherSnapshot } from '../src/clothes/types.js';
+import { TRIP_PLANS_KEY, readClothesTrips, readTripForecast, tripPlanInput } from './_clothesTrips.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'private, no-store');
@@ -24,6 +25,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(200).json({ cities: await searchCities(req.query.q.trim()) });
       }
       const date = dateInput(req.query.date);
+      if (req.query.view === 'trips') return res.status(200).json(await readClothesTrips(date, timezoneInput(req.query.timezone)));
+      if (req.query.view === 'forecast') {
+        const location = locationInput({ name: '行程目的地', latitude: Number(req.query.latitude), longitude: Number(req.query.longitude), source: 'manual' });
+        return res.status(200).json(await readTripForecast(location!, date, dateInput(req.query.endDate), timezoneInput(req.query.timezone)));
+      }
       if (req.query.view === 'calendar') return res.status(200).json(await readClothesCalendar(date, timezoneInput(req.query.timezone)));
       if (req.query.view === 'weather') {
         const location = locationInput({ name: '天气地点', latitude: Number(req.query.latitude), longitude: Number(req.query.longitude), source: 'manual' });
@@ -62,6 +68,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const context = contextInput(body.context);
       key = CONTEXTS_KEY; field = context.date; expected = context.revision;
       value = { ...context, revision: mutationId };
+    } else if (body.action === 'save-trip-plan') {
+      const plan = tripPlanInput(body.plan);
+      key = TRIP_PLANS_KEY; field = plan.tripId; expected = plan.revision;
+      const selected = [...new Set(Object.values(plan.days).flatMap((day) => day.itemIds ?? []))];
+      const items = await Promise.all(selected.map((id) => kv.hget<ClothesItem>(ITEMS_KEY, id)));
+      if (items.some((item) => !item || item.deleted || item.status !== '可穿')) return res.status(409).json({ error: '衣柜已更新，请刷新后重新选择', wardrobeChanged: true });
+      for (const day of Object.values(plan.days)) {
+        const pieces = items.filter((item) => day.itemIds?.includes(item!.id));
+        requireInput(new Set(pieces.map((item) => item!.category)).size === pieces.length
+          && !(pieces.some((item) => item!.category === '连衣裙') && pieces.some((item) => ['上装', '下装'].includes(item!.category)))
+          && (!day.active || pieces.every((item) => item!.active)), '搭配不符合行程条件');
+      }
+      checks = items.map((item) => ({ id: item!.id, revision: item!.revision }));
+      value = { ...plan, revision: mutationId };
     } else if (body.action === 'confirm') {
       const context = contextInput(body.context);
       key = WEAR_KEY; field = context.date; expected = id(body.revision, true);

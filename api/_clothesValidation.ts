@@ -25,7 +25,8 @@ export function locationInput(value: unknown): ClothesLocation | null {
   const v = value as ClothesLocation;
   requireInput(v && typeof v.name === 'string' && v.name.trim().length > 0 && v.name.length <= 180
     && ['manual', 'geo', 'calendar'].includes(v.source), '地点无效');
-  return { name: v.name.trim(), latitude: numberInput(v.latitude, -90, 90), longitude: numberInput(v.longitude, -180, 180), source: v.source };
+  return { name: v.name.trim(), latitude: numberInput(v.latitude, -90, 90), longitude: numberInput(v.longitude, -180, 180), source: v.source,
+    ...(v.timezone ? { timezone: timezoneInput(v.timezone) } : {}) };
 }
 export function itemInput(value: unknown): ClothesItem {
   const v = value as ClothesItem;

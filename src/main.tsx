@@ -1,9 +1,11 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
+import './clothes/install';
 
 const isLifeHost = window.location.hostname === 'life.bonbills.cn';
-const isClothes = /^\/clothes(?:\/|$)/.test(window.location.pathname);
+const isClothesHost = window.location.hostname === 'clothes.bonbills.cn';
+const isClothes = isClothesHost || /^\/clothes(?:\/|$)/.test(window.location.pathname);
 const isLife = isLifeHost || /^\/life(?:\/|$)/.test(window.location.pathname);
 // Keep loaders separate so Vite attaches each app's CSS to its own import.
 const Root = isClothes ? React.lazy(() => import('./clothes/BonClothes')) : isLife
@@ -20,7 +22,7 @@ document.querySelector('link[rel="apple-touch-icon"]')?.setAttribute('href', `/i
 // Select one manifest before attaching it: /life must launch BonLife on the main host too.
 const manifest = document.createElement('link');
 manifest.rel = 'manifest';
-manifest.href = isClothes ? '/bonclothes.webmanifest' : isLife ? (isLifeHost ? '/bonlife.webmanifest' : '/bonlife-path.webmanifest') : '/bonbills.webmanifest';
+manifest.href = isClothes ? (isClothesHost ? '/bonclothes-root.webmanifest' : '/bonclothes.webmanifest') : isLife ? (isLifeHost ? '/bonlife.webmanifest' : '/bonlife-path.webmanifest') : '/bonbills.webmanifest';
 document.head.appendChild(manifest);
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

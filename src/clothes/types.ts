@@ -8,7 +8,7 @@ export interface ClothesItem {
   thickness: 1 | 2 | 3; active: boolean; windproof: boolean; waterproof: boolean;
   status: '可穿' | '待洗' | '收起'; photoId: string; deleted?: boolean;
 }
-export interface ClothesLocation { name: string; latitude: number; longitude: number; source: 'manual' | 'geo' | 'calendar' }
+export interface ClothesLocation { name: string; latitude: number; longitude: number; source: 'manual' | 'geo' | 'calendar'; timezone?: string }
 export interface ClothesDayContext {
   date: string; timezone: string; revision: string; location: ClothesLocation | null;
   scene: Scene | null; active: boolean | null;
@@ -27,3 +27,14 @@ export interface WearRecord {
 }
 export interface Outfit { items: ClothesItem[]; missing: string[]; key: string }
 export interface ClothesData { items: ClothesItem[]; context: ClothesDayContext | null; records: WearRecord[] }
+export interface ClothesTrip {
+  id: string; title: string; startDate: string; endDate: string; dates: string[];
+  destinations: string[]; events: ClothesEvent[]; archived?: boolean;
+}
+export interface TripDayPlan { scene: Scene | null; active: boolean | null; itemIds: string[] | null }
+export interface ClothesTripPlan {
+  tripId: string; revision: string; title: string; startDate: string; endDate: string;
+  location: ClothesLocation | null; days: Record<string, TripDayPlan>;
+}
+export interface ClothesTripsData { trips: ClothesTrip[]; plans: ClothesTripPlan[]; connected: boolean; calendarError?: string }
+export interface TripForecast { days: Record<string, WeatherSnapshot>; stale: boolean; error?: string; fetchedAt?: string }
