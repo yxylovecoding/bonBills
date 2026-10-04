@@ -45,14 +45,14 @@ async function runSync(allowDisconnected = false) {
     const secret = getSyncSecret();
     const { decryptTickTickToken, TickTickOpenApiClient } = await import('./_ticktickTrips.js');
     const connection = await kv.get<TickTickConnection>(CONNECTION_KEY);
-    if (!connection && allowDisconnected) return { busy: false as const, connected: false as const };
-    if (!connection) throw new Error('TickTick 未连接');
-    const token = decryptTickTickToken(connection.encryptedToken, secret);
-    const api = new TickTickOpenApiClient(token, (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
+    const token = connection ? decryptTickTickToken(connection.encryptedToken, secret) : null;
+    const api = token === null ? null : new TickTickOpenApiClient(token, (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
     // Whichever 05:00 workflow runs first must restore temporary tags before
     // calculating availability; otherwise every masked task looks like routine.
-    const sleepTags = await syncSleepRoutineTags(api, { projectId: connection.projectId, restoreOnly: true });
-    if (!sleepTags.complete) return { busy: true as const, sleepTags };
+    if (connection && api) {
+      const sleepTags = await syncSleepRoutineTags(api, { projectId: connection.projectId, restoreOnly: true });
+      if (!sleepTags.complete) return { busy: true as const, sleepTags };
+    }
     scheduleStarted = true;
     // Manual and scheduled runs must use the same fresh calendar window, including future trips.
     let availability: OutlookAvailability | undefined;
@@ -62,6 +62,9 @@ async function runSync(allowDisconnected = false) {
       await kv.set(SYNC_STATE_KEY, { ...state, instances: state?.instances ?? {}, lastError: error instanceof Error ? error.message : String(error) });
       throw error;
     }
+    // Outlook and period snapshots remain independent of the TickTick connection.
+    if (!connection && allowDisconnected) return { busy: false as const, connected: false as const };
+    if (!connection || !api || token === null) throw new Error('TickTick 未连接');
     const {
       buildTripSourcesFromSyncState,
       getTickTickRoutineExcludedTaskIds,
