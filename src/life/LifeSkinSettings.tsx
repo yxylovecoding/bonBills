@@ -77,6 +77,8 @@ export default function LifeSkinSettings({ initial, year, onSave, onClose, onExp
           const { careFrom: _careFrom, ...ownPlan } = plan;
           change({ ...draft, plans: { ...draft.plans, acne: event.target.checked ? { ...plan, careFrom: 'damaged' } : ownPlan } });
         }} />护肤品沿用受损状态</label>}
+        {plan.days.length > 1 && <label className="life-check"><input type="checkbox" disabled={busy} checked={plan.repeat ?? false} onChange={(event) =>
+          change({ ...draft, plans: { ...draft.plans, [state]: { ...plan, repeat: event.target.checked } } })} />循环方案</label>}
         {plan.days.map((day, index) => <fieldset className="life-skin-plan-day" key={index} disabled={busy}><legend>第 {index + 1} 天</legend>
           <div className="life-fields">{(['medication', 'morningMedication', 'eveningMedication', 'notes'] as const).map((key) => <label key={key}>
             {{ medication: '用药（未分早晚）', morningMedication: '早间用药', eveningMedication: '晚间用药', notes: '应对方法' }[key]}

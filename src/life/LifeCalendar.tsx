@@ -1,4 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { resolveSkinRecord } from '../utils/lifeSkinProgress';
+import { skinPlanValues, skinSeason } from '../utils/lifeSkin';
 import { DEFAULT_SKIN_SETTINGS } from '../utils/lifeSkin';
 import LifeSkinSettings from './LifeSkinSettings';
 import { calendarCells, DEFAULT_CYCLE, entrySummary, LIFE_LABELS, type LifeView, type LifeYear, type TrainingRecord } from '../utils/bonLife';
@@ -46,6 +48,8 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
   const generation = useRef(0);
   const activeSync = useRef<AbortController | null>(null);
   const current = data?.year === year ? data : null;
+  const skinEntries = useMemo(() => ({ ...current?.skinHistory, ...current?.entries }), [current]);
+  const skinSettings = current?.skinSettings ?? DEFAULT_SKIN_SETTINGS;
   const periodSet = new Set(current?.periodDays ?? []);
   const cycle = current?.cycle ?? DEFAULT_CYCLE;
   const cells = calendarCells(year, month);
@@ -178,8 +182,11 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
         const phase = visibleCycleDay(date, cycle, current?.periodDays ?? [], now);
         const phaseLabel = phase ? `${phase.estimated ? '预计·' : ''}${CYCLE_GUIDANCE[phase.phase].label}` : '';
         const planned = kind === 'training' ? trainingPlan.get(date) : undefined;
-        const summary = entrySummary(kind, planned ? { ...entry, text: entry?.text ?? '', revision: entry?.revision ?? '', training: planned } : entry);
-        const planStatus = planned?.completed ? '已完成' : entry?.training && planned?.mode !== 'auto' ? '手动安排' : date >= now && planned?.plan ? '自动计划' : '';
+        const skinSuggestion = kind === 'skin' && date === now && !entry ? resolveSkinRecord(date, skinSettings, skinEntries) : undefined;
+        const suggestedSkin = skinSuggestion?.status && skinSuggestion.planDay ? { ...skinSuggestion,
+          ...skinPlanValues(skinSettings, skinSuggestion.status, skinSuggestion.planDay, skinSeason(date)) } : undefined;
+        const summary = suggestedSkin ? entrySummary('skin', { text: '', revision: '', skin: suggestedSkin }) : entrySummary(kind, planned ? { ...entry, text: entry?.text ?? '', revision: entry?.revision ?? '', training: planned } : entry);
+        const planStatus = suggestedSkin ? '个人方案' : planned?.completed ? '已完成' : entry?.training && planned?.mode !== 'auto' ? '手动安排' : date >= now && planned?.plan ? '自动计划' : '';
         return <button type="button" key={date} disabled={loading || !current || Boolean(error) || (kind === 'training' && trainingSource.busy && !trainingSource.current?.completions)}
           className={`life-day${phase ? ` phase-${phase.phase}` : period ? ' phase-menstrual' : ''}${date === now ? ' is-today' : ''}`}
           aria-label={`${date} ${LIFE_LABELS[kind]} ${phaseLabel}${planStatus ? ` ${planStatus}` : ''}${summary ? `：${summary}` : '：未记录'}`}
@@ -201,7 +208,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
           : <button onClick={() => setSettings(true)}>连接经期日历</button>}</div></footer>}
     {error && <div className="life-error-banner" role="alert">{error}<button onClick={() => setRetry((value) => value + 1)}>重试</button></div>}
     {periodError && <div className="life-error-banner" role="alert">{periodError}<button onClick={() => void syncPeriods(year, generation.current)}>重试</button></div>}
-    {draft && current && !loading && <LifeEditor key={`${draft.kind}:${draft.date}`} initial={draft} owner={owner} skinSettings={current.skinSettings} cycle={cycle} periodDays={current.periodDays} onExpired={onExpired}
+    {draft && current && !loading && <LifeEditor key={`${draft.kind}:${draft.date}`} initial={draft} owner={owner} skinSettings={skinSettings} skinEntries={skinEntries} cycle={cycle} periodDays={current.periodDays} onExpired={onExpired}
       trainingTasks={rolling ? rolling.byDate.get(draft.date) ?? [] : undefined}
       onClose={() => setDraft(null)} onSave={(entry, savedDraft) => {
         setData((previous) => previous ? { ...previous, entries: { ...previous.entries, [`${savedDraft.kind}:${savedDraft.date}`]: entry } } : previous);

@@ -93,6 +93,18 @@ describe('经期 Outlook 解析', () => {
 });
 
 describe('BonLife 接口', () => {
+  it('补入上一年皮肤记录供年初接续，不混入其他状态记录', async () => {
+    const old = { text: '', revision: 'yesterday', skin: { status: 'acne', medication: '炉甘石' } };
+    getHash.mockImplementation(async (key: string) => key === entriesKey(2025) ? {
+      'skin:2025-12-31': old, 'mood:2025-12-31': { text: '心情', revision: 'mood' },
+    } : null);
+    const result = await call('GET');
+    expect(result.status).toBe(200);
+    expect(result.body.entries).toEqual({});
+    expect(result.body.skinHistory).toEqual({ 'skin:2025-12-31': old });
+    expect(getHash).toHaveBeenCalledWith(entriesKey(2025));
+  });
+
   it('保存早晚字段和体围，旧文字不丢失，禁止类型交叉', async () => {
     for (const details of [{ kind: 'skin', skin: { morningMedication: '药 A', eveningProducts: '面霜' } }, { kind: 'body', body: { waist: 66.5, weight: 56.35, bmi: 21.47, bodyFat: 24.6 } },
       { kind: 'training', training: { plan: '快走', effort: 'easy', completed: true } },

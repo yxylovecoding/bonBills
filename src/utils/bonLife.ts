@@ -33,6 +33,7 @@ export interface LifeYear {
   connected: boolean;
   cycle?: CycleSettings;
   skinSettings?: SkinSettings;
+  skinHistory?: LifeEntries;
 }
 export interface CycleSettings {
   lastPeriodStart: string;

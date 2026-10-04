@@ -1,14 +1,15 @@
 import LifeSkinFields from './LifeSkinFields';
-import type { SkinSettings } from '../utils/lifeSkin';
+import { DEFAULT_SKIN_SETTINGS, type SkinSettings } from '../utils/lifeSkin';
+import { resolveSkinRecord } from '../utils/lifeSkinProgress';
 import { useEffect, useRef, useState } from 'react';
-import { BODY_FIELDS, entrySummary, parseLifeEdit, LIFE_LABELS, LIFE_TEXT_LIMIT, type BodyRecord, type CycleSettings, type LifeEntry } from '../utils/bonLife';
+import { BODY_FIELDS, entrySummary, parseLifeEdit, LIFE_LABELS, LIFE_TEXT_LIMIT, type BodyRecord, type CycleSettings, type LifeEntry, type LifeEntries } from '../utils/bonLife';
 import { CYCLE_GUIDANCE, visibleCycleDay } from '../utils/lifeCycle';
 import { draftKey, LifeError, lifeRequest, type LifeDraft } from './client';
 import { automaticTraining, plannedTraining, type TrainingTask } from '../utils/lifeTraining';
 
-export default function LifeEditor({ initial, owner, cycle, periodDays, trainingTasks, skinSettings, onSave, onClose, onExpired }: {
+export default function LifeEditor({ initial, owner, cycle, periodDays, trainingTasks, skinSettings = DEFAULT_SKIN_SETTINGS, skinEntries, onSave, onClose, onExpired }: {
   initial: LifeDraft; owner: string; cycle: CycleSettings; periodDays: string[];
-  trainingTasks?: TrainingTask[]; skinSettings?: SkinSettings;
+  trainingTasks?: TrainingTask[]; skinSettings?: SkinSettings; skinEntries: LifeEntries;
   onSave: (entry: LifeEntry, draft: LifeDraft) => void; onClose: () => void; onExpired: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -22,6 +23,7 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
   const phase = visibleCycleDay(draft.date, cycle, periodDays);
   const guidance = phase ? CYCLE_GUIDANCE[phase.phase] : null;
   const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date());
+  const skin = draft.kind === 'skin' ? resolveSkinRecord(draft.date, skinSettings, skinEntries, draft.skin) : undefined;
   const training = draft.kind === 'training' ? plannedTraining(draft.date, today, trainingTasks, cycle, periodDays, draft.training) : undefined;
 
   function localStorageSafeRead() {
@@ -53,7 +55,7 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
     attempted.current = true;
     setBusy(true); setError(''); persist(draft);
     try {
-      const savedDraft = training ? { ...draft, training } : draft;
+      const savedDraft = skin ? { ...draft, skin } : training ? { ...draft, training } : draft;
       parseLifeEdit(savedDraft);
       const { entry } = await lifeRequest<{ entry: LifeEntry }>('POST', { action: 'save', ...savedDraft });
       try { localStorage.removeItem(draftKey(owner)); } catch { /* Server save succeeded. */ }
@@ -68,7 +70,7 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
     <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
       <div className="life-editor-heading"><h2 id="life-editor-title">{LIFE_LABELS[draft.kind]} <span>{draft.date.replace(/-/g, '.')}</span></h2>
         {guidance && <span className={`life-period-label phase-${phase?.phase}`}>{phase?.estimated ? '预计·' : ''}{guidance.label}</span>}</div>
-      {draft.kind === 'skin' && <LifeSkinFields date={draft.date} value={draft.skin} settings={skinSettings} busy={busy} onChange={(skin) => change({ skin })} />}
+      {draft.kind === 'skin' && <LifeSkinFields date={draft.date} value={skin} entries={skinEntries} settings={skinSettings} busy={busy} onChange={(skin) => change({ skin })} />}
       {draft.kind === 'body' && <div className="life-fields">{Object.entries(BODY_FIELDS).map(([key, { label, unit, max }]) =>
         <label key={key}>{label}{unit && ` · ${unit}`}<input type="number" min="0.01" max={max} step="any" inputMode="decimal" disabled={busy}
           value={draft.body?.[key as keyof BodyRecord] ?? ''} onChange={(event) => {

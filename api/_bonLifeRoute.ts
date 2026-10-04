@@ -36,12 +36,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         try { month = doneMonth(year, req.query.month); } catch { return res.status(400).json({ error: '月份无效' }); }
         return res.status(200).json(await readDoneMonth(month));
       }
-      const [entries, periods, connection, days, settings] = await Promise.all([
+      const [entries, periods, connection, days, settings, previousEntries] = await Promise.all([
         kv.hgetall<LifeEntries>(entriesKey(year)), kv.get<PeriodSnapshot>(periodsKey(year)), kv.get<LifeConnection>(LIFE_CONNECTION_KEY),
         readPeriodDays(year), kv.hgetall<{ cycle: CycleSettings; skin?: SkinSettings }>(LIFE_SETTINGS_KEY),
+        year > 1900 ? kv.hgetall<LifeEntries>(entriesKey(year - 1)) : null,
       ]);
       return res.status(200).json({ year, entries: entries ?? {}, periodDays: days, cycle: settings?.cycle ?? DEFAULT_CYCLE,
-        skinSettings: settings?.skin ?? DEFAULT_SKIN_SETTINGS, syncedAt: periods?.syncedAt ?? null, connected: Boolean(connection) });
+        skinSettings: settings?.skin ?? DEFAULT_SKIN_SETTINGS,
+        skinHistory: Object.fromEntries(Object.entries(previousEntries ?? {}).filter(([key]) => key.startsWith(`skin:${year - 1}-`))), syncedAt: periods?.syncedAt ?? null, connected: Boolean(connection) });
     }
     if (req.method === 'PUT') {
       let url: string;

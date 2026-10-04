@@ -12,7 +12,7 @@ export interface SkinProduct {
   states: SkinState[]; seasons: SkinSeason[]; times: SkinTime[]; tags: string[]; notes: string;
 }
 export interface SkinPlanDay { medication: string; morningMedication: string; eveningMedication: string; notes: string }
-export interface SkinPlan { days: SkinPlanDay[]; careFrom?: 'damaged' }
+export interface SkinPlan { days: SkinPlanDay[]; careFrom?: 'damaged'; repeat?: boolean }
 export interface SkinSettings { revision: string; products: SkinProduct[]; plans: Record<SkinState, SkinPlan> }
 export const emptySkinDay = (): SkinPlanDay => ({ medication: '', morningMedication: '', eveningMedication: '', notes: '' });
 
@@ -27,8 +27,8 @@ export const DEFAULT_SKIN_SETTINGS: SkinSettings = {
     product('adapalene', '阿达帕林', 'medication', ['acne'], [], ['evening']),
     { ...product('acid', '酸', 'medication', ['acne']), notes: '待补全具体名称' },
     product('growth-factor', '生长因子', 'medication', ['damaged']),
-    product('curel-cream', '珂润霜', 'skincare', ['damaged'], ['winter']),
-    product('curel-lotion', '珂润乳', 'skincare', ['damaged'], ['summer']),
+    product('curel-cream', '珂润霜', 'skincare', ['damaged'], ['autumn', 'winter']),
+    product('curel-lotion', '珂润乳', 'skincare', ['damaged'], ['spring', 'summer']),
   ],
   plans: {
     acne: { careFrom: 'damaged', days: [
@@ -88,8 +88,9 @@ export function parseSkinSettings(value: unknown): SkinSettings {
   for (const state of Object.keys(SKIN_STATES) as SkinState[]) {
     const plan = record(rawPlans[state]);
     if (!Array.isArray(plan.days) || !plan.days.length || plan.days.length > 14
+      || (plan.repeat !== undefined && typeof plan.repeat !== 'boolean')
       || (plan.careFrom !== undefined && (state !== 'acne' || plan.careFrom !== 'damaged'))) throw new Error('护理方案无效');
-    plans[state] = { ...(plan.careFrom ? { careFrom: 'damaged' as const } : {}), days: plan.days.map((value): SkinPlanDay => {
+    plans[state] = { ...(plan.repeat !== undefined ? { repeat: plan.repeat as boolean } : {}), ...(plan.careFrom ? { careFrom: 'damaged' as const } : {}), days: plan.days.map((value): SkinPlanDay => {
       const day = record(value);
       return { medication: text(day.medication, 500), morningMedication: text(day.morningMedication, 500),
         eveningMedication: text(day.eveningMedication, 500), notes: text(day.notes, 500) };
