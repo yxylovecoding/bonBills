@@ -1,3 +1,4 @@
+import { DEFAULT_SKIN_SETTINGS, parseSkinSettings, type SkinSettings } from '../src/utils/lifeSkin.js';
 import { randomUUID } from 'node:crypto';
 import { kv } from '@vercel/kv';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
@@ -37,10 +38,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       const [entries, periods, connection, days, settings] = await Promise.all([
         kv.hgetall<LifeEntries>(entriesKey(year)), kv.get<PeriodSnapshot>(periodsKey(year)), kv.get<LifeConnection>(LIFE_CONNECTION_KEY),
-        readPeriodDays(year), kv.hgetall<{ cycle: CycleSettings }>(LIFE_SETTINGS_KEY),
+        readPeriodDays(year), kv.hgetall<{ cycle: CycleSettings; skin?: SkinSettings }>(LIFE_SETTINGS_KEY),
       ]);
       return res.status(200).json({ year, entries: entries ?? {}, periodDays: days, cycle: settings?.cycle ?? DEFAULT_CYCLE,
-        syncedAt: periods?.syncedAt ?? null, connected: Boolean(connection) });
+        skinSettings: settings?.skin ?? DEFAULT_SKIN_SETTINGS, syncedAt: periods?.syncedAt ?? null, connected: Boolean(connection) });
     }
     if (req.method === 'PUT') {
       let url: string;
@@ -80,6 +81,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ['cycle', cycle.revision, body.mutationId as string, JSON.stringify(next), 'cycle']);
       if (!ok) return res.status(409).json({ error: '经期设置已在其他页面更新，请重新打开设置' });
       return res.status(200).json({ cycle: typeof raw === 'string' ? JSON.parse(raw) : raw, swimmingError: await swimmingSyncWarning() });
+    }
+    if (body.action === 'save-skin-settings') {
+      let settings: SkinSettings;
+      try {
+        settings = parseSkinSettings(body.settings);
+        if (typeof body.mutationId !== 'string' || !/^[a-zA-Z0-9-]{16,80}$/.test(body.mutationId)) throw new Error();
+      } catch { return res.status(400).json({ error: '皮肤方案或用品信息无效' }); }
+      const next = { ...settings, revision: body.mutationId };
+      const [ok, raw] = await kv.eval<string[], [number, string | SkinSettings]>(SAVE_LIFE_ENTRY, [LIFE_SETTINGS_KEY],
+        ['skin', settings.revision, body.mutationId as string, JSON.stringify(next), 'skin-settings']);
+      if (!ok) return res.status(409).json({ error: '皮肤设置已在其他页面更新，请重新打开后修改' });
+      return res.status(200).json({ settings: typeof raw === 'string' ? JSON.parse(raw) : raw });
     }
     if (body.action !== 'save') return res.status(400).json({ error: '操作无效' });
     let edit;

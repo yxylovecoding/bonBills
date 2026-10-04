@@ -1,4 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { DEFAULT_SKIN_SETTINGS } from '../utils/lifeSkin';
+import LifeSkinSettings from './LifeSkinSettings';
 import { calendarCells, DEFAULT_CYCLE, entrySummary, LIFE_KINDS, LIFE_LABELS, type LifeView, type LifeYear, type TrainingRecord } from '../utils/bonLife';
 import { CYCLE_GUIDANCE, cycleDay, cyclePhaseRanges, visibleCycleDay } from '../utils/lifeCycle';
 import { requestSession } from '../utils/authClient';
@@ -36,6 +38,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
   const [periodError, setPeriodError] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [settings, setSettings] = useState(false);
+  const [skinSettingsOpen, setSkinSettingsOpen] = useState(false);
   const [cycleSettings, setCycleSettings] = useState(false);
   const [retry, setRetry] = useState(0);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -136,6 +139,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
         <button className="life-today" onClick={() => setSelection((previous) => ({ ...previous, year: Number(now.slice(0, 4)), month: Number(now.slice(5, 7)) }))}>今天</button>
       </div>}
     </div>
+    {kind === 'skin' && <div className="life-skin-toolbar"><span>皮肤状态 · 日常护理</span><button disabled={loading || !current || Boolean(error)} onClick={() => setSkinSettingsOpen(true)}>护理方案与在用清单 ↗</button></div>}
     {kind === 'training' && <div className="life-training-heading"><div><h2>{month} 月训练计划</h2>
       <p role="status">{loading || trainingSource.busy ? '安排中…' : rolling ? `近 7 天 · 已练 ${rolling.coverage.filter((item) => item.completed).length} / ${rolling.coverage.length} 项` : !hasCycle ? '待设置经期' : futurePlanCount ? `后续 ${futurePlanCount} 天已安排 · 按体感调整` : '历史训练'}</p></div>
       <button disabled={loading || !current} onClick={() => setCycleSettings(true)}>{hasCycle ? '调整经期' : '设置经期'}</button>
@@ -190,11 +194,15 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
           : <button onClick={() => setSettings(true)}>连接经期日历</button>}</div></footer>}
     {error && <div className="life-error-banner" role="alert">{error}<button onClick={() => setRetry((value) => value + 1)}>重试</button></div>}
     {periodError && <div className="life-error-banner" role="alert">{periodError}<button onClick={() => void syncPeriods(year, generation.current)}>重试</button></div>}
-    {draft && current && !loading && <LifeEditor key={`${draft.kind}:${draft.date}`} initial={draft} owner={owner} cycle={cycle} periodDays={current.periodDays} onExpired={onExpired}
+    {draft && current && !loading && <LifeEditor key={`${draft.kind}:${draft.date}`} initial={draft} owner={owner} skinSettings={current.skinSettings} cycle={cycle} periodDays={current.periodDays} onExpired={onExpired}
       trainingTasks={rolling ? rolling.byDate.get(draft.date) ?? [] : undefined}
       onClose={() => setDraft(null)} onSave={(entry, savedDraft) => {
         setData((previous) => previous ? { ...previous, entries: { ...previous.entries, [`${savedDraft.kind}:${savedDraft.date}`]: entry } } : previous);
         setDraft(null); setSaved(true);
+      }} />}
+    {skinSettingsOpen && current && <LifeSkinSettings initial={current.skinSettings ?? DEFAULT_SKIN_SETTINGS} year={year} onExpired={onExpired}
+      onClose={() => { setSkinSettingsOpen(false); setRetry((value) => value + 1); }} onSave={(skinSettings) => {
+        setData((previous) => previous ? { ...previous, skinSettings } : previous); setSkinSettingsOpen(false); setSaved(true);
       }} />}
     {settings && <LifeConnection year={year} connected={current?.connected ?? false} onClose={() => setSettings(false)} onChanged={(connected) => {
       setData((previous) => previous ? { ...previous, connected } : previous);
