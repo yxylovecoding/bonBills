@@ -42,6 +42,7 @@ import {
 } from '../utils/wishMilestonePlan';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 type LodgingAmountMode = 'daily' | 'total';
+type PlanningDetailKind = 'income' | 'life' | 'credit';
 const LIFE_EXPENSE_TOOLTIP_ORDER: Array<{ kind: TagKind; label: string }> = [
   { kind: 'home', label: '寄' },
   { kind: 'travel', label: '游' },
@@ -132,8 +133,10 @@ export default function WishesPage() {
   const [pendingWishNameFocusId, setPendingWishNameFocusId] = useState<string | null>(null);
   const [selectedSegmentDays, setSelectedSegmentDays] = useState<Record<string, number>>({});
   const [deadlineSettingsOpen, setDeadlineSettingsOpen] = useState(false);
+  const [planningDetail, setPlanningDetail] = useState<PlanningDetailKind | null>(null);
   const wishListScrollRef = useRef<HTMLDivElement>(null);
   const mobileSummaryRef = useRef<HTMLElement>(null);
+  const planningDetailRef = useRef<HTMLDialogElement>(null);
   const wishScrollFrameRef = useRef<number | null>(null);
   const today = new Date();
   const todayYear = today.getFullYear();
@@ -331,6 +334,32 @@ export default function WishesPage() {
     `下期现金还款 ¥${formatCurrency(nextCreditDue)}`,
     `规划现金还款 ¥${formatCurrency(internPlan.repayment)}`,
   ].join('\n');
+  const planningDetails = {
+    income: { title: '收入明细', text: incomeTooltip },
+    life: { title: '生活开支明细', text: lifeExpenseTooltip },
+    credit: { title: '信用卡明细', text: creditRepaymentTooltip },
+  };
+  const togglePlanningDetail = (kind: PlanningDetailKind) => {
+    setPlanningDetail((current) => current === kind ? null : kind);
+  };
+  useEffect(() => {
+    setPlanningDetail(null);
+  }, [selectedPlanningWish?.id, effectivePlanningDeadline]);
+  useEffect(() => {
+    const dialog = planningDetailRef.current;
+    if (!planningDetail) {
+      if (dialog?.open) dialog.close();
+      return;
+    }
+    if (dialog && !dialog.open) dialog.showModal();
+    const containers = [document.getElementById('root'), wishListScrollRef.current]
+      .filter((element): element is HTMLElement => element !== null);
+    const previousOverflow = containers.map((element) => element.style.overflowY);
+    containers.forEach((element) => { element.style.overflowY = 'hidden'; });
+    return () => {
+      containers.forEach((element, index) => { element.style.overflowY = previousOverflow[index]; });
+    };
+  }, [planningDetail]);
   const minimumSelectableInternDays = activeSegment
     ? activeSegment.minimumInternDateKeys.length
     : internPlan.minimumInternDays ?? internPlan.availableInternDays;
@@ -706,18 +735,47 @@ export default function WishesPage() {
         <span style={{ fontSize: 19, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>¥{formatCurrency(internPlan.projectedTotalSaving)}</span>
       </div>
       <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.2)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 10px', fontSize: 10 }}>
-        <div title={incomeTooltip} tabIndex={0} style={{ opacity: 0.78, cursor: 'help' }}>收入</div>
-        <div title={incomeTooltip} tabIndex={0} style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums', cursor: 'help', textDecoration: 'underline dotted', textUnderlineOffset: 2 }}>¥{formatCurrency(internPlan.recommendedIncome)}</div>
+        <button
+          type="button"
+          className="wish-planning-detail-trigger wish-planning-income-trigger"
+          title={incomeTooltip}
+          aria-label="收入明细"
+          aria-expanded={planningDetail === 'income'}
+          aria-controls="wish-planning-detail"
+          aria-haspopup="dialog"
+          onClick={() => togglePlanningDetail('income')}
+        >
+          <span style={{ opacity: 0.78 }}>收入</span>
+          <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums', textDecoration: 'underline dotted', textUnderlineOffset: 2 }}>¥{formatCurrency(internPlan.recommendedIncome)}</span>
+        </button>
         <div style={{ opacity: 0.78 }}>生活开支（含信用卡）</div>
         <div style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>−¥{formatCurrency(internPlan.totalLivingExpense)}</div>
-        <div style={{ gridColumn: '1 / -1', marginTop: -2, textAlign: 'right', fontSize: 8, opacity: 0.68 }}>
-          <span title={lifeExpenseTooltip} tabIndex={0} style={{ cursor: 'help', borderBottom: '1px dotted rgba(255,255,255,0.58)' }}>
+        <div className="wish-planning-expense-links">
+          <button
+            type="button"
+            className="wish-planning-detail-trigger"
+            title={lifeExpenseTooltip}
+            aria-label="生活开支明细"
+            aria-expanded={planningDetail === 'life'}
+            aria-controls="wish-planning-detail"
+            aria-haspopup="dialog"
+            onClick={() => togglePlanningDetail('life')}
+          >
             “活” ¥{formatCurrency(internPlan.recommendedLifeExpense)}
-          </span>
+          </button>
           {' · '}
-          <span title={creditRepaymentTooltip} tabIndex={0} style={{ cursor: 'help', borderBottom: '1px dotted rgba(255,255,255,0.58)' }}>
+          <button
+            type="button"
+            className="wish-planning-detail-trigger"
+            title={creditRepaymentTooltip}
+            aria-label="信用卡明细"
+            aria-expanded={planningDetail === 'credit'}
+            aria-controls="wish-planning-detail"
+            aria-haspopup="dialog"
+            onClick={() => togglePlanningDetail('credit')}
+          >
             信用卡 ¥{formatCurrency(internPlan.repayment)}
-          </span>
+          </button>
           {planningLongBondRepay > 0.005 && <> · 长债已抵 ¥{formatCurrency(planningLongBondRepay)}</>}
         </div>
         <div style={{ opacity: 0.78 }}>结余</div>
@@ -754,6 +812,37 @@ export default function WishesPage() {
 
   return (
     <div className="wishes-page-shell">
+      <dialog
+        ref={planningDetailRef}
+        id="wish-planning-detail"
+        className="wish-planning-detail"
+        aria-labelledby="wish-planning-detail-title"
+        onCancel={(event) => {
+          event.preventDefault();
+          setPlanningDetail(null);
+        }}
+        onClick={(event) => {
+          if (event.target !== event.currentTarget) return;
+          const bounds = event.currentTarget.getBoundingClientRect();
+          if (event.clientX < bounds.left || event.clientX > bounds.right
+            || event.clientY < bounds.top || event.clientY > bounds.bottom) {
+            setPlanningDetail(null);
+          }
+        }}
+      >
+        {planningDetail ? (
+          <>
+            <div className="wish-planning-detail-heading">
+              <strong id="wish-planning-detail-title">{planningDetails[planningDetail].title}</strong>
+              <button type="button" aria-label="关闭明细" onClick={() => setPlanningDetail(null)}>×</button>
+            </div>
+            <div className="wish-planning-detail-deadline">截至 {effectivePlanningDeadline}</div>
+            <div className="wish-planning-detail-lines" tabIndex={0}>
+              {planningDetails[planningDetail].text.split('\n').map((line, index) => <div key={index}>{line}</div>)}
+            </div>
+          </>
+        ) : null}
+      </dialog>
       <WishTimeline
         entries={timelineEntries}
         activeStartDate={activeTimelineStartDate}
