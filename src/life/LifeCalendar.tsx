@@ -12,7 +12,7 @@ import LifeConnection from './LifeConnection';
 import LifeCycleSettings from './LifeCycleSettings';
 import LifeDoneList from './LifeDoneList';
 import { useLifeTraining } from './useLifeTraining';
-import { DEFAULT_TRAINING_SETTINGS, monthlyTrainingPlan, rollingTrainingPlan, trainingLibrary } from '../utils/lifeTraining';
+import { DEFAULT_TRAINING_SETTINGS, monthlyTrainingPlan, plannedTraining, rollingTrainingPlan, trainingLibrary } from '../utils/lifeTraining';
 import LifeTrainingSettings from './LifeTrainingSettings';
 import { symptomHistory } from '../utils/lifeSymptoms';
 import LifeSymptomHistory from './LifeSymptomHistory';
@@ -70,6 +70,16 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
     undefined, cycle, current?.periodDays ?? [], current?.entries ?? {}) : new Map<string, TrainingRecord>();
   const futurePlanCount = [...trainingPlan].filter(([date, record]) => date >= now && record.plan).length;
   const hasCycle = cells.some((date) => date && cycleDay(date, cycle, current?.periodDays ?? []));
+  const todayOverview = useMemo(() => {
+    const periods = [...new Set([...(trainingSource.current?.periodDays ?? []), ...(current?.periodDays ?? [])])];
+    const entries = { ...trainingSource.current?.entries, ...current?.entries };
+    const training = hasTrainingSource ? rollingTrainingPlan(Number(now.slice(0, 4)), Number(now.slice(5, 7)), now,
+      { ...trainingSource.current!, tasks: library }, cycle, periods, entries).plans.get(now)
+      : plannedTraining(now, now, undefined, cycle, periods, entries[`training:${now}`]?.training);
+    return { phase: cycleDay(now, cycle, periods), training };
+  }, [now, trainingSource.current, current, hasTrainingSource, library, cycle]);
+  const todayAdvice = todayOverview.phase ? CYCLE_GUIDANCE[todayOverview.phase.phase] : null;
+  const todayLoading = loading || syncing || trainingSource.busy;
 
   const syncPeriods = useCallback(async (selectedYear: number, token: number) => {
     activeSync.current?.abort();
@@ -174,7 +184,16 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
       {trainingSource.error && <p className="life-error" role="alert">{trainingSource.error}</p>}
       {!trainingSource.busy && trainingSource.current && !hasTrainingSource && <p className="life-empty-state">{trainingSource.current.connected ? '未找到训练待办' : <>TickTick 未连接 · <a href="https://bonbills.cn/calendar" target="_blank" rel="noreferrer">连接 TickTick ↗</a></>}</p>}
     </section>}
-    {kind === 'training' && <details className="life-phase-guide"><summary>运动与饮食 <span>四阶段</span></summary>
+    {kind === 'training' && <details className="life-phase-guide"><summary>
+      <span className="life-guide-heading">运动与饮食 <span>今天 {now.slice(5).replace('-', '.')}{!todayLoading && todayOverview.phase ? ` · ${todayOverview.phase.estimated ? '预计·' : ''}${todayAdvice!.label}` : ''}</span></span>
+      <span className="life-guide-toggle">四阶段 <span className="life-guide-chevron" aria-hidden="true">⌄</span></span>
+      <span className="life-today-guidance">
+        <span><span className="life-today-label">今日训练{!todayLoading && todayOverview.training?.completed ? ' · 已完成' : ''}</span>
+          <span>{todayLoading ? '安排中…' : error ? '暂不可用' : todayOverview.training?.plan || '暂无安排'}</span></span>
+        <span><span className="life-today-label">运动建议</span><span>{todayLoading ? '读取中…' : error ? '暂不可用' : todayAdvice?.exercise || '待设置经期'}</span></span>
+        <span><span className="life-today-label">饮食建议</span><span>{todayLoading ? '读取中…' : error ? '暂不可用' : todayAdvice?.food || '待设置经期'}</span></span>
+      </span>
+    </summary>
       <div>{cyclePhaseRanges(cycle).map(({ phase, start, end }) => {
         const advice = CYCLE_GUIDANCE[phase];
         return <div className={`life-phase-row phase-${phase}`} key={phase}>

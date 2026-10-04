@@ -75,7 +75,7 @@ export async function readTrainingSource(year: number): Promise<TrainingSource> 
   const currentYear = Number(today.slice(0, 4));
   const years = [...new Set([currentYear - 1, currentYear, year])].filter((value) => value >= 1900);
   const [snapshot, connection, { cycle, periods }, indexed, oldEntries, settings] = await Promise.all([
-    kv.get<TrainingSnapshot>(TRAINING_SOURCE_KEY), kv.get<TickTickConnection>(TICKTICK_CONNECTION_KEY), readSwimmingCycle([year]),
+    kv.get<TrainingSnapshot>(TRAINING_SOURCE_KEY), kv.get<TickTickConnection>(TICKTICK_CONNECTION_KEY), readSwimmingCycle([year, currentYear]),
     kv.hgetall<LifeEntries>(LIFE_TRAINING_ENTRIES_KEY), Promise.all(years.map((value) => kv.hgetall<LifeEntries>(entriesKey(value)))),
     kv.hgetall<{ trainingProjects?: TrainingSettings }>(LIFE_SETTINGS_KEY),
   ]);
@@ -83,7 +83,7 @@ export async function readTrainingSource(year: number): Promise<TrainingSource> 
   const entries = Object.fromEntries(Object.entries(Object.assign({}, ...oldEntries, indexed)).filter(([key]) => key.startsWith('training:'))) as LifeEntries;
   return { year, tasks: (current?.tasks ?? []).map((task) => trainingTask(task, year,
     (date) => task.title.includes('游泳') && date >= today ? afterMenstrualPeriod(date, cycle, periods) : date)),
-    completions: current?.completions, entries, settings: settings?.trainingProjects ?? DEFAULT_TRAINING_SETTINGS,
+    completions: current?.completions, entries, periodDays: periods, settings: settings?.trainingProjects ?? DEFAULT_TRAINING_SETTINGS,
     connected: Boolean(connection), syncedAt: current?.syncedAt ?? null };
 }
 

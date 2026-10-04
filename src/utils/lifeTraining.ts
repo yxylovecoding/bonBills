@@ -22,7 +22,7 @@ export interface TrainingTask {
 export interface TrainingCompletion { project: string; date: string }
 export interface TrainingSource {
   year: number; tasks: TrainingTask[]; connected: boolean; syncedAt: string | null;
-  completions?: TrainingCompletion[]; entries?: LifeEntries;
+  completions?: TrainingCompletion[]; entries?: LifeEntries; periodDays?: string[];
   settings?: TrainingSettings;
 }
 

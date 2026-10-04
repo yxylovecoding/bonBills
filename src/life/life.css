@@ -125,8 +125,19 @@
 .life-training-days button { flex: 1; padding: 9px 0; font-size: 12px; background: #f3f4f0; }
 .life-training-days button[aria-pressed="true"] { background: #586851; color: #fff; }
 .life-phase-guide { margin-bottom: 20px; font-size: 12px; border-top: 1px solid var(--life-line); border-bottom: 1px solid var(--life-line); padding: 14px 0; }
-.life-phase-guide summary { cursor: pointer; }
-.life-phase-guide summary span { color: var(--life-muted); margin-left: 8px; font-size: 11px; }
+.life-phase-guide summary { cursor: pointer; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 0 16px; list-style: none; }
+.life-phase-guide summary::-webkit-details-marker { display: none; }
+.life-guide-heading { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.life-guide-heading > span, .life-guide-toggle, .life-today-label { color: var(--life-muted); font-size: 11px; }
+.life-guide-chevron { display: inline-block; margin-left: 4px; }
+.life-phase-guide[open] .life-guide-chevron { transform: rotate(180deg); }
+.life-today-guidance { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 24px; margin-top: 16px; }
+.life-today-guidance > span { display: flex; flex-direction: column; gap: 6px; line-height: 1.8; min-width: 0; }
+.life-today-guidance > span > span:last-child { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .life-today-guidance { grid-template-columns: 1fr; gap: 12px; }
+  .life-today-guidance > span { gap: 3px; }
+}
 .life-phase-guide > div { margin-top: 14px; }
 .life-phase-row { display: grid; grid-template-columns: 100px 1fr 1fr; gap: 14px; padding: 12px 0 12px 12px; border-left: 3px solid var(--phase-line); color: var(--life-ink); }
 .life-phase-row + .life-phase-row { margin-top: 6px; }
