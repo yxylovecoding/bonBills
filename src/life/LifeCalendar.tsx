@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { calendarCells, DEFAULT_CYCLE, entrySummary, LIFE_KINDS, LIFE_LABELS, type LifeView, type LifeYear } from '../utils/bonLife';
-import { CYCLE_GUIDANCE, cycleDay, cyclePhaseRanges, suggestedTraining } from '../utils/lifeCycle';
+import { CYCLE_GUIDANCE, cyclePhaseRanges, suggestedTraining, visibleCycleDay } from '../utils/lifeCycle';
 import { requestSession } from '../utils/authClient';
 import { LifeError, lifeRequest, readDraft, type LifeDraft } from './client';
 import LifeEditor from './LifeEditor';
@@ -155,7 +155,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
         if (!date) return <div className="life-empty-day" key={`empty-${index}`} aria-hidden="true" />;
         const entry = current?.entries[`${kind}:${date}`];
         const period = periodSet.has(date);
-        const phase = cycleDay(date, cycle, current?.periodDays ?? []);
+        const phase = visibleCycleDay(date, cycle, current?.periodDays ?? [], now);
         const phaseLabel = phase ? `${phase.estimated ? '预计·' : ''}${CYCLE_GUIDANCE[phase.phase].label}` : '';
         const summary = entrySummary(kind, entry) || (kind === 'training' ? trainingPlan(date) : '');
         return <button type="button" key={date} disabled={loading || !current || Boolean(error) || (kind === 'training' && trainingSource.busy && !trainingSource.current?.syncedAt)}

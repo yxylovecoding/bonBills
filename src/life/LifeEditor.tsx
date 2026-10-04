@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { BODY_FIELDS, SKIN_FIELDS, entrySummary, parseLifeEdit, LIFE_LABELS, LIFE_TEXT_LIMIT, type BodyRecord, type CycleSettings, type LifeEntry, type SkinRecord } from '../utils/bonLife';
-import { CYCLE_GUIDANCE, cycleDay, suggestedTraining } from '../utils/lifeCycle';
+import { CYCLE_GUIDANCE, visibleCycleDay, suggestedTraining } from '../utils/lifeCycle';
 import { draftKey, LifeError, lifeRequest, type LifeDraft } from './client';
 import { personalTraining, type TrainingTask } from '../utils/lifeTraining';
 
@@ -17,7 +17,7 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
   const [discarding, setDiscarding] = useState(false);
   const attempted = useRef(false);
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial) || Boolean(localStorageSafeRead());
-  const phase = cycleDay(draft.date, cycle, periodDays);
+  const phase = visibleCycleDay(draft.date, cycle, periodDays);
   const guidance = phase ? CYCLE_GUIDANCE[phase.phase] : null;
 
   function localStorageSafeRead() {

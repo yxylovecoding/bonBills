@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CYCLE, entrySummary, parseCycleSettings, parseLifeEdit } from './bonLife';
-import { cycleDay, cyclePhaseRanges, suggestedTraining } from './lifeCycle';
+import { cycleDay, cyclePhaseRanges, suggestedTraining, visibleCycleDay } from './lifeCycle';
 import { draftKey, readDraft } from '../life/client';
 
 const cycle = { ...DEFAULT_CYCLE, lastPeriodStart: '2026-09-28' };
@@ -65,6 +65,59 @@ describe('经期与训练计划', () => {
     expect(parseCycleSettings({ ...cycle, trainingDays: [1, 1, 3] }).trainingDays).toEqual([1, 3]);
     for (const invalid of [{ cycleLength: 0 }, { periodLength: 11 }, { trainingDays: [7] }, { lastPeriodStart: '2026-02-30' }]) {
       expect(() => parseCycleSettings({ ...cycle, ...invalid })).toThrow();
+    }
+  });
+});
+
+describe('日历经期显示', () => {
+  const today = '2026-10-04';
+  const septemberCycle = { ...DEFAULT_CYCLE, lastPeriodStart: '2026-08-11' };
+  const recorded = Array.from({ length: 8 }, (_, index) => `2026-09-${String(index + 9).padStart(2, '0')}`);
+
+  it('9 月已过去时只显示 9–16 日的实际记录，8 日预测和其他阶段均不显示', () => {
+    expect(cycleDay('2026-09-08', septemberCycle, recorded)).toMatchObject({ phase: 'menstrual', estimated: true });
+    for (let day = 1; day <= 30; day++) {
+      const date = `2026-09-${String(day).padStart(2, '0')}`;
+      const phase = visibleCycleDay(date, septemberCycle, recorded, today);
+      if (recorded.includes(date)) expect(phase).toMatchObject({ phase: 'menstrual', estimated: false });
+      else expect(phase).toBeNull();
+    }
+  });
+
+  it('当月昨天的预测隐藏，今天和未来仍保留预计状态', () => {
+    expect(visibleCycleDay('2026-10-03', cycle, [], today)).toBeNull();
+    expect(visibleCycleDay(today, cycle, [], today)).toMatchObject({ phase: 'menstrual', estimated: true });
+    expect(visibleCycleDay('2026-10-05', cycle, [], today)).toMatchObject({ phase: 'ovulatory', estimated: true });
+    expect(visibleCycleDay('2026-10-26', cycle, [], today)).toMatchObject({ phase: 'menstrual', estimated: true });
+  });
+
+  it('保留最近和以前手动记录的开始日，不把后续推算视为已记录', () => {
+    const settings = { ...cycle, periodStarts: ['2026-08-01', '2026-09-01'] };
+    for (const date of [...settings.periodStarts, settings.lastPeriodStart]) {
+      expect(visibleCycleDay(date, settings, [], today)).toEqual({ phase: 'menstrual', day: 1, estimated: false });
+    }
+    expect(visibleCycleDay('2026-09-02', settings, [], today)).toBeNull();
+  });
+
+  it('跨年仍保留记录，没有经期或日期无效时不显示', () => {
+    const settings = { ...cycle, lastPeriodStart: '2025-12-28' };
+    expect(visibleCycleDay('2025-12-31', settings, [], '2026-01-02')).toBeNull();
+    expect(visibleCycleDay('2026-01-01', settings, ['2025-12-31', '2026-01-01'], '2026-01-02'))
+      .toMatchObject({ phase: 'menstrual', estimated: false });
+    expect(visibleCycleDay(today, DEFAULT_CYCLE, [], today)).toBeNull();
+    expect(visibleCycleDay('2026-09-31', cycle, [], today)).toBeNull();
+  });
+
+  it('默认按上海日期判断，跨过零点后隐藏昨天的预测', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-10-03T15:59:59Z'));
+      expect(visibleCycleDay('2026-10-03', cycle, [])?.estimated).toBe(true);
+      vi.setSystemTime(new Date('2026-10-03T16:00:00Z'));
+      expect(visibleCycleDay('2026-10-03', cycle, [])).toBeNull();
+      expect(visibleCycleDay('2026-10-04', cycle, [])?.estimated).toBe(true);
+    } finally {
+      vi.useRealTimers();
     }
   });
 });

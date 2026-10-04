@@ -39,7 +39,14 @@ export function cycleDay(date: string, settings: CycleSettings, periodDays: stri
   const day = offset % settings.cycleLength + 1;
   if (days.includes(date)) return { phase: 'menstrual', day, estimated: false };
   const phase = cyclePhaseRanges(settings).find((range) => day <= range.end)!.phase;
-  return { phase, day, estimated: !(anchor === settings.lastPeriodStart && offset === 0) };
+  return { phase, day, estimated: offset !== 0 };
+}
+
+export function visibleCycleDay(date: string, settings: CycleSettings, periodDays: string[],
+  today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date())): CycleDay | null {
+  const phase = cycleDay(date, settings, periodDays);
+  // Past predictions are not historical records; retain only recorded period days/starts.
+  return date < today && phase?.estimated ? null : phase;
 }
 
 export function suggestedTraining(date: string, settings: CycleSettings, periods: string[], effort: TrainingRecord['effort'] = 'normal'): string {
