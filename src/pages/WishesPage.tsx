@@ -934,7 +934,7 @@ export default function WishesPage() {
         onScroll={(event) => handleWishListScroll(event.currentTarget)}
       >
       <WishDebtSummary wishes={wishes} total={config.wishDebtTotal} onChange={updateDebtTotal} />
-      <Card title="心愿清单" subtitle={`${wishes.length} 个心愿`}>
+      <Card className="wish-list-card" title="心愿清单" subtitle={`${wishes.length} 个心愿`}>
         {wishes.length === 0 && (
           <div style={{ textAlign: 'center', padding: '26px 12px 20px', color: C.sub }}>
             <div style={{ fontSize: 30, marginBottom: 8 }}>♡</div>

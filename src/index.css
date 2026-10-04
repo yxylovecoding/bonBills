@@ -273,6 +273,9 @@ input[type='number'] { -moz-appearance: textfield; }
 }
 
 .wish-mobile-financial-summary {
+  position: sticky;
+  top: 16px;
+  z-index: 20;
   display: block;
   border-radius: 14px;
   background: linear-gradient(145deg, #6d28d9 0%, #8b5cf6 58%, #a78bfa 100%);
@@ -749,6 +752,10 @@ input[type='number'] { -moz-appearance: textfield; }
 
 .wish-list-scroll {
   min-width: 0;
+}
+
+.wish-list-card {
+  overflow: clip !important;
 }
 
 .wish-timeline {
