@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { calendarCells, DEFAULT_CYCLE, entrySummary, LIFE_KINDS, LIFE_LABELS, type LifeView, type LifeYear } from '../utils/bonLife';
 import { CYCLE_GUIDANCE, cycleDay, cyclePhaseRanges, suggestedTraining } from '../utils/lifeCycle';
 import { requestSession } from '../utils/authClient';
@@ -7,6 +7,8 @@ import LifeEditor from './LifeEditor';
 import LifeConnection from './LifeConnection';
 import LifeCycleSettings from './LifeCycleSettings';
 import LifeDoneList from './LifeDoneList';
+
+const LifeBodyTrends = lazy(() => import('./LifeBodyTrends'));
 
 const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日'];
 const today = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date());
@@ -128,6 +130,9 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
       })}</div>
       {!cycle.lastPeriodStart && !current?.periodDays.length && <button onClick={() => setCycleSettings(true)} disabled={loading}>设置经期，生成训练计划</button>}
     </details>}
+    {kind === 'body' && !error && <Suspense fallback={<p className="life-empty-state" role="status">曲线读取中…</p>}>
+      <LifeBodyTrends year={year} month={month} entries={current?.entries} loading={loading} />
+    </Suspense>}
     {kind === 'done' ? <LifeDoneList year={year} month={month} onExpired={onExpired} /> : <section className="life-calendar" aria-label={`${year}年${month}月${LIFE_LABELS[kind]}日历`} aria-busy={loading}>
       <div className="life-weekdays">{WEEKDAYS.map((day) => <span key={day}>{day}</span>)}</div>
       <div className="life-days">{cells.map((date, index) => {

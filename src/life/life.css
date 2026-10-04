@@ -132,7 +132,25 @@
 .life-done-day time { margin-left: auto; padding-left: 12px; flex-shrink: 0; font-size: 11px; color: var(--life-muted); }
 .life-empty-state { color: var(--life-muted); font-size: 12px; padding: 14px 0; }
 .life-empty-state a { color: var(--life-accent); }
+.life-body-trends { margin-bottom: 24px; border-top: 1px solid var(--life-line); }
+.life-body-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 0; }
+.life-body-toolbar h2 { margin: 0; font-size: 14px; font-weight: 500; }
+.life-body-toolbar h2 span { margin-left: 10px; color: var(--life-muted); font-size: 11px; font-weight: 400; }
+.life-body-scope { display: flex; gap: 4px; }
+.life-body-scope button { padding: 5px 10px; color: var(--life-muted); font-size: 11px; }
+.life-body-scope button[aria-pressed="true"] { color: var(--life-accent); background: #e8ebe3; }
+.life-body-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 28px; }
+.life-body-chart { min-width: 0; border-bottom: 1px solid var(--life-line); padding-bottom: 12px; }
+.life-body-chart-heading { display: flex; align-items: center; gap: 8px; min-height: 26px; }
+.life-body-chart-heading h3 { margin: 0; font-size: 12px; font-weight: 400; }
+.life-body-chart-heading > span { margin-left: auto; color: var(--life-muted); font-size: 10px; }
+.life-body-chart-heading select { min-width: 0; border: 0; background: transparent; color: var(--life-muted); font-size: 11px; padding: 2px; }
+.life-body-value { font-size: 23px; font-weight: 400; font-variant-numeric: tabular-nums; margin: 4px 0; }
+.life-body-value span { margin-left: 6px; font-size: 11px; color: var(--life-muted); }
+.life-body-plot, .life-body-chart-empty { height: 144px; }
+.life-body-chart-empty { display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--life-muted); }
 @media (max-width: 600px) {
+  .life-body-charts { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .life-tabs { width: 100%; }
   .life-tabs button { flex: 1; min-width: 0; padding: 8px 6px; }
   .life-header-actions { gap: 12px; }

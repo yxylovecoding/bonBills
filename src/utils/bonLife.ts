@@ -6,7 +6,19 @@ export type LifeView = LifeKind | 'done';
 export const LIFE_LABELS: Record<LifeView, string> = { skin: '皮肤', mood: '情绪', body: '体围', training: '训练', done: 'DoneList' };
 export const LIFE_TEXT_LIMIT = 2000;
 export const SKIN_FIELDS = { morningMedication: '早间用药', morningProducts: '早间护肤品', eveningMedication: '晚间用药', eveningProducts: '晚间护肤品' } as const;
-export const BODY_FIELDS = { chest: '胸围', waist: '腰围', hips: '臀围', upperArm: '上臂围', thigh: '大腿围', calf: '小腿围' } as const;
+export const BODY_FIELDS = {
+  weight: { label: '体重', unit: 'kg', max: 500 },
+  bmi: { label: 'BMI', unit: '', max: 150 },
+  bodyFat: { label: '体脂率', unit: '%', max: 100 },
+  chest: { label: '胸围', unit: 'cm', max: 300 },
+  waist: { label: '腰围', unit: 'cm', max: 300 },
+  hips: { label: '臀围', unit: 'cm', max: 300 },
+  upperArm: { label: '上臂围', unit: 'cm', max: 300 },
+  thigh: { label: '大腿围', unit: 'cm', max: 300 },
+  calf: { label: '小腿围', unit: 'cm', max: 300 },
+} as const;
+export type BodyMetric = keyof typeof BODY_FIELDS;
+export const CIRCUMFERENCE_FIELDS = ['chest', 'waist', 'hips', 'upperArm', 'thigh', 'calf'] as const;
 export type SkinRecord = Partial<Record<keyof typeof SKIN_FIELDS, string>>;
 export type BodyRecord = Partial<Record<keyof typeof BODY_FIELDS, number>>;
 export interface TrainingRecord { plan: string; effort: 'normal' | 'easy' | 'rest'; completed: boolean }
@@ -64,7 +76,7 @@ export function parseLifeEdit(value: unknown) {
     if (!edit.body || typeof edit.body !== 'object' || Array.isArray(edit.body)) throw new Error('体围记录无效');
     details.body = {};
     for (const [key, value] of Object.entries(edit.body)) {
-      if (!Object.prototype.hasOwnProperty.call(BODY_FIELDS, key) || typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value > 300) throw new Error('体围记录无效');
+      if (!Object.prototype.hasOwnProperty.call(BODY_FIELDS, key) || !isBodyValue(key as BodyMetric, value)) throw new Error('身体数据无效');
       details.body[key as keyof BodyRecord] = value;
     }
   }
@@ -96,10 +108,14 @@ export function entrySummary(kind: LifeKind, entry?: LifeEntry): string {
   if (!entry) return '';
   const details = kind === 'skin' ? Object.entries(SKIN_FIELDS).flatMap(([key, label]) => {
     const value = entry.skin?.[key as keyof SkinRecord]; return value ? [`${label} · ${value}`] : [];
-  }) : kind === 'body' ? Object.entries(BODY_FIELDS).flatMap(([key, label]) => {
-    const value = entry.body?.[key as keyof BodyRecord]; return value ? [`${label} ${value} cm`] : [];
+  }) : kind === 'body' ? Object.entries(BODY_FIELDS).flatMap(([key, { label, unit }]) => {
+    const value = entry.body?.[key as BodyMetric]; return isBodyValue(key as BodyMetric, value) ? [`${label} ${value}${unit ? ` ${unit}` : ''}`] : [];
   }) : kind === 'training' && entry.training ? [`${entry.training.completed ? '✓ ' : ''}${entry.training.plan}`] : [];
   return [...details, entry.text].filter(Boolean).join('\n');
+}
+
+export function isBodyValue(metric: BodyMetric, value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= BODY_FIELDS[metric].max;
 }
 
 export function calendarCells(year: number, month: number): (string | null)[] {
