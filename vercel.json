@@ -4,8 +4,7 @@
     "api/ticktick-trips.ts": { "maxDuration": 300 }
   },
   "crons": [
-    { "path": "/api/sync-monthly-backup", "schedule": "10 0 1 * *" },
-    { "path": "/api/ticktick-trips", "schedule": "0 4,9,12,21 * * *" }
+    { "path": "/api/sync-monthly-backup", "schedule": "10 0 1 * *" }
   ],
   "rewrites": [
     { "source": "/api/bonlife", "destination": "/api/outlook-calendar?app=bonlife" },
