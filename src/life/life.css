@@ -105,14 +105,21 @@
 .life-phase-guide summary { cursor: pointer; }
 .life-phase-guide summary span { color: var(--life-muted); margin-left: 8px; font-size: 11px; }
 .life-phase-guide > div { margin-top: 14px; }
-.life-phase-row { display: grid; grid-template-columns: 70px 1fr 1fr; gap: 14px; padding: 8px 0; }
+.life-phase-row { display: grid; grid-template-columns: 100px 1fr 1fr; gap: 14px; padding: 12px 0 12px 12px; border-left: 3px solid var(--phase-line); color: var(--life-ink); }
+.life-phase-row + .life-phase-row { margin-top: 6px; }
+.life-phase-name { display: flex; flex-direction: column; gap: 3px; }
+.life-phase-name > span { font-size: 10px; color: var(--life-muted); }
 .life-phase-row strong { font-weight: 500; }
 .life-phase-row p, .life-guidance p { margin: 0; line-height: 1.7; }
 .life-phase-row p span, .life-guidance p span { color: var(--life-muted); margin-right: 10px; }
 .life-phase-guide > button { color: var(--life-accent); margin-top: 12px; padding: 0; text-decoration: underline; }
 .life-guidance { margin-bottom: 18px; font-size: 12px; }
 .life-guidance p + p { margin-top: 8px; }
-.phase-follicular, .phase-ovulatory, .phase-earlyLuteal, .phase-lateLuteal { color: #7d8873; }
+.phase-menstrual { --phase-line: #b2d2df; }
+.phase-ovulatory { --phase-line: #dec887; }
+.phase-earlyLuteal { --phase-line: #dfd6aa; }
+.phase-lateLuteal { --phase-line: #d3bfd9; }
+.life-period-mark.phase-ovulatory, .life-period-mark.phase-earlyLuteal, .life-period-mark.phase-lateLuteal { color: #7d8873; }
 .life-done { border-top: 1px solid var(--life-line); }
 .life-done-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 16px 0; font-size: 11px; color: var(--life-muted); }
 .life-done-toolbar button { color: var(--life-accent); padding: 5px 0; }
@@ -129,7 +136,8 @@
   .life-tabs { width: 100%; }
   .life-tabs button { flex: 1; min-width: 0; padding: 8px 6px; }
   .life-header-actions { gap: 12px; }
-  .life-phase-row { grid-template-columns: 64px 1fr; gap: 3px 8px; }
+  .life-phase-row { grid-template-columns: 76px 1fr; gap: 3px 8px; padding-left: 8px; }
+  .life-phase-name { grid-row: span 2; }
   .life-phase-row p:last-child { grid-column: 2; }
   .life-day-heading { gap: 2px; }
   .life-period-mark { font-size: 8px; line-height: 1.5; }

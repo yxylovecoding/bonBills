@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { calendarCells, DEFAULT_CYCLE, entrySummary, LIFE_KINDS, LIFE_LABELS, type LifeView, type LifeYear } from '../utils/bonLife';
-import { CYCLE_GUIDANCE, cycleDay, suggestedTraining } from '../utils/lifeCycle';
+import { CYCLE_GUIDANCE, cycleDay, cyclePhaseRanges, suggestedTraining } from '../utils/lifeCycle';
 import { requestSession } from '../utils/authClient';
 import { LifeError, lifeRequest, readDraft, type LifeDraft } from './client';
 import LifeEditor from './LifeEditor';
@@ -119,9 +119,13 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
         <button className="life-today" onClick={() => setSelection((previous) => ({ ...previous, year: Number(now.slice(0, 4)), month: Number(now.slice(5, 7)) }))}>今天</button>
       </div>
     </div>
-    {kind === 'training' && <details className="life-phase-guide" open><summary>运动与饮食 <span>按体感调整</span></summary>
-      <div>{Object.entries(CYCLE_GUIDANCE).map(([key, advice]) => <div className="life-phase-row" key={key}>
-        <strong>{advice.label}</strong><p><span>运动</span>{advice.exercise}</p><p><span>饮食</span>{advice.food}</p></div>)}</div>
+    {kind === 'training' && <details className="life-phase-guide" open><summary>运动与饮食 <span>四阶段计划 · 按体感调整</span></summary>
+      <div>{cyclePhaseRanges(cycle).map(({ phase, start, end }) => {
+        const advice = CYCLE_GUIDANCE[phase];
+        return <div className={`life-phase-row phase-${phase}`} key={phase}>
+          <div className="life-phase-name"><strong>{advice.label}</strong>{advice.subtitle && <span>{advice.subtitle}</span>}<span>第 {start}–{end} 天</span></div>
+          <p><span>运动</span>{advice.exercise}</p><p><span>饮食</span>{advice.food}</p></div>;
+      })}</div>
       {!cycle.lastPeriodStart && !current?.periodDays.length && <button onClick={() => setCycleSettings(true)} disabled={loading}>设置经期，生成训练计划</button>}
     </details>}
     {kind === 'done' ? <LifeDoneList year={year} month={month} onExpired={onExpired} /> : <section className="life-calendar" aria-label={`${year}年${month}月${LIFE_LABELS[kind]}日历`} aria-busy={loading}>
