@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { cycleEnd, estimateTaskMinutes, planTickTickDay, refreshDailyHistory, type DailyPlanState } from './_ticktickDailyPlan';
-import { syncTickTickRoutines, type TickTickApi, type TickTickTask } from './_ticktickTrips';
+import { TickTickOpenApiClient, syncTickTickRoutines, type TickTickApi, type TickTickTask } from './_ticktickTrips';
 const today = '2026-10-04';
 const task = (id: string, fields: Partial<TickTickTask> = {}): TickTickTask => ({ id, projectId: 'inbox-real', title: id,
   status: 0, isAllDay: true, startDate: `${today}T00:00:00+0800`, dueDate: `${today}T00:00:00+0800`, ...fields });
@@ -122,5 +122,24 @@ describe('每日待办动态安排', () => {
     for (let i = 0; i < 2; i++) await syncTickTickRoutines({ api, today, calendarState: { tagMap: { [today]: 'school', '2026-10-05': 'school' } },
       planDay: async (tasks) => run(tasks, { state: s, budgetMinutes: 10, calendarState: { tagMap: { [today]: 'school', '2026-10-05': 'school' } } }).dates });
     expect(api.updateTask).not.toHaveBeenCalled();
+  });
+});
+
+describe('TickTick 明确限流', () => {
+  it('等待后重试明确的查询限流，普通错误不重放', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetcher = vi.fn<typeof fetch>()
+        .mockResolvedValueOnce(new Response('{"errorCode":"exceed_query_limit"}', { status: 500 }))
+        .mockResolvedValueOnce(new Response('[]'));
+      const api = new TickTickOpenApiClient('token', 'https://ticktick.test', fetcher);
+      const pending = api.listProjects();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(await pending).toEqual([]);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      fetcher.mockResolvedValueOnce(new Response('internal error', { status: 500 }));
+      await expect(api.listProjects()).rejects.toThrow('TickTick 500');
+      expect(fetcher).toHaveBeenCalledTimes(3);
+    } finally { vi.useRealTimers(); }
   });
 });

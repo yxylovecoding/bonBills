@@ -225,23 +225,31 @@ export class TickTickOpenApiClient implements TickTickApi {
   ) {}
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const response = await this.fetcher(`${this.baseUrl}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        Accept: 'application/json',
-        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-        ...init.headers,
-      },
-      signal: init.signal ?? AbortSignal.timeout(15_000),
-    });
-    if (!response.ok) {
-      const detail = (await response.text().catch(() => '')).slice(0, 300);
-      throw new Error(`TickTick ${response.status}${detail ? `: ${detail}` : ''}`);
+    for (let attempt = 0; ; attempt++) {
+      const response = await this.fetcher(`${this.baseUrl}${path}`, {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          Accept: 'application/json',
+          ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+          ...init.headers,
+        },
+        signal: init.signal ?? AbortSignal.timeout(15_000),
+      });
+      if (!response.ok) {
+        const detail = (await response.text().catch(() => '')).slice(0, 300);
+        // TickTick reports its query limit as HTTP 500 as well as 429. Only
+        // retry explicit rejections; ambiguous write failures must not replay.
+        if (attempt < 2 && (response.status === 429 || detail.includes('exceed_query_limit'))) {
+          await new Promise((resolve) => setTimeout(resolve, 30_000));
+          continue;
+        }
+        throw new Error(`TickTick ${response.status}${detail ? `: ${detail}` : ''}`);
+      }
+      if (response.status === 204) return undefined as T;
+      const text = await response.text();
+      return (text ? JSON.parse(text) : undefined) as T;
     }
-    if (response.status === 204) return undefined as T;
-    const text = await response.text();
-    return (text ? JSON.parse(text) : undefined) as T;
   }
 
   listProjects() {
