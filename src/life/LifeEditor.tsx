@@ -1,4 +1,6 @@
 import LifeSkinFields from './LifeSkinFields';
+import LifeSymptomFields from './LifeSymptomFields';
+import { DISCOMFORT_FIELDS, EYE_FIELDS } from '../utils/lifeSymptoms';
 import { DEFAULT_SKIN_SETTINGS, type SkinSettings } from '../utils/lifeSkin';
 import { resolveSkinRecord } from '../utils/lifeSkinProgress';
 import { useEffect, useRef, useState } from 'react';
@@ -25,6 +27,7 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
   const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date());
   const skin = draft.kind === 'skin' ? resolveSkinRecord(draft.date, skinSettings, skinEntries, draft.skin) : undefined;
   const training = draft.kind === 'training' ? plannedTraining(draft.date, today, trainingTasks, cycle, periodDays, draft.training) : undefined;
+  const isSymptom = draft.kind === 'eyes' || draft.kind === 'discomfort';
 
   function localStorageSafeRead() {
     try { return localStorage.getItem(draftKey(owner)); } catch { return null; }
@@ -66,11 +69,15 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
       setError(cause instanceof Error ? cause.message : '保存失败，请重试');
     } finally { setBusy(false); attempted.current = false; }
   }
-  return <dialog className="life-dialog" ref={dialog} onCancel={(event) => { event.preventDefault(); close(); }} aria-labelledby="life-editor-title">
+  return <dialog className={`life-dialog${isSymptom ? ' life-symptom-editor' : ''}`} ref={dialog} onCancel={(event) => { event.preventDefault(); close(); }} aria-labelledby="life-editor-title">
     <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
       <div className="life-editor-heading"><h2 id="life-editor-title">{LIFE_LABELS[draft.kind]} <span>{draft.date.replace(/-/g, '.')}</span></h2>
         {guidance && <span className={`life-period-label phase-${phase?.phase}`}>{phase?.estimated ? '预计·' : ''}{guidance.label}</span>}</div>
       {draft.kind === 'skin' && <LifeSkinFields date={draft.date} value={skin} entries={skinEntries} settings={skinSettings} busy={busy} onChange={(skin) => change({ skin })} />}
+      {draft.kind === 'eyes' && <LifeSymptomFields fields={EYE_FIELDS} value={draft.eyes} busy={busy}
+        placeholder="如：瞳孔周围一圈红血丝" onChange={(eyes) => change({ eyes })} />}
+      {draft.kind === 'discomfort' && <LifeSymptomFields fields={DISCOMFORT_FIELDS} value={draft.discomfort} busy={busy}
+        placeholder="记录感受…" onChange={(discomfort) => change({ discomfort })} />}
       {draft.kind === 'body' && <div className="life-fields">{Object.entries(BODY_FIELDS).map(([key, { label, unit, max }]) =>
         <label key={key}>{label}{unit && ` · ${unit}`}<input type="number" min="0.01" max={max} step="any" inputMode="decimal" disabled={busy}
           value={draft.body?.[key as keyof BodyRecord] ?? ''} onChange={(event) => {
@@ -97,7 +104,7 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
           change({ training: { plan: '', effort: 'normal', ...training, completed: event.target.checked } })} />已完成</label>
       </div>}
       <label className="life-field">{draft.kind === 'skin' ? '皮肤备注' : draft.kind === 'mood' ? '情绪' : '备注'}
-      <textarea aria-label={`${LIFE_LABELS[draft.kind]}记录`} autoFocus={draft.kind !== 'skin'} rows={draft.kind === 'skin' ? 3 : 7} maxLength={LIFE_TEXT_LIMIT}
+      <textarea aria-label={`${LIFE_LABELS[draft.kind]}记录`} autoFocus={draft.kind !== 'skin' && !isSymptom} rows={draft.kind === 'skin' || isSymptom ? 3 : 7} maxLength={LIFE_TEXT_LIMIT}
         placeholder="写几句话…" value={draft.text} disabled={busy} onChange={(event) => change({ text: event.target.value })} /></label>
       {error && <p role="alert" className="life-error">{error}</p>}
       {conflict && <div className="life-conflict"><p>云端记录</p><blockquote>{entrySummary(draft.kind, conflict) || '（空白）'}</blockquote>

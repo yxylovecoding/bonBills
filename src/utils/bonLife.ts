@@ -2,11 +2,12 @@ import { parseSkinRecord, SKIN_FIELDS, SKIN_STATES, type SkinField, type SkinRec
 export { SKIN_FIELDS } from './lifeSkin.js';
 export type { SkinRecord } from './lifeSkin.js';
 import { isCalendarDate, nextCalendarDate } from './outlookCalendar.js';
+import { DISCOMFORT_FIELDS, EYE_FIELDS, parseSymptomRecord, type DiscomfortRecord, type EyeRecord } from './lifeSymptoms.js';
 
-export const LIFE_KINDS = ['skin', 'mood', 'body', 'training'] as const;
+export const LIFE_KINDS = ['skin', 'eyes', 'discomfort', 'mood', 'body', 'training'] as const;
 export type LifeKind = typeof LIFE_KINDS[number];
 export type LifeView = LifeKind | 'done';
-export const LIFE_LABELS: Record<LifeView, string> = { skin: '皮肤', mood: '情绪', body: '身体数据', training: '训练', done: 'DoneList' };
+export const LIFE_LABELS: Record<LifeView, string> = { skin: '皮肤', eyes: '眼睛', discomfort: '身体', mood: '情绪', body: '身体数据', training: '训练', done: 'DoneList' };
 export const LIFE_TEXT_LIMIT = 2000;
 export const BODY_FIELDS = {
   weight: { label: '体重', unit: 'kg', max: 500 },
@@ -23,7 +24,7 @@ export type BodyMetric = keyof typeof BODY_FIELDS;
 export const CIRCUMFERENCE_FIELDS = ['chest', 'waist', 'hips', 'upperArm', 'thigh', 'calf'] as const;
 export type BodyRecord = Partial<Record<keyof typeof BODY_FIELDS, number>>;
 export interface TrainingRecord { plan: string; effort: 'normal' | 'easy' | 'rest'; completed: boolean; mode?: 'auto' | 'manual'; projects?: string[] }
-export interface LifeEntry { text: string; revision: string; skin?: SkinRecord; body?: BodyRecord; training?: TrainingRecord }
+export interface LifeEntry { text: string; revision: string; skin?: SkinRecord; eyes?: EyeRecord; discomfort?: DiscomfortRecord; body?: BodyRecord; training?: TrainingRecord }
 export type LifeEntries = Record<string, LifeEntry>;
 export interface LifeYear {
   year: number;
@@ -63,11 +64,13 @@ export function parseLifeEdit(value: unknown) {
     || typeof edit.mutationId !== 'string' || !/^[a-zA-Z0-9-]{16,80}$/.test(edit.mutationId)) {
     throw new Error('记录内容无效');
   }
-  const details: Pick<LifeEntry, 'skin' | 'body' | 'training'> = {};
-  for (const field of ['skin', 'body', 'training']) {
+  const details: Pick<LifeEntry, 'skin' | 'eyes' | 'discomfort' | 'body' | 'training'> = {};
+  for (const field of ['skin', 'eyes', 'discomfort', 'body', 'training']) {
     if (edit[field] !== undefined && edit.kind !== field) throw new Error('记录类型不匹配');
   }
   if (edit.skin !== undefined) details.skin = parseSkinRecord(edit.skin);
+  if (edit.eyes !== undefined) details.eyes = parseSymptomRecord(edit.eyes, EYE_FIELDS);
+  if (edit.discomfort !== undefined) details.discomfort = parseSymptomRecord(edit.discomfort, DISCOMFORT_FIELDS);
   if (edit.body !== undefined) {
     if (!edit.body || typeof edit.body !== 'object' || Array.isArray(edit.body)) throw new Error('身体数据无效');
     details.body = {};
@@ -108,6 +111,10 @@ export function entrySummary(kind: LifeKind, entry?: LifeEntry): string {
   if (!entry) return '';
   const details = kind === 'skin' ? Object.entries(SKIN_FIELDS).flatMap(([key, label]) => {
     const value = entry.skin?.[key as SkinField]; return value ? [`${label} · ${value}`] : [];
+  }) : kind === 'eyes' ? Object.entries(EYE_FIELDS).flatMap(([key, label]) => {
+    const value = entry.eyes?.[key as keyof EyeRecord]; return value?.trim() ? [`${label} · ${value}`] : [];
+  }) : kind === 'discomfort' ? Object.entries(DISCOMFORT_FIELDS).flatMap(([key, label]) => {
+    const value = entry.discomfort?.[key as keyof DiscomfortRecord]; return value?.trim() ? [`${label} · ${value}`] : [];
   }) : kind === 'body' ? Object.entries(BODY_FIELDS).flatMap(([key, { label, unit }]) => {
     const value = entry.body?.[key as BodyMetric]; return isBodyValue(key as BodyMetric, value) ? [`${label} ${value}${unit ? ` ${unit}` : ''}`] : [];
   }) : kind === 'training' && entry.training ? [`${entry.training.completed ? '✓ ' : ''}${entry.training.plan}`] : [];

@@ -12,8 +12,8 @@
 .life-connection-dot { width: 5px; height: 5px; border-radius: 50%; background: #c9cac5; }
 .life-connection-dot.connected { background: #829276; }
 .life-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
-.life-tabs { display: flex; background: #ebece7; border-radius: 10px; padding: 3px; gap: 3px; }
-.life-tabs button { min-width: 70px; padding: 8px 17px; color: #74796f; font-size: 14px; }
+.life-tabs { display: flex; max-width: 100%; overflow-x: auto; background: #ebece7; border-radius: 10px; padding: 3px; gap: 3px; }
+.life-tabs button { flex-shrink: 0; min-width: 70px; padding: 8px 17px; color: #74796f; font-size: 14px; }
 .life-tabs button[aria-pressed="true"] { background: #fff; color: #3f5038; box-shadow: 0 1px 3px #0000000a; }
 .life-date-controls { display: flex; align-items: center; gap: 6px; }
 .life-date-controls select { color: var(--life-ink); border: 0; background: transparent; font-size: 14px; padding: 5px 0; }
@@ -73,7 +73,8 @@
   .life-header h1 { font-size: 19px; }
   .life-toolbar { flex-wrap: wrap; gap: 14px; margin-bottom: 14px; }
   .life-date-controls { margin-left: auto; gap: 2px; }
-  .life-tabs button { min-width: 52px; padding: 7px 12px; font-size: 12px; }
+  .life-tabs { width: 100%; }
+  .life-tabs button { flex: 1 0 auto; min-width: 42px; padding: 7px 8px; font-size: 12px; }
   .life-date-controls select { font-size: 12px; }
   .life-arrow { width: 24px; }
   .life-today { margin-left: 2px; padding: 5px; }
@@ -94,6 +95,7 @@
 .life-fields input, .life-field input, .life-field textarea, .life-field select { color: var(--life-ink); }
 .life-field select { background: #fdfdfb; border: 1px solid var(--life-line); border-radius: 8px; padding: 10px; }
 .life-training-editor textarea { min-height: 84px; }
+.life-symptom-editor textarea { min-height: 80px; }
 .life-training-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 20px 0; border-top: 1px solid var(--life-line); }
 .life-training-heading h2 { margin: 0; font-size: 21px; font-weight: 500; }
 .life-training-heading p { margin: 7px 0 0; color: var(--life-muted); font-size: 12px; }

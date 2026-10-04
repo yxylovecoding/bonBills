@@ -66,7 +66,7 @@ export const SAVE_LIFE_ENTRY = `
   local encoded = ARGV[4]
   if ARGV[5] ~= 'cycle' and ARGV[5] ~= 'skin-settings' then
     local next = cjson.decode(ARGV[4])
-    for _, field in ipairs({'skin', 'body', 'training'}) do
+    for _, field in ipairs({'skin', 'eyes', 'discomfort', 'body', 'training'}) do
       if next[field] == nil then next[field] = current[field] end
     end
     encoded = cjson.encode(next)

@@ -101,7 +101,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try { edit = parseLifeEdit(body); }
     catch { return res.status(400).json({ error: '记录内容无效' }); }
     const entry: LifeEntry = { text: edit.text, revision: edit.mutationId,
-      ...(edit.skin ? { skin: edit.skin } : {}), ...(edit.body ? { body: edit.body } : {}), ...(edit.training ? { training: edit.training } : {}) };
+      ...(edit.skin ? { skin: edit.skin } : {}), ...(edit.eyes ? { eyes: edit.eyes } : {}), ...(edit.discomfort ? { discomfort: edit.discomfort } : {}),
+      ...(edit.body ? { body: edit.body } : {}), ...(edit.training ? { training: edit.training } : {}) };
     const [ok, raw] = await kv.eval<string[], [number, string | LifeEntry]>(SAVE_LIFE_ENTRY,
       [entriesKey(edit.year), ...(edit.kind === 'training' ? [LIFE_TRAINING_ENTRIES_KEY] : [])],
       [`${edit.kind}:${edit.date}`, edit.revision, edit.mutationId, JSON.stringify(entry)]);
