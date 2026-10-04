@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { parseCycleSettings, type CycleSettings } from '../utils/bonLife';
 import { LifeError, lifeRequest } from './client';
 
-export default function LifeCycleSettings({ initial, year, onSave, onClose, onExpired }: {
-  initial: CycleSettings; year: number; onSave: (settings: CycleSettings) => void; onClose: () => void; onExpired: () => void;
+export default function LifeCycleSettings({ initial, year, tickTickTraining, onSave, onClose, onExpired }: {
+  initial: CycleSettings; year: number; tickTickTraining?: boolean; onSave: (settings: CycleSettings) => void; onClose: () => void; onExpired: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [draft, setDraft] = useState(initial);
@@ -33,9 +33,9 @@ export default function LifeCycleSettings({ initial, year, onSave, onClose, onEx
         onChange={(event) => change({ cycleLength: Number(event.target.value) })} /></label>
         <label>经期 · 天<input type="number" required min="1" max="10" value={draft.periodLength} disabled={busy}
           onChange={(event) => change({ periodLength: Number(event.target.value) })} /></label></div>
-      <fieldset className="life-training-days"><legend>训练日</legend><div>{[1, 2, 3, 4, 5, 6, 0].map((day, index) =>
+      {tickTickTraining ? <p className="life-empty-state">训练日 · TickTick 已同步</p> : <fieldset className="life-training-days"><legend>训练日</legend><div>{[1, 2, 3, 4, 5, 6, 0].map((day, index) =>
         <button key={day} type="button" disabled={busy} aria-pressed={draft.trainingDays.includes(day)} aria-label={`周${'一二三四五六日'[index]}`}
-          onClick={() => change({ trainingDays: draft.trainingDays.includes(day) ? draft.trainingDays.filter((value) => value !== day) : [...draft.trainingDays, day] })}>{'一二三四五六日'[index]}</button>)}</div></fieldset>
+          onClick={() => change({ trainingDays: draft.trainingDays.includes(day) ? draft.trainingDays.filter((value) => value !== day) : [...draft.trainingDays, day] })}>{'一二三四五六日'[index]}</button>)}</div></fieldset>}
       {error && <p className="life-error" role="alert">{error}</p>}
       <div className="life-editor-actions"><button type="button" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="life-primary" disabled={busy}>{busy ? '保存中…' : '保存'}</button></div>
     </form>

@@ -8,6 +8,7 @@ import { DEFAULT_CYCLE, lifeYear, parseCycleSettings, parseLifeEdit, type CycleS
 import { LIFE_CONNECTION_KEY, SAVE_LIFE_ENTRY, entriesKey, periodsKey, readPeriodCalendar, syncLifePeriods,
   LIFE_SETTINGS_KEY, readPeriodDays, type LifeConnection, type PeriodSnapshot } from './_bonLife.js';
 import { doneMonth, readDoneMonth, syncDoneMonth } from './_lifeDone.js';
+import { readTrainingSource, syncTrainingSource } from './_lifeTraining.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'private, no-store');
@@ -27,6 +28,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       year = lifeYear(req.method === 'GET' ? req.query.year : body?.year ?? String(body?.date).slice(0, 4));
     } catch { return res.status(400).json({ error: '请求内容或年份无效' }); }
     if (req.method === 'GET') {
+      if (req.query.view === 'training') return res.status(200).json(await readTrainingSource(year));
       if (req.query.view === 'done') {
         let month: string;
         try { month = doneMonth(year, req.query.month); } catch { return res.status(400).json({ error: '月份无效' }); }
@@ -63,6 +65,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       try { month = doneMonth(year, body.month); } catch { return res.status(400).json({ error: '月份无效' }); }
       return res.status(200).json(await syncDoneMonth(month));
     }
+    if (body.action === 'sync-training') return res.status(200).json(await syncTrainingSource(year));
     if (body.action === 'save-cycle') {
       let cycle: CycleSettings;
       try {
@@ -93,6 +96,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (message === '日历连接或内容已更新，请重新同步') return res.status(409).json({ error: message });
     if (message.startsWith('Outlook 日历读取失败')) return res.status(502).json({ error: message });
     if (message.startsWith('TickTick 完成记录同步失败')) return res.status(502).json({ error: message });
+    if (message.startsWith('TickTick 训练计划同步失败')) return res.status(502).json({ error: message });
     return res.status(503).json({ error: '暂时无法保存或读取，请重试' });
   }
 }

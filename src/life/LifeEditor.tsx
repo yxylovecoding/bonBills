@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { BODY_FIELDS, SKIN_FIELDS, entrySummary, parseLifeEdit, LIFE_LABELS, LIFE_TEXT_LIMIT, type BodyRecord, type CycleSettings, type LifeEntry, type SkinRecord } from '../utils/bonLife';
 import { CYCLE_GUIDANCE, cycleDay, suggestedTraining } from '../utils/lifeCycle';
 import { draftKey, LifeError, lifeRequest, type LifeDraft } from './client';
+import { personalTraining, type TrainingTask } from '../utils/lifeTraining';
 
-export default function LifeEditor({ initial, owner, cycle, periodDays, onSave, onClose, onExpired }: {
+export default function LifeEditor({ initial, owner, cycle, periodDays, trainingTasks, onSave, onClose, onExpired }: {
   initial: LifeDraft; owner: string; cycle: CycleSettings; periodDays: string[];
+  trainingTasks?: TrainingTask[];
   onSave: (entry: LifeEntry, draft: LifeDraft) => void; onClose: () => void; onExpired: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -72,10 +74,14 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, onSave, 
             change({ body });
           }} /></label>)}</div>}
       {draft.kind === 'training' && <div className="life-training-editor">
+        {Boolean(trainingTasks?.length) && <details className="life-training-details"><summary>TickTick 原计划</summary>
+          {trainingTasks!.map((task) => <div key={task.id}><p>{task.name}</p>{task.notes && <p className="life-training-notes">{task.notes}</p>}
+            {task.links.length > 0 && <div className="life-training-links">{task.links.map((link) => <a href={link.url} key={link.url} target="_blank" rel="noreferrer">{link.title} ↗</a>)}</div>}</div>)}
+        </details>}
         {guidance && <div className="life-guidance"><p><span>运动</span>{guidance.exercise}</p><p><span>饮食</span>{guidance.food}</p></div>}
         <label className="life-field">今日强度<select disabled={busy} value={draft.training?.effort ?? 'normal'} onChange={(event) => {
           const effort = event.target.value as 'normal' | 'easy' | 'rest';
-          change({ training: { plan: suggestedTraining(draft.date, cycle, periodDays, effort), effort, completed: draft.training?.completed ?? false } });
+          change({ training: { plan: trainingTasks ? personalTraining(draft.date, trainingTasks, cycle, periodDays, effort) : suggestedTraining(draft.date, cycle, periodDays, effort), effort, completed: draft.training?.completed ?? false } });
         }}><option value="normal">按计划</option><option value="easy">轻量</option><option value="rest">休息</option></select></label>
         <label className="life-field">训练计划<textarea rows={3} maxLength={1000} disabled={busy} value={draft.training?.plan ?? ''}
           onChange={(event) => change({ training: { effort: 'normal', completed: false, ...draft.training, plan: event.target.value } })} /></label>

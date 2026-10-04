@@ -382,7 +382,7 @@ function mergeTaskLists(primaryTasks: TickTickTask[], fallbackTasks: TickTickTas
   return [...tasksById.values()];
 }
 
-async function readAllTickTickTasks(api: TickTickApi, statuses: number[]) {
+export async function readAllTickTickTasks(api: TickTickApi, statuses: number[]) {
   // Neither /project nor /task/filter reliably includes the built-in Inbox.
   // Read its reserved alias explicitly, then keep each task's real projectId for writes.
   const [projects, filteredTasks, inbox] = await Promise.all([
@@ -571,7 +571,7 @@ const ROUTINE_REPEAT_PARTS = new Set([
 ]);
 const ROUTINE_WEEKDAYS = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
 
-function routineRecurrence(repeatFlag: string | undefined): 'none' | 'daily' | 'long' | 'unknown' {
+export function routineRecurrence(repeatFlag: string | undefined): 'none' | 'daily' | 'long' | 'unknown' {
   if (!repeatFlag?.trim()) return 'none';
   const rule = repeatFlag.trim().toUpperCase().replace(/^RRULE:/, '');
   const parts = new Map<string, string>();

@@ -94,6 +94,15 @@
 .life-fields input, .life-field input, .life-field textarea, .life-field select { color: var(--life-ink); }
 .life-field select { background: #fdfdfb; border: 1px solid var(--life-line); border-radius: 8px; padding: 10px; }
 .life-training-editor textarea { min-height: 84px; }
+.life-training-source { margin-bottom: 16px; }
+.life-training-source .life-done-toolbar { padding: 0 0 10px; }
+.life-training-schedule { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 0; font-size: 12px; }
+.life-training-details { font-size: 12px; margin-bottom: 18px; }
+.life-training-details summary { cursor: pointer; color: var(--life-accent); }
+.life-training-details p { margin: 10px 0; }
+.life-training-notes { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; color: var(--life-muted); max-height: 160px; overflow-y: auto; }
+.life-training-links { display: flex; flex-wrap: wrap; gap: 14px; }
+.life-training-links a { color: var(--life-accent); }
 .life-check { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 16px; }
 .life-check input { width: auto; accent-color: var(--life-accent); }
 .life-training-days { border: 0; margin: 4px 0 0; padding: 0; }

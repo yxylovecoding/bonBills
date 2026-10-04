@@ -7,6 +7,8 @@ import LifeEditor from './LifeEditor';
 import LifeConnection from './LifeConnection';
 import LifeCycleSettings from './LifeCycleSettings';
 import LifeDoneList from './LifeDoneList';
+import { useLifeTraining } from './useLifeTraining';
+import { personalTraining } from '../utils/lifeTraining';
 
 const LifeBodyTrends = lazy(() => import('./LifeBodyTrends'));
 
@@ -45,6 +47,12 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
   const cycle = current?.cycle ?? DEFAULT_CYCLE;
   const cells = calendarCells(year, month);
   const now = today();
+  const trainingSource = useLifeTraining(year, kind === 'training' || draft?.kind === 'training' || cycleSettings, onExpired);
+  const hasTrainingSource = Boolean(trainingSource.current?.tasks.length);
+  function trainingPlan(date: string) {
+    return hasTrainingSource ? personalTraining(date, trainingSource.byDate.get(date) ?? [], cycle, current?.periodDays ?? [])
+      : suggestedTraining(date, cycle, current?.periodDays ?? []);
+  }
 
   const syncPeriods = useCallback(async (selectedYear: number, token: number) => {
     activeSync.current?.abort();
@@ -121,6 +129,13 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
         <button className="life-today" onClick={() => setSelection((previous) => ({ ...previous, year: Number(now.slice(0, 4)), month: Number(now.slice(5, 7)) }))}>今天</button>
       </div>
     </div>
+    {kind === 'training' && <section className="life-training-source" aria-label="TickTick 训练计划" aria-busy={trainingSource.busy}>
+      <div className="life-done-toolbar"><span role="status">{trainingSource.busy ? '读取训练计划…' : trainingSource.current?.syncedAt ? 'TickTick · 已同步' : 'TickTick · 尚未同步'}</span>
+        <button disabled={trainingSource.busy} onClick={() => void trainingSource.refresh(true)}>同步训练</button></div>
+      {hasTrainingSource && <p className="life-training-schedule">{trainingSource.current!.tasks.map((task) => <span key={task.id}>{task.schedule} · {task.name}</span>)}</p>}
+      {trainingSource.error && <p className="life-error" role="alert">{trainingSource.error}</p>}
+      {!trainingSource.busy && trainingSource.current && !hasTrainingSource && <p className="life-empty-state">{trainingSource.current.connected ? '未找到训练待办' : <>TickTick 未连接 · <a href="https://bonbills.cn/calendar" target="_blank" rel="noreferrer">连接 TickTick ↗</a></>}</p>}
+    </section>}
     {kind === 'training' && <details className="life-phase-guide" open><summary>运动与饮食 <span>四阶段计划 · 按体感调整</span></summary>
       <div>{cyclePhaseRanges(cycle).map(({ phase, start, end }) => {
         const advice = CYCLE_GUIDANCE[phase];
@@ -141,12 +156,12 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
         const period = periodSet.has(date);
         const phase = cycleDay(date, cycle, current?.periodDays ?? []);
         const phaseLabel = phase ? `${phase.estimated ? '预计·' : ''}${CYCLE_GUIDANCE[phase.phase].label}` : '';
-        const summary = entrySummary(kind, entry) || (kind === 'training' ? suggestedTraining(date, cycle, current?.periodDays ?? []) : '');
-        return <button type="button" key={date} disabled={loading || !current || Boolean(error)}
+        const summary = entrySummary(kind, entry) || (kind === 'training' ? trainingPlan(date) : '');
+        return <button type="button" key={date} disabled={loading || !current || Boolean(error) || (kind === 'training' && trainingSource.busy && !trainingSource.current?.syncedAt)}
           className={`life-day${period || phase?.phase === 'menstrual' ? ' is-period' : ''}${date === now ? ' is-today' : ''}`}
           aria-label={`${date} ${LIFE_LABELS[kind]} ${phaseLabel}${summary ? `：${summary}` : '：未记录'}`}
           onClick={() => setDraft({ date, kind, text: '', revision: '', ...entry,
-            ...(kind === 'training' && !entry?.training ? { training: { plan: suggestedTraining(date, cycle, current?.periodDays ?? []), effort: 'normal', completed: false } } : {}),
+            ...(kind === 'training' && !entry?.training ? { training: { plan: trainingPlan(date), effort: 'normal', completed: false } } : {}),
             mutationId: crypto.randomUUID() })}>
           <span className="life-day-heading"><span className="life-day-number">{Number(date.slice(-2))}</span>{phaseLabel && <span className={`life-period-mark phase-${phase?.phase}`} aria-hidden="true">{phaseLabel}</span>}</span>
           <span className="life-day-text">{summary}</span>
@@ -161,6 +176,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
     {error && <div className="life-error-banner" role="alert">{error}<button onClick={() => setRetry((value) => value + 1)}>重试</button></div>}
     {periodError && <div className="life-error-banner" role="alert">{periodError}<button onClick={() => void syncPeriods(year, generation.current)}>重试</button></div>}
     {draft && current && !loading && <LifeEditor key={`${draft.kind}:${draft.date}`} initial={draft} owner={owner} cycle={cycle} periodDays={current.periodDays} onExpired={onExpired}
+      trainingTasks={hasTrainingSource ? trainingSource.byDate.get(draft.date) ?? [] : undefined}
       onClose={() => setDraft(null)} onSave={(entry, savedDraft) => {
         setData((previous) => previous ? { ...previous, entries: { ...previous.entries, [`${savedDraft.kind}:${savedDraft.date}`]: entry } } : previous);
         setDraft(null); setSaved(true);
@@ -170,7 +186,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
       if (connected) void syncPeriods(year, generation.current);
       else { activeSync.current?.abort(); setSyncing(false); setPeriodError(''); }
     }} />}
-    {cycleSettings && <LifeCycleSettings initial={cycle} year={year} onExpired={onExpired} onClose={() => { setCycleSettings(false); setRetry((value) => value + 1); }} onSave={(savedCycle) => {
+    {cycleSettings && <LifeCycleSettings initial={cycle} year={year} tickTickTraining={hasTrainingSource} onExpired={onExpired} onClose={() => { setCycleSettings(false); setRetry((value) => value + 1); }} onSave={(savedCycle) => {
       setData((previous) => previous ? { ...previous, cycle: savedCycle } : previous); setCycleSettings(false); setSaved(true);
     }} />}
   </main>;
