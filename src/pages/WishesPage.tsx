@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AmountInput from '../components/AmountInput';
 import Card from '../components/Card';
 import { formatCurrency } from '../components/CurrencyDisplay';
@@ -133,6 +133,7 @@ export default function WishesPage() {
   const [selectedSegmentDays, setSelectedSegmentDays] = useState<Record<string, number>>({});
   const [deadlineSettingsOpen, setDeadlineSettingsOpen] = useState(false);
   const wishListScrollRef = useRef<HTMLDivElement>(null);
+  const mobileSummaryRef = useRef<HTMLElement>(null);
   const wishScrollFrameRef = useRef<number | null>(null);
   const today = new Date();
   const todayYear = today.getFullYear();
@@ -174,12 +175,12 @@ export default function WishesPage() {
       .reduce((latest, wish) => wish.deadline && wish.deadline > latest ? wish.deadline : latest, todayKey),
     [wishes, todayKey, stats.stateDailyAvg.travel, tripDatesByStart],
   );
-  const selectedPlanningWish = useMemo(() => {
-    const eligible = wishes
-      .filter((wish) => wish.isActive && wish.deadline && wish.deadline >= todayKey && calculateWishFunding(wish, wishTravelLifeAmount(wish, stats.stateDailyAvg.travel, tripDatesByStart)).remainingAmount > 0)
-      .sort((a, b) => (a.deadline ?? '').localeCompare(b.deadline ?? '') || a.id.localeCompare(b.id));
-    return eligible.find((wish) => wish.id === activeWishId) ?? eligible[0] ?? null;
-  }, [activeWishId, wishes, todayKey, stats.stateDailyAvg.travel, tripDatesByStart]);
+  const planningWishes = useMemo(
+    () => wishes.filter((wish) => wish.deadline && wish.deadline >= todayKey)
+      .sort((a, b) => (a.deadline ?? '').localeCompare(b.deadline ?? '') || a.id.localeCompare(b.id)),
+    [wishes, todayKey],
+  );
+  const selectedPlanningWish = planningWishes.find((wish) => wish.id === activeWishId) ?? planningWishes[0] ?? null;
   const selectedWishDeadline = selectedPlanningWish?.deadline && selectedPlanningWish.deadline >= todayKey
     ? selectedPlanningWish.deadline
     : null;
@@ -191,9 +192,8 @@ export default function WishesPage() {
     : undefined;
   const activeTimelineStartDate = activeTimelineTrip?.startDate ?? effectivePlanningDeadline;
   const activeTimelineEndDate = activeTimelineTrip?.endDate ?? effectivePlanningDeadline;
-  const furthestPlanningDeadline = planningDeadline >= todayKey && planningDeadline > defaultPlanningDeadline
-    ? planningDeadline
-    : defaultPlanningDeadline;
+  const furthestPlanningDeadline = [defaultPlanningDeadline, planningDeadline, effectivePlanningDeadline]
+    .reduce((latest, date) => date > latest ? date : latest, todayKey);
   const planningEndYear = Math.max(Number(furthestPlanningDeadline.slice(0, 4)) || todayYear, todayYear);
   const holidayYears = useMemo(
     () => Array.from(
@@ -403,8 +403,8 @@ export default function WishesPage() {
     [plan.items, allTripSegments, todayKey],
   );
   const selectableWishIds = useMemo(
-    () => new Set(Object.keys(milestonePlan.segmentByWishId)),
-    [milestonePlan.segmentByWishId],
+    () => new Set(planningWishes.map((wish) => wish.id)),
+    [planningWishes],
   );
 
   const syncWishes = (items: WishItem[]) => setConfig({
@@ -568,42 +568,53 @@ export default function WishesPage() {
     if (!activeSegment) return;
     setSelectedSegmentDays((current) => ({ ...current, [activeSegment.deadline]: days }));
   };
-  const handleWishListScroll = useCallback((container: HTMLDivElement) => {
+  const handleWishListScroll = useCallback(() => {
     if (wishScrollFrameRef.current !== null) cancelAnimationFrame(wishScrollFrameRef.current);
     wishScrollFrameRef.current = requestAnimationFrame(() => {
-      const containerRect = container.getBoundingClientRect();
-      const anchor = containerRect.top + 24;
-      const cards = container.querySelectorAll<HTMLElement>('[data-wish-id]');
-      const reachedBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= 8;
-      if (reachedBottom) {
-        for (let index = cards.length - 1; index >= 0; index -= 1) {
-          const wishId = cards[index].dataset.wishId;
-          if (!wishId || !selectableWishIds.has(wishId)) continue;
-          setActiveWishId(wishId);
-          wishScrollFrameRef.current = null;
-          return;
-        }
-      }
-      let closestWishId: string | null = null;
-      let closestDistance = Number.POSITIVE_INFINITY;
-      for (const card of cards) {
-        const wishId = card.dataset.wishId;
-        if (!wishId || !selectableWishIds.has(wishId)) continue;
-        const rect = card.getBoundingClientRect();
-        if (rect.bottom < containerRect.top || rect.top > containerRect.bottom) continue;
-        const distance = Math.abs(rect.top - anchor);
-        if (distance >= closestDistance) continue;
-        closestDistance = distance;
-        closestWishId = wishId;
-      }
-      if (closestWishId) setActiveWishId(closestWishId);
       wishScrollFrameRef.current = null;
+      const list = wishListScrollRef.current;
+      const isSplitLayout = window.matchMedia('(min-width: 1024px)').matches;
+      const container = isSplitLayout ? list : document.getElementById('root');
+      if (!list || !container) return;
+      const viewport = container.getBoundingClientRect();
+      const viewportTop = Math.max(viewport.top, 0);
+      const viewportBottom = Math.min(viewport.bottom, window.innerHeight);
+      const summaryBottom = isSplitLayout ? viewportTop : mobileSummaryRef.current?.getBoundingClientRect().bottom ?? viewportTop;
+      const anchor = Math.max(viewportTop, summaryBottom) + 12;
+      const cards = Array.from(list.querySelectorAll<HTMLElement>('[data-wish-id]'))
+        .filter((card) => card.dataset.wishId && selectableWishIds.has(card.dataset.wishId));
+      const reachedBottom = container.scrollTop > 0
+        && container.scrollHeight > container.clientHeight + 8
+        && container.scrollHeight - container.scrollTop - container.clientHeight <= 8;
+      if (reachedBottom) {
+        const lastId = cards[cards.length - 1]?.dataset.wishId;
+        if (lastId) setActiveWishId(lastId);
+        return;
+      }
+      // Follow the first wish visible below the sticky summary, including a partly visible card.
+      for (const card of cards) {
+        const rect = card.getBoundingClientRect();
+        if (rect.bottom <= anchor || rect.top >= viewportBottom) continue;
+        setActiveWishId(card.dataset.wishId!);
+        return;
+      }
     });
   }, [selectableWishIds]);
 
-  useEffect(() => () => {
-    if (wishScrollFrameRef.current !== null) cancelAnimationFrame(wishScrollFrameRef.current);
-  }, []);
+  useEffect(() => {
+    const root = document.getElementById('root');
+    const list = wishListScrollRef.current;
+    root?.addEventListener('scroll', handleWishListScroll, { passive: true });
+    list?.addEventListener('scroll', handleWishListScroll, { passive: true });
+    window.addEventListener('resize', handleWishListScroll);
+    handleWishListScroll();
+    return () => {
+      root?.removeEventListener('scroll', handleWishListScroll);
+      list?.removeEventListener('scroll', handleWishListScroll);
+      window.removeEventListener('resize', handleWishListScroll);
+      if (wishScrollFrameRef.current !== null) cancelAnimationFrame(wishScrollFrameRef.current);
+    };
+  }, [handleWishListScroll]);
 
   useEffect(() => {
     if (!budgetEstimateWishId) return undefined;
@@ -931,7 +942,6 @@ export default function WishesPage() {
       <div
         ref={wishListScrollRef}
         className="wish-list-scroll"
-        onScroll={(event) => handleWishListScroll(event.currentTarget)}
       >
       <WishDebtSummary wishes={wishes} total={config.wishDebtTotal} onChange={updateDebtTotal} />
       <Card className="wish-list-card" title="心愿清单" subtitle={`${wishes.length} 个心愿`}>
@@ -943,6 +953,11 @@ export default function WishesPage() {
           </div>
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {selectedPlanningWish ? (
+            <section ref={mobileSummaryRef} className="wish-mobile-financial-summary" aria-label={`${selectedPlanningWish.name} 收支规划`}>
+              {planningFinancialSummary}
+            </section>
+          ) : null}
           {orderedPlanItems.map((item) => {
             const daysRemaining = item.deadline ? daysUntilDate(item.deadline, today) : null;
             const targetKey = `${item.id}:targetAmount`;
@@ -1005,8 +1020,8 @@ export default function WishesPage() {
             const budgetEstimateVisible = !hasActualTarget && budgetEstimateWishId === item.id;
             const isSelectedPlanningWish = selectedPlanningWish?.id === item.id;
             return (
-              <Fragment key={item.id}>
               <div
+                key={item.id}
                 data-wish-id={item.id}
                 aria-current={isSelectedPlanningWish ? 'true' : undefined}
                 onClick={() => {
@@ -1351,12 +1366,6 @@ export default function WishesPage() {
                   </>}
                 </div>
               </div>
-              {activeWishId === item.id && isSelectedPlanningWish && internPlan.wishAmountIncludingLife > 0 ? (
-                <section className="wish-mobile-financial-summary" aria-label={`${item.name} 收支规划`}>
-                  {planningFinancialSummary}
-                </section>
-              ) : null}
-              </Fragment>
             );
           })}
         </div>
