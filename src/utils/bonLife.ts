@@ -6,7 +6,7 @@ import { isCalendarDate, nextCalendarDate } from './outlookCalendar.js';
 export const LIFE_KINDS = ['skin', 'mood', 'body', 'training'] as const;
 export type LifeKind = typeof LIFE_KINDS[number];
 export type LifeView = LifeKind | 'done';
-export const LIFE_LABELS: Record<LifeView, string> = { skin: '皮肤', mood: '情绪', body: '体围', training: '训练', done: 'DoneList' };
+export const LIFE_LABELS: Record<LifeView, string> = { skin: '皮肤', mood: '情绪', body: '身体数据', training: '训练', done: 'DoneList' };
 export const LIFE_TEXT_LIMIT = 2000;
 export const BODY_FIELDS = {
   weight: { label: '体重', unit: 'kg', max: 500 },
@@ -68,7 +68,7 @@ export function parseLifeEdit(value: unknown) {
   }
   if (edit.skin !== undefined) details.skin = parseSkinRecord(edit.skin);
   if (edit.body !== undefined) {
-    if (!edit.body || typeof edit.body !== 'object' || Array.isArray(edit.body)) throw new Error('体围记录无效');
+    if (!edit.body || typeof edit.body !== 'object' || Array.isArray(edit.body)) throw new Error('身体数据无效');
     details.body = {};
     for (const [key, value] of Object.entries(edit.body)) {
       if (!Object.prototype.hasOwnProperty.call(BODY_FIELDS, key) || !isBodyValue(key as BodyMetric, value)) throw new Error('身体数据无效');
