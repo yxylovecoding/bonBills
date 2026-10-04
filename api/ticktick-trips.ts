@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { DAILY_PLAN_KEY, DAILY_PLAN_SETTINGS_KEY, dailyBudget, planTickTickDay, refreshDailyHistory, type DailyPlanState } from './_ticktickDailyPlan.js';
 import { authOk } from './_auth.js';
 import { kv } from '@vercel/kv';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
@@ -47,6 +49,7 @@ async function runSync(allowDisconnected = false) {
       decryptTickTickToken,
       getTickTickRoutineExcludedTaskIds,
       readConnectedTickTickTemplate,
+      readAllTickTickTasks,
       reconcileTickTickTrips,
       reconcileTickTickWishPreparations,
       syncTickTickRoutines,
@@ -67,6 +70,18 @@ async function runSync(allowDisconnected = false) {
       ? { ...savedState, instances: savedState.instances ?? {} }
       : { instances: {} };
     try {
+      const connectionId = createHash('sha256').update(token).digest('hex');
+      const [savedPlan, settings, sourceTasks] = await Promise.all([
+        kv.get<DailyPlanState>(DAILY_PLAN_KEY),
+        kv.get<{ budgetMinutes?: number }>(DAILY_PLAN_SETTINGS_KEY),
+        readAllTickTickTasks(api, [0]),
+      ]);
+      const dailyPlan: DailyPlanState = savedPlan?.connectionId === connectionId
+        ? { ...savedPlan, history: [...savedPlan.history], deadlines: { ...savedPlan.deadlines } }
+        : { connectionId, history: [], deadlines: {} };
+      // Read history before any scene/date writes; a failed read is never "never done".
+      await refreshDailyHistory(api, sourceTasks, dailyPlan);
+      await kv.set(DAILY_PLAN_KEY, dailyPlan);
       const template = await readConnectedTickTickTemplate(api, connection);
       const trips = buildTripSourcesFromSyncState(calendarState, tripState);
       const result = await reconcileTickTickTrips({
@@ -92,10 +107,18 @@ async function runSync(allowDisconnected = false) {
       const routineResult = await syncTickTickRoutines({
         api, calendarState, today,
         excludedTaskIds: getTickTickRoutineExcludedTaskIds(template, state),
+        planDay: async (tasks) => {
+          const plan = planTickTickDay({ tasks, calendarState, today, state: dailyPlan,
+            budgetMinutes: settings?.budgetMinutes, excludedTaskIds: getTickTickRoutineExcludedTaskIds(template, state) });
+          // Save cycle anchors before writes so a partially failed run can be retried.
+          await kv.set(DAILY_PLAN_KEY, { ...dailyPlan, summary: savedPlan?.summary });
+          return plan.dates;
+        },
       });
+      await kv.set(DAILY_PLAN_KEY, dailyPlan);
       console.info('[ticktick-routine-sync]', JSON.stringify(routineResult));
       console.info('[ticktick-trip-sync]', JSON.stringify({ ...result, ...wishResult }));
-      return { busy: false as const, ...result, ...wishResult, ...routineResult, lastSyncAt: state.lastSyncAt };
+      return { busy: false as const, ...result, ...wishResult, ...routineResult, dailyPlan: dailyPlan.summary, budgetMinutes: dailyBudget(settings?.budgetMinutes), lastSyncAt: state.lastSyncAt };
     } catch (error) {
       state.lastError = error instanceof Error ? error.message : String(error);
       await kv.set(SYNC_STATE_KEY, state);
@@ -162,17 +185,24 @@ async function connect(req: VercelRequest) {
     connectedAt: new Date().toISOString(),
   };
   await kv.set(CONNECTION_KEY, connection);
-  if (!sameConnection) await kv.set<TickTickTripSyncState>(SYNC_STATE_KEY, { instances: {} });
+  if (!sameConnection) {
+    await kv.set<TickTickTripSyncState>(SYNC_STATE_KEY, { instances: {} });
+    await kv.set(DAILY_PLAN_KEY, null);
+  }
   return { busy: false as const };
 }
 
 async function status() {
-  const [connection, state] = await Promise.all([
+  const [connection, state, plan, settings] = await Promise.all([
     kv.get<TickTickConnection>(CONNECTION_KEY),
     kv.get<TickTickTripSyncState>(SYNC_STATE_KEY),
+    kv.get<DailyPlanState>(DAILY_PLAN_KEY),
+    kv.get<{ budgetMinutes?: number }>(DAILY_PLAN_SETTINGS_KEY),
   ]);
   return {
     connected: Boolean(connection),
+    dailyPlan: connection ? plan?.summary : undefined,
+    budgetMinutes: dailyBudget(settings?.budgetMinutes),
     templateTitle: connection ? '出门todo模版' : undefined,
     lastSyncAt: state?.lastSyncAt,
     error: state?.lastError,
@@ -195,6 +225,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(result.busy ? 202 : 200).json({ ok: true, ...result });
     }
     if (req.method === 'GET') return res.status(200).json(await status());
+    if (req.method === 'PATCH') {
+      let body;
+      try { body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body; }
+      catch { return res.status(400).json({ error: '日常用时格式无效' }); }
+      if (!Number.isInteger(body?.budgetMinutes) || body.budgetMinutes < 10 || body.budgetMinutes > 240) {
+        return res.status(400).json({ error: '日常用时须为 10 至 240 分钟' });
+      }
+      await kv.set(DAILY_PLAN_SETTINGS_KEY, { budgetMinutes: body.budgetMinutes });
+      return res.status(200).json({ ok: true, ...await status() });
+    }
     if (req.method === 'PUT') {
       const result = await connect(req);
       return res.status(result.busy ? 202 : 200).json({

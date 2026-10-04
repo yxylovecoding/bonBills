@@ -84,10 +84,12 @@ export interface TickTickTask {
   reminders?: string[];
   tags?: string[];
   repeatFlag?: string;
+  repeatFrom?: string | number;
   priority?: number;
   sortOrder?: number;
   status?: number;
   completedTime?: string;
+  createdTime?: string;
   kind?: string;
   parentId?: string;
   items?: TickTickChecklistItem[];
@@ -547,7 +549,7 @@ export function getTickTickRoutineTargetDates(calendarState: unknown, today: str
   };
 }
 
-function routineScenes(task: TickTickTask): Array<keyof TickTickRoutineTargets> {
+export function routineScenes(task: TickTickTask): Array<keyof TickTickRoutineTargets> {
   const scenes = new Set<keyof TickTickRoutineTargets>();
   for (const tag of task.tags ?? []) {
     const label = tag.normalize('NFKC').trim();
@@ -610,7 +612,7 @@ export function getTickTickRoutineExcludedTaskIds(template: TickTickTemplate, st
   return ids;
 }
 
-function calendarDateInTimeZone(value: string | undefined, timeZone = 'Asia/Shanghai'): string | null {
+export function calendarDateInTimeZone(value: string | undefined, timeZone = 'Asia/Shanghai'): string | null {
   if (!value) return null;
   const rawDate = value.slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) return null;
@@ -637,11 +639,11 @@ function calendarDateInTimeZone(value: string | undefined, timeZone = 'Asia/Shan
   }
 }
 
-function routineTaskDate(task: TickTickTask): string | null {
+export function routineTaskDate(task: TickTickTask): string | null {
   return calendarDateInTimeZone(task.dueDate || task.startDate, task.timeZone);
 }
 
-function routineOccurrenceKey(task: TickTickTask): string {
+export function routineOccurrenceKey(task: TickTickTask): string {
   // Completing a repeating task creates a history record with a new ID.
   // Keep the parent boundary so unrelated same-named tasks cannot postpone it.
   return JSON.stringify([task.projectId, task.parentId ?? '', task.title]);
@@ -697,6 +699,7 @@ function routineTaskPayload(task: TickTickTask, targetDate: string): Record<stri
     ...(task.reminders !== undefined ? { reminders: task.reminders } : {}),
     ...(task.tags !== undefined ? { tags: task.tags } : {}),
     ...(task.repeatFlag ? { repeatFlag: task.repeatFlag } : {}),
+    ...(task.repeatFrom !== undefined ? { repeatFrom: task.repeatFrom } : {}),
     ...(task.priority !== undefined ? { priority: task.priority } : {}),
     ...(task.sortOrder !== undefined ? { sortOrder: task.sortOrder } : {}),
     ...(task.kind ? { kind: task.kind } : {}),
@@ -723,7 +726,8 @@ async function updateRoutineTaskDate(
     const saved = updated.items?.find((candidate) => candidate.id === item.id);
     return !saved || checklistItemDate(saved, updated.timeZone) !== targetDate;
   });
-  if (preserveRepeat && (updated.repeatFlag || '') !== (task.repeatFlag || '')) {
+  if (preserveRepeat && ((updated.repeatFlag || '') !== (task.repeatFlag || '')
+    || (task.repeatFrom !== undefined && String(updated.repeatFrom) !== String(task.repeatFrom)))) {
     throw new Error(`TickTick 未正确保留“${task.title}”的重复规则`);
   }
   if (!datesPersisted || !itemsPersisted || !routineTaskIsAligned(updated, targetDate)) {
@@ -745,6 +749,7 @@ export async function syncTickTickRoutines(options: {
   calendarState: unknown;
   today: string;
   excludedTaskIds?: ReadonlySet<string>;
+  planDay?: (tasks: TickTickTask[]) => Promise<ReadonlyMap<string, string>>;
 }): Promise<TickTickRoutineSyncResult> {
   const { api, calendarState, today, excludedTaskIds = new Set<string>() } = options;
   const tagMap = calendarTagMapFromSyncState(calendarState);
@@ -807,6 +812,7 @@ export async function syncTickTickRoutines(options: {
     .map(routineOccurrenceKey));
   const tomorrowTargets = getTickTickRoutineTargetDates(calendarState, addCalendarDays(today, 1));
 
+  const targetDates = new Map<string, string>();
   for (const { task, scenes, recurrence } of schedulingCandidates) {
     const completedThisOccurrence = Boolean(task.repeatFlag)
       && completedKeys.has(routineOccurrenceKey(task));
@@ -818,7 +824,19 @@ export async function syncTickTickRoutines(options: {
       })
       : scenes.map((scene) => targets[scene]).filter((date): date is string => date !== null).sort()[0];
     if (!taskTargetDate) continue;
-    const updated = await updateRoutineTaskDate(api, task, taskTargetDate, recurrence === 'long');
+    targetDates.set(task.id, taskTargetDate);
+  }
+
+  // Plan against the scene-adjusted snapshot before writing, so a second sync
+  // does not first pull deferred tasks back to today and then move them again.
+  if (options.planDay) {
+    const sceneTasks = allTasks.map((task) => targetDates.has(task.id)
+      ? { ...task, ...routineTaskPayload(task, targetDates.get(task.id)!) } as TickTickTask : task);
+    for (const [id, date] of await options.planDay(sceneTasks)) targetDates.set(id, date);
+  }
+  for (const [id, date] of targetDates) {
+    const task = tasksById.get(id)!;
+    const updated = await updateRoutineTaskDate(api, task, date, true);
     if (!updated) continue;
     tasksById.set(task.id, updated);
     updatedRoutineTasks += 1;

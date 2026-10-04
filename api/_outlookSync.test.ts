@@ -10,7 +10,7 @@ const { data, routineSync, tripSync, wishSync, templateRead, auth, events, doneS
   data: new Map<string, unknown>(), routineSync: vi.fn(), tripSync: vi.fn(), wishSync: vi.fn(), templateRead: vi.fn(), auth: vi.fn(), events: [] as string[], doneSync: vi.fn(), swimmingSync: vi.fn(),
 }));
 vi.mock('./_lifeSwimming.js', () => ({ syncSwimmingSchedule: swimmingSync }));
-vi.mock('./_lifeDone.js', () => ({ syncRecentLifeDone: doneSync }));
+vi.mock('./_lifeDone.js', () => ({ syncRecentLifeDone: doneSync, collectCompleted: async () => [] }));
 vi.mock('./_auth.js', () => ({ authOk: auth }));
 vi.mock('@vercel/kv', () => ({ kv: {
   get: async (key: string) => structuredClone(data.get(key) ?? null),
@@ -26,6 +26,7 @@ vi.mock('./_ticktickTrips.js', () => ({
   decryptTickTickToken: () => 'token',
   TickTickOpenApiClient: class {},
   readConnectedTickTickTemplate: templateRead,
+  readAllTickTickTasks: async () => [],
   getTickTickRoutineExcludedTaskIds: () => new Set(['template']),
   syncTickTickRoutines: routineSync,
   buildTripSourcesFromSyncState: (calendar: unknown) => calendar,

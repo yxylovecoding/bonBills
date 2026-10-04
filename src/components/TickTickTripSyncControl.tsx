@@ -4,6 +4,7 @@ import {
   disconnectTickTick,
   loadTickTickSyncStatus,
   syncTickTickTrips,
+  saveTickTickDailyBudget,
   useTickTickSyncStatus,
 } from '../utils/tickTickSync';
 
@@ -18,9 +19,11 @@ const BUTTON_STYLE: React.CSSProperties = {
 };
 
 export default function TickTickTripSyncControl() {
-  const { connection, operation, message } = useTickTickSyncStatus();
+  const { connection, operation, message, budgetMinutes, dailyPlan } = useTickTickSyncStatus();
   const [editing, setEditing] = useState(false);
   const [token, setToken] = useState('');
+  const [budget, setBudget] = useState('30');
+  useEffect(() => { setBudget(String(budgetMinutes ?? 30)); }, [budgetMinutes]);
 
   useEffect(() => {
     void loadTickTickSyncStatus();
@@ -66,6 +69,24 @@ export default function TickTickTripSyncControl() {
           )}
         </div>
       </div>
+      {connected && (
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 8, fontSize: 11, color: '#5f6368' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            日常用时
+            <input aria-label="日常用时" type="number" min={10} max={240} step={5} value={budget} disabled={busy}
+              onChange={(event) => setBudget(event.target.value)}
+              style={{ width: 44, border: '1px solid #dadce0', borderRadius: 5, padding: '3px 4px', fontSize: 11 }} />
+            分钟
+          </label>
+          {Number(budget) !== (budgetMinutes ?? 30) && (
+            <button type="button" style={BUTTON_STYLE} disabled={busy || !Number.isInteger(Number(budget)) || Number(budget) < 10 || Number(budget) > 240}
+              onClick={() => { void saveTickTickDailyBudget(Number(budget)).catch(() => undefined); }}>保存</button>
+          )}
+          {dailyPlan && <span>{dailyPlan.date.slice(5)} · {dailyPlan.todayCount} 项 · 约 {dailyPlan.plannedMinutes} 分钟</span>}
+          {Boolean(dailyPlan?.cycleRiskCount) && <span style={{ color: '#e8710a' }}>{dailyPlan!.cycleRiskCount} 项周期紧张</span>}
+          {Boolean(dailyPlan?.oversizedCount) && <span style={{ color: '#e8710a' }}>{dailyPlan!.oversizedCount} 项用时较长</span>}
+        </div>
+      )}
       {editing && !connected && (
         <form
           onSubmit={(event) => {

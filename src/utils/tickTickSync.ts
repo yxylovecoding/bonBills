@@ -4,13 +4,28 @@ import { create } from 'zustand';
 export type TickTickConnectionState = 'unknown' | 'connected' | 'disconnected';
 export type TickTickOperationState = 'idle' | 'connecting' | 'syncing' | 'synced' | 'error';
 
+export interface TickTickDailyPlan {
+  date: string;
+  todayCount: number;
+  plannedMinutes: number;
+  availableMinutes: number;
+  importantCount: number;
+  deferredCount: number;
+  cycleRiskCount: number;
+  oversizedCount: number;
+}
+
 interface TickTickStatusResponse {
+  dailyPlan?: TickTickDailyPlan;
+  budgetMinutes?: number;
   connected: boolean;
   lastSyncAt?: string;
   error?: string;
 }
 
 interface TickTickSyncStore {
+  dailyPlan?: TickTickDailyPlan;
+  budgetMinutes?: number;
   connection: TickTickConnectionState;
   operation: TickTickOperationState;
   message: string;
@@ -50,6 +65,8 @@ export async function loadTickTickSyncStatus() {
       operation: body?.error ? 'error' : 'idle',
       message: body?.error ?? '',
       lastSyncAt: body?.lastSyncAt,
+      dailyPlan: body?.dailyPlan,
+      budgetMinutes: body?.budgetMinutes,
     });
     return Boolean(body?.connected);
   } catch (error) {
@@ -68,6 +85,8 @@ export async function connectTickTick(token: string) {
       operation: body?.error ? 'error' : 'idle',
       message: body?.error ?? '',
       lastSyncAt: body?.lastSyncAt,
+      dailyPlan: body?.dailyPlan,
+      budgetMinutes: body?.budgetMinutes,
     });
   } catch (error) {
     store.setStatus({
@@ -90,6 +109,8 @@ export async function syncTickTickTrips() {
       operation: 'synced',
       message: '',
       lastSyncAt: body?.lastSyncAt,
+      dailyPlan: body?.dailyPlan,
+      budgetMinutes: body?.budgetMinutes,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -105,4 +126,17 @@ export async function disconnectTickTick() {
   const store = useTickTickSyncStatus.getState();
   await requestTickTick({ method: 'DELETE' });
   store.setStatus({ connection: 'disconnected', operation: 'idle', message: '', lastSyncAt: undefined });
+}
+
+export async function saveTickTickDailyBudget(budgetMinutes: number) {
+  const store = useTickTickSyncStatus.getState();
+  store.setStatus({ operation: 'syncing', message: '' });
+  try {
+    const body = await requestTickTick({ method: 'PATCH', body: JSON.stringify({ budgetMinutes }) });
+    store.setStatus({ budgetMinutes: body?.budgetMinutes, dailyPlan: body?.dailyPlan });
+    await syncTickTickTrips();
+  } catch (error) {
+    store.setStatus({ operation: 'error', message: error instanceof Error ? error.message : String(error) });
+    throw error;
+  }
 }
