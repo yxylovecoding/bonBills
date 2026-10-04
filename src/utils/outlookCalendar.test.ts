@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { applyOutlookSnapshotToState, buildOutlookSnapshot, DEFAULT_OUTLOOK_RULES, normalizeOutlookCalendarState, reconcileOutlookSnapshot, type OutlookDayEvent } from './outlookCalendar';
 import { useCalendarStore } from '../stores/calendarStore';
 import { detectAllTrips } from './trips';
@@ -7,6 +7,30 @@ const start = '2026-09-01';
 const end = '2026-10-01';
 const event = (values: Partial<OutlookDayEvent> = {}): OutlookDayEvent => ({ calendar: 'play', title: '出游', startDate: '2026-09-22', endDate: '2026-09-23', allDay: true, ...values });
 const snapshot = (events: OutlookDayEvent[]) => buildOutlookSnapshot(events, start, end, DEFAULT_OUTLOOK_RULES);
+
+beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-09-01T00:00:00+08:00')); });
+afterEach(() => vi.useRealTimers());
+
+describe('订阅窗口移走后的历史留存', () => {
+  it('三个月后空订阅保留历史标记、名称和来源，仍可接受明确的新日程', () => {
+    const old = applyOutlookSnapshotToState({}, snapshot([event({ title: '已结束的旅行' })]), 'manual');
+    vi.setSystemTime(new Date('2027-01-04T00:00:00+08:00'));
+    expect(applyOutlookSnapshotToState(old, snapshot([]), 'manual')).toEqual(old);
+    const corrected = applyOutlookSnapshotToState(old, snapshot([event({ title: '🏠' })]), 'outlook');
+    expect(corrected.tagMap['2026-09-22']).toBe('home');
+    expect(corrected.outlookTravelTitles['2026-09-22']).toBeUndefined();
+  });
+  it('上海日期之前保留；今天和未来缺失的日程仍按取消处理', () => {
+    const old = applyOutlookSnapshotToState({}, snapshot([
+      event({ startDate: '2026-09-21', endDate: '2026-09-24', title: '旅行' }),
+    ]), 'manual');
+    vi.setSystemTime(new Date('2026-09-21T16:00:00Z'));
+    const next = applyOutlookSnapshotToState(old, snapshot([]), 'manual');
+    expect(next.tagMap).toEqual({ '2026-09-21': 'travel' });
+    expect(next.outlookTravelTitles).toEqual({ '2026-09-21': '旅行' });
+    expect(Object.keys(next.outlookApplied)).toEqual(['2026-09-21']);
+  });
+});
 
 describe('Outlook 月历映射', () => {
   it.each([

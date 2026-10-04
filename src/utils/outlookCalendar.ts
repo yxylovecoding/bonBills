@@ -108,6 +108,7 @@ export function getTripDisplayTitle(billTag: string | undefined, dates: string[]
 export function reconcileOutlookSnapshot(
   current: Record<string, TagKind>, applied: OutlookAppliedDays, manualDates: Record<string, true>,
   snapshot: OutlookSnapshot, policy: OutlookConflictPolicy,
+  today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date()),
 ): { tagMap: Record<string, TagKind>; outlookApplied: OutlookAppliedDays; manualTagDates: Record<string, true> } {
   const tagMap = { ...current };
   const outlookApplied = { ...applied };
@@ -119,6 +120,8 @@ export function reconcileOutlookSnapshot(
     const next = snapshot.tags[day];
     const manuallyChanged = Boolean(manualDates[day]) || (previous && current[day] !== previous.tag);
     if (!next) {
+      // Published feeds have a rolling window: absence is not evidence of a past cancellation.
+      if (day < today) continue;
       if (previous && current[day] === previous.tag && (!manuallyChanged || previous.tag === 'travel')) {
         if (previous.previousTag && !(previous.tag === 'travel' && previous.previousTag === 'travel')) tagMap[day] = previous.previousTag;
         else delete tagMap[day];
@@ -159,13 +162,14 @@ export function normalizeOutlookCalendarState(state: Record<string, unknown>) {
 }
 
 // Shared by the browser and background sync so cancellations and manual overrides agree.
-export function applyOutlookSnapshotToState(state: Record<string, unknown>, snapshot: OutlookSnapshot, policy: OutlookConflictPolicy) {
+export function applyOutlookSnapshotToState(state: Record<string, unknown>, snapshot: OutlookSnapshot, policy: OutlookConflictPolicy,
+  today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date())) {
   const source = normalizeOutlookCalendarState(state);
   const tagMap = state.tagMap && typeof state.tagMap === 'object' ? state.tagMap as Record<string, TagKind> : {};
-  const next = reconcileOutlookSnapshot(tagMap, source.outlookApplied, source.manualTagDates, snapshot, policy);
+  const next = reconcileOutlookSnapshot(tagMap, source.outlookApplied, source.manualTagDates, snapshot, policy, today);
   const outlookTravelTitles = normalizeOutlookTravelTitles(state.outlookTravelTitles);
   for (const day of Object.keys(outlookTravelTitles)) {
-    if (day >= snapshot.startDate && day < snapshot.endDate) delete outlookTravelTitles[day];
+    if (day >= snapshot.startDate && day < snapshot.endDate && (day >= today || snapshot.tags[day])) delete outlookTravelTitles[day];
   }
   for (const [day, title] of Object.entries(normalizeOutlookTravelTitles(snapshot.travelTitles))) {
     if (day >= snapshot.startDate && day < snapshot.endDate && snapshot.tags[day] === 'travel') outlookTravelTitles[day] = title;

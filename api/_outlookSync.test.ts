@@ -203,6 +203,20 @@ describe('后台 Outlook 拉取与 TickTick 顺序', () => {
 });
 
 describe('前后台快照与旧页面上传', () => {
+  it('三个月后月度空订阅及旧页面上传都保留历史行程和名称', async () => {
+    const stale = structuredClone(calendar());
+    await saveOutlookSnapshot(connection(), { ...snapshot({ '2026-09-25': 'travel' }),
+      travelTitles: { '2026-09-25': '历史旅行' } }, 'manual', 1);
+    vi.setSystemTime(new Date('2027-01-04T00:00:00+08:00'));
+    await saveOutlookSnapshot(connection(), snapshot({}), 'manual', 2);
+    expect(calendar().tagMap['2026-09-25']).toBe('travel');
+    expect(calendar().outlookTravelTitles['2026-09-25']).toBe('历史旅行');
+    await saveUploadedCalendarState(stale);
+    expect(calendar().tagMap['2026-09-25']).toBe('travel');
+    expect(calendar().outlookTravelTitles['2026-09-25']).toBe('历史旅行');
+    expect(calendar().confirmedExpenses).toEqual(stale.confirmedExpenses);
+  });
+
   it('取消事件恢复原标记，旧页面上传不会复活已取消日程，也不会抹掉新增日程', async () => {
     const conn = connection();
     await saveOutlookSnapshot(conn, snapshot({ '2026-09-25': 'travel' }), 'manual', 1);

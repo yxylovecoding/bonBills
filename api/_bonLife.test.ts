@@ -75,6 +75,21 @@ describe('经期 Outlook 解析', () => {
       await expect(syncLifePeriods(connection(), 2026)).rejects.toThrow('日历连接或内容已更新');
     }
   });
+  it('三个月后订阅不再包含已补入的经期，重新同步仍保留原始日期', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2027-01-04T00:00:00+08:00'));
+      data.set(periodsKey(2026), { events: [
+        { uid: 'archived', startDate: '2026-09-01', endDate: '2026-09-04' },
+      ], requestedAt: 1 });
+      vi.stubGlobal('fetch', vi.fn(async () => new Response(calendar([]))));
+      const result = await syncLifePeriods(connection(), 2026);
+      expect(result.periodDays).toEqual(['2026-09-01', '2026-09-02', '2026-09-03']);
+      expect(JSON.parse(evalMock.mock.calls[0][2][2]).events).toEqual([
+        { uid: 'archived', startDate: '2026-09-01', endDate: '2026-09-04' },
+      ]);
+    } finally { vi.useRealTimers(); }
+  });
 });
 
 describe('BonLife 接口', () => {

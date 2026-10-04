@@ -69,9 +69,19 @@ export async function saveOutlookSnapshot(connection: OutlookConnection, snapsho
     if (!replaceConnection && latest?.id !== connection.id) throw new Error('连接已变更，请重新同步');
     const previous = saved?.connectionId === connection.id ? saved : null;
     if (previous && requestedAt < previous.requestedAt) throw new Error('日历已更新，请重新同步');
+    const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date());
+    const calendar = applyOutlookSnapshotToState(asCalendarState(current), snapshot, policy, today);
+    // Include retained history in the replay cache, so an old browser upload cannot erase it.
+    const archived: OutlookSnapshot = { ...snapshot, tags: { ...snapshot.tags }, travelTitles: { ...snapshot.travelTitles } };
+    for (const [day, applied] of Object.entries(calendar.outlookApplied)) {
+      if (day < today && day >= snapshot.startDate && day < snapshot.endDate
+        && !snapshot.tags[day] && calendar.tagMap[day] === applied.tag) {
+        archived.tags[day] = applied.tag;
+        if (calendar.outlookTravelTitles[day]) archived.travelTitles![day] = calendar.outlookTravelTitles[day];
+      }
+    }
     const snapshots: SavedSnapshots = { connectionId: connection.id, requestedAt, policy,
-      snapshots: replaceSnapshotWindow(previous?.snapshots ?? [], snapshot) };
-    const calendar = applyOutlookSnapshotToState(asCalendarState(current), snapshot, policy);
+      snapshots: replaceSnapshotWindow(previous?.snapshots ?? [], archived) };
     // Publish the calendar and cache together; uploads can never see only half of this update.
     await kv.mset({ [CALENDAR_KEY]: calendar, [SNAPSHOTS_KEY]: snapshots,
       ...(replaceConnection ? { [OUTLOOK_CONNECTION_KEY]: connection } : {}) });
