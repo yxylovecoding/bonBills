@@ -112,6 +112,9 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
     if (next.getUTCFullYear() < 1900 || next.getUTCFullYear() > 2200) return;
     setSelection((previous) => ({ ...previous, year: next.getUTCFullYear(), month: next.getUTCMonth() + 1 }));
   }
+  function openEntry(entry: LifeDraft) {
+    setDraft(readDraft(owner, entry) ?? entry);
+  }
   async function logout() {
     if (loggingOut) return;
     setLoggingOut(true);
@@ -171,7 +174,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
     {kind === 'body' && !error && <Suspense fallback={<p className="life-empty-state" role="status">曲线读取中…</p>}>
       <LifeBodyTrends year={year} month={month} entries={current?.entries} loading={loading || !current}
         onPeriodChange={(period) => setSelection((previous) => ({ ...previous, ...period }))}
-        onEdit={(date) => setDraft({ date, kind: 'body', text: '', revision: '', ...current?.entries[`body:${date}`], mutationId: crypto.randomUUID() })} />
+        onEdit={(date) => openEntry({ date, kind: 'body', text: '', revision: '', ...current?.entries[`body:${date}`], mutationId: crypto.randomUUID() })} />
     </Suspense>}
     {kind === 'done' ? <LifeDoneList onExpired={onExpired} /> : kind !== 'body' && <section className={`life-calendar${kind === 'training' ? ' life-training-calendar' : ''}`} aria-label={`${year}年${month}月${LIFE_LABELS[kind]}日历`} aria-busy={loading}>
       <div className="life-weekdays">{WEEKDAYS.map((day) => <span key={day}>{day}</span>)}</div>
@@ -190,7 +193,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
         return <button type="button" key={date} disabled={loading || !current || Boolean(error) || (kind === 'training' && trainingSource.busy && !trainingSource.current?.completions)}
           className={`life-day${phase ? ` phase-${phase.phase}` : period ? ' phase-menstrual' : ''}${date === now ? ' is-today' : ''}`}
           aria-label={`${date} ${LIFE_LABELS[kind]} ${phaseLabel}${planStatus ? ` ${planStatus}` : ''}${summary ? `：${summary}` : '：未记录'}`}
-          onClick={() => setDraft({ date, kind, text: '', revision: '', ...entry,
+          onClick={() => openEntry({ date, kind, text: '', revision: '', ...entry,
             ...(planned ? { training: planned } : {}),
             mutationId: crypto.randomUUID() })}>
           <span className="life-day-heading"><span className="life-day-number">{Number(date.slice(-2))}</span>{phaseLabel && <span className={`life-period-mark phase-${phase?.phase}`} aria-hidden="true">{phaseLabel}</span>}</span>

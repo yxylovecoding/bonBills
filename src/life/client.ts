@@ -25,10 +25,22 @@ export async function lifeRequest<T>(method: string, body?: Record<string, unkno
 
 export interface LifeDraft extends LifeEntry { date: string; kind: LifeKind; mutationId: string }
 export function draftKey(owner: string) { return `bonlife:draft:v1:${encodeURIComponent(owner)}`; }
-export function readDraft(owner: string): LifeDraft | null {
+type DraftDate = Pick<LifeDraft, 'date' | 'kind'>;
+function datedDraftKey(owner: string, draft: DraftDate) { return `${draftKey(owner)}:${draft.kind}:${draft.date}`; }
+function sameDraft(left: DraftDate | null, right: DraftDate) { return left?.date === right.date && left.kind === right.kind; }
+export function saveDraft(owner: string, draft: LifeDraft) {
+  const value = JSON.stringify(draft);
+  localStorage.setItem(datedDraftKey(owner, draft), value);
+  localStorage.setItem(draftKey(owner), value);
+}
+export function removeDraft(owner: string, draft: DraftDate) {
+  localStorage.removeItem(datedDraftKey(owner, draft));
+  if (sameDraft(readDraft(owner), draft)) localStorage.removeItem(draftKey(owner));
+}
+export function readDraft(owner: string, date?: DraftDate): LifeDraft | null {
   try {
-    const value = JSON.parse(localStorage.getItem(draftKey(owner)) || 'null') as LifeDraft | null;
-    if (!value || !LIFE_KINDS.includes(value.kind)) return null;
+    const value = JSON.parse((date && localStorage.getItem(datedDraftKey(owner, date))) || localStorage.getItem(draftKey(owner)) || 'null') as LifeDraft | null;
+    if (!value || !LIFE_KINDS.includes(value.kind) || (date && !sameDraft(value, date))) return null;
     parseLifeEdit(value);
     return value;
   } catch { return null; }

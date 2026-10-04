@@ -3,10 +3,10 @@ import LifeSymptomFields from './LifeSymptomFields';
 import { DISCOMFORT_FIELDS, EYE_FIELDS } from '../utils/lifeSymptoms';
 import { DEFAULT_SKIN_SETTINGS, type SkinSettings } from '../utils/lifeSkin';
 import { resolveSkinRecord } from '../utils/lifeSkinProgress';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { BODY_FIELDS, entrySummary, parseLifeEdit, LIFE_LABELS, LIFE_TEXT_LIMIT, type BodyRecord, type CycleSettings, type LifeEntry, type LifeEntries } from '../utils/bonLife';
 import { CYCLE_GUIDANCE, visibleCycleDay } from '../utils/lifeCycle';
-import { draftKey, LifeError, lifeRequest, type LifeDraft } from './client';
+import { readDraft, saveDraft, removeDraft, LifeError, lifeRequest, type LifeDraft } from './client';
 import { automaticTraining, plannedTraining, type TrainingTask } from '../utils/lifeTraining';
 
 export default function LifeEditor({ initial, owner, cycle, periodDays, trainingTasks, skinSettings = DEFAULT_SKIN_SETTINGS, skinEntries, onSave, onClose, onExpired }: {
@@ -21,7 +21,8 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
   const [conflict, setConflict] = useState<LifeEntry | null>(null);
   const [discarding, setDiscarding] = useState(false);
   const attempted = useRef(false);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(initial) || Boolean(localStorageSafeRead());
+  const startedOnBackdrop = useRef(false);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(initial) || Boolean(readDraft(owner, draft));
   const phase = visibleCycleDay(draft.date, cycle, periodDays);
   const guidance = phase ? CYCLE_GUIDANCE[phase.phase] : null;
   const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date());
@@ -29,12 +30,9 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
   const training = draft.kind === 'training' ? plannedTraining(draft.date, today, trainingTasks, cycle, periodDays, draft.training) : undefined;
   const isSymptom = draft.kind === 'eyes' || draft.kind === 'discomfort';
 
-  function localStorageSafeRead() {
-    try { return localStorage.getItem(draftKey(owner)); } catch { return null; }
-  }
   function persist(next: LifeDraft) {
-    try { localStorage.setItem(draftKey(owner), JSON.stringify(next)); }
-    catch { setError('草稿暂存失败，请保存后再关闭'); }
+    try { saveDraft(owner, next); return true; }
+    catch { setError('草稿暂存失败，请保存后再关闭'); return false; }
   }
   function change(fields: Partial<LifeDraft>) {
     const next = { ...draft, ...fields, mutationId: crypto.randomUUID() };
@@ -43,8 +41,17 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
   function close() {
     if (busy) return;
     if (dirty && !discarding) { setDiscarding(true); return; }
-    try { localStorage.removeItem(draftKey(owner)); } catch { /* No draft storage. */ }
+    try { removeDraft(owner, draft); } catch { /* No draft storage. */ }
     onClose();
+  }
+  function dismiss() {
+    if (busy || (dirty && !persist(draft))) return;
+    onClose();
+  }
+  function isBackdrop(event: MouseEvent<HTMLDialogElement>) {
+    if (event.target !== event.currentTarget) return false;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    return event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom;
   }
   useEffect(() => {
     dialog.current?.showModal();
@@ -61,7 +68,7 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
       const savedDraft = skin ? { ...draft, skin } : training ? { ...draft, training } : draft;
       parseLifeEdit(savedDraft);
       const { entry } = await lifeRequest<{ entry: LifeEntry }>('POST', { action: 'save', ...savedDraft });
-      try { localStorage.removeItem(draftKey(owner)); } catch { /* Server save succeeded. */ }
+      try { removeDraft(owner, draft); } catch { /* Server save succeeded. */ }
       onSave(entry, savedDraft);
     } catch (cause) {
       if (cause instanceof LifeError && cause.status === 401) onExpired();
@@ -69,7 +76,14 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
       setError(cause instanceof Error ? cause.message : '保存失败，请重试');
     } finally { setBusy(false); attempted.current = false; }
   }
-  return <dialog className={`life-dialog${isSymptom ? ' life-symptom-editor' : ''}`} ref={dialog} onCancel={(event) => { event.preventDefault(); close(); }} aria-labelledby="life-editor-title">
+  return <dialog className={`life-dialog${isSymptom ? ' life-symptom-editor' : ''}`} ref={dialog} onCancel={(event) => { event.preventDefault(); dismiss(); }} aria-labelledby="life-editor-title"
+    onPointerDown={(event) => { startedOnBackdrop.current = event.button === 0 && isBackdrop(event); }}
+    onPointerCancel={() => { startedOnBackdrop.current = false; }}
+    onClick={(event) => {
+      const outside = startedOnBackdrop.current && isBackdrop(event);
+      startedOnBackdrop.current = false;
+      if (outside) dismiss();
+    }}>
     <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
       <div className="life-editor-heading"><h2 id="life-editor-title">{LIFE_LABELS[draft.kind]} <span>{draft.date.replace(/-/g, '.')}</span></h2>
         {guidance && <span className={`life-period-label phase-${phase?.phase}`}>{phase?.estimated ? '预计·' : ''}{guidance.label}</span>}</div>
