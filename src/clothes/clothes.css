@@ -143,6 +143,7 @@
 .clothes-wardrobe-grid.clothes-size-large { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .clothes-today-records { margin: 28px 0; }
 .clothes-today-records > .clothes-section-heading button { font-size: 12px; padding: 9px 14px; }
+.clothes-today-records .clothes-section-heading .clothes-day-toggle { font: inherit; color: inherit; padding: 0; }
 .clothes-daily-record { padding: 18px 0; border-top: 1px solid var(--life-line); }
 .clothes-daily-record strong { font-size: 13px; font-weight: 500; }
 .clothes-wear-dialog { width: min(700px, calc(100% - 32px)); }

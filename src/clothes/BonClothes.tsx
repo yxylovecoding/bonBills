@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import LoginPage from '../pages/LoginPage';
 import { requestSession, restoreSession } from '../utils/authClient';
-import type { ClothesData, ClothesDayContext, ClothesItem, WearRecord } from './types';
+import type { ClothesData, ClothesDayContext, ClothesItem, ClothesLocation, WearRecord } from './types';
 import { CATEGORIES, categoryLabel, wearId } from './types';
-import { deviceDate, emptyContext } from './rules';
+import { deviceDate, emptyContext, totalWearCounts } from './rules';
+import { addTripDays } from './tripRules';
 import { ClothesError, clothesRequest, photoUrl, readLocal, writeLocal } from './client';
 import ItemEditor, { newItem, readItemDraft, type ItemDraft } from './ItemEditor';
 import { itemWarmth } from './warmth';
 import Today from './Today';
+import SavedOutfits from './SavedOutfits';
+import WearEditor, { readWearDraft, wearDraftKey, type WearDraft } from './WearEditor';
 import InstallApp from '../components/InstallApp';
 import { APP_LINKS } from '../utils/apps';
 import '../life/life.css';
@@ -42,13 +45,22 @@ export default function BonClothes() {
 
 function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void }) {
   const [clock, setClock] = useState(() => ({ date: deviceDate(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }));
-  const { date, timezone } = clock;
-  const [tab, setTab] = useState<'today' | 'wardrobe'>('today');
+  const { date: today, timezone } = clock;
+  const [tomorrow, setTomorrow] = useState(false);
+  const [dayLocation, setDayLocation] = useState<ClothesLocation | null>(null);
+  const date = tomorrow ? addTripDays(today, 1) : today;
+  const [tab, setTab] = useState<'today' | 'wardrobe' | 'outfits'>('today');
   const [size, setSize] = useState(() => readLocal<'small' | 'medium' | 'large'>(`bonclothes:view:${owner}`, 'medium'));
   const [category, setCategory] = useState('全部'), [status, setStatus] = useState('全部状态');
   const [data, setData] = useState<ClothesData | null>(null), [error, setError] = useState(''), [loading, setLoading] = useState(false);
   const [refresh, setRefresh] = useState(0), [editor, setEditor] = useState<ItemDraft | null>(null);
   const [hasDraft, setHasDraft] = useState(() => Boolean(readItemDraft(owner)));
+  const [wearEditor, setWearEditor] = useState<{ draft: WearDraft; storageKey: string } | null>(null);
+  const [hasWearDraft, setHasWearDraft] = useState(() => Boolean(readWearDraft(owner, date)));
+  useEffect(() => { setHasWearDraft(Boolean(readWearDraft(owner, date))); }, [owner, date]);
+  function openWear(draft: WearDraft) {
+    setWearEditor({ draft: readWearDraft(owner, date) ?? draft, storageKey: wearDraftKey(owner, date) });
+  }
   useEffect(() => {
     const tick = () => { const next = { date: deviceDate(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
       setClock((current) => current.date === next.date && current.timezone === next.timezone ? current : next); };
@@ -65,9 +77,19 @@ function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; abort.abort(); };
   }, [date, timezone, refresh, onExpired]);
-  const context = useMemo(() => data?.context?.date === date ? { ...data.context, timezone } : emptyContext(date, timezone), [data?.context, date, timezone]);
+  const context = useMemo(() => data?.context?.date === date ? { ...data.context, timezone } : { ...emptyContext(date, timezone), location: dayLocation ?? data?.context?.location ?? null }, [data?.context, date, timezone, dayLocation]);
   const onContext = useCallback((next: ClothesDayContext) => setData((current) => current && ({ ...current, context: next })), []);
-  const onRecord = useCallback((record: WearRecord) => setData((current) => current && ({ ...current, records: [record, ...current.records.filter((previous) => wearId(previous) !== wearId(record))] })), []);
+  const onRecord = useCallback((record: WearRecord) => setData((current) => {
+    if (!current) return current;
+    const previous = current.records.find((entry) => wearId(entry) === wearId(record));
+    const wearCounts = { ...(current.wearCounts ?? totalWearCounts(current.records)) };
+    if (previous) for (const item of previous.items) wearCounts[item.id] = Math.max(0, (wearCounts[item.id] ?? 0) - 1);
+    if (record.kind !== 'styled') for (const item of record.items) wearCounts[item.id] = (wearCounts[item.id] ?? 0) + 1;
+    return { ...current, wearCounts,
+      records: [...(record.kind === 'styled' ? [] : [record]), ...current.records.filter((entry) => wearId(entry) !== wearId(record))],
+      outfits: [...(record.kind === 'styled' ? [record] : []), ...(current.outfits ?? []).filter((entry) => wearId(entry) !== wearId(record))],
+    };
+  }), []);
   function saved(item: ClothesItem) {
     setData((current) => current && ({ ...current, items: [...current.items.filter((old) => old.id !== item.id), ...(!item.deleted ? [item] : [])] }));
     setEditor(null); setHasDraft(false);
@@ -78,11 +100,12 @@ function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void
       try { await requestSession({ method: 'DELETE' }); localStorage.setItem('bonclothes-logout-at', String(Date.now())); onExpired(); }
       catch { setError('退出失败，请重试'); }
     }}>退出</button></div></header>
-    <div className="life-toolbar"><nav className="life-tabs" aria-label="BonClothes"><button aria-pressed={tab === 'today'} onClick={() => setTab('today')}>今日</button><button aria-pressed={tab === 'wardrobe'} onClick={() => setTab('wardrobe')}>衣柜</button></nav><span className="clothes-date">{date.replace(/-/g, '.')}</span></div>
+    <div className="life-toolbar"><nav className="life-tabs" aria-label="BonClothes"><button aria-pressed={tab === 'today'} onClick={() => setTab('today')}>今日</button><button aria-pressed={tab === 'wardrobe'} onClick={() => setTab('wardrobe')}>衣柜</button><button aria-pressed={tab === 'outfits'} onClick={() => setTab('outfits')}>搭配</button></nav><span className="clothes-date">{date.replace(/-/g, '.')}</span></div>
     {error && <div className="life-error-banner" role="alert">{error}<button onClick={() => setRefresh((v) => v + 1)}>重试</button></div>}
     {!data ? <div className="clothes-empty" role="status">{loading ? '加载中…' : '暂无数据'}</div>
-      : tab === 'today' ? <Today key={`${date}:${timezone}`} owner={owner} items={data.items} initial={context} records={data.records}
-        onContext={onContext} onRecord={onRecord} onExpired={onExpired} onRefresh={() => setRefresh((v) => v + 1)} onWardrobe={() => { setTab('wardrobe'); setEditor(readItemDraft(owner) ?? { item: newItem(), photo: '', mutationId: crypto.randomUUID() }); }} />
+      : tab === 'today' ? <Today key={`${date}:${timezone}`} owner={owner} items={data.items} initial={context} records={data.records} outfits={data.outfits ?? []} wearCounts={data.wearCounts}
+        tomorrow={tomorrow} onToggleDay={(location) => { setDayLocation(location); setTomorrow((value) => !value); }} onContext={onContext} onOpenWear={openWear} hasWearDraft={hasWearDraft} onExpired={onExpired} onRefresh={() => setRefresh((v) => v + 1)} onWardrobe={() => { setTab('wardrobe'); setEditor(readItemDraft(owner) ?? { item: newItem(), photo: '', mutationId: crypto.randomUUID() }); }} />
+        : tab === 'outfits' ? <SavedOutfits outfits={data.outfits ?? []} items={data.items} context={context.date === today ? context : { ...emptyContext(today, timezone), location: context.location }} onOpenWear={openWear} hasWearDraft={hasWearDraft} />
         : <section aria-label="衣柜"><div className="clothes-wardrobe-toolbar"><div><select aria-label="衣物分类" value={category} onChange={(e) => setCategory(e.target.value)}>{['全部', ...CATEGORIES, '睡衣'].map((value) => <option key={value}>{value}</option>)}</select><select aria-label="衣物状态" value={status} onChange={(e) => setStatus(e.target.value)}>{['全部状态', '可穿', '收起'].map((value) => <option key={value}>{value}</option>)}</select></div><button className="life-primary" onClick={() => {
           const draft = readItemDraft(owner); setEditor(draft ?? { item: newItem(), photo: '', mutationId: crypto.randomUUID() });
         }}>{hasDraft ? '继续编辑' : '新增衣物'}</button></div>
@@ -94,5 +117,9 @@ function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void
         </section>}
     <footer className="clothes-footer"><a href={APP_LINKS.bills.url}>BonBills</a><button disabled={loading} onClick={() => setRefresh((v) => v + 1)}>{loading ? '刷新中…' : '刷新'}</button></footer>
     {editor && <ItemEditor initial={editor} owner={owner} onClose={() => { setEditor(null); setHasDraft(Boolean(readItemDraft(owner))); }} onSaved={saved} onExpired={onExpired} />}
+    {wearEditor && data && <WearEditor initial={wearEditor.draft} storageKey={wearEditor.storageKey} items={data.items} onSaved={(record) => {
+      onRecord(record); setWearEditor(null); setHasWearDraft(Boolean(readWearDraft(owner, date))); setTab(record.kind === 'styled' ? 'outfits' : 'today');
+      if (record.kind !== 'styled') setTomorrow(record.date > today);
+    }} onClose={() => { setWearEditor(null); setHasWearDraft(Boolean(readWearDraft(owner, date))); }} onExpired={onExpired} onRefresh={() => setRefresh((v) => v + 1)} />}
   </main>;
 }

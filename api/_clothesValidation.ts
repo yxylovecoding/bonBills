@@ -1,4 +1,4 @@
-import { CATEGORIES, COLORS, SCENES, categoryLabel, hasBraRequirement, type ClothesDayContext, type ClothesItem, type ClothesLocation } from '../src/clothes/types.js';
+import { CATEGORIES, COLORS, SCENES, PURPOSES, categoryLabel, hasBraRequirement, type ClothesDayContext, type ClothesItem, type ClothesLocation } from '../src/clothes/types.js';
 import { isCalendarDate } from '../src/utils/outlookCalendar.js';
 
 import { normalizeItem } from '../src/clothes/warmth.js';
@@ -52,12 +52,13 @@ export function validLayers(items: ClothesItem[]) {
 export function contextInput(value: unknown): ClothesDayContext {
   const v = value as ClothesDayContext;
   requireInput(v && (v.scene === null || SCENES.includes(v.scene)) && (v.active === null || typeof v.active === 'boolean'), '当天条件无效');
+  requireInput(v.purpose === undefined || v.purpose === null || (PURPOSES.includes(v.purpose) && v.purpose !== '睡觉'), '推荐用途无效');
   let manualWeather: ClothesDayContext['manualWeather'] = null;
   if (v.manualWeather !== null) {
     requireInput(v.manualWeather && typeof v.manualWeather.rain === 'boolean', '天气无效');
     manualWeather = { temperature: numberInput(v.manualWeather.temperature, -60, 60), rain: v.manualWeather.rain };
   }
-  return { date: dateInput(v.date), timezone: timezoneInput(v.timezone), revision: id(v.revision, true),
+  return { date: dateInput(v.date), timezone: timezoneInput(v.timezone), revision: id(v.revision, true), ...(v.purpose !== undefined ? { purpose: v.purpose } : {}),
     location: locationInput(v.location), scene: v.scene, active: v.active, manualWeather };
 }
 // Display images are re-encoded in the browser. Inspect their actual headers,

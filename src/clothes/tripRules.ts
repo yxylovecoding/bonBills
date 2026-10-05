@@ -36,5 +36,5 @@ export function tripDayContext(trip: ClothesTrip, plan: ClothesTripPlan, date: s
   const inferred = inferActivities(tripEventsOnDate(trip.events, date, timezone));
   const day = plan.days[date];
   return { ...emptyContext(date, plan.location?.timezone ?? timezone), location: plan.location,
-    scene: day?.scene ?? inferred.scene, active: day?.active ?? inferred.active };
+    purpose: day?.purpose ?? null, scene: day?.scene ?? inferred.scene, active: day?.purpose === '运动' ? true : day?.active ?? inferred.active };
 }

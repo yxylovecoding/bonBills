@@ -16,6 +16,7 @@ export interface ClothesItem {
 }
 export interface ClothesLocation { name: string; latitude: number; longitude: number; source: 'manual' | 'geo' | 'calendar'; timezone?: string }
 export interface ClothesDayContext {
+  purpose?: Purpose | null;
   date: string; timezone: string; revision: string; location: ClothesLocation | null;
   scene: Scene | null; active: boolean | null;
   manualWeather: { temperature: number; rain: boolean } | null;
@@ -31,15 +32,17 @@ export const PURPOSES = ['休闲', '运动', '见朋友', '见重要的人', '�
 export const SENSATIONS = ['很冷', '偏冷', '舒适', '偏热', '很热'] as const;
 export type Purpose = typeof PURPOSES[number];
 export type Sensation = typeof SENSATIONS[number];
+export type WearKind = 'worn' | 'styled';
 export const wearId = (record: WearRecord) => record.id ?? record.date;
 export interface WearRecord {
+  kind?: WearKind;
   id?: string; purpose?: Purpose; indoor?: Sensation | null; outdoor?: Sensation | null; time?: string;
   indoorCoat?: boolean;
   date: string; revision: string; confirmedAt: string; items: ClothesItem[];
   context: ClothesDayContext; weather: WeatherSnapshot | null;
 }
 export interface Outfit { items: ClothesItem[]; missing: string[]; key: string }
-export interface ClothesData { items: ClothesItem[]; context: ClothesDayContext | null; records: WearRecord[] }
+export interface ClothesData { items: ClothesItem[]; context: ClothesDayContext | null; records: WearRecord[]; outfits?: WearRecord[]; wearCounts?: Record<string, number> }
 export interface ClothesTrip {
   id: string; title: string; startDate: string; endDate: string; dates: string[];
   destinations: string[]; events: ClothesEvent[]; archived?: boolean;

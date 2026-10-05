@@ -6,7 +6,7 @@ export function deviceDate(now = new Date(), timezone = Intl.DateTimeFormat().re
   return new Intl.DateTimeFormat('sv-SE', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
 }
 export function emptyContext(date: string, timezone: string): ClothesDayContext {
-  return { date, timezone, revision: '', location: null, scene: null, active: null, manualWeather: null };
+  return { date, timezone, revision: '', location: null, purpose: null, scene: null, active: null, manualWeather: null };
 }
 export function inferActivities(events: ClothesCalendar['events']): { scene: Scene | null; active: boolean | null } {
   let scene: Scene | null = null;
@@ -37,7 +37,7 @@ export function calendarDestinations(events: ClothesCalendar['events']) {
 }
 export function effectiveContext(context: ClothesDayContext, calendar: ClothesCalendar | null): ClothesDayContext {
   const inferred = inferActivities(calendar?.events ?? []);
-  return { ...context, scene: context.scene ?? inferred.scene, active: context.active ?? inferred.active };
+  return { ...context, scene: context.scene ?? inferred.scene, active: context.purpose === '运动' ? true : context.active ?? inferred.active };
 }
 export function chooseLocation(context: ClothesLocation | null, located: ClothesLocation | null, lastManual: ClothesLocation | null) {
   return context && context.source !== 'geo' ? context : located ?? context ?? lastManual;
@@ -52,7 +52,14 @@ export function weatherFor(context: ClothesDayContext, weather: WeatherSnapshot 
 export function recentCounts(records: WearRecord[], date: string) {
   const start = new Date(Date.parse(`${date}T00:00:00Z`) - 7 * 86400000).toISOString().slice(0, 10);
   const counts: Record<string, number> = {};
-  for (const record of records) if (record.date >= start && record.date < date) {
+  for (const record of records) if (record.kind !== 'styled' && record.date >= start && record.date < date) {
+    for (const item of record.items) counts[item.id] = (counts[item.id] ?? 0) + 1;
+  }
+  return counts;
+}
+export function totalWearCounts(records: WearRecord[]) {
+  const counts: Record<string, number> = {};
+  for (const record of records) if (record.kind !== 'styled') {
     for (const item of record.items) counts[item.id] = (counts[item.id] ?? 0) + 1;
   }
   return counts;
@@ -68,7 +75,7 @@ function needs(context: ClothesDayContext, weather: WeatherSnapshot) {
 export function eligibleItems(items: ClothesItem[], requested: Category, context: ClothesDayContext, weather: WeatherSnapshot, _wearing: ClothesItem[] = []) {
   const n = needs(context, weather), category = categoryLabel(requested);
   return items.filter((item) => wearable(item) && !item.sleepwear && categoryLabel(item.category) === category
-    && (!context.active || item.active)
+    && (!(context.active || context.purpose === '运动') || item.active)
     && (category !== '外套' || ((!n.rain || item.waterproof) && (!n.wind || item.windproof)))
     && (category !== '鞋' || !n.rain || item.waterproof));
 }
@@ -87,7 +94,7 @@ function withBra(outfit: Outfit, bra: ClothesItem | undefined): Outfit {
   return { items, missing, key: outfitKey(items) };
 }
 export function recommend(items: ClothesItem[], context: ClothesDayContext, inputWeather: WeatherSnapshot | null,
-  records: WearRecord[] = []): Outfit[] {
+  records: WearRecord[] = [], wearCounts = totalWearCounts(records)): Outfit[] {
   const weather = weatherFor(context, inputWeather);
   if (!weather || !context.scene || context.active === null) return [];
   const n = needs(context, weather), counts = recentCounts(records, context.date);
@@ -99,6 +106,14 @@ export function recommend(items: ClothesItem[], context: ClothesDayContext, inpu
     return thermal * 100 + Math.max(0, colors.size - 1) * 12 + list.reduce((sum, item) => sum + (counts[item.id] ?? 0) * 3, 0)
       + (list.some((item) => categoryLabel(item.category) === '内衣') ? 1 : 0);
   };
+  const target = Math.max(0, 26 - weather.temperature);
+  const comfortGap = (list: ClothesItem[]) => {
+    const totals = warmthTotals(list);
+    return Math.max(0, Math.abs(totals.upper - target) - 2) + Math.max(0, Math.abs(totals.lower - target) - 2);
+  };
+  const timesWorn = (list: ClothesItem[]) => list.reduce((sum, item) => sum + (wearCounts[item.id] ?? 0), 0);
+  const compareItems = (a: ClothesItem[], b: ClothesItem[]) => (context.purpose === '休闲'
+    ? comfortGap(a) - comfortGap(b) || timesWorn(a) - timesWorn(b) : 0) || score(a) - score(b);
   // Judge the main outfit before its underwear, so missing a bra never hides an
   // available shirt in favour of an empty dress outfit. Optional layers do not
   // improve completeness simply by adding more pieces.
@@ -106,9 +121,9 @@ export function recommend(items: ClothesItem[], context: ClothesDayContext, inpu
   const coreCount = (outfit: Outfit) => outfit.items.filter((item) => !['文胸', '内衣'].includes(categoryLabel(item.category))).length;
   const compare = (a: Outfit, b: Outfit) => coreMissing(a) - coreMissing(b)
     || (coreMissing(a) ? coreCount(b) - coreCount(a) : 0) || a.missing.length - b.missing.length
-    || score(a.items) - score(b.items) || a.key.localeCompare(b.key);
+    || compareItems(a.items, b.items) || a.key.localeCompare(b.key);
   const poolFor = (category: Category, wearing: ClothesItem[]) => eligibleItems(items, category, context, weather, wearing)
-    .sort((a, b) => score([...wearing, a]) - score([...wearing, b]) || a.id.localeCompare(b.id)).slice(0, 24);
+    .sort((a, b) => compareItems([...wearing, a], [...wearing, b]) || a.id.localeCompare(b.id)).slice(0, 24);
   const inners = n.cold < 26 ? poolFor('内衣', []) : [];
   const bras = poolFor('文胸', []);
   const layouts: Category[][] = [['上衣', '下装', '鞋'], ['连衣裙', '鞋']];

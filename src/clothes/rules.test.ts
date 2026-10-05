@@ -1,6 +1,6 @@
 import { environmentWarmth, itemWarmth, warmthTotals } from './warmth';
 import { describe, expect, it } from 'vitest';
-import { eligibleItems, calendarDestinations, chooseLocation, deviceDate, effectiveContext, emptyContext, inferActivities, recentCounts, recommend, replacePiece, replacements } from './rules';
+import { eligibleItems, calendarDestinations, chooseLocation, deviceDate, effectiveContext, emptyContext, inferActivities, recentCounts, totalWearCounts, recommend, replacePiece, replacements } from './rules';
 import type { Category, ClothesItem, ClothesLocation, WearRecord, WeatherSnapshot } from './types';
 
 const context = { ...emptyContext('2026-10-05', 'Asia/Shanghai'), scene: '基本室内' as const, active: false };
@@ -58,7 +58,7 @@ describe('BonClothes 规则推荐', () => {
     expect(result[0].items.map((i) => i.id)).toContain('new-top');
     expect(recommend([...items].reverse(), context, weather, records)).toEqual(result);
     expect(new Set(result.map((o) => o.key)).size).toBe(result.length);
-    expect(recentCounts(records, context.date)).toEqual({ top: 1 });
+    expect(recentCounts([...records, { date: '2026-10-04', kind: 'styled', items: [items[3]] } as WearRecord], context.date)).toEqual({ top: 1 });
   });
   it('单件替换保留其余衣物，排除不可活动的候选', () => {
     const alt = item('alt', '上装'), no = item('no', '上装', { active: false });
@@ -66,6 +66,30 @@ describe('BonClothes 规则推荐', () => {
     const original = recommend(wardrobe, activeContext, weather)[0];
     expect(replacements(wardrobe[0], original, [...wardrobe, alt, no], activeContext, weather)).toEqual([alt]);
     expect(replacePiece(original, 'top', alt, [...wardrobe, alt], activeContext, weather).items.map((i) => i.id)).toEqual(['alt', 'bottom', 'shoes']);
+  });
+  it('休闲优先温度合适且累计穿得少的单品，包含较早记录并排除仅搭过的', () => {
+    const seldom = item('seldom', '上衣', { warmth: 3 });
+    const perfect = item('perfect', '上衣', { warmth: 2 });
+    const tooWarm = item('too-warm', '上衣', { warmth: 12 });
+    const records = [
+      ...Array.from({ length: 6 }, () => ({ date: '2025-01-01', items: [perfect] })),
+      { date: '2025-01-02', items: [seldom] },
+      ...Array.from({ length: 10 }, () => ({ date: '2026-10-04', kind: 'styled', items: [seldom] })),
+    ] as WearRecord[];
+    const counts = totalWearCounts(records);
+    expect(counts).toEqual({ perfect: 6, seldom: 1 });
+    // Only the last page is present in the client; the server supplies lifetime counts.
+    const result = recommend([perfect, seldom, tooWarm, ...wardrobe.slice(1)], { ...context, purpose: '休闲' }, weather, [], counts);
+    expect(result[0].items.map((piece) => piece.id)).toContain('seldom');
+    expect(result[0].items.map((piece) => piece.id)).not.toContain('too-warm');
+  });
+  it('用途为运动时，少穿但不方便活动的衣服仍不能推荐', () => {
+    const tight = item('tight', '上衣', { active: false });
+    const sporty = { ...context, active: false, purpose: '运动' as const };
+    expect(effectiveContext(sporty, null).active).toBe(true);
+    const result = recommend([tight, ...wardrobe], sporty, weather, [], { top: 30 });
+    expect(result[0].items.map((piece) => piece.id)).toContain('top');
+    expect(result.every((outfit) => outfit.items.every((piece) => piece.id !== 'tight'))).toBe(true);
   });
   it('无天气可以手填继续推荐', () => {
     expect(recommend(wardrobe, { ...context, manualWeather: { temperature: 24, rain: false } }, null)[0].missing).toEqual([]);

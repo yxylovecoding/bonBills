@@ -7,6 +7,7 @@ import { ClothesInputError, contextInput, dateInput, id, itemInput, locationInpu
 import { CATEGORIES, PURPOSES, SENSATIONS, type ClothesDayContext, type ClothesItem, type WearRecord, type WeatherSnapshot } from '../src/clothes/types.js';
 import { normalizeItem, wearable } from '../src/clothes/warmth.js';
 import { TRIP_PLANS_KEY, readClothesTrips, readTripForecast, tripPlanInput } from './_clothesTrips.js';
+import { deviceDate, totalWearCounts } from '../src/clothes/rules.js';
 
 async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'private, no-store');
@@ -36,16 +37,23 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       if (req.query.view === 'calendar') return res.status(200).json(await readClothesCalendar(date, timezoneInput(req.query.timezone)));
       if (req.query.view === 'weather') {
         const location = locationInput({ name: '天气地点', latitude: Number(req.query.latitude), longitude: Number(req.query.longitude), source: 'manual' });
-        return res.status(200).json(await readWeather(location!, date, timezoneInput(req.query.timezone)));
+        const timezone = timezoneInput(req.query.timezone);
+        if (date > deviceDate(new Date(), timezone)) {
+          const forecast = await readTripForecast(location!, date, date, timezone);
+          return res.status(200).json({ weather: forecast.days[date] ?? null, stale: forecast.stale, ...(forecast.error ? { error: forecast.error } : {}) });
+        }
+        return res.status(200).json(await readWeather(location!, date, timezone));
       }
       const allRecords = Object.values(await kv.hgetall<Record<string, WearRecord>>(WEAR_KEY) ?? {})
-        .filter((record) => record.date <= date).sort((a, b) => b.date.localeCompare(a.date) || b.confirmedAt.localeCompare(a.confirmedAt));
+        .sort((a, b) => b.date.localeCompare(a.date) || b.confirmedAt.localeCompare(a.confirmedAt));
+      const worn = allRecords.filter((record) => record.kind !== 'styled' && record.date <= date);
+      const outfits = allRecords.filter((record) => record.kind === 'styled');
       // Paginate whole dates so a busy day is never split or silently skipped.
-      const dates = [...new Set(allRecords.map((record) => record.date))].slice(0, 30);
-      const records = allRecords.filter((record) => dates.includes(record.date));
+      const dates = [...new Set(worn.map((record) => record.date))].slice(0, 30);
+      const records = worn.filter((record) => dates.includes(record.date));
       if (req.query.view === 'history') return res.status(200).json({ records });
       const [items, context] = await Promise.all([kv.hgetall<Record<string, ClothesItem>>(ITEMS_KEY), kv.hget<ClothesDayContext>(CONTEXTS_KEY, date)]);
-      return res.status(200).json({ items: Object.values(items ?? {}).filter((item) => !item.deleted).map(normalizeItem), context, records });
+      return res.status(200).json({ items: Object.values(items ?? {}).filter((item) => !item.deleted).map(normalizeItem), context, records, outfits, wearCounts: totalWearCounts(worn) });
     }
     if (req.method !== 'POST') return res.status(405).json({ error: '请求方式无效' });
     let body: Record<string, any>;
@@ -83,7 +91,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       for (const day of Object.values(plan.days)) {
         const pieces = items.filter((item) => day.itemIds?.includes(item!.id));
         requireInput(validLayers(pieces as ClothesItem[])
-          && (!day.active || pieces.every((item) => item!.active)), '搭配不符合行程条件');
+          && (!(day.active || day.purpose === '运动') || pieces.every((item) => item!.active)), '搭配不符合行程条件');
       }
       checks = items.map((item) => ({ id: item!.id, revision: item!.revision }));
       value = { ...plan, revision: mutationId };
@@ -95,9 +103,12 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       field = manual ? (body.recordId === context.date ? context.date : id(body.recordId)) : context.date;
       const previous = await kv.hget<WearRecord>(WEAR_KEY, field);
       requireInput(!previous || previous.date === context.date, '穿搭日期不一致');
+      requireInput(body.kind === undefined || ['worn', 'styled'].includes(body.kind), '穿搭状态无效');
+      const kind = body.kind ?? previous?.kind ?? 'worn';
+      requireInput(['worn', 'styled'].includes(kind) && (manual || kind === 'worn'), '穿搭状态无效');
       if (manual) {
         requireInput(PURPOSES.includes(body.purpose), '请选择用途');
-        requireInput([body.indoor, body.outdoor].every((value) => value === null || SENSATIONS.includes(value)), '请选择室内外体感');
+        if (kind === 'worn') requireInput([body.indoor, body.outdoor].every((value) => value === null || SENSATIONS.includes(value)), '请选择室内外体感');
         requireInput(typeof body.time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(body.time), '穿着时间无效');
         requireInput(body.indoorCoat === undefined || typeof body.indoorCoat === 'boolean', '室内外套状态无效');
       }
@@ -126,7 +137,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
           && typeof w.fetchedAt === 'string' && w.fetchedAt.length <= 40, '天气快照无效');
         weather = Object.fromEntries(['date', 'timezone', 'latitude', 'longitude', 'fetchedAt', 'temperature', 'apparent', 'min', 'max', 'apparentMin', 'precipitation', 'wind'].map((key) => [key, w[key as keyof WeatherSnapshot]])) as unknown as WeatherSnapshot;
       }
-      value = { ...(manual ? { id: field, purpose: body.purpose, indoor: body.indoor, outdoor: body.outdoor, time: body.time,
+      value = { kind, ...(manual ? { id: field, purpose: body.purpose, indoor: kind === 'styled' ? null : body.indoor, outdoor: kind === 'styled' || body.purpose === '睡觉' ? null : body.outdoor, time: body.time,
         ...(body.indoorCoat !== undefined || previous?.indoorCoat !== undefined ? { indoorCoat: body.indoorCoat ?? previous?.indoorCoat } : {}) } : {}), date: context.date, revision: mutationId, confirmedAt: previous?.confirmedAt ?? new Date().toISOString(), items, context, weather };
     } else throw new ClothesInputError('操作无效');
     const [ok, raw] = await kv.eval<string[], [number, string | unknown]>(SAVE_CLOTHES,
