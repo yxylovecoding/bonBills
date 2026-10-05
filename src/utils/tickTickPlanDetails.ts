@@ -20,6 +20,7 @@ export interface TickTickPlanDetails {
     freeMinutes: number;
     important: { id: string; projectId: string; title: string; minutes: number; additionalMinutes: number; durationBasis: string }[];
     importantAdditionalMinutes: number;
+    importantReservationEnabled?: boolean;
     fixedAdditionalMinutes: number;
     afterReservationsMinutes: number;
     bufferMinutes: number;
@@ -30,5 +31,7 @@ export interface TickTickPlanDetails {
     dailyLimitReductionMinutes: number;
     newTaskCapacityMinutes: number;
     cycleTargetMinutes: number;
+    selectionMode?: 'remaining-time';
+    unallocatedMinutes?: number;
   };
 }

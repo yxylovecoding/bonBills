@@ -109,7 +109,8 @@ function hasTime(task: TickTickTask, date: string, options: PlanOptions) {
   const end = start + minutes * 60_000;
   const midnight = Date.parse(`${date}T00:00:00+08:00`);
   if (!Number.isFinite(start) || start < now.getTime() || start < midnight + 8 * 3600_000 || end > midnight + 22 * 3600_000
-    || (profile === 'evening' && start < midnight + 19 * 3600_000)) return false;
+    || (profile === 'evening' && start < midnight + 20 * 3600_000)) return false;
+  if ([[11, 14], [18, 20]].some(([from, to]) => start < midnight + to * 3600_000 && end > midnight + from * 3600_000)) return false;
   if (tagMap(calendarState)[date] === 'intern' && start < midnight + 18 * 3600_000 && end > midnight + 9 * 3600_000) return false;
   const intervals = [...availability.events.map(event => [Date.parse(event.start), Date.parse(event.end)]),
     ...others.filter(other => other.isAllDay === false).map(other => {

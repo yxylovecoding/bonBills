@@ -23,7 +23,7 @@ describe('每日待办动态安排', () => {
     expect(p.dates.get(chosen[0].id)).toBe(today);
     expect(s.briefing!.date).toBe(today);
   });
-  it('同周期按实际最近完成排序，识别重复任务新 ID，并给重要事项留量', () => {
+  it('同周期按实际最近完成排序，识别重复任务新 ID，重要事项保留原安排', () => {
     const newer = task('mite', { title: '除螨喷雾', repeatFlag: 'RRULE:FREQ=WEEKLY' });
     const older = task('fragrance', { title: '香香喷雾', repeatFlag: 'RRULE:FREQ=WEEKLY' });
     const p = run([newer, older, task('important', { priority: 5, title: '重要事项 45分钟' })], { budgetMinutes: 50,
@@ -63,21 +63,24 @@ describe('每日待办动态安排', () => {
       task('unknown', { repeatFlag: 'LUNAR:FREQ=YEARLY' })], { excludedTaskIds: new Set(['template']), budgetMinutes: 240 });
     expect([...p.dates.keys()]).toEqual(['child']);
   });
-  it('重要事项越多、实际已完成越多，今日数量减少', () => {
+  it('重要事项不另扣额度，实际完成仍计入手动上限', () => {
     const pool = Array.from({ length: 8 }, (_, i) => task(String(i)));
     const quiet = run(pool).summary;
     const busy = run([...pool, task('important', { priority: 5 })]).summary;
     const completed = run(pool, { state: state([done(task('finished'), today)]) }).summary;
-    expect(busy.todayCount).toBeLessThan(quiet.todayCount);
+    expect(busy.todayCount).toBe(quiet.todayCount);
     expect(completed.todayCount).toBeLessThan(quiet.todayCount);
     expect(busy.plannedMinutes).toBeLessThanOrEqual(busy.availableMinutes);
   });
-  it('周期越紧迫每天安排越多，仍不突破每日用时', () => {
+  it('周期未到也能利用剩余空档，紧迫任务优先且不突破每日用时', () => {
     const pool = Array.from({ length: 10 }, (_, i) => task(String(i), { repeatFlag: 'RRULE:FREQ=WEEKLY' }));
     const near = run(pool, { state: state(pool.map((t) => done(t, '2026-09-27'))) });
     const far = run(pool, { state: state(pool.map((t) => done(t, '2026-10-03'))) });
-    expect(near.summary.todayCount).toBeGreaterThan(far.summary.todayCount);
+    expect(near.summary.todayCount).toBe(4);
+    expect(far.summary.todayCount).toBe(4);
     expect(near.summary.plannedMinutes).toBeLessThanOrEqual(60);
+    const urgent = task('urgent', { repeatFlag: 'RRULE:FREQ=DAILY', content: '(1h)' });
+    expect(run([pool[0], urgent], { state: state([done(pool[0], '2026-10-03'), done(urgent, '2026-10-02')]) }).dates.get('urgent')).toBe(today);
   });
   it('当天不因完成任务无限补入，也不会把刚完成的重复任务拉回', () => {
     const t = task('repeat', { repeatFlag: 'RRULE:FREQ=DAILY' });
@@ -89,8 +92,10 @@ describe('每日待办动态安排', () => {
     const tasks = Array.from({ length: 7 }, (_, i) => task(String(i)));
     const s = state();
     const first = run(tasks, { state: s });
-    const second = run(apply(tasks, first.dates), { state: s });
-    expect(second).toEqual(first);
+    const arranged = apply(tasks, first.dates);
+    const second = run(arranged, { state: s });
+    expect(apply(arranged, second.dates)).toEqual(arranged);
+    expect(second.summary.plannedMinutes).toBe(first.summary.plannedMinutes);
     expect(s.deadlines['6'].date).toBe(today);
     run(apply(tasks, first.dates), { state: s, today: '2026-10-05' });
     expect(s.deadlines['6'].date).toBe(today);
@@ -103,9 +108,11 @@ describe('每日待办动态安排', () => {
     expect(s.deadlines.a.date).toBe(today);
     expect(p.dates.get(t.id)).toBe(today);
   });
-  it('未来的一次性约定保留原日期，无日期积压可以被挑入', () => {
-    const p = run([task('future', { dueDate: '2026-10-05T00:00:00+0800' }), task('undated', { startDate: undefined, dueDate: undefined })]);
+  it('明日事范围内的普通任务和无日期积压可以补入，超过30天的安排保留原日期', () => {
+    const p = run([task('future', { dueDate: '2026-11-05T00:00:00+0800' }),
+      task('tomorrow', { dueDate: '2026-10-05T00:00:00+0800' }), task('undated', { startDate: undefined, dueDate: undefined })]);
     expect(p.dates.has('future')).toBe(false);
+    expect(p.dates.get('tomorrow')).toBe(today);
     expect(p.dates.get('undated')).toBe(today);
   });
   it('周期计算覆盖自然月和每周指定日，用时优先取显式信息', () => {

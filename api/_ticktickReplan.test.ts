@@ -29,7 +29,7 @@ const task = (id: string, extra: Partial<TickTickTask> = {}): TickTickTask => ({
   status: 0, isAllDay: true, dueDate: `${day}T00:00:00+0800`, content: '(15m)', ...extra });
 const connectionId = createHash('sha256').update('test-token').digest('hex');
 beforeEach(() => {
-  vi.useFakeTimers(); vi.setSystemTime(new Date(`${day}T21:30:00+08:00`));
+  vi.useFakeTimers(); vi.setSystemTime(new Date(`${day}T21:45:00+08:00`));
   vi.clearAllMocks(); mocks.data.clear(); mocks.tasks = []; mocks.history = [];
   mocks.acquire.mockResolvedValue('lock'); mocks.release.mockResolvedValue(undefined);
   mocks.data.set('ticktick:connection:v1', { encryptedToken: {}, templateRootId: 'template', projectId: 'life' });
@@ -46,7 +46,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 
-describe('只重排剩余今日事', () => {
+describe('重排剩余今日事并从明日补入', () => {
   it('按执行时刻剩余 15 分钟及完成间隔挑选，只顺延较新完成的任务', async () => {
     mocks.tasks = [task('older'), task('newer')];
     mocks.history = [task('older', { status: 2, completedTime: '2026-09-20T12:00:00+08:00' }),
@@ -59,7 +59,7 @@ describe('只重排剩余今日事', () => {
     expect(mocks.broadSync).not.toHaveBeenCalled();
     expect(mocks.set.mock.calls.every(([key]) => key === DAILY_PLAN_KEY)).toBe(true);
   });
-  it('只移动今天/逾期的普通未完成任务，保留明日、重要、定时、routine、训练、洗衣和模板/旅行任务', async () => {
+  it('没有空档时仅顺延今日/逾期任务，保留明日、重要、定时、routine、训练、洗衣和模板/旅行任务', async () => {
     vi.setSystemTime(new Date(`${day}T23:00:00+08:00`));
     mocks.tasks = [task('ordinary'), task('overdue', { dueDate: '2026-10-04T00:00:00+0800' }),
       task('tomorrow', { dueDate: '2026-10-06T00:00:00+0800', repeatFlag: 'RRULE:FREQ=DAILY' }),
@@ -76,14 +76,71 @@ describe('只重排剩余今日事', () => {
     expect(mocks.tasks.slice(2)).toEqual(before.slice(2));
     expect(mocks.broadSync).not.toHaveBeenCalled();
   });
-  it('读取最新 Outlook 空档，不写日历；今天重要的事也占用剩余容量', async () => {
+  it('32 分钟空档不受周期分摊 1 分钟限制，从明日补入 30 分钟任务', async () => {
+    vi.setSystemTime(new Date(`${day}T21:28:00+08:00`));
+    mocks.data.set('outlook:calendar-connection:v1', { encrypted: 'encrypted' });
+    mocks.data.set(DAILY_PLAN_SETTINGS_KEY, { budgetMinutes: null });
+    mocks.tasks = [task('spray', { title: '除螨喷雾', content: '(1m)', repeatFlag: 'RRULE:FREQ=WEEKLY' }),
+      task('tomorrow', { dueDate: '2026-10-06T00:00:00+0800', content: '(30m)', repeatFlag: 'RRULE:FREQ=WEEKLY' })];
+    mocks.history = mocks.tasks.map(t => ({ ...t, status: 2, completedTime: '2026-10-04T12:00:00+08:00' }));
+    const result = await replanRemainingToday();
+    expect(result).toMatchObject({ updated: 1, dailyPlan: { todayCount: 2, plannedMinutes: 31, availableMinutes: 32 },
+      details: { breakdown: { selectionMode: 'remaining-time', cycleTargetMinutes: 1, unallocatedMinutes: 1 } } });
+    expect(mocks.update).toHaveBeenCalledWith('tomorrow', expect.objectContaining({ dueDate: `${day}T00:00:00+0800` }));
+    expect(result.details!.selected.find(t => t.id === 'tomorrow')!.reasons).toContain('从明日事补入');
+    expect(mocks.broadSync).not.toHaveBeenCalled();
+  });
+  it('明日补入按最久未完成排序，未选中、场景不符及超出清单范围的任务保留原日期', async () => {
+    const tomorrow = { dueDate: '2026-10-06T00:00:00+0800' };
+    mocks.tasks = [task('newer', tomorrow), task('older', tomorrow), task('too-long', { ...tomorrow, content: '(1h1m)' }),
+      task('wrong-scene', { ...tomorrow, tags: ['寄'] }), task('later', { dueDate: '2026-11-05T00:00:00+0800' }),
+      task('important', { ...tomorrow, priority: 5 }), task('routine', { ...tomorrow, tags: ['routine'] }),
+      task('timed', { ...tomorrow, isAllDay: false }), task('already-done-today', tomorrow)];
+    mocks.data.set('calendar-tags', { tagMap: { [day]: 'school', '2026-10-07': 'home' } });
+    mocks.history = [task('older', { status: 2, completedTime: '2026-09-20T12:00:00+08:00' }),
+      task('newer', { status: 2, completedTime: '2026-09-28T12:00:00+08:00' }),
+      task('already-done-today', { status: 2, completedTime: `${day}T12:00:00+08:00` })];
+    const before = structuredClone(mocks.tasks);
+    const result = await replanRemainingToday();
+    expect(result).toMatchObject({ updated: 1, dailyPlan: { todayCount: 1, plannedMinutes: 15 } });
+    expect(mocks.update.mock.calls.map(([id]) => id)).toEqual(['older']);
+    expect(mocks.tasks.filter(t => t.id !== 'older')).toEqual(before.filter(t => t.id !== 'older'));
+  });
+  it('按智能清单范围补入无日期和未来30天任务，未选中的无日期任务保持不变', async () => {
+    vi.setSystemTime(new Date(`${day}T21:30:00+08:00`));
+    mocks.tasks = [task('undated', { dueDate: undefined }), task('future', { dueDate: '2026-11-04T00:00:00+0800' }),
+      task('too-long', { dueDate: undefined, content: '(1h1m)' })];
+    const result = await replanRemainingToday();
+    expect(result).toMatchObject({ updated: 2, dailyPlan: { todayCount: 2, plannedMinutes: 30 } });
+    expect(mocks.tasks[0].dueDate).toBe(`${day}T00:00:00+0800`);
+    expect(mocks.tasks[1].dueDate).toBe(`${day}T00:00:00+0800`);
+    expect(mocks.tasks[2].dueDate).toBeUndefined();
+  });
+  it('今天已用一种喷雾时，明日另一种喷雾不补入，也不强行顺延', async () => {
+    mocks.tasks = [task('mite', { title: '除螨喷雾', content: '(1m)', dueDate: '2026-10-06T00:00:00+0800' }),
+      task('short', { content: '(5m)', dueDate: '2026-10-06T00:00:00+0800' })];
+    mocks.history = [task('fragrance', { title: '香香喷雾', status: 2, content: '(1m)', completedTime: `${day}T12:00:00+08:00` })];
+    const result = await replanRemainingToday();
+    expect(result).toMatchObject({ updated: 1, dailyPlan: { todayCount: 1, plannedMinutes: 5 } });
+    expect(mocks.update.mock.calls.map(([id]) => id)).toEqual(['short']);
+    expect(mocks.tasks[0].dueDate).toBe('2026-10-06T00:00:00+0800');
+  });
+  it('明日任务没有后续场景时也不能突破剩余时间强行补入', async () => {
+    vi.setSystemTime(new Date(`${day}T23:00:00+08:00`));
+    mocks.tasks = [task('last-scene', { dueDate: '2026-10-06T00:00:00+0800', tags: ['旅'] })];
+    mocks.data.set('calendar-tags', { tagMap: { [day]: 'travel' } });
+    const result = await replanRemainingToday();
+    expect(result).toMatchObject({ updated: 0, dailyPlan: { todayCount: 0 } });
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+  it('读取最新 Outlook 空档，不写日历；重要事项不再额外占用剩余容量', async () => {
     vi.setSystemTime(new Date(`${day}T20:00:00+08:00`));
     mocks.data.set('outlook:calendar-connection:v1', { encrypted: 'encrypted' });
     mocks.snapshot.mockResolvedValueOnce({ startDate: day, endDate: '2026-11-05', tags: {},
       availability: { startDate: day, endDate: '2026-11-05', events: [{ title: '其他日程', start: `${day}T21:00:00+08:00`, end: `${day}T22:00:00+08:00` }] } });
     mocks.tasks = [task('ordinary'), task('important', { priority: 5, content: '(1h)' })];
     const result = await replanRemainingToday();
-    expect(result).toMatchObject({ dailyPlan: { todayCount: 0, plannedMinutes: 0, availableMinutes: 0, importantCount: 1 } });
+    expect(result).toMatchObject({ dailyPlan: { todayCount: 1, plannedMinutes: 15, availableMinutes: 60, importantCount: 1 } });
     expect(mocks.snapshot).toHaveBeenCalledTimes(1);
     expect(mocks.broadSync).not.toHaveBeenCalled();
     expect(mocks.set.mock.calls.every(([key]) => key === DAILY_PLAN_KEY)).toBe(true);

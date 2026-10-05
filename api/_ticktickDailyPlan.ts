@@ -180,6 +180,7 @@ export function planTickTickDay(options: {
     if (members.some(protectedTask)) continue;
     const date = routineTaskDate(task);
     if (date && date > horizon) continue;
+    const fromBacklog = !date || date > today;
     const last = lastCompletion(task);
     const lastDay = calendarDateInTimeZone(last);
     const saved = state.deadlines[task.id];
@@ -201,15 +202,14 @@ export function planTickTickDay(options: {
     const allowedToday = members.every((member) => sceneDate(member, today) === today);
     if (!allowedToday) {
       // Scene rules win even for long-cycle, overdue or undated backlog items.
-      if (next && (!date || date <= today)) for (const member of members) dates.set(member.id, next);
+      if (next && !fromBacklog) for (const member of members) dates.set(member.id, next);
       continue;
     }
-    // Do not pull future commitments forward. Tomorrow's flexible repeats can
-    // enter today's pool to distribute work before the cycle ends.
-    if (date && date > today && (date > tomorrow || (!task.repeatFlag && !saved))) continue;
+    // The user's 明日事 filter includes undated tasks and the next 30 days.
+    // Protected/timed tasks are excluded above; only selected backlog moves.
     state.deadlines[task.id] = { date: deadline, completion: last, repeatFlag: task.repeatFlag };
     if (lastDay === today) {
-      if (next && (!date || date <= today)) for (const member of members) dates.set(member.id, next);
+      if (next && !fromBacklog) for (const member of members) dates.set(member.id, next);
       continue;
     }
     candidates.push({ task, members, minutes, last, deadline, next, cycleDays });
@@ -217,7 +217,6 @@ export function planTickTickDay(options: {
   const candidateIds = new Set(candidates.flatMap((candidate) => candidate.members.map((task) => task.id)));
   const important = open.filter((task) => (task.priority ?? 0) >= 5 && !tags(task).includes('routine')
     && Boolean(routineTaskDate(task) && routineTaskDate(task)! <= today));
-  const importantMinutes = important.reduce((sum, task) => sum + estimateTaskMinutes(task), 0);
   const fixed = open.filter((task) => ordinary(task) && !candidateIds.has(task.id) && !dates.has(task.id) && routineTaskDate(task) === today);
   const fixedMinutes = fixed.reduce((sum, task) => sum + estimateTaskMinutes(task), 0);
   const completedToday: TickTickTask[] = [];
@@ -248,7 +247,7 @@ export function planTickTickDay(options: {
   // Each run's capacity and allocation start with the actual remaining slots.
   const dailyCeiling = options.availability
     ? Math.min(base ?? Infinity, calendarDay.totalMinutes + fixedMinutes)
-    : Math.max(0, base! - importantMinutes);
+    : base!;
   const available = Math.max(0, Math.min(calendarDay.remainingMinutes,
     dailyCeiling - fixedMinutes - (options.availability ? calendarDay.completedMinutes : alreadyDone),
     (base ?? Infinity) - fixedMinutes - alreadyDone));
@@ -269,7 +268,8 @@ export function planTickTickDay(options: {
     // Busy future days get less of the cycle's work; a free day can take more.
     return sum + candidate.minutes * (options.availability ? available / Math.max(1, usableMinutes) : 1 / Math.max(1, usable));
   }, 0);
-  const target = Math.min(available, Math.ceil(demand));
+  // Cycle demand is an advisory figure, not a cap on usable time.
+  const cycleTarget = Math.min(available, Math.ceil(demand));
   candidates.sort((a, b) => {
     const urgent = (candidate: Candidate) => candidate.deadline <= today || !candidate.next || candidate.next > candidate.deadline;
     return Number(urgent(b)) - Number(urgent(a))
@@ -285,18 +285,26 @@ export function planTickTickDay(options: {
   const selectedSprays = new Set(state.history.filter(task => !excluded(task) && !tags(task).includes('不关我事')
     && calendarDateInTimeZone(task.completedTime) === today && Date.parse(task.completedTime!) <= now.getTime())
     .map(sprayKind).filter((kind): kind is 'fragrance' | 'mite' => kind !== null));
+  for (const task of open) {
+    const kind = sprayKind(task), date = dates.get(task.id) ?? routineTaskDate(task);
+    if (kind && !excluded(task) && !tags(task).includes('不关我事') && !candidateIds.has(task.id) && date && date <= today) selectedSprays.add(kind);
+  }
   for (const candidate of candidates) {
     // A task larger than the remaining budget is reported instead of silently overbooking.
     const fits = remainingSlots.some(([start, end]) => end - start >= candidate.minutes * 60_000);
     const kind = sprayKind(candidate.task);
     const sprayConflict = kind !== null && [...selectedSprays].some(other => other !== kind);
-    const choose = !sprayConflict && (!candidate.next || (used < target && used + candidate.minutes <= available && fits));
+    const originalDate = routineTaskDate(candidate.task);
+    const fromBacklog = !originalDate || originalDate > today;
+    const mustRetain = !candidate.next && !fromBacklog;
+    const choose = !sprayConflict && (mustRetain || (used + candidate.minutes <= available && fits));
     if (choose) {
       const lastDay = calendarDateInTimeZone(candidate.last);
       const reasons = [!candidate.next ? '后续没有适用场景日，优先留在今天'
         : candidate.deadline <= today ? `周期或原定日期已到（${candidate.deadline}），优先安排`
         : candidate.next > candidate.deadline ? '下次适用场景日晚于周期截止，提前安排'
-        : '按距离上次完成的时间排序，分摊本周期待办'];
+        : '按距离上次完成的时间排序，利用剩余空档'];
+      if (fromBacklog) reasons.push('从明日事补入');
       reasons.push(lastDay ? `上次完成 ${lastDay}` : '尚无匹配的完成记录');
       if (routineScenes(candidate.task).length) reasons.push('今天符合任务的场景标签');
       reasons.push(fits && used + candidate.minutes <= available ? `预计 ${candidate.minutes} 分钟，可放入剩余空档`
@@ -308,7 +316,9 @@ export function planTickTickDay(options: {
       used += candidate.minutes;
       for (const member of candidate.members) dates.set(member.id, today);
     } else {
-      if (candidate.next) {
+      // Unselected future tasks retain their date; refill is not permission to
+      // postpone the rest of tomorrow's list.
+      if (candidate.next && !fromBacklog) {
         for (const member of candidate.members) dates.set(member.id, candidate.next);
         deferred += candidate.members.length;
       }
@@ -316,8 +326,10 @@ export function planTickTickDay(options: {
       if (candidate.minutes > capacity || !fits) oversizedCount++;
     }
   }
+  const sprayMovable = new Set(open.filter(task => (!options.movableTaskIds || options.movableTaskIds.has(task.id))
+    && (Boolean(routineTaskDate(task) && routineTaskDate(task)! <= today) || dates.get(task.id) === today)).map(task => task.id));
   separateTickTickSprays({ tasks, dates, history: state.history, calendarState, today, now, excludedTaskIds,
-    movableTaskIds: options.movableTaskIds });
+    movableTaskIds: sprayMovable });
   const finalSelected = selectedDetails.filter(task => !dates.has(task.id) || dates.get(task.id) === today);
   deferred += selectedDetails.length - finalSelected.length;
   for (const candidate of candidates) {
@@ -336,7 +348,9 @@ export function planTickTickDay(options: {
     important: importantReservations.map(({ task, additionalMinutes }) => ({ id: task.id, projectId: task.projectId,
       title: task.title, ...estimateTaskDuration(task), additionalMinutes })),
     afterBufferMinutes: calendarDay.remainingMinutes, dailyLimitMinutes: base, completedTodayMinutes: alreadyDone,
-    dailyLimitReductionMinutes: calendarDay.remainingMinutes - available, newTaskCapacityMinutes: available, cycleTargetMinutes: target,
+    dailyLimitReductionMinutes: calendarDay.remainingMinutes - available, newTaskCapacityMinutes: available, cycleTargetMinutes: cycleTarget,
+    selectionMode: 'remaining-time',
+    unallocatedMinutes: Math.max(0, available - finalSelected.filter(task => candidateIds.has(task.id)).reduce((sum, task) => sum + task.minutes, 0)),
   } };
   return { dates, summary };
 }

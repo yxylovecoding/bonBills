@@ -24,7 +24,10 @@ describe('喷雾错日约束', () => {
     expect(first.dates.get('mite')).toBe(today); expect(first.dates.get('fragrance')).toBe('2026-10-06');
     expect(first.summary).toMatchObject({ todayCount: 1, plannedMinutes: 5, deferredCount: 1 });
     expect(state.briefing?.selected.map(task => task.id)).toEqual(['mite']);
-    expect(planTickTickDay({ ...options, tasks: apply(tasks, first.dates) })).toEqual(first);
+    const arranged = apply(tasks, first.dates);
+    const second = planTickTickDay({ ...options, tasks: arranged });
+    expect(apply(arranged, second.dates)).toEqual(arranged);
+    expect(second.summary.plannedMinutes).toBe(first.summary.plannedMinutes);
   });
   it('今天都放不下时，也不把两种一起堆到明天；重要/定时任务同样错开', () => {
     const tasks = [task('mite'), task('fragrance')];

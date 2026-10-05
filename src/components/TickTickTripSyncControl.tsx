@@ -84,7 +84,7 @@ export default function TickTickTripSyncControl() {
             可用时段
             <select aria-label="可用时段" value={profile} disabled={busy} onChange={(event) => setProfile(event.target.value as typeof profile)}
               style={{ border: '1px solid #dadce0', borderRadius: 5, padding: '3px 4px', fontSize: 11 }}>
-              <option value="day">09:00–22:00</option><option value="evening">19:00–22:00</option><option value="calendar">跟随日历</option>
+              <option value="day">09:00–22:00（排除餐休）</option><option value="evening">20:00–22:00</option><option value="calendar">跟随日历（排除餐休）</option>
             </select>
           </label>
           {(budget !== (budgetMinutes == null ? '' : String(budgetMinutes)) || profile !== (availabilityProfile ?? 'day')) && (

@@ -46,7 +46,7 @@ export default function LifeBriefing({ onExpired }: { onExpired: () => void }) {
       <h2>未来 7 天训练</h2><div className="life-briefing-table"><table><thead><tr><th>日期 / 阶段</th><th>训练</th><th>预计用时</th><th>安排原因</th></tr></thead>
         <tbody>{report.training.map((day) => <tr key={day.date}><td>{day.date}<br /><small>{day.phase}</small></td><td>{day.plan}</td><td>{duration(day.minutes)}</td><td>{day.reasons.join('；')}</td></tr>)}</tbody></table></div>
       <h2>今日事 · {report.today.length} 项 · 约 {report.today.reduce((sum, item) => sum + item.minutes, 0)} 分钟</h2>
-      {report.summary && <p className="life-briefing-meta">排期时可用时间约 {report.summary.availableMinutes} 分钟，另有 {report.summary.importantCount} 项重要事项预留时间。</p>}
+      {report.summary && <p className="life-briefing-meta">排期时可用时间约 {report.summary.availableMinutes} 分钟，另有 {report.summary.importantCount} 项重要事项。</p>}
       {report.today.length ? <div className="life-briefing-table"><table><thead><tr><th>事项</th><th>预计用时</th><th>入选原因</th></tr></thead>
         <tbody>{report.today.map((item, index) => <tr key={`${index}:${item.title}`}><td>{item.title}</td><td>{duration(item.minutes)}</td><td>{item.reasons.join('；')}</td></tr>)}</tbody></table></div> : <p>今日事暂无待办。</p>}
       <p className="life-briefing-meta">时长均为预估；训练若已在今日事中列出，不重复相加。后续训练会随实际完成和经期记录更新。</p>

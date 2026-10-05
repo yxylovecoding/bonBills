@@ -24,13 +24,13 @@ describe('描述中的耗时', () => {
     expect(estimateTaskMinutes(task({ content: '总计(1h)\n步骤A(10m)\n步骤B(50m)' }))).toBe(60);
     expect(estimateTaskMinutes(task({ title: '学习 25分钟', content: '无估时' }))).toBe(25);
   });
-  it('61分钟事项不能被误计为1分钟塞入小额度，重要事项也扣除描述的时长', () => {
+  it('61分钟事项不能误计为1分钟，重要事项的描述估时不额外扣额度', () => {
     const s = (): DailyPlanState => ({ connectionId: 'same', history: [], deadlines: {} });
     const run = (tasks: TickTickTask[]) => planTickTickDay({ tasks, state: s(), today: '2026-10-05', calendarState: {}, budgetMinutes: 30,
       now: new Date('2026-10-05T09:00:00+08:00') });
     expect(run([task({ content: '(1h1m)' })]).summary.todayCount).toBe(0);
     expect(run([task({ title: '香香喷雾', content: '(1m)' })]).summary.plannedMinutes).toBe(1);
-    expect(run([task(), task({ id: 'important', content: '(1h)', priority: 5 })]).summary.todayCount).toBe(0);
+    expect(run([task(), task({ id: 'important', content: '(1h)', priority: 5 })]).summary.todayCount).toBe(1);
   });
   it('保留完成记录的描述，后续返回省略描述时不丢失，已做事项按标注计入当日用量', async () => {
     const completed = task({ id: 'done', status: 2, content: '(1h1m)', completedTime: '2026-10-05T03:00:00Z' });

@@ -87,12 +87,19 @@ describe('天气与日程选日', () => {
     const selected = chooseLaundryDay(task(), '2026-10-10', o, () => f);
     expect(selected).toBe('2026-10-09');
   });
-  it('重要事项负担/整天空闲不足排除，即使天气最佳', () => {
+  it('整天占用排除，即使天气最佳；未定时的重要事项不额外预留', () => {
     const f = forecast(sunny), o = options();
     o.availability.events.push({ start: '2026-10-10T00:00:00+08:00', end: '2026-10-11T00:00:00+08:00', title: '全天外出' });
     expect(chooseLaundryDay(task(), '2026-10-10', o, () => f)).not.toBe('2026-10-10');
     const busy = task({ id: 'important', title: '重要事项 480分钟', isAllDay: true, repeatFlag: undefined });
-    expect(chooseLaundryDay(task(), '2026-10-10', options({ tasks: [task(), busy, { ...busy, id: 'important-2' }] }), () => f)).not.toBe('2026-10-10');
+    expect(chooseLaundryDay(task(), '2026-10-10', options({ tasks: [task(), busy, { ...busy, id: 'important-2' }] }), () => f)).toBe('2026-10-10');
+  });
+  it('固定洗衣时间不能跨入餐休时段，08点原定时间继续可用', () => {
+    for (const hour of ['10:30', '11:00', '13:30', '17:30', '18:00', '19:30']) {
+      const laundry = task({ startDate: `2026-10-10T${hour}:00+08:00`, dueDate: `2026-10-10T${hour}:00+08:00` });
+      expect(chooseLaundryDay(laundry, '2026-10-10', options({ tasks: [laundry] }), () => forecast(sunny))).toBeNull();
+    }
+    expect(chooseLaundryDay(task(), '2026-10-10', options(), () => forecast(sunny))).toBe('2026-10-10');
   });
   it('只考虑剩余时间；过了08点不把定时待办排回今天；窗口过期不无限滚动', () => {
     expect(chooseLaundryDay(task(), '2026-10-05', options(), () => forecast(sunny))).toBe('2026-10-06');

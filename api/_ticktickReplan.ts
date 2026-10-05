@@ -19,17 +19,18 @@ const fields = ['title', 'content', 'desc', 'isAllDay', 'timeZone', 'reminders',
 const fingerprint = (task: TickTickTask) => JSON.stringify([task.id, task.projectId, task.status ?? 0,
   task.completedTime ?? null, ...fields.map(key => task[key] ?? null)]);
 
-function eligible(task: TickTickTask, today: string) {
+function eligible(task: TickTickTask, horizon: string) {
   const date = routineTaskDate(task);
   const tags = (task.tags ?? []).map(tag => tag.normalize('NFKC').trim());
-  return pending(task) && Boolean(date && date <= today) && (task.priority ?? 0) < 5 && task.isAllDay !== false
+  return pending(task) && (!date || date <= horizon) && (task.priority ?? 0) < 5 && task.isAllDay !== false
     && !tags.some(tag => ['routine', '不关我事', '洗头'].includes(tag))
     && task.title.normalize('NFKC').trim() !== '洗头' && routineRecurrence(task.repeatFlag) !== 'unknown'
     && !isExerciseTask(task) && !isLaundryTask(task);
 }
 
 // Deliberately separate from runSync: this operation can only change dates of
-// today's open ordinary tasks. Outlook is read through existing subscriptions;
+// today's open ordinary tasks and selected tasks from the 明日事 smart filter.
+// Outlook is read through existing subscriptions;
 // no tags, trips, training, laundry, or calendar events are synchronized here.
 export async function replanRemainingToday() {
   const lock = await acquireTickTickLock();
@@ -50,6 +51,7 @@ export async function replanRemainingToday() {
     const state: DailyPlanState = saved?.connectionId === connectionId
       ? structuredClone(saved) : { connectionId, history: [], deadlines: {} };
     const today = calendarDateInTimeZone(new Date().toISOString())!;
+    const horizon = new Date(Date.parse(`${today}T00:00:00Z`) + 30 * 86_400_000).toISOString().slice(0, 10);
     const end = new Date(Date.parse(`${today}T00:00:00Z`) + 31 * 86_400_000).toISOString().slice(0, 10);
     const input = outlook ? decryptOutlookConnection(outlook.encrypted, secret) : null;
     const [snapshot] = await Promise.all([
@@ -69,7 +71,7 @@ export async function replanRemainingToday() {
         if (excluded.has(current.id) || (current.parentId && excluded.has(current.parentId))) return false;
         seen.add(current.id); current = current.parentId ? byId.get(current.parentId) : undefined;
       }
-      return eligible(task, today);
+      return eligible(task, horizon);
     }).map(task => [task.id, task]));
     const plan = planTickTickDay({ tasks: tasks.filter(pending), calendarState, today, state, now,
       availability: snapshot?.availability, budgetMinutes: settings?.budgetMinutes,
@@ -78,7 +80,10 @@ export async function replanRemainingToday() {
     const changes: { task: TickTickTask; date: string }[] = [];
     for (const [id, date] of plan.dates) {
       const original = allowed.get(id);
-      if (!original || date < today) throw new Error('重排范围校验失败，未继续调整');
+      const originalDate = original ? routineTaskDate(original) : null;
+      if (!original || date < today || ((!originalDate || originalDate > today) && date !== today && date !== originalDate)) {
+        throw new Error('重排范围校验失败，未继续调整');
+      }
       if (routineTaskDate(original) === date) continue;
       const fresh = await api.getTask(original.projectId, id);
       if (!fresh || !pending(fresh) || fingerprint(fresh) !== fingerprint(original)) {
@@ -99,6 +104,7 @@ export async function replanRemainingToday() {
       for (const key of ['startDate', 'dueDate'] as const) {
         if (task[key]) payload[key] = shiftTickTickDate(task[key], routineTaskDate(task)!, date);
       }
+      if (!task.startDate && !task.dueDate) payload.dueDate = `${date}T00:00:00+0800`;
       await api.updateTask(task.id, payload);
       const updated = await api.getTask(task.projectId, task.id);
       const sameDate = (a: unknown, b: unknown) => a === b || typeof a === 'string' && typeof b === 'string' && Date.parse(a) === Date.parse(b);

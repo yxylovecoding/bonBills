@@ -114,7 +114,7 @@ ${email ? '<p><a href="https://www.bonbills.cn/life?view=briefing">查看最新�
 ${report.warnings.map((warning) => `<p class="warning">${escapeHtml(warning)}</p>`).join('')}
 <h2>未来 7 天训练 · ${report.date}—${report.training.at(-1)?.date}</h2><table><thead><tr><th>日期 / 阶段</th><th>训练</th><th>预计用时</th><th>安排原因</th></tr></thead><tbody>${report.training.map((day) => `<tr><td>${day.date}<br><small>${escapeHtml(day.phase)}</small></td><td>${escapeHtml(day.plan)}</td><td>${time(day.minutes)}</td><td>${reasons(day.reasons)}</td></tr>`).join('')}</tbody></table>
 <h2>今日事 · ${report.today.length} 项 · 约 ${report.today.reduce((sum, item) => sum + item.minutes, 0)} 分钟</h2>
-${report.summary ? `<p>排期时可用时间约 ${report.summary.availableMinutes} 分钟，另有 ${report.summary.importantCount} 项重要事项预留时间。</p>` : ''}
+${report.summary ? `<p>排期时可用时间约 ${report.summary.availableMinutes} 分钟，另有 ${report.summary.importantCount} 项重要事项。</p>` : ''}
 ${report.today.length ? `<table><thead><tr><th>事项</th><th>预计用时</th><th>入选原因</th></tr></thead><tbody>${report.today.map((item) => `<tr><td>${escapeHtml(item.title)}</td><td>${time(item.minutes)}</td><td>${reasons(item.reasons)}</td></tr>`).join('')}</tbody></table>` : '<p>今日事暂无待办。</p>'}
 <p>时长均为预估；训练若已在今日事中列出，不重复相加。后续训练会随实际完成和经期记录更新。</p></main></body></html>`;
 }

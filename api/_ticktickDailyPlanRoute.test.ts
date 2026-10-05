@@ -129,7 +129,7 @@ describe('每日安排接口', () => {
   });
   it('手动和后台共用的同步入口按执行时刻返回剩余额度', async () => {
     vi.useFakeTimers();
-    for (const [hour, minutes] of [[5, 330], [12, 240], [17, 120], [20, 60], [23, 0]]) {
+    for (const [hour, minutes] of [[5, 480], [12, 360], [17, 180], [20, 120], [23, 0]]) {
       vi.setSystemTime(new Date(`2026-10-04T${String(hour).padStart(2, '0')}:00:00+08:00`));
       const result = await request('POST');
       expect(result.status).toBe(200);
