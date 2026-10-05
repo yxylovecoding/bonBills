@@ -15,8 +15,9 @@ import LifeDoneList from './LifeDoneList';
 import { useLifeTraining } from './useLifeTraining';
 import { DEFAULT_TRAINING_SETTINGS, monthlyTrainingPlan, plannedTraining, rollingTrainingPlan, trainingLibrary } from '../utils/lifeTraining';
 import LifeTrainingSettings from './LifeTrainingSettings';
-import { symptomHistory } from '../utils/lifeSymptoms';
+import { SYMPTOM_AREAS, SYMPTOM_STATES, symptomHistory, symptomObservations } from '../utils/lifeSymptoms';
 import LifeSymptomHistory from './LifeSymptomHistory';
+import { symptomColor } from './symptomColor';
 
 const LifeBodyTrends = lazy(() => import('./LifeBodyTrends'));
 
@@ -216,7 +217,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
         onPeriodChange={(period) => setSelection((previous) => ({ ...previous, ...period }))}
         onEdit={(date) => openEntry({ date, kind: 'body', text: '', revision: '', ...current?.entries[`body:${date}`], mutationId: crypto.randomUUID() })} />
     </Suspense>}
-    {kind === 'done' ? <LifeDoneList onExpired={onExpired} /> : kind !== 'body' && <section className={`life-calendar${kind === 'training' ? ' life-training-calendar' : ''}`} aria-label={`${year}年${month}月${LIFE_LABELS[kind]}日历`} aria-busy={loading}>
+    {kind === 'done' ? <LifeDoneList onExpired={onExpired} /> : kind !== 'body' && <section className={`life-calendar${kind === 'training' ? ' life-training-calendar' : kind === 'eyes' || kind === 'discomfort' ? ' life-symptom-calendar' : ''}`} aria-label={`${year}年${month}月${LIFE_LABELS[kind]}日历`} aria-busy={loading}>
       <div className="life-weekdays">{WEEKDAYS.map((day) => <span key={day}>{day}</span>)}</div>
       <div className="life-days">{cells.map((date, index) => {
         if (!date) return <div className="life-empty-day" key={`empty-${index}`} aria-hidden="true" />;
@@ -237,7 +238,14 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
             ...(planned ? { training: planned } : {}),
             mutationId: crypto.randomUUID() })}>
           <span className="life-day-heading"><span className="life-day-number">{Number(date.slice(-2))}</span>{phaseLabel && <span className={`life-period-mark phase-${phase?.phase}`} aria-hidden="true">{phaseLabel}</span>}</span>
-          <span className="life-day-text">{summary}</span>
+          {kind === 'eyes' || kind === 'discomfort' ? <span className="life-day-symptoms">
+            {Object.entries(symptomObservations(kind, entry?.[kind])).map(([key, item]) =>
+              <span className="life-symptom-mark life-day-symptom" key={key} style={symptomColor(key)}
+                title={[kind === 'discomfort' ? SYMPTOM_AREAS[item.area] : '', item.name, SYMPTOM_STATES[item.status], item.note].filter(Boolean).join(' · ')}>
+                {kind === 'discomfort' && `${SYMPTOM_AREAS[item.area]} · `}{item.name} · {SYMPTOM_STATES[item.status]}{item.note && ` · ${item.note}`}
+              </span>)}
+            {entry?.text && <span className="life-day-text">{entry.text}</span>}
+          </span> : <span className="life-day-text">{summary}</span>}
           {planStatus && <span className="life-plan-status">{planStatus}</span>}
         </button>;
       })}</div>

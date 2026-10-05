@@ -1,5 +1,6 @@
 import { DISCOMFORT_FIELDS, SYMPTOM_AREAS, SYMPTOM_LIMIT, SYMPTOM_STATES, SYMPTOM_TEXT_LIMIT, reusableSymptom, symptomKey,
   type SymptomArea, type SymptomHistory, type SymptomKind, type SymptomNames, type SymptomObservation, type SymptomObservations, type SymptomState } from '../utils/lifeSymptoms';
+import { symptomColor } from './symptomColor';
 
 function SymptomAreaFields({ area, value, names, history, date, busy, onChange }: {
   area: SymptomArea; value: SymptomObservations; names: SymptomNames; history: SymptomHistory[]; date: string;
@@ -20,10 +21,10 @@ function SymptomAreaFields({ area, value, names, history, date, busy, onChange }
   return <fieldset className="life-symptom-area" disabled={busy}>
     <legend>{area === 'eye' ? '症状' : label}</legend>
     {choices.length > 0 && <div className="life-symptom-choices" aria-label={`${label}已存症状`}>
-      {choices.map((item) => <button type="button" key={item.key} disabled={full} onClick={() => add(item.name)}>{item.name}</button>)}
+      {choices.map((item) => <button type="button" key={item.key} className="life-symptom-mark" style={symptomColor(item.key)} disabled={full} onClick={() => add(item.name)}>{item.name}</button>)}
     </div>}
     {selected.map(([key, item]) => <div className="life-symptom-item" key={key}>
-      <div className="life-symptom-item-heading"><span>{item.name}</span>
+      <div className="life-symptom-item-heading"><span className="life-symptom-mark" style={symptomColor(key)}>{item.name}</span>
         <select aria-label={`${label}·${item.name}状态`} value={item.status} onChange={(event) => change(key, { status: event.target.value as SymptomState })}>
           {Object.entries(SYMPTOM_STATES).filter(([status]) => status !== 'recorded' || item.status === 'recorded')
             .map(([status, label]) => <option value={status} key={status}>{label}</option>)}
