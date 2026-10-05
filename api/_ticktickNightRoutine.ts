@@ -3,6 +3,7 @@ import type { TickTickApi, TickTickTask } from './_ticktickTrips.js';
 const normalized = (value: string) => value.normalize('NFKC').trim().toLowerCase();
 const isNightRoutine = (task: TickTickTask) => normalized(task.title).replace(/\s+/g, '') === '夜间routine';
 export const isHairWashTask = (task: TickTickTask) => normalized(task.title) === '洗头';
+export const isReadingTask = (task: TickTickTask) => ['阅读', '而阅读📖是另一个🪝'].includes(normalized(task.title));
 const hasRoutine = (task: TickTickTask) => (task.tags ?? []).some(tag => normalized(tag) === 'routine');
 
 function localTime(date: Date, timeZone: string) {
@@ -42,6 +43,17 @@ export function hairWashHidden(task: TickTickTask, now = new Date()): boolean | 
 export function syncHairWashVisibility(api: TickTickApi, options: VisibilityOptions = {}) {
   return syncRoutineVisibility(api, options, isHairWashTask,
     task => hairWashHidden(task, options.now ?? new Date()));
+}
+
+export function readingHidden(task: TickTickTask, now = new Date()): boolean | null {
+  if (!isReadingTask(task) || (task.status ?? 0) !== 0) return null;
+  const time = localTime(now, 'Asia/Shanghai').time;
+  return time >= '05:00:00' && time < '20:00:00';
+}
+
+export function syncReadingVisibility(api: TickTickApi, options: VisibilityOptions = {}) {
+  return syncRoutineVisibility(api, options, isReadingTask,
+    task => readingHidden(task, options.now ?? new Date()));
 }
 
 export function syncNightRoutineVisibility(api: TickTickApi, options: VisibilityOptions = {}) {

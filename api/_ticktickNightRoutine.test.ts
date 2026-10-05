@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { hairWashHidden, nightRoutineHidden, syncHairWashVisibility, syncNightRoutineVisibility } from './_ticktickNightRoutine';
+import { hairWashHidden, nightRoutineHidden, readingHidden, syncHairWashVisibility, syncNightRoutineVisibility,
+  syncReadingVisibility } from './_ticktickNightRoutine';
 import type { TickTickApi, TickTickTask } from './_ticktickTrips';
 
 const task = (fields: Partial<TickTickTask> = {}): TickTickTask => ({ id: 'night', projectId: 'inbox-real', title: '夜间routine ',
@@ -7,6 +8,29 @@ const task = (fields: Partial<TickTickTask> = {}): TickTickTask => ({ id: 'night
   timeZone: 'Asia/Shanghai', repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=1', repeatFrom: '1',
   tags: ['routine', '居', '活'], priority: 5, ...fields });
 const at = (value: string) => new Date(`2026-10-04T${value}+08:00`);
+
+describe('阅读按晚间窗口切换 routine', () => {
+  const reading = task({ title: '而阅读📖是另一个🪝', content: '(15m)', priority: 3 });
+  it.each([['00:00:00', false], ['04:59:59', false], ['05:00:00', true], ['19:59:59', true],
+    ['20:00:00', false], ['23:59:59', false]])('%s 的标签状态', (time, hidden) => {
+    expect(readingHidden(reading, at(time))).toBe(hidden);
+    expect(readingHidden({ ...reading, isAllDay: true, timeZone: 'America/New_York' }, at(time))).toBe(hidden);
+  });
+  it('只匹配这条阅读，不修改日语阅读、其他阅读或已完成任务', () => {
+    expect(readingHidden({ ...reading, title: ' 阅读 ' }, at('19:00:00'))).toBe(true);
+    for (const fields of [{ title: '日语阅读' }, { title: '阅读笔记' }, { status: 2 }]) {
+      expect(readingHidden({ ...reading, ...fields }, at('19:00:00'))).toBeNull();
+    }
+  });
+  it('晚间移除，跨午夜保留，早晨加回；不改变估时、其他标签、优先级或重复规则', async () => {
+    const { api, current } = client(reading);
+    expect(await syncReadingVisibility(api, { now: at('20:00:00') })).toMatchObject({ updated: 1, visible: 1 });
+    expect(current()).toEqual({ ...reading, tags: ['居', '活'] });
+    expect(await syncReadingVisibility(api, { now: new Date('2026-10-05T00:00:00+08:00') })).toMatchObject({ updated: 0, visible: 1 });
+    expect(await syncReadingVisibility(api, { now: new Date('2026-10-05T05:00:00+08:00') })).toMatchObject({ updated: 1, hidden: 1 });
+    expect(current()).toEqual({ ...reading, tags: ['居', '活', 'routine'] });
+  });
+});
 
 function client(source = task()) {
   let current = structuredClone(source);

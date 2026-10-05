@@ -33,6 +33,30 @@ function client(...source: TickTickTask[]) {
 }
 beforeEach(() => data.clear());
 
+describe('阅读窗口与凌晨临时标签衔接', () => {
+  it('阅读不被零点批量隐藏，五点即使没有临时标签记录也恢复日间隐藏', async () => {
+    const reading = task({ id: 'reading', title: '而阅读📖是另一个🪝', tags: ['玩'] });
+    const c = client(reading);
+    expect(inSleepFilterScope(reading, '2026-10-05')).toBe(false);
+    await syncSleepRoutineTags(c.api, config('00:00:00'));
+    expect(c.tasks.get('reading')?.tags).toEqual(['玩']);
+    expect(data.has(key)).toBe(false);
+    await syncSleepRoutineTags(c.api, config('05:00:00'));
+    expect(c.tasks.get('reading')?.tags).toEqual(['玩', 'routine']);
+    await syncSleepRoutineTags(c.api, config('12:00:00'));
+    expect(c.write).toHaveBeenCalledTimes(1);
+  });
+  it('旧版凌晨记录不能在五点清除阅读的日间 routine 标签', async () => {
+    const reading = task({ id: 'reading', title: '阅读', tags: ['玩', 'routine'] });
+    const c = client(reading);
+    data.set(key, { reading: { projectId: 'life', addedOn: '2026-10-05', phase: 'added' } });
+    await syncSleepRoutineTags(c.api, config('05:00:00'));
+    expect(c.tasks.get('reading')?.tags).toEqual(['玩', 'routine']);
+    expect(data.get(key)).toEqual({});
+    expect(c.write).not.toHaveBeenCalled();
+  });
+});
+
 describe('四个智能清单范围和凌晨窗口', () => {
   it.each([['00:00:00', true], ['04:59:59', true], ['05:00:00', false], ['23:59:59', false]])('%s 的北京时间边界', (time, hidden) => {
     expect(sleepWindow(at(time))).toEqual({ day: '2026-10-05', hidden });
