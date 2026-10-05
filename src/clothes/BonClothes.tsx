@@ -73,7 +73,7 @@ function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void
   useEffect(() => {
     const abort = new AbortController(); let active = true;
     setLoading(true); setError('');
-    void clothesRequest<ClothesData>('GET', { date }, abort.signal).then((result) => { if (active) setData(result); }).catch((cause) => {
+    void clothesRequest<ClothesData>('GET', { date, timezone }, abort.signal).then((result) => { if (active) setData(result); }).catch((cause) => {
       if (!active) return;
       if (cause instanceof ClothesError && cause.status === 401) onExpired();
       setError(cause instanceof Error ? cause.message : '读取失败，请重试');

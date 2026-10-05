@@ -367,6 +367,19 @@ describe('衣柜与实际穿搭接口', () => {
     expect(saved.status).toBe(200); expect(saved.body.value.items[0].warmth).toBe(2.5);
     expect(hashes.get(ITEMS_KEY)![item.id].warmth).toBe(4);
   });
+  it.each([['Asia/Shanghai', 2.5], ['America/Los_Angeles', undefined]])('跨午夜按 %s 校准衣柜与新快照', async (timezone, learnedWarmth) => {
+    vi.setSystemTime(new Date('2026-10-05T17:00:00Z'));
+    const localContext = { ...context, date: '2026-10-06', timezone: String(timezone) };
+    const shirt = { ...item, warmth: 4 };
+    hashes.set(ITEMS_KEY, { [item.id]: shirt });
+    hashes.set(WEAR_KEY, Object.fromEntries(['one', 'two'].map((id) => [id, { id, date: localContext.date, revision: uid(id), confirmedAt: '', context: localContext, items: [shirt],
+      feelings: { 上午: { indoor: '舒适', outdoor: null, indoorTemperature: 25, outdoorTemperature: null } } }])));
+    const loaded = await call('GET', { date: localContext.date, timezone: localContext.timezone });
+    expect(loaded.status).toBe(200); expect(loaded.body.items[0].learnedWarmth).toBe(learnedWarmth);
+    const saved = await call('POST', {}, { action: 'confirm', recordId: uid('boundary'), revision: '', mutationId: uid('boundary-save'), context: localContext,
+      items: [item], purpose: '休闲', time: '01:00', indoor: null, outdoor: null, weather: null });
+    expect(saved.status).toBe(200); expect(saved.body.value.items[0].warmth).toBe(learnedWarmth ?? 4);
+  });
   it('断网失败不伪造成功，重试可继续保存', async () => {
     evalMock.mockRejectedValueOnce(new Error('offline'));
     const body = { action: 'save-context', context, mutationId: uid('mutation') };

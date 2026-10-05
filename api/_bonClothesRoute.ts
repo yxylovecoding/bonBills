@@ -62,7 +62,8 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       const records = worn.filter((record) => dates.includes(record.date));
       if (req.query.view === 'history') return res.status(200).json({ records });
       const [items, context] = await Promise.all([kv.hgetall<Record<string, ClothesItem>>(ITEMS_KEY), kv.hget<ClothesDayContext>(CONTEXTS_KEY, date)]);
-      return res.status(200).json({ items: calibratedItems(Object.values(items ?? {}).filter((item) => !item.deleted).map(normalizeItem), allRecords, deviceDate()), context: context ?? allRecords.find((record) => record.date === date)?.context ?? null, records, outfits, wearCounts: totalWearCounts(worn), pairCounts: outfitPairCounts(allRecords) });
+      const learningTimezone = timezoneInput(req.query.timezone ?? context?.timezone ?? 'Asia/Shanghai');
+      return res.status(200).json({ items: calibratedItems(Object.values(items ?? {}).filter((item) => !item.deleted).map(normalizeItem), allRecords, deviceDate(new Date(), learningTimezone)), context: context ?? allRecords.find((record) => record.date === date)?.context ?? null, records, outfits, wearCounts: totalWearCounts(worn), pairCounts: outfitPairCounts(allRecords) });
     }
     if (req.method !== 'POST') return res.status(405).json({ error: '请求方式无效' });
     let body: Record<string, any>;
@@ -130,7 +131,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       requireInput(new Set(checks.map((item) => item.id)).size === checks.length, '衣物重复');
       const currentItems = await Promise.all(checks.map((check) => kv.hget<ClothesItem>(ITEMS_KEY, check.id)));
       const [learningRecords, learningItems] = await Promise.all([kv.hgetall<Record<string, WearRecord>>(WEAR_KEY), kv.hgetall<Record<string, ClothesItem>>(ITEMS_KEY)]);
-      const calibrated = new Map(calibratedItems(Object.values(learningItems ?? {}), Object.values(learningRecords ?? {}), deviceDate()).map((item) => [item.id, item]));
+      const calibrated = new Map(calibratedItems(Object.values(learningItems ?? {}), Object.values(learningRecords ?? {}), deviceDate(new Date(), context.timezone)).map((item) => [item.id, item]));
       const retained = new Set<string>();
       const items = currentItems.map((item, i) => {
         const check = checks[i];
