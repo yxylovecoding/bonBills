@@ -74,7 +74,7 @@ describe('衣柜与实际穿搭接口', () => {
       const result = await call('POST', {}, { action: 'save-item', item: { ...item, id: uid(`layer${CATEGORIES.indexOf(category)}`), category, revision: '', braRequirement: 'optional' }, photo: jpeg(), mutationId: uid(`save${CATEGORIES.indexOf(category)}`) });
       expect(result.status).toBe(200);
       expect(result.body.value.category).toBe(category);
-      expect(result.body.value.braRequirement).toBe(['内衣', '上衣', '连衣裙'].includes(category) ? 'optional' : undefined);
+      expect(result.body.value.braRequirement).toBe(['上衣', '连衣裙'].includes(category) ? 'optional' : undefined);
     }
     const legacy = await call('POST', {}, { action: 'save-item', item: { ...item, revision: '' }, photo: jpeg(), mutationId: uid('legacy') });
     expect(legacy.body.value).toMatchObject({ category: '上衣', name: item.name, braRequirement: 'required' });
