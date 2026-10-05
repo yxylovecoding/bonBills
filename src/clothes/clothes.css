@@ -1,3 +1,30 @@
+.bonlife.bonclothes {
+  --life-ink: #49373f;
+  --life-muted: #826d77;
+  --life-line: #eed9e2;
+  --life-accent: #9b4c6b;
+  --clothes-background: #fff5f8;
+  --clothes-soft: #f8e3ec;
+  --clothes-field: #fffafb;
+  --clothes-photo: #f6e9ef;
+  --clothes-primary: #f2c6d8;
+  --color-primary: var(--life-accent);
+  --color-text: var(--life-ink);
+  --color-text-sub: var(--life-muted);
+  --color-border: var(--life-line);
+  background: var(--clothes-background);
+}
+.bonlife.bonclothes :focus-visible { outline-color: var(--life-accent); }
+.bonclothes .life-tabs { background: var(--clothes-soft); }
+.bonclothes .life-tabs button { color: var(--life-muted); }
+.bonclothes .life-tabs button[aria-pressed="true"] { color: var(--life-accent); }
+.bonlife.bonclothes .life-primary, .bonlife.bonclothes .login-submit { background: var(--clothes-primary); color: #683247; }
+.bonlife.bonclothes .login-shell { background: var(--clothes-background); }
+.bonlife.bonclothes .login-mark { background: var(--clothes-soft); color: var(--life-accent); }
+.bonlife.bonclothes .login-switch { color: var(--life-accent); }
+.bonclothes .life-dialog { box-shadow: 0 18px 70px #5532411a; }
+.bonclothes .life-dialog::backdrop { background: #55324140; }
+.bonclothes .life-conflict blockquote { background: var(--clothes-field); }
 .clothes-shell { max-width: 940px; }
 .bonclothes .life-header h1 { letter-spacing: -.5px; }
 .bonclothes .life-header-actions { align-items: center; gap: 18px; }
@@ -13,19 +40,19 @@
 .bonclothes .clothes-link { color: var(--life-accent); font-size: 12px; padding: 6px 0; white-space: nowrap; }
 .clothes-weather { display: flex; align-items: center; gap: 18px; margin: 26px 0 8px; }
 .clothes-weather > strong { font-size: 44px; line-height: 1; font-weight: 400; letter-spacing: -2px; }
-.clothes-weather > div { display: flex; flex-direction: column; gap: 7px; color: #686d62; font-size: 12px; }
+.clothes-weather > div { display: flex; flex-direction: column; gap: 7px; color: var(--life-muted); font-size: 12px; }
 .clothes-weather > a { margin-left: auto; align-self: end; font-size: 10px; }
 .clothes-updated { font-size: 10px; color: var(--life-muted); margin-top: 10px; }
 .clothes-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .clothes-fields label { display: flex; flex-direction: column; gap: 8px; color: var(--life-muted); font-size: 12px; }
-.clothes-fields input, .clothes-fields select { width: 100%; background: #fdfdfb; color: var(--life-ink); border: 1px solid var(--life-line); border-radius: 8px; padding: 9px 10px; min-height: 40px; font-size: 13px; }
+.clothes-fields input, .clothes-fields select { width: 100%; background: var(--clothes-field); color: var(--life-ink); border: 1px solid var(--life-line); border-radius: 8px; padding: 9px 10px; min-height: 40px; font-size: 13px; }
 .clothes-full { grid-column: 1 / -1; }
 .bonclothes .clothes-context-fields { margin-top: 24px; }
 .clothes-fields .clothes-check { flex-direction: row; align-items: center; gap: 8px; }
 .clothes-check input, .clothes-checks input { width: 15px; height: 15px; min-height: 0; accent-color: var(--life-accent); }
 .clothes-calendar-status { margin-top: 20px; font-size: 12px; flex-wrap: wrap; }
 .clothes-calendar-status > div { display: flex; gap: 16px; }
-.bonclothes .clothes-save { background: #edf0e9; padding: 7px 12px; font-size: 12px; color: var(--life-accent); }
+.bonclothes .clothes-save { background: var(--clothes-soft); padding: 7px 12px; font-size: 12px; color: var(--life-accent); }
 .clothes-status { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: var(--life-muted); font-size: 12px; margin: 12px 0; }
 .clothes-status button { color: var(--life-accent); text-decoration: underline; }
 .clothes-error { color: #a95555; }
@@ -41,9 +68,9 @@
 .clothes-saved { font-size: 12px; color: var(--life-accent); }
 .clothes-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
 .clothes-grid .clothes-card { min-width: 0; text-align: left; border-radius: 0; padding: 0; }
-.clothes-grid img { display: block; width: 100%; aspect-ratio: 4 / 5; object-fit: contain; background: #efeeea; border-radius: 10px; }
+.clothes-grid img { display: block; width: 100%; aspect-ratio: 4 / 5; object-fit: contain; background: var(--clothes-photo); border-radius: 10px; }
 .clothes-card-caption { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; padding: 12px 1px; font-size: 12px; }
-.clothes-card-caption strong { display: block; font-weight: 500; color: #474c41; overflow-wrap: anywhere; }
+.clothes-card-caption strong { display: block; font-weight: 500; color: var(--life-ink); overflow-wrap: anywhere; }
 .clothes-card-caption span, .clothes-card-caption button { color: var(--life-muted); font-size: 11px; white-space: nowrap; }
 .clothes-card-caption div span { display: block; margin-top: 6px; }
 .clothes-card-caption button { padding: 4px 0; }
@@ -67,10 +94,10 @@
 .clothes-history article strong { font-weight: 500; }
 .clothes-history-pieces { display: flex; gap: 14px; margin-top: 14px; overflow-x: auto; }
 .clothes-history-pieces figure { margin: 0; flex: 0 0 90px; }
-.clothes-history-pieces img { width: 90px; height: 110px; border-radius: 8px; object-fit: contain; background: #efeeea; }
+.clothes-history-pieces img { width: 90px; height: 110px; border-radius: 8px; object-fit: contain; background: var(--clothes-photo); }
 .clothes-history-pieces figcaption { font-size: 11px; margin-top: 6px; overflow-wrap: anywhere; }
 .clothes-dialog .clothes-upload { display: flex; flex-direction: column; gap: 10px; color: var(--life-muted); font-size: 12px; text-align: center; margin: 0 auto 24px; width: 150px; }
-.clothes-upload img { width: 150px; height: 175px; object-fit: contain; background: #f5f4f0; border-radius: 10px; }
+.clothes-upload img { width: 150px; height: 175px; object-fit: contain; background: var(--clothes-photo); border-radius: 10px; }
 .clothes-upload input { font-size: 10px; padding: 3px; }
 .clothes-checks { display: flex; gap: 18px; margin-top: 20px; font-size: 12px; color: var(--life-muted); }
 .clothes-checks label { display: flex; align-items: center; gap: 7px; }
@@ -80,7 +107,7 @@
 .clothes-search button { white-space: nowrap; padding: 8px 16px; font-size: 12px; }
 .clothes-city-results { display: flex; flex-direction: column; gap: 6px; margin-top: 16px; }
 .clothes-city-results button { text-align: left; padding: 12px; color: var(--life-ink); font-size: 13px; }
-.clothes-city-results button:hover { background: #f5f5f1; }
+.clothes-city-results button:hover { background: var(--clothes-soft); }
 @media (max-width: 600px) {
   .clothes-shell { padding: 24px 18px 36px; }
   .bonclothes .life-header { padding: 0; }
@@ -98,8 +125,8 @@
 }
 
 .clothes-trip-content { padding-top: 20px; }
-.clothes-trip-select { display: grid; gap: 8px; margin: 18px 0; color: #757b75; font-size: 12px; }
-.clothes-trip-select select { width: 100%; min-width: 0; background: #fdfdfb; color: var(--life-ink); border: 1px solid var(--life-line); border-radius: 8px; padding: 9px 10px; min-height: 40px; font-size: 16px; }
+.clothes-trip-select { display: grid; gap: 8px; margin: 18px 0; color: var(--life-muted); font-size: 12px; }
+.clothes-trip-select select { width: 100%; min-width: 0; background: var(--clothes-field); color: var(--life-ink); border: 1px solid var(--life-line); border-radius: 8px; padding: 9px 10px; min-height: 40px; font-size: 16px; }
 .clothes-trip-editor fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
 .clothes-trip-editor h3 { font-size: 15px; margin: 0; }
 .clothes-trip-save { padding-top: 18px; }
