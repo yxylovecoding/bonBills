@@ -153,6 +153,8 @@ describe('BonLife 接口', () => {
 
   it('保存早晚字段和体围，旧文字不丢失，禁止类型交叉', async () => {
     for (const details of [{ kind: 'skin', skin: { morningMedication: '药 A', eveningProducts: '面霜' } }, { kind: 'body', body: { waist: 66.5, weight: 56.35, bmi: 21.47, bodyFat: 24.6 } },
+      { kind: 'skin', skin: { status: 'healthy', acneMarks: true, localMedication: '积雪苷', morningProducts: '原有面霜' } },
+      { kind: 'skin', skin: { status: 'damaged', acneMarks: false, localMedication: '' } },
       { kind: 'training', training: { plan: '快走', effort: 'easy', completed: true } },
       { kind: 'training', training: { plan: '上半身 · 轻量', effort: 'normal', completed: false, mode: 'auto' } },
       { kind: 'training', training: { plan: '瑜伽', effort: 'normal', completed: false, mode: 'manual' } }]) {

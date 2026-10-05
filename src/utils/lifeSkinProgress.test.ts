@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LifeEntries } from './bonLife';
-import { DEFAULT_SKIN_SETTINGS, parseSkinSettings, skinPlanValues, type SkinRecord } from './lifeSkin';
+import { DEFAULT_SKIN_SETTINGS, parseSkinRecord, parseSkinSettings, skinLocalPlanValues, skinPlanValues, type SkinRecord } from './lifeSkin';
+import { entrySummary, parseLifeEdit } from './bonLife';
 import { nextSkinPlan, resolveSkinRecord } from './lifeSkinProgress';
 
 const settings = DEFAULT_SKIN_SETTINGS;
@@ -87,5 +88,65 @@ describe('个人皮肤方案接续', () => {
       .toEqual({ status: 'damaged', planDay: 1 });
     for (const season of ['autumn', 'winter'] as const) expect(skinPlanValues(settings, 'acne', 1, season).morningProducts).toBe('珂润霜');
     for (const season of ['spring', 'summer'] as const) expect(skinPlanValues(settings, 'damaged', 1, season).eveningProducts).toBe('珂润乳');
+  });
+
+  it('痘印和局部用药可与任一整体肤况共存，基础方案不变', () => {
+    for (const status of ['healthy', 'damaged', 'acne', 'allergic'] as const) {
+      const base = skinPlanValues(settings, status, 1, 'autumn');
+      const skin = { status, acneMarks: true, ...base, ...skinLocalPlanValues(settings, { acneMarks: true }) };
+      const saved = parseLifeEdit({ kind: 'skin', date: '2026-10-05', text: '', revision: '', mutationId: 'skin-marks-123456789', skin });
+      expect(saved.skin).toEqual({ status, acneMarks: true, ...base, localMedication: '积雪苷' });
+      expect(base).not.toHaveProperty('localMedication');
+      expect(entrySummary('skin', { text: '', revision: '', skin })).toContain('局部用药 · 积雪苷');
+      expect(entrySummary('skin', { text: '', revision: '', skin })).toContain('痘印');
+    }
+    expect(skinPlanValues(settings, 'healthy', 1, 'autumn').morningProducts).toBe('');
+    expect(skinPlanValues(settings, 'damaged', 1, 'autumn').morningProducts).toBe('珂润霜');
+  });
+
+  it('局部用药不推断整体肤况，也不推进痤疮用药天数', () => {
+    expect(resolveSkinRecord('2026-10-05', settings, {}, { acneMarks: true, localMedication: '炉甘石' }))
+      .toEqual({ acneMarks: true, localMedication: '炉甘石' });
+    const entries = history({
+      '2026-10-01': { status: 'acne', medication: '炉甘石' },
+      '2026-10-02': { status: 'acne', planDay: 2, acneMarks: true, localMedication: '阿达帕林' },
+    });
+    expect(nextSkinPlan('2026-10-05', settings, entries)).toEqual({ status: 'acne', planDay: 2 });
+  });
+
+  it('痘印跨肤况接续，取消后不再自动出现，历史和未来记录互不覆盖', () => {
+    const entries = history({
+      '2026-10-07': { status: 'healthy', acneMarks: true },
+      '2026-10-03': { status: 'healthy' },
+      '2026-10-01': { status: 'acne', acneMarks: true, localMedication: '积雪苷' },
+      '2026-10-05': { status: 'damaged', acneMarks: false },
+    });
+    expect(resolveSkinRecord('2026-10-04', settings, entries)).toEqual({ status: 'healthy', planDay: 1, acneMarks: true });
+    expect(resolveSkinRecord('2026-10-06', settings, entries)).toEqual({ status: 'damaged', planDay: 1, acneMarks: false });
+    expect(resolveSkinRecord('2026-10-04', settings, entries, { status: 'allergic', acneMarks: false }))
+      .toEqual({ status: 'allergic', planDay: 1, acneMarks: false });
+    expect(resolveSkinRecord('2026-09-30', settings, entries)).toEqual({});
+  });
+
+  it('已有个人方案也能使用默认局部方案，修改或清空只影响局部', () => {
+    const legacy = structuredClone(settings);
+    delete legacy.acneMarksMedication;
+    expect(skinLocalPlanValues(parseSkinSettings(legacy), { acneMarks: true })).toEqual({ localMedication: '积雪苷' });
+    for (const medication of ['个人局部用药', '']) {
+      const updated = parseSkinSettings({ ...legacy, acneMarksMedication: medication });
+      expect(skinLocalPlanValues(updated, { acneMarks: true })).toEqual({ localMedication: medication });
+      expect(updated.plans).toEqual(legacy.plans);
+      expect(updated.products).toEqual(legacy.products);
+      expect(skinLocalPlanValues(updated, { acneMarks: false })).toEqual({});
+    }
+    expect(() => parseSkinSettings({ ...legacy, acneMarksMedication: 'a'.repeat(501) })).toThrow();
+    expect(() => parseSkinSettings({ ...legacy, acneMarksMedication: null })).toThrow();
+  });
+
+  it('拒绝非法副状态和局部用药，兼容旧记录及显式取消', () => {
+    expect(parseSkinRecord({ status: 'healthy' })).toEqual({ status: 'healthy' });
+    expect(parseSkinRecord({ acneMarks: false, localMedication: '' })).toEqual({ acneMarks: false, localMedication: '' });
+    for (const acneMarks of ['true', 1, null, {}]) expect(() => parseSkinRecord({ acneMarks })).toThrow();
+    expect(() => parseSkinRecord({ localMedication: 'a'.repeat(501) })).toThrow();
   });
 });

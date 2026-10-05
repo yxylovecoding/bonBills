@@ -4,16 +4,17 @@ export const SKIN_TIMES = { morning: '早间', evening: '晚间' } as const;
 export type SkinState = keyof typeof SKIN_STATES;
 export type SkinSeason = keyof typeof SKIN_SEASONS;
 export type SkinTime = keyof typeof SKIN_TIMES;
-export const SKIN_FIELDS = { medication: '用药（未分早晚）', morningMedication: '早间用药', morningProducts: '早间护肤品', eveningMedication: '晚间用药', eveningProducts: '晚间护肤品' } as const;
+export const SKIN_FIELDS = { medication: '用药（未分早晚）', morningMedication: '早间用药', morningProducts: '早间护肤品', eveningMedication: '晚间用药', eveningProducts: '晚间护肤品', localMedication: '局部用药' } as const;
 export type SkinField = keyof typeof SKIN_FIELDS;
-export type SkinRecord = Partial<Record<SkinField, string>> & { status?: SkinState; planDay?: number; season?: SkinSeason };
+export type SkinRecord = Partial<Record<SkinField, string>> & { status?: SkinState; planDay?: number; season?: SkinSeason; acneMarks?: boolean };
 export interface SkinProduct {
   id: string; name: string; kind: 'medication' | 'skincare'; active: boolean;
   states: SkinState[]; seasons: SkinSeason[]; times: SkinTime[]; tags: string[]; notes: string;
 }
 export interface SkinPlanDay { medication: string; morningMedication: string; eveningMedication: string; notes: string }
 export interface SkinPlan { days: SkinPlanDay[]; careFrom?: 'damaged'; repeat?: boolean }
-export interface SkinSettings { revision: string; products: SkinProduct[]; plans: Record<SkinState, SkinPlan> }
+export interface SkinSettings { revision: string; products: SkinProduct[]; plans: Record<SkinState, SkinPlan>; acneMarksMedication?: string }
+export const DEFAULT_ACNE_MARKS_MEDICATION = '积雪苷';
 export const emptySkinDay = (): SkinPlanDay => ({ medication: '', morningMedication: '', eveningMedication: '', notes: '' });
 
 const product = (id: string, name: string, kind: SkinProduct['kind'], states: SkinState[], seasons: SkinSeason[] = [], times: SkinTime[] = []): SkinProduct =>
@@ -21,6 +22,7 @@ const product = (id: string, name: string, kind: SkinProduct['kind'], states: Sk
 // Personal templates supplied by the user; unspecified names and times stay unspecified.
 export const DEFAULT_SKIN_SETTINGS: SkinSettings = {
   revision: '',
+  acneMarksMedication: DEFAULT_ACNE_MARKS_MEDICATION,
   products: [
     product('calamine', '炉甘石', 'medication', ['acne']),
     { ...product('peroxide', '过氧', 'medication', ['acne'], [], ['morning']), notes: '待补全具体名称' },
@@ -62,6 +64,7 @@ export function parseSkinRecord(value: unknown): SkinRecord {
     if (has(SKIN_FIELDS, key)) result[key as SkinField] = text(val, 500);
     else if (key === 'status' && has(SKIN_STATES, val)) result.status = val as SkinState;
     else if (key === 'season' && has(SKIN_SEASONS, val)) result.season = val as SkinSeason;
+    else if (key === 'acneMarks' && typeof val === 'boolean') result.acneMarks = val;
     else if (key === 'planDay' && typeof val === 'number' && Number.isInteger(val) && val >= 1 && val <= 14) result.planDay = val;
     else throw new Error('护肤记录无效');
   }
@@ -96,7 +99,10 @@ export function parseSkinSettings(value: unknown): SkinSettings {
         eveningMedication: text(day.eveningMedication, 500), notes: text(day.notes, 500) };
     }) };
   }
-  return { revision, products, plans };
+  return { revision, products, plans, ...(input.acneMarksMedication !== undefined ? { acneMarksMedication: text(input.acneMarksMedication, 500) } : {}) };
+}
+export function skinLocalPlanValues(settings: SkinSettings, skin: SkinRecord): Partial<Record<SkinField, string>> {
+  return skin.acneMarks ? { localMedication: settings.acneMarksMedication ?? DEFAULT_ACNE_MARKS_MEDICATION } : {};
 }
 export function skinSeason(date: string): SkinSeason {
   const month = Number(date.slice(5, 7));

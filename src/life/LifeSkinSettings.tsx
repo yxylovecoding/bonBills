@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { SKIN_SEASONS, SKIN_STATES, SKIN_TIMES, emptySkinDay, parseSkinSettings,
+import { DEFAULT_ACNE_MARKS_MEDICATION, SKIN_SEASONS, SKIN_STATES, SKIN_TIMES, emptySkinDay, parseSkinSettings,
   type SkinProduct, type SkinSettings, type SkinState } from '../utils/lifeSkin';
 import { LifeError, lifeRequest } from './client';
 
@@ -94,6 +94,8 @@ export default function LifeSkinSettings({ initial, year, onSave, onClose, onExp
             .map((product) => <p key={product.id}>{product.name}<small>{product.seasons.length ? product.seasons.map((key) => SKIN_SEASONS[key]).join(' / ') : '全年'}</small></p>)}
           <button type="button" disabled={busy} className="life-skin-text-action" onClick={() => { setFilter('skincare'); setTab('products'); }}>管理护肤品与季节</button>
         </div>
+        {state === 'acne' && <label className="life-field">痘印 · 局部用药<input maxLength={500} disabled={busy}
+          value={draft.acneMarksMedication ?? DEFAULT_ACNE_MARKS_MEDICATION} onChange={(event) => change({ ...draft, acneMarksMedication: event.target.value })} /></label>}
       </>}
       {tab === 'products' && <>
         {!item ? <>

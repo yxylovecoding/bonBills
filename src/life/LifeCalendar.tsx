@@ -1,7 +1,7 @@
 import InstallApp from '../components/InstallApp';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { resolveSkinRecord } from '../utils/lifeSkinProgress';
-import { skinPlanValues, skinSeason } from '../utils/lifeSkin';
+import { skinLocalPlanValues, skinPlanValues, skinSeason } from '../utils/lifeSkin';
 import { DEFAULT_SKIN_SETTINGS } from '../utils/lifeSkin';
 import LifeSkinSettings from './LifeSkinSettings';
 import { calendarCells, DEFAULT_CYCLE, entrySummary, LIFE_LABELS, type LifeView, type LifeYear, type TrainingRecord } from '../utils/bonLife';
@@ -227,8 +227,9 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
         const phaseLabel = phase ? `${phase.estimated ? '预计·' : ''}${CYCLE_GUIDANCE[phase.phase].label}` : '';
         const planned = kind === 'training' ? trainingPlan.get(date) : undefined;
         const skinSuggestion = kind === 'skin' && date === now && !entry ? resolveSkinRecord(date, skinSettings, skinEntries) : undefined;
-        const suggestedSkin = skinSuggestion?.status && skinSuggestion.planDay ? { ...skinSuggestion,
-          ...skinPlanValues(skinSettings, skinSuggestion.status, skinSuggestion.planDay, skinSeason(date)) } : undefined;
+        const suggestedSkin = skinSuggestion && ((skinSuggestion.status && skinSuggestion.planDay) || skinSuggestion.acneMarks) ? { ...skinSuggestion,
+          ...(skinSuggestion.status && skinSuggestion.planDay ? skinPlanValues(skinSettings, skinSuggestion.status, skinSuggestion.planDay, skinSeason(date)) : {}),
+          ...skinLocalPlanValues(skinSettings, skinSuggestion) } : undefined;
         const summary = suggestedSkin ? entrySummary('skin', { text: '', revision: '', skin: suggestedSkin }) : entrySummary(kind, planned ? { ...entry, text: entry?.text ?? '', revision: entry?.revision ?? '', training: planned } : entry);
         const planStatus = suggestedSkin ? '个人方案' : planned?.completed ? '已完成' : entry?.training && planned?.mode !== 'auto' ? '手动安排' : date >= now && planned?.plan ? '自动计划' : '';
         return <button type="button" key={date} disabled={loading || !current || Boolean(error) || (kind === 'training' && trainingSource.busy && !trainingSource.current?.completions)}

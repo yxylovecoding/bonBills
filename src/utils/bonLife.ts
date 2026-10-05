@@ -119,7 +119,8 @@ export function entrySummary(kind: LifeKind, entry?: LifeEntry): string {
     const value = entry.body?.[key as BodyMetric]; return isBodyValue(key as BodyMetric, value) ? [`${label} ${value}${unit ? ` ${unit}` : ''}`] : [];
   }) : kind === 'training' && entry.training ? [`${entry.training.completed ? '✓ ' : ''}${entry.training.plan}`] : [];
   const skinState = kind === 'skin' && entry.skin?.status ? `${SKIN_STATES[entry.skin.status]}${entry.skin.planDay ? ` · 第 ${entry.skin.planDay} 天` : ''}` : '';
-  return [skinState, ...details, entry.text].filter(Boolean).join('\n');
+  const skinLabel = kind === 'skin' ? [skinState, entry.skin?.acneMarks ? '痘印' : ''].filter(Boolean).join(' · ') : '';
+  return [skinLabel, ...details, entry.text].filter(Boolean).join('\n');
 }
 
 export function isBodyValue(metric: BodyMetric, value: unknown): value is number {

@@ -49,6 +49,11 @@ export function nextSkinPlan(date: string, settings: SkinSettings, entries: Life
 }
 
 export function resolveSkinRecord(date: string, settings: SkinSettings, entries: LifeEntries, skin: SkinRecord = {}): SkinRecord {
+  if (skin.acneMarks === undefined) {
+    const previous = Object.entries(entries).filter(([key, entry]) => key.startsWith('skin:') && isCalendarDate(key.slice(5))
+      && key.slice(5) < date && typeof entry.skin?.acneMarks === 'boolean').sort(([a], [b]) => b.localeCompare(a))[0]?.[1].skin;
+    if (previous) skin = { ...skin, acneMarks: previous.acneMarks };
+  }
   const status = recordedState(skin, settings) ?? nextSkinPlan(date, settings, entries).status;
   if (!status) return skin;
   const day = skin.planDay ?? matchedDay(skin, settings.plans[status]) ?? nextSkinPlan(date, settings, entries, status).planDay;
