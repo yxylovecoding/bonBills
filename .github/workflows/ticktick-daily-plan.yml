@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - name: Show hair washing at 20:00
+      - name: Show hair washing and reading at 20:00
         env:
           CRON_SECRET: ${{ secrets.BONBILLS_CRON_SECRET }}
         shell: bash
@@ -48,7 +48,7 @@ jobs:
             }
             const result = await response.json().catch(() => null);
             if (response.status !== 200 || result?.ok !== true || result.busy || result.error
-                || (result.connected !== false && !result.hairWash)) {
+                || (result.connected !== false && (!result.hairWash || !result.reading))) {
               throw new Error(`Hair-wash visibility did not complete (HTTP ${response.status})`);
             }
             console.log('Hair-wash visibility updated successfully.');

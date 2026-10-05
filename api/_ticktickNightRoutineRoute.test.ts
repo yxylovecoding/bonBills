@@ -7,7 +7,8 @@ const { auth, lock, release, sync, hair, daily, exercise, data, outlook, archive
 vi.mock('./_auth.js', () => ({ authOk: auth }));
 vi.mock('./_ticktickLock.js', () => ({ acquireTickTickLock: lock, releaseTickTickLock: release }));
 vi.mock('@vercel/kv', () => ({ kv: { get: async (key: string) => data.get(key) } }));
-vi.mock('./_ticktickNightRoutine.js', () => ({ syncNightRoutineVisibility: sync, syncHairWashVisibility: hair }));
+vi.mock('./_ticktickNightRoutine.js', () => ({ syncNightRoutineVisibility: sync, syncHairWashVisibility: hair,
+  syncReadingVisibility: vi.fn(async () => ({ matched: 1, updated: 1, visible: 1, hidden: 0, skipped: 0 })) }));
 vi.mock('./_ticktickSleepTags.js', () => ({ syncSleepRoutineTags: daily }));
 vi.mock('./_ticktickExercise.js', () => ({ syncExerciseSchedule: exercise }));
 vi.mock('./_outlookSync.js', () => ({ syncOutlookCalendar: outlook }));
@@ -42,7 +43,7 @@ describe('夜间显隐轻量入口', () => {
     expect(outlook).not.toHaveBeenCalled(); expect(archive).not.toHaveBeenCalled();
     expect(release).toHaveBeenCalledWith('lock');
   });
-  it.each(['night-routine', 'daily-routine', 'routine-visibility', 'hair-wash'])('%s 普通 GET 无副作用，仅认证 POST 能手动执行', async (action) => {
+  it.each(['night-routine', 'daily-routine', 'routine-visibility', 'hair-wash', 'reading-visibility'])('%s 普通 GET 无副作用，仅认证 POST 能手动执行', async (action) => {
     expect((await request('GET', undefined, action)).status).toBe(401);
     expect((await request('POST', 'Bearer wrong', action)).status).toBe(401);
     auth.mockResolvedValue(true);
@@ -51,8 +52,9 @@ describe('夜间显隐轻量入口', () => {
     expect(daily).not.toHaveBeenCalled();
     expect((await request('POST', undefined, action)).status).toBe(200);
   });
-  it('20 点洗头入口只处理洗头标签，共用锁且不触发其他排程', async () => {
-    expect(await request('GET', 'Bearer cron-secret', 'hair-wash')).toMatchObject({ status: 200, body: { hairWash: { updated: 1 } } });
+  it('20 点入口处理洗头和阅读标签，共用锁且不触发其他排程', async () => {
+    expect(await request('GET', 'Bearer cron-secret', 'hair-wash')).toMatchObject({ status: 200,
+      body: { hairWash: { updated: 1 }, reading: { updated: 1 } } });
     expect(hair).toHaveBeenCalledOnce(); expect(release).toHaveBeenCalledOnce();
     expect(daily).not.toHaveBeenCalled(); expect(sync).not.toHaveBeenCalled(); expect(exercise).not.toHaveBeenCalled();
     expect(outlook).not.toHaveBeenCalled(); expect(archive).not.toHaveBeenCalled();
