@@ -758,6 +758,7 @@ export async function syncTickTickRoutines(options: {
   today: string;
   excludedTaskIds?: ReadonlySet<string>;
   minimumTaskDates?: ReadonlyMap<string, string>;
+  fixedTaskDates?: ReadonlyMap<string, string>;
   planDay?: (tasks: TickTickTask[]) => Promise<ReadonlyMap<string, string>>;
 }): Promise<TickTickRoutineSyncResult> {
   const { api, calendarState, today, excludedTaskIds = new Set<string>() } = options;
@@ -823,6 +824,9 @@ export async function syncTickTickRoutines(options: {
 
   const targetDates = new Map<string, string>();
   const boundedDate = (task: TickTickTask, date: string): string | null => {
+    // Rolling training owns these dates, including for hair-wash followers.
+    const fixed = options.fixedTaskDates?.get(task.id);
+    if (fixed) return fixed;
     const minimum = options.minimumTaskDates?.get(task.id);
     if (!minimum) return date;
     const from = date < minimum ? minimum : date;

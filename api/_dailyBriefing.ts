@@ -87,14 +87,14 @@ export async function readDailyBriefing(now = new Date()): Promise<DailyBriefing
 }
 
 const escapeHtml = (value: unknown) => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
-export function renderDailyBriefing(report: DailyBriefing) {
+export function renderDailyBriefing(report: DailyBriefing, email = false) {
   const when = (value: string) => new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', dateStyle: 'short', timeStyle: 'short', hour12: false }).format(new Date(value));
   const reasons = (values: string[]) => values.map(escapeHtml).join('；');
   const time = (minutes: number) => minutes ? `约 ${minutes} 分钟` : '休息';
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${report.date} 每日简报</title>
 <style>body{max-width:1000px;margin:40px auto;padding:0 20px;font:14px/1.7 system-ui;color:#333;background:#fafaf7}h1{font-size:24px}h2{font-size:18px;margin-top:32px}table{width:100%;border-collapse:collapse}td,th{padding:12px 10px;text-align:left;border-bottom:1px solid #dedfd8;vertical-align:top}small,p{color:#666}button{background:#596953;color:white;border:0;padding:10px 20px;cursor:pointer}td{white-space:pre-line;overflow-wrap:anywhere}.warning{color:#984921}@media(max-width:600px){th,td{padding:8px 5px;font-size:12px}}</style></head>
 <body><main data-briefing-ready="${report.ready}" data-date="${report.date}"><h1>${report.date} · 训练与今日事</h1><p>读取时间：${when(report.generatedAt)} · 北京时间${report.planGeneratedAt ? `<br>今日事排期时间：${when(report.planGeneratedAt)}` : ''}</p>
-<form method="post" action="/api/ticktick-trips?action=briefing"><button type="submit">刷新简报</button></form>
+${email ? '<p><a href="https://www.bonbills.cn/life?view=briefing">查看最新计划</a></p>' : '<form method="post" action="/api/ticktick-trips?action=briefing"><button type="submit">刷新简报</button></form>'}
 ${report.warnings.map((warning) => `<p class="warning">${escapeHtml(warning)}</p>`).join('')}
 <h2>未来 7 天训练 · ${report.date}—${report.training.at(-1)?.date}</h2><table><thead><tr><th>日期 / 阶段</th><th>训练</th><th>预计用时</th><th>安排原因</th></tr></thead><tbody>${report.training.map((day) => `<tr><td>${day.date}<br><small>${escapeHtml(day.phase)}</small></td><td>${escapeHtml(day.plan)}</td><td>${time(day.minutes)}</td><td>${reasons(day.reasons)}</td></tr>`).join('')}</tbody></table>
 <h2>今日事 · ${report.today.length} 项 · 约 ${report.today.reduce((sum, item) => sum + item.minutes, 0)} 分钟</h2>

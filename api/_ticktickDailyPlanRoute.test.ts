@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from './ticktick-trips';
 import { DAILY_PLAN_KEY, DAILY_PLAN_SETTINGS_KEY } from './_ticktickDailyPlan';
-const { data, auth, failHistory, failWrite, sleepTags, briefing, syncTraining } = vi.hoisted(() => ({ data: new Map<string, any>(), auth: { ok: true }, failHistory: { value: false }, failWrite: { value: false }, sleepTags: vi.fn(), briefing: vi.fn(), syncTraining: vi.fn() }));
+const { data, auth, failHistory, failWrite, sleepTags, briefing, syncTraining, sendEmail } = vi.hoisted(() => ({ data: new Map<string, any>(), auth: { ok: true }, failHistory: { value: false }, failWrite: { value: false }, sleepTags: vi.fn(), briefing: vi.fn(), syncTraining: vi.fn(), sendEmail: vi.fn() }));
+vi.mock('./_dailyEmail.js', () => ({ sendDailyEmail: sendEmail }));
 vi.mock('./_dailyBriefing.js', () => ({ readDailyBriefing: briefing, renderDailyBriefing: () => '<html>每日简报</html>' }));
 vi.mock('./_lifeTraining.js', () => ({ syncTrainingSource: syncTraining }));
 vi.mock('./_auth.js', () => ({ authOk: async () => auth.ok }));
@@ -26,19 +27,31 @@ vi.mock('./_ticktickTrips.js', async (original) => ({
     return { updatedRoutineTasks: 0 };
   },
 }));
-async function request(method: string, body?: unknown, action?: string, format?: string) {
+async function request(method: string, body?: unknown, action?: string, format?: string, authorization?: string) {
   const result = { status: 200, body: {} as Record<string, any>, html: '', location: '' };
   const res = { setHeader: vi.fn(), status: (code: number) => { result.status = code; return res; }, json: (value: Record<string, unknown>) => { result.body = value; return res; },
     send: (html: string) => { result.html = html; return res; }, redirect: (code: number, url: string) => { result.status = code; result.location = url; return res; } };
-  await handler({ method, headers: {}, body, query: action ? { action, format } : {} } as VercelRequest, res as unknown as VercelResponse);
+  await handler({ method, headers: { authorization }, body, query: action ? { action, format } : {} } as VercelRequest, res as unknown as VercelResponse);
   return result;
 }
 beforeEach(() => { data.clear(); auth.ok = true; failHistory.value = false; failWrite.value = false;
   briefing.mockReset().mockResolvedValue({}); syncTraining.mockReset().mockResolvedValue({});
+  sendEmail.mockReset().mockResolvedValue({ sent: true, duplicate: false });
   sleepTags.mockResolvedValue({ mode: 'restore', updated: 0, remaining: 0, complete: true });
   data.set('ticktick:connection:v1', { encryptedToken: {} }); });
-afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 describe('每日安排接口', () => {
+  it('发信入口仅接受后台密钥；普通访问不发邮件，繁忙可以稍后重试', async () => {
+    vi.stubEnv('CRON_SECRET', 'cron-secret');
+    expect((await request('GET', undefined, 'daily-email')).status).toBe(403);
+    expect((await request('POST', undefined, 'daily-email')).status).toBe(403);
+    expect(sendEmail).not.toHaveBeenCalled();
+    auth.ok = false;
+    expect((await request('GET', undefined, 'daily-email', undefined, 'Bearer wrong')).status).toBe(401);
+    expect((await request('GET', undefined, 'daily-email', undefined, 'Bearer cron-secret')).body.sent).toBe(true);
+    sendEmail.mockResolvedValueOnce({ busy: true });
+    expect((await request('GET', undefined, 'daily-email', undefined, 'Bearer cron-secret')).status).toBe(202);
+  });
   it('网页通过 JSON 读取简报，繁忙状态不能当作已更新的报告', async () => {
     briefing.mockResolvedValue({ date: '2026-10-05', ready: true });
     expect((await request('GET', undefined, 'briefing', 'json')).body).toEqual({ date: '2026-10-05', ready: true });

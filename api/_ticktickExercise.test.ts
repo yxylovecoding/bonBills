@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CYCLE } from '../src/utils/bonLife';
-import { EXERCISE_STATE_KEY, exerciseTarget, isExerciseTask, syncExerciseSchedule } from './_ticktickExercise';
+import { EXERCISE_STATE_KEY, exerciseTarget, isExerciseTask, syncExerciseSchedule, rollingExerciseDates } from './_ticktickExercise';
+import { rollingTrainingPlan, type TrainingSource } from '../src/utils/lifeTraining';
 import { syncTickTickRoutines, type TickTickApi, type TickTickTask } from './_ticktickTrips';
 
-const { data } = vi.hoisted(() => ({ data: new Map<string, any>() }));
+const { data, training } = vi.hoisted(() => ({ data: new Map<string, any>(), training: vi.fn() }));
+vi.mock('./_lifeTraining.js', () => ({ syncTrainingSource: training }));
 vi.mock('@vercel/kv', () => ({ kv: {
   get: async (key: string) => structuredClone(data.get(key) ?? null),
   set: async (key: string, value: unknown) => data.set(key, structuredClone(value)),
@@ -32,7 +34,37 @@ function fakeApi(...tasks: TickTickTask[]) {
   };
   return { api: api as unknown as TickTickApi, stored, update: api.updateTask, read: api.getTask };
 }
-beforeEach(() => data.clear());
+beforeEach(() => { data.clear(); training.mockReset(); });
+
+describe('与网页共用实际完成轮换', () => {
+  const source = (): TrainingSource => ({ year: 2026, connected: true, syncedAt: null,
+    tasks: ['全身力训', '臀腿', '爬坡'].map((name, i) => ({ id: `life:${i}`, name, title: `${name}-运动💪🏻是生活的第一个锚点🪝`, dates: [], schedule: '', notes: '', links: [] })),
+    completions: [{ project: '臀腿', date: '2026-09-28' }, { project: '爬坡', date: '2026-10-03' }] });
+  it('高优先级固定星期训练也与网页相同，日常排期不会改回臀腿', async () => {
+    const current = source(); training.mockResolvedValue(current);
+    const raw = current.tasks.map((task, i) => workout({ id: String(i), title: task.title, tags: ['居', '洗头'] }));
+    const fake = fakeApi(...raw, workout({ id: 'wash', title: '洗头', tags: [], repeatFlag: '', startDate: '2026-10-09T01:00:00.000+0000', dueDate: '2026-10-09T01:00:00.000+0000' }));
+    const result = await syncExerciseSchedule(fake.api, { rolling: true, connectionId: 'account', ...options('2026-10-05T05:00:00') });
+    expect(fake.stored.get('0')?.dueDate?.slice(0, 10)).toBe('2026-10-05');
+    expect(fake.stored.get('1')?.dueDate?.slice(0, 10)).toBe('2026-10-06');
+    await syncTickTickRoutines({ api: fake.api, today: '2026-10-05', calendarState: { tagMap: { '2026-10-05': 'school' } }, excludedTaskIds: result.managedTaskIds, fixedTaskDates: result.fixedDates });
+    expect(fake.stored.get('1')?.dueDate?.slice(0, 10)).toBe('2026-10-06');
+    expect(fake.stored.get('0')?.repeatFlag).toBe(raw[0].repeatFlag);
+    expect(fake.update.mock.calls.every(([, payload]) => !('status' in payload))).toBe(true);
+    const page = rollingTrainingPlan(2026, 10, '2026-10-05', current, DEFAULT_CYCLE, [], {});
+    expect(page.plans.get('2026-10-05')?.plan).toContain('全身力训');
+    expect((await syncExerciseSchedule(fake.api, { rolling: true, connectionId: 'account', ...options('2026-10-05T05:00:00') })).updated).toBe(0);
+  });
+  it('跨周未完成不消耗轮换，经期顺延游泳，跨年保持同一顺序', () => {
+    const current = source();
+    current.tasks.push({ id: 'swim', title: '游泳', name: '游泳', dates: [], schedule: '', notes: '', links: [] });
+    const cycle = { ...DEFAULT_CYCLE, lastPeriodStart: '2026-12-29', automatic: false };
+    const dates = rollingExerciseDates('2026-12-29', current, cycle, []);
+    expect(dates.get('游泳')! >= '2027-01-03').toBe(true);
+    expect(rollingExerciseDates('2026-10-07', source(), DEFAULT_CYCLE, []).get('全身力训')).toBe('2026-10-07');
+    expect(rollingExerciseDates('2026-10-14', source(), DEFAULT_CYCLE, []).get('全身力训')).toBe('2026-10-14');
+  });
+});
 
 describe('夜间运动收尾', () => {
   it('22 点前保留当天训练，22 点后跳到原定星期，不堆到明天', () => {

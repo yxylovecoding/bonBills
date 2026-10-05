@@ -120,14 +120,15 @@ async function runSync(allowDisconnected = false) {
       // Follow explicit task dates after generated trips/wishes have their final
       // dates, including tasks first created during this sync.
       const excludedTaskIds = getTickTickRoutineExcludedTaskIds(template, state);
-      const exercise = await syncExerciseSchedule(api, { connectionId, calendarState, excludedTaskIds });
+      const exercise = await syncExerciseSchedule(api, { connectionId, calendarState, excludedTaskIds, rolling: true });
+      for (const id of exercise.managedTaskIds) excludedTaskIds.add(id);
       const routineResult = await syncTickTickRoutines({
         api, calendarState, today,
-        excludedTaskIds, minimumTaskDates: exercise.minimumDates,
+        excludedTaskIds, minimumTaskDates: exercise.minimumDates, fixedTaskDates: exercise.fixedDates,
         planDay: !availability && dailyBudget(settings?.budgetMinutes) === null ? undefined : async (tasks) => {
           const plan = planTickTickDay({ tasks, calendarState, today, state: dailyPlan,
             budgetMinutes: settings?.budgetMinutes, availability, availabilityProfile: availabilityProfile(settings?.availabilityProfile),
-            excludedTaskIds: getTickTickRoutineExcludedTaskIds(template, state) });
+            excludedTaskIds });
           // Save cycle anchors before writes so a partially failed run can be retried.
           await kv.set(DAILY_PLAN_KEY, { ...dailyPlan, summary: savedPlan?.summary,
             briefing: savedPlan?.connectionId === connectionId ? savedPlan.briefing : undefined });
@@ -167,7 +168,7 @@ async function runRoutineVisibilitySync(kind: 'night' | 'daily' | 'all' | 'hair'
     if (kind === 'daily' || sleepTags?.complete === false) return { busy: false as const, connected: true as const, sleepTags };
     const nightRoutine = await syncNightRoutineVisibility(api, { timeZone: connection.timeZone });
     const exercise = await syncExerciseSchedule(api, { connectionId: createHash('sha256').update(token).digest('hex'),
-      templateRootId: connection.templateRootId });
+      templateRootId: connection.templateRootId, rolling: true });
     return { busy: false as const, connected: true as const, nightRoutine, exercise: { updated: exercise.updated },
       ...(sleepTags ? { sleepTags } : {}) };
   } finally {
@@ -259,6 +260,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!isCron && !await authOk(req)) return res.status(401).json({ error: 'unauthorized' });
 
   try {
+    if (req.query?.action === 'daily-email') {
+      if (!isCron) return res.status(403).json({ error: 'cron authorization required' });
+      const { sendDailyEmail } = await import('./_dailyEmail.js');
+      const result = await sendDailyEmail();
+      return res.status('busy' in result && result.busy ? 202 : 200).json({ ok: true, ...result });
+    }
     if (req.query?.action === 'briefing') {
       if (!['GET', 'POST'].includes(req.method ?? '')) return res.status(405).json({ error: 'method not allowed' });
       if (req.method === 'POST') {

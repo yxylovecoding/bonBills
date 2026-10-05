@@ -101,11 +101,11 @@ export function trainingCompletions(tasks: TickTickTask[], today: string): Train
   return [...result.values()];
 }
 
-export async function syncTrainingSource(year: number): Promise<TrainingSource> {
+export async function syncTrainingSource(year: number, options: { lockHeld?: boolean } = {}): Promise<TrainingSource> {
   const requestedAt = Date.now();
   const connection = await kv.get<TickTickConnection>(TICKTICK_CONNECTION_KEY);
   if (!connection) return readTrainingSource(year);
-  await syncSwimmingSchedule();
+  if (!options.lockHeld) await syncSwimmingSchedule();
   try {
     const token = decryptTickTickToken(connection.encryptedToken, (process.env.SYNC_SECRET || '').trim());
     const api = new TickTickOpenApiClient(token, (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);

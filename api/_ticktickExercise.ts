@@ -2,6 +2,8 @@ import { kv } from '@vercel/kv';
 import ICAL from 'ical.js';
 import { cycleDay } from '../src/utils/lifeCycle.js';
 import type { CycleSettings } from '../src/utils/bonLife.js';
+import { isTrainingTitle, recordedTrainingProjects, rollingTrainingPlan, trainingIdentity, trainingLibrary,
+  trainingName, trainingProjectKey, type TrainingSource } from '../src/utils/lifeTraining.js';
 import { readSwimmingCycle } from './_lifeSwimming.js';
 import { calendarDateInTimeZone, getTickTickRoutineTargetDates, readAllTickTickTasks, routineRecurrence,
   routineScenes, shiftTickTickDate, TICKTICK_SYNC_STATE_KEY,
@@ -16,7 +18,7 @@ const normalize = (value: string) => value.normalize('NFKC').trim().toLowerCase(
 export function isExerciseTask(task: TickTickTask): boolean {
   if ((task.tags ?? []).some(tag => normalize(tag) === '不关我事')) return false;
   const title = normalize(task.title);
-  return /^(?:全身力训|臀腿|hiit|上半身|有氧|游泳|力量训练|跑步|骑行)(?:\s*[-—–:：]|$)/.test(title)
+  return isTrainingTitle(task.title) || /^(?:全身力训|臀腿|hiit|上半身|有氧|游泳|力量训练|跑步|骑行)(?:\s*[-—–:：]|$)/.test(title)
     || title === '运动💪🏻是生活的第一个锚点🪝';
 }
 
@@ -83,6 +85,23 @@ export function exerciseTarget(task: TickTickTask, options: TargetOptions): stri
 interface Deferral { projectId: string; repeatFlag: string; notBefore: string }
 interface ExerciseState { connectionId: string; deferrals: Record<string, Deferral> }
 
+export function rollingExerciseDates(today: string, source: TrainingSource, cycle: CycleSettings, periods: string[]) {
+  const library = trainingLibrary(source.tasks, source.settings);
+  const dates = new Map<string, string>();
+  const months = new Map<string, ReturnType<typeof rollingTrainingPlan>>();
+  // Look beyond this week when menstruation, recovery or recent completions
+  // postpone a project. Every month still starts from the same actual history.
+  for (let offset = 0; offset < 90; offset++) {
+    const date = addDays(today, offset);
+    const month = date.slice(0, 7);
+    if (!months.has(month)) months.set(month, rollingTrainingPlan(Number(date.slice(0, 4)), Number(date.slice(5, 7)), today, source, cycle, periods, {}));
+    const record = months.get(month)!.plans.get(date);
+    if (!record || record.completed) continue;
+    for (const key of recordedTrainingProjects(record, library)) if (!dates.has(key)) dates.set(key, date);
+  }
+  return dates;
+}
+
 function deferredDate(task: TickTickTask, state: ExerciseState) {
   const saved = state.deferrals[task.id];
   return saved?.projectId === task.projectId && saved.repeatFlag === (task.repeatFlag ?? '') ? saved.notBefore : undefined;
@@ -123,6 +142,7 @@ export async function syncExerciseSchedule(api: TickTickApi, options: {
   tasks?: TickTickTask[];
   calendarState?: unknown;
   excludedTaskIds?: ReadonlySet<string>;
+  rolling?: boolean;
 }) {
   const now = options.now ?? new Date();
   const [tasks, calendarState, previous, trips] = await Promise.all([
@@ -150,16 +170,48 @@ export async function syncExerciseSchedule(api: TickTickApi, options: {
     return true;
   };
   const candidates = tasks.filter(eligible);
+  const managedTaskIds = new Set<string>();
+  const fixedDates = new Map<string, string>();
+  let updated = 0;
+  if (options.rolling && candidates.some(task => isTrainingTitle(task.title))) {
+    const today = localDay(now).day;
+    const { syncTrainingSource } = await import('./_lifeTraining.js');
+    const source = await syncTrainingSource(Number(today.slice(0, 4)), { lockHeld: true });
+    // Template/trip tasks and ignored tasks cannot add projects to the rotation.
+    const candidateIds = new Set(candidates.map(task => `${task.projectId}:${task.id}`));
+    source.tasks = source.tasks.filter(task => candidateIds.has(task.id));
+    const { cycle, periods } = await readSwimmingCycle([Number(today.slice(0, 4)), Number(addDays(today, 90).slice(0, 4))]);
+    const dates = rollingExerciseDates(today, source, cycle, periods);
+    const library = trainingLibrary(source.tasks, source.settings);
+    const keyFor = (task: TickTickTask) => {
+      const raw = trainingProjectKey(trainingName(task.title));
+      const project = library.find(project => project.id === `${task.projectId}:${task.id}` || trainingIdentity(project) === raw);
+      return project ? trainingIdentity(project) : raw;
+    };
+    for (const candidate of candidates.filter(task => isTrainingTitle(task.title))) {
+      const target = dates.get(keyFor(candidate));
+      if (!target || !taskDay(candidate)) continue;
+      managedTaskIds.add(candidate.id);
+      fixedDates.set(candidate.id, target);
+      if (taskDay(candidate) === target) continue;
+      const task = await api.getTask(candidate.projectId, candidate.id);
+      if (task?.id !== candidate.id || task.projectId !== candidate.projectId) throw new Error('运动待办读取失败');
+      if ((task.status ?? 0) !== 0 || task.completedTime) throw new Error('训练完成状态已变化，请重新排期');
+      if (!eligible(task) || keyFor(task) !== keyFor(candidate)) throw new Error('训练项目已变化，请重新排期');
+      await moveExercise(api, task, target);
+      updated++;
+    }
+  }
   const state: ExerciseState = { connectionId: options.connectionId, deferrals: {} };
   if (previous?.connectionId === options.connectionId) {
     for (const task of candidates) {
-      if (deferredDate(task, previous)) state.deferrals[task.id] = previous.deferrals[task.id];
+      if (!managedTaskIds.has(task.id) && deferredDate(task, previous)) state.deferrals[task.id] = previous.deferrals[task.id];
     }
   }
   const swimming = candidates.some(task => task.title.includes('游泳') && taskDay(task));
   const periodData = swimming ? await readSwimmingCycle([now.getUTCFullYear(), now.getUTCFullYear() + 1]) : {};
-  let updated = 0;
   for (const candidate of candidates) {
+    if (managedTaskIds.has(candidate.id)) continue;
     const targetOptions = { now, calendarState, ...periodData, notBefore: deferredDate(candidate, state) };
     if (!exerciseTarget(candidate, targetOptions)) continue;
     const task = await api.getTask(candidate.projectId, candidate.id);
@@ -173,5 +225,5 @@ export async function syncExerciseSchedule(api: TickTickApi, options: {
     updated++;
   }
   const minimumDates = new Map(Object.entries(state.deferrals).map(([id, saved]) => [id, saved.notBefore]));
-  return { updated, minimumDates };
+  return { updated, minimumDates, managedTaskIds, fixedDates };
 }

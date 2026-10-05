@@ -3,12 +3,17 @@ name: Daily calendar sync and planning
 on:
   schedule:
     # Asia/Shanghai: 05:00, 12:00, 17:00, 20:00. GitHub cron uses UTC.
-    - cron: '0 4,9,21 * * *'
+    - cron: '0 21 * * *'
+    - cron: '0 4,9 * * *'
     - cron: '0 12 * * *'
   workflow_dispatch:
     inputs:
       periods_only:
         description: Only import and archive Outlook periods
+        type: boolean
+        default: false
+      send_email:
+        description: Send today's briefing after planning (deduplicated by date)
         type: boolean
         default: false
 
@@ -122,4 +127,35 @@ jobs:
             process.exit(0);
           }
           throw new Error('Routine tag restoration still has pending batches');
+          NODE
+  daily-email:
+    needs: [archive-periods, recalculate]
+    if: ${{ always() && needs.archive-periods.result == 'success' && needs.recalculate.result == 'success' && (github.event.schedule == '0 21 * * *' || inputs.send_email == true) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Send training and daily planning email
+        env:
+          CRON_SECRET: ${{ secrets.BONBILLS_CRON_SECRET }}
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const secret = process.env.CRON_SECRET?.trim();
+          if (!secret) throw new Error('Missing BONBILLS_CRON_SECRET');
+          for (let attempt = 0; attempt < 3; attempt++) {
+            const response = await fetch('https://www.bonbills.cn/api/ticktick-trips?action=daily-email', {
+              headers: { Authorization: `Bearer ${secret}` }, redirect: 'error', signal: AbortSignal.timeout(100_000),
+            }).catch(() => { throw new Error('Email request failed; check delivery state before retrying'); });
+            if (response.status === 202 && attempt < 2) {
+              await response.body?.cancel();
+              await new Promise(resolve => setTimeout(resolve, 30_000));
+              continue;
+            }
+            const result = await response.json().catch(() => null);
+            if (response.status !== 200 || result?.sent !== true) {
+              throw new Error(`Daily email did not complete (HTTP ${response.status})`);
+            }
+            console.log(result.duplicate ? 'Today’s email was already sent; duplicate skipped.' : 'Daily email accepted by SMTP server.');
+            process.exit(0);
+          }
           NODE
