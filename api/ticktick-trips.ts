@@ -12,6 +12,7 @@ import { syncSwimmingSchedule } from './_lifeSwimming.js';
 import { syncHairWashVisibility, syncNightRoutineVisibility } from './_ticktickNightRoutine.js';
 import { syncSleepRoutineTags } from './_ticktickSleepTags.js';
 import { syncExerciseSchedule } from './_ticktickExercise.js';
+import { syncLaundrySchedule } from './_ticktickLaundry.js';
 
 const CONNECTION_KEY = 'ticktick:connection:v1';
 const SYNC_STATE_KEY = 'ticktick:trip-sync:v1';
@@ -122,6 +123,12 @@ async function runSync(allowDisconnected = false) {
       const excludedTaskIds = getTickTickRoutineExcludedTaskIds(template, state);
       const exercise = await syncExerciseSchedule(api, { connectionId, calendarState, excludedTaskIds, rolling: true });
       for (const id of exercise.managedTaskIds) excludedTaskIds.add(id);
+      const laundry = await syncLaundrySchedule(api, { connectionId, tasks: await readAllTickTickTasks(api, [0]), history: dailyPlan.history,
+        calendarState, availability, profile: availabilityProfile(settings?.availabilityProfile),
+        today, now: new Date(), excludedTaskIds });
+      // Weather owns this cycle's date. Scene and daily rotation must not pull
+      // it back to today, including when the forecast is temporarily unavailable.
+      for (const id of laundry.managedTaskIds) excludedTaskIds.add(id);
       const routineResult = await syncTickTickRoutines({
         api, calendarState, today,
         excludedTaskIds, minimumTaskDates: exercise.minimumDates, fixedTaskDates: exercise.fixedDates,
@@ -138,7 +145,8 @@ async function runSync(allowDisconnected = false) {
       await kv.set(DAILY_PLAN_KEY, dailyPlan);
       console.info('[ticktick-routine-sync]', JSON.stringify(routineResult));
       console.info('[ticktick-trip-sync]', JSON.stringify({ ...result, ...wishResult }));
-      return { busy: false as const, ...result, ...wishResult, ...routineResult, exercise: { updated: exercise.updated }, dailyPlan: dailyPlan.summary, budgetMinutes: dailyBudget(settings?.budgetMinutes),
+      return { busy: false as const, ...result, ...wishResult, ...routineResult, exercise: { updated: exercise.updated },
+        laundry: { updated: laundry.updated, decisions: laundry.decisions }, dailyPlan: dailyPlan.summary, budgetMinutes: dailyBudget(settings?.budgetMinutes),
         availabilityProfile: availabilityProfile(settings?.availabilityProfile), lastSyncAt: state.lastSyncAt };
     } catch (error) {
       state.lastError = error instanceof Error ? error.message : String(error);
