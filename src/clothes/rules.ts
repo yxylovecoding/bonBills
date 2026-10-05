@@ -1,5 +1,5 @@
 import type { ClothesCalendar, ClothesDayContext, ClothesItem, ClothesLocation, Outfit, Scene, WearRecord, WeatherSnapshot } from './types';
-import { CATEGORIES, categoryLabel, type Category } from './types';
+import { CATEGORIES, categoryLabel, type Category } from './types.js';
 
 export function deviceDate(now = new Date(), timezone = Intl.DateTimeFormat().resolvedOptions().timeZone) {
   return new Intl.DateTimeFormat('sv-SE', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
