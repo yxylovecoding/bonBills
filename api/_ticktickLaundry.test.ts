@@ -70,10 +70,13 @@ describe('洗衣周期和地点', () => {
 });
 
 describe('天气与日程选日', () => {
-  it('在前后两天内选连续晴天，前一天也晴时更优，绝不越界追晴天', () => {
+  it('最早提前一天、最晚推后两天；即使提前两天天气更好也不入选', () => {
     const f = forecast();
-    for (const date of ['2026-10-07', '2026-10-08', '2026-10-09', '2026-10-11', '2026-10-12', '2026-10-13']) f.days[date] = sunny;
-    expect(chooseLaundryDay(task(), '2026-10-10', options(), () => f)).toBe('2026-10-08');
+    for (const date of ['2026-10-07', '2026-10-08', '2026-10-09']) f.days[date] = sunny;
+    expect(chooseLaundryDay(task(), '2026-10-10', options(), () => f)).toBe('2026-10-09');
+    const later = forecast();
+    for (const date of ['2026-10-11', '2026-10-12', '2026-10-13', '2026-10-14']) later.days[date] = sunny;
+    expect(chooseLaundryDay(task(), '2026-10-10', options(), () => later)).toBe('2026-10-12');
     expect(chooseLaundryDay(task(), '2026-10-10', options(), () => forecast(sunny))).toBe('2026-10-10');
   });
   it('寄居旅优先：有晴天但旅行不选；固定08点会议冲突也不选', () => {
@@ -82,7 +85,7 @@ describe('天气与日程选日', () => {
     o.calendarState.tagMap['2026-10-11'] = 'travel'; o.calendarState.tagMap['2026-10-12'] = 'travel';
     o.availability.events.push({ start: '2026-10-10T07:00:00+08:00', end: '2026-10-10T09:00:00+08:00', title: '会议' });
     const selected = chooseLaundryDay(task(), '2026-10-10', o, () => f);
-    expect(['2026-10-08', '2026-10-09']).toContain(selected);
+    expect(selected).toBe('2026-10-09');
   });
   it('重要事项负担/整天空闲不足排除，即使天气最佳', () => {
     const f = forecast(sunny), o = options();
@@ -107,16 +110,17 @@ describe('天气与日程选日', () => {
 });
 
 describe('洗衣同步与天气故障', () => {
-  it('只改日期，回读保留时刻/重复/优先级/标签/清单；先存锚点，再次执行幂等', async () => {
-    const original = task({ items: [{ id: 'pending', title: '晾衣', status: 0, startDate: '2026-10-10T02:00:00Z' },
+  it('纠正旧窗口内提前两天的排期，保留时刻/重复/标签/清单和周期，再次执行幂等', async () => {
+    const original = task({ startDate: '2026-10-08T00:00:00Z', dueDate: '2026-10-08T00:00:00Z',
+      items: [{ id: 'pending', title: '晾衣', status: 0, startDate: '2026-10-08T02:00:00Z' },
       { id: 'done', title: '洗衣液', status: 1, startDate: '2026-10-01T00:00:00Z', completedTime: '2026-10-01T01:00:00Z' }] });
     const f = forecast(); for (const day of ['2026-10-07', '2026-10-08', '2026-10-09']) f.days[day] = sunny; mockWeather(f);
     const c = client(original);
     const result = await syncLaundrySchedule(c.api, { ...options({ tasks: [original] }), connectionId: 'connection' });
     expect(result.updated).toBe(1); expect(result.managedTaskIds.has('wash')).toBe(true);
-    expect(c.current()).toMatchObject({ startDate: '2026-10-08T00:00:00Z', dueDate: '2026-10-08T00:00:00Z',
+    expect(c.current()).toMatchObject({ startDate: '2026-10-09T00:00:00Z', dueDate: '2026-10-09T00:00:00Z',
       repeatFlag: original.repeatFlag, repeatFrom: original.repeatFrom, priority: 5, tags: original.tags, status: 0,
-      items: [{ startDate: '2026-10-08T02:00:00Z' }, original.items![1]] });
+      items: [{ startDate: '2026-10-09T02:00:00Z' }, original.items![1]] });
     expect(data.get(LAUNDRY_STATE_KEY).anchors.wash.target).toBe('2026-10-10');
     expect(c.api.updateTask).toHaveBeenCalledWith('wash', expect.not.objectContaining({ status: expect.anything() }));
     const again = await syncLaundrySchedule(c.api, { ...options({ tasks: [c.current()] }), connectionId: 'connection' });
@@ -194,7 +198,7 @@ describe('出行前洗衣', () => {
     for (const day of ['2026-10-07', '2026-10-08', '2026-10-09']) f.days[day] = sunny;
     mockWeather(f);
     const result = await syncLaundrySchedule(c.api, tripOptions(['2026-10-11', '2026-10-12']));
-    expect(result.decisions[0]).toMatchObject({ date: '2026-10-08', location: '北京' });
+    expect(result.decisions[0]).toMatchObject({ date: '2026-10-09', location: '北京' });
     expect(upstream).toHaveBeenCalledOnce();
     const url = upstream.mock.calls[0][0] as URL;
     expect(url.searchParams.get('latitude')).toBe('40');
