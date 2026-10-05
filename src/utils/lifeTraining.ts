@@ -15,7 +15,7 @@ export type TrainingTag = typeof TRAINING_TAGS[number];
 export const isTrainingCategory = (name: string) => /^(有氧|力量)(运动|训练)?$/.test(trainingProjectKey(name));
 export function trainingTags(project: { name: string; tags?: TrainingTag[] }): TrainingTag[] {
   if (project.tags) return project.tags;
-  if (/爬坡|游泳|跑步|骑行|单车|椭圆机|有氧|HIIT/i.test(project.name)) return ['有氧'];
+  if (/爬坡|游泳|跑步|骑行|单车|椭圆机|燃脂操|有氧|HIIT/i.test(project.name)) return ['有氧'];
   if (/力量|力训|臀|腿|上半身|下半身|背|胸|哑铃/.test(project.name)) return ['力量'];
   return [];
 }
@@ -74,7 +74,10 @@ export function trainingLibrary(tasks: TrainingTask[], settings = DEFAULT_TRAINI
   const library = new Map(['爬坡', '游泳'].map((name) => [trainingProjectKey(name), reusable(name)]));
   for (const task of tasks) library.set(trainingIdentity(task), { ...task, key: trainingIdentity(task), rotation: task.rotation ?? true });
   for (const project of settings.projects) {
-    const previous = library.get(project.key);
+    const previous = library.get(project.key) ?? [...library.values()].find(task => trainingProjectKey(task.name) === trainingProjectKey(project.name));
+    // A local reusable project can later gain a same-name TickTick task. Keep
+    // its saved identity and settings, but bind it to that task only once.
+    if (previous && trainingIdentity(previous) !== project.key) library.delete(trainingIdentity(previous));
     library.set(project.key, { ...(previous ?? reusable(project.name)), ...project, id: previous?.id ?? `template:${project.key}` });
   }
   return [...library.values()].filter((task) => !isTrainingCategory(task.name)).map((task) => ({ ...task, tags: trainingTags(task) }));
@@ -92,7 +95,8 @@ export function recordedTrainingProjects(record: TrainingRecord, tasks: Training
   const names = new Map(tasks.map((task) => [trainingProjectKey(task.name), trainingIdentity(task)]));
   // New records carry explicit project identities. Legacy/manual text is matched
   // only as an exact exercise heading, never as a mention such as “今天没练有氧”.
-  return [...new Set((record.projects ?? record.plan.split('\n').map((line) => names.get(trainingProjectKey(line.split(' · ')[0].trim())) ?? ''))
+  return [...new Set((record.projects?.map(key => keys.has(key) ? key : names.get(trainingProjectKey(key)) ?? '')
+    ?? record.plan.split('\n').map((line) => names.get(trainingProjectKey(line.split(' · ')[0].trim())) ?? ''))
     .filter((key) => keys.has(key)))];
 }
 
@@ -106,7 +110,7 @@ export function personalTraining(date: string, tasks: TrainingTask[], settings: 
   return [...new Set(tasks.map((task) => {
     if (!phase) return task.name;
     if (phase?.phase === 'menstrual' || phase?.phase === 'lateLuteal') {
-      if (/HIIT|间歇/i.test(task.name)) return '低强度有氧 20 分钟';
+      if (phase.phase === 'menstrual' && /HIIT|间歇/i.test(task.name)) return '低强度有氧 20 分钟';
       return `${task.name} · 轻量`;
     }
     if (phase.phase === 'earlyLuteal' && trainingTags(task).includes('力量')) return `${task.name} · 可加量`;
@@ -199,12 +203,14 @@ export function rollingTrainingPlan(year: number, month: number, today: string, 
     ...trainingLibrary([...source.tasks].sort((a, b) => compareTrainingOrder(a.id, b.id)), source.settings)]
     .map((task) => [trainingIdentity(task), task])).values()];
   const byKey = new Map(tasks.map((task) => [trainingIdentity(task), task]));
+  const byName = new Map(tasks.map(task => [trainingProjectKey(task.name), trainingIdentity(task)]));
+  const resolveKey = (key: string) => byKey.has(key) ? key : byName.get(trainingProjectKey(key));
   const entries = { ...source.entries, ...localEntries };
   const actual = new Map<string, Set<string>>();
   const add = (date: string, projects: string[]) => {
     if (!isCalendarDate(date) || date > today) return;
     const done = actual.get(date) ?? new Set<string>();
-    projects.filter((key) => byKey.has(key)).forEach((key) => done.add(key));
+    projects.forEach(key => { const resolved = resolveKey(key); if (resolved) done.add(resolved); });
     actual.set(date, done);
   };
   for (const completion of source.completions ?? []) add(completion.date, [completion.project]);
@@ -220,7 +226,7 @@ export function rollingTrainingPlan(year: number, month: number, today: string, 
   const recoveryByDate = new Map<string, TrainingRecoveryReason>();
   // Missed automatic entries are not activity. Only actual completions seed
   // recovery; future projected sessions are added below without saving history.
-  const isMainProject = (key: string) => byKey.has(key) ? !isSwimmingTraining(byKey.get(key)!) : !key.includes('游泳');
+  const isMainProject = (key: string) => { const resolved = resolveKey(key); return resolved ? !isSwimmingTraining(byKey.get(resolved)!) : !key.includes('游泳'); };
   const activeDays = new Set([...actual].filter(([, projects]) => [...projects].some(isMainProject)).map(([date]) => date));
   for (const completion of source.completions ?? []) {
     if (completion.project && isMainProject(completion.project) && isCalendarDate(completion.date) && completion.date <= today) activeDays.add(completion.date);
@@ -245,7 +251,7 @@ export function rollingTrainingPlan(year: number, month: number, today: string, 
     const mainDone = done.some(task => !isSwimmingTraining(task));
     const main = tasks.filter((task) => {
       if (task.rotation === false || isSwimmingTraining(task) || mainDone) return false;
-      if (['menstrual', 'lateLuteal'].includes(phase?.phase ?? '') && /HIIT|间歇/i.test(task.name)) return false;
+      if (phase?.phase === 'menstrual' && /HIIT|间歇/i.test(task.name)) return false;
       return true;
     }).sort((a, b) => compareTrainingOrder(last.get(trainingIdentity(a)) ?? '', last.get(trainingIdentity(b)) ?? '')
       || compareTrainingOrder(trainingIdentity(a), trainingIdentity(b))).slice(0, 1);

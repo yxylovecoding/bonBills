@@ -56,7 +56,7 @@ export function buildTrainingBriefing(today: string, source: TrainingSource, cyc
       }
     } else reasons.push(library.some((task) => task.rotation) ? '当前没有符合设置的项目，留作恢复' : '尚未启用轮换项目');
     if (!record.completed && phase?.phase === 'menstrual') reasons.push('按你的设置，经期内游泳顺延');
-    if (!record.completed && record.mode === 'auto' && phase?.phase === 'lateLuteal') reasons.push('按黄体中晚期设置减量，间歇项目暂缓');
+    if (!record.completed && record.mode === 'auto' && phase?.phase === 'lateLuteal') reasons.push('按黄体中晚期设置轻量，疲劳或不适时可进一步减量或休息');
     for (const key of keys) if (!completed?.has(key)) projected.set(key, date);
     let minutes = 0;
     if (record.effort !== 'rest' && !/^休息/.test(record.plan)) {

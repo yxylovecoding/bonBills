@@ -11,9 +11,9 @@ describe('按个人训练分化调整经期计划', () => {
     expect(personalTraining('2026-10-08', [task('臀腿')], DEFAULT_CYCLE, [])).toBe('臀腿');
     expect(personalTraining('2026-10-08', [], cycle, [])).toContain('休息');
   });
-  it('经期初段和轻量选项降强度，黄体后段保留分化或替换间歇', () => {
+  it('经期初段和轻量选项降强度，黄体后段保留各项训练并标轻量', () => {
     expect(personalTraining('2026-10-02', [task('臀腿')], cycle, [])).toBe('轻松散步 15 分钟 · 舒缓拉伸 5 分钟');
-    expect(personalTraining('2026-10-22', [task('HIIT')], cycle, [])).toBe('低强度有氧 20 分钟');
+    expect(personalTraining('2026-10-22', [task('HIIT')], cycle, [])).toBe('HIIT · 轻量');
     expect(personalTraining('2026-10-22', [task('上半身')], cycle, [])).toContain('上半身 · 轻量');
     expect(personalTraining('2026-10-08', [task('上半身')], cycle, [], 'easy')).toContain('舒缓拉伸');
     expect(personalTraining('2026-10-08', [task('上半身')], cycle, [], 'rest')).toBe('休息');
@@ -99,7 +99,7 @@ describe('按实际完成滚动轮换', () => {
     expect(result.plans.get('2026-10-04')?.projects).toEqual([]);
     expect(result.plans.get('2026-10-06')?.projects).toEqual(['hiit', '游泳']);
     expect(result.plans.get('2026-10-07')?.projects).toEqual(['hiit']);
-    expect(automaticTraining('2026-10-22', [task('HIIT')], cycle, []).projects).toEqual([]);
+    expect(automaticTraining('2026-10-22', [task('HIIT')], cycle, []).projects).toEqual(['hiit']);
   });
   it('跨年衔接历史完成，并保留手动计划与完成快照', () => {
     const manual = record('上半身', { mode: 'manual', completed: false });
@@ -200,7 +200,7 @@ describe('未来训练自动排期', () => {
   });
   it('新的经期设置、经期记录和训练来源都会更新未来自动计划', () => {
     const resolve = (settings = cycle, periods: string[] = [], name = 'HIIT') => plannedTraining('2026-10-22', '2026-10-04', [task(name)], settings, periods, saved);
-    expect(resolve().plan).toContain('低强度有氧');
+    expect(resolve().plan).toBe('HIIT · 轻量');
     expect(resolve({ ...cycle, lastPeriodStart: '2026-10-15' }).plan).toBe('HIIT');
     expect(resolve(cycle, ['2026-10-22']).plan).toContain('轻松散步');
     expect(resolve(cycle, [], '游泳').plan).toContain('游泳 · 轻量');

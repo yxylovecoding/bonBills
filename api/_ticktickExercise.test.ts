@@ -42,6 +42,24 @@ describe('与网页共用实际完成轮换', () => {
   const source = (): TrainingSource => ({ year: 2026, connected: true, syncedAt: null,
     tasks: ['全身力训', '臀腿', '爬坡'].map((name, i) => ({ id: `life:${i}`, name, title: `${name}-运动💪🏻是生活的第一个锚点🪝`, dates: [], schedule: '', notes: '', links: [] })),
     completions: [{ project: '臀腿', date: '2026-09-28' }, { project: '爬坡', date: '2026-10-03' }] });
+  it('TickTick 燃脂操绑定同名自建项目后按网页日期移动，重复同步不新增或改写训练', async () => {
+    const current: TrainingSource = { year: 2026, connected: true, syncedAt: null,
+      tasks: ['HIIT', '燃脂操', '上半身', '全身力训', '臀腿'].map((name, index) => ({ id: `life:${index}`, name,
+        title: `${name}-运动💪🏻是生活的第一个锚点🪝`, dates: [], schedule: '', notes: '', links: [] })),
+      settings: { revision: '', projects: [{ key: 'custom-cardio', name: '燃脂操', notes: '', rotation: true, tags: ['有氧'] }] } };
+    training.mockResolvedValue(current);
+    const raw = current.tasks.map((task, index) => workout({ id: String(index), title: task.title }));
+    const fake = fakeApi(...raw);
+    const result = await syncExerciseSchedule(fake.api, { rolling: true, connectionId: 'account', ...options('2026-10-05T05:00:00') });
+    const page = rollingTrainingPlan(2026, 10, '2026-10-05', current, DEFAULT_CYCLE, [], {});
+    const cardioDate = [...page.plans].find(([, record]) => record.projects?.includes('custom-cardio'))![0];
+    expect(result.fixedDates.get('1')).toBe(cardioDate);
+    expect(fake.stored.get('1')?.dueDate?.slice(0, 10)).toBe(cardioDate);
+    expect(new Set(result.fixedDates.values()).size).toBe(5);
+    expect([...result.fixedDates.values()].sort()).toEqual(['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-09', '2026-10-10']);
+    expect(fake.stored.size).toBe(5);
+    expect((await syncExerciseSchedule(fake.api, { rolling: true, connectionId: 'account', ...options('2026-10-05T05:00:00') })).updated).toBe(0);
+  });
   it('高优先级固定星期训练也与网页相同，日常排期不会改回臀腿', async () => {
     const current = source(); training.mockResolvedValue(current);
     const raw = current.tasks.map((task, i) => workout({ id: String(i), title: task.title, tags: ['居', '洗头'] }));

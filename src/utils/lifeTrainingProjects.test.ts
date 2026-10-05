@@ -8,6 +8,28 @@ const settings: TrainingSettings = { revision: '', projects: [{ key: '爬坡', n
 const roll = (tasks: TrainingTask[], entries = {}) => rollingTrainingPlan(2026, 10, '2026-10-05', { year: 2026, tasks, connected: false, syncedAt: null }, DEFAULT_CYCLE, [], entries);
 
 describe('可复用训练项目', () => {
+  it('TickTick 改名为燃脂操后绑定同名自建项目，保留原记录标识且不重复排课', () => {
+    const project = { key: 'custom-cardio', name: '燃脂操', notes: '30 分钟', rotation: true, tags: ['有氧'] as const };
+    const configured = { revision: '', projects: [{ ...project, tags: [...project.tags] }] };
+    const remote = source('燃脂操');
+    const library = trainingLibrary([remote], configured);
+    const cardio = library.filter(task => task.name === '燃脂操');
+    expect(cardio).toHaveLength(1);
+    expect(cardio[0]).toMatchObject({ id: remote.id, key: 'custom-cardio', tags: ['有氧'], links: remote.links, notes: '30 分钟' });
+    expect(trainingTags({ name: '燃脂操' })).toEqual(['有氧']);
+    expect(library.find(task => task.name === '爬坡')?.rotation).toBe(false);
+    for (const key of ['燃脂操', 'custom-cardio']) {
+      expect(recordedTrainingProjects({ plan: '燃脂操', projects: [key], effort: 'normal', completed: true }, library)).toEqual(['custom-cardio']);
+    }
+    const result = rollingTrainingPlan(2026, 10, '2026-10-05', { year: 2026, tasks: [remote], settings: configured,
+      connected: true, syncedAt: null, completions: [{ project: '燃脂操', date: '2026-10-04' }] }, DEFAULT_CYCLE, [], {});
+    expect(result.coverage).toHaveLength(1);
+    expect(result.coverage[0]).toMatchObject({ completed: true, lastCompleted: '2026-10-04' });
+    expect([...result.completedByDate.get('2026-10-04')!]).toEqual(['custom-cardio']);
+    const completedToday = rollingTrainingPlan(2026, 10, '2026-10-05', { year: 2026, tasks: [remote], settings: configured,
+      connected: true, syncedAt: null, completions: [{ project: '燃脂操', date: '2026-10-05' }] }, DEFAULT_CYCLE, [], {});
+    expect(completedToday.plans.get('2026-10-05')).toMatchObject({ plan: '燃脂操', projects: ['custom-cardio'], completed: true });
+  });
   it('有氧、力量只作标签，爬坡和游泳仍是各自独立的项目', () => {
     const tasks = [source('有氧'), source('力量'), source('上半身'), source('游泳')];
     const library = trainingLibrary(tasks);

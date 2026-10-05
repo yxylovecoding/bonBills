@@ -12,6 +12,24 @@ const active = (record: TrainingRecord) => Boolean(record.projects?.some(project
 const entry = (training: TrainingRecord) => ({ text: '', revision: '', training });
 
 describe('滚动训练恢复日', () => {
+  it('燃脂操和 HIIT 补齐五个主训练项目；爬坡按需，泳日和两天恢复保持独立', () => {
+    const input = source(); input.tasks.push(task('燃脂操')); input.tasks.at(4)!.scheduledDate = '2026-10-07';
+    input.settings = { revision: '', projects: [
+      { key: '臀腿', name: '下半身', notes: '', rotation: true, tags: ['力量'] },
+      { key: 'custom-cardio', name: '燃脂操', notes: '', rotation: true, tags: ['有氧'] },
+    ] };
+    const result = rollingTrainingPlan(2026, 10, '2026-10-05', input,
+      { ...DEFAULT_CYCLE, lastPeriodStart: '2026-09-15', periodLength: 7, automatic: false }, [], {});
+    const week = [...result.plans].filter(([date]) => date >= '2026-10-05' && date <= '2026-10-11');
+    expect(week.flatMap(([, record]) => record.projects?.filter(key => key !== '游泳') ?? []).sort())
+      .toEqual(['hiit', '上半身', '全身力训', 'custom-cardio', '臀腿'].sort());
+    expect(week.filter(([, record]) => !active(record)).map(([date]) => date)).toEqual(['2026-10-08', '2026-10-11']);
+    expect(week.filter(([, record]) => record.plan.includes('燃脂操'))).toHaveLength(1);
+    expect(week.find(([, record]) => record.projects?.includes('hiit'))?.[1].plan).toContain('HIIT · 轻量');
+    expect(result.plans.get('2026-10-10')?.plan).toBe('下半身 · 轻量');
+    expect(week.filter(([, record]) => record.projects?.includes('游泳')).map(([date]) => date)).toEqual(['2026-10-07', '2026-10-09', '2026-10-11']);
+    expect(result.coverage.map(item => item.task.name)).not.toContain('爬坡');
+  });
   it('截图这一周留出两天主训练休息，独立游泳仍可在主训练恢复日进行', () => {
     const input = source(); input.tasks.at(-1)!.scheduledDate = '2026-10-07';
     const result = rollingTrainingPlan(2026, 10, '2026-10-05', input,

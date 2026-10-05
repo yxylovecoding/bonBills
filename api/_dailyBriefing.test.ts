@@ -8,6 +8,20 @@ const task = (id: string, fields: Partial<TickTickTask> = {}): TickTickTask => (
   status: 0, dueDate: `${today}T00:00:00+0800`, ...fields });
 
 describe('每日邮件简报', () => {
+  it('黄体中晚期保留 HIIT 和燃脂操，合并同名项目后时长及完成依据仍准确', () => {
+    const tasks = ['HIIT', '燃脂操', '上半身', '全身力训', '臀腿'].map(name => ({ id: name, name, title: name,
+      dates: [], schedule: '', notes: '30 分钟', links: [] }));
+    const source = { year: 2026, tasks, connected: true, syncedAt: null,
+      settings: { revision: '', projects: [{ key: 'custom-cardio', name: '燃脂操', notes: '25 分钟', rotation: true }] },
+      completions: [{ project: '燃脂操', date: '2026-10-04' }] };
+    const days = buildTrainingBriefing(today, source, { ...DEFAULT_CYCLE, lastPeriodStart: '2026-09-15', periodLength: 7, automatic: false }, []);
+    expect(days.filter(day => day.plan.includes('HIIT'))).toHaveLength(1);
+    expect(days.filter(day => day.plan.includes('燃脂操'))).toHaveLength(1);
+    const cardio = days.find(day => day.plan.includes('燃脂操'))!;
+    expect(cardio.minutes).toBe(25);
+    expect(cardio.reasons.join('')).toContain('上次实际完成于 2026-10-04');
+    expect(days.some(day => day.reasons.join('').includes('间歇项目暂缓'))).toBe(false);
+  });
   it('游泳与主训练同日并存，合计用时，重复轮换说明是预排而非已完成', () => {
     const tasks = ['上半身', '全身力训', '臀腿', '游泳'].map(name => ({ id: name, name, title: name, dates: [],
       schedule: name === '游泳' ? '每 2 天' : '', scheduledDate: name === '游泳' ? today : undefined,
