@@ -6,7 +6,7 @@
   --clothes-background: #fff5f8;
   --clothes-soft: #f8e3ec;
   --clothes-field: #fffafb;
-  --clothes-photo: #f6e9ef;
+  --clothes-photo: transparent;
   --clothes-primary: #f2c6d8;
   --color-primary: var(--life-accent);
   --color-text: var(--life-ink);

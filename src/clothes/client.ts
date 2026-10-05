@@ -32,13 +32,20 @@ export async function compressPhoto(file: File): Promise<string> {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('无法处理照片');
+    let format = 'image/jpeg';
     for (let attempt = 0; attempt < 8; attempt++) {
       canvas.width = Math.max(1, Math.round(image.width * scale));
       canvas.height = Math.max(1, Math.round(image.height * scale));
-      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-      const value = canvas.toDataURL('image/jpeg', Math.max(.5, .86 - attempt * .06));
-      if (atob(value.slice(23)).length <= 200 * 1024) return value;
+      if (attempt === 0 && file.type !== 'image/jpeg') {
+        const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        for (let alpha = 3; alpha < pixels.length; alpha += 4) {
+          if (pixels[alpha] < 255) { format = 'image/webp'; break; }
+        }
+      }
+      // Canvas falls back to PNG when WebP encoding is unavailable; both keep alpha.
+      const value = canvas.toDataURL(format, Math.max(.5, .86 - attempt * .06));
+      if (atob(value.slice(value.indexOf(',') + 1)).length <= 200 * 1024) return value;
       scale *= .85;
     }
     throw new Error('照片压缩失败，请换一张');
