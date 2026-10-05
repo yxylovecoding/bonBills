@@ -2,7 +2,7 @@ import { kv } from '@vercel/kv';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { authOk, sameOrigin } from './_auth.js';
 import { CONTEXTS_KEY, ITEMS_KEY, WEAR_KEY, SAVE_CLOTHES, photoKey, receiptKey, signature, readClothesCalendar, readWeather, searchCities } from './_bonClothes.js';
-import { ClothesInputError, contextInput, dateInput, id, itemInput, locationInput, photoInput, requireInput, timezoneInput, validLayers } from './_clothesValidation.js';
+import { ClothesInputError, contextInput, dateInput, id, itemInput, locationInput, photoData, photoInput, requireInput, timezoneInput, validLayers } from './_clothesValidation.js';
 import { CATEGORIES, type ClothesDayContext, type ClothesItem, type WearRecord, type WeatherSnapshot } from '../src/clothes/types.js';
 import { TRIP_PLANS_KEY, readClothesTrips, readTripForecast, tripPlanInput } from './_clothesTrips.js';
 
@@ -17,8 +17,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (req.query.view === 'photo') {
         const photo = await kv.get<string>(photoKey(id(req.query.id)));
         if (!photo) return res.status(404).json({ error: '照片不存在' });
-        res.setHeader('Content-Type', 'image/jpeg');
-        return res.status(200).send(Buffer.from(photo.slice(23), 'base64'));
+        const { mime, data } = photoData(photo);
+        res.setHeader('Content-Type', mime);
+        return res.status(200).send(data);
       }
       if (req.query.view === 'cities') {
         requireInput(typeof req.query.q === 'string' && req.query.q.trim().length >= 2 && req.query.q.length <= 120, '请输入城市名');

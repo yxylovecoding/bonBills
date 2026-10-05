@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from './_bonClothesRoute';
 import dispatcher from './outlook-calendar';
-import { ITEMS_KEY, CONTEXTS_KEY, WEAR_KEY, SAVE_CLOTHES, readClothesCalendar, readWeather, receiptKey } from './_bonClothes';
+import { ITEMS_KEY, CONTEXTS_KEY, WEAR_KEY, SAVE_CLOTHES, readClothesCalendar, readWeather, receiptKey, photoKey } from './_bonClothes';
 import { photoInput } from './_clothesValidation';
 import { readClothesTrips, readTripForecast, TRIP_PLANS_KEY } from './_clothesTrips';
 import { encryptOutlookConnection } from './_outlookCalendar';
@@ -23,6 +23,23 @@ function jpeg(width = 960, height = 800) {
   const buffer = Buffer.from([255, 216, 255, 192, 0, 17, 8, 0, 0, 0, 0, 3, 1, 17, 0, 2, 17, 0, 3, 17, 0, 255, 217]);
   buffer.writeUInt16BE(height, 7); buffer.writeUInt16BE(width, 9);
   return `data:image/jpeg;base64,${buffer.toString('base64')}`;
+}
+const pngPhoto = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNgAAIAAAUAAen63NgAAAAASUVORK5CYII=';
+function webpPhoto(width = 960, height = 800, kind = 'VP8X') {
+  const chunk = (type: string, payload: Buffer) => {
+    const result = Buffer.alloc(8 + payload.length + payload.length % 2);
+    result.write(type); result.writeUInt32LE(payload.length, 4); payload.copy(result, 8); return result;
+  };
+  const vp8 = Buffer.alloc(10); Buffer.from([0x9d, 1, 0x2a]).copy(vp8, 3);
+  vp8.writeUInt16LE(width, 6); vp8.writeUInt16LE(height, 8);
+  const vp8l = Buffer.alloc(5); vp8l[0] = 0x2f;
+  vp8l.writeUInt32LE(((width - 1) | ((height - 1) << 14) | (1 << 28)) >>> 0, 1);
+  const vp8x = Buffer.alloc(10); vp8x[0] = 0x10;
+  vp8x.writeUIntLE(width - 1, 4, 3); vp8x.writeUIntLE(height - 1, 7, 3);
+  const chunks = kind === 'VP8X' ? [chunk('VP8X', vp8x), chunk('ALPH', Buffer.from([0, 255])), chunk('VP8 ', vp8)]
+    : [chunk(kind, kind === 'VP8L' ? vp8l : vp8)];
+  const data = Buffer.concat([Buffer.from('RIFF0000WEBP'), ...chunks]); data.writeUInt32LE(data.length - 8, 4);
+  return `data:image/webp;base64,${data.toString('base64')}`;
 }
 async function call(method: string, query: Record<string, string> = {}, body?: unknown) {
   const result = { status: 200, body: {} as any, headers: {} as Record<string, string> };
@@ -61,6 +78,35 @@ describe('衣柜与实际穿搭接口', () => {
     expect(() => photoInput(jpeg(961))).toThrow('960');
     expect(() => photoInput(`data:image/jpeg;base64,${Buffer.alloc(205000).toString('base64')}`)).toThrow();
     expect(() => photoInput('data:image/jpeg;base64,YWJjZA==')).toThrow();
+  });
+  it('透明 PNG、WebP 和旧 JPEG 按实际格式保存并鉴权读取', async () => {
+    for (const photo of [pngPhoto, webpPhoto(), webpPhoto(800, 960, 'VP8L'), webpPhoto(800, 960, 'VP8 '), jpeg()]) {
+      expect(photoInput(photo)).toBe(photo);
+      data.set(photoKey(item.photoId), photo);
+      const result = await call('GET', { view: 'photo', id: item.photoId });
+      expect(result.status).toBe(200);
+      expect(result.headers['Content-Type']).toBe(photo.slice(5, photo.indexOf(';')));
+      expect(result.body).toEqual(Buffer.from(photo.slice(photo.indexOf(',') + 1), 'base64'));
+    }
+    const saved = await call('POST', {}, { action: 'save-item', item: { ...item, revision: '' }, photo: pngPhoto, mutationId: uid('transparent') });
+    expect(saved.status).toBe(200); expect(saved.body.value.photoId).toBe(uid('transparent'));
+    expect(evalMock.mock.calls[0][2][4]).toBe(pngPhoto);
+  });
+  it('拒绝伪造 MIME、超尺寸、截断及动画容器', () => {
+    expect(() => photoInput(pngPhoto.replace('image/png', 'image/jpeg'))).toThrow();
+    expect(() => photoInput(webpPhoto().replace('image/webp', 'image/png'))).toThrow();
+    for (const kind of ['VP8X', 'VP8L', 'VP8 ']) expect(() => photoInput(webpPhoto(961, 800, kind))).toThrow('960');
+    const png = Buffer.from(pngPhoto.split(',')[1], 'base64'); png.writeUInt32BE(961, 16);
+    expect(() => photoInput(`data:image/png;base64,${png.toString('base64')}`)).toThrow('960');
+    const webp = Buffer.from(webpPhoto().split(',')[1], 'base64');
+    webp[20] |= 2;
+    expect(() => photoInput(`data:image/webp;base64,${webp.toString('base64')}`)).toThrow();
+    for (const photo of [pngPhoto, webpPhoto()]) {
+      const [header, encoded] = photo.split(',');
+      const data = Buffer.from(encoded, 'base64').subarray(0, -3);
+      expect(() => photoInput(`${header},${data.toString('base64')}`)).toThrow();
+      expect(() => photoInput(`${header},${Buffer.alloc(205000).toString('base64')}`)).toThrow('200KB');
+    }
   });
   it('保存逐项使用 CAS 和同一事务照片，不触碰财务键', async () => {
     const result = await call('POST', {}, { action: 'save-item', item: { ...item, revision: '', name: '' }, photo: jpeg(), mutationId: uid('mutation') });

@@ -55,26 +55,85 @@ export function contextInput(value: unknown): ClothesDayContext {
   return { date: dateInput(v.date), timezone: timezoneInput(v.timezone), revision: id(v.revision, true),
     location: locationInput(v.location), scene: v.scene, active: v.active, manualWeather };
 }
-// Browser uploads are re-encoded JPEGs. Validate the actual SOF dimensions, not user supplied metadata.
-export function photoInput(value: unknown): string {
-  requireInput(typeof value === 'string' && value.length <= 273100 && /^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(value), '照片须为 JPEG 图片');
-  const data = Buffer.from(value.slice(23), 'base64');
+// Display images are re-encoded in the browser. Inspect their actual headers,
+// dimensions and container boundaries; do not trust MIME or client metadata.
+export function photoData(value: unknown) {
+  requireInput(typeof value === 'string' && value.length <= 273100, '照片不能超过 200KB');
+  const match = value.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/);
+  requireInput(match, '照片须为 JPEG、PNG 或 WebP 图片');
+  const data = Buffer.from(match[2], 'base64');
   requireInput(data.length <= 200 * 1024 && data.length > 4, '照片不能超过 200KB');
-  requireInput(data[0] === 0xff && data[1] === 0xd8 && data[data.length - 2] === 0xff && data[data.length - 1] === 0xd9, '照片内容无效');
-  let valid = false;
-  for (let offset = 2; offset + 8 < data.length;) {
-    requireInput(data[offset] === 0xff, '照片内容无效');
-    const marker = data[offset + 1];
-    if (marker === 0xda || marker === 0xd9) break;
-    const length = data.readUInt16BE(offset + 2);
-    requireInput(length >= 2 && offset + 2 + length <= data.length, '照片内容无效');
-    if ([0xc0, 0xc1, 0xc2].includes(marker)) {
-      const height = data.readUInt16BE(offset + 5), width = data.readUInt16BE(offset + 7);
-      requireInput(height > 0 && width > 0 && height <= 960 && width <= 960, '照片最长边不能超过 960px');
-      valid = true;
-    }
-    offset += 2 + length;
+  return { mime: match[1], data };
+}
+function photoDimensions(width: number, height: number) {
+  requireInput(width > 0 && height > 0 && width <= 960 && height <= 960, '照片最长边不能超过 960px');
+}
+function validatePng(data: Buffer) {
+  requireInput(data.length >= 45 && data.subarray(0, 8).equals(Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10])), '照片内容无效');
+  let imageData = false, ended = false;
+  for (let offset = 8; offset < data.length;) {
+    requireInput(offset + 12 <= data.length, '照片内容无效');
+    const length = data.readUInt32BE(offset), type = data.toString('ascii', offset + 4, offset + 8);
+    const end = offset + 12 + length;
+    requireInput(end <= data.length && type !== 'acTL', '照片内容无效');
+    if (offset === 8) {
+      requireInput(type === 'IHDR' && length === 13, '照片内容无效');
+      photoDimensions(data.readUInt32BE(offset + 8), data.readUInt32BE(offset + 12));
+    } else requireInput(type !== 'IHDR', '照片内容无效');
+    if (type === 'IDAT' && length > 0) imageData = true;
+    if (type === 'IEND') { requireInput(length === 0 && end === data.length, '照片内容无效'); ended = true; }
+    offset = end;
   }
-  requireInput(valid, '照片内容无效');
-  return value;
+  requireInput(imageData && ended, '照片内容无效');
+}
+function validateWebp(data: Buffer) {
+  requireInput(data.length >= 20 && data.toString('ascii', 0, 4) === 'RIFF' && data.toString('ascii', 8, 12) === 'WEBP'
+    && data.readUInt32LE(4) + 8 === data.length, '照片内容无效');
+  let canvas: [number, number] | undefined, frame: [number, number] | undefined;
+  for (let offset = 12; offset < data.length;) {
+    requireInput(offset + 8 <= data.length, '照片内容无效');
+    const type = data.toString('ascii', offset, offset + 4), length = data.readUInt32LE(offset + 4);
+    const start = offset + 8, end = start + length + (length % 2);
+    requireInput(end <= data.length && type !== 'ANIM' && type !== 'ANMF', '照片内容无效');
+    if (type === 'VP8X') {
+      requireInput(offset === 12 && length === 10 && !(data[start] & 2), '照片内容无效');
+      canvas = [data.readUIntLE(start + 4, 3) + 1, data.readUIntLE(start + 7, 3) + 1];
+      photoDimensions(...canvas);
+    } else if (type === 'VP8 ') {
+      requireInput(!frame && length >= 10 && !(data[start] & 1)
+        && data.subarray(start + 3, start + 6).equals(Uint8Array.from([0x9d, 0x01, 0x2a])), '照片内容无效');
+      frame = [data.readUInt16LE(start + 6) & 0x3fff, data.readUInt16LE(start + 8) & 0x3fff];
+    } else if (type === 'VP8L') {
+      requireInput(!frame && length >= 5 && data[start] === 0x2f, '照片内容无效');
+      const bits = data.readUInt32LE(start + 1);
+      frame = [(bits & 0x3fff) + 1, ((bits >>> 14) & 0x3fff) + 1];
+    }
+    offset = end;
+  }
+  requireInput(frame, '照片内容无效');
+  photoDimensions(...frame);
+  requireInput(!canvas || (canvas[0] === frame[0] && canvas[1] === frame[1]), '照片内容无效');
+}
+export function photoInput(value: unknown): string {
+  const { mime, data } = photoData(value);
+  if (mime === 'image/png') validatePng(data);
+  else if (mime === 'image/webp') validateWebp(data);
+  else {
+    requireInput(data[0] === 0xff && data[1] === 0xd8 && data[data.length - 2] === 0xff && data[data.length - 1] === 0xd9, '照片内容无效');
+    let valid = false;
+    for (let offset = 2; offset + 8 < data.length;) {
+      requireInput(data[offset] === 0xff, '照片内容无效');
+      const marker = data[offset + 1];
+      if (marker === 0xda || marker === 0xd9) break;
+      const length = data.readUInt16BE(offset + 2);
+      requireInput(length >= 2 && offset + 2 + length <= data.length, '照片内容无效');
+      if ([0xc0, 0xc1, 0xc2].includes(marker)) {
+        photoDimensions(data.readUInt16BE(offset + 7), data.readUInt16BE(offset + 5));
+        valid = true;
+      }
+      offset += 2 + length;
+    }
+    requireInput(valid, '照片内容无效');
+  }
+  return value as string;
 }
