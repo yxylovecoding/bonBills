@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, createSecretKey, randomBytes, type KeyObject } from 'node:crypto';
 import { Lunar } from 'lunar-typescript';
 import ICAL from 'ical.js';
+import { withoutDurationAnnotations } from './_taskDuration.js';
 import { getTripDisplayTitle, normalizeOutlookTravelTitles } from '../src/utils/outlookCalendar.js';
 
 export const TICKTICK_CONNECTION_KEY = 'ticktick:connection:v1';
@@ -657,6 +658,69 @@ export function routineOccurrenceKey(task: TickTickTask): string {
   return JSON.stringify([task.projectId, task.parentId ?? '', task.title]);
 }
 
+export function sprayKind(task: TickTickTask): 'fragrance' | 'mite' | null {
+  const title = withoutDurationAnnotations(task.title);
+  return title === '香香喷雾' ? 'fragrance' : title === '除螨喷雾' ? 'mite' : null;
+}
+
+// Apply the user's exclusion to final dates, including future deferrals,
+// important/timed tasks and actual completions. This is not a completion.
+export function separateTickTickSprays(options: {
+  tasks: TickTickTask[]; dates: Map<string, string>; history: TickTickTask[];
+  calendarState: unknown; today: string; now?: Date; excludedTaskIds?: ReadonlySet<string>;
+}): Map<string, string> {
+  const { tasks, dates, history, calendarState, today, excludedTaskIds = new Set<string>() } = options;
+  const byId = new Map(tasks.map(task => [task.id, task]));
+  const excluded = (task: TickTickTask) => {
+    if ((task.tags ?? []).some(tag => tag.normalize('NFKC').trim() === '不关我事')) return true;
+    const seen = new Set<string>();
+    let current: TickTickTask | undefined = task;
+    while (current && !seen.has(current.id)) {
+      if (excludedTaskIds.has(current.id) || Boolean(current.parentId && excludedTaskIds.has(current.parentId))) return true;
+      seen.add(current.id); current = current.parentId ? byId.get(current.parentId) : undefined;
+    }
+    return false;
+  };
+  const open = tasks.filter(task => (task.status ?? 0) === 0 && !task.completedTime && sprayKind(task) && !excluded(task));
+  const completed = history.filter(task => sprayKind(task) && !excluded(task) && (task.status ?? 2) === 2
+    && task.completedTime && Number.isFinite(Date.parse(task.completedTime))
+    && Date.parse(task.completedTime) <= (options.now?.getTime() ?? Date.now()));
+  const family = (task: TickTickTask) => JSON.stringify([task.projectId, task.parentId ?? '', sprayKind(task)]);
+  const last = (task: TickTickTask) => {
+    const unique = open.filter(other => family(other) === family(task)).length === 1;
+    return Math.max(0, ...completed.filter(record => record.projectId === task.projectId
+      && (record.id === task.id || (unique && family(record) === family(task))))
+      .map(record => Date.parse(record.completedTime!)));
+  };
+  open.sort((a, b) => (last(a) || Date.parse(a.createdTime ?? '') || 0) - (last(b) || Date.parse(b.createdTime ?? '') || 0)
+    || a.id.localeCompare(b.id));
+  const bookings = new Map<string, Set<string>>(), resolved = new Map<string, string>();
+  const reserve = (day: string, kind: string) => { const set = bookings.get(day) ?? new Set(); set.add(kind); bookings.set(day, set); };
+  const conflict = (day: string, kind: string) => [...bookings.get(day) ?? []].some(other => other !== kind);
+  for (const task of completed) {
+    const day = calendarDateInTimeZone(task.completedTime, 'Asia/Shanghai');
+    if (day) reserve(day, sprayKind(task)!);
+  }
+  for (const task of open) {
+    const original = dates.get(task.id) ?? routineTaskDate(task);
+    if (!original) continue;
+    const kind = sprayKind(task)!, effective = original < today ? today : original;
+    let target = effective;
+    for (let attempt = 0; conflict(target, kind); attempt++) {
+      if (attempt >= 730) throw new Error('喷雾暂时找不到可错开的日期，未更新本轮安排');
+      const from = addCalendarDays(target, 1), scenes = routineScenes(task);
+      const targets = getTickTickRoutineTargetDates(calendarState, from);
+      const next = scenes.length ? scenes.map(scene => targets[scene]).filter((day): day is string => Boolean(day && day >= from)).sort()[0] : from;
+      if (!next) throw new Error('喷雾需要后续适用场景日才能错开，未更新本轮安排');
+      target = next;
+    }
+    if (target !== effective) dates.set(task.id, target);
+    resolved.set(task.id, target === effective ? original : target);
+    reserve(target, kind);
+  }
+  return resolved;
+}
+
 function checklistItemDate(item: TickTickChecklistItem, fallbackTimeZone?: string): string | null {
   const date = calendarDateInTimeZone(item.startDate, item.timeZone || fallbackTimeZone);
   return date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
@@ -716,7 +780,7 @@ function routineTaskPayload(task: TickTickTask, targetDate: string): Record<stri
   };
 }
 
-async function updateRoutineTaskDate(
+export async function updateRoutineTaskDate(
   api: TickTickApi, task: TickTickTask, targetDate: string, preserveRepeat: boolean,
 ): Promise<TickTickTask | null> {
   if (routineTaskIsAligned(task, targetDate)) return null;
@@ -759,6 +823,7 @@ export async function syncTickTickRoutines(options: {
   excludedTaskIds?: ReadonlySet<string>;
   minimumTaskDates?: ReadonlyMap<string, string>;
   fixedTaskDates?: ReadonlyMap<string, string>;
+  completedTasks?: TickTickTask[];
   planDay?: (tasks: TickTickTask[]) => Promise<ReadonlyMap<string, string>>;
 }): Promise<TickTickRoutineSyncResult> {
   const { api, calendarState, today, excludedTaskIds = new Set<string>() } = options;
@@ -823,7 +888,10 @@ export async function syncTickTickRoutines(options: {
   const tomorrowTargets = getTickTickRoutineTargetDates(calendarState, addCalendarDays(today, 1));
 
   const targetDates = new Map<string, string>();
+  let sprayDates = new Map<string, string>();
   const boundedDate = (task: TickTickTask, date: string): string | null => {
+    const sprayDate = sprayDates.get(task.id);
+    if (sprayDate) return sprayDate;
     // Rolling training owns these dates, including for hair-wash followers.
     const fixed = options.fixedTaskDates?.get(task.id);
     if (fixed) return fixed;
@@ -849,6 +917,15 @@ export async function syncTickTickRoutines(options: {
     targetDates.set(task.id, taskTargetDate);
   }
 
+  // Include a spray's explicit hair-wash date before applying the exclusion,
+  // so the later follower pass cannot undo the separation.
+  const sprayAnchor = hairWashAnchors.length === 1 ? hairWashAnchors[0] : undefined;
+  const sprayAnchorDate = sprayAnchor ? targetDates.get(sprayAnchor.id) ?? routineTaskDate(sprayAnchor) : null;
+  if (sprayAnchorDate) for (const task of hairWashFollowers.filter(task => sprayKind(task) && !isExcluded(task))) {
+    const target = boundedDate(task, sprayAnchorDate);
+    if (target) targetDates.set(task.id, target);
+  }
+
   // Plan against the scene-adjusted snapshot before writing, so a second sync
   // does not first pull deferred tasks back to today and then move them again.
   if (options.planDay) {
@@ -856,6 +933,8 @@ export async function syncTickTickRoutines(options: {
       ? { ...task, ...routineTaskPayload(task, targetDates.get(task.id)!) } as TickTickTask : task);
     for (const [id, date] of await options.planDay(sceneTasks)) targetDates.set(id, date);
   }
+  sprayDates = separateTickTickSprays({ tasks: allTasks, dates: targetDates,
+    history: [...options.completedTasks ?? [], ...completedToday], calendarState, today, excludedTaskIds });
   for (const [id, date] of targetDates) {
     const task = tasksById.get(id)!;
     const target = boundedDate(task, date);
@@ -871,8 +950,10 @@ export async function syncTickTickRoutines(options: {
   const hairWashDate = anchor ? routineTaskDate(anchor) : null;
   if (hairWashDate && isValidCalendarDate(hairWashDate)) {
     for (const task of hairWashFollowers) {
-      const target = boundedDate(task, hairWashDate);
-      if (target && await updateRoutineTaskDate(api, task, target, true)) updatedRoutineTasks += 1;
+      const current = tasksById.get(task.id) ?? task;
+      const target = boundedDate(current, hairWashDate);
+      const updated = target ? await updateRoutineTaskDate(api, current, target, true) : null;
+      if (updated) { tasksById.set(task.id, updated); updatedRoutineTasks += 1; }
     }
   }
 

@@ -131,7 +131,7 @@ async function runSync(allowDisconnected = false) {
       for (const id of laundry.managedTaskIds) excludedTaskIds.add(id);
       const routineResult = await syncTickTickRoutines({
         api, calendarState, today,
-        excludedTaskIds, minimumTaskDates: exercise.minimumDates, fixedTaskDates: exercise.fixedDates,
+        excludedTaskIds, minimumTaskDates: exercise.minimumDates, fixedTaskDates: exercise.fixedDates, completedTasks: dailyPlan.history,
         planDay: !availability && dailyBudget(settings?.budgetMinutes) === null ? undefined : async (tasks) => {
           const plan = planTickTickDay({ tasks, calendarState, today, state: dailyPlan,
             budgetMinutes: settings?.budgetMinutes, availability, availabilityProfile: availabilityProfile(settings?.availabilityProfile),

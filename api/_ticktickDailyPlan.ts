@@ -2,7 +2,8 @@ import ICAL from 'ical.js';
 import type { OutlookAvailability } from '../src/utils/outlookCalendar.js';
 import { dayAvailability, occupySlots, type AvailabilityProfile } from './_dailyAvailability.js';
 import { collectCompleted } from './_lifeDone.js';
-import { calendarDateInTimeZone, getTickTickRoutineTargetDates, routineOccurrenceKey, routineRecurrence,
+import { annotatedMinutes, describedMinutes } from './_taskDuration.js';
+import { calendarDateInTimeZone, getTickTickRoutineTargetDates, routineOccurrenceKey, routineRecurrence, separateTickTickSprays, sprayKind,
   routineScenes, routineTaskDate, type TickTickApi, type TickTickTask } from './_ticktickTrips.js';
 
 export const DAILY_PLAN_KEY = 'ticktick:daily-plan:v1';
@@ -42,6 +43,10 @@ export const dailyBudget = (value: unknown) => typeof value === 'number' && Numb
   ? Math.max(10, Math.min(240, Math.round(value))) : null;
 
 export function estimateTaskMinutes(task: TickTickTask): number {
+  const described = describedMinutes(task);
+  if (described !== null) return described;
+  const annotated = annotatedMinutes(`${task.title} ${(task.tags ?? []).join(' ')}`);
+  if (annotated !== null) return annotated;
   const explicit = `${task.title} ${(task.tags ?? []).join(' ')}`.match(/(?:^|[^\d])([1-9]\d{0,2})\s*(?:分钟|minutes?|mins?|m)(?![a-z0-9])/i);
   if (explicit) return Math.min(480, Number(explicit[1]));
   if (task.isAllDay === false && task.startDate && task.dueDate) {
@@ -88,8 +93,10 @@ export async function refreshDailyHistory(api: TickTickApi, tasks: TickTickTask[
       throw new Error('TickTick 完成记录无效，未调整每日安排');
     }
     if (Date.parse(task.completedTime) > now.getTime()) continue;
-    const { id, projectId, parentId, title, completedTime, priority, tags, isAllDay, startDate, dueDate } = task;
-    records.set(JSON.stringify([projectId, id, completedTime]), { id, projectId, parentId, title, completedTime, priority, tags, isAllDay, startDate, dueDate, status: 2 });
+    const { id, projectId, parentId, title, content, desc, completedTime, priority, tags, isAllDay, startDate, dueDate } = task;
+    const key = JSON.stringify([projectId, id, completedTime]), previous = records.get(key);
+    records.set(key, { id, projectId, parentId, title, content: content ?? previous?.content, desc: desc ?? previous?.desc,
+      completedTime, priority, tags, isAllDay, startDate, dueDate, status: 2 });
   }
   // Retain every recent occurrence for capacity learning, and the last completion
   // of each task ID and recurring series even after it leaves the provider window.
@@ -265,15 +272,21 @@ export function planTickTickDay(options: {
       || (a.last ? Date.parse(a.last) : Date.parse(a.task.createdTime ?? '') || 0) - (b.last ? Date.parse(b.last) : Date.parse(b.task.createdTime ?? '') || 0)
       || a.deadline.localeCompare(b.deadline) || a.task.id.localeCompare(b.task.id);
   });
-  let used = 0, selected = 0, deferred = 0, cycleRiskCount = 0, oversizedCount = 0;
+  let used = 0, deferred = 0, oversizedCount = 0;
+  const cycleRisks = new Set<string>();
   const selectedDetails: NonNullable<DailyPlanState['briefing']>['selected'] = fixed.map((task) => ({
     id: task.id, projectId: task.projectId, title: task.title, minutes: estimateTaskMinutes(task),
     reasons: [task.isAllDay === false ? '保留原定时间' : '保留原有安排，本次未参与动态挑选'],
   }));
+  const selectedSprays = new Set(state.history.filter(task => !excluded(task) && !tags(task).includes('不关我事')
+    && calendarDateInTimeZone(task.completedTime) === today && Date.parse(task.completedTime!) <= now.getTime())
+    .map(sprayKind).filter((kind): kind is 'fragrance' | 'mite' => kind !== null));
   for (const candidate of candidates) {
     // A task larger than the remaining budget is reported instead of silently overbooking.
     const fits = remainingSlots.some(([start, end]) => end - start >= candidate.minutes * 60_000);
-    const choose = !candidate.next || (used < target && used + candidate.minutes <= available && fits);
+    const kind = sprayKind(candidate.task);
+    const sprayConflict = kind !== null && [...selectedSprays].some(other => other !== kind);
+    const choose = !sprayConflict && (!candidate.next || (used < target && used + candidate.minutes <= available && fits));
     if (choose) {
       const lastDay = calendarDateInTimeZone(candidate.last);
       const reasons = [!candidate.next ? '后续没有适用场景日，优先留在今天'
@@ -287,21 +300,30 @@ export function planTickTickDay(options: {
       selectedDetails.push({ id: candidate.task.id, projectId: candidate.task.projectId, title: candidate.task.title,
         minutes: candidate.minutes, reasons });
       occupySlots(remainingSlots, candidate.minutes);
-      used += candidate.minutes; selected += candidate.members.length;
+      if (kind) selectedSprays.add(kind);
+      used += candidate.minutes;
       for (const member of candidate.members) dates.set(member.id, today);
     } else {
       if (candidate.next) {
         for (const member of candidate.members) dates.set(member.id, candidate.next);
         deferred += candidate.members.length;
       }
-      if (candidate.task.repeatFlag && (!candidate.next || candidate.next > candidate.deadline)) cycleRiskCount++;
+      if (candidate.task.repeatFlag && (!candidate.next || candidate.next > candidate.deadline)) cycleRisks.add(candidate.task.id);
       if (candidate.minutes > capacity || !fits) oversizedCount++;
     }
   }
+  separateTickTickSprays({ tasks, dates, history: state.history, calendarState, today, now, excludedTaskIds });
+  const finalSelected = selectedDetails.filter(task => !dates.has(task.id) || dates.get(task.id) === today);
+  deferred += selectedDetails.length - finalSelected.length;
+  for (const candidate of candidates) {
+    const date = dates.get(candidate.task.id);
+    if (candidate.task.repeatFlag && date && date > today && date > candidate.deadline) cycleRisks.add(candidate.task.id);
+  }
   for (const id of Object.keys(state.deadlines)) if (!byId.has(id)) delete state.deadlines[id];
-  const summary: DailyPlanSummary = { date: today, todayCount: fixed.length + selected, plannedMinutes: fixedMinutes + used,
-    availableMinutes: capacity, importantCount: important.length, deferredCount: deferred, cycleRiskCount, oversizedCount };
+  const summary: DailyPlanSummary = { date: today, todayCount: finalSelected.length, plannedMinutes: finalSelected.reduce((sum, task) => sum + task.minutes, 0),
+    availableMinutes: capacity, importantCount: important.filter(task => !dates.has(task.id) || dates.get(task.id)! <= today).length,
+    deferredCount: deferred, cycleRiskCount: cycleRisks.size, oversizedCount };
   state.summary = summary;
-  state.briefing = { date: today, generatedAt: now.toISOString(), selected: selectedDetails };
+  state.briefing = { date: today, generatedAt: now.toISOString(), selected: finalSelected };
   return { dates, summary };
 }
