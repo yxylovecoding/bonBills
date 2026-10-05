@@ -146,7 +146,6 @@
 .life-phase-row strong { font-weight: 500; }
 .life-phase-row p, .life-guidance p { margin: 0; line-height: 1.7; }
 .life-phase-row p span, .life-guidance p span { color: var(--life-muted); margin-right: 10px; }
-.life-phase-guide > button { color: var(--life-accent); margin-top: 12px; padding: 0; text-decoration: underline; }
 .life-guidance { margin-bottom: 18px; font-size: 12px; }
 .life-guidance p + p { margin-top: 8px; }
 .phase-menstrual { --phase-bg: #fbf0f0; --phase-hover: #f7e9e9; --phase-line: #e4bfc4; --phase-ink: #9b6369; }

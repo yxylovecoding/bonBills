@@ -180,8 +180,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
     }} />}
     {kind === 'training' && <div className="life-training-heading"><div><h2>{month} 月训练计划</h2>
       <p role="status">{loading || trainingSource.busy ? '安排中…' : rolling ? `近 7 天 · 已练 ${rolling.coverage.filter((item) => item.completed).length} / ${rolling.coverage.length} 项` : !hasCycle ? '待设置经期' : futurePlanCount ? `后续 ${futurePlanCount} 天已安排 · 按体感调整` : '历史训练'}</p></div>
-      <div className="life-training-actions"><button onClick={() => { setSelection((previous) => ({ ...previous, kind: 'body' })); setSaved(false); }}>身体数据 <span aria-hidden="true">›</span></button>
-        <button disabled={loading || !current} onClick={() => setCycleSettings(true)}>{hasCycle ? '调整经期' : '设置经期'}</button></div>
+      <div className="life-training-actions"><button onClick={() => { setSelection((previous) => ({ ...previous, kind: 'body' })); setSaved(false); }}>身体数据 <span aria-hidden="true">›</span></button></div>
     </div>}
     {kind === 'body' && <div className="life-training-heading"><h2>身体数据</h2>
       <button onClick={() => { setSelection((previous) => ({ ...previous, kind: 'training' })); setSaved(false); }}><span aria-hidden="true">‹ </span>返回训练</button>
@@ -210,7 +209,6 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
           <div className="life-phase-name"><strong>{advice.label}</strong>{advice.subtitle && <span>{advice.subtitle}</span>}<span>第 {start}–{end} 天</span></div>
           <p><span>运动</span>{advice.exercise}</p><p><span>饮食</span>{advice.food}</p></div>;
       })}</div>
-      {!cycle.lastPeriodStart && !current?.periodDays.length && <button onClick={() => setCycleSettings(true)} disabled={loading}>设置经期，生成训练计划</button>}
     </details>}
     {kind === 'body' && !error && <Suspense fallback={<p className="life-empty-state" role="status">曲线读取中…</p>}>
       <LifeBodyTrends year={year} month={month} entries={current?.entries} loading={loading || !current}
