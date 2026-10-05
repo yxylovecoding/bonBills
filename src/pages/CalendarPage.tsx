@@ -1727,7 +1727,6 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
   const isAccumulatedProfitAuto = isInvestAccumulatedProfitAuto(yearMonth, config.investAutoSumStartMonth)
     && hasPositionModel;
   const { tagCategory } = usePossessionStore();
-  const mainFieldRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   const n = (v: string) => parseFloat(v) || 0;
   const nOrNull = (v: string | undefined) => {
@@ -2090,7 +2089,6 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     majorExpenses, updateMajorExpenseName, majorExpensesNote, setMajorExpensesNote,
     surplus, investIncome, investMonthly, investAnnual, investTotalForRate, investTotalStoredOnly, n,
     getBreakdownMonthlyProfit,
-    mainFieldRefs,
     positionDraftGroups, updatePositionDraft, addPositionDraft, removePositionDraft,
     splitPositionAccount, movePositionDraft,
     positionSummary, positionMonthlyIncome, positionMonthlyProfitById, positionQuotes, positionQuoteErrors, isCurrentRecordMonth,
@@ -2107,9 +2105,9 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
     income, totalExpense, periodicLife, volatileLife, consumption,
     totalAssets, setTotalAssets, totalAssetsValue, previousTotalAssets, assetChange, savedAmount, savingsRate, savedAmountTitle,
     savingsNote, setSavingsNote,
-    accProfit, setAccProfit, accumulatedProfitValue, isAccumulatedProfitAuto, investTotal,
+    investTotal,
     surplus, investIncome, investMonthly, investAnnual, investTotalForRate, investTotalStoredOnly, n,
-    mainFieldRefs, labelStyle,
+    labelStyle,
   } = state;
   const investTotalDisplay = investTotal > 0
     ? formatCurrency(investTotal)
@@ -2186,7 +2184,7 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginBottom: 16 }}>
         <div title={savedAmountTitle} style={{ minWidth: 0, backgroundColor: savedAmount !== null && savedAmount >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
           <div style={{ fontSize: 11, color: C.sub }}>存下</div>
           <div style={{ fontSize: 16, fontWeight: 700, color: savedAmount !== null && savedAmount >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums' }}>
@@ -2211,23 +2209,6 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
               style={{ flex: 1, width: '100%', minWidth: 0, border: 'none', borderBottom: '1px solid #9ca3af', borderRadius: 0, padding: '2px 0', fontSize: 11, color: '#202124', outline: 'none', backgroundColor: 'transparent' }}
             />
           </label>
-        </div>
-        <div style={{ minWidth: 0, backgroundColor: '#fffbeb', borderRadius: 10, padding: '10px 14px' }}>
-          <div style={{ fontSize: 11, color: C.sub }}>累计盈利</div>
-          {isAccumulatedProfitAuto ? (
-            <div style={{ padding: '2px 0', fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: accumulatedProfitValue >= 0 ? C.red : C.green }}>
-              {accumulatedProfitValue >= 0 ? '+' : '-'}¥{formatCurrency(accumulatedProfitValue)}
-            </div>
-          ) : (
-            <AmountInput
-              ref={(el) => { mainFieldRefs.current[0] = el; }}
-              value={accProfit}
-              onChange={setAccProfit}
-              placeholder="0.00"
-              style={{ width: '100%', border: 'none', borderBottom: '1.5px solid #fbbf24', borderRadius: 0, padding: '2px 0', fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', outline: 'none', backgroundColor: 'transparent', boxSizing: 'border-box', color: n(accProfit) > 0 ? C.red : n(accProfit) < 0 ? C.green : '#202124' }}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setTimeout(() => mainFieldRefs.current[1]?.focus(), 0); } }}
-            />
-          )}
         </div>
         <div style={{ minWidth: 0, backgroundColor: investIncome !== null && investIncome >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
           <div style={{ fontSize: 11, color: C.sub }}>理财收入</div>
@@ -2254,7 +2235,6 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
             <div style={{ padding: kind === 'manual' ? '5px 10px' : '8px 10px', fontSize: 13, fontVariantNumeric: 'tabular-nums', borderRadius: 8, backgroundColor: bg, color: fg, minHeight: 20 }}>
               {kind === 'manual' ? (
                 <AmountInput
-                  ref={(el) => { mainFieldRefs.current[1] = el; }}
                   aria-label="月末总资产"
                   value={totalAssets}
                   onChange={setTotalAssets}
