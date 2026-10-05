@@ -30,7 +30,7 @@ import type { FutureFireExpense, IncomeItem, MajorFireWish, TagKind, LocalLifeBr
 import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { dateLabel, daysUntilDate, resolveIncomeForMonth } from '../utils/payroll';
-import { calculateCreditRepaymentPlan } from '../utils/creditRepayment';
+import { calculateCreditRepaymentPlan, getPlanningLongBondTotal } from '../utils/creditRepayment';
 import { getAverageAnnualizedRate } from '../utils/investRecords';
 import { detectAllTrips } from '../utils/trips';
 import { getTripDisplayTitle } from '../utils/outlookCalendar';
@@ -44,7 +44,7 @@ import {
 import { version as APP_VERSION } from '../../package.json';
 import { useSyncStatus } from '../utils/syncStatus';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '每日计划邮件';
+const RELEASE_NOTE = '修复长债还款';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -320,7 +320,7 @@ export default function HomePage() {
     creditMonthly: current.accounts.creditMonthly,
     creditTotal: current.accounts.credit,
     savingsCard: current.accounts.savingsCard,
-    longBond: current.investHoldings.longBond,
+    longBond: getPlanningLongBondTotal(records, currentYearMonth, current.investHoldings.longBond),
   });
   const configuredBillDay = Math.min(Math.max(Math.round(config.creditBillDate || config.creditPayDate || 1), 1), 31);
   const daysThisMonth = new Date(currentYear, currentMonth + 1, 0).getDate();

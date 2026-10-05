@@ -31,7 +31,7 @@ import {
   resolveWishExtraExpenseItems,
   sortWishesForDisplay,
 } from '../utils/wishes';
-import { calculateCreditRepaymentPlan } from '../utils/creditRepayment';
+import { calculateCreditRepaymentPlan, getPlanningLongBondTotal } from '../utils/creditRepayment';
 import { roundToSitePrecision } from '../utils/numberInput';
 import { buildWishTimelineEntries } from '../utils/wishTimeline';
 import { daysUntilDate } from '../utils/payroll';
@@ -216,7 +216,7 @@ export default function WishesPage() {
     creditMonthly: current.accounts.creditMonthly,
     creditTotal: current.accounts.credit,
     savingsCard: current.accounts.savingsCard,
-    longBond: current.investHoldings.longBond,
+    longBond: getPlanningLongBondTotal(records, todayKey.slice(0, 7), current.investHoldings.longBond),
   });
   // 以信用卡出账日为规划节点：本次还本期待还，下一个出账日还总待还中的剩余部分。
   const configuredBillDay = Math.min(Math.max(Math.round(config.creditBillDate || config.creditPayDate || 1), 1), 31);

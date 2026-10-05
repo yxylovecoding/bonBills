@@ -1,3 +1,5 @@
+import type { MonthlyRecord } from '../models/types';
+import { summarizeInvestPositionItems } from './investPositionItems';
 import { roundToSitePrecision } from './numberInput';
 
 export const LONG_BOND_REPAY_THRESHOLD = 10000;
@@ -15,6 +17,25 @@ export interface CreditRepaymentPlan {
 
 function normalizedAmount(value: number | undefined): number {
   return Number.isFinite(value) ? Math.max(value ?? 0, 0) : 0;
+}
+
+export function getPlanningLongBondTotal(
+  records: readonly MonthlyRecord[],
+  yearMonth: string,
+  fallbackLongBond?: number,
+): number {
+  // 规划读取记录页的最新持仓；月份尚未结转时沿用最近一期，避免读到旧账户快照。
+  const record = records.reduce<MonthlyRecord | undefined>((latest, candidate) => {
+    if (candidate.yearMonth > yearMonth
+      || (candidate.investPositionItems === undefined && candidate.investBreakdown === undefined)) return latest;
+    return !latest || candidate.yearMonth > latest.yearMonth ? candidate : latest;
+  }, undefined);
+  if (!record) return normalizedAmount(fallbackLongBond);
+  // 显式空持仓代表已清空，不能回退到历史余额。
+  if (record.investPositionItems !== undefined) {
+    return summarizeInvestPositionItems(record.investPositionItems).marketValueByCategory.longBond;
+  }
+  return normalizedAmount(record.investBreakdown?.longBond);
 }
 
 export function calculateCreditRepaymentPlan(options: {
