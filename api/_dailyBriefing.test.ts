@@ -12,10 +12,10 @@ describe('每日邮件简报', () => {
     const tasks = ['上半身', '全身力训', '臀腿', '游泳'].map(name => ({ id: name, name, title: name, dates: [],
       schedule: name === '游泳' ? '每 2 天' : '', scheduledDate: name === '游泳' ? today : undefined,
       repeatFlag: name === '游泳' ? 'RRULE:FREQ=DAILY;INTERVAL=2' : undefined, notes: '30 分钟', links: [] }));
-    const days = buildTrainingBriefing(today, { year: 2026, tasks, connected: true, syncedAt: null }, DEFAULT_CYCLE, []);
+    const days = buildTrainingBriefing(today, { year: 2026, tasks, connected: true, syncedAt: null, hairWash: { scheduledDate: today, repeatFlag: 'FREQ=DAILY;INTERVAL=2' } }, DEFAULT_CYCLE, []);
     expect(days.every(day => day.minutes > 0 && !day.plan.includes('休息'))).toBe(true);
     expect(days[0].minutes).toBe(60); expect(days[1].minutes).toBe(30);
-    expect(days[0].reasons.join('')).toContain('游泳独立安排');
+    expect(days[0].reasons.join('')).toContain('游泳跟随洗头日并避开经期');
     expect(days[3].reasons.join('')).toContain('本次预排已在 2026-10-05 安排');
   });
   it('严格对应今日事范围，并使用同一任务的真实排期原因', () => {

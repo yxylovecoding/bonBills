@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CYCLE } from '../src/utils/bonLife';
 import { LIFE_SETTINGS_KEY } from './_bonLife';
 import { encryptTickTickToken, TICKTICK_CONNECTION_KEY, type TickTickApi, type TickTickTask } from './_ticktickTrips';
-import { postponeSwimmingTasks, swimmingTarget, swimmingSyncWarning, syncSwimmingSchedule } from './_lifeSwimming';
+import { postponeSwimmingTasks, readHairWashSchedule, swimmingTarget, swimmingSyncWarning, syncSwimmingSchedule } from './_lifeSwimming';
 
 const { data } = vi.hoisted(() => ({ data: new Map<string, any>() }));
 vi.mock('@vercel/kv', () => ({ kv: {
@@ -35,9 +35,40 @@ beforeEach(() => { data.clear(); vi.stubEnv('SYNC_SECRET', 'secret'); });
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe('经期游泳顺延', () => {
+  it('游泳及洗头标签准备项只排非经期洗头日，不移到经期结束的非洗头日', async () => {
+    const wash = task({ id: 'wash', title: ' 洗头 ', startDate: '2026-10-05T14:10:00.000+0000', dueDate: '2026-10-05T14:10:00.000+0000',
+      repeatFlag: 'FREQ=DAILY;INTERVAL=2', repeatFrom: '1' });
+    const swim = task({ title: '游泳-运动💪🏻是生活的第一个锚点🪝', startDate: '2026-10-19T13:30:00.000+0000', dueDate: '2026-10-19T13:30:00.000+0000',
+      repeatFlag: 'FREQ=DAILY;INTERVAL=2', repeatFrom: '0', tags: ['居', '洗头'] });
+    const prep = { ...swim, id: 'prep', title: '下班准备游泳' };
+    const input = [wash, swim, prep];
+    const { api, state, write } = apiFor(input);
+    const config = { ...DEFAULT_CYCLE, lastPeriodStart: '2026-10-15', automatic: false };
+    expect(await postponeSwimmingTasks(api, input, '2026-10-05', config, [])).toBe(2);
+    for (const id of ['swim', 'prep']) expect(state.get(id)).toMatchObject({ startDate: '2026-10-21T13:30:00.000+0000', repeatFrom: '0', repeatFlag: swim.repeatFlag });
+    expect(state.get('wash')).toEqual(wash);
+    expect(await postponeSwimmingTasks(api, input, '2026-10-05', config, [])).toBe(0);
+    expect(write).toHaveBeenCalledTimes(2);
+  });
+  it('即便没有经期也对齐洗头，写入前尊重刚修改的洗头日期', async () => {
+    const swim = task({ title: '游泳', repeatFrom: '0' });
+    const wash = task({ id: 'wash', title: '洗头', startDate: '2026-10-08', dueDate: '2026-10-08', repeatFlag: 'FREQ=DAILY;INTERVAL=2' });
+    const latestWash = { ...wash, startDate: '2026-10-09', dueDate: '2026-10-09' };
+    const { api, state } = apiFor([swim, latestWash]);
+    expect(await postponeSwimmingTasks(api, [swim, wash], today, DEFAULT_CYCLE, [])).toBe(1);
+    expect(state.get('swim')?.dueDate).toBe('2026-10-08T16:00:00.000+0000');
+    expect(swimmingTarget(swim, today, DEFAULT_CYCLE, [], null)).toBeNull();
+  });
+  it('精确识别洗头来源，排除完成项与准备项，重复来源不能静默选一个', () => {
+    const wash = task({ title: '洗头', repeatFrom: '1', repeatFlag: 'FREQ=DAILY;INTERVAL=2' });
+    expect(readHairWashSchedule([wash, task({ title: '准备洗头' }), task({ title: '洗头', status: 2 })]))
+      .toEqual({ scheduledDate: '2026-10-07', repeatFrom: '1', repeatFlag: wash.repeatFlag });
+    expect(() => readHairWashSchedule([wash, { ...wash, id: 'duplicate' }])).toThrow('多个洗头');
+    expect(() => readHairWashSchedule([{ ...wash, repeatFlag: 'FREQ=HOURLY' }])).toThrow('暂不支持');
+  });
   it('所有标题含游泳的待办都生效，不依赖训练锚点或清单', () => {
     for (const title of ['下班准备游泳', '游泳-运动💪🏻是生活的第一个锚点🪝', '买游泳用品']) {
-      expect(swimmingTarget(task({ title }), today, cycle, [])).toBe('2026-10-12');
+      expect(swimmingTarget(task({ title }), today, cycle, [], { scheduledDate: '2026-10-04', repeatFlag: 'FREQ=DAILY;INTERVAL=2' })).toBe('2026-10-12');
     }
     for (const value of [task({ title: '跑步', content: '游泳' }), task({ status: 2 }), task({ completedTime: '2026-10-07' }),
       task({ startDate: undefined, dueDate: undefined }), task({ startDate: '2026-10-12', dueDate: '2026-10-12' })]) {

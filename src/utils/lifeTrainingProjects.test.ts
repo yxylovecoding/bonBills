@@ -79,7 +79,8 @@ describe('可复用训练项目', () => {
     expect(roll(tasks, entries).plans.get('2026-10-05')).toBe(picked);
     expect(roll(tasks, entries).byDate.get('2026-10-05')).toEqual(roll(tasks).byDate.get('2026-10-05'));
     const swimming = trainingLibrary([], { revision: '', projects: [{ key: '游泳', name: '游泳', notes: '', rotation: true }] });
-    const result = rollingTrainingPlan(2026, 10, '2026-10-05', { year: 2026, tasks: swimming, connected: false, syncedAt: null },
+    const result = rollingTrainingPlan(2026, 10, '2026-10-05', { year: 2026, tasks: swimming, connected: false, syncedAt: null,
+      hairWash: { scheduledDate: '2026-10-06' } },
       { ...DEFAULT_CYCLE, lastPeriodStart: '2026-10-01' }, [], {});
     expect(result.plans.get('2026-10-05')?.projects).toEqual([]);
     expect(result.plans.get('2026-10-06')?.projects).toEqual(['游泳']);

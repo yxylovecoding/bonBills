@@ -5,7 +5,6 @@ import { entriesKey, LIFE_SETTINGS_KEY, LIFE_TRAINING_ENTRIES_KEY } from './_bon
 import { createHash } from 'node:crypto';
 import { DAILY_PLAN_KEY } from './_ticktickDailyPlan';
 import { DEFAULT_CYCLE } from '../src/utils/bonLife';
-import { afterMenstrualPeriod } from '../src/utils/lifeCycle';
 
 const { data, evalMock } = vi.hoisted(() => ({ data: new Map<string, any>(), evalMock: vi.fn() }));
 vi.mock('@vercel/kv', () => ({ kv: {
@@ -118,6 +117,18 @@ describe('TickTick 训练来源', () => {
       history: [task({ status: 2, completedTime: '2026-01-01T01:00:00Z' })] });
     expect((await syncTrainingSource(2026)).completions).toEqual([]);
   });
+  it('同步洗头日期和完成时间重复作为单独来源，不混入训练项目或丢失已洗头日期', async () => {
+    const original = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.endsWith('/play/data')) return new Response(JSON.stringify({ tasks: [task(), task({ id: 'wash', title: '洗头', repeatFlag: 'FREQ=DAILY;INTERVAL=2', repeatFrom: '1' })] }));
+      if (url.endsWith('/task/completed')) return new Response(JSON.stringify([task({ title: '洗头', status: 2, completedTime: '2026-10-03T17:00:00Z' })]));
+      return original(url, options);
+    }));
+    const result = await syncTrainingSource(2026);
+    expect(result.hairWash).toEqual({ scheduledDate: '2026-10-08', repeatFlag: 'FREQ=DAILY;INTERVAL=2', repeatFrom: '1', completedDates: ['2026-10-04'] });
+    expect(result.tasks.map(task => task.name)).toEqual(['上半身']);
+    expect(result.completions).toEqual([]);
+  });
   it('同步失败和连接切换时保留原计划，错误中不泄露令牌', async () => {
     await syncTrainingSource(2026);
     const saved = data.get(TRAINING_SOURCE_KEY);
@@ -140,12 +151,11 @@ describe('TickTick 训练来源', () => {
       const snapshot = data.get(TRAINING_SOURCE_KEY);
       const swim = task({ title: '游泳-运动💪🏻是生活的第一个锚点🪝', startDate: '2026-12-29', repeatFlag: 'FREQ=DAILY;INTERVAL=2;COUNT=5' });
       const cycle = { ...DEFAULT_CYCLE, lastPeriodStart: '2026-12-29' };
-      data.set(TRAINING_SOURCE_KEY, { ...snapshot, tasks: [swim, task()] });
+      data.set(TRAINING_SOURCE_KEY, { ...snapshot, tasks: [swim, task()], hairWash: { scheduledDate: '2026-12-29', repeatFlag: 'FREQ=DAILY;INTERVAL=2', repeatFrom: '1' } });
       data.set(LIFE_SETTINGS_KEY, { cycle });
       const result = await readTrainingSource(2027);
-      expect(result.tasks[0].dates).toEqual(['2027-01-03', '2027-01-04', '2027-01-06']);
+      expect(result.tasks[0].dates).toEqual(['2027-01-04', '2027-01-06']);
       expect((await readTrainingSource(2026)).tasks[0].dates).toEqual([]);
-      expect(trainingTask(swim, 2027, (date) => afterMenstrualPeriod(date, cycle, [])).dates).toEqual(result.tasks[0].dates);
       expect((await readTrainingSource(2026)).tasks[1].dates).toContain('2026-12-31');
     } finally { vi.useRealTimers(); }
   });

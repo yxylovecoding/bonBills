@@ -1,6 +1,7 @@
 import { calendarCells, type CycleSettings, type LifeEntries, type TrainingRecord } from './bonLife.js';
 import ICAL from 'ical.js';
-import { afterMenstrualPeriod, cycleDay, suggestedTraining } from './lifeCycle.js';
+import { cycleDay, suggestedTraining } from './lifeCycle.js';
+import { swimmingHairWashDates, type HairWashSchedule } from './lifeSwimming.js';
 import { isCalendarDate } from './outlookCalendar.js';
 
 export const TRAINING_MARKER = '运动是生活的第一个锚点';
@@ -38,6 +39,7 @@ export interface TrainingSource {
   year: number; tasks: TrainingTask[]; connected: boolean; syncedAt: string | null;
   completions?: TrainingCompletion[]; entries?: LifeEntries; periodDays?: string[];
   settings?: TrainingSettings;
+  hairWash?: HairWashSchedule | null;
 }
 
 export interface TrainingProject { key: string; name: string; notes: string; rotation: boolean; tags?: TrainingTag[] }
@@ -134,13 +136,16 @@ export function monthlyTrainingPlan(year: number, month: number, today: string, 
 
 const shiftDay = (date: string, days: number) => new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 
-// Swimming keeps its own task dates and recurrence. It never consumes the
-// daily rotation slot, and postponed menstrual occurrences merge on one date.
-export function swimmingTrainingDates(task: TrainingTask, today: string, through: string, settings: CycleSettings, periods: string[]) {
+// Swimming is independent of the main rotation. Snap each pending occurrence
+// to a non-menstrual hair-wash day; several deferred occurrences merge there.
+export function swimmingTrainingDates(task: TrainingTask, today: string, through: string, settings: CycleSettings, periods: string[],
+  hairWash?: HairWashSchedule | null) {
   const dates = new Set<string>();
+  const allowed = swimmingHairWashDates(hairWash, today, through, settings, periods);
+  if (!allowed.length) return dates;
   const add = (date: string) => {
-    const target = afterMenstrualPeriod(date < today ? today : date, settings, periods);
-    if (target <= through) dates.add(target);
+    const target = allowed.find(day => day >= date && day >= today);
+    if (target) dates.add(target);
   };
   if (task.scheduledDate) {
     add(task.scheduledDate);
@@ -198,7 +203,7 @@ export function rollingTrainingPlan(year: number, month: number, today: string, 
   const byDate = new Map<string, TrainingTask[]>();
   const days = calendarCells(year, month).filter((date): date is string => Boolean(date));
   const swims = new Map(tasks.filter(task => task.rotation !== false && isSwimmingTraining(task))
-    .map(task => [trainingIdentity(task), swimmingTrainingDates(task, today, days.at(-1)!, settings, periods)]));
+    .map(task => [trainingIdentity(task), swimmingTrainingDates(task, today, days.at(-1)!, settings, periods, source.hairWash)]));
   for (const date of days) {
     const done = [...(actual.get(date) ?? [])].map((key) => byKey.get(key)!);
     byDate.set(date, done);

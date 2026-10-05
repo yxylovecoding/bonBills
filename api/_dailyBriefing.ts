@@ -41,7 +41,7 @@ export function buildTrainingBriefing(today: string, source: TrainingSource, cyc
       for (const task of selected) {
         const key = trainingIdentity(task);
         if (completed?.has(key)) reasons.push(`${task.name}已完成，其他项目继续保留`);
-        else if (isSwimmingTraining(task)) reasons.push(`${task.name}独立安排${task.schedule ? '，沿用 TickTick 原有频率' : ''}，可与当天训练并存`);
+        else if (isSwimmingTraining(task)) reasons.push(`${task.name}跟随洗头日并避开经期，可与当天训练并存`);
         else if (projected.has(key)) reasons.push(`${task.name}继续轮换；本次预排已在 ${projected.get(key)} 安排，后续仍按实际完成调整`);
         else reasons.push(last.get(key) ? `${task.name}上次实际完成于 ${last.get(key)}，本轮按最久未练优先`
           : `${task.name}尚无匹配的完成记录，优先补齐轮换项目`);

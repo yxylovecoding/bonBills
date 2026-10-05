@@ -2,9 +2,10 @@ import { kv } from '@vercel/kv';
 import ICAL from 'ical.js';
 import { cycleDay } from '../src/utils/lifeCycle.js';
 import type { CycleSettings } from '../src/utils/bonLife.js';
+import { swimmingHairWashDates, type HairWashSchedule } from '../src/utils/lifeSwimming.js';
 import { isTrainingTitle, recordedTrainingProjects, rollingTrainingPlan, trainingIdentity, trainingLibrary,
   trainingName, trainingProjectKey, type TrainingSource } from '../src/utils/lifeTraining.js';
-import { readSwimmingCycle } from './_lifeSwimming.js';
+import { readHairWashSchedule, readSwimmingCycle } from './_lifeSwimming.js';
 import { calendarDateInTimeZone, getTickTickRoutineTargetDates, readAllTickTickTasks, routineRecurrence,
   routineScenes, shiftTickTickDate, TICKTICK_SYNC_STATE_KEY,
   type TickTickApi, type TickTickTask, type TickTickTripSyncState } from './_ticktickTrips.js';
@@ -38,6 +39,7 @@ interface TargetOptions {
   cycle?: CycleSettings;
   periods?: string[];
   notBefore?: string;
+  hairWash?: HairWashSchedule | null;
 }
 
 export function exerciseTarget(task: TickTickTask, options: TargetOptions): string | null {
@@ -58,6 +60,11 @@ export function exerciseTarget(task: TickTickTask, options: TargetOptions): stri
     return !task.title.includes('游泳') || (options.cycle !== undefined
       && cycleDay(day, options.cycle, options.periods ?? [])?.phase !== 'menstrual');
   };
+  if (task.title.includes('游泳')) {
+    if (!options.cycle) return null;
+    return swimmingHairWashDates(options.hairWash, from, addDays(from, 730), options.cycle, options.periods ?? [])
+      .find(day => day > scheduled && allowed(day)) ?? null;
+  }
   if (!task.repeatFlag) {
     for (let offset = 0; offset < 730; offset++) {
       const day = addDays(from, offset);
@@ -193,6 +200,8 @@ export async function syncExerciseSchedule(api: TickTickApi, options: {
     };
     for (const candidate of candidates.filter(task => isTrainingTitle(task.title))) {
       const target = dates.get(keyFor(candidate));
+      // An absent hair-wash date must not fall back to swimming's old weekday.
+      if (!target && candidate.title.includes('游泳')) { managedTaskIds.add(candidate.id); continue; }
       if (!target || !taskDay(candidate)) continue;
       managedTaskIds.add(candidate.id);
       fixedDates.set(candidate.id, target);
@@ -215,7 +224,7 @@ export async function syncExerciseSchedule(api: TickTickApi, options: {
   const periodData = swimming ? await readSwimmingCycle([now.getUTCFullYear(), now.getUTCFullYear() + 1]) : {};
   for (const candidate of candidates) {
     if (managedTaskIds.has(candidate.id)) continue;
-    const targetOptions = { now, calendarState, ...periodData, notBefore: deferredDate(candidate, state) };
+    const targetOptions = { now, calendarState, ...periodData, hairWash: swimming ? readHairWashSchedule(tasks) : null, notBefore: deferredDate(candidate, state) };
     if (!exerciseTarget(candidate, targetOptions)) continue;
     const task = await api.getTask(candidate.projectId, candidate.id);
     if (task?.id !== candidate.id || task.projectId !== candidate.projectId) throw new Error('运动待办读取失败');

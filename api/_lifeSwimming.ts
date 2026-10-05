@@ -2,9 +2,11 @@ import { kv } from '@vercel/kv';
 import { DEFAULT_CYCLE, type CycleSettings } from '../src/utils/bonLife.js';
 import { afterMenstrualPeriod, cycleDay } from '../src/utils/lifeCycle.js';
 import { isCalendarDate } from '../src/utils/outlookCalendar.js';
+import { isHairWashTitle, swimmingHairWashDates, type HairWashSchedule } from '../src/utils/lifeSwimming.js';
+import { isTrainingTitle } from '../src/utils/lifeTraining.js';
 import { LIFE_CONNECTION_KEY, LIFE_SETTINGS_KEY, readPeriodDays, syncLifePeriods, type LifeConnection } from './_bonLife.js';
 import { acquireTickTickLock, releaseTickTickLock } from './_ticktickLock.js';
-import { decryptTickTickToken, readAllTickTickTasks, shiftTickTickDate, TICKTICK_CONNECTION_KEY,
+import { decryptTickTickToken, readAllTickTickTasks, routineRecurrence, shiftTickTickDate, TICKTICK_CONNECTION_KEY,
   TickTickOpenApiClient, type TickTickApi, type TickTickConnection, type TickTickTask } from './_ticktickTrips.js';
 
 const DAY = 86_400_000;
@@ -31,7 +33,22 @@ function pendingSwim(task: TickTickTask) {
   return task.title.includes('游泳') && (task.status ?? 0) === 0 && !task.completedTime;
 }
 
-export function swimmingTarget(task: TickTickTask, today: string, cycle: CycleSettings, periods: string[]) {
+export function readHairWashSchedule(tasks: TickTickTask[]): HairWashSchedule | null {
+  const anchors = tasks.filter(task => isHairWashTitle(task.title) && (task.status ?? 0) === 0 && !task.completedTime);
+  if (anchors.length > 1) throw new Error('找到多个洗头待办，请保留一个日期来源');
+  const task = anchors[0];
+  if (!task) return null;
+  if (routineRecurrence(task.repeatFlag) === 'unknown') throw new Error('洗头重复规则暂不支持');
+  return { scheduledDate: swimmingTaskDate(task.startDate || task.dueDate, task.timeZone) ?? undefined,
+    repeatFlag: task.repeatFlag, repeatFrom: task.repeatFrom };
+}
+
+export function followsSwimmingHairWash(task: TickTickTask) {
+  return task.title.includes('游泳') && (isTrainingTitle(task.title) || /^游泳(?:\s*[-—–:：]|\s*$)/.test(task.title.trim())
+    || (task.tags ?? []).some(tag => isHairWashTitle(tag)));
+}
+
+export function swimmingTarget(task: TickTickTask, today: string, cycle: CycleSettings, periods: string[], hairWash?: HairWashSchedule | null) {
   if (!pendingSwim(task)) return null;
   const start = swimmingTaskDate(task.startDate || task.dueDate, task.timeZone);
   if (!start) return null;
@@ -40,6 +57,10 @@ export function swimmingTarget(task: TickTickTask, today: string, cycle: CycleSe
   // Overdue tasks are still pending today; never move an old task to another past date.
   let target = start < today ? today : start;
   if (duration > 90) throw new Error('游泳待办跨度过长，请检查日期');
+  if (followsSwimmingHairWash(task)) {
+    const next = swimmingHairWashDates(hairWash, target, addDays(target, 730), cycle, periods, duration)[0];
+    return next && next !== start ? next : null;
+  }
   for (let attempt = 0; attempt < 90; attempt++) {
     let conflict: string | null = null;
     for (let offset = 0; offset <= duration; offset++) {
@@ -54,12 +75,18 @@ export function swimmingTarget(task: TickTickTask, today: string, cycle: CycleSe
 
 export async function postponeSwimmingTasks(api: TickTickApi, tasks: TickTickTask[], today: string, cycle: CycleSettings, periods: string[]) {
   let updated = 0;
-  for (const candidate of tasks) {
-    if (!swimmingTarget(candidate, today, cycle, periods)) continue;
+  const hairWash = readHairWashSchedule(tasks);
+  for (const candidate of tasks.filter(pendingSwim)) {
+    if (!swimmingTarget(candidate, today, cycle, periods, hairWash)) continue;
     // Re-read immediately before writing so a just-completed or edited task is respected.
     const task = await api.getTask(candidate.projectId, candidate.id);
     if (!task || task.id !== candidate.id || task.projectId !== candidate.projectId) throw new Error('游泳待办读取失败');
-    const target = swimmingTarget(task, today, cycle, periods);
+    // Confirm the anchor again before writing: washing dates can move when the
+    // completion-based recurring task is completed on another device.
+    const anchorTask = tasks.find(task => isHairWashTitle(task.title) && (task.status ?? 0) === 0 && !task.completedTime);
+    const latestWash = anchorTask ? await api.getTask(anchorTask.projectId, anchorTask.id) : null;
+    if (anchorTask && (!latestWash || latestWash.id !== anchorTask.id || latestWash.projectId !== anchorTask.projectId)) throw new Error('洗头待办读取失败');
+    const target = swimmingTarget(task, today, cycle, periods, latestWash ? readHairWashSchedule([latestWash]) : hairWash);
     if (!target) continue;
     const anchor = swimmingTaskDate(task.startDate || task.dueDate, task.timeZone)!;
     const shift = (date: string | undefined) => shiftTickTickDate(date, anchor, target);
@@ -68,6 +95,7 @@ export async function postponeSwimmingTasks(api: TickTickApi, tasks: TickTickTas
       content: task.content, desc: task.desc, isAllDay: task.isAllDay,
       startDate: shift(task.startDate), dueDate: shift(task.dueDate), timeZone: task.timeZone,
       reminders: task.reminders, tags: task.tags, repeatFlag: task.repeatFlag,
+      ...(task.repeatFrom !== undefined ? { repeatFrom: task.repeatFrom } : {}),
       priority: task.priority, sortOrder: task.sortOrder, kind: task.kind, parentId: task.parentId,
       items: task.items?.map((item) => item.completedTime || Number(item.status ?? 0) !== 0
         ? item : { ...item, startDate: shift(item.startDate) }),
@@ -78,6 +106,7 @@ export async function postponeSwimmingTasks(api: TickTickApi, tasks: TickTickTas
     if (!saved || saved.id !== task.id || saved.projectId !== task.projectId
       || !sameDate(saved.startDate, payload.startDate) || !sameDate(saved.dueDate, payload.dueDate)
       || (saved.repeatFlag || '') !== (task.repeatFlag || '')
+      || String(saved.repeatFrom ?? '') !== String(task.repeatFrom ?? '')
       || payload.items?.some((item) => item.id && item.startDate && !sameDate(saved.items?.find((value) => value.id === item.id)?.startDate, item.startDate))) {
       throw new Error('游泳待办顺延未确认，请重新同步');
     }
@@ -99,8 +128,8 @@ export async function syncSwimmingSchedule(options: { lockHeld?: boolean; refres
     }
     const api = new TickTickOpenApiClient(decryptTickTickToken(connection.encryptedToken, (process.env.SYNC_SECRET || '').trim()),
       (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
-    const tasks = (await readAllTickTickTasks(api, [0])).filter(pendingSwim);
-    const years = [Number(today.slice(0, 4)), ...tasks.flatMap((task) => [task.startDate, task.dueDate]
+    const tasks = await readAllTickTickTasks(api, [0]);
+    const years = [Number(today.slice(0, 4)), Number(today.slice(0, 4)) + 1, ...tasks.filter(pendingSwim).flatMap((task) => [task.startDate, task.dueDate]
       .filter((date): date is string => Boolean(date)).map((date) => Number(date.slice(0, 4))))];
     const { cycle, periods } = await readSwimmingCycle(years);
     const current = await kv.get<TickTickConnection>(TICKTICK_CONNECTION_KEY);

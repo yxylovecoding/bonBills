@@ -4,17 +4,17 @@ import { createHash } from 'node:crypto';
 import { decryptTickTickToken, readAllTickTickTasks, routineRecurrence, TICKTICK_CONNECTION_KEY, TickTickOpenApiClient,
   type TickTickConnection, type TickTickTask } from './_ticktickTrips.js';
 import { isCalendarDate } from '../src/utils/outlookCalendar.js';
-import { DEFAULT_TRAINING_SETTINGS, isTrainingTitle, trainingName, trainingProjectKey, type TrainingCompletion, type TrainingSettings, type TrainingSource, type TrainingTask } from '../src/utils/lifeTraining.js';
+import { DEFAULT_TRAINING_SETTINGS, isTrainingTitle, swimmingTrainingDates, trainingName, trainingProjectKey, type TrainingCompletion, type TrainingSettings, type TrainingSource, type TrainingTask } from '../src/utils/lifeTraining.js';
 import type { LifeEntries } from '../src/utils/bonLife.js';
-import { afterMenstrualPeriod } from '../src/utils/lifeCycle.js';
-import { readSwimmingCycle, syncSwimmingSchedule } from './_lifeSwimming.js';
+import { readHairWashSchedule, readSwimmingCycle, syncSwimmingSchedule } from './_lifeSwimming.js';
+import { isHairWashTitle, type HairWashSchedule } from '../src/utils/lifeSwimming.js';
 import { entriesKey, LIFE_SETTINGS_KEY, LIFE_TRAINING_ENTRIES_KEY } from './_bonLife.js';
 import { collectCompleted, shanghaiDay } from './_lifeDone.js';
 import { DAILY_PLAN_KEY, type DailyPlanState } from './_ticktickDailyPlan.js';
 
 export const TRAINING_SOURCE_KEY = 'bonlife:training-source:v1';
 const WEEKDAYS: Record<string, string> = { MO: '一', TU: '二', WE: '三', TH: '四', FR: '五', SA: '六', SU: '日' };
-interface TrainingSnapshot { tasks: TickTickTask[]; syncedAt: string; requestedAt: number; connectionId: string; completions?: TrainingCompletion[] }
+interface TrainingSnapshot { tasks: TickTickTask[]; syncedAt: string; requestedAt: number; connectionId: string; completions?: TrainingCompletion[]; hairWash?: HairWashSchedule | null }
 const connectionId = (connection: TickTickConnection) => createHash('sha256').update(connection.encryptedToken.data).digest('hex');
 
 export function selectTrainingTasks(tasks: TickTickTask[]): TickTickTask[] {
@@ -82,8 +82,12 @@ export async function readTrainingSource(year: number): Promise<TrainingSource> 
   ]);
   const current = snapshot && (!connection || snapshot.connectionId === connectionId(connection)) ? snapshot : null;
   const entries = Object.fromEntries(Object.entries(Object.assign({}, ...oldEntries, indexed)).filter(([key]) => key.startsWith('training:'))) as LifeEntries;
-  return { year, tasks: (current?.tasks ?? []).map((task) => trainingTask(task, year,
-    (date) => task.title.includes('游泳') && date >= today ? afterMenstrualPeriod(date, cycle, periods) : date)),
+  return { year, tasks: (current?.tasks ?? []).map((task) => {
+    const result = trainingTask(task, year);
+    if (task.title.includes('游泳')) result.dates = [...swimmingTrainingDates(result, today, `${year}-12-31`, cycle, periods, current?.hairWash)]
+      .filter(date => date.startsWith(`${year}-`));
+    return result;
+  }), hairWash: current?.hairWash ?? null,
     completions: current?.completions, entries, periodDays: periods, settings: settings?.trainingProjects ?? DEFAULT_TRAINING_SETTINGS,
     connected: Boolean(connection), syncedAt: current?.syncedAt ?? null };
 }
@@ -110,7 +114,9 @@ export async function syncTrainingSource(year: number, options: { lockHeld?: boo
   try {
     const token = decryptTickTickToken(connection.encryptedToken, (process.env.SYNC_SECRET || '').trim());
     const api = new TickTickOpenApiClient(token, (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
-    const tasks = selectTrainingTasks(await readAllTickTickTasks(api, [0]));
+    const pending = await readAllTickTickTasks(api, [0]);
+    const tasks = selectTrainingTasks(pending);
+    const hairWash = readHairWashSchedule(pending);
     // Validate all dates/rules before replacing a working snapshot.
     tasks.forEach((task) => trainingTask(task, year));
     const [saved, daily] = await Promise.all([kv.get<TrainingSnapshot>(TRAINING_SOURCE_KEY), kv.get<DailyPlanState>(DAILY_PLAN_KEY)]);
@@ -119,10 +125,16 @@ export async function syncTrainingSource(year: number, options: { lockHeld?: boo
     const now = new Date();
     const through = Math.max(previous?.completions ? Date.parse(previous.syncedAt) || 0 : 0, history?.historyThrough ? Date.parse(history.historyThrough) || 0 : 0);
     const from = Math.max(now.getTime() - 60 * 86_400_000, through - 86_400_000);
-    const rows = tasks.length ? await collectCompleted(api, [...new Set(tasks.map((task) => task.projectId))], from, now.getTime(), Date.now() + 25_000) : [];
+    const historyProjects = [...new Set([...tasks, ...pending.filter(task => isHairWashTitle(task.title))].map(task => task.projectId))];
+    const rows = historyProjects.length ? await collectCompleted(api, historyProjects, from, now.getTime(), Date.now() + 25_000) : [];
     const completions = [...new Map([...(previous?.completions ?? []), ...trainingCompletions([...(history?.history ?? []), ...rows], shanghaiDay(now))]
       .map((completion) => [`${completion.project}:${completion.date}`, completion])).values()];
-    const snapshot: TrainingSnapshot = { tasks, completions, requestedAt, syncedAt: now.toISOString(), connectionId: connectionId(connection) };
+    const completedDates = [...new Set([...(previous?.hairWash?.completedDates ?? []), ...[...(history?.history ?? []), ...rows]
+      .filter(task => isHairWashTitle(task.title) && (task.status ?? 2) === 2 && task.completedTime
+        && Number.isFinite(Date.parse(task.completedTime)) && shanghaiDay(new Date(task.completedTime)) <= shanghaiDay(now))
+      .map(task => shanghaiDay(new Date(task.completedTime!)))])].sort();
+    const snapshot: TrainingSnapshot = { tasks, completions, hairWash: hairWash ? { ...hairWash, completedDates } : completedDates.length ? { completedDates } : null,
+      requestedAt, syncedAt: now.toISOString(), connectionId: connectionId(connection) };
     const stored = await kv.eval<string[], number>(`
       local connection = redis.call('get', KEYS[1])
       if not connection or cjson.decode(connection).encryptedToken.data ~= ARGV[1] then return 0 end

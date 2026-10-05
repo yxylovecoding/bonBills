@@ -10,7 +10,8 @@ vi.mock('@vercel/kv', () => ({ kv: {
   get: async (key: string) => structuredClone(data.get(key) ?? null),
   set: async (key: string, value: unknown) => data.set(key, structuredClone(value)),
 } }));
-vi.mock('./_lifeSwimming.js', () => ({ readSwimmingCycle: async () => ({ cycle: DEFAULT_CYCLE, periods: [] }) }));
+vi.mock('./_lifeSwimming.js', async importOriginal => ({ ...await importOriginal<typeof import('./_lifeSwimming')>(),
+  readSwimmingCycle: async () => ({ cycle: DEFAULT_CYCLE, periods: [] }) }));
 
 const workout = (extra: Partial<TickTickTask> = {}): TickTickTask => ({ id: 'full-body', projectId: 'life',
   title: '全身力训-运动💪🏻是生活的第一个锚点🪝', status: 0, priority: 5, tags: ['动', '当天'],
@@ -58,6 +59,7 @@ describe('与网页共用实际完成轮换', () => {
   it('跨周未完成不消耗轮换，经期顺延游泳，跨年保持同一顺序', () => {
     const current = source();
     current.tasks.push({ id: 'swim', title: '游泳', name: '游泳', dates: [], schedule: '', notes: '', links: [] });
+    current.hairWash = { scheduledDate: '2026-12-29', repeatFlag: 'FREQ=DAILY;INTERVAL=2' };
     const cycle = { ...DEFAULT_CYCLE, lastPeriodStart: '2026-12-29', automatic: false };
     const dates = rollingExerciseDates('2026-12-29', current, cycle, []);
     expect(dates.get('游泳')! >= '2027-01-03').toBe(true);
@@ -68,6 +70,7 @@ describe('与网页共用实际完成轮换', () => {
     const current = source();
     current.tasks.push({ id: 'life:swim', title: '游泳-运动💪🏻是生活的第一个锚点🪝', name: '游泳', dates: [],
       scheduledDate: '2026-10-05', repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=2', schedule: '每 2 天', notes: '', links: [] });
+    current.hairWash = { scheduledDate: '2026-10-05', repeatFlag: 'FREQ=DAILY;INTERVAL=2' };
     training.mockResolvedValue(current);
     const swim = workout({ id: 'swim', title: current.tasks.at(-1)!.title, repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=2',
       startDate: '2026-10-05T01:00:00.000+0000', dueDate: '2026-10-05T01:00:00.000+0000' });
@@ -117,10 +120,10 @@ describe('夜间运动收尾', () => {
       expect(exerciseTarget(workout({ repeatFlag }), options('2026-10-04T22:00:00'))).toBeNull();
     }
   });
-  it('下一次仍须符合场景；游泳在原间隔上避开经期', () => {
+  it('下一次仍须符合场景；游泳只选非经期洗头日', () => {
     const task = workout({ title: '游泳-运动💪🏻是生活的第一个锚点🪝', tags: ['居', '洗头'], repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=2' });
     const calendarState = { tagMap: { '2026-10-06': 'travel', '2026-10-08': 'school', '2026-10-10': 'intern' } };
-    const config = { ...options('2026-10-04T22:00:00'), calendarState, cycle: DEFAULT_CYCLE, periods: [] };
+    const config = { ...options('2026-10-04T22:00:00'), calendarState, cycle: DEFAULT_CYCLE, periods: [], hairWash: { scheduledDate: '2026-10-04', repeatFlag: 'FREQ=DAILY;INTERVAL=2' } };
     expect(exerciseTarget(task, config)).toBe('2026-10-08');
     expect(exerciseTarget(task, { ...config, periods: ['2026-10-08'], cycle: { ...DEFAULT_CYCLE, periodLength: 1 },
       calendarState: { tagMap: { '2026-10-06': 'travel', '2026-10-08': 'school', '2026-10-16': 'school' } } })).toBe('2026-10-16');
@@ -155,7 +158,7 @@ describe('夜间运动收尾', () => {
   });
   it('后续场景或洗头跟随不能把跳过的游泳拉回原日', async () => {
     const swim = workout({ title: '游泳-运动💪🏻是生活的第一个锚点🪝', tags: ['居', '洗头'], repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=2' });
-    const wash = workout({ id: 'wash', title: '洗头', tags: [], repeatFlag: '' });
+    const wash = workout({ id: 'wash', title: '洗头', tags: [], repeatFlag: 'FREQ=DAILY;INTERVAL=2' });
     const fake = fakeApi(swim, wash);
     const calendarState = { tagMap: { '2026-10-04': 'school', '2026-10-05': 'school', '2026-10-06': 'school' } };
     const result = await syncExerciseSchedule(fake.api, { connectionId: 'account', now: now('2026-10-04T22:00:00'), calendarState });

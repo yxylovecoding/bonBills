@@ -62,6 +62,9 @@ describe('每日安排接口', () => {
     expect(result.body.laundry.decisions[0].id).toBe('wash');
     expect(laundry).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ history: [], availability: expect.anything() }));
     expect(routineOptions.value.excludedTaskIds.has('wash')).toBe(true);
+    // Ordinary background recalculation also publishes the final training dates;
+    // it must not depend on opening or refreshing the email preview.
+    expect(syncTraining).toHaveBeenCalledWith(expect.any(Number), { lockHeld: true });
     const dates = await routineOptions.value.planDay([{ id: 'wash', projectId: 'life', title: '洗衣服', priority: 1, tags: ['居'],
       isAllDay: true, dueDate: '2026-10-05T00:00:00+0800', repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=5' }]);
     expect(dates.has('wash')).toBe(false);

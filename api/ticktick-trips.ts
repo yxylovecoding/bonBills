@@ -156,7 +156,15 @@ async function runSync(allowDisconnected = false) {
   } finally {
     // Apply the period rule last, even if unrelated calendar/template sync failed.
     // Share the write lock so routines cannot put swimming back into a period.
-    try { if (scheduleStarted) await syncSwimmingSchedule({ lockHeld: true, refreshPeriods: true }); }
+    try {
+      if (scheduleStarted) {
+        await syncSwimmingSchedule({ lockHeld: true, refreshPeriods: true });
+        // Routines may have moved the completion-based hair-wash anchor. Publish
+        // the final dates so the Web calendar and email match the actual todos.
+        const { syncTrainingSource } = await import('./_lifeTraining.js');
+        await syncTrainingSource(Number(shanghaiDate().slice(0, 4)), { lockHeld: true });
+      }
+    }
     finally { await releaseTickTickLock(lockId); }
   }
 }
@@ -279,10 +287,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (req.method === 'POST') {
         const result = await runSync();
         if (result.busy && req.query.format === 'json') return res.status(202).json({ busy: true });
-        if (!result.busy) {
-          const { syncTrainingSource } = await import('./_lifeTraining.js');
-          await syncTrainingSource(Number(shanghaiDate().slice(0, 4)));
-        }
         if (req.query.format !== 'json') return res.redirect(303, '/api/ticktick-trips?action=briefing');
       }
       const { readDailyBriefing, renderDailyBriefing } = await import('./_dailyBriefing.js');

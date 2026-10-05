@@ -30,7 +30,7 @@ describe('按个人训练分化调整经期计划', () => {
 describe('按实际完成滚动轮换', () => {
   const names = ['爬坡', '上半身', '臀腿', '全身力训', 'HIIT', '游泳'];
   const source = (completed: [string, string][] = [], tasks = names.map(task)): TrainingSource => ({ year: 2026, tasks,
-    connected: true, syncedAt: '2026-10-14T00:00:00Z', completions: completed.map(([name, date]) => ({ project: trainingProjectKey(name), date })) });
+    connected: true, syncedAt: '2026-10-14T00:00:00Z', hairWash: { scheduledDate: '2026-10-01', repeatFlag: 'FREQ=DAILY' }, completions: completed.map(([name, date]) => ({ project: trainingProjectKey(name), date })) });
   const record = (plan: string, extra: Partial<TrainingRecord> = {}) => ({ text: '', revision: 'saved', training: {
     plan, effort: 'normal' as const, completed: true, mode: 'auto' as const, ...extra } });
   const run = (today: string, input = source(), entries: LifeEntries = {}, settings = DEFAULT_CYCLE, year = 2026, month = 10) =>
@@ -121,8 +121,9 @@ describe('游泳独立安排', () => {
   const swim: TrainingTask = { ...task('游泳'), scheduledDate: '2026-10-05', repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=2', schedule: '每 2 天' };
   const run = (completions: TrainingSource['completions'] = [], swimming = swim, today = '2026-10-05', cycle = DEFAULT_CYCLE, year = 2026, month = 10) =>
     rollingTrainingPlan(year, month, today, { year, connected: true, syncedAt: null,
-      tasks: ['上半身', '全身力训', '臀腿'].map(task).concat(swimming), completions }, cycle, [], {});
-  it('同一天保留主训练和游泳，主训练连续轮换，游泳沿用已有频率', () => {
+      tasks: ['上半身', '全身力训', '臀腿'].map(task).concat(swimming), completions,
+      hairWash: { scheduledDate: today, repeatFlag: 'FREQ=DAILY;INTERVAL=2', repeatFrom: '1' } }, cycle, [], {});
+  it('同一天保留主训练和游泳，主训练连续轮换，游泳跟随洗头频率', () => {
     const result = run();
     for (let day = 5; day <= 11; day++) {
       const projects = result.plans.get(`2026-10-${String(day).padStart(2, '0')}`)!.projects!;
@@ -145,19 +146,40 @@ describe('游泳独立安排', () => {
     const result = run([], { ...swim, scheduledDate: '2026-12-29' }, '2026-12-29',
       { ...DEFAULT_CYCLE, lastPeriodStart: '2026-12-29', automatic: false }, 2027, 1);
     expect(result.plans.get('2027-01-01')?.projects).not.toContain('游泳');
-    expect(result.plans.get('2027-01-03')?.projects).toHaveLength(2);
-    expect(result.plans.get('2027-01-03')?.projects).toContain('游泳');
+    expect(result.plans.get('2027-01-04')?.projects).toHaveLength(2);
+    expect(result.plans.get('2027-01-03')?.projects).not.toContain('游泳');
     expect(result.plans.get('2027-01-04')?.projects).toContain('游泳');
     expect(result.plans.get('2027-01-05')?.projects).not.toContain('游泳');
   });
-  it('一次性游泳不变成每天，移动过的当前待办日期仍保留', () => {
+  it('一次性游泳不变成每天，移到非洗头日的待办继续对齐洗头', () => {
     const one = run([], { ...swim, repeatFlag: undefined });
     expect(one.plans.get('2026-10-05')?.projects).toContain('游泳');
     expect(one.plans.get('2026-10-07')?.projects).not.toContain('游泳');
     const moved = run([], { ...swim, scheduledDate: '2026-10-06', repeatFlag: 'RRULE:FREQ=WEEKLY;BYDAY=MO' });
-    expect(moved.plans.get('2026-10-06')?.projects).toContain('游泳');
-    expect(moved.plans.get('2026-10-12')?.projects).toContain('游泳');
+    expect(moved.plans.get('2026-10-06')?.projects).not.toContain('游泳');
+    expect(moved.plans.get('2026-10-07')?.projects).toContain('游泳');
+    expect(moved.plans.get('2026-10-12')?.projects).not.toContain('游泳');
+    expect(moved.plans.get('2026-10-13')?.projects).toContain('游泳');
     expect(moved.plans.get('2026-10-05')?.projects).not.toContain('游泳');
+  });
+  it('20 日经期刚结束但不洗头时不排游泳，积压只合并到 21 日', () => {
+    const result = run([], swim, '2026-10-05', { ...DEFAULT_CYCLE, lastPeriodStart: '2026-10-15', automatic: false });
+    for (let day = 15; day <= 20; day++) expect(result.plans.get(`2026-10-${day}`)?.projects).not.toContain('游泳');
+    expect(result.plans.get('2026-10-20')?.projects).toHaveLength(1);
+    expect(result.plans.get('2026-10-21')?.projects).toHaveLength(2);
+    expect(result.plans.get('2026-10-21')?.projects?.filter(key => key === '游泳')).toHaveLength(1);
+    expect(result.plans.get('2026-10-22')?.projects).not.toContain('游泳');
+    expect(result.plans.get('2026-10-23')?.projects).toContain('游泳');
+  });
+  it('洗头完成后日期改变会重排未来游泳；无日期来源不凭空安排', () => {
+    const source: TrainingSource = { year: 2026, connected: true, syncedAt: null, tasks: [task('上半身'), swim],
+      hairWash: { scheduledDate: '2026-10-06', repeatFlag: 'FREQ=DAILY;INTERVAL=2', repeatFrom: '1' } };
+    const plan = () => rollingTrainingPlan(2026, 10, '2026-10-05', source, DEFAULT_CYCLE, [], {}).plans;
+    expect(plan().get('2026-10-05')?.projects).not.toContain('游泳');
+    expect(plan().get('2026-10-06')?.projects).toContain('游泳');
+    expect(plan().get('2026-10-07')?.projects).not.toContain('游泳');
+    source.hairWash = null;
+    expect([...plan().values()].some(record => record.projects?.includes('游泳'))).toBe(false);
   });
 });
 
