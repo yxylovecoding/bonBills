@@ -75,6 +75,44 @@ describe('与网页共用实际完成轮换', () => {
     expect(page.plans.get('2026-10-05')?.plan).toContain('全身力训');
     expect((await syncExerciseSchedule(fake.api, { rolling: true, connectionId: 'account', ...options('2026-10-05T05:00:00') })).updated).toBe(0);
   });
+  it('22 点后未完成轮换从明天续排，游泳只到下一洗头日，重试和次晨不跳过项目', async () => {
+    const current = source();
+    current.tasks.push({ id: 'life:swim', title: '游泳-运动💪🏻是生活的第一个锚点🪝', name: '游泳', dates: [],
+      scheduledDate: '2026-10-05', repeatFlag: 'FREQ=DAILY;INTERVAL=2', schedule: '', notes: '', links: [] });
+    current.hairWash = { scheduledDate: '2026-10-05', repeatFlag: 'FREQ=DAILY;INTERVAL=2' };
+    const completions = structuredClone(current.completions);
+    training.mockResolvedValue(current);
+    const raw = current.tasks.map((task, index) => workout({ id: index === 3 ? 'swim' : String(index), title: task.title,
+      startDate: '2026-10-04T16:00:00.000+0000', dueDate: '2026-10-04T16:00:00.000+0000', isAllDay: true }));
+    const fake = fakeApi(...raw);
+    const sync = (time: string) => syncExerciseSchedule(fake.api, { rolling: true, connectionId: 'account', ...options(time) });
+    const before = await sync('2026-10-05T21:59:59');
+    expect(before.fixedDates.get('0')).toBe('2026-10-05');
+    expect(before.fixedDates.get('swim')).toBe('2026-10-05');
+    const after = await sync('2026-10-05T22:00:00');
+    expect(after.fixedDates.get('0')).toBe('2026-10-06');
+    expect(after.fixedDates.get('1')).toBe('2026-10-07');
+    expect(after.fixedDates.get('swim')).toBe('2026-10-07');
+    expect([...after.fixedDates.values()].every(date => date > '2026-10-05')).toBe(true);
+    // TickTick all-day values are stored at the previous UTC date's 16:00.
+    expect(fake.stored.get('0')?.dueDate).toBe('2026-10-05T16:00:00.000+0000');
+    expect(fake.update.mock.calls.every(([, payload]) => !('status' in payload) && !('completedTime' in payload))).toBe(true);
+    expect(current.completions).toEqual(completions);
+    expect(fake.stored.get('0')?.repeatFlag).toBe(raw[0].repeatFlag);
+    expect((await sync('2026-10-05T22:25:00')).updated).toBe(0);
+    expect((await sync('2026-10-06T05:00:00')).updated).toBe(0);
+  });
+  it('跨年夜间顺延仍计入今天实际完成的训练和恢复日', async () => {
+    const current = source();
+    current.tasks = current.tasks.filter(task => task.name !== '爬坡');
+    current.completions = ['29', '30', '31'].map(day => ({ project: '全身力训', date: `2026-12-${day}` }));
+    training.mockResolvedValue(current);
+    const fake = fakeApi(...current.tasks.map((task, index) => workout({ id: String(index), title: task.title })));
+    const result = await syncExerciseSchedule(fake.api, { rolling: true, connectionId: 'account', ...options('2026-12-31T22:00:00') });
+    expect([...result.fixedDates.values()].sort()[0]).toBe('2027-01-02');
+    expect(result.fixedDates.get('1')).toBe('2027-01-02');
+    expect(result.fixedDates.get('0')! > '2027-01-02').toBe(true);
+  });
   it('跨周未完成不消耗轮换，经期顺延游泳，跨年保持同一顺序', () => {
     const current = source();
     current.tasks.push({ id: 'swim', title: '游泳', name: '游泳', dates: [], schedule: '', notes: '', links: [] });

@@ -184,7 +184,10 @@ export async function syncExerciseSchedule(api: TickTickApi, options: {
   const fixedDates = new Map<string, string>();
   let updated = 0;
   if (options.rolling && candidates.some(task => isTrainingTitle(task.title))) {
-    const today = localDay(now).day;
+    const current = localDay(now);
+    // Nightly rollover must use the same cutoff as standalone workouts. Start
+    // a fresh forecast tomorrow; today's missed plan is not a completion.
+    const today = current.late ? addDays(current.day, 1) : current.day;
     const { syncTrainingSource } = await import('./_lifeTraining.js');
     const source = await syncTrainingSource(Number(today.slice(0, 4)), { lockHeld: true });
     // Template/trip tasks and ignored tasks cannot add projects to the rotation.
