@@ -47,7 +47,12 @@ export async function upstream(url: URL) {
 export async function searchCities(query: string): Promise<ClothesLocation[]> {
   const url = new URL('https://geocoding-api.open-meteo.com/v1/search');
   url.search = new URLSearchParams({ name: query, count: '10', language: 'zh', format: 'json' }).toString();
-  const result = await upstream(url) as { results?: { name: string; admin1?: string; country?: string; latitude: number; longitude: number; timezone?: string }[] };
+  let result = await upstream(url) as { results?: { name: string; admin1?: string; country?: string; latitude: number; longitude: number; timezone?: string }[] };
+  // Some Chinese cities are indexed only by their full municipal name.
+  if (!result.results?.length && /^[\u4e00-\u9fff]{2,8}$/.test(query) && !query.endsWith('市')) {
+    url.searchParams.set('name', `${query}市`);
+    result = await upstream(url);
+  }
   return (result.results ?? []).filter((city) => Number.isFinite(city.latitude) && Number.isFinite(city.longitude))
     .map((city) => ({ name: [...new Set([city.name, city.admin1, city.country].filter(Boolean))].join(' · '),
       latitude: city.latitude, longitude: city.longitude, timezone: city.timezone, source: 'manual' as const }));
