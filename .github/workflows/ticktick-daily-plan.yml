@@ -123,6 +123,7 @@ jobs:
             if (response.status !== 200 || result?.ok !== true || result.busy || result.error || !result.dailyPlan) {
               throw new Error(`Scheduling did not complete (HTTP ${response.status})`);
             }
+            if (result.laundry?.outlook?.error) throw new Error('Laundry calendar sync did not complete; check Outlook connection.');
             console.log('Outlook and TickTick planning completed successfully.');
             process.exit(0);
           }

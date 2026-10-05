@@ -53,6 +53,7 @@ export function estimateTaskMinutes(task: TickTickTask): number {
     const duration = (Date.parse(task.dueDate) - Date.parse(task.startDate)) / 60_000;
     if (duration > 0 && Number.isFinite(duration)) return Math.min(480, Math.ceil(duration));
   }
+  if (task.title.normalize('NFKC').trim() === '洗衣服') return 50;
   if (/喷雾|浇水|倒垃圾|换枕套|剪指甲|补剂|签到|红包|价保|预约|check\b/i.test(task.title)) return 5;
   if (/徒步|出去玩|音乐剧|讲座|电影|ktv/i.test(task.title)) return 90;
   if (/运动|力训|游泳|力扣/.test(task.title)) return 45;

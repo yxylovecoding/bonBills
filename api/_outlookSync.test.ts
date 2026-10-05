@@ -10,6 +10,7 @@ const { data, routineSync, tripSync, wishSync, templateRead, auth, events, doneS
   data: new Map<string, unknown>(), routineSync: vi.fn(), tripSync: vi.fn(), wishSync: vi.fn(), templateRead: vi.fn(), auth: vi.fn(), events: [] as string[], doneSync: vi.fn(), swimmingSync: vi.fn(),
 }));
 vi.mock('./_lifeSwimming.js', () => ({ syncSwimmingSchedule: swimmingSync }));
+vi.mock('./_lifeTraining.js', () => ({ syncTrainingSource: vi.fn(async () => undefined) }));
 vi.mock('./_lifeDone.js', () => ({ syncRecentLifeDone: doneSync, collectCompleted: async () => [] }));
 vi.mock('./_auth.js', () => ({ authOk: auth }));
 vi.mock('@vercel/kv', () => ({ kv: {
@@ -22,7 +23,8 @@ vi.mock('@vercel/kv', () => ({ kv: {
   del: async (...keys: string[]) => keys.forEach((key) => data.delete(key)),
   eval: async (_script: string, [key]: string[], [token]: string[]) => { if (data.get(key) === token) data.delete(key); },
 } }));
-vi.mock('./_ticktickTrips.js', () => ({
+vi.mock('./_ticktickTrips.js', async importOriginal => ({
+  ...await importOriginal<typeof import('./_ticktickTrips')>(),
   decryptTickTickToken: () => 'token',
   TickTickOpenApiClient: class {},
   readConnectedTickTickTemplate: templateRead,
@@ -83,7 +85,7 @@ describe('后台 Outlook 拉取与 TickTick 顺序', () => {
       'DTSTART:20260925T010000Z', 'DTEND:20260925T140000Z', 'SUMMARY:整天有课', 'END:VEVENT', 'END:VCALENDAR', ''].join('\r\n')));
     routineSync.mockImplementationOnce(async (options) => { await options.planDay([]); return {}; });
     const result = await cron();
-    expect(result.status).toBe(200);
+    expect(result.status, JSON.stringify(result.body)).toBe(200);
     expect(result.body.dailyPlan).toMatchObject({ availableMinutes: 0, todayCount: 0 });
     expect(result.body.budgetMinutes).toBeNull();
   });

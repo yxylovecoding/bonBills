@@ -116,6 +116,8 @@ describe('每日待办动态安排', () => {
     expect(estimateTaskMinutes(task('x', { title: '看剧📺15m', priority: 5 }))).toBe(15);
     expect(estimateTaskMinutes(task('x', { title: '签到', priority: 5 }))).toBe(5);
     expect(estimateTaskMinutes(task('x', { priority: 5 }))).toBe(15);
+    expect(estimateTaskMinutes(task('x', { title: '洗衣服' }))).toBe(50);
+    expect(estimateTaskMinutes(task('x', { title: '洗衣服', content: '（1h1m）' }))).toBe(61);
   });
   it('完成记录读取失败时不推进检查点，成功后保留过去已知最后完成', async () => {
     const s = state([done(task('old'), '2020-01-01')]);
