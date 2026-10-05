@@ -1,4 +1,5 @@
 import type { ClothesCalendar, ClothesDayContext, ClothesItem, ClothesLocation, Outfit, Scene, WearRecord, WeatherSnapshot } from './types';
+import { warmthTotals, wearable } from './warmth.js';
 import { CATEGORIES, categoryLabel, hasBraRequirement, type Category } from './types.js';
 
 export function deviceDate(now = new Date(), timezone = Intl.DateTimeFormat().resolvedOptions().timeZone) {
@@ -58,32 +59,17 @@ export function recentCounts(records: WearRecord[], date: string) {
 }
 function needs(context: ClothesDayContext, weather: WeatherSnapshot) {
   const outdoor = context.scene !== '基本室内';
-  const cold = Math.min(weather.apparent, weather.apparentMin) - (context.scene === '长时间室外' ? 2 : 0);
+  const cold = weather.temperature;
   const rain = outdoor && weather.precipitation > 0;
   const wind = outdoor && weather.wind >= 25;
   return { cold, rain, wind, coat: cold < 18 || (weather.max - weather.min >= 10 && weather.min < 24) || rain || wind,
     accessory: cold < 5 && outdoor };
 }
-function insulation(wearing: ClothesItem[], categories: string[]) {
-  return wearing.filter((piece) => categories.includes(categoryLabel(piece.category)))
-    .reduce((sum, piece) => sum + Math.max(0, piece.thickness - 1), 0);
-}
-function warmth(item: ClothesItem, wearing: ClothesItem[], cold: number) {
-  const category = categoryLabel(item.category);
-  if (['上衣', '连衣裙'].includes(category)) return item.thickness + insulation(wearing, ['内衣']);
-  // A shell retains the warmth of the insulating layers underneath. Below
-  // freezing, keep the requirement for an insulated outer garment itself.
-  if (category === '外套' && item.windproof && cold >= 0) return item.thickness + insulation(wearing, ['内衣', '上衣', '连衣裙']);
-  return item.thickness;
-}
-export function eligibleItems(items: ClothesItem[], requested: Category, context: ClothesDayContext, weather: WeatherSnapshot, wearing: ClothesItem[] = []) {
+export function eligibleItems(items: ClothesItem[], requested: Category, context: ClothesDayContext, weather: WeatherSnapshot, _wearing: ClothesItem[] = []) {
   const n = needs(context, weather), category = categoryLabel(requested);
-  return items.filter((item) => !item.deleted && item.status === '可穿' && categoryLabel(item.category) === category
+  return items.filter((item) => wearable(item) && categoryLabel(item.category) === category
     && (!context.active || item.active)
-    && (!(n.cold < 8 && ['上衣', '下装', '连衣裙', '鞋', '配饰'].includes(category)) || warmth(item, wearing, n.cold) >= 2)
-    && (!(weather.apparent >= 28 && ['内衣', '上衣', '下装', '连衣裙'].includes(category)) || item.thickness === 1)
-    && (category !== '外套' || (warmth(item, wearing, n.cold) >= (n.cold < 8 ? 3 : n.cold < 18 ? 2 : 1)
-      && (!n.rain || item.waterproof) && (!n.wind || item.windproof)))
+    && (category !== '外套' || ((!n.rain || item.waterproof) && (!n.wind || item.windproof)))
     && (category !== '鞋' || !n.rain || item.waterproof));
 }
 function outfitKey(items: ClothesItem[]) { return items.map((item) => item.id).sort().join(':'); }
@@ -105,14 +91,9 @@ export function recommend(items: ClothesItem[], context: ClothesDayContext, inpu
   const weather = weatherFor(context, inputWeather);
   if (!weather || !context.scene || context.active === null) return [];
   const n = needs(context, weather), counts = recentCounts(records, context.date);
-  const ideal = n.cold < 8 ? 3 : n.cold < 20 ? 2 : 1;
   const score = (list: ClothesItem[]) => {
-    const upper = list.some((item) => ['上衣', '连衣裙'].includes(categoryLabel(item.category)));
-    const thermal = list.reduce((sum, item) => {
-      const category = categoryLabel(item.category);
-      if (category === '文胸' || (category === '内衣' && upper)) return sum;
-      return sum + Math.abs(warmth(item, list, n.cold) - ideal) * (category === '外套' ? 2 : 1);
-    }, 0);
+    const totals = warmthTotals(list), target = Math.max(0, 26 - weather.temperature);
+    const thermal = Math.abs(totals.upper - target) + Math.abs(totals.lower - target);
     const colors = new Set(list.filter((item) => !['文胸', '内衣'].includes(categoryLabel(item.category))
       && !['黑', '白', '灰', '米', '棕'].includes(item.color)).map((item) => item.color));
     return thermal * 100 + Math.max(0, colors.size - 1) * 12 + list.reduce((sum, item) => sum + (counts[item.id] ?? 0) * 3, 0)
@@ -128,23 +109,24 @@ export function recommend(items: ClothesItem[], context: ClothesDayContext, inpu
     || score(a.items) - score(b.items) || a.key.localeCompare(b.key);
   const poolFor = (category: Category, wearing: ClothesItem[]) => eligibleItems(items, category, context, weather, wearing)
     .sort((a, b) => score([...wearing, a]) - score([...wearing, b]) || a.id.localeCompare(b.id)).slice(0, 24);
-  const inners = n.cold < 18 ? poolFor('内衣', []) : [];
+  const inners = n.cold < 26 ? poolFor('内衣', []) : [];
   const bras = poolFor('文胸', []);
   const layouts: Category[][] = [['上衣', '下装', '鞋'], ['连衣裙', '鞋']];
   const results: Outfit[] = [];
   for (const layout of layouts) {
-    if (n.coat) layout.push('外套');
+    if (n.coat || n.cold < 26) layout.push('外套');
     if (n.accessory) layout.push('配饰');
     let candidates: Outfit[] = [{ items: [], missing: [], key: '' }, ...inners.map((item) => ({ items: [item], missing: [], key: item.id }))];
     for (const category of layout) {
       const label = category === '外套' && n.rain ? '防雨外套' : category === '外套' && n.wind ? '防风外套' : category;
       candidates = candidates.flatMap((outfit) => {
         const pool = poolFor(category, outfit.items);
-        if (!pool.length) return [{ ...outfit, missing: [...outfit.missing, label] }];
-        return pool.map((item) => {
+        const optional = category === '外套' && !n.coat;
+        if (!pool.length) return [optional ? outfit : { ...outfit, missing: [...outfit.missing, label] }];
+        return [...(optional ? [outfit] : []), ...pool.map((item) => {
           const next = [...outfit.items, item];
           return { ...outfit, items: next, key: outfitKey(next) };
-        });
+        })];
       }).sort(compare).slice(0, 96);
     }
     results.push(...candidates.flatMap((outfit) => needsBra(outfit.items) && bras.length

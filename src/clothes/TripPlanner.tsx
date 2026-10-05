@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { SCENES, categoryLabel, type ClothesItem, type ClothesTrip, type ClothesTripPlan, type ClothesTripsData, type Outfit, type TripDayPlan, type TripForecast, type WearRecord } from './types';
+import { SCENES, PURPOSES, categoryLabel, type ClothesItem, type ClothesTrip, type ClothesTripPlan, type ClothesTripsData, type Outfit, type TripDayPlan, type TripForecast, type WearRecord } from './types';
 import { ClothesError, clothesRequest, photoUrl, readLocal, writeLocal } from './client';
 import { newTripPlan, tripDayContext } from './tripRules';
 import { recommend, replacePiece, replacements } from './rules';
@@ -77,7 +77,7 @@ function TripEditor({ trip, saved, owner, date: today, timezone, items, records,
     const value = { plan: next, mutationId: crypto.randomUUID() }; setDraft(value); latest.current = value; writeLocal(storageKey, value); setDirty(true); setError('');
   }
   function changeDay(next: Partial<TripDayPlan>) {
-    change({ ...plan, days: { ...plan.days, [date]: { scene: plan.days[date]?.scene ?? null, active: plan.days[date]?.active ?? null, itemIds: null, ...next } } });
+    change({ ...plan, days: { ...plan.days, [date]: { scene: plan.days[date]?.scene ?? null, active: plan.days[date]?.active ?? null, itemIds: null, purpose: plan.days[date]?.purpose ?? null, ...next } } });
     setSelection(null); setIndex(0); setReplace(null);
   }
   async function save() {
@@ -105,16 +105,17 @@ function TripEditor({ trip, saved, owner, date: today, timezone, items, records,
       {forecast.fetchedAt && <div className="clothes-updated">{forecast.stale ? '旧预报 · ' : ''}{new Date(forecast.fetchedAt).toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} 更新</div>}
       <div className="clothes-row clothes-status"><span>{forecast.error}</span><button disabled={!location || forecastBusy} onClick={() => setRetry((v) => v + 1)}>{forecast.error ? '重试预报' : '刷新预报'}</button></div>
       <div className="clothes-fields"><label>场景<select aria-label="出行场景" value={context.scene ?? ''} onChange={(e) => changeDay({ scene: e.target.value as TripDayPlan['scene'] || null })}><option value="">待选择</option>{SCENES.map((scene) => <option key={scene}>{scene}</option>)}</select></label><label>运动／多走路<select aria-label="出行运动或多走路" value={context.active === null ? '' : String(context.active)} onChange={(e) => changeDay({ active: e.target.value === '' ? null : e.target.value === 'true' })}><option value="">待选择</option><option value="false">没有</option><option value="true">有运动或走很多路</option></select></label></div>
+      <label className="clothes-trip-select">用途<select aria-label="出行用途" value={plan.days[date]?.purpose ?? ''} onChange={(e) => change({ ...plan, days: { ...plan.days, [date]: { scene: context.scene, active: context.active, itemIds: selectedIds ?? null, purpose: e.target.value as TripDayPlan['purpose'] || null } } })}><option value="">请选择</option>{PURPOSES.map((purpose) => <option key={purpose}>{purpose}</option>)}</select></label>
       <div className="clothes-row clothes-section-heading"><h3>{date.slice(5).replace('-', '.')} 穿搭</h3><button disabled={candidates.length < 2} onClick={() => { const at = candidates.findIndex((value) => value.key === outfit?.key); const next = (at + 1) % candidates.length; setSelection(candidates[next]); setIndex(next); setReplace(null); }}>换一套</button></div>
       {invalid && <p className="clothes-status">衣物或条件已变更 <button onClick={() => changeDay({ itemIds: null })}>重新选搭</button></p>}
       {outfit?.items.length ? <div className="clothes-grid clothes-outfit-grid">{outfit.items.map((item) => <article className="clothes-card" key={item.id}><img loading="lazy" src={photoUrl(item.photoId)} alt={item.name} /><div className="clothes-card-caption"><strong>{item.name}</strong><button disabled={!weather} onClick={() => setReplace(replace === item.id ? null : item.id)}>替换</button></div></article>)}</div> : <p className="clothes-empty">{!items.length ? '衣柜还是空的' : !context.scene || context.active === null ? '请补全出行条件' : !weather ? '等待目的地预报' : '暂无合适衣物'}</p>}
       {outfit?.missing.length ? <p className="clothes-status">缺少：{outfit.missing.join('、')}</p> : null}
       {replacement && outfit && <div className="clothes-replacements"><div className="clothes-row"><span>替换{categoryLabel(replacement.category)}</span><button onClick={() => setReplace(null)}>收起</button></div><div className="clothes-grid">{replacements(replacement, outfit, items, context, weather).map((item) => <button key={item.id} onClick={() => { setSelection(replacePiece(outfit, replacement.id, item, items, context, weather)); setReplace(null); }}><img src={photoUrl(item.photoId)} alt={item.name} /><span>{item.name}</span></button>)}</div></div>}
-      <div className="clothes-confirm">{outfit?.items.length ? <button disabled={!weather || (!selection && invalid)} onClick={() => changeDay({ scene: context.scene, active: context.active, itemIds: outfit.items.map((item) => item.id) })}>{selectedIds && !selection ? '已选这套' : '选用这套'}</button> : null}{selectedIds && <button onClick={() => changeDay({ itemIds: null })}>取消选择</button>}</div>
+      <div className="clothes-confirm">{outfit?.items.length ? <button disabled={!weather || !plan.days[date]?.purpose || (!selection && invalid)} onClick={() => changeDay({ scene: context.scene, active: context.active, itemIds: outfit.items.map((item) => item.id) })}>{selectedIds && !selection ? '已选这套' : '选用这套'}</button> : null}{selectedIds && <button onClick={() => changeDay({ itemIds: null })}>取消选择</button>}</div>
     </fieldset>
     {error && <p className="life-error" role="alert">{error}</p>}
     {conflict !== null && <button onClick={() => { change({ ...plan, revision: conflict }); setConflict(null); }}>保留当前内容，重新保存</button>}
-    <div className="clothes-row clothes-trip-save"><span className="clothes-muted">已选 {Object.values(plan.days).filter((day) => day.itemIds?.length).length} / {trip.dates.length} 天{!dirty && plan.revision ? ' · 已保存' : ''}</span><button className="life-primary" disabled={!dirty || busy || conflict !== null || datesChanged} onClick={() => void save()}>{busy ? '保存中…' : '保存计划'}</button></div>
+    <div className="clothes-row clothes-trip-save"><span className="clothes-muted">已选 {Object.values(plan.days).filter((day) => day.itemIds?.length).length} / {trip.dates.length} 天{!dirty && plan.revision ? ' · 已保存' : ''}</span><button className="life-primary" disabled={!dirty || busy || conflict !== null || datesChanged || Boolean(selectedIds && !plan.days[date]?.purpose)} onClick={() => void save()}>{busy ? '保存中…' : '保存计划'}</button></div>
     {city !== null && <CityPicker initial={city} onClose={() => setCity(null)} onSelect={(location) => { change({ ...plan, location, days: Object.fromEntries(Object.entries(plan.days).map(([date, day]) => [date, { ...day, itemIds: null }])) }); setCity(null); setSelection(null); setIndex(0); }} />}
   </div>;
 }

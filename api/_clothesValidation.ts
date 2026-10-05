@@ -1,6 +1,8 @@
 import { CATEGORIES, COLORS, SCENES, categoryLabel, hasBraRequirement, type ClothesDayContext, type ClothesItem, type ClothesLocation } from '../src/clothes/types.js';
 import { isCalendarDate } from '../src/utils/outlookCalendar.js';
 
+import { normalizeItem } from '../src/clothes/warmth.js';
+
 export class ClothesInputError extends Error {}
 export function requireInput(ok: unknown, message = '内容无效'): asserts ok { if (!ok) throw new ClothesInputError(message); }
 export function id(value: unknown, empty = false): string {
@@ -37,7 +39,8 @@ export function itemInput(value: unknown): ClothesItem {
   return { id: id(v.id), revision: id(v.revision, true), name: v.name.trim() || `${v.color === '多色' ? v.color : `${v.color}色`}${categoryLabel(v.category)}`,
     category: categoryLabel(v.category), color: v.color, thickness: v.thickness, active: v.active, windproof: v.windproof,
     ...(hasBraRequirement(v.category) ? { braRequirement: v.braRequirement ?? 'required' } : {}),
-    waterproof: v.waterproof, status: v.status, photoId: id(v.photoId, true) };
+    ...(v.warmth !== undefined ? { warmth: numberInput(v.warmth, 0, 40) } : {}),
+    waterproof: v.waterproof, status: normalizeItem(v).status, photoId: id(v.photoId, true) };
 }
 export function validLayers(items: ClothesItem[]) {
   const categories = items.map((item) => categoryLabel(item.category));

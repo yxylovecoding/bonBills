@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { CATEGORIES, COLORS, categoryLabel, hasBraRequirement, type ClothesItem } from './types';
+import { estimateWarmth, itemWarmth, normalizeItem } from './warmth';
 import { ClothesError, clothesRequest, compressPhoto, photoUrl, readLocal, writeLocal } from './client';
 
 export function newItem(): ClothesItem {
@@ -15,7 +16,7 @@ export function readItemDraft(owner: string): ItemDraft | null {
 export default function ItemEditor({ initial, owner, onClose, onSaved, onExpired }: {
   initial: ItemDraft; owner: string; onClose: () => void; onSaved: (item: ClothesItem) => void; onExpired: () => void;
 }) {
-  const [draft, setDraft] = useState(initial), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [draft, setDraft] = useState({ ...initial, item: normalizeItem(initial.item) }), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [conflict, setConflict] = useState<ClothesItem | null>(null);
   const [deleting, setDeleting] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -58,7 +59,9 @@ export default function ItemEditor({ initial, owner, onClose, onSaved, onExpired
           <label>类别<select aria-label="类别" value={categoryLabel(item.category)} onChange={(e) => change({ category: e.target.value as ClothesItem['category'] })}>{CATEGORIES.map((v) => <option key={v}>{v}</option>)}</select></label>
           <label>颜色<select aria-label="颜色" value={item.color} onChange={(e) => change({ color: e.target.value as ClothesItem['color'] })}>{COLORS.map((v) => <option key={v} value={v}>{v === '多色' ? v : `${v}色`}</option>)}</select></label>
           <label>厚薄<select aria-label="厚薄" value={item.thickness} onChange={(e) => change({ thickness: Number(e.target.value) as 1 | 2 | 3 })}><option value={1}>薄</option><option value={2}>适中</option><option value={3}>厚</option></select></label>
-          <label>状态<select aria-label="状态" value={item.status} onChange={(e) => change({ status: e.target.value as ClothesItem['status'] })}>{['可穿', '待洗', '收起'].map((v) => <option key={v}>{v}</option>)}</select></label>
+          <label>状态<select aria-label="状态" value={item.status} onChange={(e) => change({ status: e.target.value as ClothesItem['status'] })}>{['可穿', '收起'].map((v) => <option key={v}>{v}</option>)}</select></label>
+          <label>保暖值 °C<input type="number" min={0} max={40} step={0.5} required value={itemWarmth(item)} onChange={(e) => change({ warmth: e.target.value === '' ? undefined : Number(e.target.value) })} /></label>
+          <button type="button" className="clothes-link" onClick={() => change({ warmth: estimateWarmth(item) })}>重新预估</button>
           {hasBraRequirement(item.category) && <label>文胸<select aria-label="文胸" value={item.braRequirement ?? 'required'} onChange={(e) => change({ braRequirement: e.target.value as ClothesItem['braRequirement'] })}><option value="required">需穿文胸</option><option value="optional">可不穿文胸</option></select></label>}
         </div>
         <div className="clothes-checks">{([['active', '方便活动'], ['windproof', '防风'], ['waterproof', '防雨']] as const).map(([key, label]) => <label key={key}><input type="checkbox" checked={item[key]} onChange={(e) => change({ [key]: e.target.checked })} />{label}</label>)}</div>

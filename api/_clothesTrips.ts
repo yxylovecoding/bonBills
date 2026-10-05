@@ -4,7 +4,7 @@ import { decryptOutlookConnection, fetchCalendar, parseOutlookCalendar } from '.
 import { applyOutlookSnapshotToState, buildOutlookSnapshot } from '../src/utils/outlookCalendar.js';
 import { addTripDays, buildClothesTrips, tripDates } from '../src/clothes/tripRules.js';
 import { deviceDate } from '../src/clothes/rules.js';
-import { CATEGORIES, SCENES, type ClothesEvent, type ClothesLocation, type ClothesTripPlan, type ClothesTripsData, type TripForecast, type WeatherSnapshot } from '../src/clothes/types.js';
+import { CATEGORIES, PURPOSES, SCENES, type ClothesEvent, type ClothesLocation, type ClothesTripPlan, type ClothesTripsData, type TripForecast, type WeatherSnapshot } from '../src/clothes/types.js';
 import { dateInput, id, locationInput, requireInput } from './_clothesValidation.js';
 import { upstream } from './_bonClothes.js';
 
@@ -76,9 +76,10 @@ export function tripPlanInput(value: unknown): ClothesTripPlan {
   for (const [date, day] of Object.entries(v.days)) {
     dateInput(date);
     requireInput(date >= startDate && date <= endDate && day && (day.scene === null || SCENES.includes(day.scene))
-      && (day.active === null || typeof day.active === 'boolean'), '每日条件无效');
+      && (day.active === null || typeof day.active === 'boolean')
+      && (day.purpose == null || PURPOSES.includes(day.purpose)), '每日条件无效');
     requireInput(day.itemIds === null || (Array.isArray(day.itemIds) && day.itemIds.length <= CATEGORIES.length && new Set(day.itemIds).size === day.itemIds.length), '搭配无效');
-    days[date] = { scene: day.scene, active: day.active, itemIds: day.itemIds?.map((value) => id(value)) ?? null };
+    days[date] = { ...(day.purpose ? { purpose: day.purpose } : {}), scene: day.scene, active: day.active, itemIds: day.itemIds?.map((value) => id(value)) ?? null };
   }
   return { tripId: v.tripId, revision: id(v.revision, true), title: v.title.trim(), startDate, endDate, location: locationInput(v.location), days };
 }

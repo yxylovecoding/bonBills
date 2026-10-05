@@ -132,3 +132,29 @@
 .clothes-trip-save { padding-top: 18px; }
 .clothes-trips .clothes-outfit-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 @media (max-width: 560px) { .clothes-trips .clothes-outfit-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.clothes-view { display: flex; align-items: center; justify-content: flex-end; gap: 8px; color: var(--life-muted); font-size: 12px; margin: -8px 0 22px; }
+.clothes-view button { padding: 5px 10px; color: inherit; }
+.clothes-view button[aria-pressed="true"] { background: var(--clothes-soft); color: var(--life-accent); }
+.clothes-wardrobe-grid.clothes-size-small { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.clothes-wardrobe-grid.clothes-size-large { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.clothes-today-records { margin: 28px 0; }
+.clothes-today-records > .clothes-section-heading button { font-size: 12px; padding: 9px 14px; }
+.clothes-daily-record { padding: 18px 0; border-top: 1px solid var(--life-line); }
+.clothes-daily-record strong { font-size: 13px; font-weight: 500; }
+.clothes-wear-dialog { width: min(700px, calc(100% - 32px)); }
+.clothes-selected-heading { margin-top: 24px; }
+.clothes-selected-heading h3 { font-size: 14px; font-weight: 500; }
+.clothes-selected { display: flex; flex-wrap: wrap; gap: 6px; }
+.clothes-selected button { background: var(--clothes-soft); color: var(--life-accent); padding: 6px 9px; font-size: 12px; }
+.clothes-picker-controls { margin: 20px 0; }
+.clothes-picker-grid { max-height: 360px; overflow-y: auto; padding: 3px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.clothes-picker-grid .clothes-card { padding: 5px; border: 1px solid transparent; border-radius: 10px; }
+.clothes-picker-grid .clothes-card[aria-pressed="true"] { border-color: var(--life-accent); background: var(--clothes-soft); }
+.clothes-picker-grid .clothes-card-caption { flex-wrap: wrap; }
+@media (max-width: 600px) {
+  .clothes-wardrobe-grid.clothes-size-small { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .clothes-wardrobe-grid.clothes-size-large { grid-template-columns: minmax(0, 1fr); }
+  .clothes-wardrobe-toolbar { flex-wrap: wrap; }
+  .clothes-picker-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

@@ -11,3 +11,4 @@ src/data/*.local.json
 .vite
 .DS_Store
 *.tsbuildinfo
+.vercel

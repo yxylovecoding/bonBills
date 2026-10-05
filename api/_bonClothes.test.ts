@@ -175,12 +175,58 @@ describe('衣柜与实际穿搭接口', () => {
     expect(history.body.records).toHaveLength(1); expect(history.body.records[0].items[0].name).toBe('白色上装');
     expect(Object.keys(hashes.get(WEAR_KEY)!)).toEqual([context.date]);
   });
-  it('确认时衣物变为待洗或事务中更新都拒绝保存', async () => {
-    hashes.set(ITEMS_KEY, { [item.id]: { ...item, status: '待洗' } });
+  it('确认时衣物变为收起或事务中更新都拒绝保存', async () => {
+    hashes.set(ITEMS_KEY, { [item.id]: { ...item, status: '收起' } });
     const body = { action: 'confirm', context, items: [{ id: item.id, revision: item.revision }], revision: '', weather: null, mutationId: uid('confirm') };
     expect((await call('POST', {}, body)).status).toBe(409); expect(evalMock).not.toHaveBeenCalled();
     hashes.set(ITEMS_KEY, { [item.id]: item }); evalMock.mockResolvedValueOnce([-2, '']);
     expect((await call('POST', {}, body)).body.wardrobeChanged).toBe(true);
+  });
+  it('新记录同一天保留多套，用途和体感可独立修改，重试不会重复新增', async () => {
+    hashes.set(ITEMS_KEY, { [item.id]: item });
+    const body = { action: 'confirm', recordId: uid('wear-one'), context: { ...context, scene: null, active: null },
+      items: [{ id: item.id, revision: item.revision }], revision: '', weather: null, mutationId: uid('wear-save-one'),
+      purpose: '休闲', indoor: '偏冷', outdoor: '舒适', time: '09:00' };
+    const first = await call('POST', {}, body);
+    expect(first.status).toBe(200);
+    expect((await call('POST', {}, body)).body).toEqual(first.body);
+    const second = await call('POST', {}, { ...body, recordId: uid('wear-two'), mutationId: uid('wear-save-two'), purpose: '运动', time: '18:00' });
+    expect(second.status).toBe(200);
+    const changed = await call('POST', {}, { ...body, revision: first.body.value.revision, mutationId: uid('wear-edit'), indoor: '舒适', outdoor: '偏热' });
+    expect(changed.status).toBe(200);
+    const history = await call('GET', { view: 'history', date: context.date });
+    expect(history.body.records).toHaveLength(2);
+    expect(history.body.records.find((record: any) => record.id === body.recordId)).toMatchObject({ indoor: '舒适', outdoor: '偏热', purpose: '休闲' });
+    expect((await call('POST', {}, { ...body, mutationId: uid('wear-stale') })).status).toBe(409);
+  });
+  it('旧日期记录能补体感；衣物已删除仍保留原穿搭快照', async () => {
+    hashes.set(WEAR_KEY, { [context.date]: { date: context.date, revision: uid('legacy'), items: [item], context, weather: null, confirmedAt: '2026-10-05T00:00:00Z' } });
+    const body = { action: 'confirm', recordId: context.date, context, revision: uid('legacy'), mutationId: uid('legacy-edit'),
+      items: [{ id: item.id, revision: item.revision }], weather: null, purpose: '见重要的人', time: '10:00', indoor: null, outdoor: '偏冷' };
+    expect((await call('POST', {}, body)).status).toBe(200);
+    expect(Object.keys(hashes.get(WEAR_KEY)!)).toEqual([context.date]);
+    expect(evalMock.mock.calls[0][2][5]).toBe('[]');
+    expect(hashes.get(WEAR_KEY)![context.date].items).toEqual([item]);
+  });
+  it('用途必须选择，体感及时间必须有效，不接受非法保暖值', async () => {
+    const body = { action: 'confirm', recordId: uid('wear'), context, revision: '', mutationId: uid('wear-save'),
+      items: [{ id: item.id, revision: item.revision }], weather: null, purpose: '休闲', time: '10:00', indoor: null, outdoor: null };
+    for (const patch of [{ purpose: undefined }, { purpose: '' }, { indoor: '错误' }, { outdoor: 26 }, { time: '24:00' }]) {
+      expect((await call('POST', {}, { ...body, ...patch })).status).toBe(400);
+    }
+    for (const warmth of [-1, 41, '3']) expect((await call('POST', {}, { action: 'save-item', item: { ...item, warmth }, mutationId: uid('invalid-warmth') })).status).toBe(400);
+    expect(evalMock).not.toHaveBeenCalled();
+  });
+  it('待洗旧数据按可穿读取及保存，保暖值可以为零或小数', async () => {
+    hashes.set(ITEMS_KEY, { [item.id]: { ...item, status: '待洗' } });
+    expect((await call('GET', { date: context.date })).body.items[0].status).toBe('可穿');
+    const result = await call('POST', {}, { action: 'save-item', item: { ...item, status: '待洗', warmth: .5 }, mutationId: uid('warmth-save') });
+    expect(result.status).toBe(200);
+    expect(result.body.value).toMatchObject({ warmth: .5, status: '可穿' });
+  });
+  it('历史按整天分页，同一天多于30套也不会漏掉', async () => {
+    hashes.set(WEAR_KEY, Object.fromEntries(Array.from({ length: 35 }, (_, i) => [uid(`wear-${i}-`), { id: uid(`wear-${i}-`), date: context.date, confirmedAt: '2026-10-05T00:00:00Z', items: [item] }])));
+    expect((await call('GET', { view: 'history', date: context.date })).body.records).toHaveLength(35);
   });
   it('断网失败不伪造成功，重试可继续保存', async () => {
     evalMock.mockRejectedValueOnce(new Error('offline'));
@@ -254,8 +300,8 @@ describe('出行预报与计划接口', () => {
     expect(hashes.has(TRIP_PLANS_KEY)).toBe(true); expect(hashes.has(WEAR_KEY)).toBe(false);
     expect(evalMock.mock.calls.every((call) => call[1].every((key: string) => !key || key.startsWith('bonclothes:')))).toBe(true);
   });
-  it('不接受待洗、不方便运动的单品或超出行程日期的计划', async () => {
-    hashes.set(ITEMS_KEY, { [item.id]: { ...item, status: '待洗' } });
+  it('不接受收起、不方便运动的单品或超出行程日期的计划', async () => {
+    hashes.set(ITEMS_KEY, { [item.id]: { ...item, status: '收起' } });
     const body = { action: 'save-trip-plan', plan, mutationId: uid('trip-save') };
     expect((await call('POST', {}, body)).status).toBe(409);
     hashes.set(ITEMS_KEY, { [item.id]: { ...item, active: false } });

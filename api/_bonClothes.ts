@@ -28,7 +28,7 @@ for _, check in ipairs(cjson.decode(ARGV[6])) do
   local item = redis.call('HGET', KEYS[3], check.id)
   if not item then return {-2, ''} end
   item = cjson.decode(item)
-  if item.deleted or item.status ~= '可穿' or item.revision ~= check.revision then return {-2, ''} end
+  if item.deleted or item.status == '收起' or item.revision ~= check.revision then return {-2, ''} end
 end
 if KEYS[4] ~= '' then
   if ARGV[5] ~= '' then redis.call('SET', KEYS[4], ARGV[5], 'NX')
