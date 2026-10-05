@@ -257,6 +257,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!isCron && !await authOk(req)) return res.status(401).json({ error: 'unauthorized' });
 
   try {
+    if (req.query?.action === 'life-periods') {
+      if (!isCron && req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
+      const { syncRecentLifePeriods } = await import('./_bonLife.js');
+      return res.status(200).json({ ok: true, ...await syncRecentLifePeriods() });
+    }
     if (req.query?.action === 'night-routine' || req.query?.action === 'daily-routine' || req.query?.action === 'routine-visibility') {
       if (!isCron && req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
       const result = await runRoutineVisibilitySync(req.query.action === 'daily-routine' ? 'daily'

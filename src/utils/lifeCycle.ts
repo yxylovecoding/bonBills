@@ -11,12 +11,53 @@ export type CyclePhase = keyof typeof CYCLE_GUIDANCE;
 export interface CycleDay { phase: CyclePhase; day: number; estimated: boolean }
 const DAY = 86_400_000;
 const dayNumber = (date: string) => Date.parse(`${date}T00:00:00Z`) / DAY;
+const dateFormatter = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' });
+const shanghaiToday = () => dateFormatter.format(new Date());
+const addDays = (date: string, days: number) => new Date((dayNumber(date) + days) * DAY).toISOString().slice(0, 10);
+
+function periodHistory(settings: CycleSettings, periodDays: string[]) {
+  const days = [...new Set(periodDays.filter(isCalendarDate))].sort();
+  const runs: { start: string; end: string; length: number }[] = [];
+  for (const day of days) {
+    const previous = runs[runs.length - 1];
+    if (previous && dayNumber(day) - dayNumber(previous.end) === 1) {
+      previous.end = day; previous.length++;
+    } else runs.push({ start: day, end: day, length: 1 });
+  }
+  // A manually entered day inside an Outlook period is the same period, not a new cycle.
+  const manual = [...(settings.periodStarts ?? []), settings.lastPeriodStart].filter(isCalendarDate)
+    .filter((start) => !runs.some((run) => start >= run.start && start <= run.end));
+  return { days, runs, starts: [...new Set([...runs.map((run) => run.start), ...manual])].sort() };
+}
+
+function recentMedian(values: number[], fallback: number) {
+  const recent = values.slice(-6).sort((a, b) => a - b);
+  const middle = Math.floor(recent.length / 2);
+  return recent.length ? Math.round((recent[middle] + recent[Math.floor((recent.length - 1) / 2)]) / 2) : fallback;
+}
+
+export function estimateCycle(settings: CycleSettings, periodDays: string[], today = shanghaiToday()) {
+  const { runs, starts } = periodHistory(settings, periodDays);
+  const recordedStarts = starts.filter((start) => start <= today);
+  const intervals = recordedStarts.slice(1).map((start, index) => dayNumber(start) - dayNumber(recordedStarts[index]))
+    .filter((length) => length >= 21 && length <= 45);
+  // A single-day event may only mark the start; an ongoing range is not a completed duration.
+  const durations = runs.filter((run) => dayNumber(today) - dayNumber(run.end) > 1 && run.length >= 2 && run.length <= 10)
+    .map((run) => run.length);
+  const automatic = settings.automatic !== false;
+  const cycleLength = automatic ? recentMedian(intervals, settings.cycleLength) : settings.cycleLength;
+  const periodLength = automatic ? recentMedian(durations, settings.periodLength) : settings.periodLength;
+  const lastPeriodStart = recordedStarts[recordedStarts.length - 1] ?? '';
+  // Keep an overdue estimate anchored to the last record, rather than pretending a period happened.
+  return { cycleLength, periodLength, lastPeriodStart, cycleSamples: Math.min(6, intervals.length),
+    periodSamples: Math.min(6, durations.length), nextPeriodStart: lastPeriodStart ? addDays(lastPeriodStart, cycleLength) : '' };
+}
 
 // The supplied chart is a training template, not a physiological ovulation model.
-// Its 28-day bands are 1–7, 8–13, 14–19 and 20–28. Scale the template for the
-// configured cycle; a longer configured/recorded period takes precedence.
+// Scale the later bands with the cycle, but use the recorded/estimated period
+// length for the menstrual band instead of a fixed seven days.
 export function cyclePhaseRanges(settings: CycleSettings): { phase: CyclePhase; start: number; end: number }[] {
-  const first = Math.max(settings.periodLength, Math.round(settings.cycleLength * 7 / 28));
+  const first = settings.periodLength;
   const second = Math.max(first + 1, Math.round(settings.cycleLength * 13 / 28));
   const third = Math.max(second + 1, Math.round(settings.cycleLength * 19 / 28));
   return [
@@ -29,16 +70,15 @@ export function cyclePhaseRanges(settings: CycleSettings): { phase: CyclePhase; 
 
 export function cycleDay(date: string, settings: CycleSettings, periodDays: string[]): CycleDay | null {
   if (!isCalendarDate(date)) return null;
-  const days = [...new Set(periodDays.filter(isCalendarDate))].sort();
-  const starts = days.filter((day, index) => index === 0 || dayNumber(day) - dayNumber(days[index - 1]) > 1);
-  starts.push(...(settings.periodStarts ?? []).filter(isCalendarDate));
-  if (settings.lastPeriodStart) starts.push(settings.lastPeriodStart);
-  const anchor = starts.filter((start) => start <= date).sort().pop();
+  const { days, starts } = periodHistory(settings, periodDays);
+  const anchor = starts.filter((start) => start <= date).pop();
   if (!anchor) return null;
+  const today = shanghaiToday();
+  const effective = { ...settings, ...estimateCycle(settings, periodDays, date < today ? date : today) };
   const offset = dayNumber(date) - dayNumber(anchor);
-  const day = offset % settings.cycleLength + 1;
+  const day = offset % effective.cycleLength + 1;
   if (days.includes(date)) return { phase: 'menstrual', day, estimated: false };
-  const phase = cyclePhaseRanges(settings).find((range) => day <= range.end)!.phase;
+  const phase = cyclePhaseRanges(effective).find((range) => day <= range.end)!.phase;
   return { phase, day, estimated: offset !== 0 };
 }
 

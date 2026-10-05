@@ -142,7 +142,7 @@ describe('TickTick 训练来源', () => {
       data.set(TRAINING_SOURCE_KEY, { ...snapshot, tasks: [swim, task()] });
       data.set(LIFE_SETTINGS_KEY, { cycle });
       const result = await readTrainingSource(2027);
-      expect(result.tasks[0].dates).toEqual(['2027-01-05', '2027-01-06']);
+      expect(result.tasks[0].dates).toEqual(['2027-01-03', '2027-01-04', '2027-01-06']);
       expect((await readTrainingSource(2026)).tasks[0].dates).toEqual([]);
       expect(trainingTask(swim, 2027, (date) => afterMenstrualPeriod(date, cycle, [])).dates).toEqual(result.tasks[0].dates);
       expect((await readTrainingSource(2026)).tasks[1].dates).toContain('2026-12-31');

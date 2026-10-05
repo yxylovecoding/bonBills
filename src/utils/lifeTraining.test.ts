@@ -96,7 +96,7 @@ describe('按实际完成滚动轮换', () => {
       expect(result.plans.get(date)?.projects).toEqual([]);
     }
     expect(result.plans.get('2026-10-04')?.projects).toEqual([]);
-    expect(new Set(['2026-10-08', '2026-10-09'].map((date) => project(result, date)))).toEqual(new Set(['游泳', 'hiit']));
+    expect(new Set(['2026-10-06', '2026-10-07'].map((date) => project(result, date)))).toEqual(new Set(['游泳', 'hiit']));
     expect(automaticTraining('2026-10-22', [task('HIIT')], cycle, []).projects).toEqual([]);
   });
   it('跨年衔接历史完成，并保留手动计划与完成快照', () => {

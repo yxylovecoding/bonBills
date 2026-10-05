@@ -5,7 +5,7 @@ import { skinPlanValues, skinSeason } from '../utils/lifeSkin';
 import { DEFAULT_SKIN_SETTINGS } from '../utils/lifeSkin';
 import LifeSkinSettings from './LifeSkinSettings';
 import { calendarCells, DEFAULT_CYCLE, entrySummary, LIFE_LABELS, type LifeView, type LifeYear, type TrainingRecord } from '../utils/bonLife';
-import { CYCLE_GUIDANCE, cycleDay, cyclePhaseRanges, visibleCycleDay } from '../utils/lifeCycle';
+import { CYCLE_GUIDANCE, cycleDay, cyclePhaseRanges, estimateCycle, visibleCycleDay } from '../utils/lifeCycle';
 import { requestSession } from '../utils/authClient';
 import { LifeError, lifeRequest, readDraft, type LifeDraft } from './client';
 import LifeEditor from './LifeEditor';
@@ -50,6 +50,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
   const [retry, setRetry] = useState(0);
   const [loggingOut, setLoggingOut] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [now, setNow] = useState(today);
   const generation = useRef(0);
   const activeSync = useRef<AbortController | null>(null);
   const current = data?.year === year ? data : null;
@@ -60,7 +61,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
   const periodSet = new Set(current?.periodDays ?? []);
   const cycle = current?.cycle ?? DEFAULT_CYCLE;
   const cells = calendarCells(year, month);
-  const now = today();
+  const cycleEstimate = useMemo(() => ({ ...cycle, ...estimateCycle(cycle, current?.periodDays ?? [], now) }), [cycle, current?.periodDays, now]);
   const trainingSource = useLifeTraining(year, !loading && !syncing && Boolean(current)
     && (kind === 'training' || draft?.kind === 'training' || cycleSettings), onExpired);
   const library = useMemo(() => trainingLibrary(trainingSource.current?.tasks ?? [], trainingSource.current?.settings), [trainingSource.current]);
@@ -81,6 +82,13 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
   }, [now, trainingSource.current, current, hasTrainingSource, cycle]);
   const todayAdvice = todayOverview.phase ? CYCLE_GUIDANCE[todayOverview.phase.phase] : null;
   const todayLoading = loading || syncing || trainingSource.busy;
+
+  useEffect(() => {
+    const updateDay = () => setNow(today());
+    const timer = window.setInterval(updateDay, 60_000);
+    window.addEventListener('focus', updateDay);
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', updateDay); };
+  }, []);
 
   const syncPeriods = useCallback(async (selectedYear: number, token: number) => {
     activeSync.current?.abort();
@@ -195,7 +203,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
         <span><span className="life-today-label">饮食建议</span><span>{todayLoading ? '读取中…' : error ? '暂不可用' : todayAdvice?.food || '待设置经期'}</span></span>
       </span>
     </summary>
-      <div>{cyclePhaseRanges(cycle).map(({ phase, start, end }) => {
+      <div>{cyclePhaseRanges(cycleEstimate).map(({ phase, start, end }) => {
         const advice = CYCLE_GUIDANCE[phase];
         return <div className={`life-phase-row phase-${phase}`} key={phase}>
           <div className="life-phase-name"><strong>{advice.label}</strong>{advice.subtitle && <span>{advice.subtitle}</span>}<span>第 {start}–{end} 天</span></div>
@@ -239,6 +247,9 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
         <span key={phase} className={`life-period-key phase-${phase}`}><i aria-hidden="true" />{CYCLE_GUIDANCE[phase].label}</span>)}</div>
       <button disabled={year <= 1900} onClick={() => setSelection((previous) => ({ ...previous, year: previous.year - 1 }))}>往年同月</button></div>
       <div className="life-sync-status" role="status">{loading ? '读取中…' : saved ? '已保存' : ''}
+        {!loading && current?.syncedAt && <span>经期已保存 · {new Date(current.syncedAt).toLocaleString('zh-CN', {
+          timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+        })}</span>}
         {current?.connected ? <button disabled={syncing} onClick={() => void syncPeriods(year, generation.current)}>{syncing ? '经期同步中…' : '同步经期'}</button>
           : <button onClick={() => setSettings(true)}>连接经期日历</button>}</div></footer>}
     {error && <div className="life-error-banner" role="alert">{error}<button onClick={() => setRetry((value) => value + 1)}>重试</button></div>}
@@ -264,7 +275,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
       onClose={() => { setTrainingSettingsOpen(false); void trainingSource.refresh(); }} onSave={(settings) => {
         trainingSource.updateSettings(settings); setTrainingSettingsOpen(false); setSaved(true);
       }} />}
-    {cycleSettings && <LifeCycleSettings initial={cycle} year={year} tickTickTraining={hasTrainingSource} onExpired={onExpired} onClose={() => { setCycleSettings(false); setRetry((value) => value + 1); }} onSave={(savedCycle, swimmingError) => {
+    {cycleSettings && <LifeCycleSettings initial={cycle} periodDays={current?.periodDays ?? []} year={year} tickTickTraining={hasTrainingSource} onExpired={onExpired} onClose={() => { setCycleSettings(false); setRetry((value) => value + 1); }} onSave={(savedCycle, swimmingError) => {
       setData((previous) => previous ? { ...previous, cycle: savedCycle } : previous); setCycleSettings(false); setSaved(true);
       setPeriodError(swimmingError ?? ''); void trainingSource.refresh(true);
     }} />}

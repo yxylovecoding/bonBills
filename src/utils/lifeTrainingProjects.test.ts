@@ -82,7 +82,7 @@ describe('可复用训练项目', () => {
     const result = rollingTrainingPlan(2026, 10, '2026-10-05', { year: 2026, tasks: swimming, connected: false, syncedAt: null },
       { ...DEFAULT_CYCLE, lastPeriodStart: '2026-10-01' }, [], {});
     expect(result.plans.get('2026-10-05')?.projects).toEqual([]);
-    expect(result.plans.get('2026-10-08')?.projects).toEqual(['游泳']);
+    expect(result.plans.get('2026-10-06')?.projects).toEqual(['游泳']);
   });
   it('限制空名称、重复名称、重复标识和过长内容', () => {
     expect(parseTrainingSettings(settings)).toEqual(settings);

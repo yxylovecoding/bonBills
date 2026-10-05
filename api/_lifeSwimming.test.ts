@@ -37,26 +37,26 @@ afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 describe('经期游泳顺延', () => {
   it('所有标题含游泳的待办都生效，不依赖训练锚点或清单', () => {
     for (const title of ['下班准备游泳', '游泳-运动💪🏻是生活的第一个锚点🪝', '买游泳用品']) {
-      expect(swimmingTarget(task({ title }), today, cycle, [])).toBe('2026-10-14');
+      expect(swimmingTarget(task({ title }), today, cycle, [])).toBe('2026-10-12');
     }
     for (const value of [task({ title: '跑步', content: '游泳' }), task({ status: 2 }), task({ completedTime: '2026-10-07' }),
-      task({ startDate: undefined, dueDate: undefined }), task({ startDate: '2026-10-14', dueDate: '2026-10-14' })]) {
+      task({ startDate: undefined, dueDate: undefined }), task({ startDate: '2026-10-12', dueDate: '2026-10-12' })]) {
       expect(swimmingTarget(value, today, cycle, [])).toBeNull();
     }
     expect(swimmingTarget(task(), today, DEFAULT_CYCLE, [])).toBeNull();
   });
   it('实际经期记录和长经期优先，月末与闰年顺延正确', () => {
     expect(swimmingTarget(task(), today, { ...cycle, periodLength: 10 }, [])).toBe('2026-10-17');
-    expect(swimmingTarget(task(), today, DEFAULT_CYCLE, ['2026-10-07', '2026-10-08'])).toBe('2026-10-14');
+    expect(swimmingTarget(task(), today, DEFAULT_CYCLE, ['2026-10-07', '2026-10-08'])).toBe('2026-10-12');
     expect(swimmingTarget(task({ startDate: '2026-12-31', dueDate: '2026-12-31' }), today,
-      { ...cycle, lastPeriodStart: '2026-12-29' }, [])).toBe('2027-01-05');
+      { ...cycle, lastPeriodStart: '2026-12-29' }, [])).toBe('2027-01-03');
     expect(swimmingTarget(task({ startDate: '2024-02-29', dueDate: '2024-02-29' }), '2024-02-27',
-      { ...cycle, lastPeriodStart: '2024-02-28' }, [])).toBe('2024-03-06');
+      { ...cycle, lastPeriodStart: '2024-02-28' }, [])).toBe('2024-03-04');
   });
   it('跨日待办任何一天碰到经期都整体顺延，逾期待办按今天处理', () => {
-    expect(swimmingTarget(task({ startDate: '2026-10-06', dueDate: '2026-10-08' }), today, cycle, [])).toBe('2026-10-14');
+    expect(swimmingTarget(task({ startDate: '2026-10-06', dueDate: '2026-10-08' }), today, cycle, [])).toBe('2026-10-12');
     const old = task({ startDate: '2026-09-01', dueDate: '2026-09-01' });
-    expect(swimmingTarget(old, '2026-10-09', cycle, [])).toBe('2026-10-14');
+    expect(swimmingTarget(old, '2026-10-09', cycle, [])).toBe('2026-10-12');
     expect(swimmingTarget(old, '2026-10-15', cycle, [])).toBeNull();
   });
   it('保留时间、时区、时长、提醒、标签、备注、层级与重复规则，并回读验证', async () => {
@@ -68,8 +68,8 @@ describe('经期游泳顺延', () => {
     const { api, state, write } = apiFor([original]);
     expect(await postponeSwimmingTasks(api, [original], today, cycle, [])).toBe(1);
     const saved = state.get('swim')!;
-    expect(saved).toEqual({ ...original, startDate: '2026-10-14T18:30:00+0800', dueDate: '2026-10-14T20:00:00+0800',
-      items: [{ ...original.items![0], startDate: '2026-10-13T20:00:00+0800' }, original.items![1]] });
+    expect(saved).toEqual({ ...original, startDate: '2026-10-12T18:30:00+0800', dueDate: '2026-10-12T20:00:00+0800',
+      items: [{ ...original.items![0], startDate: '2026-10-11T20:00:00+0800' }, original.items![1]] });
     // Both stale discovery data and a fresh second run are idempotent.
     expect(await postponeSwimmingTasks(api, [original], today, cycle, [])).toBe(0);
     expect(await postponeSwimmingTasks(api, [saved], today, cycle, [])).toBe(0);
@@ -79,7 +79,7 @@ describe('经期游泳顺延', () => {
     for (const original of [task({ isAllDay: true }), task({ startDate: undefined })]) {
       const { api, state } = apiFor([original]);
       await postponeSwimmingTasks(api, [original], today, cycle, []);
-      expect(state.get('swim')!.dueDate).toBe('2026-10-13T16:00:00.000+0000');
+      expect(state.get('swim')!.dueDate).toBe('2026-10-11T16:00:00.000+0000');
     }
   });
   it('写入前重新检查，尊重用户刚完成、改标题或改日期的任务', async () => {
@@ -94,7 +94,7 @@ describe('经期游泳顺延', () => {
     const { api, read } = apiFor([original]);
     read.mockResolvedValue(structuredClone(original));
     await expect(postponeSwimmingTasks(api, [original], today, cycle, [])).rejects.toThrow('未确认');
-    read.mockResolvedValueOnce(original).mockResolvedValueOnce(task({ startDate: '2026-10-13T16:00:00.000+0000', dueDate: '2026-10-13T16:00:00.000+0000' }));
+    read.mockResolvedValueOnce(original).mockResolvedValueOnce(task({ startDate: '2026-10-11T16:00:00.000+0000', dueDate: '2026-10-11T16:00:00.000+0000' }));
     await expect(postponeSwimmingTasks(api, [original], today, cycle, [])).rejects.toThrow('未确认');
   });
   it('后台扫描收集箱与全部清单，只写实际冲突项，出错释放同一把同步锁', async () => {
@@ -114,7 +114,7 @@ describe('经期游泳顺延', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     expect(await syncSwimmingSchedule()).toEqual({ updated: 1 });
-    expect(saved.dueDate).toBe(`${year + 1}-01-04`);
+    expect(saved.dueDate).toBe(`${year + 1}-01-02`);
     expect(data.has('ticktick:trip-sync:lock')).toBe(false);
     expect(await syncSwimmingSchedule()).toEqual({ updated: 0 });
     fetchMock.mockRejectedValue(new Error('private-token'));
