@@ -2,6 +2,7 @@ import { kv } from './_accountKv.js';
 import { createHash } from 'node:crypto';
 import { decryptOutlookConnection, fetchCalendar, parseOutlookCalendar } from './_outlookCalendar.js';
 import { OUTLOOK_CONNECTION_KEY, type OutlookConnection } from './_outlookSync.js';
+import { deviceDate } from '../src/clothes/rules.js';
 import { nextCalendarDate } from '../src/utils/outlookCalendar.js';
 import type { ClothesCalendar, ClothesLocation, WeatherSnapshot } from '../src/clothes/types.js';
 
@@ -61,6 +62,7 @@ export async function readWeather(location: ClothesLocation, date: string, timez
   const latitude = Number(location.latitude.toFixed(3)), longitude = Number(location.longitude.toFixed(3));
   const key = `bonclothes:weather:v1:${latitude}:${longitude}:${date}:${timezone}`;
   const saved = await kv.get<WeatherSnapshot>(key);
+  if (date < deviceDate(new Date(), timezone)) return { weather: saved, stale: false };
   if (saved && Date.now() - Date.parse(saved.fetchedAt) < 30 * 60 * 1000) return { weather: saved, stale: false };
   try {
     const url = new URL('https://api.open-meteo.com/v1/forecast');
@@ -76,14 +78,17 @@ export async function readWeather(location: ClothesLocation, date: string, timez
     const [temperature, apparent, min, max, apparentMin, precipitation, wind] = fields;
     const weather: WeatherSnapshot = { date, timezone, latitude, longitude, fetchedAt: new Date().toISOString(),
       temperature, apparent, min, max, apparentMin, precipitation, wind };
-    // Retain stale data for outages; freshness is checked separately from the retention TTL.
-    await kv.set(key, weather, { ex: 7 * 86400 });
+    // Keep the observed day's weather for later reviews; never relabel live weather as a past day.
+    await kv.set(key, weather);
     return { weather, stale: false };
   } catch {
     return { weather: saved, stale: true, error: '天气更新失败' };
   }
 }
 export async function readClothesCalendar(date: string, timezone: string): Promise<ClothesCalendar> {
+  const archiveKey = `bonclothes:calendar-history:v1:${date}:${timezone}`;
+  const saved = await kv.get<ClothesCalendar>(archiveKey);
+  if (date < deviceDate(new Date(), timezone) && saved) return saved;
   const connection = await kv.get<OutlookConnection>(OUTLOOK_CONNECTION_KEY);
   if (!connection) return { connected: false, events: [], fetchedAt: new Date().toISOString() };
   const input = decryptOutlookConnection(connection.encrypted, (process.env.SYNC_SECRET || '').trim());
@@ -91,8 +96,10 @@ export async function readClothesCalendar(date: string, timezone: string): Promi
     const sources = [{ calendar: 'play' as const, url: input.playUrl }, { calendar: 'class' as const, url: input.classUrl }].filter((source) => source.url);
     const results = await Promise.all(sources.map(async (source) => parseOutlookCalendar(await fetchCalendar(source.url),
       source.calendar, date, nextCalendarDate(date), false, true, { includeLocation: true, timezone, includeFree: true })));
-    return { connected: true, fetchedAt: new Date().toISOString(), events: results.flat()
+    const value = { connected: true, fetchedAt: new Date().toISOString(), events: results.flat()
       .map(({ title, location, startDate, endDate, allDay }) => ({ title, location, startDate, endDate, allDay }))
       .sort((a, b) => a.startDate.localeCompare(b.startDate) || a.title.localeCompare(b.title)) };
+    if (date <= deviceDate(new Date(), timezone)) await kv.set(archiveKey, value);
+    return value;
   } catch { throw new Error('日历更新失败'); }
 }

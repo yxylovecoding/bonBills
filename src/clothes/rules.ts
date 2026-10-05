@@ -1,5 +1,6 @@
 import type { ClothesCalendar, ClothesDayContext, ClothesItem, ClothesLocation, Outfit, Scene, WearRecord, WeatherSnapshot } from './types';
-import { warmthTotals, wearable } from './warmth.js';
+import { itemCategories, wearAs } from './pairing.js';
+import { environmentWarmth, warmthTotals, wearable } from './warmth.js';
 import { CATEGORIES, categoryLabel, hasBraRequirement, type Category } from './types.js';
 
 export function deviceDate(now = new Date(), timezone = Intl.DateTimeFormat().resolvedOptions().timeZone) {
@@ -72,14 +73,14 @@ function needs(context: ClothesDayContext, weather: WeatherSnapshot) {
   return { cold, rain, wind, coat: cold < 18 || (weather.max - weather.min >= 10 && weather.min < 24) || rain || wind,
     accessory: cold < 5 && outdoor };
 }
-export function eligibleItems(items: ClothesItem[], requested: Category, context: ClothesDayContext, weather: WeatherSnapshot, _wearing: ClothesItem[] = []) {
+export function eligibleItems(items: ClothesItem[], requested: Category, context: ClothesDayContext, weather: WeatherSnapshot, wearing: ClothesItem[] = []) {
   const n = needs(context, weather), category = categoryLabel(requested);
-  return items.filter((item) => wearable(item) && !item.sleepwear && categoryLabel(item.category) === category
+  return items.filter((item) => wearable(item) && !item.sleepwear && itemCategories(item).includes(category) && !wearing.some((piece) => piece.id === item.id)
     && (!(context.active || context.purpose === '运动') || item.active)
     && (category !== '外套' || ((!n.rain || item.waterproof) && (!n.wind || item.windproof)))
-    && (category !== '鞋' || !n.rain || item.waterproof));
+    && (category !== '鞋' || !n.rain || item.waterproof)).map((item) => wearAs(item, category));
 }
-function outfitKey(items: ClothesItem[]) { return items.map((item) => item.id).sort().join(':'); }
+function outfitKey(items: ClothesItem[]) { return items.map((item) => `${item.id}@${categoryLabel(item.category)}`).sort().join(':'); }
 function ordered(items: ClothesItem[]) {
   return [...items].sort((a, b) => CATEGORIES.indexOf(categoryLabel(a.category)) - CATEGORIES.indexOf(categoryLabel(b.category)));
 }
@@ -98,19 +99,24 @@ export function recommend(items: ClothesItem[], context: ClothesDayContext, inpu
   const weather = weatherFor(context, inputWeather);
   if (!weather || !context.scene || context.active === null) return [];
   const n = needs(context, weather), counts = recentCounts(records, context.date);
+  const thermalGap = (list: ClothesItem[], tolerance = 0) => {
+    const gap = (totals: { upper: number; lower: number }, temperature: number) => {
+      const target = Math.max(0, 26 - temperature);
+      return Math.max(0, Math.abs(totals.upper - target) - tolerance) + Math.max(0, Math.abs(totals.lower - target) - tolerance);
+    };
+    if (context.indoorTemperature == null) return gap(warmthTotals(list), weather.temperature);
+    const totals = environmentWarmth(list);
+    const indoorWeight = context.scene === '基本室内' ? .8 : context.scene === '有室外' ? .5 : .2;
+    return gap(totals.indoor, context.indoorTemperature) * indoorWeight + gap(totals.outdoor, weather.temperature) * (1 - indoorWeight);
+  };
   const score = (list: ClothesItem[]) => {
-    const totals = warmthTotals(list), target = Math.max(0, 26 - weather.temperature);
-    const thermal = Math.abs(totals.upper - target) + Math.abs(totals.lower - target);
+    const thermal = thermalGap(list);
     const colors = new Set(list.filter((item) => !['文胸', '内衣'].includes(categoryLabel(item.category))
       && !['黑', '白', '灰', '米', '棕'].includes(item.color)).map((item) => item.color));
     return thermal * 100 + Math.max(0, colors.size - 1) * 12 + list.reduce((sum, item) => sum + (counts[item.id] ?? 0) * 3, 0)
       + (list.some((item) => categoryLabel(item.category) === '内衣') ? 1 : 0);
   };
-  const target = Math.max(0, 26 - weather.temperature);
-  const comfortGap = (list: ClothesItem[]) => {
-    const totals = warmthTotals(list);
-    return Math.max(0, Math.abs(totals.upper - target) - 2) + Math.max(0, Math.abs(totals.lower - target) - 2);
-  };
+  const comfortGap = (list: ClothesItem[]) => thermalGap(list, 2);
   const timesWorn = (list: ClothesItem[]) => list.reduce((sum, item) => sum + (wearCounts[item.id] ?? 0), 0);
   const compareItems = (a: ClothesItem[], b: ClothesItem[]) => (context.purpose === '休闲'
     ? comfortGap(a) - comfortGap(b) || timesWorn(a) - timesWorn(b) : 0) || score(a) - score(b);
@@ -159,7 +165,7 @@ export function replacements(item: ClothesItem, outfit: Outfit, items: ClothesIt
   const retained = outfit.items.filter((piece) => piece.id !== item.id);
   return eligibleItems(items, item.category, context, weather, retained).filter((next) => next.id !== item.id
     && !retained.some((worn) => worn.id === next.id)
-    && retained.every((worn) => eligibleItems([worn], worn.category, context, weather, [...retained, next]).length > 0))
+    && retained.every((worn) => eligibleItems([worn], worn.category, context, weather, [...retained.filter((piece) => piece.id !== worn.id), next]).length > 0))
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 export function replacePiece(outfit: Outfit, previous: string, next: ClothesItem,

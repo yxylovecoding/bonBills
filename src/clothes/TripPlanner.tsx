@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { SCENES, PURPOSES, categoryLabel, type ClothesItem, type ClothesTrip, type ClothesTripPlan, type ClothesTripsData, type Outfit, type TripDayPlan, type TripForecast, type WearRecord } from './types';
 import { ClothesError, clothesRequest, photoUrl, readLocal, writeLocal } from './client';
 import { newTripPlan, tripDayContext } from './tripRules';
+import { itemCategories, wearAs } from './pairing';
 import { recommend, replacePiece, replacements } from './rules';
 import CityPicker from './CityPicker';
 import OutfitWarmth from './OutfitWarmth';
@@ -67,7 +68,12 @@ function TripEditor({ trip, saved, owner, date: today, timezone, items, records,
   const weather = forecast.days[date] ?? null;
   const candidates = useMemo(() => context.purpose ? recommend(items, context, weather, records, wearCounts) : [], [items, context, weather, records, wearCounts]);
   const selectedIds = plan.days[date]?.itemIds;
-  const savedItems = selectedIds?.map((id) => items.find((item) => item.id === id)).filter((item): item is ClothesItem => Boolean(item)) ?? [];
+  const savedItems = selectedIds?.flatMap((id) => {
+    const item = items.find((piece) => piece.id === id);
+    if (!item) return [];
+    const role = plan.days[date]?.itemCategories?.[id] ?? item.category;
+    return itemCategories(item).includes(categoryLabel(role)) ? [wearAs(item, role)] : [];
+  }) ?? [];
   const checked = selectedIds && weather ? recommend(savedItems, context, weather)[0] : null;
   const invalid = Boolean(selectedIds && (savedItems.length !== selectedIds.length || savedItems.some((item) => item.deleted || item.status !== '可穿' || (context.active && !item.active))
     || (checked && checked.items.length !== selectedIds.length)));
@@ -113,11 +119,11 @@ function TripEditor({ trip, saved, owner, date: today, timezone, items, records,
       {outfit && <OutfitWarmth items={outfit.items} />}
       {outfit?.missing.length ? <p className="clothes-status">缺少：{outfit.missing.join('、')}</p> : null}
       {replacement && outfit && <div className="clothes-replacements"><div className="clothes-row"><span>替换{categoryLabel(replacement.category)}</span><button onClick={() => setReplace(null)}>收起</button></div><div className="clothes-grid">{replacements(replacement, outfit, items, context, weather).map((item) => <button key={item.id} onClick={() => { setSelection(replacePiece(outfit, replacement.id, item, items, context, weather)); setReplace(null); }}><img src={photoUrl(item.photoId)} alt={item.name} /><span>{item.name}</span></button>)}</div></div>}
-      <div className="clothes-confirm">{outfit?.items.length ? <button disabled={!weather || !plan.days[date]?.purpose || (!selection && invalid)} onClick={() => changeDay({ scene: context.scene, active: context.active, itemIds: outfit.items.map((item) => item.id) })}>{selectedIds && !selection ? '已选这套' : '选用这套'}</button> : null}{selectedIds && <button onClick={() => changeDay({ itemIds: null })}>取消选择</button>}</div>
+      <div className="clothes-confirm">{outfit?.items.length ? <button disabled={!weather || !plan.days[date]?.purpose || (!selection && invalid)} onClick={() => changeDay({ scene: context.scene, active: context.active, itemIds: outfit.items.map((item) => item.id), itemCategories: Object.fromEntries(outfit.items.map((item) => [item.id, item.category])) })}>{selectedIds && !selection ? '已选这套' : '选用这套'}</button> : null}{selectedIds && <button onClick={() => changeDay({ itemIds: null })}>取消选择</button>}</div>
     </fieldset>
     {error && <p className="life-error" role="alert">{error}</p>}
     {conflict !== null && <button onClick={() => { change({ ...plan, revision: conflict }); setConflict(null); }}>保留当前内容，重新保存</button>}
     <div className="clothes-row clothes-trip-save"><span className="clothes-muted">已选 {Object.values(plan.days).filter((day) => day.itemIds?.length).length} / {trip.dates.length} 天{!dirty && plan.revision ? ' · 已保存' : ''}</span><button className="life-primary" disabled={!dirty || busy || conflict !== null || datesChanged || Boolean(selectedIds && !plan.days[date]?.purpose)} onClick={() => void save()}>{busy ? '保存中…' : '保存计划'}</button></div>
-    {city !== null && <CityPicker initial={city} onClose={() => setCity(null)} onSelect={(location) => { change({ ...plan, location, days: Object.fromEntries(Object.entries(plan.days).map(([date, day]) => [date, { ...day, itemIds: null }])) }); setCity(null); setSelection(null); setIndex(0); }} />}
+    {city !== null && <CityPicker initial={city} onClose={() => setCity(null)} onSelect={(location) => { change({ ...plan, location, days: Object.fromEntries(Object.entries(plan.days).map(([date, day]) => [date, { ...day, itemIds: null, itemCategories: undefined }])) }); setCity(null); setSelection(null); setIndex(0); }} />}
   </div>;
 }

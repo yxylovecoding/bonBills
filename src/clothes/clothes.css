@@ -162,3 +162,13 @@
   .clothes-wardrobe-toolbar { flex-wrap: wrap; }
   .clothes-picker-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+.clothes-picker-section { margin: 22px 0; }
+.clothes-picker-section h3 { font-size: 15px; font-weight: 500; }
+.clothes-picker-section > .clothes-row { margin-bottom: 10px; }
+
+.clothes-date-picker { width: 132px; border: 0; background: transparent; color: var(--life-muted); font: inherit; font-size: 13px; }
+.clothes-feelings { margin-top: 20px; }
+.clothes-feelings .clothes-view { justify-content: flex-start; flex-wrap: wrap; gap: 6px; }
+.clothes-feeling-field { display: grid; gap: 10px; }
+.clothes-record-details p { line-height: 1.7; margin: 8px 0; }

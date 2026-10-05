@@ -1,6 +1,7 @@
-import { CATEGORIES, COLORS, SCENES, PURPOSES, categoryLabel, hasBraRequirement, type ClothesDayContext, type ClothesItem, type ClothesLocation } from '../src/clothes/types.js';
+import { CATEGORIES, COLORS, SCENES, PURPOSES, DAY_PERIODS, SENSATIONS, type WearFeelings, categoryLabel, hasBraRequirement, type ClothesDayContext, type ClothesItem, type ClothesLocation } from '../src/clothes/types.js';
 import { isCalendarDate } from '../src/utils/outlookCalendar.js';
 
+import { itemCategories } from '../src/clothes/pairing.js';
 import { normalizeItem } from '../src/clothes/warmth.js';
 
 export class ClothesInputError extends Error {}
@@ -37,9 +38,11 @@ export function itemInput(value: unknown): ClothesItem {
     && typeof v.waterproof === 'boolean' && typeof v.name === 'string' && v.name.trim().length <= 60
     && (v.sleepwear === undefined || typeof v.sleepwear === 'boolean')
     && (v.braRequirement === undefined || ['required', 'optional'].includes(v.braRequirement)), '衣物信息无效');
+  requireInput(v.wearAs === undefined || (Array.isArray(v.wearAs) && v.wearAs.length <= 2 && v.wearAs.every((role) =>
+    categoryLabel(role) === categoryLabel(v.category) || (['上衣', '外套'].includes(categoryLabel(v.category)) && ['上衣', '外套'].includes(categoryLabel(role))))), '穿着位置无效');
   return { id: id(v.id), revision: id(v.revision, true), name: v.name.trim() || `${v.color === '多色' ? v.color : `${v.color}色`}${categoryLabel(v.category)}`,
-    category: categoryLabel(v.category), color: v.color, thickness: v.thickness, active: v.active, windproof: v.windproof,
-    ...(hasBraRequirement(v.category) ? { braRequirement: v.braRequirement ?? 'required' } : {}),
+    category: categoryLabel(v.category), ...(v.wearAs ? { wearAs: itemCategories(v) } : {}), color: v.color, thickness: v.thickness, active: v.active, windproof: v.windproof,
+    ...(itemCategories(v).some(hasBraRequirement) ? { braRequirement: v.braRequirement ?? 'required' } : {}),
     ...(v.warmth !== undefined ? { warmth: numberInput(v.warmth, 0, 40) } : {}),
     sleepwear: v.sleepwear ?? false,
     waterproof: v.waterproof, status: normalizeItem(v).status, photoId: id(v.photoId, true) };
@@ -58,8 +61,20 @@ export function contextInput(value: unknown): ClothesDayContext {
     requireInput(v.manualWeather && typeof v.manualWeather.rain === 'boolean', '天气无效');
     manualWeather = { temperature: numberInput(v.manualWeather.temperature, -60, 60), rain: v.manualWeather.rain };
   }
-  return { date: dateInput(v.date), timezone: timezoneInput(v.timezone), revision: id(v.revision, true), ...(v.purpose !== undefined ? { purpose: v.purpose } : {}),
+  return { ...(v.indoorTemperature !== undefined ? { indoorTemperature: v.indoorTemperature === null ? null : numberInput(v.indoorTemperature, -60, 60) } : {}), date: dateInput(v.date), timezone: timezoneInput(v.timezone), revision: id(v.revision, true), ...(v.purpose !== undefined ? { purpose: v.purpose } : {}),
     location: locationInput(v.location), scene: v.scene, active: v.active, manualWeather };
+}
+export function feelingsInput(value: unknown): WearFeelings {
+  requireInput(value && typeof value === 'object' && !Array.isArray(value), '体感记录无效');
+  const result: WearFeelings = {};
+  for (const [key, entry] of Object.entries(value)) {
+    requireInput(DAY_PERIODS.includes(key as typeof DAY_PERIODS[number]) && entry && typeof entry === 'object', '体感时段无效');
+    requireInput([entry.indoor, entry.outdoor].every((feeling) => feeling === null || SENSATIONS.includes(feeling)), '体感记录无效');
+    result[key as typeof DAY_PERIODS[number]] = { indoor: entry.indoor, outdoor: entry.outdoor,
+      indoorTemperature: entry.indoorTemperature === null ? null : numberInput(entry.indoorTemperature, -60, 60),
+      outdoorTemperature: entry.outdoorTemperature === null ? null : numberInput(entry.outdoorTemperature, -60, 60) };
+  }
+  return result;
 }
 // Display images are re-encoded in the browser. Inspect their actual headers,
 // dimensions and container boundaries; do not trust MIME or client metadata.

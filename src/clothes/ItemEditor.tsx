@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { CATEGORIES, COLORS, categoryLabel, hasBraRequirement, type ClothesItem } from './types';
+import { itemCategories } from './pairing';
 import { estimateWarmth, itemWarmth, normalizeItem } from './warmth';
 import { ClothesError, clothesRequest, compressPhoto, photoUrl, readLocal, writeLocal } from './client';
 
@@ -25,7 +26,7 @@ export default function ItemEditor({ initial, owner, onClose, onSaved, onExpired
   useEffect(() => { dialog.current?.showModal(); }, []);
   useEffect(() => { writeLocal(itemDraftKey(owner), draft); }, [draft, owner]);
   function change(next: Partial<ClothesItem>, nextPhoto = photo) {
-    setDraft({ item: { ...item, ...next }, photo: nextPhoto, mutationId: crypto.randomUUID() }); setDeleting(false);
+    setDraft({ item: { ...item, ...next, ...('warmth' in next ? { learnedWarmth: undefined } : {}) }, photo: nextPhoto, mutationId: crypto.randomUUID() }); setDeleting(false);
   }
   function close() { writeLocal(itemDraftKey(owner), null); onClose(); }
   async function save(remove = false) {
@@ -56,14 +57,15 @@ export default function ItemEditor({ initial, owner, onClose, onSaved, onExpired
         </label>
         <div className="clothes-fields">
           <label className="clothes-full">名称<input value={item.name} maxLength={60} placeholder={`${item.color === '多色' ? item.color : `${item.color}色`}${categoryLabel(item.category)}`} onChange={(e) => change({ name: e.target.value })} /></label>
-          <label>类别<select aria-label="类别" value={categoryLabel(item.category)} onChange={(e) => change({ category: e.target.value as ClothesItem['category'] })}>{CATEGORIES.map((v) => <option key={v}>{v}</option>)}</select></label>
+          <label>类别<select aria-label="类别" value={categoryLabel(item.category)} onChange={(e) => change({ category: e.target.value as ClothesItem['category'], wearAs: [] })}>{CATEGORIES.map((v) => <option key={v}>{v}</option>)}</select></label>
+          {['上衣', '外套'].includes(categoryLabel(item.category)) && <label className="clothes-check"><input type="checkbox" checked={itemCategories(item).length > 1} onChange={(e) => change({ wearAs: e.target.checked ? ['上衣', '外套'] : [] })} />{categoryLabel(item.category) === '外套' ? '也可作上衣' : '也可作外套'}</label>}
           <label>颜色<select aria-label="颜色" value={item.color} onChange={(e) => change({ color: e.target.value as ClothesItem['color'] })}>{COLORS.map((v) => <option key={v} value={v}>{v === '多色' ? v : `${v}色`}</option>)}</select></label>
           <label>厚薄<select aria-label="厚薄" value={item.thickness} onChange={(e) => change({ thickness: Number(e.target.value) as 1 | 2 | 3 })}><option value={1}>薄</option><option value={2}>适中</option><option value={3}>厚</option></select></label>
           <label>状态<select aria-label="状态" value={item.status} onChange={(e) => change({ status: e.target.value as ClothesItem['status'] })}>{['可穿', '收起'].map((v) => <option key={v}>{v}</option>)}</select></label>
           <label className="clothes-check clothes-full"><input type="checkbox" checked={item.sleepwear ?? false} onChange={(e) => change({ sleepwear: e.target.checked })} />睡衣</label>
           <label>保暖值 °C<input type="number" min={0} max={40} step={0.5} required value={itemWarmth(item)} onChange={(e) => change({ warmth: e.target.value === '' ? undefined : Number(e.target.value) })} /></label>
           <button type="button" className="clothes-link" onClick={() => change({ warmth: estimateWarmth(item) })}>重新预估</button>
-          {hasBraRequirement(item.category) && <label>文胸<select aria-label="文胸" value={item.braRequirement ?? 'required'} onChange={(e) => change({ braRequirement: e.target.value as ClothesItem['braRequirement'] })}><option value="required">需穿文胸</option><option value="optional">可不穿文胸</option></select></label>}
+          {itemCategories(item).some(hasBraRequirement) && <label>文胸<select aria-label="文胸" value={item.braRequirement ?? 'required'} onChange={(e) => change({ braRequirement: e.target.value as ClothesItem['braRequirement'] })}><option value="required">需穿文胸</option><option value="optional">可不穿文胸</option></select></label>}
         </div>
         <div className="clothes-checks">{([['active', '方便活动'], ['windproof', '防风'], ['waterproof', '防雨']] as const).map(([key, label]) => <label key={key}><input type="checkbox" checked={item[key]} onChange={(e) => change({ [key]: e.target.checked })} />{label}</label>)}</div>
       </fieldset>

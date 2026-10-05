@@ -2,6 +2,8 @@ import type { ClothesDayContext, ClothesItem, WearRecord } from './types';
 import { wearId } from './types';
 import { photoUrl } from './client';
 import { weatherFor } from './rules';
+import { itemCategories, wearAs } from './pairing';
+import { categoryLabel } from './types';
 import { wearable } from './warmth';
 import { createWearDraft, type WearDraft } from './WearEditor';
 import OutfitWarmth from './OutfitWarmth';
@@ -13,7 +15,10 @@ export default function SavedOutfits({ outfits, items, context, onOpenWear, hasW
   return <section className="clothes-today-records" aria-label="保存的搭配">
     <div className="clothes-row clothes-section-heading"><h2>搭配 · {outfits.length} 套</h2><button className="life-primary" onClick={() => onOpenWear(createWearDraft(context, weatherFor(context, null)))}>{hasWearDraft ? '继续记录' : '记录穿搭'}</button></div>
     {outfits.length ? [...outfits].sort((a, b) => b.date.localeCompare(a.date) || b.confirmedAt.localeCompare(a.confirmedAt)).map((outfit) => {
-      const pieces = outfit.items.map((piece) => items.find((item) => item.id === piece.id && wearable(item)));
+      const pieces = outfit.items.map((piece) => {
+        const current = items.find((item) => item.id === piece.id && wearable(item) && itemCategories(item).includes(categoryLabel(piece.category)));
+        return current && wearAs(current, piece.category);
+      });
       const available = pieces.every((piece) => !!piece);
       return <article className="clothes-daily-record" key={wearId(outfit)}>
         <div className="clothes-row"><strong>{outfit.date}{outfit.purpose ? ` · ${outfit.purpose}` : ''}</strong><button className="clothes-link" onClick={() => onOpenWear(createWearDraft(context, null, [], outfit))}>编辑穿搭</button></div>

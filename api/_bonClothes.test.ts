@@ -48,6 +48,7 @@ async function call(method: string, query: Record<string, string> = {}, body?: u
   return result;
 }
 beforeEach(() => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-05T12:00:00Z'));
   data.clear(); hashes.clear(); auth.mockResolvedValue(true); origin.mockReturnValue(true); evalMock.mockReset();
   evalMock.mockImplementation(async (_script, keys: string[], args: string[]) => {
     const hash = hashes.get(keys[0]) ?? {}, current = hash[args[0]];
@@ -64,7 +65,7 @@ describe('衣柜与实际穿搭接口', () => {
     let payload: any;
     const response = { status() { return this; }, setHeader() {}, json(value: unknown) { payload = value; return this; } };
     await dispatcher({ method: 'GET', headers: {}, query: { app: 'bonclothes', date: context.date } } as unknown as VercelRequest, response as unknown as VercelResponse);
-    expect(payload).toEqual({ items: [], context: null, records: [], outfits: [], wearCounts: {} });
+    expect(payload).toEqual({ items: [], context: null, records: [], outfits: [], wearCounts: {}, pairCounts: {} });
   });
   it('未登录和跨站请求不可读照片或修改，方法受限', async () => {
     auth.mockResolvedValue(false); expect((await call('GET', { view: 'photo', id: item.photoId })).status).toBe(401);
@@ -126,6 +127,46 @@ describe('衣柜与实际穿搭接口', () => {
     expect(legacy.body.value).toMatchObject({ category: '上衣', name: item.name, braRequirement: 'required' });
     const invalid = await call('POST', {}, { action: 'save-item', item: { ...item, braRequirement: 'wrong' }, mutationId: uid('invalid') });
     expect(invalid.status).toBe(400);
+  });
+  it('多用途衣物保存穿着位置，换穿法不改衣柜或历史保暖值', async () => {
+    const dual = { ...item, category: '上衣', wearAs: ['上衣', '外套'] };
+    hashes.set(ITEMS_KEY, { [item.id]: dual });
+    const body = { action: 'confirm', recordId: uid('dual-outfit'), context, revision: '', mutationId: uid('dual-save'),
+      items: [{ id: item.id, revision: item.revision, category: '外套' }], weather: null, purpose: '休闲', time: '10:00', indoor: null, outdoor: null };
+    const saved = await call('POST', {}, body);
+    expect(saved.status).toBe(200);
+    expect(saved.body.value.items[0]).toMatchObject({ category: '外套', wearAs: ['上衣', '外套'], warmth: 1 });
+    expect(hashes.get(ITEMS_KEY)![item.id].category).toBe('上衣');
+    hashes.set(ITEMS_KEY, {});
+    const edited = await call('POST', {}, { ...body, revision: saved.body.value.revision, mutationId: uid('dual-edit'), items: [{ ...body.items[0], category: '上衣' }] });
+    expect(edited.status).toBe(200);
+    expect(edited.body.value.items[0]).toMatchObject({ category: '上衣', warmth: 1 });
+    const invalid = await call('POST', {}, { ...body, revision: edited.body.value.revision, mutationId: uid('dual-invalid'), items: [{ ...body.items[0], category: '下装' }] });
+    expect(invalid.status).toBe(400);
+    expect((await call('POST', {}, { action: 'save-item', item: { ...dual, revision: '', wearAs: ['下装'] }, photo: jpeg(), mutationId: uid('bad-roles') })).status).toBe(400);
+  });
+  it('常搭统计包含分页外历史与搭了的套装，编辑后不会留下旧配对', async () => {
+    const pants = { ...item, id: uid('pants'), category: '下装' };
+    hashes.set(ITEMS_KEY, { [item.id]: item, [pants.id]: pants });
+    hashes.set(WEAR_KEY, { old: { id: 'old', kind: 'worn', date: '2025-01-01', confirmedAt: '', items: [item, pants] } });
+    const body = { action: 'confirm', kind: 'styled', recordId: uid('pair-set'), context, revision: '', mutationId: uid('pair-save'),
+      items: [item, pants].map(({ id, revision }) => ({ id, revision })), weather: null, purpose: '休闲', time: '10:00' };
+    const saved = await call('POST', {}, body);
+    expect(saved.status).toBe(200);
+    expect((await call('GET', { date: context.date })).body.pairCounts[item.id][pants.id]).toBe(2);
+    await call('POST', {}, { ...body, items: [body.items[0]], revision: saved.body.value.revision, mutationId: uid('pair-edit') });
+    expect((await call('GET', { date: context.date })).body.pairCounts[item.id][pants.id]).toBe(1);
+  });
+  it('出行计划按选定穿法校验并保存多用途衣物，不重复占用同一位置', async () => {
+    const top = { ...item, id: uid('another-top') }, dual = { ...item, wearAs: ['上衣', '外套'] };
+    hashes.set(ITEMS_KEY, { [top.id]: top, [item.id]: dual });
+    const plan = { tripId: 'trip:2026-10-05', revision: '', title: '出游', startDate: context.date, endDate: context.date, location: null,
+      days: { [context.date]: { scene: context.scene, active: false, itemIds: [top.id, item.id], itemCategories: { [item.id]: '外套' } } } };
+    const saved = await call('POST', {}, { action: 'save-trip-plan', plan, mutationId: uid('dual-plan') });
+    expect(saved.status).toBe(200);
+    expect(saved.body.value.days[context.date].itemCategories[item.id]).toBe('外套');
+    plan.days[context.date].itemCategories[item.id] = '下装';
+    expect((await call('POST', {}, { action: 'save-trip-plan', plan, mutationId: uid('invalid-dual-plan') })).status).toBe(400);
   });
   it('七件分层搭配可确认、保存计划，历史保留文胸要求快照', async () => {
     const layers = CATEGORIES.filter((category) => category !== '连衣裙').map((category, i) => ({ ...item, id: uid(`layer${i}`), category, braRequirement: 'optional' as const }));
@@ -301,6 +342,31 @@ describe('衣柜与实际穿搭接口', () => {
     expect(record.body.value).toMatchObject({ purpose: '睡觉', indoor: '舒适', outdoor: null, items: [{ sleepwear: true }] });
     expect((await call('POST', {}, { action: 'save-item', item: { ...item, sleepwear: 'true' }, mutationId: uid('invalid-sleep') })).status).toBe(400);
   });
+  it('分时段体感可保存、回顾和修改，非法时段或温度不落库', async () => {
+    hashes.set(ITEMS_KEY, { [item.id]: item });
+    const feelings = { 上午: { indoor: '舒适', outdoor: '偏冷', indoorTemperature: 25, outdoorTemperature: 16 }, 晚上: { indoor: '偏热', outdoor: null, indoorTemperature: 25, outdoorTemperature: null } };
+    const body = { action: 'confirm', recordId: uid('periods'), revision: '', mutationId: uid('periods-save'), context: { ...context, indoorTemperature: 25 },
+      items: [item], purpose: '休闲', time: '12:00', indoor: null, outdoor: null, weather: null, feelings };
+    const saved = await call('POST', {}, body); expect(saved.status).toBe(200);
+    expect((await call('GET', { view: 'history', date: context.date })).body.records[0].feelings).toEqual(feelings);
+    const legacyEdit = await call('POST', {}, { ...body, feelings: undefined, revision: saved.body.value.revision, mutationId: uid('periods-legacy') });
+    expect(legacyEdit.body.value.feelings).toEqual(feelings);
+    const invalid = await call('POST', {}, { ...body, revision: legacyEdit.body.value.revision, mutationId: uid('bad-period'), feelings: { 凌晨: feelings.上午 } });
+    expect(invalid.status).toBe(400);
+    expect((await call('POST', {}, { ...body, mutationId: uid('bad-temp'), feelings: { 上午: { ...feelings.上午, indoorTemperature: 200 } } })).status).toBe(400);
+  });
+  it('实际体感校准衣柜和新快照，旧快照及原始估值保持可回顾', async () => {
+    const shirt = { ...item, warmth: 4 };
+    hashes.set(ITEMS_KEY, { [item.id]: shirt });
+    hashes.set(WEAR_KEY, Object.fromEntries(['one', 'two'].map((id) => [id, { id, date: context.date, revision: uid(id), confirmedAt: '', context, items: [shirt],
+      feelings: { 上午: { indoor: '舒适', outdoor: null, indoorTemperature: 25, outdoorTemperature: null } } }])));
+    const loaded = await call('GET', { date: context.date });
+    expect(loaded.body.items[0]).toMatchObject({ warmth: 4, learnedWarmth: 2.5 });
+    expect(loaded.body.records.every((record: any) => record.items[0].warmth === 4)).toBe(true);
+    const saved = await call('POST', {}, { action: 'confirm', recordId: uid('new-learned'), revision: '', mutationId: uid('learned-save'), context, items: [item], purpose: '休闲', time: '12:00', indoor: null, outdoor: null, weather: null });
+    expect(saved.status).toBe(200); expect(saved.body.value.items[0].warmth).toBe(2.5);
+    expect(hashes.get(ITEMS_KEY)![item.id].warmth).toBe(4);
+  });
   it('断网失败不伪造成功，重试可继续保存', async () => {
     evalMock.mockRejectedValueOnce(new Error('offline'));
     const body = { action: 'save-context', context, mutationId: uid('mutation') };
@@ -363,6 +429,18 @@ describe('天气、Outlook 和设备时区', () => {
     vi.setSystemTime(new Date('2026-10-05T01:31:00Z')); fetchMock.mockRejectedValue(new Error('offline'));
     const stale = await readWeather(city, context.date, context.timezone); expect(stale.stale).toBe(true); expect(stale.weather).toEqual(first.weather);
     const missing = await readWeather({ ...city, latitude: 40 }, context.date, context.timezone); expect(missing.weather).toBeNull();
+  });
+  it('历史天气只读取保存值或当时穿搭快照，缺失时不请求当前实况', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-06T12:00:00Z'));
+    const fetch = vi.fn(); vi.stubGlobal('fetch', fetch);
+    const weather = { date: context.date, timezone: context.timezone, latitude: 30, longitude: 120, fetchedAt: '2026-10-05T10:00:00Z', temperature: 18, apparent: 17, min: 12, max: 20, apparentMin: 10, wind: 10, precipitation: 0 };
+    const query = { view: 'weather', date: context.date, timezone: context.timezone, latitude: '30', longitude: '120' };
+    expect((await call('GET', query)).body.weather).toBeNull();
+    hashes.set(WEAR_KEY, { one: { id: 'one', date: context.date, confirmedAt: '', context, items: [item], weather } });
+    expect((await call('GET', query)).body.weather).toEqual(weather);
+    data.set('bonclothes:weather:v1:30:120:2026-10-05:Asia/Shanghai', { ...weather, temperature: 19 });
+    expect((await call('GET', query)).body.weather.temperature).toBe(19);
+    expect(fetch).not.toHaveBeenCalled();
   });
   it('未连接日历返回独立状态，不覆盖手填条件', async () => {
     hashes.set(CONTEXTS_KEY, { [context.date]: context });

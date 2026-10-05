@@ -3,9 +3,11 @@ import { kv } from './_accountKv.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { authOk, sameOrigin } from './_auth.js';
 import { CONTEXTS_KEY, ITEMS_KEY, WEAR_KEY, SAVE_CLOTHES, photoKey, receiptKey, signature, readClothesCalendar, readWeather, searchCities } from './_bonClothes.js';
-import { ClothesInputError, contextInput, dateInput, id, itemInput, locationInput, photoData, photoInput, requireInput, timezoneInput, validLayers } from './_clothesValidation.js';
-import { CATEGORIES, PURPOSES, SENSATIONS, type ClothesDayContext, type ClothesItem, type WearRecord, type WeatherSnapshot } from '../src/clothes/types.js';
-import { normalizeItem, wearable } from '../src/clothes/warmth.js';
+import { ClothesInputError, feelingsInput, contextInput, dateInput, id, itemInput, locationInput, photoData, photoInput, requireInput, timezoneInput, validLayers } from './_clothesValidation.js';
+import { CATEGORIES, PURPOSES, SENSATIONS, categoryLabel, type ClothesDayContext, type ClothesItem, type WearRecord, type WeatherSnapshot } from '../src/clothes/types.js';
+import { itemCategories, wearAs, outfitPairCounts } from '../src/clothes/pairing.js';
+import { calibratedItems } from '../src/clothes/thermalLearning.js';
+import { itemWarmth, normalizeItem, wearable } from '../src/clothes/warmth.js';
 import { TRIP_PLANS_KEY, readClothesTrips, readTripForecast, tripPlanInput } from './_clothesTrips.js';
 import { deviceDate, totalWearCounts } from '../src/clothes/rules.js';
 
@@ -42,7 +44,14 @@ async function handler(req: VercelRequest, res: VercelResponse) {
           const forecast = await readTripForecast(location!, date, date, timezone);
           return res.status(200).json({ weather: forecast.days[date] ?? null, stale: forecast.stale, ...(forecast.error ? { error: forecast.error } : {}) });
         }
-        return res.status(200).json(await readWeather(location!, date, timezone));
+        const result = await readWeather(location!, date, timezone);
+        if (date < deviceDate(new Date(), timezone) && !result.weather) {
+          const records = Object.values(await kv.hgetall<Record<string, WearRecord>>(WEAR_KEY) ?? {});
+          result.weather = records.filter((record) => record.date === date && record.weather
+            && Math.abs(record.weather.latitude - location!.latitude) < .1 && Math.abs(record.weather.longitude - location!.longitude) < .1)
+            .sort((a, b) => b.confirmedAt.localeCompare(a.confirmedAt))[0]?.weather ?? null;
+        }
+        return res.status(200).json(result);
       }
       const allRecords = Object.values(await kv.hgetall<Record<string, WearRecord>>(WEAR_KEY) ?? {})
         .sort((a, b) => b.date.localeCompare(a.date) || b.confirmedAt.localeCompare(a.confirmedAt));
@@ -53,7 +62,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       const records = worn.filter((record) => dates.includes(record.date));
       if (req.query.view === 'history') return res.status(200).json({ records });
       const [items, context] = await Promise.all([kv.hgetall<Record<string, ClothesItem>>(ITEMS_KEY), kv.hget<ClothesDayContext>(CONTEXTS_KEY, date)]);
-      return res.status(200).json({ items: Object.values(items ?? {}).filter((item) => !item.deleted).map(normalizeItem), context, records, outfits, wearCounts: totalWearCounts(worn) });
+      return res.status(200).json({ items: calibratedItems(Object.values(items ?? {}).filter((item) => !item.deleted).map(normalizeItem), allRecords, deviceDate()), context: context ?? allRecords.find((record) => record.date === date)?.context ?? null, records, outfits, wearCounts: totalWearCounts(worn), pairCounts: outfitPairCounts(allRecords) });
     }
     if (req.method !== 'POST') return res.status(405).json({ error: '请求方式无效' });
     let body: Record<string, any>;
@@ -89,7 +98,11 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       const items = await Promise.all(selected.map((id) => kv.hget<ClothesItem>(ITEMS_KEY, id)));
       if (items.some((item) => !item || !wearable(item))) return res.status(409).json({ error: '衣柜已更新，请刷新后重新选择', wardrobeChanged: true });
       for (const day of Object.values(plan.days)) {
-        const pieces = items.filter((item) => day.itemIds?.includes(item!.id));
+        const pieces = items.filter((item) => day.itemIds?.includes(item!.id)).map((item) => {
+          const role = day.itemCategories?.[item!.id] ?? item!.category;
+          requireInput(itemCategories(item!).includes(categoryLabel(role)), '穿着位置无效');
+          return wearAs(item!, role);
+        });
         requireInput(validLayers(pieces as ClothesItem[])
           && (!(day.active || day.purpose === '运动') || pieces.every((item) => item!.active)), '搭配不符合行程条件');
       }
@@ -116,12 +129,20 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       checks = body.items.map((item: { id: unknown; revision: unknown }) => ({ id: id(item.id), revision: id(item.revision) }));
       requireInput(new Set(checks.map((item) => item.id)).size === checks.length, '衣物重复');
       const currentItems = await Promise.all(checks.map((check) => kv.hget<ClothesItem>(ITEMS_KEY, check.id)));
+      const [learningRecords, learningItems] = await Promise.all([kv.hgetall<Record<string, WearRecord>>(WEAR_KEY), kv.hgetall<Record<string, ClothesItem>>(ITEMS_KEY)]);
+      const calibrated = new Map(calibratedItems(Object.values(learningItems ?? {}), Object.values(learningRecords ?? {}), deviceDate()).map((item) => [item.id, item]));
       const retained = new Set<string>();
       const items = currentItems.map((item, i) => {
         const check = checks[i];
         const snapshot = manual && previous?.items.find((piece) => piece.id === check.id && piece.revision === check.revision);
-        if (snapshot) { retained.add(check.id); return snapshot; }
-        return item && wearable(item) && item.revision === check.revision ? normalizeItem(item) : null;
+        const source = snapshot || (item && wearable(item) && item.revision === check.revision ? normalizeItem(item) : null);
+        if (!source) return null;
+        const role = body.items[i].category;
+        requireInput(role === undefined || (CATEGORIES.includes(categoryLabel(role)) && itemCategories(source).includes(categoryLabel(role))), '穿着位置无效');
+        if (snapshot) retained.add(check.id);
+        const learned = snapshot ? source : calibrated.get(source.id) ?? source;
+        const frozen = learned.learnedWarmth === undefined ? source : { ...source, warmth: itemWarmth(learned) };
+        return role === undefined ? frozen : wearAs(frozen, role);
       });
       if (items.some((item) => !item)) return res.status(409).json({ error: '衣柜已更新，请刷新后重新选择', wardrobeChanged: true });
       checks = checks.filter((check) => !retained.has(check.id));
@@ -137,7 +158,9 @@ async function handler(req: VercelRequest, res: VercelResponse) {
           && typeof w.fetchedAt === 'string' && w.fetchedAt.length <= 40, '天气快照无效');
         weather = Object.fromEntries(['date', 'timezone', 'latitude', 'longitude', 'fetchedAt', 'temperature', 'apparent', 'min', 'max', 'apparentMin', 'precipitation', 'wind'].map((key) => [key, w[key as keyof WeatherSnapshot]])) as unknown as WeatherSnapshot;
       }
-      value = { kind, ...(manual ? { id: field, purpose: body.purpose, indoor: kind === 'styled' ? null : body.indoor, outdoor: kind === 'styled' || body.purpose === '睡觉' ? null : body.outdoor, time: body.time,
+      const feelings = body.feelings === undefined ? previous?.feelings : feelingsInput(body.feelings);
+      value = { ...(feelings ? { feelings: kind === 'styled' ? {} : Object.fromEntries(Object.entries(feelings).map(([period, entry]) => [period,
+        body.purpose === '睡觉' ? { ...entry, outdoor: null, outdoorTemperature: null } : entry])) } : {}), kind, ...(manual ? { id: field, purpose: body.purpose, indoor: kind === 'styled' ? null : body.indoor, outdoor: kind === 'styled' || body.purpose === '睡觉' ? null : body.outdoor, time: body.time,
         ...(body.indoorCoat !== undefined || previous?.indoorCoat !== undefined ? { indoorCoat: body.indoorCoat ?? previous?.indoorCoat } : {}) } : {}), date: context.date, revision: mutationId, confirmedAt: previous?.confirmedAt ?? new Date().toISOString(), items, context, weather };
     } else throw new ClothesInputError('操作无效');
     const [ok, raw] = await kv.eval<string[], [number, string | unknown]>(SAVE_CLOTHES,

@@ -26,7 +26,7 @@ export function estimateWarmth(item: ClothesItem): number {
   if (/长袖|衬衫/.test(name) && item.thickness === 1) return 1.5;
   return [1, 3, 5][item.thickness - 1];
 }
-export function itemWarmth(item: ClothesItem): number { return item.warmth ?? estimateWarmth(item); }
+export function itemWarmth(item: ClothesItem): number { return item.learnedWarmth ?? item.warmth ?? estimateWarmth(item); }
 export function warmthTotals(items: ClothesItem[]) {
   return items.reduce((total, item) => {
     const category = categoryLabel(item.category), warmth = itemWarmth(item);
