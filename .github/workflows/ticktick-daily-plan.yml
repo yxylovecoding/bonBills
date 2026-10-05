@@ -3,7 +3,8 @@ name: Daily calendar sync and planning
 on:
   schedule:
     # Asia/Shanghai: 05:00, 12:00, 17:00, 20:00. GitHub cron uses UTC.
-    - cron: '0 4,9,12,21 * * *'
+    - cron: '0 4,9,21 * * *'
+    - cron: '0 12 * * *'
   workflow_dispatch:
     inputs:
       periods_only:
@@ -18,6 +19,37 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  hair-wash:
+    if: ${{ github.event_name == 'schedule' && github.event.schedule == '0 12 * * *' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Show hair washing at 20:00
+        env:
+          CRON_SECRET: ${{ secrets.BONBILLS_CRON_SECRET }}
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const secret = process.env.CRON_SECRET?.trim();
+          if (!secret) throw new Error('Missing BONBILLS_CRON_SECRET');
+          for (let attempt = 0; attempt < 3; attempt++) {
+            const response = await fetch('https://www.bonbills.cn/api/ticktick-trips?action=hair-wash', {
+              headers: { Authorization: `Bearer ${secret}` }, redirect: 'error', signal: AbortSignal.timeout(90_000),
+            }).catch(() => { throw new Error('Hair-wash visibility request failed'); });
+            if (response.status === 202 && attempt < 2) {
+              await response.body?.cancel();
+              await new Promise(resolve => setTimeout(resolve, 30_000));
+              continue;
+            }
+            const result = await response.json().catch(() => null);
+            if (response.status !== 200 || result?.ok !== true || result.busy || result.error
+                || (result.connected !== false && !result.hairWash)) {
+              throw new Error(`Hair-wash visibility did not complete (HTTP ${response.status})`);
+            }
+            console.log('Hair-wash visibility updated successfully.');
+            process.exit(0);
+          }
+          NODE
   archive-periods:
     runs-on: ubuntu-latest
     timeout-minutes: 6
@@ -50,7 +82,7 @@ jobs:
           throw new Error('Period calendar import did not complete; saved history is retained.');
           NODE
   recalculate:
-    needs: archive-periods
+    needs: [archive-periods, hair-wash]
     if: ${{ always() && inputs.periods_only != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 20

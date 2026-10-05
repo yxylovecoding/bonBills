@@ -57,6 +57,19 @@ describe('四个智能清单范围和凌晨窗口', () => {
 });
 
 describe('临时 routine 标签所有权', () => {
+  it('凌晨隐藏未来洗头任务，05 点不揭开旧记录中的洗头，也不影响原生 routine', async () => {
+    const wash = task({ id: 'wash', title: '洗头', dueDate: '2027-01-01T00:00:00+0800' });
+    const c = client(wash);
+    await syncSleepRoutineTags(c.api, config('00:00:00'));
+    expect(c.tasks.get('wash')).toEqual({ ...wash, tags: ['活', 'routine'] });
+    expect(data.get(key)).toBeUndefined();
+    // A prior version may already have journaled this task as a temporary tag.
+    data.set(key, { wash: { projectId: 'life', addedOn: '2026-10-05', phase: 'added' } });
+    expect(await syncSleepRoutineTags(c.api, config('05:00:00'))).toMatchObject({ updated: 0, complete: true });
+    expect(c.tasks.get('wash')?.tags).toContain('routine');
+    expect(data.get(key)).toEqual({});
+    expect(c.write).toHaveBeenCalledOnce();
+  });
   it('只记录本次添加的标签，五点恢复时保留所有原生 routine', async () => {
     const original = task({ content: 'content', reminders: ['TRIGGER:PT0S'], parentId: 'parent',
       items: [{ id: 'done', title: 'done', status: 1, completedTime: '2026-10-04T10:00:00Z' }] });

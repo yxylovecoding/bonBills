@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { nightRoutineHidden, syncNightRoutineVisibility } from './_ticktickNightRoutine';
+import { hairWashHidden, nightRoutineHidden, syncHairWashVisibility, syncNightRoutineVisibility } from './_ticktickNightRoutine';
 import type { TickTickApi, TickTickTask } from './_ticktickTrips';
 
 const task = (fields: Partial<TickTickTask> = {}): TickTickTask => ({ id: 'night', projectId: 'inbox-real', title: '夜间routine ',
@@ -88,5 +88,36 @@ describe('夜间 routine 标签同步', () => {
     await expect(syncNightRoutineVisibility(api)).rejects.toThrow('offline');
     api.getTask.mockResolvedValue(task());
     await expect(syncNightRoutineVisibility(api, { tasks: [task()], now: at('22:00:00') })).rejects.toThrow('未保存');
+  });
+});
+
+describe('洗头 20 点显隐', () => {
+  const wash = (fields: Partial<TickTickTask> = {}) => task({ id: 'wash', title: ' 洗头 ', priority: 3,
+    isAllDay: true, startDate: undefined, dueDate: undefined, tags: ['居'], ...fields });
+  it.each([['00:00:00', true], ['05:00:00', true], ['19:59:59', true], ['20:00:00', false], ['23:59:59', false]])(
+    '%s 按北京时间决定标签，不依赖任务时间或全天设置', (time, hidden) => {
+      expect(hairWashHidden(wash(), at(time))).toBe(hidden);
+      expect(hairWashHidden(wash({ timeZone: 'America/New_York' }), at(time))).toBe(hidden);
+    },
+  );
+  it('只修改洗头任务，不影响带洗头标签的游泳和准备，也不修改已完成任务', async () => {
+    for (const fields of [{ title: '下班准备游泳', tags: ['洗头'] }, { title: '买洗头用品' }, { status: 2 }]) {
+      expect(hairWashHidden(wash(fields), at('20:00:00'))).toBeNull();
+    }
+    const { api } = client(wash({ title: '下班准备游泳', tags: ['洗头'] }));
+    expect(await syncHairWashVisibility(api, { now: at('20:00:00') })).toMatchObject({ matched: 0, updated: 0 });
+    expect(api.updateTask).not.toHaveBeenCalled();
+  });
+  it('20 点去掉标签，次日凌晨重新加上；保留洗头时间、优先级、重复和清单', async () => {
+    const original = wash({ tags: ['routine', '居', '活'], repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=2', repeatFrom: '0',
+      startDate: '2026-10-04T13:30:00.000+0000', dueDate: '2026-10-04T13:30:00.000+0000', isAllDay: false,
+      reminders: ['TRIGGER:PT0S'], items: [{ id: 'item', title: 'done', status: 1 }], parentId: 'parent' });
+    const { api, current } = client(original);
+    expect(await syncHairWashVisibility(api, { now: at('20:00:00') })).toMatchObject({ updated: 1, visible: 1 });
+    expect(current()).toEqual({ ...original, tags: ['居', '活'] });
+    expect(await syncHairWashVisibility(api, { now: at('20:00:01') })).toMatchObject({ updated: 0 });
+    expect(await syncHairWashVisibility(api, { now: new Date('2026-10-05T00:00:00+0800') })).toMatchObject({ updated: 1, hidden: 1 });
+    expect(current()).toEqual({ ...original, tags: ['居', '活', 'routine'] });
+    for (const [, payload] of api.updateTask.mock.calls) expect(payload).not.toHaveProperty('status');
   });
 });

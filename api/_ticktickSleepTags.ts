@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { kv } from '@vercel/kv';
 import { calendarDateInTimeZone, readAllTickTickTasks, type TickTickApi, type TickTickTask } from './_ticktickTrips.js';
-import { nightRoutineHidden, writeRoutineTag } from './_ticktickNightRoutine.js';
+import { hairWashHidden, isHairWashTask, nightRoutineHidden, syncHairWashVisibility, writeRoutineTag } from './_ticktickNightRoutine.js';
 
 const normalize = (value: string) => value.normalize('NFKC').trim().toLowerCase();
 const hasRoutine = (task: TickTickTask) => (task.tags ?? []).some(tag => normalize(tag) === 'routine');
@@ -60,7 +60,10 @@ export async function syncSleepRoutineTags(api: TickTickApi, options: {
 
   if (mode === 'hide') {
     const tasks = await readAllTickTickTasks(api, [0]);
-    const candidates = tasks.filter(task => inSleepFilterScope(task, window.day));
+    // Reuse midnight to hide washing until 20:00, including future occurrences
+    // outside the four smart filters. It owns this tag until the evening.
+    await syncHairWashVisibility(api, { tasks: tasks.filter(task => !hasRoutine(task)), now: options.now });
+    const candidates = tasks.filter(task => !isHairWashTask(task) && inSleepFilterScope(task, window.day));
     let processed = 0;
     for (const candidate of candidates) {
       if (processed >= limit || Date.now() - started >= timeBudget || !sleepWindow(options.now).hidden) break;
@@ -94,8 +97,8 @@ export async function syncSleepRoutineTags(api: TickTickApi, options: {
         delete journal[id]; await save(); processed++; continue;
       }
       if (task?.id !== id) throw new Error('临时标签任务读取失败');
-      // The existing night-routine rule takes ownership again in the morning.
-      if (hasRoutine(task) && nightRoutineHidden(task, options.now) !== true) {
+      // Specific evening visibility rules take ownership again in the morning.
+      if (hasRoutine(task) && nightRoutineHidden(task, options.now) !== true && hairWashHidden(task, options.now) !== true) {
         entry.phase = 'restoring';
         await save();
         // Merge with current tags, preserving tags added by the user overnight.

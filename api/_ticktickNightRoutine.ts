@@ -2,6 +2,7 @@ import type { TickTickApi, TickTickTask } from './_ticktickTrips.js';
 
 const normalized = (value: string) => value.normalize('NFKC').trim().toLowerCase();
 const isNightRoutine = (task: TickTickTask) => normalized(task.title).replace(/\s+/g, '') === '夜间routine';
+export const isHairWashTask = (task: TickTickTask) => normalized(task.title) === '洗头';
 const hasRoutine = (task: TickTickTask) => (task.tags ?? []).some(tag => normalized(tag) === 'routine');
 
 function localTime(date: Date, timeZone: string) {
@@ -31,6 +32,16 @@ interface VisibilityOptions {
   tasks?: TickTickTask[];
   now?: Date;
   timeZone?: string;
+}
+
+export function hairWashHidden(task: TickTickTask, now = new Date()): boolean | null {
+  if (!isHairWashTask(task) || (task.status ?? 0) !== 0) return null;
+  return localTime(now, 'Asia/Shanghai').time < '20:00:00';
+}
+
+export function syncHairWashVisibility(api: TickTickApi, options: VisibilityOptions = {}) {
+  return syncRoutineVisibility(api, options, isHairWashTask,
+    task => hairWashHidden(task, options.now ?? new Date()));
 }
 
 export function syncNightRoutineVisibility(api: TickTickApi, options: VisibilityOptions = {}) {
