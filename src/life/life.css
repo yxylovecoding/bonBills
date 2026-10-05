@@ -336,5 +336,13 @@
 .life-project-list button, .life-project-add { flex-shrink: 0; color: var(--life-accent); font-size: 12px; padding: 4px 0; }
 .life-training-tags { display: inline-block; margin-left: 8px; font-size: 10px; font-weight: 400; color: var(--life-muted); }
 .life-skin-choices button[aria-pressed="true"] .life-training-tags { color: inherit; opacity: .8; }
+.life-briefing h2 { font-size: 17px; font-weight: 500; margin: 28px 0 14px; }
+.life-briefing-meta { color: var(--life-muted); font-size: 12px; line-height: 1.8; margin: 16px 0; }
+.life-briefing-table { overflow-x: auto; }
+.life-briefing table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.7; }
+.life-briefing th, .life-briefing td { text-align: left; padding: 12px; border-bottom: 1px solid var(--life-line); vertical-align: top; white-space: pre-line; }
+.life-briefing th { font-weight: 500; color: var(--life-muted); }
+.life-briefing td:first-child { min-width: 105px; }
+.life-briefing small { color: var(--life-muted); }
 .life-cycle-auto { display: flex; align-items: center; gap: 8px; margin: 16px 0; color: var(--life-muted); font-size: 14px; }
 .life-dialog .life-cycle-auto input { width: auto; flex: 0 0 auto; accent-color: var(--life-accent); }

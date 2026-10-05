@@ -263,13 +263,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!['GET', 'POST'].includes(req.method ?? '')) return res.status(405).json({ error: 'method not allowed' });
       if (req.method === 'POST') {
         const result = await runSync();
+        if (result.busy && req.query.format === 'json') return res.status(202).json({ busy: true });
         if (!result.busy) {
           const { syncTrainingSource } = await import('./_lifeTraining.js');
           await syncTrainingSource(Number(shanghaiDate().slice(0, 4)));
         }
-        return res.redirect(303, '/api/ticktick-trips?action=briefing');
+        if (req.query.format !== 'json') return res.redirect(303, '/api/ticktick-trips?action=briefing');
       }
       const { readDailyBriefing, renderDailyBriefing } = await import('./_dailyBriefing.js');
+      if (req.query.format === 'json') return res.status(200).json(await readDailyBriefing());
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'");
       return res.status(200).send(renderDailyBriefing(await readDailyBriefing()));

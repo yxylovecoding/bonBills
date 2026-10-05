@@ -3,6 +3,7 @@ import LoginPage from '../pages/LoginPage';
 import InstallApp from '../components/InstallApp';
 import { requestSession, restoreSession } from '../utils/authClient';
 import LifeCalendar from './LifeCalendar';
+import LifeBriefing from './LifeBriefing';
 import './life.css';
 
 let sessionPromise: ReturnType<typeof restoreSession> | undefined;
@@ -45,6 +46,7 @@ export default function BonLife() {
     {status === 'loading' ? <main className="life-loading" role="status">加载中…</main>
       : status === 'login' ? <><LoginPage title="BonLog" icon="/bonlife.svg" /><div className="app-login-install"><InstallApp app="log" /></div></>
       : status === 'error' ? <main className="life-loading"><p role="alert">{error}</p><button onClick={() => window.location.reload()}>重试</button></main>
+      : new URLSearchParams(window.location.search).get('view') === 'briefing' ? <LifeBriefing onExpired={expired} />
       : <LifeCalendar owner={owner!} onExpired={expired} />}
   </div>;
 }

@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import { kv } from '@vercel/kv';
-import { DAILY_PLAN_KEY, estimateTaskMinutes, type DailyPlanState, type DailyPlanSummary } from './_ticktickDailyPlan.js';
+import { DAILY_PLAN_KEY, estimateTaskMinutes, type DailyPlanState } from './_ticktickDailyPlan.js';
+import type { DailyBriefing } from '../src/utils/dailyBriefing.js';
+export type { DailyBriefing } from '../src/utils/dailyBriefing.js';
 import { decryptTickTickToken, readAllTickTickTasks, routineTaskDate, TICKTICK_CONNECTION_KEY, TickTickOpenApiClient,
   type TickTickConnection, type TickTickTask } from './_ticktickTrips.js';
 import { readTrainingSource } from './_lifeTraining.js';
@@ -15,17 +17,6 @@ const minutesIn = (text: string) => {
   const match = text.match(/(?:^|[^\d])([1-9]\d{0,2})\s*(?:分钟|minutes?|mins?|m)(?![a-z0-9])/i);
   return match ? Math.min(480, Number(match[1])) : null;
 };
-export interface DailyBriefing {
-  date: string;
-  generatedAt: string;
-  planGeneratedAt?: string;
-  ready: boolean;
-  warnings: string[];
-  summary?: DailyPlanSummary;
-  today: { title: string; minutes: number; reasons: string[] }[];
-  training: { date: string; phase: string; plan: string; minutes: number; reasons: string[] }[];
-}
-
 export function buildTrainingBriefing(today: string, source: TrainingSource, cycle: CycleSettings, periods: string[]) {
   const library = trainingLibrary(source.tasks, source.settings);
   const initial = rollingTrainingPlan(Number(today.slice(0, 4)), Number(today.slice(5, 7)), today, source, cycle, periods, {});

@@ -26,11 +26,11 @@ vi.mock('./_ticktickTrips.js', async (original) => ({
     return { updatedRoutineTasks: 0 };
   },
 }));
-async function request(method: string, body?: unknown, action?: string) {
+async function request(method: string, body?: unknown, action?: string, format?: string) {
   const result = { status: 200, body: {} as Record<string, any>, html: '', location: '' };
   const res = { setHeader: vi.fn(), status: (code: number) => { result.status = code; return res; }, json: (value: Record<string, unknown>) => { result.body = value; return res; },
     send: (html: string) => { result.html = html; return res; }, redirect: (code: number, url: string) => { result.status = code; result.location = url; return res; } };
-  await handler({ method, headers: {}, body, query: action ? { action } : {} } as VercelRequest, res as unknown as VercelResponse);
+  await handler({ method, headers: {}, body, query: action ? { action, format } : {} } as VercelRequest, res as unknown as VercelResponse);
   return result;
 }
 beforeEach(() => { data.clear(); auth.ok = true; failHistory.value = false; failWrite.value = false;
@@ -39,6 +39,15 @@ beforeEach(() => { data.clear(); auth.ok = true; failHistory.value = false; fail
   data.set('ticktick:connection:v1', { encryptedToken: {} }); });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 describe('每日安排接口', () => {
+  it('网页通过 JSON 读取简报，繁忙状态不能当作已更新的报告', async () => {
+    briefing.mockResolvedValue({ date: '2026-10-05', ready: true });
+    expect((await request('GET', undefined, 'briefing', 'json')).body).toEqual({ date: '2026-10-05', ready: true });
+    sleepTags.mockResolvedValueOnce({ mode: 'restore', updated: 20, remaining: 5, complete: false });
+    expect(await request('POST', undefined, 'briefing', 'json')).toMatchObject({ status: 202, body: { busy: true } });
+    expect(syncTraining).not.toHaveBeenCalled();
+    expect(await request('POST', undefined, 'briefing', 'json')).toMatchObject({ status: 200, body: { ready: true } });
+    expect(syncTraining).toHaveBeenCalledTimes(1);
+  });
   it('简报沿用登录保护，读取不改排期，主动刷新才同步训练', async () => {
     auth.ok = false;
     expect((await request('GET', undefined, 'briefing')).status).toBe(401);
