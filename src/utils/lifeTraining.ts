@@ -135,6 +135,9 @@ export function monthlyTrainingPlan(year: number, month: number, today: string, 
 }
 
 const shiftDay = (date: string, days: number) => new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+// Use the backend's ordering everywhere: a Chinese browser's default collation
+// otherwise picks different pending workouts from the same completion history.
+const compareTrainingOrder = (left: string, right: string) => left.localeCompare(right, 'en');
 
 // Personal scheduling preference: at least two recovery days in every rolling
 // seven days, and at most three consecutive main-training days. Swimming is
@@ -193,7 +196,7 @@ export function rollingTrainingPlan(year: number, month: number, today: string, 
     })),
   ];
   const tasks = [...new Map([...categoryHistory.map((task) => ({ ...task, rotation: false })),
-    ...trainingLibrary([...source.tasks].sort((a, b) => a.id.localeCompare(b.id)), source.settings)]
+    ...trainingLibrary([...source.tasks].sort((a, b) => compareTrainingOrder(a.id, b.id)), source.settings)]
     .map((task) => [trainingIdentity(task), task])).values()];
   const byKey = new Map(tasks.map((task) => [trainingIdentity(task), task]));
   const entries = { ...source.entries, ...localEntries };
@@ -244,8 +247,8 @@ export function rollingTrainingPlan(year: number, month: number, today: string, 
       if (task.rotation === false || isSwimmingTraining(task) || mainDone) return false;
       if (['menstrual', 'lateLuteal'].includes(phase?.phase ?? '') && /HIIT|间歇/i.test(task.name)) return false;
       return true;
-    }).sort((a, b) => (last.get(trainingIdentity(a)) ?? '').localeCompare(last.get(trainingIdentity(b)) ?? '')
-      || trainingIdentity(a).localeCompare(trainingIdentity(b))).slice(0, 1);
+    }).sort((a, b) => compareTrainingOrder(last.get(trainingIdentity(a)) ?? '', last.get(trainingIdentity(b)) ?? '')
+      || compareTrainingOrder(trainingIdentity(a), trainingIdentity(b))).slice(0, 1);
     let suggested = [...main, ...tasks.filter(task => swims.get(trainingIdentity(task))?.has(date)
       && !actual.get(date)?.has(trainingIdentity(task)))];
     let record: TrainingRecord;

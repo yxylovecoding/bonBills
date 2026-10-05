@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CYCLE, type LifeEntries, type TrainingRecord } from './bonLife';
 import { rollingTrainingPlan, type TrainingSource, type TrainingTask } from './lifeTraining';
 
@@ -70,6 +70,21 @@ describe('滚动训练恢复日', () => {
     expect(mainPlan(withSwimming)).toEqual(mainPlan(withoutSwimming));
     expect(withSwimming.recoveryByDate).toEqual(withoutSwimming.recoveryByDate);
     expect(withSwimming.plans.get('2026-10-05')).toMatchObject({ plan: '主训练休息\n游泳', projects: ['游泳'], completed: true });
+  });
+  it('中文浏览器与英文后台按相同顺序轮换，恢复日和游泳日期也一致', () => {
+    const compare = String.prototype.localeCompare;
+    let locale = 'zh-CN';
+    const mocked = vi.spyOn(String.prototype, 'localeCompare').mockImplementation(function (this: string, other, locales, options) {
+      return compare.call(this, other, locales ?? locale, options);
+    });
+    try {
+      const browserPlan = run();
+      locale = 'en-US';
+      const serverPlan = run();
+      expect(browserPlan.plans).toEqual(serverPlan.plans);
+      expect(browserPlan.byDate).toEqual(serverPlan.byDate);
+      expect(browserPlan.recoveryByDate).toEqual(serverPlan.recoveryByDate);
+    } finally { mocked.mockRestore(); }
   });
   it('手动休息计入两天恢复；手动训练和已完成内容不被自动计划覆盖', () => {
     const rest: TrainingRecord = { plan: '休息', effort: 'rest', projects: [], completed: false, mode: 'manual' };
