@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { kv } from '@vercel/kv';
+import { kv } from './_accountKv.js';
 import { applyOutlookSnapshotToState, isCalendarDate, type OutlookConflictPolicy, type OutlookSnapshot } from '../src/utils/outlookCalendar.js';
 import { decryptOutlookConnection, readOutlookSnapshot } from './_outlookCalendar.js';
 

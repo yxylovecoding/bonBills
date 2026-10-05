@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { getAccountStorage } from '../utils/accountCache';
 import type { TagKind } from '../models/types';
 
 export type AccountKey = 'credit' | 'campusCard' | 'livingBank';
@@ -52,7 +53,7 @@ export const usePrefsStore = create<PrefsStore>()(
       setRevealConsumptionWishUsd: (revealConsumptionWishUsd) => set({ revealConsumptionWishUsd }),
     }),
     {
-      name: 'user-prefs',
+      name: 'user-prefs', storage: createJSONStorage(getAccountStorage),
       merge: (persisted, current) => {
         const p = persisted && typeof persisted === 'object' ? persisted as Partial<PrefsStore> & Record<string, unknown> : {};
         const legacyHelpKey = 'life' + 'PeriodHelpText';

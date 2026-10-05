@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { kv } from '@vercel/kv';
+import { kv } from './_accountKv.js';
 
 const KEY = 'ticktick:trip-sync:lock';
 export async function acquireTickTickLock() {

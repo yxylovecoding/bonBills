@@ -3,10 +3,16 @@ import { requestWithRetry } from './requestWithRetry';
 export interface SessionStatus {
   authenticated: boolean;
   username?: string;
+  accountId?: string;
 }
 
 export class SessionError extends Error {
   constructor(message: string, public status: number) { super(message); }
+}
+
+let activeAccountId: string | undefined;
+export function accountRequestHeaders(): Record<string, string> {
+  return activeAccountId ? { 'X-BonBills-Account': activeAccountId } : {};
 }
 
 export async function requestSession(init: RequestInit = {}): Promise<SessionStatus> {
@@ -25,6 +31,8 @@ export async function requestSession(init: RequestInit = {}): Promise<SessionSta
     if (!response.ok || typeof body?.authenticated !== 'boolean') {
       throw new SessionError(body?.error || '登录服务暂不可用，请稍后重试', response.status);
     }
+    // 后台检查不能把仍在编辑的旧页面切换成另一账号的写入身份。
+    if (body.authenticated && !activeAccountId) activeAccountId = body.accountId;
     return body;
   }, {
     signal: init.signal,
@@ -38,13 +46,18 @@ export function signIn(credentials: { username: string; password: string } | { k
   return requestSession({ method: 'POST', body: JSON.stringify(credentials) });
 }
 
-export function register(credentials: { key: string; username: string; password: string }) {
+export function register(credentials: { username: string; password: string; confirmPassword: string }) {
   return requestSession({ method: 'POST', body: JSON.stringify({ ...credentials, action: 'register' }) });
 }
 
 export async function apiFetch(url: string, init: RequestInit = {}) {
-  const response = await fetch(url, { ...init, credentials: 'same-origin', cache: 'no-store' });
+  const headers = new Headers(init.headers);
+  for (const [key, value] of Object.entries(accountRequestHeaders())) headers.set(key, value);
+  const response = await fetch(url, { ...init, headers, credentials: 'same-origin', cache: 'no-store' });
   if (response.status === 401) {
+    // 个人外部服务尚未配置时，不把已登录的新账号带进重复刷新。
+    const session = await requestSession();
+    if (session.authenticated && session.accountId === activeAccountId) throw new Error('当前账号无法访问此服务');
     window.location.reload();
     throw new Error('登录已过期，请重新登录');
   }

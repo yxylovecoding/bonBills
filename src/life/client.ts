@@ -1,4 +1,5 @@
 import { requestWithRetry } from '../utils/requestWithRetry';
+import { accountRequestHeaders } from '../utils/authClient';
 import { LIFE_KINDS, parseLifeEdit, type LifeEntry, type LifeKind } from '../utils/bonLife';
 import { parseSymptomNames, type SymptomNames } from '../utils/lifeSymptoms';
 
@@ -11,7 +12,7 @@ export async function lifeRequest<T>(method: string, body?: Record<string, unkno
   return requestWithRetry(async (requestSignal) => {
     const response = await fetch(`/api/bonlife${method === 'GET' ? `?${query}` : ''}`, {
       method, credentials: 'same-origin', cache: 'no-store', signal: requestSignal,
-      headers: { 'Content-Type': 'application/json' }, body: method === 'GET' ? undefined : JSON.stringify(body),
+      headers: { 'Content-Type': 'application/json', ...accountRequestHeaders() }, body: method === 'GET' ? undefined : JSON.stringify(body),
     });
     const result = await response.json().catch((error: unknown) => {
       if (error instanceof SyntaxError) return null;

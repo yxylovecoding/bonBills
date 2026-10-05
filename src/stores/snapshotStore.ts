@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { getAccountStorage } from '../utils/accountCache';
 import type { AccountBalanceSyncCursor, AccountSnapshot, AutoAccountBalanceKey } from '../models/types';
 
 const AUTO_ACCOUNT_KEYS = new Set<AutoAccountBalanceKey>([
@@ -129,6 +130,6 @@ export const useSnapshotStore = create<SnapshotStore>()(
         })),
       resetToDefault: () => set({ current: DEFAULT_SNAPSHOT }),
     }),
-    { name: 'account-snapshot' },
+    { name: 'account-snapshot', storage: createJSONStorage(getAccountStorage) },
   ),
 );

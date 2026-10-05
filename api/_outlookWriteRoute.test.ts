@@ -34,3 +34,5 @@ it('微软授权失效不会注销 BonBills，未知上游错误不会暴露凭�
   const result = await request(); expect(result.status).toBe(502); expect(JSON.stringify(result.body)).not.toContain('PRIVATE-TOKEN');
   expect(result.headers['Cache-Control']).toBe('private, no-store');
 });
+
+vi.mock('./_accountRoute.js', () => ({ withAccountScope: (handler: unknown) => handler }));

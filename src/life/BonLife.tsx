@@ -19,7 +19,7 @@ export default function BonLife() {
     sessionPromise ??= restoreSession();
     void sessionPromise.then((session) => {
       if (!active) return;
-      setOwner(session.username || 'Key');
+      setOwner(session.username || 'legacy');
       setStatus(session.authenticated ? 'ready' : 'login');
     }).catch(() => { if (active) { setError('暂时无法连接，请重试'); setStatus('error'); } });
     return () => { active = false; };
@@ -32,11 +32,11 @@ export default function BonLife() {
       checking.current = true;
       try {
         const session = await requestSession();
-        if (!session.authenticated || (session.username || 'Key') !== owner) setStatus('login');
+        if (!session.authenticated || (session.username || 'legacy') !== owner) setStatus('login');
       } catch { /* Keep unsaved text during a transient outage. */ }
       finally { checking.current = false; }
     };
-    const onStorage = (event: StorageEvent) => { if (event.key === 'bonlife-logout-at') void check(); };
+    const onStorage = (event: StorageEvent) => { if (event.key?.endsWith('logout-at') || event.key === 'bonbills-auth-changed-at') void check(); };
     window.addEventListener('focus', check);
     window.addEventListener('storage', onStorage);
     return () => { window.removeEventListener('focus', check); window.removeEventListener('storage', onStorage); };

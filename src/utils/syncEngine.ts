@@ -1,3 +1,4 @@
+import { getAccountStorage } from './accountCache';
 import { apiFetch } from './authClient';
 import { requestWithRetry } from './requestWithRetry';
 import { normalizeBillDetailState, useBillDetailStore } from '../stores/billDetailStore';
@@ -15,6 +16,8 @@ import { normalizeOutlookCalendarState, normalizeOutlookTravelTitles } from './o
 import { mergeSyncValue, sameSyncValue } from './syncMerge';
 import { detectAllTrips } from './trips';
 import { reconcileTripWishes } from './wishes';
+
+const accountStorage = getAccountStorage();
 
 const EXPENSE_SCOPE_SYNC_KEY = 'expense-scope-overrides';
 const LEGACY_EXPENSE_SCOPE_SYNC_KEY = 'life-period-overrides';
@@ -230,16 +233,16 @@ const pending = new Map<string, Record<string, unknown>>();
 
 function savePending() {
   try {
-    if (pending.size) localStorage.setItem(PENDING_KEY, JSON.stringify({ owner: cacheOwner, stores: Object.fromEntries(pending) }));
-    else localStorage.removeItem(PENDING_KEY);
+    if (pending.size) accountStorage.setItem(PENDING_KEY, JSON.stringify({ owner: cacheOwner, stores: Object.fromEntries(pending) }));
+    else accountStorage.removeItem(PENDING_KEY);
   } catch { /* In-memory edits still participate in the next retry. */ }
 }
 
 export function hasSyncCache(owner: string) {
   try {
-    if (!owner || localStorage.getItem(CACHE_KEY) !== owner) return false;
+    if (!owner || accountStorage.getItem(CACHE_KEY) !== owner) return false;
     return stores.every((store) => {
-      const raw = localStorage.getItem(store.key);
+      const raw = accountStorage.getItem(store.key);
       if (!raw) return false;
       const value = JSON.parse(raw);
       return value?.state && typeof value.state === 'object' && !Array.isArray(value.state)
@@ -249,7 +252,7 @@ export function hasSyncCache(owner: string) {
 }
 
 function rememberCache() {
-  try { if (cacheOwner) localStorage.setItem(CACHE_KEY, cacheOwner); } catch { /* Cache is optional. */ }
+  try { if (cacheOwner) accountStorage.setItem(CACHE_KEY, cacheOwner); } catch { /* Cache is optional. */ }
 }
 
 function setSaved(message = '') {
@@ -390,7 +393,7 @@ export function initSync(owner?: string): Promise<void> {
   if (owner) cacheOwner = owner;
   if (!subscriptionsStarted) {
     try {
-      const saved = JSON.parse(localStorage.getItem(PENDING_KEY) || 'null');
+      const saved = JSON.parse(accountStorage.getItem(PENDING_KEY) || 'null');
       if (saved?.owner === cacheOwner && saved.stores && typeof saved.stores === 'object') {
         for (const store of stores) {
           const base = saved.stores[store.key];

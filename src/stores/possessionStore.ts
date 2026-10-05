@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { getAccountStorage } from '../utils/accountCache';
 import type {
   PossessionCategoryBucket,
   PossessionCategoryConfig,
@@ -250,7 +251,7 @@ export const usePossessionStore = create<PossessionStore>()(
       applyAutoImportedItems: (items) => set({ items: items.map((item) => ({ ...item, txns: sortTxns(item.txns) })) }),
     }),
     {
-      name: 'possessions',
+      name: 'possessions', storage: createJSONStorage(getAccountStorage),
       version: 3,
       partialize: (state) => ({
         items: state.items,

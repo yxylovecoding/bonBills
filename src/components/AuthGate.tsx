@@ -2,19 +2,22 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import LoginPage from '../pages/LoginPage';
 import InstallApp from './InstallApp';
 import { requestSession, restoreSession, SessionError } from '../utils/authClient';
+import { prepareAccountCache } from '../utils/accountCache';
 
 const loadApp = () => import('../App');
 const App = lazy(loadApp);
 let startup: Promise<boolean> | undefined;
+let startupAccountId: string | undefined;
 
 async function startApp() {
   const session = await restoreSession();
   if (!session.authenticated) return false;
+  const owner = prepareAccountCache(session);
+  startupAccountId = owner;
   const [{ initSync, hasSyncCache }] = await Promise.all([
     import('../utils/syncEngine'),
     loadApp(),
   ]);
-  const owner = session.username || 'Key';
   const cached = hasSyncCache(owner);
   const sync = initSync(owner);
   if (cached) void sync.catch(() => undefined); // The existing sync indicator handles background errors.
@@ -48,11 +51,11 @@ export default function AuthGate() {
     if (state !== 'ready') return;
     const checkSession = () => {
       void requestSession().then((session) => {
-        if (!session.authenticated) window.location.reload();
+        if (!session.authenticated || startupAccountId !== session.accountId) window.location.reload();
       }).catch(() => undefined);
     };
     const onStorage = (event: StorageEvent) => {
-      if (event.key === 'bonbills-logout-at') window.location.reload();
+      if (event.key?.endsWith('logout-at') || event.key === 'bonbills-auth-changed-at') window.location.reload();
     };
     window.addEventListener('focus', checkSession);
     window.addEventListener('storage', onStorage);

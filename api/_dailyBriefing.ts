@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { kv } from '@vercel/kv';
+import { kv } from './_accountKv.js';
 import { DAILY_PLAN_KEY, estimateTaskMinutes, type DailyPlanState } from './_ticktickDailyPlan.js';
 import type { DailyBriefing } from '../src/utils/dailyBriefing.js';
 export type { DailyBriefing } from '../src/utils/dailyBriefing.js';

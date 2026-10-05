@@ -1,4 +1,4 @@
-import { kv } from '@vercel/kv';
+import { kv } from './_accountKv.js';
 import ICAL from 'ical.js';
 import { cycleDay } from '../src/utils/lifeCycle.js';
 import type { CycleSettings } from '../src/utils/bonLife.js';

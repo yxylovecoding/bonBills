@@ -3,29 +3,34 @@ import { register, removeLegacyKey, signIn } from '../utils/authClient';
 
 export default function LoginPage({ initialError = '', title = '盘账助手', icon }: { initialError?: string; title?: string; icon?: string }) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [key, setKey] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState(initialError);
   const [busy, setBusy] = useState(false);
   const registering = mode === 'register';
 
   function switchMode(next: typeof mode) {
     setMode(next);
-    setKey('');
     setPassword('');
+    setConfirmPassword('');
     setError('');
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
+    if (registering && password !== confirmPassword) {
+      setError('两次输入的密码不一致');
+      return;
+    }
     setBusy(true);
     setError('');
     try {
-      if (registering) await register({ key, username: username.trim(), password });
+      if (registering) await register({ username: username.trim(), password, confirmPassword });
       else await signIn({ username: username.trim(), password });
       removeLegacyKey();
+      try { localStorage.setItem('bonbills-auth-changed-at', String(Date.now())); } catch { /* 当前页仍会重新加载 */ }
       window.location.reload();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '登录失败，请重试');
@@ -44,12 +49,6 @@ export default function LoginPage({ initialError = '', title = '盘账助手', i
         </div>
         <h1 id="login-title">{registering ? '注册账号' : title}</h1>
         <form onSubmit={submit} className="login-form" aria-busy={busy}>
-          {registering && (
-            <label htmlFor="login-key">现有 Key
-              <input id="login-key" name="key" type="password" autoComplete="off" required maxLength={1024}
-                value={key} disabled={busy} onChange={(event) => setKey(event.target.value)} />
-            </label>
-          )}
           <label htmlFor="login-username">账号
             <input id="login-username" name="username" autoComplete="username" autoCapitalize="none" spellCheck={false}
               required maxLength={100} value={username} disabled={busy} onChange={(event) => setUsername(event.target.value)} />
@@ -60,6 +59,14 @@ export default function LoginPage({ initialError = '', title = '盘账助手', i
               value={password} disabled={busy} aria-invalid={Boolean(error)}
               aria-describedby={error ? 'login-error' : undefined} onChange={(event) => setPassword(event.target.value)} />
           </label>
+          {registering && (
+            <label htmlFor="login-confirm-password">确认密码
+              <input id="login-confirm-password" name="confirmPassword" type="password" autoComplete="new-password"
+                required minLength={6} maxLength={1024} value={confirmPassword} disabled={busy}
+                aria-invalid={Boolean(error) && password !== confirmPassword}
+                aria-describedby={error ? 'login-error' : undefined} onChange={(event) => setConfirmPassword(event.target.value)} />
+            </label>
+          )}
           {error && <p id="login-error" className="login-error" role="alert">{error}</p>}
           <button type="submit" className="login-submit" disabled={busy}>
             {busy ? (registering ? '注册中…' : '登录中…') : (registering ? '注册并登录' : '登录')}

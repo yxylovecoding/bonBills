@@ -49,3 +49,5 @@ describe('训练项目保存与复用接口', () => {
     expect(evalMock).not.toHaveBeenCalled();
   });
 });
+
+vi.mock('./_accountRoute.js', () => ({ withAccountScope: (handler: unknown) => handler }));

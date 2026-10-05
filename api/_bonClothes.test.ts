@@ -275,3 +275,5 @@ describe('出行预报与计划接口', () => {
     vi.unstubAllEnvs();
   });
 });
+
+vi.mock('./_accountRoute.js', () => ({ withAccountScope: (handler: unknown) => handler }));

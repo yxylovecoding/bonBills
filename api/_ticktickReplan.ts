@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { kv } from '@vercel/kv';
+import { kv } from './_accountKv.js';
 import { applyOutlookSnapshotToState } from '../src/utils/outlookCalendar.js';
 import { availabilityProfile } from './_dailyAvailability.js';
 import { decryptOutlookConnection, readOutlookSnapshot } from './_outlookCalendar.js';

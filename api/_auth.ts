@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { kv } from '@vercel/kv';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { authorizeAccountScope } from './_accountScope.js';
 
 const COOKIE_NAME = 'bonbills-session';
 const SESSION_SECONDS = 30 * 24 * 60 * 60;
@@ -8,12 +9,14 @@ const LOGIN_WINDOW_SECONDS = 15 * 60;
 
 interface Session {
   kind: 'key' | 'account';
+  accountId?: string;
   username: string;
   version: string;
   expiresAt: number;
 }
 
 export interface BoundAccount {
+  accountId?: string;
   username: string;
   passwordHash: string;
   passwordSalt: string;
@@ -34,15 +37,31 @@ function equal(left: string, right: string) {
   return timingSafeEqual(new Uint8Array(digest(left)), new Uint8Array(digest(right)));
 }
 
-function accountKey() {
-  // 一个现有 Key 对应一条账号绑定；账本仍使用原来的存储键。
+function legacyAccountKey() {
   const fingerprint = createHmac('sha256', loginConfig().secret).update('account-binding:v1').digest('hex');
   return `auth:account:v1:${fingerprint}`;
 }
 
-export async function readAccount() {
+const OWNER_ACCOUNT_KEY = 'auth:owner:v2';
+const usernameKey = (username: string) => `auth:account:v2:${digest(username).toString('hex')}`;
+
+export async function readOwnerAccount(): Promise<BoundAccount | null> {
+  const saved = await kv.get<BoundAccount>(OWNER_ACCOUNT_KEY);
+  if (saved) return saved;
   if (!loginConfig().secret) return null;
-  return kv.get<BoundAccount>(accountKey());
+  const legacy = await kv.get<BoundAccount>(legacyAccountKey());
+  if (!legacy) return null;
+  // 原密码哈希、盐和原账本不动；固定归属不再依赖 Key。保留旧绑定便于回滚。
+  const owner = { ...legacy, accountId: 'legacy' };
+  const created = await kv.set(OWNER_ACCOUNT_KEY, owner, { nx: true });
+  return created ? owner : kv.get<BoundAccount>(OWNER_ACCOUNT_KEY);
+}
+
+export async function readAccount(username?: string): Promise<BoundAccount | null> {
+  // 新注册前先保留旧账号的名字，不能让新账号抢占既有数据。
+  const owner = await readOwnerAccount();
+  if (username === undefined || owner?.username === username) return owner;
+  return kv.get<BoundAccount>(usernameKey(username));
 }
 
 function hashPassword(password: string, salt: string): Promise<string> {
@@ -55,21 +74,23 @@ function hashPassword(password: string, salt: string): Promise<string> {
 }
 
 export async function registerAccount(username: string, password: string): Promise<BoundAccount | null> {
+  if (await readAccount(username)) return null;
   const passwordSalt = randomBytes(16).toString('hex');
   const account: BoundAccount = {
+    accountId: randomBytes(16).toString('hex'),
     username,
     passwordSalt,
     passwordHash: await hashPassword(password, passwordSalt),
     passwordAlgorithm: 'scrypt-v1',
     createdAt: new Date().toISOString(),
   };
-  // NX 保证重复或并发注册无法覆盖已经绑定的账号。
-  const saved = await kv.set(accountKey(), account, { nx: true });
+  // NX 保证同名并发注册不能替换已有密码或账本归属。
+  const saved = await kv.set(usernameKey(username), account, { nx: true });
   return saved ? account : null;
 }
 
 export async function authenticateAccount(username: string, password: string): Promise<BoundAccount | null> {
-  const account = await readAccount();
+  const account = await readAccount(username);
   if (!account || account.passwordAlgorithm !== 'scrypt-v1') return null;
   const usernameMatches = equal(username, account.username);
   const passwordMatches = equal(await hashPassword(password, account.passwordSalt), account.passwordHash);
@@ -81,11 +102,15 @@ export function keyMatches(key: string) {
   return Boolean(secret && equal(key, secret));
 }
 
-function credentialVersion(account?: BoundAccount) {
+function legacyCredentialVersion(account?: BoundAccount) {
   const identity = account
     ? ['account:v2', account.username, account.passwordSalt, account.passwordHash]
     : ['key:v2'];
   return createHmac('sha256', loginConfig().secret).update(JSON.stringify(identity)).digest('hex');
+}
+
+function credentialVersion(account: BoundAccount) {
+  return digest(JSON.stringify(['account:v3', account.accountId, account.username, account.passwordSalt, account.passwordHash])).toString('hex');
 }
 
 export function sameOrigin(req: VercelRequest) {
@@ -112,28 +137,40 @@ function sessionKey(req: VercelRequest) {
 }
 
 export async function readSession(req: VercelRequest): Promise<Session | null> {
-  const config = loginConfig();
-  if (!config.secret || !sameOrigin(req)) return null;
+  if (!sameOrigin(req)) return null;
   const key = sessionKey(req);
   if (!key) return null;
   const session = await kv.get<Session>(key);
   if (!session || session.expiresAt <= Date.now()) return null;
   if (session.kind === 'key') {
-    return equal(session.version, credentialVersion()) ? session : null;
+    if (!loginConfig().secret || !equal(session.version, legacyCredentialVersion())) return null;
+    const owner = await readOwnerAccount();
+    return { ...session, accountId: 'legacy', username: owner?.username ?? '' };
   }
   if (session.kind !== 'account') return null;
-  const account = await readAccount();
+  const account = await readAccount(session.username);
+  const version = account && (session.accountId ? credentialVersion(account) : legacyCredentialVersion(account));
   if (!account || session.username !== account.username
-    || !equal(session.version, credentialVersion(account))) return null;
-  return session;
+    || (session.accountId && session.accountId !== account.accountId)
+    || (!session.accountId && account.accountId !== 'legacy')
+    || !version || !equal(session.version, version)) return null;
+  return { ...session, accountId: account.accountId };
 }
 
-export async function authOk(req: VercelRequest) {
+export async function authOk(req: VercelRequest, options: { ownerOnly?: boolean } = {}) {
   // 保留服务端脚本使用的 Bearer 鉴权；浏览器只使用 HttpOnly 会话。
   const secret = loginConfig().secret;
   const bearer = (req.headers.authorization || '').match(/^Bearer\s+(.+)$/i)?.[1].trim();
-  if (secret && bearer && equal(bearer, secret)) return true;
-  return Boolean(await readSession(req));
+  if (secret && bearer && equal(bearer, secret)) {
+    authorizeAccountScope('legacy');
+    return true;
+  }
+  const session = await readSession(req);
+  if (!session?.accountId || (options.ownerOnly && session.accountId !== 'legacy')) return false;
+  const expectedAccount = req.headers['x-bonbills-account'];
+  if (expectedAccount && expectedAccount !== session.accountId) return false;
+  authorizeAccountScope(session.accountId);
+  return true;
 }
 
 function cookie(req: VercelRequest, value: string, maxAge: number) {
@@ -152,8 +189,9 @@ export async function createSession(req: VercelRequest, res: VercelResponse, acc
   const token = randomBytes(32).toString('hex');
   const session: Session = {
     kind: account ? 'account' : 'key',
-    username: account?.username ?? 'Key',
-    version: credentialVersion(account),
+    accountId: account?.accountId ?? 'legacy',
+    username: account?.username ?? '',
+    version: account ? credentialVersion(account) : legacyCredentialVersion(),
     expiresAt: Date.now() + SESSION_SECONDS * 1000,
   };
   await kv.set(`auth:session:${digest(token).toString('hex')}`, session, { ex: SESSION_SECONDS });

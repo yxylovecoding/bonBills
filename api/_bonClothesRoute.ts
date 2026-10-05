@@ -1,4 +1,5 @@
-import { kv } from '@vercel/kv';
+import { withAccountScope } from './_accountRoute.js';
+import { kv } from './_accountKv.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { authOk, sameOrigin } from './_auth.js';
 import { CONTEXTS_KEY, ITEMS_KEY, WEAR_KEY, SAVE_CLOTHES, photoKey, receiptKey, signature, readClothesCalendar, readWeather, searchCities } from './_bonClothes.js';
@@ -6,7 +7,7 @@ import { ClothesInputError, contextInput, dateInput, id, itemInput, locationInpu
 import { CATEGORIES, type ClothesDayContext, type ClothesItem, type WearRecord, type WeatherSnapshot } from '../src/clothes/types.js';
 import { TRIP_PLANS_KEY, readClothesTrips, readTripForecast, tripPlanInput } from './_clothesTrips.js';
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Vary', 'Cookie');
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -121,3 +122,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(503).json({ error: '暂时无法读取或保存，请重试' });
   }
 }
+
+export default withAccountScope(handler);

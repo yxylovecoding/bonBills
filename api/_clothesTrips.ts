@@ -1,4 +1,4 @@
-import { kv } from '@vercel/kv';
+import { kv } from './_accountKv.js';
 import { OUTLOOK_CONNECTION_KEY, type OutlookConnection } from './_outlookSync.js';
 import { decryptOutlookConnection, fetchCalendar, parseOutlookCalendar } from './_outlookCalendar.js';
 import { applyOutlookSnapshotToState, buildOutlookSnapshot } from '../src/utils/outlookCalendar.js';

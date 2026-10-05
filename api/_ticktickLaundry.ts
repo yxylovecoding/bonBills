@@ -1,4 +1,4 @@
-import { kv } from '@vercel/kv';
+import { kv } from './_accountKv.js';
 import { upstream } from './_bonClothes.js';
 import type { SceneCity } from '../src/models/types.js';
 import { readSceneCity } from '../src/utils/sceneCities.js';

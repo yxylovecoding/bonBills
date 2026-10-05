@@ -277,3 +277,5 @@ describe('前后台快照与旧页面上传', () => {
     expect(data.has('outlook:calendar-write:lock')).toBe(false);
   });
 });
+
+vi.mock('./_accountRoute.js', () => ({ withAccountScope: (handler: unknown) => handler }));

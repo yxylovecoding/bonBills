@@ -3,6 +3,7 @@ import type { DoneItem, DoneMonth } from '../utils/bonLife';
 import type { TickTickDailyPlan } from '../utils/tickTickSync';
 import type { TickTickPlanDetails } from '../utils/tickTickPlanDetails';
 import { requestWithRetry } from '../utils/requestWithRetry';
+import { accountRequestHeaders } from '../utils/authClient';
 import { doneWeekDates, doneWeekMonths, doneWeekNumber, earlierDoneWeeks, groupDoneCategories, groupDoneWeek, shiftDoneDate } from '../utils/lifeDone';
 import { LifeError, lifeRequest } from './client';
 import LifePlanDetails from './LifePlanDetails';
@@ -92,6 +93,7 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
     try {
       const response = await fetch('/api/ticktick-trips?action=replan-today', {
         method: 'POST', credentials: 'same-origin', cache: 'no-store', signal: request.signal,
+        headers: accountRequestHeaders(),
       });
       if (response.status === 401) { onExpired(); return; }
       const result = await response.json() as { busy?: boolean; error?: string; dailyPlan?: TickTickDailyPlan; details?: TickTickPlanDetails };
@@ -119,7 +121,7 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
     const request = new AbortController(); detailsController.current = request;
     setDetailsError('');
     void requestWithRetry(async signal => {
-      const response = await fetch('/api/ticktick-trips?action=plan-details', { credentials: 'same-origin', cache: 'no-store', signal });
+      const response = await fetch('/api/ticktick-trips?action=plan-details', { credentials: 'same-origin', headers: accountRequestHeaders(), cache: 'no-store', signal });
       if (response.status === 401) { onExpired(); return null; }
       const data = await response.json() as { details?: TickTickPlanDetails | null; error?: string };
       if (!response.ok) throw new Error(data.error || '排期详情读取失败');

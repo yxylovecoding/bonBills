@@ -80,3 +80,5 @@ describe('Outlook 连接接口', () => {
     expect(result.status).toBe(409); expect(result.body.snapshot).toBeUndefined();
   });
 });
+
+vi.mock('./_accountRoute.js', () => ({ withAccountScope: (handler: unknown) => handler }));

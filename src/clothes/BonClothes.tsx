@@ -20,7 +20,7 @@ export default function BonClothes() {
   useEffect(() => {
     let active = true;
     sessionPromise ??= restoreSession();
-    void sessionPromise.then((session) => { if (active) { setOwner(session.username || 'Key'); setStatus(session.authenticated ? 'ready' : 'login'); } })
+    void sessionPromise.then((session) => { if (active) { setOwner(session.username || 'legacy'); setStatus(session.authenticated ? 'ready' : 'login'); } })
       .catch(() => { sessionPromise = undefined; if (active) setStatus('error'); });
     return () => { active = false; };
   }, []);
@@ -28,9 +28,9 @@ export default function BonClothes() {
     if (status !== 'ready') return;
     let active = true;
     const check = () => void requestSession().then((session) => {
-      if (active && (!session.authenticated || (session.username || 'Key') !== owner)) expired();
+      if (active && (!session.authenticated || (session.username || 'legacy') !== owner)) expired();
     }).catch(() => undefined);
-    const storage = (event: StorageEvent) => { if (event.key?.endsWith('logout-at')) check(); };
+    const storage = (event: StorageEvent) => { if (event.key?.endsWith('logout-at') || event.key === 'bonbills-auth-changed-at') check(); };
     window.addEventListener('focus', check); window.addEventListener('storage', storage);
     return () => { active = false; window.removeEventListener('focus', check); window.removeEventListener('storage', storage); };
   }, [status, owner, expired]);

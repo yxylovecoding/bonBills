@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { kv } from '@vercel/kv';
+import { kv } from './_accountKv.js';
 import { DAILY_PLAN_KEY, type DailyPlanState } from './_ticktickDailyPlan.js';
 import { decryptTickTickToken, TICKTICK_CONNECTION_KEY, type TickTickConnection } from './_ticktickTrips.js';
 

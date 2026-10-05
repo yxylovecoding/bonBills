@@ -1,4 +1,4 @@
-import { kv } from '@vercel/kv';
+import { kv } from './_accountKv.js';
 import { createHash } from 'node:crypto';
 import { decryptOutlookConnection, fetchCalendar, parseOutlookCalendar } from './_outlookCalendar.js';
 import { OUTLOOK_CONNECTION_KEY, type OutlookConnection } from './_outlookSync.js';

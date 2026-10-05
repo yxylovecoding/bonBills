@@ -87,3 +87,5 @@ describe('夜间显隐轻量入口', () => {
     expect(sync).toHaveBeenCalledOnce();
   });
 });
+
+vi.mock('./_accountRoute.js', () => ({ withAccountScope: (handler: unknown) => handler }));

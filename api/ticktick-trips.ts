@@ -1,7 +1,9 @@
+import { withAccountScope } from './_accountRoute.js';
+import { authorizeAccountScope } from './_accountScope.js';
 import { createHash } from 'node:crypto';
 import { DAILY_PLAN_KEY, DAILY_PLAN_SETTINGS_KEY, dailyBudget, planTickTickDay, refreshDailyHistory, type DailyPlanState } from './_ticktickDailyPlan.js';
 import { authOk } from './_auth.js';
-import { kv } from '@vercel/kv';
+import { kv } from './_accountKv.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import type { TickTickConnection, TickTickTripSyncState } from './_ticktickTrips.js';
 import { syncOutlookCalendar } from './_outlookSync.js';
@@ -278,9 +280,10 @@ async function status() {
   };
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'private, no-store');
   const isCron = req.method === 'GET' && cronAuthOk(req);
+  if (isCron) authorizeAccountScope('legacy');
   if (!isCron && !await authOk(req)) return res.status(401).json({ error: 'unauthorized' });
 
   try {
@@ -375,3 +378,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(statusCode).json({ error: message });
   }
 }
+
+export default withAccountScope(handler);

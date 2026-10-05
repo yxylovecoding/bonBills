@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { kv } from '@vercel/kv';
+import { kv } from './_accountKv.js';
 import nodemailer from 'nodemailer';
 import { readDailyBriefing, renderDailyBriefing, type DailyBriefing } from './_dailyBriefing.js';
 import { syncTrainingSource } from './_lifeTraining.js';

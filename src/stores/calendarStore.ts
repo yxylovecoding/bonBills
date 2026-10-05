@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { getAccountStorage } from '../utils/accountCache';
 import type { TagKind } from '../models/types';
 import { applyOutlookSnapshotToState, normalizeOutlookCalendarState, normalizeOutlookTravelTitles, type OutlookAppliedDays, type OutlookConflictPolicy, type OutlookSnapshot } from '../utils/outlookCalendar';
 
@@ -229,7 +230,7 @@ export const useCalendarStore = create<CalendarStore>()(
         }),
     }),
     {
-      name: 'calendar-tags',
+      name: 'calendar-tags', storage: createJSONStorage(getAccountStorage),
       version: 5,
       migrate: (persistedState) => {
         if (!persistedState || typeof persistedState !== 'object') return persistedState;

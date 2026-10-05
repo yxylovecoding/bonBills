@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { getAccountStorage } from '../utils/accountCache';
 
 export type ExpenseScope = 'local' | 'shared';
 // 用户配置值：可加 'ignore'（已审视、明确不参与判定，与"默认"行为相同但状态明确）
@@ -68,10 +69,10 @@ export function normalizeExpenseScopeOverrides(input: unknown): ExpenseScopeOver
 function readLegacyOverrides(): ExpenseScopeOverrides {
   try {
     if (typeof localStorage === 'undefined') return EMPTY;
-    const raw = localStorage.getItem(LEGACY_STORE_KEY);
+    const raw = getAccountStorage().getItem(LEGACY_STORE_KEY);
     if (!raw) return EMPTY;
     const parsed = JSON.parse(raw) as { state?: unknown };
-    localStorage.removeItem(LEGACY_STORE_KEY);
+    getAccountStorage().removeItem(LEGACY_STORE_KEY);
     return normalizeExpenseScopeOverrides(parsed.state ?? parsed);
   } catch {
     return EMPTY;
@@ -93,7 +94,7 @@ export const useExpenseScopeOverrideStore = create<ExpenseScopeOverrideStore>()(
       resetAll: () => set({ overrides: EMPTY }),
     }),
     {
-      name: 'expense-scope-overrides',
+      name: 'expense-scope-overrides', storage: createJSONStorage(getAccountStorage),
       version: 1,
       partialize: (s) => ({ overrides: s.overrides }),
       merge: (persisted, current) => {

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { getAccountStorage } from '../utils/accountCache';
 import type { BillMonthlyAgg, BillTagMonth, BillExpenseMonth, BillIncomeMonth } from '../utils/importBill';
 import { aggregateExpenseItems, emptyBillMonthlyAgg, normalizeBillDate, normalizeBillYearMonth } from '../utils/importBill';
 
@@ -129,15 +130,15 @@ export function normalizeBillDetailState(state: Partial<BillDetailStore>): Parti
 // 一次性迁移：从旧 localStorage key 迁移到新 store
 function migrateOldKeys(): { tagStats?: Record<string, BillTagMonth>; expenseItems?: Record<string, BillExpenseMonth> } | null {
   try {
-    const oldTagStats = localStorage.getItem('billTagStats.override.v1');
-    const oldExpenseItems = localStorage.getItem('billExpenseItems.override.v1');
+    const oldTagStats = getAccountStorage().getItem('billTagStats.override.v1');
+    const oldExpenseItems = getAccountStorage().getItem('billExpenseItems.override.v1');
     if (!oldTagStats && !oldExpenseItems) return null;
     const result: { tagStats?: Record<string, BillTagMonth>; expenseItems?: Record<string, BillExpenseMonth> } = {};
     if (oldTagStats) result.tagStats = JSON.parse(oldTagStats);
     if (oldExpenseItems) result.expenseItems = JSON.parse(oldExpenseItems);
     // 清除旧 key
-    localStorage.removeItem('billTagStats.override.v1');
-    localStorage.removeItem('billExpenseItems.override.v1');
+    getAccountStorage().removeItem('billTagStats.override.v1');
+    getAccountStorage().removeItem('billExpenseItems.override.v1');
     return result;
   } catch {
     return null;
@@ -166,7 +167,7 @@ export const useBillDetailStore = create<BillDetailStore>()(
       };
     },
     {
-      name: 'bill-details',
+      name: 'bill-details', storage: createJSONStorage(getAccountStorage),
       version: 2,
       migrate: (persistedState) => {
         if (!persistedState || typeof persistedState !== 'object') return persistedState;

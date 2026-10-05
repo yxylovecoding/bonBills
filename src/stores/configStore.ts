@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { getAccountStorage } from '../utils/accountCache';
 import type { AppConfig } from '../models/types';
 import { DEFAULT_FIRE_GRADUATION_DATE } from '../calculations/fireExpenses';
 
@@ -67,6 +68,6 @@ export const useConfigStore = create<ConfigStore>()(
       setConfig: (c) => set((s) => ({ config: { ...s.config, ...c } })),
       resetConfig: () => set({ config: DEFAULT_CONFIG }),
     }),
-    { name: 'app-config' },
+    { name: 'app-config', storage: createJSONStorage(getAccountStorage) },
   ),
 );

@@ -1,5 +1,7 @@
+import { withAccountScope } from './_accountRoute.js';
+import { authorizeAccountScope } from './_accountScope.js';
 import { authOk } from './_auth.js';
-import { kv } from '@vercel/kv';
+import { kv } from './_accountKv.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
   getShanghaiDate,
@@ -52,7 +54,7 @@ async function saveBackup(
   return { retained: retained.length, removed: removed.length };
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'private, no-store');
   if (req.method === 'POST') {
     if (!await authOk(req)) return res.status(401).json({ error: 'unauthorized' });
@@ -79,6 +81,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method !== 'GET') return res.status(405).json({ error: 'method not allowed' });
   if (!cronAuthOk(req)) return res.status(401).json({ error: 'unauthorized' });
+  authorizeAccountScope('legacy');
 
   const date = getShanghaiDate();
   const createdAt = new Date().toISOString();
@@ -97,3 +100,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     ...result,
   });
 }
+
+export default withAccountScope(handler);

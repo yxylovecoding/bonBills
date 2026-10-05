@@ -1,4 +1,5 @@
 import { requestWithRetry } from '../utils/requestWithRetry';
+import { accountRequestHeaders } from '../utils/authClient';
 
 export class ClothesError extends Error {
   constructor(message: string, public status: number, public current?: unknown, public wardrobeChanged = false) { super(message); }
@@ -8,7 +9,7 @@ export async function clothesRequest<T>(method: 'GET' | 'POST', body: Record<str
   return requestWithRetry(async (requestSignal) => {
     const response = await fetch(`/api/bonclothes${method === 'GET' ? `?${query}` : ''}`, {
       method, credentials: 'same-origin', cache: 'no-store', signal: requestSignal,
-      headers: { 'Content-Type': 'application/json' }, body: method === 'POST' ? JSON.stringify(body) : undefined,
+      headers: { 'Content-Type': 'application/json', ...accountRequestHeaders() }, body: method === 'POST' ? JSON.stringify(body) : undefined,
     });
     const result = await response.json();
     if (!response.ok) throw new ClothesError(result.error || '请求失败，请重试', response.status, result.current, result.wardrobeChanged);

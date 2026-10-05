@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { DailyBriefing } from '../utils/dailyBriefing';
+import { accountRequestHeaders } from '../utils/authClient';
 
 const when = (value: string) => new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', dateStyle: 'short', timeStyle: 'short', hour12: false }).format(new Date(value));
 const duration = (minutes: number) => minutes ? `约 ${minutes} 分钟` : '休息';
@@ -11,7 +12,7 @@ export default function LifeBriefing({ onExpired }: { onExpired: () => void }) {
   useEffect(() => {
     const controller = new AbortController();
     setBusy(true);
-    void fetch('/api/ticktick-trips?action=briefing&format=json', { credentials: 'same-origin', signal: controller.signal })
+    void fetch('/api/ticktick-trips?action=briefing&format=json', { credentials: 'same-origin', headers: accountRequestHeaders(), signal: controller.signal })
       .then(async (response) => {
         if (response.status === 401) { onExpired(); return; }
         const data = await response.json();
@@ -25,7 +26,7 @@ export default function LifeBriefing({ onExpired }: { onExpired: () => void }) {
     if (busy) return;
     setBusy(true); setError('');
     try {
-      const response = await fetch('/api/ticktick-trips?action=briefing&format=json', { method: 'POST', credentials: 'same-origin' });
+      const response = await fetch('/api/ticktick-trips?action=briefing&format=json', { method: 'POST', credentials: 'same-origin', headers: accountRequestHeaders() });
       if (response.status === 401) { onExpired(); return; }
       const data = await response.json();
       if (response.status === 202) throw new Error('已有同步正在运行，请稍后刷新');

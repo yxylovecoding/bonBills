@@ -125,3 +125,5 @@ describe('独立经期定时归档', () => {
     expect((await request('POST')).status).toBe(200);
   });
 });
+
+vi.mock('./_accountRoute.js', () => ({ withAccountScope: (handler: unknown) => handler }));

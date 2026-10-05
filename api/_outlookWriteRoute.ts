@@ -1,8 +1,9 @@
+import { withAccountScope } from './_accountRoute.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { authOk, sameOrigin } from './_auth.js';
 import { connectOutlookMake, disconnectOutlookWrite, outlookWriteStatus, OutlookWriteError, pollOutlookWrite, selectOutlookWriteCalendar, startOutlookWrite, withOutlookWriteLock } from './_outlookWrite.js';
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'private, no-store'); res.setHeader('Vary', 'Cookie');
   if (!sameOrigin(req)) return res.status(403).json({ error: '请求来源无效' });
   if (!await authOk(req)) return res.status(401).json({ error: '请先登录' });
@@ -26,3 +27,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .json({ error: error instanceof OutlookWriteError ? error.message : 'Outlook 连接暂不可用，请重试' });
   }
 }
+
+export default withAccountScope(handler);

@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
-import { kv } from '@vercel/kv';
+import { kv } from './_accountKv.js';
 
 export const OUTLOOK_WRITE_KEY = 'outlook:laundry-write:v1';
 const SETTINGS_KEY = 'outlook:laundry-write:settings:v1';

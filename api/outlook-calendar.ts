@@ -1,11 +1,12 @@
+import { withAccountScope } from './_accountRoute.js';
 import { randomUUID } from 'node:crypto';
-import { kv } from '@vercel/kv';
+import { kv } from './_accountKv.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { authOk, sameOrigin } from './_auth.js';
 import { decryptOutlookConnection, encryptOutlookConnection, parseOutlookInput, parseOutlookRange, readOutlookSnapshot } from './_outlookCalendar.js';
 import { disconnectOutlookCalendar, OUTLOOK_CONNECTION_KEY as CONNECTION_KEY, outlookSyncError, saveOutlookSnapshot, type OutlookConnection as Connection } from './_outlookSync.js';
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.query?.app === 'write') return (await import('./_outlookWriteRoute.js')).default(req, res);
   if (req.query?.app === 'bonclothes') return (await import('./_bonClothesRoute.js')).default(req, res);
   if (req.query?.app === 'bonlife') return (await import('./_bonLifeRoute.js')).default(req, res);
@@ -56,3 +57,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(/^(连接已变更|日历已更新|日历正在同步)/.test(message) ? 409 : 502).json({ error: message });
   }
 }
+
+export default withAccountScope(handler);

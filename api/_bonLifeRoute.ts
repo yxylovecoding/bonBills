@@ -1,6 +1,7 @@
+import { withAccountScope } from './_accountRoute.js';
 import { DEFAULT_SKIN_SETTINGS, parseSkinSettings, type SkinSettings } from '../src/utils/lifeSkin.js';
 import { randomUUID } from 'node:crypto';
-import { kv } from '@vercel/kv';
+import { kv } from './_accountKv.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { authOk, sameOrigin } from './_auth.js';
 import { encryptOutlookConnection, validateOutlookUrl } from './_outlookCalendar.js';
@@ -13,7 +14,7 @@ import { readTrainingSource, syncTrainingSource } from './_lifeTraining.js';
 import { swimmingSyncWarning } from './_lifeSwimming.js';
 import { parseTrainingSettings, type TrainingSettings } from '../src/utils/lifeTraining.js';
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Vary', 'Cookie');
   if (!sameOrigin(req)) return res.status(403).json({ error: '请求来源无效' });
@@ -136,3 +137,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(503).json({ error: '暂时无法保存或读取，请重试' });
   }
 }
+
+export default withAccountScope(handler);

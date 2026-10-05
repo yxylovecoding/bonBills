@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { kv } from '@vercel/kv';
+import { kv } from './_accountKv.js';
 import { estimateTaskMinutes } from './_ticktickDailyPlan.js';
 import { isLaundryTask, laundryLocation, LAUNDRY_STATE_KEY, type LaundryState } from './_ticktickLaundry.js';
 import { routineTaskDate, type TickTickApi, type TickTickTask } from './_ticktickTrips.js';

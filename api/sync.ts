@@ -1,5 +1,7 @@
+import { withAccountScope } from './_accountRoute.js';
+import { isOwnerScope } from './_accountScope.js';
 import { authOk } from './_auth.js';
-import { kv } from '@vercel/kv';
+import { kv } from './_accountKv.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { MONTHLY_BACKUP_INDEX_KEY, type MonthlyBackupIndexEntry } from './_monthlyBackup.js';
 import { mergeRecoveredMonthlyInvestmentState, restoreMonthlyInvestmentState } from './_restoreMonthlyInvestment.js';
@@ -63,7 +65,7 @@ async function mergeAugustInvestmentFromPreRestoreState(currentState: unknown) {
   return merged.state;
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'private, no-store');
   if (!await authOk(req)) {
     return res.status(401).json({ error: 'unauthorized' });
@@ -79,7 +81,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         hasAny = true;
       }
     });
-    if (result['monthly-records']) {
+    if (isOwnerScope() && result['monthly-records']) {
       result['monthly-records'] = await restoreAugustInvestmentFromLatestBackup(result['monthly-records']);
       result['monthly-records'] = await mergeAugustInvestmentFromPreRestoreState(result['monthly-records']);
     }
@@ -102,3 +104,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   return res.status(405).json({ error: 'method not allowed' });
 }
+
+export default withAccountScope(handler);

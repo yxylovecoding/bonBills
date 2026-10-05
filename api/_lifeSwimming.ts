@@ -1,4 +1,4 @@
-import { kv } from '@vercel/kv';
+import { kv } from './_accountKv.js';
 import { DEFAULT_CYCLE, type CycleSettings } from '../src/utils/bonLife.js';
 import { afterMenstrualPeriod, cycleDay } from '../src/utils/lifeCycle.js';
 import { isCalendarDate } from '../src/utils/outlookCalendar.js';

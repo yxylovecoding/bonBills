@@ -166,3 +166,5 @@ describe('每日安排接口', () => {
     expect(data.get(DAILY_PLAN_KEY)).toEqual(before);
   });
 });
+
+vi.mock('./_accountRoute.js', () => ({ withAccountScope: (handler: unknown) => handler }));

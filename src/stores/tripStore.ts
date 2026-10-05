@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { getAccountStorage } from '../utils/accountCache';
 
 interface TripStore {
   // key: trip startDate (YYYY-MM-DD), value: 选中的账单 tag
@@ -51,6 +52,6 @@ export const useTripStore = create<TripStore>()(
           return { tripSplits: nextSplits, tripTags: nextTags, tripNotes: nextNotes };
         }),
     }),
-    { name: 'trip-tags', version: 2 },
+    { name: 'trip-tags', storage: createJSONStorage(getAccountStorage), version: 2 },
   ),
 );

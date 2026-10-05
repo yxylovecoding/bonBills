@@ -67,3 +67,5 @@ describe('TickTick 模板重新连接', () => {
     expect(data.get(connectionKey)).toMatchObject({ projectId: 'life', templateRootId: 'new-root' });
   });
 });
+
+vi.mock('./_accountRoute.js', () => ({ withAccountScope: (handler: unknown) => handler }));

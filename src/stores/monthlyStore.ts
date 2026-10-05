@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { getAccountStorage } from '../utils/accountCache';
 import type { MonthlyRecord } from '../models/types';
 import { normalizeBillYearMonth } from '../utils/importBill';
 import {
@@ -182,7 +183,7 @@ export const useMonthlyStore = create<MonthlyStore>()(
       getByYearMonth: (ym) => get().records.find((r) => r.yearMonth === ym),
     }),
     {
-      name: 'monthly-records',
+      name: 'monthly-records', storage: createJSONStorage(getAccountStorage),
       version: 3,
       migrate: (persistedState) => {
         if (!persistedState || typeof persistedState !== 'object') return persistedState;

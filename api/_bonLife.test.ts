@@ -244,3 +244,5 @@ describe('BonLife 接口', () => {
     expect(data.get(LIFE_CONNECTION_KEY)).toEqual({ id: 'old' });
   });
 });
+
+vi.mock('./_accountRoute.js', () => ({ withAccountScope: (handler: unknown) => handler }));

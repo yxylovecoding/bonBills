@@ -1,5 +1,5 @@
 import ICAL from 'ical.js';
-import { kv } from '@vercel/kv';
+import { kv } from './_accountKv.js';
 import { fetchCalendar, parseOutlookCalendar, decryptOutlookConnection } from './_outlookCalendar.js';
 import { periodDays, reconcilePeriodEvents, type PeriodEvent } from '../src/utils/bonLife.js';
 
