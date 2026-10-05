@@ -58,9 +58,10 @@ describe('按实际完成滚动轮换', () => {
   });
   it('覆盖一轮后继续轮换，不强制每项间隔七天；最久未练优先', () => {
     const first = run('2026-10-14');
-    expect(new Set(Array.from({ length: 5 }, (_, i) => project(first, `2026-10-${14 + i}`))).size).toBe(5);
-    expect(Array.from({ length: 7 }, (_, i) => first.plans.get(`2026-10-${14 + i}`)?.plan).every(plan => !plan?.includes('休息'))).toBe(true);
-    expect(project(first, '2026-10-19')).toBe(project(first, '2026-10-14'));
+    const week = Array.from({ length: 7 }, (_, i) => project(first, `2026-10-${14 + i}`)).filter(Boolean);
+    expect(week).toHaveLength(5);
+    expect(new Set(week).size).toBe(5);
+    expect(project(first, '2026-10-21')).toBe(project(first, '2026-10-14'));
     const history = names.map((name, i): [string, string] => [name, `2026-10-${String(2 + i).padStart(2, '0')}`]);
     expect(project(run('2026-10-14', source(history)), '2026-10-14')).toBe('爬坡');
   });
@@ -127,11 +128,12 @@ describe('游泳独立安排', () => {
     const result = run();
     for (let day = 5; day <= 11; day++) {
       const projects = result.plans.get(`2026-10-${String(day).padStart(2, '0')}`)!.projects!;
-      expect(projects.filter(key => key !== '游泳')).toHaveLength(1);
+      expect(projects.filter(key => key !== '游泳')).toHaveLength([8, 11].includes(day) ? 0 : 1);
       expect(projects.includes('游泳')).toBe(day % 2 === 1);
     }
     expect(result.plans.get('2026-10-05')?.projects).toEqual(['上半身', '游泳']);
-    expect(result.plans.get('2026-10-08')?.projects).toEqual(['上半身']);
+    expect(result.plans.get('2026-10-08')?.plan).toBe('休息');
+    expect(result.plans.get('2026-10-09')?.projects).toContain('上半身');
   });
   it('只完成游泳不完成主训练，只完成主训练也保留待游泳', () => {
     const swimmingDone = run([{ project: '游泳', date: '2026-10-05' }]);
@@ -146,7 +148,7 @@ describe('游泳独立安排', () => {
     const result = run([], { ...swim, scheduledDate: '2026-12-29' }, '2026-12-29',
       { ...DEFAULT_CYCLE, lastPeriodStart: '2026-12-29', automatic: false }, 2027, 1);
     expect(result.plans.get('2027-01-01')?.projects).not.toContain('游泳');
-    expect(result.plans.get('2027-01-04')?.projects).toHaveLength(2);
+    expect(result.plans.get('2027-01-04')?.plan).toContain('主训练休息');
     expect(result.plans.get('2027-01-03')?.projects).not.toContain('游泳');
     expect(result.plans.get('2027-01-04')?.projects).toContain('游泳');
     expect(result.plans.get('2027-01-05')?.projects).not.toContain('游泳');
@@ -162,12 +164,13 @@ describe('游泳独立安排', () => {
     expect(moved.plans.get('2026-10-13')?.projects).toContain('游泳');
     expect(moved.plans.get('2026-10-05')?.projects).not.toContain('游泳');
   });
-  it('20 日经期刚结束但不洗头时不排游泳，积压只合并到 21 日', () => {
+  it('经后游泳也只选洗头日，主训练恢复不改变独立游泳日期', () => {
     const result = run([], swim, '2026-10-05', { ...DEFAULT_CYCLE, lastPeriodStart: '2026-10-15', automatic: false });
     for (let day = 15; day <= 20; day++) expect(result.plans.get(`2026-10-${day}`)?.projects).not.toContain('游泳');
-    expect(result.plans.get('2026-10-20')?.projects).toHaveLength(1);
-    expect(result.plans.get('2026-10-21')?.projects).toHaveLength(2);
-    expect(result.plans.get('2026-10-21')?.projects?.filter(key => key === '游泳')).toHaveLength(1);
+    expect(result.plans.get('2026-10-20')?.projects).not.toContain('游泳');
+    expect(result.plans.get('2026-10-21')?.plan).toContain('主训练休息');
+    expect(result.plans.get('2026-10-21')?.projects).toContain('游泳');
+    expect(result.plans.get('2026-10-23')?.projects?.filter(key => key === '游泳')).toHaveLength(1);
     expect(result.plans.get('2026-10-22')?.projects).not.toContain('游泳');
     expect(result.plans.get('2026-10-23')?.projects).toContain('游泳');
   });

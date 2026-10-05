@@ -32,8 +32,16 @@ export function buildTrainingBriefing(today: string, source: TrainingSource, cyc
     const keys = recordedTrainingProjects(record, library);
     const selected = keys.map(key => library.find(task => trainingIdentity(task) === key)!).filter(Boolean);
     const completed = months.get(month)!.completedByDate.get(date);
+    const recovery = months.get(month)!.recoveryByDate.get(date);
     const reasons: string[] = [];
-    if (record.completed) reasons.push('已完成，保留实际训练记录');
+    if (recovery) {
+      reasons.push(recovery === 'consecutive' ? `${date === today ? '此前主训练已' : '按当前预排主训练将'}连续进行 3 天，安排恢复`
+        : '主训练按每 7 天至少休息 2 天的设置安排恢复');
+      for (const task of selected.filter(isSwimmingTraining)) reasons.push(completed?.has(trainingIdentity(task))
+        ? `${task.name}已完成，不计入主训练轮换与恢复`
+        : `${task.name}独立安排，跟随洗头日并避开经期，不受主训练休息影响`);
+    }
+    else if (record.completed) reasons.push('已完成，保留实际训练记录');
     else if (record.mode !== 'auto') reasons.push('保留你手动安排的内容');
     else if (record.effort === 'rest') reasons.push('你已选择休息');
     else if (record.effort === 'easy' || (phase?.phase === 'menstrual' && phase.day <= 3)) reasons.push('按当前强度与经期设置安排恢复活动');

@@ -13,10 +13,17 @@ describe('每日邮件简报', () => {
       schedule: name === '游泳' ? '每 2 天' : '', scheduledDate: name === '游泳' ? today : undefined,
       repeatFlag: name === '游泳' ? 'RRULE:FREQ=DAILY;INTERVAL=2' : undefined, notes: '30 分钟', links: [] }));
     const days = buildTrainingBriefing(today, { year: 2026, tasks, connected: true, syncedAt: null, hairWash: { scheduledDate: today, repeatFlag: 'FREQ=DAILY;INTERVAL=2' } }, DEFAULT_CYCLE, []);
-    expect(days.every(day => day.minutes > 0 && !day.plan.includes('休息'))).toBe(true);
+    expect(days.filter(day => day.plan.includes('休息')).map(day => day.date)).toEqual(['2026-10-08', '2026-10-11']);
+    expect(days.filter(day => day.plan === '休息').every(day => day.minutes === 0)).toBe(true);
     expect(days[0].minutes).toBe(60); expect(days[1].minutes).toBe(30);
     expect(days[0].reasons.join('')).toContain('游泳跟随洗头日并避开经期');
-    expect(days[3].reasons.join('')).toContain('本次预排已在 2026-10-05 安排');
+    expect(days[3].reasons.join('')).toContain('主训练将连续进行 3 天');
+    expect(days[3].reasons.join('')).not.toContain('你已选择休息');
+    expect(days[6].reasons.join('')).toContain('每 7 天至少休息 2 天');
+    expect(days[6].reasons.join('')).toContain('不受主训练休息影响');
+    expect(days[6].plan).toBe('主训练休息\n游泳');
+    expect(days[6].minutes).toBe(30);
+    expect(days[4].reasons.join('')).toContain('本次预排已在 2026-10-05 安排');
   });
   it('严格对应今日事范围，并使用同一任务的真实排期原因', () => {
     const plan: DailyPlanState = { connectionId: '', history: [], deadlines: {}, briefing: {

@@ -3,6 +3,7 @@ import { DEFAULT_CYCLE } from '../src/utils/bonLife';
 import { EXERCISE_STATE_KEY, exerciseTarget, isExerciseTask, syncExerciseSchedule, rollingExerciseDates } from './_ticktickExercise';
 import { rollingTrainingPlan, type TrainingSource } from '../src/utils/lifeTraining';
 import { syncTickTickRoutines, type TickTickApi, type TickTickTask } from './_ticktickTrips';
+import { postponeSwimmingTasks } from './_lifeSwimming';
 
 const { data, training } = vi.hoisted(() => ({ data: new Map<string, any>(), training: vi.fn() }));
 vi.mock('./_lifeTraining.js', () => ({ syncTrainingSource: training }));
@@ -85,6 +86,26 @@ describe('与网页共用实际完成轮换', () => {
     expect(after.fixedDates.get('0')).toBe('2026-10-05');
     expect(after.fixedDates.get('swim')).toBe('2026-10-07');
     expect(fake.stored.get('swim')?.repeatFlag).toBe(swim.repeatFlag);
+  });
+  it('今日主训练恢复时只顺延主训练，游泳保持原来的洗头日', async () => {
+    const current = source();
+    current.completions = ['02', '03', '04'].map(day => ({ project: '爬坡', date: `2026-10-${day}` }));
+    current.tasks.push({ id: 'life:swim', title: '游泳-运动💪🏻是生活的第一个锚点🪝', name: '游泳', dates: [],
+      scheduledDate: '2026-10-05', repeatFlag: 'FREQ=DAILY;INTERVAL=2', schedule: '', notes: '', links: [] });
+    current.hairWash = { scheduledDate: '2026-10-05', repeatFlag: 'FREQ=DAILY;INTERVAL=2' };
+    training.mockResolvedValue(current);
+    const raw = current.tasks.map((task, index) => workout({ id: index === 3 ? 'swim' : String(index), title: task.title,
+      startDate: '2026-10-05T01:00:00.000+0000', dueDate: '2026-10-05T01:00:00.000+0000', tags: ['洗头'] }));
+    const wash = workout({ id: 'wash', title: '洗头', tags: [], startDate: '2026-10-05', dueDate: '2026-10-05', repeatFlag: 'FREQ=DAILY;INTERVAL=2' });
+    const fake = fakeApi(...raw, wash);
+    const result = await syncExerciseSchedule(fake.api, { rolling: true, connectionId: 'account', ...options('2026-10-05T05:00:00') });
+    expect([...result.fixedDates].filter(([id]) => id !== 'swim').every(([, date]) => date > '2026-10-05')).toBe(true);
+    expect(result.fixedDates.get('swim')).toBe('2026-10-05');
+    expect(rollingTrainingPlan(2026, 10, '2026-10-05', current, DEFAULT_CYCLE, [], {}).plans.get('2026-10-05')?.plan).toBe('主训练休息\n游泳');
+    await syncTickTickRoutines({ api: fake.api, today: '2026-10-05', calendarState: {}, excludedTaskIds: result.managedTaskIds, fixedTaskDates: result.fixedDates });
+    expect(await postponeSwimmingTasks(fake.api, [...fake.stored.values()], '2026-10-05', DEFAULT_CYCLE, [])).toBe(0);
+    for (const task of raw) expect(fake.stored.get(task.id)?.dueDate?.slice(0, 10)).toBe(result.fixedDates.get(task.id));
+    expect((await syncExerciseSchedule(fake.api, { rolling: true, connectionId: 'account', ...options('2026-10-05T05:00:00') })).updated).toBe(0);
   });
 });
 

@@ -136,6 +136,19 @@ export function monthlyTrainingPlan(year: number, month: number, today: string, 
 
 const shiftDay = (date: string, days: number) => new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 
+// Personal scheduling preference: at least two recovery days in every rolling
+// seven days, and at most three consecutive main-training days. Swimming is
+// independent and never consumes or resets this main-training allowance.
+const RECOVERY_DAYS = 2;
+const MAX_CONSECUTIVE_TRAINING_DAYS = 3;
+export type TrainingRecoveryReason = 'consecutive' | 'weekly';
+function requiredTrainingRecovery(date: string, activeDays: ReadonlySet<string>): TrainingRecoveryReason | null {
+  if (Array.from({ length: MAX_CONSECUTIVE_TRAINING_DAYS }, (_, index) => shiftDay(date, -index - 1))
+    .every(day => activeDays.has(day))) return 'consecutive';
+  const recent = Array.from({ length: 6 }, (_, index) => shiftDay(date, -index - 1)).filter(day => activeDays.has(day)).length;
+  return recent >= 7 - RECOVERY_DAYS ? 'weekly' : null;
+}
+
 // Swimming is independent of the main rotation. Snap each pending occurrence
 // to a non-menstrual hair-wash day; several deferred occurrences merge there.
 export function swimmingTrainingDates(task: TrainingTask, today: string, through: string, settings: CycleSettings, periods: string[],
@@ -201,6 +214,14 @@ export function rollingTrainingPlan(year: number, month: number, today: string, 
     completed: (last.get(trainingIdentity(task)) ?? '') >= shiftDay(today, -6) }));
   const plans = new Map<string, TrainingRecord>();
   const byDate = new Map<string, TrainingTask[]>();
+  const recoveryByDate = new Map<string, TrainingRecoveryReason>();
+  // Missed automatic entries are not activity. Only actual completions seed
+  // recovery; future projected sessions are added below without saving history.
+  const isMainProject = (key: string) => byKey.has(key) ? !isSwimmingTraining(byKey.get(key)!) : !key.includes('游泳');
+  const activeDays = new Set([...actual].filter(([, projects]) => [...projects].some(isMainProject)).map(([date]) => date));
+  for (const completion of source.completions ?? []) {
+    if (completion.project && isMainProject(completion.project) && isCalendarDate(completion.date) && completion.date <= today) activeDays.add(completion.date);
+  }
   const days = calendarCells(year, month).filter((date): date is string => Boolean(date));
   const swims = new Map(tasks.filter(task => task.rotation !== false && isSwimmingTraining(task))
     .map(task => [trainingIdentity(task), swimmingTrainingDates(task, today, days.at(-1)!, settings, periods, source.hairWash)]));
@@ -225,7 +246,7 @@ export function rollingTrainingPlan(year: number, month: number, today: string, 
       return true;
     }).sort((a, b) => (last.get(trainingIdentity(a)) ?? '').localeCompare(last.get(trainingIdentity(b)) ?? '')
       || trainingIdentity(a).localeCompare(trainingIdentity(b))).slice(0, 1);
-    const suggested = [...main, ...tasks.filter(task => swims.get(trainingIdentity(task))?.has(date)
+    let suggested = [...main, ...tasks.filter(task => swims.get(trainingIdentity(task))?.has(date)
       && !actual.get(date)?.has(trainingIdentity(task)))];
     let record: TrainingRecord;
     if (saved && (saved.completed || saved.mode !== 'auto')) {
@@ -233,16 +254,31 @@ export function rollingTrainingPlan(year: number, month: number, today: string, 
     } else {
       const effort = saved?.effort ?? 'normal';
       record = automaticTraining(date, suggested, settings, periods, effort);
+      if (!mainDone && recordedTrainingProjects(record, tasks).some(isMainProject)) {
+        const recovery = requiredTrainingRecovery(date, activeDays);
+        if (recovery) {
+          recoveryByDate.set(date, recovery);
+          suggested = suggested.filter(isSwimmingTraining);
+          record = automaticTraining(date, suggested, settings, periods, effort);
+        }
+      }
       if (done.length) {
         const pending = recordedTrainingProjects(record, tasks);
         record = { ...record, completed: pending.length === 0,
           plan: [...(pending.length ? [record.plan] : []), ...done.map(task => `${task.name}${pending.length ? ' · 已完成' : ''}`)].join('\n'),
           projects: [...pending, ...done.map(trainingIdentity)] };
       }
+      if (recoveryByDate.has(date)) {
+        const hasSwimming = recordedTrainingProjects(record, tasks).some(key => !isMainProject(key));
+        record = { ...record, effort: hasSwimming ? effort : 'rest',
+          plan: hasSwimming ? `主训练休息\n${record.plan}` : '休息' };
+      }
     }
     // Only simulate future planned sessions; they never enter the actual history.
-    for (const key of recordedTrainingProjects(record, tasks)) last.set(key, date);
+    const projects = recordedTrainingProjects(record, tasks);
+    for (const key of projects) last.set(key, date);
+    if (projects.some(isMainProject)) activeDays.add(date);
     if (plans.has(date)) { plans.set(date, record); byDate.set(date, record.completed ? done : suggested); }
   }
-  return { plans, byDate, coverage, completedByDate: actual };
+  return { plans, byDate, coverage, completedByDate: actual, recoveryByDate };
 }
