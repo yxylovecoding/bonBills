@@ -10,6 +10,7 @@ import { calendarDateInTimeZone, routineOccurrenceKey, routineScenes, routineTas
 
 export const LAUNDRY_STATE_KEY = 'ticktick:laundry-weather:v1';
 const DAY = 86_400_000;
+const WEATHER_DAY_OFFSETS = [-1, 0, 1, 2] as const;
 const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T12:00:00Z`) + n * DAY).toISOString().slice(0, 10);
 const normalize = (text: string) => text.normalize('NFKC').trim();
 const pending = (task: TickTickTask) => (task.status ?? 0) === 0 && !task.completedTime;
@@ -133,7 +134,7 @@ function weatherRank(date: string, forecast: LaundryForecast) {
 export function chooseLaundryDay(task: TickTickTask, target: string, options: PlanOptions,
   forecastFor: (day: string) => LaundryForecast | undefined): string | null {
   const choices: { date: string; rank: number[] }[] = [], scenes = routineScenes(task), map = tagMap(options.calendarState);
-  for (let offset = -2; offset <= 2; offset++) {
+  for (const offset of WEATHER_DAY_OFFSETS) {
     const date = addDays(target, offset), localScene = scene(map[date]);
     if (date < options.today || (scenes.length && (!localScene || !scenes.includes(localScene)))) continue;
     if (!hasTime(task, date, options)) continue;
@@ -220,7 +221,7 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
     if (!location) { decisions.push({ id: task.id, target: anchor.target, reason: '尚未设置居的城市，保留原排期' }); continue; }
     if (!options.availability) { decisions.push({ id: task.id, target: anchor.target, reason: '日程不可用，保留原排期' }); continue; }
     const weatherByDay = new Map<string, LaundryForecast>(), names = new Map<string, string>();
-    for (let offset = -2; offset <= 2; offset++) {
+    for (const offset of WEATHER_DAY_OFFSETS) {
       const date = addDays(anchor.target, offset);
       if (date < options.today || date > addDays(options.today, 14)) continue;
       const key = `${location.latitude.toFixed(3)}:${location.longitude.toFixed(3)}`;
@@ -233,7 +234,7 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
     const changed = await moveLaundry(api, task, date);
     if (changed === undefined) { decisions.push({ id: task.id, target: anchor.target, reason: '任务已由用户更新，保留最新状态' }); continue; }
     if (changed) updated++;
-    decisions.push({ id: task.id, target: anchor.target, date, location: names.get(date), reason: '周期前后两天内优先连续晴天并避开日程冲突' });
+    decisions.push({ id: task.id, target: anchor.target, date, location: names.get(date), reason: '周期前一天至后两天内优先连续晴天并避开日程冲突' });
   }
   return { updated, managedTaskIds, decisions };
 }

@@ -13,6 +13,7 @@ import { syncHairWashVisibility, syncNightRoutineVisibility } from './_ticktickN
 import { syncSleepRoutineTags } from './_ticktickSleepTags.js';
 import { syncExerciseSchedule } from './_ticktickExercise.js';
 import { syncLaundrySchedule } from './_ticktickLaundry.js';
+import { syncLaundryOutlook } from './_outlookLaundry.js';
 
 const CONNECTION_KEY = 'ticktick:connection:v1';
 const SYNC_STATE_KEY = 'ticktick:trip-sync:v1';
@@ -74,6 +75,7 @@ async function runSync(allowDisconnected = false) {
       reconcileTickTickTrips,
       reconcileTickTickWishPreparations,
       syncTickTickRoutines,
+      routineTaskDate,
     } = await import('./_ticktickTrips.js');
     const [calendarState, tripState, configState, savedState] = await Promise.all([
       kv.get('calendar-tags'),
@@ -123,7 +125,8 @@ async function runSync(allowDisconnected = false) {
       const excludedTaskIds = getTickTickRoutineExcludedTaskIds(template, state);
       const exercise = await syncExerciseSchedule(api, { connectionId, calendarState, excludedTaskIds, rolling: true });
       for (const id of exercise.managedTaskIds) excludedTaskIds.add(id);
-      const laundry = await syncLaundrySchedule(api, { connectionId, tasks: await readAllTickTickTasks(api, [0]), history: dailyPlan.history,
+      const laundryTasks = await readAllTickTickTasks(api, [0]);
+      const laundry = await syncLaundrySchedule(api, { connectionId, tasks: laundryTasks, history: dailyPlan.history,
         calendarState, configState, trips, availability, profile: availabilityProfile(settings?.availabilityProfile),
         today, now: new Date(), excludedTaskIds });
       // Weather owns this cycle's date. Scene and daily rotation must not pull
@@ -143,10 +146,15 @@ async function runSync(allowDisconnected = false) {
         },
       });
       await kv.set(DAILY_PLAN_KEY, dailyPlan);
+      const laundryOutlook = await syncLaundryOutlook(api, { tasks: laundryTasks, managedTaskIds: laundry.managedTaskIds,
+        ticktickConnectionId: connectionId, configState, today,
+        plannedDates: Object.fromEntries(laundryTasks.filter(task => laundry.managedTaskIds.has(task.id))
+          .map(task => [task.id, laundry.decisions.find(decision => decision.id === task.id)?.date ?? routineTaskDate(task)])),
+      }).catch(() => ({ error: 'Outlook 日程同步暂不可用，请重试' }));
       console.info('[ticktick-routine-sync]', JSON.stringify(routineResult));
       console.info('[ticktick-trip-sync]', JSON.stringify({ ...result, ...wishResult }));
       return { busy: false as const, ...result, ...wishResult, ...routineResult, exercise: { updated: exercise.updated },
-        laundry: { updated: laundry.updated, decisions: laundry.decisions }, dailyPlan: dailyPlan.summary, budgetMinutes: dailyBudget(settings?.budgetMinutes),
+        laundry: { updated: laundry.updated, decisions: laundry.decisions, outlook: laundryOutlook }, dailyPlan: dailyPlan.summary, budgetMinutes: dailyBudget(settings?.budgetMinutes),
         availabilityProfile: availabilityProfile(settings?.availabilityProfile), lastSyncAt: state.lastSyncAt };
     } catch (error) {
       state.lastError = error instanceof Error ? error.message : String(error);
