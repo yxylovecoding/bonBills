@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { DoneItem, DoneMonth } from '../utils/bonLife';
+import type { TickTickDailyPlan } from '../utils/tickTickSync';
 import { doneWeekDates, doneWeekMonths, doneWeekNumber, earlierDoneWeeks, groupDoneCategories, groupDoneWeek, shiftDoneDate } from '../utils/lifeDone';
 import { LifeError, lifeRequest } from './client';
 
@@ -36,6 +37,10 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
   const [data, setData] = useState<Record<string, DoneMonth>>({});
   const cache = useRef<Record<string, DoneMonth>>({});
   const [busy, setBusy] = useState(false);
+  const [replanning, setReplanning] = useState(false);
+  const [replanMessage, setReplanMessage] = useState('');
+  const [replanError, setReplanError] = useState('');
+  const replanController = useRef<AbortController | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const controller = useRef<AbortController | null>(null);
   const refreshedAt = useRef(0);
@@ -70,11 +75,42 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
     }));
     if (!request.signal.aborted) setBusy(false);
   }, [monthKey, onExpired]);
+  async function replanToday() {
+    if (busy || replanController.current) return;
+    const request = new AbortController(); replanController.current = request;
+    let timedOut = false;
+    const timer = window.setTimeout(() => { timedOut = true; request.abort(); }, 300_000);
+    setReplanning(true); setReplanError(''); setReplanMessage('');
+    try {
+      const response = await fetch('/api/ticktick-trips?action=replan-today', {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store', signal: request.signal,
+      });
+      if (response.status === 401) { onExpired(); return; }
+      const result = await response.json() as { busy?: boolean; error?: string; dailyPlan?: TickTickDailyPlan };
+      if (response.status === 202 || result.busy) throw new Error('已有重排正在运行，请稍后重试');
+      if (!response.ok) throw new Error(result.error || '重排失败，请重试');
+      const plan = result.dailyPlan;
+      if (!plan || plan.date !== shanghaiToday() || !Number.isInteger(plan.todayCount) || !Number.isFinite(plan.plannedMinutes)) {
+        throw new Error('尚未确认今日安排，请稍后重试');
+      }
+      if (request.signal.aborted) return;
+      setReplanMessage(`已重排 · 剩余 ${plan.todayCount} 项 · 约 ${plan.plannedMinutes} 分钟`);
+      await refresh(true);
+    } catch (cause) {
+      if (!request.signal.aborted || timedOut) setReplanError(timedOut || cause instanceof TypeError
+        ? '重排结果暂未确认，请稍后刷新查看' : cause instanceof Error ? cause.message : '重排失败，请重试');
+    } finally {
+      clearTimeout(timer);
+      if (replanController.current === request) replanController.current = null;
+      if (!request.signal.aborted || timedOut) setReplanning(false);
+    }
+  }
+  useEffect(() => () => { replanController.current?.abort(); }, []);
   useEffect(() => {
     void refresh();
     const update = () => {
       setToday(shanghaiToday());
-      if (document.visibilityState === 'visible' && Date.now() - refreshedAt.current > 300_000) void refresh();
+      if (!replanController.current && document.visibilityState === 'visible' && Date.now() - refreshedAt.current > 300_000) void refresh();
     };
     window.addEventListener('focus', update); document.addEventListener('visibilitychange', update);
     const timer = window.setInterval(update, 300_000);
@@ -118,14 +154,16 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
   }
   const months = monthKey.split(',').filter(Boolean).map((key) => data[key]);
   const syncedAt = months.every((value) => value?.syncedAt) ? months.map((value) => value.syncedAt!).sort()[0] : null;
-  return <section className="life-done" aria-label="DoneList 周本" aria-busy={busy}>
+  return <section className="life-done" aria-label="DoneList 周本" aria-busy={busy || replanning}>
     <div className="life-done-heading"><h2>完成周本</h2><nav className="life-week-navigation" aria-label="翻阅周本">
       <button className="life-arrow" aria-label="上一周" onClick={() => move(-1)}>‹</button>
       <button className="life-today" onClick={() => strip.current?.scrollTo({ left: strip.current.scrollWidth, behavior: 'smooth' })}>本周</button>
       <button className="life-arrow" aria-label="下一周" disabled={atLatest} onClick={() => move(1)}>›</button>
     </nav></div>
-    <div className="life-done-toolbar"><span role="status">{busy ? '同步中…' : syncedAt ? `${completionTime.format(new Date(syncedAt))} 已同步` : '尚未同步'}</span>
-      <button disabled={busy} onClick={() => void refresh(true)}>同步 TickTick</button></div>
+    <div className="life-done-toolbar"><span role="status">{replanning ? '重排中…' : busy ? '同步中…' : replanMessage || (syncedAt ? `${completionTime.format(new Date(syncedAt))} 已同步` : '尚未同步')}</span>
+      <div className="life-done-actions"><button disabled={busy || replanning || !months.some(value => value?.connected)} onClick={() => void replanToday()}>{replanning ? '重排中…' : '重排今日事'}</button>
+        <button disabled={busy || replanning} onClick={() => void refresh(true)}>同步 TickTick</button></div></div>
+    {replanError && <p className="life-error" role="alert">{replanError}</p>}
     {Object.entries(errors).map(([key, error]) => <p className="life-error" role="alert" key={key}>{key.replace('-', ' 年 ')} 月 · {error}</p>)}
     {months.some((value) => value && !value.connected) && <p className="life-empty-state">TickTick 未连接 · <a href="https://bill.bonbills.cn/calendar" target="_blank" rel="noreferrer">连接 TickTick ↗</a></p>}
     <div ref={strip} className="life-week-strip" role="region" aria-label="连续周本，向左查看更早记录" tabIndex={0} onScroll={(event) => {

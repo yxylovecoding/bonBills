@@ -154,7 +154,8 @@
 .phase-earlyLuteal { --phase-bg: #fbf5e7; --phase-hover: #f5ecd6; --phase-line: #dfc98e; --phase-ink: #87703f; }
 .phase-lateLuteal { --phase-bg: #fff1e5; --phase-hover: #fbe5d2; --phase-line: #e6ba91; --phase-ink: #97663e; }
 .life-done { border-top: 1px solid var(--life-line); }
-.life-done-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 16px 0; font-size: 11px; color: var(--life-muted); }
+.life-done-toolbar { display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between; align-items: center; padding: 16px 0; font-size: 11px; color: var(--life-muted); }
+.life-done-actions { display: flex; align-items: center; gap: 16px; }
 .life-done-toolbar button { color: var(--life-accent); padding: 5px 0; }
 .life-done-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-top: 24px; }
 .life-done-heading h2 { margin: 0; font-size: 21px; font-weight: 500; letter-spacing: -.4px; }

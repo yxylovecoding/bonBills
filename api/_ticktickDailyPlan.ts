@@ -130,6 +130,7 @@ export function planTickTickDay(options: {
   availabilityProfile?: AvailabilityProfile;
   now?: Date;
   excludedTaskIds?: ReadonlySet<string>;
+  movableTaskIds?: ReadonlySet<string>;
 }): { dates: Map<string, string>; summary: DailyPlanSummary } {
   const { tasks, calendarState, today, state, excludedTaskIds = new Set<string>() } = options;
   const now = options.now ?? new Date();
@@ -169,6 +170,7 @@ export function planTickTickDay(options: {
     return false;
   };
   const protectedTask = (task: TickTickTask) => excluded(task)
+    || Boolean(options.movableTaskIds && !options.movableTaskIds.has(task.id))
     || !ordinary(task) || task.isAllDay === false || routineRecurrence(task.repeatFlag) === 'unknown'
     || tags(task).includes('洗头') || task.title.normalize('NFKC').trim() === '洗头';
   const candidates: Candidate[] = [];
@@ -313,7 +315,8 @@ export function planTickTickDay(options: {
       if (candidate.minutes > capacity || !fits) oversizedCount++;
     }
   }
-  separateTickTickSprays({ tasks, dates, history: state.history, calendarState, today, now, excludedTaskIds });
+  separateTickTickSprays({ tasks, dates, history: state.history, calendarState, today, now, excludedTaskIds,
+    movableTaskIds: options.movableTaskIds });
   const finalSelected = selectedDetails.filter(task => !dates.has(task.id) || dates.get(task.id) === today);
   deferred += selectedDetails.length - finalSelected.length;
   for (const candidate of candidates) {

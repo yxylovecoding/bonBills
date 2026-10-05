@@ -668,6 +668,7 @@ export function sprayKind(task: TickTickTask): 'fragrance' | 'mite' | null {
 export function separateTickTickSprays(options: {
   tasks: TickTickTask[]; dates: Map<string, string>; history: TickTickTask[];
   calendarState: unknown; today: string; now?: Date; excludedTaskIds?: ReadonlySet<string>;
+  movableTaskIds?: ReadonlySet<string>;
 }): Map<string, string> {
   const { tasks, dates, history, calendarState, today, excludedTaskIds = new Set<string>() } = options;
   const byId = new Map(tasks.map(task => [task.id, task]));
@@ -701,7 +702,14 @@ export function separateTickTickSprays(options: {
     const day = calendarDateInTimeZone(task.completedTime, 'Asia/Shanghai');
     if (day) reserve(day, sprayKind(task)!);
   }
+  // A scoped replan treats other tasks as reservations, never as write targets.
   for (const task of open) {
+    if (!options.movableTaskIds || options.movableTaskIds.has(task.id)) continue;
+    const day = dates.get(task.id) ?? routineTaskDate(task);
+    if (day) reserve(day < today ? today : day, sprayKind(task)!);
+  }
+  for (const task of open) {
+    if (options.movableTaskIds && !options.movableTaskIds.has(task.id)) continue;
     const original = dates.get(task.id) ?? routineTaskDate(task);
     if (!original) continue;
     const kind = sprayKind(task)!, effective = original < today ? today : original;

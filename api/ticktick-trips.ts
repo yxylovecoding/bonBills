@@ -284,6 +284,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!isCron && !await authOk(req)) return res.status(401).json({ error: 'unauthorized' });
 
   try {
+    if (req.query?.action === 'replan-today') {
+      if (req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
+      const { replanRemainingToday } = await import('./_ticktickReplan.js');
+      const result = await replanRemainingToday();
+      return res.status(result.busy ? 202 : 200).json({ ok: !result.busy, ...result });
+    }
     if (req.query?.action === 'daily-email') {
       if (!isCron) return res.status(403).json({ error: 'cron authorization required' });
       const { sendDailyEmail } = await import('./_dailyEmail.js');
