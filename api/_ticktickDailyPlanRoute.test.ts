@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from './ticktick-trips';
 import { DAILY_PLAN_KEY, DAILY_PLAN_SETTINGS_KEY } from './_ticktickDailyPlan';
-const { data, auth, failHistory, failWrite, sleepTags } = vi.hoisted(() => ({ data: new Map<string, any>(), auth: { ok: true }, failHistory: { value: false }, failWrite: { value: false }, sleepTags: vi.fn() }));
+const { data, auth, failHistory, failWrite, sleepTags, briefing, syncTraining } = vi.hoisted(() => ({ data: new Map<string, any>(), auth: { ok: true }, failHistory: { value: false }, failWrite: { value: false }, sleepTags: vi.fn(), briefing: vi.fn(), syncTraining: vi.fn() }));
+vi.mock('./_dailyBriefing.js', () => ({ readDailyBriefing: briefing, renderDailyBriefing: () => '<html>每日简报</html>' }));
+vi.mock('./_lifeTraining.js', () => ({ syncTrainingSource: syncTraining }));
 vi.mock('./_auth.js', () => ({ authOk: async () => auth.ok }));
 vi.mock('./_outlookSync.js', () => ({ syncOutlookCalendar: async () => ({ connected: true,
   availability: { startDate: '2020-01-01', endDate: '2030-01-01', events: [] } }) }));
@@ -24,17 +26,30 @@ vi.mock('./_ticktickTrips.js', async (original) => ({
     return { updatedRoutineTasks: 0 };
   },
 }));
-async function request(method: string, body?: unknown) {
-  const result = { status: 200, body: {} as Record<string, any> };
-  const res = { setHeader: vi.fn(), status: (code: number) => { result.status = code; return res; }, json: (value: Record<string, unknown>) => { result.body = value; return res; } };
-  await handler({ method, headers: {}, body, query: {} } as VercelRequest, res as unknown as VercelResponse);
+async function request(method: string, body?: unknown, action?: string) {
+  const result = { status: 200, body: {} as Record<string, any>, html: '', location: '' };
+  const res = { setHeader: vi.fn(), status: (code: number) => { result.status = code; return res; }, json: (value: Record<string, unknown>) => { result.body = value; return res; },
+    send: (html: string) => { result.html = html; return res; }, redirect: (code: number, url: string) => { result.status = code; result.location = url; return res; } };
+  await handler({ method, headers: {}, body, query: action ? { action } : {} } as VercelRequest, res as unknown as VercelResponse);
   return result;
 }
 beforeEach(() => { data.clear(); auth.ok = true; failHistory.value = false; failWrite.value = false;
+  briefing.mockReset().mockResolvedValue({}); syncTraining.mockReset().mockResolvedValue({});
   sleepTags.mockResolvedValue({ mode: 'restore', updated: 0, remaining: 0, complete: true });
   data.set('ticktick:connection:v1', { encryptedToken: {} }); });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 describe('每日安排接口', () => {
+  it('简报沿用登录保护，读取不改排期，主动刷新才同步训练', async () => {
+    auth.ok = false;
+    expect((await request('GET', undefined, 'briefing')).status).toBe(401);
+    expect(briefing).not.toHaveBeenCalled();
+    auth.ok = true;
+    expect((await request('GET', undefined, 'briefing')).html).toContain('每日简报');
+    expect(syncTraining).not.toHaveBeenCalled(); expect(data.has(DAILY_PLAN_KEY)).toBe(false);
+    expect(await request('POST', undefined, 'briefing')).toMatchObject({ status: 303, location: '/api/ticktick-trips?action=briefing' });
+    expect(syncTraining).toHaveBeenCalledTimes(1);
+    expect((await request('DELETE', undefined, 'briefing')).status).toBe(405);
+  });
   it('凌晨临时标签未恢复完时不发布计划，恢复完成后再计算', async () => {
     sleepTags.mockResolvedValueOnce({ mode: 'restore', updated: 20, remaining: 5, complete: false });
     expect(await request('POST')).toMatchObject({ status: 202, body: { busy: true, sleepTags: { remaining: 5 } } });
@@ -67,10 +82,12 @@ describe('每日安排接口', () => {
   it('只有写入成功才发布新的每日安排，失败保留旧摘要', async () => {
     expect((await request('POST')).status).toBe(200);
     const old = data.get(DAILY_PLAN_KEY).summary;
+    const oldBriefing = data.get(DAILY_PLAN_KEY).briefing;
     data.get(DAILY_PLAN_KEY).summary = { ...old, todayCount: 7 };
     failWrite.value = true;
     expect((await request('POST')).status).toBe(502);
     expect(data.get(DAILY_PLAN_KEY).summary.todayCount).toBe(7);
+    expect(data.get(DAILY_PLAN_KEY).briefing).toEqual(oldBriefing);
   });
   it('历史读取失败时不发布空计划、不推进历史时间', async () => {
     await request('POST');

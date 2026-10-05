@@ -96,7 +96,7 @@ async function runSync(allowDisconnected = false) {
       // Read history before any scene/date writes; a failed read is never "never done".
       await refreshDailyHistory(api, sourceTasks, dailyPlan);
       await kv.set(DAILY_PLAN_KEY, dailyPlan);
-      if (!availability && dailyBudget(settings?.budgetMinutes) === null) dailyPlan.summary = undefined;
+      if (!availability && dailyBudget(settings?.budgetMinutes) === null) { dailyPlan.summary = undefined; dailyPlan.briefing = undefined; }
       const template = await readConnectedTickTickTemplate(api, connection);
       const trips = buildTripSourcesFromSyncState(calendarState, tripState);
       const result = await reconcileTickTickTrips({
@@ -129,7 +129,8 @@ async function runSync(allowDisconnected = false) {
             budgetMinutes: settings?.budgetMinutes, availability, availabilityProfile: availabilityProfile(settings?.availabilityProfile),
             excludedTaskIds: getTickTickRoutineExcludedTaskIds(template, state) });
           // Save cycle anchors before writes so a partially failed run can be retried.
-          await kv.set(DAILY_PLAN_KEY, { ...dailyPlan, summary: savedPlan?.summary });
+          await kv.set(DAILY_PLAN_KEY, { ...dailyPlan, summary: savedPlan?.summary,
+            briefing: savedPlan?.connectionId === connectionId ? savedPlan.briefing : undefined });
           return plan.dates;
         },
       });
@@ -258,6 +259,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!isCron && !await authOk(req)) return res.status(401).json({ error: 'unauthorized' });
 
   try {
+    if (req.query?.action === 'briefing') {
+      if (!['GET', 'POST'].includes(req.method ?? '')) return res.status(405).json({ error: 'method not allowed' });
+      if (req.method === 'POST') {
+        const result = await runSync();
+        if (!result.busy) {
+          const { syncTrainingSource } = await import('./_lifeTraining.js');
+          await syncTrainingSource(Number(shanghaiDate().slice(0, 4)));
+        }
+        return res.redirect(303, '/api/ticktick-trips?action=briefing');
+      }
+      const { readDailyBriefing, renderDailyBriefing } = await import('./_dailyBriefing.js');
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'");
+      return res.status(200).send(renderDailyBriefing(await readDailyBriefing()));
+    }
     if (req.query?.action === 'life-periods') {
       if (!isCron && req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
       const { syncRecentLifePeriods } = await import('./_bonLife.js');

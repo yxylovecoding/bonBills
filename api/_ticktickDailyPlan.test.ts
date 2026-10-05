@@ -13,6 +13,16 @@ const apply = (tasks: TickTickTask[], dates: Map<string, string>) => tasks.map((
   ? { ...t, startDate: `${dates.get(t.id)}T00:00:00+0800`, dueDate: `${dates.get(t.id)}T00:00:00+0800` } : t);
 
 describe('每日待办动态安排', () => {
+  it('记录入选原因和估时，未选中项不冒充今日事', () => {
+    const s = state();
+    const p = run([task('a', { title: '学习 25分钟' }), task('b', { title: '学习 25分钟' })], { state: s, budgetMinutes: 25 });
+    const chosen = s.briefing!.selected;
+    expect(chosen).toHaveLength(1);
+    expect(chosen[0].minutes).toBe(25);
+    expect(chosen[0].reasons.join('')).toContain('可放入剩余空档');
+    expect(p.dates.get(chosen[0].id)).toBe(today);
+    expect(s.briefing!.date).toBe(today);
+  });
   it('同周期按实际最近完成排序，识别重复任务新 ID，并给重要事项留量', () => {
     const newer = task('mite', { title: '除螨喷雾', repeatFlag: 'RRULE:FREQ=WEEKLY' });
     const older = task('fragrance', { title: '香香喷雾', repeatFlag: 'RRULE:FREQ=WEEKLY' });

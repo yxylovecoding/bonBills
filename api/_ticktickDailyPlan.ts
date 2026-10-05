@@ -32,6 +32,11 @@ export interface DailyPlanState {
   // The original date is retained across deferrals; postponement is not completion.
   deadlines: Record<string, { date: string; completion?: string; repeatFlag?: string }>;
   summary?: DailyPlanSummary;
+  briefing?: {
+    date: string;
+    generatedAt: string;
+    selected: { id: string; projectId: string; title: string; minutes: number; reasons: string[] }[];
+  };
 }
 export const dailyBudget = (value: unknown) => typeof value === 'number' && Number.isFinite(value)
   ? Math.max(10, Math.min(240, Math.round(value))) : null;
@@ -261,11 +266,26 @@ export function planTickTickDay(options: {
       || a.deadline.localeCompare(b.deadline) || a.task.id.localeCompare(b.task.id);
   });
   let used = 0, selected = 0, deferred = 0, cycleRiskCount = 0, oversizedCount = 0;
+  const selectedDetails: NonNullable<DailyPlanState['briefing']>['selected'] = fixed.map((task) => ({
+    id: task.id, projectId: task.projectId, title: task.title, minutes: estimateTaskMinutes(task),
+    reasons: [task.isAllDay === false ? '保留原定时间' : '保留原有安排，本次未参与动态挑选'],
+  }));
   for (const candidate of candidates) {
     // A task larger than the remaining budget is reported instead of silently overbooking.
     const fits = remainingSlots.some(([start, end]) => end - start >= candidate.minutes * 60_000);
     const choose = !candidate.next || (used < target && used + candidate.minutes <= available && fits);
     if (choose) {
+      const lastDay = calendarDateInTimeZone(candidate.last);
+      const reasons = [!candidate.next ? '后续没有适用场景日，优先留在今天'
+        : candidate.deadline <= today ? `周期或原定日期已到（${candidate.deadline}），优先安排`
+        : candidate.next > candidate.deadline ? '下次适用场景日晚于周期截止，提前安排'
+        : '按距离上次完成的时间排序，分摊本周期待办'];
+      reasons.push(lastDay ? `上次完成 ${lastDay}` : '尚无匹配的完成记录');
+      if (routineScenes(candidate.task).length) reasons.push('今天符合任务的场景标签');
+      reasons.push(fits && used + candidate.minutes <= available ? `预计 ${candidate.minutes} 分钟，可放入剩余空档`
+        : '当前空档不足，仍保留；需要手动协调时间');
+      selectedDetails.push({ id: candidate.task.id, projectId: candidate.task.projectId, title: candidate.task.title,
+        minutes: candidate.minutes, reasons });
       occupySlots(remainingSlots, candidate.minutes);
       used += candidate.minutes; selected += candidate.members.length;
       for (const member of candidate.members) dates.set(member.id, today);
@@ -282,5 +302,6 @@ export function planTickTickDay(options: {
   const summary: DailyPlanSummary = { date: today, todayCount: fixed.length + selected, plannedMinutes: fixedMinutes + used,
     availableMinutes: capacity, importantCount: important.length, deferredCount: deferred, cycleRiskCount, oversizedCount };
   state.summary = summary;
+  state.briefing = { date: today, generatedAt: now.toISOString(), selected: selectedDetails };
   return { dates, summary };
 }
