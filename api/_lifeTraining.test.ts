@@ -52,6 +52,7 @@ describe('TickTick 训练来源', () => {
   });
   it('依据任务时区、每周规则展开，不倒推起始日前的历史', () => {
     const result = trainingTask(task({ startDate: '2026-10-07T16:00:00.000+0000' }), 2026);
+    expect(result).toMatchObject({ scheduledDate: '2026-10-08', repeatFlag: 'RRULE:FREQ=WEEKLY;BYDAY=TH' });
     expect(result.dates.slice(0, 3)).toEqual(['2026-10-08', '2026-10-15', '2026-10-22']);
     expect(result.dates.at(-1)).toBe('2026-12-31');
     expect(trainingTask(task(), 2025).dates).toEqual([]);

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { isTrainingCategory, parseTrainingSettings, TRAINING_TAGS, trainingIdentity, trainingLibrary, trainingProjectKey, trainingTags,
+import { isSwimmingTraining, isTrainingCategory, parseTrainingSettings, TRAINING_TAGS, trainingIdentity, trainingLibrary, trainingProjectKey, trainingTags,
   type TrainingProject, type TrainingSettings, type TrainingTask } from '../utils/lifeTraining';
 import { LifeError, lifeRequest } from './client';
 
@@ -59,11 +59,11 @@ export default function LifeTrainingSettings({ initial, tasks, year, onSave, onC
             setItem({ ...item, tags: tags.includes(tag) ? tags.filter((value) => value !== tag) : [...tags, tag] });
           }}>{tag}</button>)}</div></fieldset>
         <label className="life-field">训练内容<textarea rows={3} maxLength={500} value={item.notes} disabled={busy} placeholder="时长、组数或跟练内容" onChange={(event) => setItem({ ...item, notes: event.target.value })} /></label>
-        <label className="life-check"><input type="checkbox" checked={item.rotation} disabled={busy} onChange={(event) => setItem({ ...item, rotation: event.target.checked })} />加入轮换</label>
+        <label className="life-check"><input type="checkbox" checked={item.rotation} disabled={busy} onChange={(event) => setItem({ ...item, rotation: event.target.checked })} />{isSwimmingTraining({ title: item.key, name: item.name }) ? '独立安排' : '加入轮换'}</label>
         <div className="life-editor-actions"><button type="button" onClick={() => { setItem(null); setError(''); }}>取消编辑</button><button type="submit" className="life-primary">完成编辑</button></div>
       </> : <>
         <ul className="life-project-list">{library.map((task) => <li key={trainingIdentity(task)}>
-          <div><strong>{task.name}</strong>{task.tags?.length ? <small className="life-training-tags">{task.tags.join(' · ')}</small> : null}<span>{task.rotation ? '参与轮换' : '按需选择'}</span>{task.notes && <p>{task.notes}</p>}</div>
+          <div><strong>{task.name}</strong>{task.tags?.length ? <small className="life-training-tags">{task.tags.join(' · ')}</small> : null}<span>{task.rotation ? isSwimmingTraining(task) ? '独立安排' : '参与轮换' : '按需选择'}</span>{task.notes && <p>{task.notes}</p>}</div>
           <button type="button" disabled={busy} aria-label={`编辑${task.name}`} onClick={() => {
             setItem({ key: trainingIdentity(task), name: task.name, notes: task.notes, rotation: task.rotation ?? true, tags: task.tags }); setError(''); setDiscarding(false);
           }}>编辑</button>

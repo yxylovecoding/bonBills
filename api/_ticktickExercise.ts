@@ -95,9 +95,12 @@ export function rollingExerciseDates(today: string, source: TrainingSource, cycl
     const date = addDays(today, offset);
     const month = date.slice(0, 7);
     if (!months.has(month)) months.set(month, rollingTrainingPlan(Number(date.slice(0, 4)), Number(date.slice(5, 7)), today, source, cycle, periods, {}));
-    const record = months.get(month)!.plans.get(date);
+    const forecast = months.get(month)!;
+    const record = forecast.plans.get(date);
     if (!record || record.completed) continue;
-    for (const key of recordedTrainingProjects(record, library)) if (!dates.has(key)) dates.set(key, date);
+    for (const key of recordedTrainingProjects(record, library)) {
+      if (!dates.has(key) && !forecast.completedByDate.get(date)?.has(key)) dates.set(key, date);
+    }
   }
   return dates;
 }

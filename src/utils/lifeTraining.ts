@@ -1,5 +1,6 @@
 import { calendarCells, type CycleSettings, type LifeEntries, type TrainingRecord } from './bonLife.js';
-import { cycleDay, suggestedTraining } from './lifeCycle.js';
+import ICAL from 'ical.js';
+import { afterMenstrualPeriod, cycleDay, suggestedTraining } from './lifeCycle.js';
 import { isCalendarDate } from './outlookCalendar.js';
 
 export const TRAINING_MARKER = '运动是生活的第一个锚点';
@@ -27,6 +28,8 @@ export interface TrainingTask {
   title: string;
   schedule: string;
   dates: string[];
+  scheduledDate?: string;
+  repeatFlag?: string;
   notes: string;
   links: { title: string; url: string }[];
 }
@@ -41,6 +44,7 @@ export interface TrainingProject { key: string; name: string; notes: string; rot
 export interface TrainingSettings { projects: TrainingProject[]; revision: string }
 export const DEFAULT_TRAINING_SETTINGS: TrainingSettings = { projects: [], revision: '' };
 export const trainingIdentity = (task: TrainingTask) => task.key ?? trainingProjectKey(task.name);
+export const isSwimmingTraining = (task: Pick<TrainingTask, 'title' | 'name'>) => `${task.title}${task.name}`.includes('游泳');
 
 export function parseTrainingSettings(value: unknown): TrainingSettings {
   const input = value as TrainingSettings | null;
@@ -130,6 +134,32 @@ export function monthlyTrainingPlan(year: number, month: number, today: string, 
 
 const shiftDay = (date: string, days: number) => new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 
+// Swimming keeps its own task dates and recurrence. It never consumes the
+// daily rotation slot, and postponed menstrual occurrences merge on one date.
+export function swimmingTrainingDates(task: TrainingTask, today: string, through: string, settings: CycleSettings, periods: string[]) {
+  const dates = new Set<string>();
+  const add = (date: string) => {
+    const target = afterMenstrualPeriod(date < today ? today : date, settings, periods);
+    if (target <= through) dates.add(target);
+  };
+  if (task.scheduledDate) {
+    add(task.scheduledDate);
+    if (task.repeatFlag) {
+      const rule = ICAL.Recur.fromString(task.repeatFlag.replace(/^RRULE:/i, ''));
+      const iterator = rule.iterator(ICAL.Time.fromDateString(task.scheduledDate));
+      for (let i = 0; i < 150_000; i++) {
+        const next = iterator.next();
+        if (!next) break;
+        const date = next.toString().slice(0, 10);
+        if (date > through) break;
+        if (date >= today) add(date);
+      }
+    }
+  } else if (task.dates.length) task.dates.forEach(add);
+  else if (!task.schedule) add(today); // An enabled undated local project has one next session, no invented repeat rule.
+  return dates;
+}
+
 export function rollingTrainingPlan(year: number, month: number, today: string, source: TrainingSource,
   settings: CycleSettings, periods: string[], localEntries: LifeEntries) {
   // Category-only TickTick tasks remain readable as history, but cannot become
@@ -167,6 +197,8 @@ export function rollingTrainingPlan(year: number, month: number, today: string, 
   const plans = new Map<string, TrainingRecord>();
   const byDate = new Map<string, TrainingTask[]>();
   const days = calendarCells(year, month).filter((date): date is string => Boolean(date));
+  const swims = new Map(tasks.filter(task => task.rotation !== false && isSwimmingTraining(task))
+    .map(task => [trainingIdentity(task), swimmingTrainingDates(task, today, days.at(-1)!, settings, periods)]));
   for (const date of days) {
     const done = [...(actual.get(date) ?? [])].map((key) => byKey.get(key)!);
     byDate.set(date, done);
@@ -181,26 +213,31 @@ export function rollingTrainingPlan(year: number, month: number, today: string, 
     const saved = entries[`training:${date}`]?.training;
     const done = [...(actual.get(date) ?? [])].map((key) => byKey.get(key)!);
     const phase = cycleDay(date, settings, periods);
-    const suggested = tasks.filter((task) => {
-      if (task.rotation === false) return false;
-      if (phase?.phase === 'menstrual' && `${task.title}${task.name}`.includes('游泳')) return false;
+    const mainDone = done.some(task => !isSwimmingTraining(task));
+    const main = tasks.filter((task) => {
+      if (task.rotation === false || isSwimmingTraining(task) || mainDone) return false;
       if (['menstrual', 'lateLuteal'].includes(phase?.phase ?? '') && /HIIT|间歇/i.test(task.name)) return false;
-      return (last.get(trainingIdentity(task)) ?? '') <= shiftDay(date, -7);
+      return true;
     }).sort((a, b) => (last.get(trainingIdentity(a)) ?? '').localeCompare(last.get(trainingIdentity(b)) ?? '')
       || trainingIdentity(a).localeCompare(trainingIdentity(b))).slice(0, 1);
+    const suggested = [...main, ...tasks.filter(task => swims.get(trainingIdentity(task))?.has(date)
+      && !actual.get(date)?.has(trainingIdentity(task)))];
     let record: TrainingRecord;
     if (saved && (saved.completed || saved.mode !== 'auto')) {
       record = saved;
-    } else if (done.length) {
-      record = { plan: done.map((task) => task.name).join('\n'), effort: 'normal', completed: true,
-        mode: 'auto', projects: done.map(trainingIdentity) };
     } else {
       const effort = saved?.effort ?? 'normal';
       record = automaticTraining(date, suggested, settings, periods, effort);
+      if (done.length) {
+        const pending = recordedTrainingProjects(record, tasks);
+        record = { ...record, completed: pending.length === 0,
+          plan: [...(pending.length ? [record.plan] : []), ...done.map(task => `${task.name}${pending.length ? ' · 已完成' : ''}`)].join('\n'),
+          projects: [...pending, ...done.map(trainingIdentity)] };
+      }
     }
     // Only simulate future planned sessions; they never enter the actual history.
     for (const key of recordedTrainingProjects(record, tasks)) last.set(key, date);
     if (plans.has(date)) { plans.set(date, record); byDate.set(date, record.completed ? done : suggested); }
   }
-  return { plans, byDate, coverage };
+  return { plans, byDate, coverage, completedByDate: actual };
 }

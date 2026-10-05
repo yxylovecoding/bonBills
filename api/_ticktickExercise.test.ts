@@ -64,6 +64,25 @@ describe('与网页共用实际完成轮换', () => {
     expect(rollingExerciseDates('2026-10-07', source(), DEFAULT_CYCLE, []).get('全身力训')).toBe('2026-10-07');
     expect(rollingExerciseDates('2026-10-14', source(), DEFAULT_CYCLE, []).get('全身力训')).toBe('2026-10-14');
   });
+  it('游泳待办不占主训练日期，已完成的游泳只排下一次', async () => {
+    const current = source();
+    current.tasks.push({ id: 'life:swim', title: '游泳-运动💪🏻是生活的第一个锚点🪝', name: '游泳', dates: [],
+      scheduledDate: '2026-10-05', repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=2', schedule: '每 2 天', notes: '', links: [] });
+    training.mockResolvedValue(current);
+    const swim = workout({ id: 'swim', title: current.tasks.at(-1)!.title, repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=2',
+      startDate: '2026-10-05T01:00:00.000+0000', dueDate: '2026-10-05T01:00:00.000+0000' });
+    const fake = fakeApi(...current.tasks.slice(0, 3).map((task, i) => workout({ id: String(i), title: task.title })), swim);
+    const options = { rolling: true, connectionId: 'account', now: now('2026-10-05T05:00:00'), calendarState: {} };
+    const result = await syncExerciseSchedule(fake.api, options);
+    expect(result.fixedDates.get('0')).toBe('2026-10-05');
+    expect(result.fixedDates.get('swim')).toBe('2026-10-05');
+    expect(fake.stored.get('swim')).toEqual(swim);
+    current.completions!.push({ project: '游泳', date: '2026-10-05' });
+    const after = await syncExerciseSchedule(fake.api, options);
+    expect(after.fixedDates.get('0')).toBe('2026-10-05');
+    expect(after.fixedDates.get('swim')).toBe('2026-10-07');
+    expect(fake.stored.get('swim')?.repeatFlag).toBe(swim.repeatFlag);
+  });
 });
 
 describe('夜间运动收尾', () => {

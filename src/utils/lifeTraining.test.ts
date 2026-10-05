@@ -44,7 +44,7 @@ describe('按实际完成滚动轮换', () => {
     expect(project(result, '2026-10-14')).not.toBe('爬坡');
     expect(result.coverage.every((item) => !item.completed)).toBe(true);
     expect(result.coverage.find((item) => item.task.name === '爬坡')?.lastCompleted).toBe('2026-10-07');
-    const week = Array.from({ length: 6 }, (_, i) => project(result, `2026-10-${14 + i}`));
+    const week = Array.from({ length: 6 }, (_, i) => result.plans.get(`2026-10-${14 + i}`)?.projects ?? []).flat();
     expect(new Set(week)).toEqual(new Set(names.map(trainingProjectKey)));
   });
   it('没练不推进；完成后才推进，跨过周日也不重置', () => {
@@ -54,13 +54,13 @@ describe('按实际完成滚动轮换', () => {
     expect(project(retry, '2026-10-12')).toBe(project(first, '2026-10-10'));
     missed['training:2026-10-10'].training.completed = true;
     expect(project(run('2026-10-12', source(), missed), '2026-10-12')).not.toBe(project(first, '2026-10-10'));
-    expect(run('2026-10-12', source(), missed).coverage.filter((item) => item.completed)).toHaveLength(1);
+    expect(run('2026-10-12', source(), missed).coverage.filter((item) => item.completed && item.task.name !== '游泳')).toHaveLength(1);
   });
-  it('每个项目七天一次，覆盖后休息；优先最久未练，保留七天以前的顺序', () => {
+  it('覆盖一轮后继续轮换，不强制每项间隔七天；最久未练优先', () => {
     const first = run('2026-10-14');
-    expect(new Set(Array.from({ length: 6 }, (_, i) => project(first, `2026-10-${14 + i}`))).size).toBe(6);
-    expect(first.plans.get('2026-10-20')?.plan).toContain('休息');
-    expect(project(first, '2026-10-21')).toBe(project(first, '2026-10-14'));
+    expect(new Set(Array.from({ length: 5 }, (_, i) => project(first, `2026-10-${14 + i}`))).size).toBe(5);
+    expect(Array.from({ length: 7 }, (_, i) => first.plans.get(`2026-10-${14 + i}`)?.plan).every(plan => !plan?.includes('休息'))).toBe(true);
+    expect(project(first, '2026-10-19')).toBe(project(first, '2026-10-14'));
     const history = names.map((name, i): [string, string] => [name, `2026-10-${String(2 + i).padStart(2, '0')}`]);
     expect(project(run('2026-10-14', source(history)), '2026-10-14')).toBe('爬坡');
   });
@@ -73,7 +73,7 @@ describe('按实际完成滚动轮换', () => {
     expect(['爬坡', '上半身']).not.toContain(project(result, '2026-10-14'));
   });
   it('今天在 TickTick 已练就展示完成记录，明天接着排', () => {
-    const result = run('2026-10-14', source([['爬坡', '2026-10-14']]));
+    const result = run('2026-10-14', source([['爬坡', '2026-10-14']], names.filter(name => name !== '游泳').map(task)));
     expect(result.plans.get('2026-10-14')).toMatchObject({ completed: true, projects: ['爬坡'] });
     expect(project(result, '2026-10-15')).not.toBe('爬坡');
   });
@@ -83,7 +83,7 @@ describe('按实际完成滚动轮换', () => {
       const result = run('2026-10-14', source(), { 'training:2026-10-14': record('旧计划', { effort, completed: false }) });
       expect(result.plans.get('2026-10-14')?.projects).toEqual([]);
       expect(project(result, '2026-10-15')).toBe(first);
-      expect(automaticTraining('2026-10-14', result.byDate.get('2026-10-14'), DEFAULT_CYCLE, []).projects).toEqual([first]);
+      expect(automaticTraining('2026-10-14', result.byDate.get('2026-10-14'), DEFAULT_CYCLE, []).projects).toEqual([first, '游泳']);
     }
     expect(recordedTrainingProjects({ plan: '爬坡', effort: 'rest', completed: true, projects: ['爬坡'] }, names.map(task))).toEqual([]);
     expect(recordedTrainingProjects({ plan: '今天没练爬坡', effort: 'normal', completed: true }, names.map(task))).toEqual([]);
@@ -96,7 +96,8 @@ describe('按实际完成滚动轮换', () => {
       expect(result.plans.get(date)?.projects).toEqual([]);
     }
     expect(result.plans.get('2026-10-04')?.projects).toEqual([]);
-    expect(new Set(['2026-10-06', '2026-10-07'].map((date) => project(result, date)))).toEqual(new Set(['游泳', 'hiit']));
+    expect(result.plans.get('2026-10-06')?.projects).toEqual(['hiit', '游泳']);
+    expect(result.plans.get('2026-10-07')?.projects).toEqual(['hiit']);
     expect(automaticTraining('2026-10-22', [task('HIIT')], cycle, []).projects).toEqual([]);
   });
   it('跨年衔接历史完成，并保留手动计划与完成快照', () => {
@@ -113,6 +114,50 @@ describe('按实际完成滚动轮换', () => {
     for (const projects of ['爬坡', [4], [''], Array(31).fill('爬坡')]) {
       expect(() => parseLifeEdit({ ...edit, training: { ...edit.training, projects } })).toThrow();
     }
+  });
+});
+
+describe('游泳独立安排', () => {
+  const swim: TrainingTask = { ...task('游泳'), scheduledDate: '2026-10-05', repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=2', schedule: '每 2 天' };
+  const run = (completions: TrainingSource['completions'] = [], swimming = swim, today = '2026-10-05', cycle = DEFAULT_CYCLE, year = 2026, month = 10) =>
+    rollingTrainingPlan(year, month, today, { year, connected: true, syncedAt: null,
+      tasks: ['上半身', '全身力训', '臀腿'].map(task).concat(swimming), completions }, cycle, [], {});
+  it('同一天保留主训练和游泳，主训练连续轮换，游泳沿用已有频率', () => {
+    const result = run();
+    for (let day = 5; day <= 11; day++) {
+      const projects = result.plans.get(`2026-10-${String(day).padStart(2, '0')}`)!.projects!;
+      expect(projects.filter(key => key !== '游泳')).toHaveLength(1);
+      expect(projects.includes('游泳')).toBe(day % 2 === 1);
+    }
+    expect(result.plans.get('2026-10-05')?.projects).toEqual(['上半身', '游泳']);
+    expect(result.plans.get('2026-10-08')?.projects).toEqual(['上半身']);
+  });
+  it('只完成游泳不完成主训练，只完成主训练也保留待游泳', () => {
+    const swimmingDone = run([{ project: '游泳', date: '2026-10-05' }]);
+    expect(swimmingDone.plans.get('2026-10-05')).toMatchObject({ completed: false, projects: ['上半身', '游泳'] });
+    expect(swimmingDone.plans.get('2026-10-05')?.plan).toContain('游泳 · 已完成');
+    const mainDone = run([{ project: '上半身', date: '2026-10-05' }]);
+    expect(mainDone.plans.get('2026-10-05')).toMatchObject({ completed: false, projects: ['游泳', '上半身'] });
+    expect(mainDone.plans.get('2026-10-05')?.plan).not.toContain('全身力训');
+    expect(run([{ project: '上半身', date: '2026-10-05' }, { project: '游泳', date: '2026-10-05' }]).plans.get('2026-10-05')?.completed).toBe(true);
+  });
+  it('经期仅顺延游泳，不挤掉经后当天主训练；跨年保持同一重复规则', () => {
+    const result = run([], { ...swim, scheduledDate: '2026-12-29' }, '2026-12-29',
+      { ...DEFAULT_CYCLE, lastPeriodStart: '2026-12-29', automatic: false }, 2027, 1);
+    expect(result.plans.get('2027-01-01')?.projects).not.toContain('游泳');
+    expect(result.plans.get('2027-01-03')?.projects).toHaveLength(2);
+    expect(result.plans.get('2027-01-03')?.projects).toContain('游泳');
+    expect(result.plans.get('2027-01-04')?.projects).toContain('游泳');
+    expect(result.plans.get('2027-01-05')?.projects).not.toContain('游泳');
+  });
+  it('一次性游泳不变成每天，移动过的当前待办日期仍保留', () => {
+    const one = run([], { ...swim, repeatFlag: undefined });
+    expect(one.plans.get('2026-10-05')?.projects).toContain('游泳');
+    expect(one.plans.get('2026-10-07')?.projects).not.toContain('游泳');
+    const moved = run([], { ...swim, scheduledDate: '2026-10-06', repeatFlag: 'RRULE:FREQ=WEEKLY;BYDAY=MO' });
+    expect(moved.plans.get('2026-10-06')?.projects).toContain('游泳');
+    expect(moved.plans.get('2026-10-12')?.projects).toContain('游泳');
+    expect(moved.plans.get('2026-10-05')?.projects).not.toContain('游泳');
   });
 });
 

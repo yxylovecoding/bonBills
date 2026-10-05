@@ -10,7 +10,7 @@ import { readSwimmingCycle } from './_lifeSwimming.js';
 import { shanghaiDay } from './_lifeDone.js';
 import type { CycleSettings } from '../src/utils/bonLife.js';
 import { CYCLE_GUIDANCE, cycleDay } from '../src/utils/lifeCycle.js';
-import { recordedTrainingProjects, rollingTrainingPlan, trainingIdentity, trainingLibrary, type TrainingSource } from '../src/utils/lifeTraining.js';
+import { isSwimmingTraining, recordedTrainingProjects, rollingTrainingPlan, trainingIdentity, trainingLibrary, type TrainingSource } from '../src/utils/lifeTraining.js';
 
 const addDays = (date: string, count: number) => new Date(Date.parse(`${date}T00:00:00Z`) + count * 86_400_000).toISOString().slice(0, 10);
 const minutesIn = (text: string) => {
@@ -21,6 +21,7 @@ export function buildTrainingBriefing(today: string, source: TrainingSource, cyc
   const library = trainingLibrary(source.tasks, source.settings);
   const initial = rollingTrainingPlan(Number(today.slice(0, 4)), Number(today.slice(5, 7)), today, source, cycle, periods, {});
   const last = new Map(initial.coverage.map(({ task, lastCompleted }) => [trainingIdentity(task), lastCompleted]));
+  const projected = new Map<string, string>();
   const months = new Map([[today.slice(0, 7), initial]]);
   return Array.from({ length: 7 }, (_, index) => {
     const date = addDays(today, index);
@@ -29,19 +30,26 @@ export function buildTrainingBriefing(today: string, source: TrainingSource, cyc
     const record = months.get(month)!.plans.get(date)!;
     const phase = cycleDay(date, cycle, periods);
     const keys = recordedTrainingProjects(record, library);
-    const selected = library.filter((task) => keys.includes(trainingIdentity(task)));
+    const selected = keys.map(key => library.find(task => trainingIdentity(task) === key)!).filter(Boolean);
+    const completed = months.get(month)!.completedByDate.get(date);
     const reasons: string[] = [];
     if (record.completed) reasons.push('已完成，保留实际训练记录');
     else if (record.mode !== 'auto') reasons.push('保留你手动安排的内容');
     else if (record.effort === 'rest') reasons.push('你已选择休息');
     else if (record.effort === 'easy' || (phase?.phase === 'menstrual' && phase.day <= 3)) reasons.push('按当前强度与经期设置安排恢复活动');
     else if (selected.length) {
-      for (const task of selected) reasons.push(last.get(trainingIdentity(task))
-        ? `${task.name}上次实际完成于 ${last.get(trainingIdentity(task))}，本轮按最久未练优先`
-        : `${task.name}尚无匹配的完成记录，优先补齐轮换项目`);
-    } else reasons.push(library.some((task) => task.rotation) ? '当前可安排的项目已覆盖，或暂受经期限制，留作恢复' : '尚未启用轮换项目');
+      for (const task of selected) {
+        const key = trainingIdentity(task);
+        if (completed?.has(key)) reasons.push(`${task.name}已完成，其他项目继续保留`);
+        else if (isSwimmingTraining(task)) reasons.push(`${task.name}独立安排${task.schedule ? '，沿用 TickTick 原有频率' : ''}，可与当天训练并存`);
+        else if (projected.has(key)) reasons.push(`${task.name}继续轮换；本次预排已在 ${projected.get(key)} 安排，后续仍按实际完成调整`);
+        else reasons.push(last.get(key) ? `${task.name}上次实际完成于 ${last.get(key)}，本轮按最久未练优先`
+          : `${task.name}尚无匹配的完成记录，优先补齐轮换项目`);
+      }
+    } else reasons.push(library.some((task) => task.rotation) ? '当前没有符合设置的项目，留作恢复' : '尚未启用轮换项目');
     if (!record.completed && phase?.phase === 'menstrual') reasons.push('按你的设置，经期内游泳顺延');
     if (!record.completed && record.mode === 'auto' && phase?.phase === 'lateLuteal') reasons.push('按黄体中晚期设置减量，间歇项目暂缓');
+    for (const key of keys) if (!completed?.has(key)) projected.set(key, date);
     let minutes = 0;
     if (record.effort !== 'rest' && !/^休息/.test(record.plan)) {
       minutes = selected.length ? selected.reduce((sum, task) => sum + (minutesIn(task.notes) ?? minutesIn(task.name) ?? 45), 0)

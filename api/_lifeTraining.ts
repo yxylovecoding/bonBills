@@ -67,7 +67,8 @@ export function trainingTask(task: TickTickTask, year: number, adjustDate: (date
     const adjusted = adjustDate(date);
     if (adjusted.startsWith(`${year}-`)) dates.add(adjusted);
   }
-  return { id: `${task.projectId}:${task.id}`, title: task.title, name, schedule, dates: [...dates].sort(), notes, links };
+  return { id: `${task.projectId}:${task.id}`, title: task.title, name, schedule, dates: [...dates].sort(), notes, links,
+    scheduledDate: date ?? undefined, repeatFlag: task.repeatFlag };
 }
 
 export async function readTrainingSource(year: number): Promise<TrainingSource> {
