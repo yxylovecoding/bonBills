@@ -8,7 +8,7 @@ const { data } = vi.hoisted(() => ({ data: new Map<string, any>() }));
 vi.mock('@vercel/kv', () => ({ kv: {
   get: async (key: string) => structuredClone(data.get(key) ?? null),
   set: async (key: string, value: any, options?: { nx?: boolean }) => { if (options?.nx && data.has(key)) return null; data.set(key, structuredClone(value)); return 'OK'; },
-  eval: async (script: string, keys: string[], args: string[]) => { if (data.get(keys[0]) !== args[0]) return 0; if (script.includes("'del'")) data.delete(keys[0]); return 1; },
+  eval: async (script: string, keys: string[], args: string[]) => { if (script.includes('zcard')) return 1; if (data.get(keys[0]) !== args[0]) return 0; if (script.includes("'del'")) data.delete(keys[0]); return 1; },
 } }));
 let task: TickTickTask;
 let events: Map<string, any>;
@@ -116,4 +116,26 @@ it('只同步管理范围内未完成的洗衣；默认50分钟并拒绝历史�
   expect(laundryEventPlan(task, '2026-10-09')).toBeNull();
   expect(laundryEventPlan({ ...task, title: '除螨喷雾' }, '2026-10-05')).toBeNull();
   expect(laundryEventPlan({ ...task, tags: ['不关我事'] }, '2026-10-05')).toBeNull();
+});
+it('Make 只在排期变化时调用，变更仍核对归属并更新同一事件', async () => {
+  const upstream = globalThis.fetch;
+  const relay = vi.fn(async (_url: string, init: RequestInit) => {
+    const input = JSON.parse(init.body as string);
+    const response = await upstream(`https://graph.microsoft.com${input.path}`, { method: input.method, body: input.body || undefined,
+      headers: Object.fromEntries(input.headers.map((header: { key: string; value: string }) => [header.key, header.value])) });
+    return json({ protocol: 'bonbills-outlook-v1', status: response.status, body: await response.json() });
+  });
+  vi.stubGlobal('fetch', relay);
+  data.set(OUTLOOK_WRITE_KEY, { id: 'outlook', clientId: '', provider: 'make', calendarId: 'calendar', calendarName: '日历',
+    encrypted: sealOutlookWrite({ webhookUrl: 'https://hook.eu1.make.com/0123456789abcdef0123456789abcdef' }) });
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ created: 1 });
+  const count = relay.mock.calls.length, syncedAt = data.get(OUTLOOK_WRITE_KEY).lastSyncAt;
+  expect(count).toBe(3);
+  await syncLaundryOutlook(api, options());
+  expect(relay).toHaveBeenCalledTimes(count); expect(data.get(OUTLOOK_WRITE_KEY).lastSyncAt).toBe(syncedAt);
+  task.startDate = task.dueDate = '2026-10-09T00:00:00Z';
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ updated: 1 });
+  expect(events.size).toBe(1); expect(writes[1].headers['If-Match']).toBe('v1');
+  events.get('event-1').attendees = [{}]; task.startDate = task.dueDate = '2026-10-10T00:00:00Z';
+  expect((await syncLaundryOutlook(api, options())).error).toContain('参与人'); expect(writes).toHaveLength(2);
 });

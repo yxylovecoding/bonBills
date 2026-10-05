@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { apiFetch } from '../utils/authClient';
 
 interface Status {
+  provider?: 'microsoft' | 'make';
   connected: boolean; enabled: boolean; clientId?: string; calendarId?: string; calendarName?: string;
   lastSyncAt?: string; error?: string; calendars?: { id: string; name: string; isDefaultCalendar?: boolean }[];
 }
@@ -19,6 +20,7 @@ async function request<T>(method: string, body?: unknown, calendars = false): Pr
 export default function OutlookLaundryControl() {
   const [status, setStatus] = useState<Status | null>(null), [expanded, setExpanded] = useState(false);
   const [clientId, setClientId] = useState(''), [calendarId, setCalendarId] = useState('');
+  const [webhookUrl, setWebhookUrl] = useState(''), [direct, setDirect] = useState(false);
   const [flow, setFlow] = useState<Flow | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const alive = useRef(true);
   useEffect(() => {
@@ -48,10 +50,14 @@ export default function OutlookLaundryControl() {
     timer = setTimeout(() => void poll(), flow.interval * 1000);
     return () => { canceled = true; clearTimeout(timer); };
   }, [flow]);
-  async function run(action: 'start' | 'select' | 'disconnect' | 'calendars') {
+  async function run(action: 'start' | 'make' | 'select' | 'disconnect' | 'calendars') {
     setBusy(true); setError('');
     try {
       if (action === 'start') { const data = await request<Flow>('POST', { action, clientId: clientId.trim() }); if (alive.current) setFlow(data); }
+      else if (action === 'make') {
+        const data = await request<Status>('POST', { action, webhookUrl: webhookUrl.trim() });
+        if (alive.current) { setWebhookUrl(''); setStatus(data); setCalendarId(data.calendars?.find(calendar => calendar.isDefaultCalendar)?.id ?? ''); }
+      }
       else if (action === 'calendars') await loadCalendars();
       else {
         const data = await request<Status>(action === 'disconnect' ? 'DELETE' : 'POST', action === 'select' ? { action, calendarId } : undefined);
@@ -73,12 +79,20 @@ export default function OutlookLaundryControl() {
     </div>
     {expanded && <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
       {!status?.connected && !flow && <>
+        {!direct && <>
+          <label style={{ fontSize: 12 }}>Make Webhook<input aria-label="Make Webhook" type="password" value={webhookUrl} disabled={busy} autoComplete="off"
+            style={{ ...field, marginTop: 4 }} onChange={event => setWebhookUrl(event.target.value)} /></label>
+          <button type="button" style={button} disabled={busy || !webhookUrl.trim()} onClick={() => void run('make')}>连接 Make</button>
+        </>}
+        {direct && <>
         <label style={{ fontSize: 12 }}>微软应用 ID<input aria-label="微软应用 ID" value={clientId} disabled={busy} autoComplete="off"
           style={{ ...field, marginTop: 4 }} onChange={event => setClientId(event.target.value)} /></label>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <a href="https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#1a73e8' }}>微软应用注册</a>
           <button type="button" style={button} disabled={busy || !clientId.trim()} onClick={() => void run('start')}>登录微软授权</button>
         </div>
+        </>}
+        <button type="button" style={{ ...button, color: '#5f6368', justifySelf: 'start' }} disabled={busy} onClick={() => setDirect(value => !value)}>{direct ? '使用 Make' : '使用自有微软应用'}</button>
       </>}
       {flow && <>
         <div style={{ fontSize: 12 }}>授权码 <strong style={{ userSelect: 'all', letterSpacing: 2 }}>{flow.userCode}</strong></div>

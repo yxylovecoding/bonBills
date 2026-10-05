@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { authOk, sameOrigin } from './_auth.js';
-import { disconnectOutlookWrite, outlookWriteStatus, OutlookWriteError, pollOutlookWrite, selectOutlookWriteCalendar, startOutlookWrite, withOutlookWriteLock } from './_outlookWrite.js';
+import { connectOutlookMake, disconnectOutlookWrite, outlookWriteStatus, OutlookWriteError, pollOutlookWrite, selectOutlookWriteCalendar, startOutlookWrite, withOutlookWriteLock } from './_outlookWrite.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'private, no-store'); res.setHeader('Vary', 'Cookie');
@@ -14,6 +14,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       let body: Record<string, unknown>;
       try { body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body; } catch { throw new OutlookWriteError('请求内容无效', 400); }
       if (body?.action === 'start') return startOutlookWrite(body.clientId);
+      if (body?.action === 'make') return connectOutlookMake(body.webhookUrl);
       if (body?.action === 'poll') return pollOutlookWrite(body.flowId);
       if (body?.action === 'select') { await selectOutlookWriteCalendar(body.calendarId); return outlookWriteStatus(); }
       throw new OutlookWriteError('请求内容无效', 400);

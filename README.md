@@ -270,7 +270,13 @@ src/
 
 ### 洗衣日程写入 Outlook
 
-「对账 → 设置 → 洗衣日程 · Outlook」提供独立写入连接。首次需要在自己的 Microsoft Entra 租户注册应用，支持“任何组织目录中的帐户和个人 Microsoft 帐户”，在“身份验证 → 高级设置”启用“允许公共客户端流”，并添加 Microsoft Graph **委托**权限 `Calendars.ReadWrite`。把应用（客户端）ID 填入设置，点击“登录微软授权”，在微软官方设备登录页面输入短授权码并同意；无需应用密钥，也不要把访问令牌粘贴到网页。随后选择目标「日历」并开启同步。若已有应用 ID，也可用 `OUTLOOK_CLIENT_ID` 预填。微软侧的权限范围是日历读写，应用代码仅写所选日历中与洗衣任务明确关联的日程，不添加参与人。
+支持 Make 免费连接：创建即时 Custom Webhook → Microsoft 365 Calendar / Make an API Call → Webhook response 场景，用 Make 自带微软连接授权 `offline_access`、`User.Read`、`Calendars.ReadWrite`，无需自有 Azure 应用。Webhook 地址是访问凭据，不公开、不写日志或仓库；在「对账 → 设置 → 洗衣日程 · Outlook」输入后只读验证可写日历，选择目标日历再开启。地址以 AES-GCM 加密保存在原连接键中，浏览器只暂存于输入框，不持久化。
+
+Make 输入为 `path`（Graph `/v1.0/me/calendars…` 相对路径）、`method`（GET/POST/PATCH）、`body`（JSON 文本）、`headers`（key/value 数组）；固定发送 Graph `Prefer: IdType="ImmutableId", outlook.timezone="Asia/Shanghai"`，有 ETag 时发送 `If-Match`。回传 HTTP 200 JSON `{ "protocol": "bonbills-outlook-v1", "status": 200, "body": <Graph 响应对象> }`，错误分支也返回真实 Graph 状态（尤其 404/412）。Make 默认纯文本 `Accepted` 不视为执行成功。场景只放行所选日历的事件及必要的日历列表查询，不连接其他业务模块。
+
+Make 模式同周期排期指纹未变且已回读验证时不发请求；发生变化仍核对归属、参与人及版本。后台通过 Redis 原子计数，滚动 32 天最多发送 200 次请求（含失败），不因重连重置；达到上限暂停，不自动购买额度。标准三模块场景约 600 credits，错误分支或其他 Make 自动化也占用同一免费额度。没有保持日历轮询，因此手动改动在下次洗衣计划变化时才重新检查；断开后原日程保留。
+
+自有微软应用方式仍提供独立写入连接。首次需要在自己的 Microsoft Entra 租户注册应用，支持“任何组织目录中的帐户和个人 Microsoft 帐户”，在“身份验证 → 高级设置”启用“允许公共客户端流”，并添加 Microsoft Graph **委托**权限 `Calendars.ReadWrite`。把应用（客户端）ID 填入设置，点击“登录微软授权”，在微软官方设备登录页面输入短授权码并同意；无需应用密钥，也不要把访问令牌粘贴到网页。随后选择目标「日历」并开启同步。若已有应用 ID，也可用 `OUTLOOK_CLIENT_ID` 预填。微软侧的权限范围是日历读写，应用代码仅写所选日历中与洗衣任务明确关联的日程，不添加参与人。
 
 连接申请 `offline_access` 和 `Calendars.ReadWrite`，遵循微软设备授权轮询间隔与过期时间。设备凭据、访问与刷新令牌使用 `SYNC_SECRET` 派生密钥 AES-GCM 加密存储；只允许已登录同源请求管理连接，并与定时写入共享锁。连接与 ICS 订阅相互独立。当前 Codex 的 Outlook 连接不会被复制到 BonBills 后台，也不会导出其中的令牌。
 

@@ -9,6 +9,7 @@ const AUTH = 'https://login.microsoftonline.com/common/oauth2/v2.0';
 const SCOPE = 'offline_access https://graph.microsoft.com/Calendars.ReadWrite';
 export interface WriteConnection {
   id: string; clientId: string; encrypted: string;
+  provider?: 'microsoft' | 'make';
   calendarId?: string; calendarName?: string; lastSyncAt?: string; lastError?: string;
 }
 interface Tokens { access_token: string; refresh_token: string; expiresAt: number }
@@ -108,11 +109,73 @@ export async function graphRequest<T>(token: string, path: string, init: Request
     : response.status === 403 ? '没有所选日历的写入权限' : `Outlook 日程同步失败（${response.status}）`, response.status);
   return response.status === 204 ? undefined as T : await response.json() as T;
 }
-export async function writableCalendars(token: string): Promise<WritableCalendar[]> {
+export type GraphClient = <T>(path: string, init?: RequestInit) => Promise<T>;
+export function validateMakeWebhook(value: unknown): string {
+  if (typeof value !== 'string') throw new OutlookWriteError('请输入 Make Webhook 地址', 400);
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol === 'https:' && /^hook(?:\.(?:eu|us)\d+)?\.make\.com$/.test(url.hostname)
+      && !url.port && !url.username && !url.password && !url.search && !url.hash && /^\/[a-z0-9]{32}$/.test(url.pathname)) return url.href;
+  } catch { /* Never echo a credential URL in errors. */ }
+  throw new OutlookWriteError('Make Webhook 地址无效', 400);
+}
+async function reserveMakeCall() {
+  // A rolling window also covers calendar-month/billing-cycle boundaries. Do not reset on reconnect.
+  const accepted = await kv.eval(`local cutoff = tonumber(ARGV[1]) - 2764800000
+redis.call('zremrangebyscore', KEYS[1], '-inf', cutoff)
+if redis.call('zcard', KEYS[1]) >= 200 then return 0 end
+redis.call('zadd', KEYS[1], ARGV[1], ARGV[2])
+redis.call('expire', KEYS[1], 2764800)
+return 1`, ['outlook:make-calls:v1'], [String(Date.now()), randomUUID()]);
+  if (!accepted) throw new OutlookWriteError('免费调用额度已暂停，请稍后再试', 429);
+}
+export async function outlookGraphClient(connection: WriteConnection): Promise<GraphClient> {
+  if (connection.provider !== 'make') {
+    const token = await accessToken(connection);
+    return <T>(path: string, init?: RequestInit) => graphRequest<T>(token, path, init);
+  }
+  const { webhookUrl } = unsealOutlookWrite<{ webhookUrl: string }>(connection.encrypted);
+  const endpoint = validateMakeWebhook(webhookUrl);
+  return async <T>(path: string, init: RequestInit = {}): Promise<T> => {
+    const method = init.method ?? 'GET';
+    const allowedPath = /^\/me\/calendars(?:\?|$)/.test(path)
+      ? method === 'GET'
+      : /^\/me\/calendars\/[^/?#]+\/events(?:\/[^/?#]+)?(?:\?|$)/.test(path) && ['GET', 'POST', 'PATCH'].includes(method);
+    if (!allowedPath || path.includes('#') || path.includes('..')) throw new OutlookWriteError('日历请求无效', 400);
+    const headers = new Headers(init.headers);
+    for (const name of headers.keys()) if (name !== 'if-match') throw new OutlookWriteError('日历请求头无效', 400);
+    await reserveMakeCall();
+    const response = await fetch(endpoint, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(25_000),
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: `/v1.0${path}`, method,
+        body: typeof init.body === 'string' ? init.body : '',
+        headers: [{ key: 'Content-Type', value: 'application/json' }, { key: 'Prefer', value: 'IdType="ImmutableId", outlook.timezone="Asia/Shanghai"' },
+          ...(headers.has('if-match') ? [{ key: 'If-Match', value: headers.get('if-match')! }] : [])] }) });
+    // Make's default 200 "Accepted" only acknowledges receipt; it does not prove Graph succeeded.
+    let data: { protocol?: string; status?: number; body?: T };
+    try { data = await response.json(); } catch { throw new OutlookWriteError('Make 未返回日历执行结果，请检查场景'); }
+    if (!response.ok || data?.protocol !== 'bonbills-outlook-v1' || !Number.isInteger(data.status) || data.status! < 200 || data.status! > 599)
+      throw new OutlookWriteError('Make 未返回有效日历执行结果');
+    if (data.status! >= 300) throw new OutlookWriteError(data.status === 401 ? '微软授权已失效，请重新连接'
+      : data.status === 403 ? '没有所选日历的写入权限' : `Outlook 日程同步失败（${data.status}）`, data.status);
+    if (data.status !== 204 && (!data.body || typeof data.body !== 'object')) throw new OutlookWriteError('Make 日历执行结果不完整');
+    return data.body as T;
+  };
+}
+export async function connectOutlookMake(webhookUrl: unknown) {
+  if (await kv.get(OUTLOOK_WRITE_KEY)) throw new OutlookWriteError('更换连接前请先断开连接', 409);
+  const connection: WriteConnection = { id: randomUUID(), clientId: '', provider: 'make',
+    encrypted: sealOutlookWrite({ webhookUrl: validateMakeWebhook(webhookUrl) }) };
+  const calendars = await writableCalendars(await outlookGraphClient(connection));
+  if (!calendars.length) throw new OutlookWriteError('未找到可编辑日历', 400);
+  await kv.set(OUTLOOK_WRITE_KEY, connection);
+  return { ...await outlookWriteStatus(), calendars };
+}
+export async function writableCalendars(client: string | GraphClient): Promise<WritableCalendar[]> {
+  const request: GraphClient = typeof client === 'string' ? (path, init) => graphRequest(client, path, init) : client;
   let path = '/me/calendars?$select=id,name,canEdit,isDefaultCalendar&$top=100';
   const calendars: WritableCalendar[] = [];
   for (let page = 0; page < 5; page++) {
-    const data = await graphRequest<{ value: WritableCalendar[]; '@odata.nextLink'?: string }>(token, path);
+    const data = await request<{ value: WritableCalendar[]; '@odata.nextLink'?: string }>(path);
     calendars.push(...data.value.filter(calendar => calendar.canEdit && calendar.id && calendar.name));
     if (!data['@odata.nextLink']) return calendars;
     const next = new URL(data['@odata.nextLink']);
@@ -123,16 +186,16 @@ export async function writableCalendars(token: string): Promise<WritableCalendar
 }
 export async function outlookWriteStatus(listCalendars = false) {
   const [connection, settings] = await Promise.all([kv.get<WriteConnection>(OUTLOOK_WRITE_KEY), kv.get<{ clientId: string }>(SETTINGS_KEY)]);
-  const calendars = connection && listCalendars ? await writableCalendars(await accessToken(connection)) : undefined;
+  const calendars = connection && listCalendars ? await writableCalendars(await outlookGraphClient(connection)) : undefined;
   return { connected: Boolean(connection), enabled: Boolean(connection?.calendarId), clientId: settings?.clientId ?? process.env.OUTLOOK_CLIENT_ID ?? '',
-    calendarId: connection?.calendarId, calendarName: connection?.calendarName, lastSyncAt: connection?.lastSyncAt, error: connection?.lastError, calendars };
+    provider: connection?.provider ?? 'microsoft', calendarId: connection?.calendarId, calendarName: connection?.calendarName, lastSyncAt: connection?.lastSyncAt, error: connection?.lastError, calendars };
 }
 export async function selectOutlookWriteCalendar(calendarId: unknown) {
   const connection = await kv.get<WriteConnection>(OUTLOOK_WRITE_KEY);
   if (!connection) throw new OutlookWriteError('请先连接 Outlook', 400);
   // Reconnecting/switching calendars requires an explicit new selection; never silently use the primary calendar.
   if (connection.calendarId && connection.calendarId !== calendarId) throw new OutlookWriteError('更换日历前请先断开连接', 409);
-  const calendar = (await writableCalendars(await accessToken(connection))).find(calendar => calendar.id === calendarId);
+  const calendar = (await writableCalendars(await outlookGraphClient(connection))).find(calendar => calendar.id === calendarId);
   if (!calendar) throw new OutlookWriteError('请选择可编辑的日历', 400);
   await kv.set(OUTLOOK_WRITE_KEY, { ...connection, calendarId: calendar.id, calendarName: calendar.name, lastError: undefined });
 }

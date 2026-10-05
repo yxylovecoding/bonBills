@@ -4,10 +4,10 @@ import { estimateTaskMinutes } from './_ticktickDailyPlan.js';
 import { isLaundryTask, laundryLocation, LAUNDRY_STATE_KEY, type LaundryState } from './_ticktickLaundry.js';
 import { routineTaskDate, type TickTickApi, type TickTickTask } from './_ticktickTrips.js';
 import { wallTimeInstant } from './_calendarTimezone.js';
-import { OUTLOOK_WRITE_KEY, OutlookWriteError, accessToken, graphRequest, withOutlookWriteLock, type WriteConnection } from './_outlookWrite.js';
+import { OUTLOOK_WRITE_KEY, OutlookWriteError, outlookGraphClient, withOutlookWriteLock, type GraphClient, type WriteConnection } from './_outlookWrite.js';
 
 export const LAUNDRY_EVENT_PROPERTY = 'String {d9d1e730-7742-4a9c-91af-bab2a9a45f69} Name BonBillsLaundry';
-interface Entry { eventId?: string; transactionId: string; deleted?: boolean; adoptTaskUrl?: string }
+interface Entry { eventId?: string; transactionId: string; deleted?: boolean; adoptTaskUrl?: string; verifiedPlan?: string }
 interface EventsState { entries: Record<string, Entry> }
 interface EventTime { dateTime: string; timeZone: string }
 interface CalendarEvent {
@@ -37,7 +37,7 @@ function instant(time: EventTime) {
 function owned(event: CalendarEvent, key: string) {
   return event.singleValueExtendedProperties?.some(property => property.id === LAUNDRY_EVENT_PROPERTY && property.value === key);
 }
-async function syncEvents(token: string, connection: WriteConnection, api: TickTickApi, options: {
+async function syncEvents(request: GraphClient, connection: WriteConnection, api: TickTickApi, options: {
   tasks: TickTickTask[]; managedTaskIds: ReadonlySet<string>; ticktickConnectionId: string; configState: unknown; today: string;
   plannedDates: Record<string, string | null | undefined>;
 }, keepLease: () => Promise<void>) {
@@ -46,7 +46,7 @@ async function syncEvents(token: string, connection: WriteConnection, api: TickT
   const [saved, laundry] = await Promise.all([kv.get<EventsState>(stateKey), kv.get<LaundryState>(LAUNDRY_STATE_KEY)]);
   const state: EventsState = saved ?? { entries: {} };
   if (laundry?.connectionId !== options.ticktickConnectionId) return { created: 0, updated: 0 };
-  let created = 0, updated = 0;
+  let created = 0, updated = 0, verifiedCount = 0;
   for (const original of options.tasks.filter(task => options.managedTaskIds.has(task.id))) {
     const task = await api.getTask(original.projectId, original.id);
     if (routineTaskDate(task) !== options.plannedDates[task.id]) continue;
@@ -57,9 +57,13 @@ async function syncEvents(token: string, connection: WriteConnection, api: TickT
     const key = digest(`${options.ticktickConnectionId}:${task.projectId}:${task.id}:${anchor.completion ?? anchor.target}`);
     const entry = state.entries[key] ??= { transactionId: key };
     if (entry.deleted) continue;
+    const fingerprint = digest(JSON.stringify(plan));
+    // Hosted relay calls cost credits. Only skip after an actual successful Graph readback.
+    if (connection.provider === 'make' && entry.eventId && !entry.adoptTaskUrl && entry.verifiedPlan === fingerprint) continue;
+    if (entry.verifiedPlan) { delete entry.verifiedPlan; await kv.set(stateKey, state); }
     let event: CalendarEvent | undefined;
     if (entry.eventId) {
-      try { event = await graphRequest<CalendarEvent>(token, `${calendarPath}/${encodeURIComponent(entry.eventId)}?${expand}&${select}`); }
+      try { event = await request<CalendarEvent>(`${calendarPath}/${encodeURIComponent(entry.eventId)}?${expand}&${select}`); }
       catch (error) {
         if (!(error instanceof OutlookWriteError) || error.status !== 404) throw error;
         entry.deleted = true; await kv.set(stateKey, state); continue; // Respect a user's deletion of this cycle.
@@ -67,7 +71,7 @@ async function syncEvents(token: string, connection: WriteConnection, api: TickT
     } else {
       // Recover a successful POST even if its response or the local save was lost.
       const query = new URLSearchParams({ '$filter': `singleValueExtendedProperties/Any(ep: ep/id eq '${LAUNDRY_EVENT_PROPERTY}' and ep/value eq '${key}')`, '$top': '2' });
-      const found = await graphRequest<{ value: CalendarEvent[]; '@odata.nextLink'?: string }>(token, `${calendarPath}?${query}&${expand}&${select}`);
+      const found = await request<{ value: CalendarEvent[]; '@odata.nextLink'?: string }>(`${calendarPath}?${query}&${expand}&${select}`);
       if (found.value.length > 1 || found['@odata.nextLink']) throw new OutlookWriteError('发现重复洗衣日程，请先核对');
       event = found.value[0];
     }
@@ -81,7 +85,7 @@ async function syncEvents(token: string, connection: WriteConnection, api: TickT
     await keepLease();
     if (!event) {
       await kv.set(stateKey, state); // Persist idempotency key before the external write.
-      event = await graphRequest<CalendarEvent>(token, calendarPath, { method: 'POST', body: JSON.stringify({ ...plan,
+      event = await request<CalendarEvent>(calendarPath, { method: 'POST', body: JSON.stringify({ ...plan,
         body: { contentType: 'Text', content: `https://ticktick.com/webapp/#p/${encodeURIComponent(task.projectId)}/tasks/${encodeURIComponent(task.id)}` },
         attendees: [], isReminderOn: false, showAs: 'busy', transactionId: entry.transactionId,
         singleValueExtendedProperties: [{ id: LAUNDRY_EVENT_PROPERTY, value: key }] }) });
@@ -90,18 +94,19 @@ async function syncEvents(token: string, connection: WriteConnection, api: TickT
     } else if (adopt || instant(event.start) !== instant(plan.start) || instant(event.end) !== instant(plan.end)
       || (plan.location && event.location?.displayName !== plan.location.displayName)) {
       if (!event['@odata.etag']) throw new OutlookWriteError('日程版本不可用，请稍后重试');
-      event = await graphRequest<CalendarEvent>(token, `${calendarPath}/${encodeURIComponent(event.id)}`, {
+      event = await request<CalendarEvent>(`${calendarPath}/${encodeURIComponent(event.id)}`, {
         method: 'PATCH', headers: { 'If-Match': event['@odata.etag'] }, body: JSON.stringify({ start: plan.start, end: plan.end,
           ...('location' in plan ? { location: plan.location } : {}), ...(adopt ? { singleValueExtendedProperties: [{ id: LAUNDRY_EVENT_PROPERTY, value: key }] } : {}) }),
       });
       updated++;
     }
     entry.eventId = event.id; delete entry.adoptTaskUrl; await kv.set(stateKey, state);
-    const verified = await graphRequest<CalendarEvent>(token, `${calendarPath}/${encodeURIComponent(event.id)}?${expand}&${select}`);
+    const verified = await request<CalendarEvent>(`${calendarPath}/${encodeURIComponent(event.id)}?${expand}&${select}`);
     if (!owned(verified, key) || instant(verified.start) !== instant(plan.start) || instant(verified.end) !== instant(plan.end))
       throw new OutlookWriteError('Outlook 洗衣日程回读不一致，请稍后重试');
+    entry.verifiedPlan = fingerprint; await kv.set(stateKey, state); verifiedCount++;
   }
-  return { created, updated };
+  return { created, updated, verifiedCount };
 }
 export async function syncLaundryOutlook(api: TickTickApi, options: Parameters<typeof syncEvents>[3]) {
   if (!options.managedTaskIds.size) return { enabled: false, created: 0, updated: 0 };
@@ -109,8 +114,9 @@ export async function syncLaundryOutlook(api: TickTickApi, options: Parameters<t
     const connection = await kv.get<WriteConnection>(OUTLOOK_WRITE_KEY);
     if (!connection?.calendarId) return { enabled: false, created: 0, updated: 0 };
     try {
-      const result = await syncEvents(await accessToken(connection), connection, api, options, keepLease);
-      connection.lastSyncAt = new Date().toISOString(); delete connection.lastError;
+      const result = await syncEvents(await outlookGraphClient(connection), connection, api, options, keepLease);
+      if (result.verifiedCount) connection.lastSyncAt = new Date().toISOString();
+      delete connection.lastError;
       await kv.set(OUTLOOK_WRITE_KEY, connection);
       return { enabled: true, ...result };
     } catch (error) {
