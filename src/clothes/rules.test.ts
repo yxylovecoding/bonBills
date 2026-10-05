@@ -140,14 +140,33 @@ describe('分层穿搭与文胸', () => {
     expect(recommend([inner, ...pieces], context, { ...weather, apparent: 32, apparentMin: 29 })[0].items).not.toContainEqual(inner);
     expect(recommend(pieces, context, weather)[0].missing).not.toContain('内衣');
   });
-  it('根据实际贴身内层的文胸要求选搭，不受外层标签覆盖', () => {
-    const inner = item('thermal', '内衣', { thickness: 3, braRequirement: 'optional' });
+  it('内衣不参与文胸判断，旧标签也不覆盖上衣或连衣裙要求', () => {
+    for (const category of ['上衣', '连衣裙'] as const) {
+      for (const braRequirement of [undefined, 'required', 'optional'] as const) {
+        const inner = item('thermal', '内衣', { thickness: 3, braRequirement });
+        const covering = { ...top, category };
+        const winter = [inner, covering, bra, item('coat', '外套', { thickness: 3 }), ...wardrobe.slice(1).map((piece) => ({ ...piece, thickness: 3 as const }))];
+        const result = recommend(winter, context, cool)[0];
+        expect(result.items).toContainEqual(inner);
+        expect(result.items).toContainEqual(bra);
+        const without = replacePiece(result, covering.id, { ...covering, braRequirement: 'optional' }, winter, context, cool);
+        expect(without.items).toContainEqual(inner);
+        expect(without.items).not.toContainEqual(bra);
+        expect(without.missing).not.toContain('文胸');
+        const free = winter.map((piece) => piece.id === covering.id ? { ...piece, braRequirement: 'optional' as const } : piece);
+        expect(recommend(free, context, cool)[0].items).not.toContainEqual(bra);
+        expect(recommend([...winter].reverse(), context, cool)).toEqual(recommend(winter, context, cool));
+      }
+    }
+  });
+  it('替换内衣不改变文胸选择，单独内衣也不要求补文胸', () => {
+    const inner = item('thermal', '内衣', { thickness: 3, braRequirement: 'required' });
+    const next = item('other-thermal', '内衣', { thickness: 3, braRequirement: 'optional' });
     const winter = [inner, ...pieces, item('coat', '外套', { thickness: 3 }), ...wardrobe.slice(1).map((piece) => ({ ...piece, thickness: 3 as const }))];
-    expect(recommend(winter, context, cool)[0].items).not.toContainEqual(bra);
-    const reversed = winter.map((piece) => piece.id === 'thermal' ? { ...piece, braRequirement: 'required' as const }
-      : piece.id === 'shirt' ? { ...piece, braRequirement: 'optional' as const } : piece);
-    expect(recommend(reversed, context, cool)[0].items).toContainEqual(bra);
-    expect(recommend([...winter].reverse(), context, cool)).toEqual(recommend(winter, context, cool));
+    const result = recommend(winter, context, cool)[0];
+    expect(replacePiece(result, inner.id, next, [...winter, next], context, cool).items).toContainEqual(bra);
+    expect(recommend([inner, bra], context, cool)[0].items).not.toContainEqual(bra);
+    expect(recommend([inner], context, cool)[0].missing).not.toContain('文胸');
   });
   it('替换上衣会同步增减文胸及缺失提示，文胸也可单件替换', () => {
     const free = item('free', '上衣');

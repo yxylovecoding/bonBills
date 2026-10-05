@@ -1,5 +1,5 @@
 import type { ClothesCalendar, ClothesDayContext, ClothesItem, ClothesLocation, Outfit, Scene, WearRecord, WeatherSnapshot } from './types';
-import { CATEGORIES, categoryLabel, type Category } from './types.js';
+import { CATEGORIES, categoryLabel, hasBraRequirement, type Category } from './types.js';
 
 export function deviceDate(now = new Date(), timezone = Intl.DateTimeFormat().resolvedOptions().timeZone) {
   return new Intl.DateTimeFormat('sv-SE', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
@@ -91,8 +91,7 @@ function ordered(items: ClothesItem[]) {
   return [...items].sort((a, b) => CATEGORIES.indexOf(categoryLabel(a.category)) - CATEGORIES.indexOf(categoryLabel(b.category)));
 }
 export function needsBra(items: ClothesItem[]) {
-  const covering = items.find((item) => categoryLabel(item.category) === '内衣')
-    ?? items.find((item) => ['上衣', '连衣裙'].includes(categoryLabel(item.category)));
+  const covering = items.find((item) => hasBraRequirement(item.category));
   return Boolean(covering && covering.braRequirement !== 'optional');
 }
 function withBra(outfit: Outfit, bra: ClothesItem | undefined): Outfit {

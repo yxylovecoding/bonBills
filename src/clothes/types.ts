@@ -2,7 +2,7 @@ export const CATEGORIES = ['文胸', '内衣', '上衣', '下装', '连衣裙', 
 // Keep legacy records and unsaved drafts readable without a data migration.
 export type Category = typeof CATEGORIES[number] | '上装';
 export function categoryLabel(category: Category): typeof CATEGORIES[number] { return category === '上装' ? '上衣' : category; }
-export function hasBraRequirement(category: Category) { return ['内衣', '上衣', '连衣裙'].includes(categoryLabel(category)); }
+export function hasBraRequirement(category: Category) { return ['上衣', '连衣裙'].includes(categoryLabel(category)); }
 export const COLORS = ['黑', '白', '灰', '米', '棕', '蓝', '绿', '红', '粉', '紫', '黄', '橙', '多色'] as const;
 export const SCENES = ['基本室内', '有室外', '长时间室外'] as const;
 export type Scene = typeof SCENES[number];
