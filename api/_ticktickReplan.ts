@@ -109,7 +109,7 @@ export async function replanRemainingToday() {
       }
     }
     await kv.set(DAILY_PLAN_KEY, state);
-    return { busy: false as const, dailyPlan: plan.summary, updated: changes.length };
+    return { busy: false as const, dailyPlan: plan.summary, details: state.briefing, updated: changes.length };
   } finally {
     await releaseTickTickLock(lock);
   }

@@ -1,5 +1,6 @@
 import ICAL from 'ical.js';
 import type { OutlookAvailability } from '../src/utils/outlookCalendar.js';
+import type { TickTickPlanDetails } from '../src/utils/tickTickPlanDetails.js';
 import { dayAvailability, occupySlots, type AvailabilityProfile } from './_dailyAvailability.js';
 import { collectCompleted } from './_lifeDone.js';
 import { annotatedMinutes, describedMinutes } from './_taskDuration.js';
@@ -33,31 +34,31 @@ export interface DailyPlanState {
   // The original date is retained across deferrals; postponement is not completion.
   deadlines: Record<string, { date: string; completion?: string; repeatFlag?: string }>;
   summary?: DailyPlanSummary;
-  briefing?: {
-    date: string;
-    generatedAt: string;
-    selected: { id: string; projectId: string; title: string; minutes: number; reasons: string[] }[];
-  };
+  briefing?: TickTickPlanDetails;
 }
 export const dailyBudget = (value: unknown) => typeof value === 'number' && Number.isFinite(value)
   ? Math.max(10, Math.min(240, Math.round(value))) : null;
 
 export function estimateTaskMinutes(task: TickTickTask): number {
+  return estimateTaskDuration(task).minutes;
+}
+
+export function estimateTaskDuration(task: TickTickTask): { minutes: number; durationBasis: string } {
   const described = describedMinutes(task);
-  if (described !== null) return described;
+  if (described !== null) return { minutes: described, durationBasis: '待办描述中的时长标注' };
   const annotated = annotatedMinutes(`${task.title} ${(task.tags ?? []).join(' ')}`);
-  if (annotated !== null) return annotated;
+  if (annotated !== null) return { minutes: annotated, durationBasis: '标题或标签中的时长标注' };
   const explicit = `${task.title} ${(task.tags ?? []).join(' ')}`.match(/(?:^|[^\d])([1-9]\d{0,2})\s*(?:分钟|minutes?|mins?|m)(?![a-z0-9])/i);
-  if (explicit) return Math.min(480, Number(explicit[1]));
+  if (explicit) return { minutes: Math.min(480, Number(explicit[1])), durationBasis: '标题或标签中的分钟数' };
   if (task.isAllDay === false && task.startDate && task.dueDate) {
     const duration = (Date.parse(task.dueDate) - Date.parse(task.startDate)) / 60_000;
-    if (duration > 0 && Number.isFinite(duration)) return Math.min(480, Math.ceil(duration));
+    if (duration > 0 && Number.isFinite(duration)) return { minutes: Math.min(480, Math.ceil(duration)), durationBasis: '待办起止时间' };
   }
-  if (task.title.normalize('NFKC').trim() === '洗衣服') return 50;
-  if (/喷雾|浇水|倒垃圾|换枕套|剪指甲|补剂|签到|红包|价保|预约|check\b/i.test(task.title)) return 5;
-  if (/徒步|出去玩|音乐剧|讲座|电影|ktv/i.test(task.title)) return 90;
-  if (/运动|力训|游泳|力扣/.test(task.title)) return 45;
-  return 15;
+  const minutes = task.title.normalize('NFKC').trim() === '洗衣服' ? 50
+    : /喷雾|浇水|倒垃圾|换枕套|剪指甲|补剂|签到|红包|价保|预约|check\b/i.test(task.title) ? 5
+    : /徒步|出去玩|音乐剧|讲座|电影|ktv/i.test(task.title) ? 90
+    : /运动|力训|游泳|力扣/.test(task.title) ? 45 : 15;
+  return { minutes, durationBasis: '未标注时长，采用任务默认估时' };
 }
 
 // The next interval starts at the last actual completion, never at a date we moved.
@@ -278,7 +279,7 @@ export function planTickTickDay(options: {
   let used = 0, deferred = 0, oversizedCount = 0;
   const cycleRisks = new Set<string>();
   const selectedDetails: NonNullable<DailyPlanState['briefing']>['selected'] = fixed.map((task) => ({
-    id: task.id, projectId: task.projectId, title: task.title, minutes: estimateTaskMinutes(task),
+    id: task.id, projectId: task.projectId, title: task.title, ...estimateTaskDuration(task),
     reasons: [task.isAllDay === false ? '保留原定时间' : '保留原有安排，本次未参与动态挑选'],
   }));
   const selectedSprays = new Set(state.history.filter(task => !excluded(task) && !tags(task).includes('不关我事')
@@ -301,7 +302,7 @@ export function planTickTickDay(options: {
       reasons.push(fits && used + candidate.minutes <= available ? `预计 ${candidate.minutes} 分钟，可放入剩余空档`
         : '当前空档不足，仍保留；需要手动协调时间');
       selectedDetails.push({ id: candidate.task.id, projectId: candidate.task.projectId, title: candidate.task.title,
-        minutes: candidate.minutes, reasons });
+        ...estimateTaskDuration(candidate.task), minutes: candidate.minutes, reasons });
       occupySlots(remainingSlots, candidate.minutes);
       if (kind) selectedSprays.add(kind);
       used += candidate.minutes;
@@ -328,6 +329,14 @@ export function planTickTickDay(options: {
     availableMinutes: capacity, importantCount: important.filter(task => !dates.has(task.id) || dates.get(task.id)! <= today).length,
     deferredCount: deferred, cycleRiskCount: cycleRisks.size, oversizedCount };
   state.summary = summary;
-  state.briefing = { date: today, generatedAt: now.toISOString(), selected: finalSelected };
+  const { importantReservations, remainingWindows, ...breakdown } = calendarDay.breakdown;
+  state.briefing = { date: today, generatedAt: now.toISOString(), selected: finalSelected, breakdown: {
+    ...breakdown,
+    remainingWindows: remainingWindows.map(([start, end]) => ({ start: new Date(start).toISOString(), end: new Date(end).toISOString() })),
+    important: importantReservations.map(({ task, additionalMinutes }) => ({ id: task.id, projectId: task.projectId,
+      title: task.title, ...estimateTaskDuration(task), additionalMinutes })),
+    afterBufferMinutes: calendarDay.remainingMinutes, dailyLimitMinutes: base, completedTodayMinutes: alreadyDone,
+    dailyLimitReductionMinutes: calendarDay.remainingMinutes - available, newTaskCapacityMinutes: available, cycleTargetMinutes: target,
+  } };
   return { dates, summary };
 }

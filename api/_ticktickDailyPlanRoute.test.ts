@@ -3,8 +3,9 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from './ticktick-trips';
 import { DAILY_PLAN_KEY, DAILY_PLAN_SETTINGS_KEY } from './_ticktickDailyPlan';
 import * as laundryModule from './_ticktickLaundry';
-const { replan } = vi.hoisted(() => ({ replan: vi.fn() }));
+const { replan, planDetails } = vi.hoisted(() => ({ replan: vi.fn(), planDetails: vi.fn() }));
 vi.mock('./_ticktickReplan.js', () => ({ replanRemainingToday: replan }));
+vi.mock('./_ticktickPlanDetails.js', () => ({ readTickTickPlanDetails: planDetails }));
 const { data, auth, failHistory, failWrite, sleepTags, briefing, syncTraining, sendEmail, routineOptions } = vi.hoisted(() => ({ data: new Map<string, any>(), auth: { ok: true }, failHistory: { value: false }, failWrite: { value: false }, sleepTags: vi.fn(), briefing: vi.fn(), syncTraining: vi.fn(), sendEmail: vi.fn(), routineOptions: { value: null as any } }));
 vi.mock('./_dailyEmail.js', () => ({ sendDailyEmail: sendEmail }));
 vi.mock('./_dailyBriefing.js', () => ({ readDailyBriefing: briefing, renderDailyBriefing: () => '<html>每日简报</html>' }));
@@ -45,6 +46,19 @@ beforeEach(() => { data.clear(); auth.ok = true; failHistory.value = false; fail
   data.set('ticktick:connection:v1', { encryptedToken: {} }); });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 describe('每日安排接口', () => {
+  it('排期详情仅限已登录 GET，读取不重排、不触发其他同步', async () => {
+    planDetails.mockReset().mockResolvedValue({ date: '2026-10-05', selected: [] });
+    replan.mockClear(); sleepTags.mockClear(); syncTraining.mockClear();
+    auth.ok = false;
+    expect((await request('GET', undefined, 'plan-details')).status).toBe(401);
+    auth.ok = true;
+    expect((await request('POST', undefined, 'plan-details')).status).toBe(405);
+    expect(planDetails).not.toHaveBeenCalled();
+    expect(await request('GET', undefined, 'plan-details')).toMatchObject({ status: 200,
+      body: { details: { date: '2026-10-05', selected: [] } } });
+    expect(replan).not.toHaveBeenCalled(); expect(sleepTags).not.toHaveBeenCalled(); expect(syncTraining).not.toHaveBeenCalled();
+    expect(data.has(DAILY_PLAN_KEY)).toBe(false);
+  });
   it('DoneList 专用重排须登录且仅允许 POST，不调用综合同步', async () => {
     replan.mockReset().mockResolvedValue({ busy: false, dailyPlan: { date: '2026-10-05', todayCount: 2 } });
     auth.ok = false;

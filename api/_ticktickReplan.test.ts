@@ -55,6 +55,7 @@ describe('只重排剩余今日事', () => {
     expect(result).toMatchObject({ busy: false, updated: 1, dailyPlan: { todayCount: 1, plannedMinutes: 15, availableMinutes: 15 } });
     expect(mocks.update).toHaveBeenCalledWith('newer', expect.objectContaining({ dueDate: '2026-10-06T00:00:00+0800' }));
     expect(mocks.data.get(DAILY_PLAN_KEY).briefing.selected.map((t: TickTickTask) => t.id)).toEqual(['older']);
+    expect(result).toMatchObject({ details: mocks.data.get(DAILY_PLAN_KEY).briefing });
     expect(mocks.broadSync).not.toHaveBeenCalled();
     expect(mocks.set.mock.calls.every(([key]) => key === DAILY_PLAN_KEY)).toBe(true);
   });
@@ -107,10 +108,12 @@ describe('只重排剩余今日事', () => {
   it('写入失败不发布成功摘要，保留周期锚点便于重试', async () => {
     mocks.tasks = [task('large', { content: '(1h)' })];
     const summary = { date: day, todayCount: 8 };
-    mocks.data.set(DAILY_PLAN_KEY, { connectionId, history: [], deadlines: {}, summary });
+    const briefing = { date: day, generatedAt: `${day}T05:00:00+08:00`, selected: [] };
+    mocks.data.set(DAILY_PLAN_KEY, { connectionId, history: [], deadlines: {}, summary, briefing });
     mocks.update.mockRejectedValueOnce(new Error('upstream unavailable'));
     await expect(replanRemainingToday()).rejects.toThrow('upstream unavailable');
     expect(mocks.data.get(DAILY_PLAN_KEY).summary).toEqual(summary);
+    expect(mocks.data.get(DAILY_PLAN_KEY).briefing).toEqual(briefing);
     expect(mocks.data.get(DAILY_PLAN_KEY).deadlines.large.date).toBe(day);
     expect(mocks.release).toHaveBeenCalledWith('lock');
   });

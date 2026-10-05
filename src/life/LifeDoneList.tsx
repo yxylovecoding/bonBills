@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { DoneItem, DoneMonth } from '../utils/bonLife';
 import type { TickTickDailyPlan } from '../utils/tickTickSync';
+import type { TickTickPlanDetails } from '../utils/tickTickPlanDetails';
+import { requestWithRetry } from '../utils/requestWithRetry';
 import { doneWeekDates, doneWeekMonths, doneWeekNumber, earlierDoneWeeks, groupDoneCategories, groupDoneWeek, shiftDoneDate } from '../utils/lifeDone';
 import { LifeError, lifeRequest } from './client';
+import LifePlanDetails from './LifePlanDetails';
 
 const shanghaiToday = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date());
 const completionTime = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
@@ -39,6 +42,10 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
   const [busy, setBusy] = useState(false);
   const [replanning, setReplanning] = useState(false);
   const [replanMessage, setReplanMessage] = useState('');
+  const [planDetails, setPlanDetails] = useState<TickTickPlanDetails | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsError, setDetailsError] = useState('');
+  const detailsController = useRef<AbortController | null>(null);
   const [replanError, setReplanError] = useState('');
   const replanController = useRef<AbortController | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -77,6 +84,7 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
   }, [monthKey, onExpired]);
   async function replanToday() {
     if (busy || replanController.current) return;
+    detailsController.current?.abort();
     const request = new AbortController(); replanController.current = request;
     let timedOut = false;
     const timer = window.setTimeout(() => { timedOut = true; request.abort(); }, 300_000);
@@ -86,7 +94,7 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
         method: 'POST', credentials: 'same-origin', cache: 'no-store', signal: request.signal,
       });
       if (response.status === 401) { onExpired(); return; }
-      const result = await response.json() as { busy?: boolean; error?: string; dailyPlan?: TickTickDailyPlan };
+      const result = await response.json() as { busy?: boolean; error?: string; dailyPlan?: TickTickDailyPlan; details?: TickTickPlanDetails };
       if (response.status === 202 || result.busy) throw new Error('已有重排正在运行，请稍后重试');
       if (!response.ok) throw new Error(result.error || '重排失败，请重试');
       const plan = result.dailyPlan;
@@ -95,6 +103,7 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
       }
       if (request.signal.aborted) return;
       setReplanMessage(`已重排 · 剩余 ${plan.todayCount} 项 · 约 ${plan.plannedMinutes} 分钟`);
+      setPlanDetails(result.details ?? null); setDetailsError('');
       await refresh(true);
     } catch (cause) {
       if (!request.signal.aborted || timedOut) setReplanError(timedOut || cause instanceof TypeError
@@ -106,6 +115,20 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
     }
   }
   useEffect(() => () => { replanController.current?.abort(); }, []);
+  useEffect(() => {
+    const request = new AbortController(); detailsController.current = request;
+    setDetailsError('');
+    void requestWithRetry(async signal => {
+      const response = await fetch('/api/ticktick-trips?action=plan-details', { credentials: 'same-origin', cache: 'no-store', signal });
+      if (response.status === 401) { onExpired(); return null; }
+      const data = await response.json() as { details?: TickTickPlanDetails | null; error?: string };
+      if (!response.ok) throw new Error(data.error || '排期详情读取失败');
+      return data.details ?? null;
+    }, { signal: request.signal, retry: true, timeoutMessage: '排期详情读取超时，请刷新重试', networkMessage: '排期详情读取失败，请刷新重试' })
+      .then(details => { if (!request.signal.aborted) setPlanDetails(details); })
+      .catch(cause => { if (!request.signal.aborted) setDetailsError(cause instanceof Error ? cause.message : '排期详情读取失败'); });
+    return () => request.abort();
+  }, [today, onExpired]);
   useEffect(() => {
     void refresh();
     const update = () => {
@@ -160,10 +183,14 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
       <button className="life-today" onClick={() => strip.current?.scrollTo({ left: strip.current.scrollWidth, behavior: 'smooth' })}>本周</button>
       <button className="life-arrow" aria-label="下一周" disabled={atLatest} onClick={() => move(1)}>›</button>
     </nav></div>
-    <div className="life-done-toolbar"><span role="status">{replanning ? '重排中…' : busy ? '同步中…' : replanMessage || (syncedAt ? `${completionTime.format(new Date(syncedAt))} 已同步` : '尚未同步')}</span>
+    <div className="life-done-toolbar"><span role="status">{replanning ? '重排中…' : busy ? '同步中…' : planDetails ? <button className="life-plan-trigger" aria-expanded={detailsOpen} aria-controls="life-plan-details" onClick={() => setDetailsOpen(open => !open)}>
+      {replanMessage || `上次排期 · 剩余 ${planDetails.selected.length} 项 · 约 ${planDetails.selected.reduce((sum, task) => sum + task.minutes, 0)} 分钟`}
+    </button> : replanMessage || (syncedAt ? `${completionTime.format(new Date(syncedAt))} 已同步` : '尚未同步')}</span>
       <div className="life-done-actions"><button disabled={busy || replanning || !months.some(value => value?.connected)} onClick={() => void replanToday()}>{replanning ? '重排中…' : '重排今日事'}</button>
         <button disabled={busy || replanning} onClick={() => void refresh(true)}>同步 TickTick</button></div></div>
     {replanError && <p className="life-error" role="alert">{replanError}</p>}
+    {detailsError && <p className="life-error" role="alert">{detailsError}</p>}
+    {detailsOpen && planDetails && <LifePlanDetails plan={planDetails} />}
     {Object.entries(errors).map(([key, error]) => <p className="life-error" role="alert" key={key}>{key.replace('-', ' 年 ')} 月 · {error}</p>)}
     {months.some((value) => value && !value.connected) && <p className="life-empty-state">TickTick 未连接 · <a href="https://bill.bonbills.cn/calendar" target="_blank" rel="noreferrer">连接 TickTick ↗</a></p>}
     <div ref={strip} className="life-week-strip" role="region" aria-label="连续周本，向左查看更早记录" tabIndex={0} onScroll={(event) => {

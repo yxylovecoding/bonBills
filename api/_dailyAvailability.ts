@@ -99,10 +99,20 @@ export function dayAvailability(options: {
   const completedMinutes = completed.reduce((sum, task) => sum + uncovered(task), 0);
   const full = freeSlots(windows, busy);
   const slots = full.map(([start, end]): TimeSlot => [Math.max(start, now), end]).filter(([start, end]) => end > start);
+  const remainingWindows = windows.map(([start, end]): TimeSlot => [Math.max(start, now), end]).filter(([start, end]) => end > start);
+  const windowMinutes = slotMinutes(remainingWindows);
+  const freeMinutes = slotMinutes(slots);
+  const importantReservations = important.map(task => ({ task, additionalMinutes: uncovered(task, now) }));
+  const importantAdditionalMinutes = importantReservations.reduce((sum, item) => sum + item.additionalMinutes, 0);
   // Important/fixed tasks consume time once, before leaving room for rest and unrecorded transitions.
   occupySlots(slots, reserved, false);
   const share = profile === 'calendar' ? 1 : 0.5;
   const totalMinutes = Math.floor(Math.max(0, slotMinutes(full) - fullDayReserved) * share);
   const remainingMinutes = Math.floor(slotMinutes(slots) * share);
-  return { totalMinutes, remainingMinutes, completedMinutes, slots };
+  return { totalMinutes, remainingMinutes, completedMinutes, slots, breakdown: {
+    clockRemainingMinutes: Math.max(0, (at(24) - now) / minute), remainingWindows,
+    windowMinutes, occupiedMinutes: windowMinutes - freeMinutes, freeMinutes,
+    importantReservations, importantAdditionalMinutes, fixedAdditionalMinutes: reserved - importantAdditionalMinutes,
+    afterReservationsMinutes: slotMinutes(slots), bufferMinutes: slotMinutes(slots) - remainingMinutes, allocationRatio: share,
+  } };
 }

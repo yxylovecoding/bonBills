@@ -17,6 +17,27 @@ const plan = (tasks: TickTickTask[], overrides: Partial<Parameters<typeof planTi
   tasks, calendarState: {}, today, now: new Date(at(9)), state: state(), availability: calendar(), ...overrides });
 
 describe('Outlook 实际空档', () => {
+  it('明细区分距午夜、排期时段与日程占用，重叠和进行中的日程只扣一次', () => {
+    const result = free({ now: new Date(`${today}T20:30:00+08:00`),
+      calendar: calendar([event(20, 21, '阅读'), event(20, 21, '阅读')]),
+      tasks: [task('reading', { title: '阅读', priority: 5, content: '(1h)' })] });
+    expect(result.breakdown).toMatchObject({ clockRemainingMinutes: 210, windowMinutes: 90,
+      occupiedMinutes: 30, freeMinutes: 60, importantAdditionalMinutes: 0,
+      afterReservationsMinutes: 60, bufferMinutes: 30, allocationRatio: 0.5 });
+    expect(result.breakdown.importantReservations).toHaveLength(1);
+    expect(result.breakdown.importantReservations[0].additionalMinutes).toBe(0);
+    expect(result.remainingMinutes).toBe(30);
+  });
+  it('重要及固定任务另行预留的明细与实际剩余额度一致，已错过的日程仍需预留', () => {
+    const important = task('important', { title: '准备材料', priority: 5, content: '(30m)' });
+    const fixed = task('fixed', { content: '(10m)' });
+    const result = free({ now: new Date(at(20)), calendar: calendar([event(10, 11, important.title)]),
+      tasks: [important, fixed], fixed: [fixed] });
+    expect(result.breakdown).toMatchObject({ clockRemainingMinutes: 240, windowMinutes: 120,
+      freeMinutes: 120, importantAdditionalMinutes: 30, fixedAdditionalMinutes: 10,
+      afterReservationsMinutes: 80, bufferMinutes: 40 });
+    expect(result.remainingMinutes).toBe(40);
+  });
   it('重叠日程合并，午晚饭不重复扣，保留休息后动态超过旧 30 分钟上限', () => {
     expect(free().totalMinutes).toBe(330);
     // 09–12 and 13–14 are occupied. Lunch 12–13 was already excluded.
@@ -69,6 +90,18 @@ describe('Outlook 实际空档', () => {
 });
 
 describe('根据日历安排普通待办', () => {
+  it('保存同次排期明细、日上限扣减、所选任务与估时来源，读取不需要重新推断', () => {
+    const s = state([task('done', { content: '(45m)', status: 2, completedTime: at(10) })]);
+    const result = plan([task('short', { title: '小任务', content: '（1m）' })], { state: s,
+      now: new Date(at(20)), budgetMinutes: 60 });
+    expect(s.briefing).toMatchObject({ date: today, generatedAt: new Date(at(20)).toISOString(),
+      selected: [{ id: 'short', minutes: 1, durationBasis: '待办描述中的时长标注' }],
+      breakdown: { afterBufferMinutes: 60, completedTodayMinutes: 45, dailyLimitMinutes: 60,
+        dailyLimitReductionMinutes: 45, newTaskCapacityMinutes: 15 } });
+    expect(s.briefing!.selected.reduce((sum, task) => sum + task.minutes, 0)).toBe(result.summary.plannedMinutes);
+    expect(s.briefing!.selected).toHaveLength(result.summary.todayCount);
+    expect(s.briefing!.selected[0].reasons.join('；')).toContain('可放入剩余空档');
+  });
   it('四次执行逐次缩减未完成任务，摘要与实际剩余容量一致', () => {
     let tasks = Array.from({ length: 30 }, (_, i) => task(String(i), { repeatFlag: 'RRULE:FREQ=WEEKLY' }));
     const s = state();
