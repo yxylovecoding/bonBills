@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from './ticktick-trips';
 import { DAILY_PLAN_KEY, DAILY_PLAN_SETTINGS_KEY } from './_ticktickDailyPlan';
-const { data, auth, failHistory, failWrite, sleepTags, briefing, syncTraining, sendEmail } = vi.hoisted(() => ({ data: new Map<string, any>(), auth: { ok: true }, failHistory: { value: false }, failWrite: { value: false }, sleepTags: vi.fn(), briefing: vi.fn(), syncTraining: vi.fn(), sendEmail: vi.fn() }));
+import * as laundryModule from './_ticktickLaundry';
+const { data, auth, failHistory, failWrite, sleepTags, briefing, syncTraining, sendEmail, routineOptions } = vi.hoisted(() => ({ data: new Map<string, any>(), auth: { ok: true }, failHistory: { value: false }, failWrite: { value: false }, sleepTags: vi.fn(), briefing: vi.fn(), syncTraining: vi.fn(), sendEmail: vi.fn(), routineOptions: { value: null as any } }));
 vi.mock('./_dailyEmail.js', () => ({ sendDailyEmail: sendEmail }));
 vi.mock('./_dailyBriefing.js', () => ({ readDailyBriefing: briefing, renderDailyBriefing: () => '<html>每日简报</html>' }));
 vi.mock('./_lifeTraining.js', () => ({ syncTrainingSource: syncTraining }));
@@ -22,6 +23,7 @@ vi.mock('./_ticktickTrips.js', async (original) => ({
   readConnectedTickTickTemplate: async () => ({ rootTask: { id: 'root' }, tasks: [] }),
   reconcileTickTickTrips: async () => ({}), reconcileTickTickWishPreparations: async () => ({}),
   syncTickTickRoutines: async (options: any) => {
+    routineOptions.value = options;
     await options.planDay([]);
     if (failWrite.value) throw new Error('write unavailable');
     return { updatedRoutineTasks: 0 };
@@ -51,6 +53,18 @@ describe('每日安排接口', () => {
     expect((await request('GET', undefined, 'daily-email', undefined, 'Bearer cron-secret')).body.sent).toBe(true);
     sendEmail.mockResolvedValueOnce({ busy: true });
     expect((await request('GET', undefined, 'daily-email', undefined, 'Bearer cron-secret')).status).toBe(202);
+  });
+  it('洗衣天气先排期，其管理任务同时排除普通场景与每日轮换，天气不可用也不被拉回今天', async () => {
+    const laundry = vi.spyOn(laundryModule, 'syncLaundrySchedule').mockResolvedValue({ updated: 0,
+      managedTaskIds: new Set(['wash']), decisions: [{ id: 'wash', reason: '天气不可用，保留原排期' }] });
+    const result = await request('POST');
+    expect(result.status).toBe(200);
+    expect(result.body.laundry.decisions[0].id).toBe('wash');
+    expect(laundry).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ history: [], availability: expect.anything() }));
+    expect(routineOptions.value.excludedTaskIds.has('wash')).toBe(true);
+    const dates = await routineOptions.value.planDay([{ id: 'wash', projectId: 'life', title: '洗衣服', priority: 1, tags: ['居'],
+      isAllDay: true, dueDate: '2026-10-05T00:00:00+0800', repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=5' }]);
+    expect(dates.has('wash')).toBe(false);
   });
   it('网页通过 JSON 读取简报，繁忙状态不能当作已更新的报告', async () => {
     briefing.mockResolvedValue({ date: '2026-10-05', ready: true });
