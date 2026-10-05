@@ -67,7 +67,7 @@ function needs(context: ClothesDayContext, weather: WeatherSnapshot) {
 }
 export function eligibleItems(items: ClothesItem[], requested: Category, context: ClothesDayContext, weather: WeatherSnapshot, _wearing: ClothesItem[] = []) {
   const n = needs(context, weather), category = categoryLabel(requested);
-  return items.filter((item) => wearable(item) && categoryLabel(item.category) === category
+  return items.filter((item) => wearable(item) && !item.sleepwear && categoryLabel(item.category) === category
     && (!context.active || item.active)
     && (category !== '外套' || ((!n.rain || item.waterproof) && (!n.wind || item.windproof)))
     && (category !== '鞋' || !n.rain || item.waterproof));

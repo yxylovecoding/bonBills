@@ -35,11 +35,13 @@ export function itemInput(value: unknown): ClothesItem {
   requireInput(v && CATEGORIES.includes(categoryLabel(v.category)) && COLORS.includes(v.color) && [1, 2, 3].includes(v.thickness)
     && ['可穿', '待洗', '收起'].includes(v.status) && typeof v.active === 'boolean' && typeof v.windproof === 'boolean'
     && typeof v.waterproof === 'boolean' && typeof v.name === 'string' && v.name.trim().length <= 60
+    && (v.sleepwear === undefined || typeof v.sleepwear === 'boolean')
     && (v.braRequirement === undefined || ['required', 'optional'].includes(v.braRequirement)), '衣物信息无效');
   return { id: id(v.id), revision: id(v.revision, true), name: v.name.trim() || `${v.color === '多色' ? v.color : `${v.color}色`}${categoryLabel(v.category)}`,
     category: categoryLabel(v.category), color: v.color, thickness: v.thickness, active: v.active, windproof: v.windproof,
     ...(hasBraRequirement(v.category) ? { braRequirement: v.braRequirement ?? 'required' } : {}),
     ...(v.warmth !== undefined ? { warmth: numberInput(v.warmth, 0, 40) } : {}),
+    sleepwear: v.sleepwear ?? false,
     waterproof: v.waterproof, status: normalizeItem(v).status, photoId: id(v.photoId, true) };
 }
 export function validLayers(items: ClothesItem[]) {

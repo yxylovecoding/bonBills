@@ -72,7 +72,7 @@ function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void
     setData((current) => current && ({ ...current, items: [...current.items.filter((old) => old.id !== item.id), ...(!item.deleted ? [item] : [])] }));
     setEditor(null); setHasDraft(false);
   }
-  const items = (data?.items ?? []).filter((item) => (category === '全部' || categoryLabel(item.category) === category) && (status === '全部状态' || item.status === status));
+  const items = (data?.items ?? []).filter((item) => (category === '全部' || (category === '睡衣' ? item.sleepwear : categoryLabel(item.category) === category)) && (status === '全部状态' || item.status === status));
   return <main className="life-shell clothes-shell">
     <header className="life-header"><h1><img src="/bonclothes.svg" alt="" width="27" height="27" />BonClothes</h1><div className="life-header-actions"><a href={APP_LINKS.log.url}>BonLog</a><InstallApp app="clothes" /><button onClick={async () => {
       try { await requestSession({ method: 'DELETE' }); localStorage.setItem('bonclothes-logout-at', String(Date.now())); onExpired(); }
@@ -83,13 +83,13 @@ function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void
     {!data ? <div className="clothes-empty" role="status">{loading ? '加载中…' : '暂无数据'}</div>
       : tab === 'today' ? <Today key={`${date}:${timezone}`} owner={owner} items={data.items} initial={context} records={data.records}
         onContext={onContext} onRecord={onRecord} onExpired={onExpired} onRefresh={() => setRefresh((v) => v + 1)} onWardrobe={() => { setTab('wardrobe'); setEditor(readItemDraft(owner) ?? { item: newItem(), photo: '', mutationId: crypto.randomUUID() }); }} />
-        : <section aria-label="衣柜"><div className="clothes-wardrobe-toolbar"><div><select aria-label="衣物分类" value={category} onChange={(e) => setCategory(e.target.value)}>{['全部', ...CATEGORIES].map((value) => <option key={value}>{value}</option>)}</select><select aria-label="衣物状态" value={status} onChange={(e) => setStatus(e.target.value)}>{['全部状态', '可穿', '收起'].map((value) => <option key={value}>{value}</option>)}</select></div><button className="life-primary" onClick={() => {
+        : <section aria-label="衣柜"><div className="clothes-wardrobe-toolbar"><div><select aria-label="衣物分类" value={category} onChange={(e) => setCategory(e.target.value)}>{['全部', ...CATEGORIES, '睡衣'].map((value) => <option key={value}>{value}</option>)}</select><select aria-label="衣物状态" value={status} onChange={(e) => setStatus(e.target.value)}>{['全部状态', '可穿', '收起'].map((value) => <option key={value}>{value}</option>)}</select></div><button className="life-primary" onClick={() => {
           const draft = readItemDraft(owner); setEditor(draft ?? { item: newItem(), photo: '', mutationId: crypto.randomUUID() });
         }}>{hasDraft ? '继续编辑' : '新增衣物'}</button></div>
           <div className="clothes-view" aria-label="衣柜视图"><span>图片大小</span>{([['small', '小'], ['medium', '中'], ['large', '大']] as const).map(([value, label]) => <button key={value} aria-pressed={size === value} onClick={() => { setSize(value); writeLocal(`bonclothes:view:${owner}`, value); }}>{label}</button>)}</div>
           <div className={`clothes-grid clothes-wardrobe-grid clothes-size-${size}`}>{items.map((item) => <button className="clothes-card" key={item.id} onClick={() => {
             const draft = readItemDraft(owner); setEditor(draft ?? { item: { ...item }, photo: '', mutationId: crypto.randomUUID() });
-          }}><img loading="lazy" src={photoUrl(item.photoId)} alt={item.name} /><div className="clothes-card-caption"><strong>{item.name}</strong><span>{itemWarmth(item)}°C{item.status === '收起' ? ' · 收起' : ''}</span></div></button>)}</div>
+          }}><img loading="lazy" src={photoUrl(item.photoId)} alt={item.name} /><div className="clothes-card-caption"><strong>{item.name}</strong><span>{itemWarmth(item)}°C{item.sleepwear ? ' · 睡衣' : ''}{item.status === '收起' ? ' · 收起' : ''}</span></div></button>)}</div>
           {!items.length && <div className="clothes-empty">{data.items.length ? '暂无符合条件的衣物' : '添加第一件衣物'}</div>}
         </section>}
     <footer className="clothes-footer"><a href={APP_LINKS.bills.url}>BonBills</a><button disabled={loading} onClick={() => setRefresh((v) => v + 1)}>{loading ? '刷新中…' : '刷新'}</button></footer>

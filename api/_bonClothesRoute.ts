@@ -99,6 +99,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
         requireInput(PURPOSES.includes(body.purpose), '请选择用途');
         requireInput([body.indoor, body.outdoor].every((value) => value === null || SENSATIONS.includes(value)), '请选择室内外体感');
         requireInput(typeof body.time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(body.time), '穿着时间无效');
+        requireInput(body.indoorCoat === undefined || typeof body.indoorCoat === 'boolean', '室内外套状态无效');
       }
       requireInput(Array.isArray(body.items) && body.items.length > 0 && body.items.length <= (manual ? 24 : CATEGORIES.length), '请选择穿搭');
       checks = body.items.map((item: { id: unknown; revision: unknown }) => ({ id: id(item.id), revision: id(item.revision) }));
@@ -125,7 +126,8 @@ async function handler(req: VercelRequest, res: VercelResponse) {
           && typeof w.fetchedAt === 'string' && w.fetchedAt.length <= 40, '天气快照无效');
         weather = Object.fromEntries(['date', 'timezone', 'latitude', 'longitude', 'fetchedAt', 'temperature', 'apparent', 'min', 'max', 'apparentMin', 'precipitation', 'wind'].map((key) => [key, w[key as keyof WeatherSnapshot]])) as unknown as WeatherSnapshot;
       }
-      value = { ...(manual ? { id: field, purpose: body.purpose, indoor: body.indoor, outdoor: body.outdoor, time: body.time } : {}), date: context.date, revision: mutationId, confirmedAt: previous?.confirmedAt ?? new Date().toISOString(), items, context, weather };
+      value = { ...(manual ? { id: field, purpose: body.purpose, indoor: body.indoor, outdoor: body.outdoor, time: body.time,
+        ...(body.indoorCoat !== undefined || previous?.indoorCoat !== undefined ? { indoorCoat: body.indoorCoat ?? previous?.indoorCoat } : {}) } : {}), date: context.date, revision: mutationId, confirmedAt: previous?.confirmedAt ?? new Date().toISOString(), items, context, weather };
     } else throw new ClothesInputError('操作无效');
     const [ok, raw] = await kv.eval<string[], [number, string | unknown]>(SAVE_CLOTHES,
       [key, receiptKey(mutationId), ITEMS_KEY, photoStorage],

@@ -207,11 +207,30 @@ describe('衣柜与实际穿搭接口', () => {
     expect(Object.keys(hashes.get(WEAR_KEY)!)).toEqual([context.date]);
     expect(evalMock.mock.calls[0][2][5]).toBe('[]');
     expect(hashes.get(WEAR_KEY)![context.date].items).toEqual([item]);
+    expect(hashes.get(WEAR_KEY)![context.date].indoorCoat).toBeUndefined();
+  });
+  it('每套单独保存室内外套状态，编辑回填与旧客户端更新均保留明确选择', async () => {
+    const coat = { ...item, id: uid('coat'), category: '外套' as const, warmth: 4 };
+    hashes.set(ITEMS_KEY, { [item.id]: item, [coat.id]: coat });
+    const body = { action: 'confirm', recordId: uid('coat-wear-one'), context, revision: '', mutationId: uid('coat-save-one'),
+      items: [item, coat].map(({ id, revision }) => ({ id, revision })), weather: null, purpose: '休闲', time: '10:00', indoor: '舒适', outdoor: '偏冷' };
+    const first = await call('POST', {}, { ...body, indoorCoat: false });
+    expect(first.status).toBe(200);
+    expect(first.body.value).toMatchObject({ indoorCoat: false, indoor: '舒适', outdoor: '偏冷', items: [item, coat] });
+    expect((await call('POST', {}, { ...body, indoorCoat: false })).body).toEqual(first.body);
+    await call('POST', {}, { ...body, recordId: uid('coat-wear-two'), mutationId: uid('coat-save-two'), indoorCoat: false });
+    const changed = await call('POST', {}, { ...body, revision: first.body.value.revision, mutationId: uid('coat-edit'), indoorCoat: true });
+    expect(changed.body.value.indoorCoat).toBe(true);
+    const legacy = await call('POST', {}, { ...body, revision: changed.body.value.revision, mutationId: uid('coat-old-client') });
+    expect(legacy.body.value.indoorCoat).toBe(true);
+    const history = await call('GET', { view: 'history', date: context.date });
+    expect(history.body.records.find((record: any) => record.id === uid('coat-wear-one')).indoorCoat).toBe(true);
+    expect(history.body.records.find((record: any) => record.id === uid('coat-wear-two')).indoorCoat).toBe(false);
   });
   it('用途必须选择，体感及时间必须有效，不接受非法保暖值', async () => {
     const body = { action: 'confirm', recordId: uid('wear'), context, revision: '', mutationId: uid('wear-save'),
       items: [{ id: item.id, revision: item.revision }], weather: null, purpose: '休闲', time: '10:00', indoor: null, outdoor: null };
-    for (const patch of [{ purpose: undefined }, { purpose: '' }, { indoor: '错误' }, { outdoor: 26 }, { time: '24:00' }]) {
+    for (const patch of [{ purpose: undefined }, { purpose: '' }, { indoor: '错误' }, { outdoor: 26 }, { time: '24:00' }, { indoorCoat: 'false' }, { indoorCoat: null }, { indoorCoat: 1 }]) {
       expect((await call('POST', {}, { ...body, ...patch })).status).toBe(400);
     }
     for (const warmth of [-1, 41, '3']) expect((await call('POST', {}, { action: 'save-item', item: { ...item, warmth }, mutationId: uid('invalid-warmth') })).status).toBe(400);
@@ -227,6 +246,16 @@ describe('衣柜与实际穿搭接口', () => {
   it('历史按整天分页，同一天多于30套也不会漏掉', async () => {
     hashes.set(WEAR_KEY, Object.fromEntries(Array.from({ length: 35 }, (_, i) => [uid(`wear-${i}-`), { id: uid(`wear-${i}-`), date: context.date, confirmedAt: '2026-10-05T00:00:00Z', items: [item] }])));
     expect((await call('GET', { view: 'history', date: context.date })).body.records).toHaveLength(35);
+  });
+  it('睡衣标签保存回读，睡觉穿搭可单独记录室内体感', async () => {
+    const saved = await call('POST', {}, { action: 'save-item', item: { ...item, revision: '', sleepwear: true }, mutationId: uid('sleep-item') });
+    expect(saved.status).toBe(200);
+    expect((await call('GET', { date: context.date })).body.items[0].sleepwear).toBe(true);
+    const record = await call('POST', {}, { action: 'confirm', recordId: uid('sleep-record'), context, revision: '', mutationId: uid('sleep-wear'),
+      items: [{ id: item.id, revision: saved.body.value.revision }], weather: null, purpose: '睡觉', time: '23:00', indoor: '舒适', outdoor: null, indoorCoat: false });
+    expect(record.status).toBe(200);
+    expect(record.body.value).toMatchObject({ purpose: '睡觉', indoor: '舒适', outdoor: null, items: [{ sleepwear: true }] });
+    expect((await call('POST', {}, { action: 'save-item', item: { ...item, sleepwear: 'true' }, mutationId: uid('invalid-sleep') })).status).toBe(400);
   });
   it('断网失败不伪造成功，重试可继续保存', async () => {
     evalMock.mockRejectedValueOnce(new Error('offline'));

@@ -5,7 +5,7 @@ import { calendarDestinations, chooseLocation, effectiveContext, recommend, repl
 import { ClothesError, clothesRequest, photoUrl, readLocal, writeLocal } from './client';
 import CityPicker from './CityPicker';
 import WearEditor, { createWearDraft, readWearDraft, type WearDraft } from './WearEditor';
-import { warmthTotals } from './warmth';
+import OutfitWarmth from './OutfitWarmth';
 import TripPlanner from './TripPlanner';
 
 interface WeatherResult { weather: WeatherSnapshot | null; stale: boolean; error?: string }
@@ -49,7 +49,6 @@ export default function Today({ owner, items, initial, records, onContext, onRec
   const candidates = useMemo(() => recommend(items, effective, weather, records), [items, effective, weather, records]);
   const proposed = selection ?? candidates[index % Math.max(1, candidates.length)];
   const outfit: Outfit | undefined = proposed;
-  const outfitWarmth = warmthTotals(outfit?.items ?? []);
   const openWear = (pieces: ClothesItem[] = [], record?: WearRecord) => setWearEditor(readWearDraft(owner, initial.date) ?? createWearDraft(effective, weatherFor(effective, weather), pieces, record));
   const changeContext = (next: Partial<ClothesDayContext>) => {
     setContext((value) => { const updated = { ...value, ...next }; writeLocal(storageKey, updated); return updated; });
@@ -177,7 +176,8 @@ export default function Today({ owner, items, initial, records, onContext, onRec
       <div className="clothes-row clothes-section-heading"><h2>今天穿了什么</h2><button className="life-primary" onClick={() => openWear()}>{hasWearDraft ? '继续记录' : todayRecords.length ? '再记一套' : '记录穿搭'}</button></div>
       {todayRecords.length ? todayRecords.map((record, i) => <article className="clothes-daily-record" key={wearId(record)}>
         <div className="clothes-row"><strong>{record.time || `第 ${i + 1} 套`}{record.purpose ? ` · ${record.purpose}` : ''}</strong><button className="clothes-link" onClick={() => openWear([], record)}>编辑穿搭</button></div>
-        <p className="clothes-muted">室内：{record.indoor ?? '未记录'} · 室外：{record.outdoor ?? '未记录'}</p>
+        <p className="clothes-muted">室内：{record.indoor ?? '未记录'}{record.purpose !== '睡觉' && ` · 室外：${record.outdoor ?? '未记录'}`}</p>
+        {record.indoorCoat !== undefined && <OutfitWarmth items={record.items} indoorCoat={record.indoorCoat} indoorOnly={record.purpose === '睡觉'} />}
         <div className="clothes-history-pieces">{record.items.map((item) => <figure key={item.id}><img loading="lazy" src={photoUrl(item.photoId)} alt={item.name} /><figcaption>{item.name}</figcaption></figure>)}</div>
       </article>) : <p className="clothes-muted">今天还没有记录穿搭</p>}
     </section>
@@ -209,14 +209,14 @@ export default function Today({ owner, items, initial, records, onContext, onRec
         : <div className="clothes-empty">{!items.length ? <><p>衣柜还是空的</p><button className="clothes-link" onClick={onWardrobe}>添加衣物</button></> : !effective.scene || effective.active === null ? '请补全当天条件' : !weatherFor(effective, weather) ? '请选择城市或手填天气' : '暂无合适衣物'}</div>}
       {outfit?.missing.length ? <p className="clothes-status">缺少：{outfit.missing.join('、')}</p> : null}
       {replaceItem && <div className="clothes-replacements"><div className="clothes-row"><span>替换{categoryLabel(replaceItem.category)}</span><button onClick={() => setReplace(null)}>收起</button></div><div className="clothes-grid">{replacements(replaceItem, outfit!, items, effective, weather).map((item) => <button key={item.id} onClick={() => { setSelection(replacePiece(outfit!, replaceItem.id, item, items, effective, weather)); setReplace(null); }}><img loading="lazy" src={photoUrl(item.photoId)} alt={item.name} /><span>{item.name}</span></button>)}</div>{!replacements(replaceItem, outfit!, items, effective, weather).length && <p className="clothes-muted">暂无可替换衣物</p>}</div>}
-      {outfit?.items.length ? <p className="clothes-muted">上身 {outfitWarmth.upper}°C · 下身 {outfitWarmth.lower}°C</p> : null}
+      {outfit && <OutfitWarmth items={outfit.items} />}
       <div className="clothes-confirm"><button className="life-primary" disabled={!outfit?.items.length} onClick={() => openWear(outfit?.items)}>记录这套穿搭</button></div>
     </section>
     {error && <div className="life-error" role="alert">{error}</div>}
     {conflict && <div className="life-conflict"><button onClick={() => { changeContext({ revision: conflict.revision }); setConflict(null); setError(''); }}>保留当前内容，重新保存</button></div>}
     <TripPlanner owner={owner} date={initial.date} timezone={initial.timezone} items={items} records={records} onExpired={onExpired} onRefresh={onRefresh} />
     <section className="clothes-history"><button className="clothes-row" aria-expanded={history} onClick={() => setHistory(!history)}><span>穿搭历史</span><span>{history ? '−' : '+'}</span></button>
-      {history && <div>{historyRecords.length ? historyRecords.map((record) => <article key={wearId(record)}><div className="clothes-row"><strong>{record.date} {record.time} {record.purpose}</strong><span>{record.context.location?.name}</span></div><p>室内：{record.indoor ?? '未记录'} · 室外：{record.outdoor ?? '未记录'}</p><div className="clothes-history-pieces">{record.items.map((item) => <figure key={item.id}><img loading="lazy" src={photoUrl(item.photoId)} alt={item.name} /><figcaption>{item.name}</figcaption></figure>)}</div></article>) : <p className="clothes-muted">暂无记录</p>}{moreHistory && historyRecords.length >= 30 && <button disabled={busy} onClick={() => void loadHistory()}>更早记录</button>}</div>}
+      {history && <div>{historyRecords.length ? historyRecords.map((record) => <article key={wearId(record)}><div className="clothes-row"><strong>{record.date} {record.time} {record.purpose}</strong><span>{record.context.location?.name}</span></div><p>室内：{record.indoor ?? '未记录'}{record.purpose !== '睡觉' && ` · 室外：${record.outdoor ?? '未记录'}`}</p>{record.indoorCoat !== undefined && <OutfitWarmth items={record.items} indoorCoat={record.indoorCoat} indoorOnly={record.purpose === '睡觉'} />}<div className="clothes-history-pieces">{record.items.map((item) => <figure key={item.id}><img loading="lazy" src={photoUrl(item.photoId)} alt={item.name} /><figcaption>{item.name}</figcaption></figure>)}</div></article>) : <p className="clothes-muted">暂无记录</p>}{moreHistory && historyRecords.length >= 30 && <button disabled={busy} onClick={() => void loadHistory()}>更早记录</button>}</div>}
     </section>
     {wearEditor && <WearEditor initial={wearEditor} owner={owner} items={items} onSaved={(record) => { onRecord(record); setWearEditor(null); setHasWearDraft(false); }} onClose={() => { setWearEditor(null); setHasWearDraft(Boolean(readWearDraft(owner, initial.date))); }} onExpired={onExpired} onRefresh={onRefresh} />}
     {cityQuery !== null && <CityPicker initial={cityQuery} onClose={() => setCityQuery(null)} onSelect={(city) => {

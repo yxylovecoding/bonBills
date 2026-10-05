@@ -11,6 +11,7 @@ export function estimateWarmth(item: ClothesItem): number {
   }
   if (category === '连衣裙') return [1.5, 3, 5][item.thickness - 1];
   if (category === '外套') {
+    if (item.sleepwear && /披肩/.test(name)) return 2;
     if (/长款.*(?:棉服|羽绒)/.test(name)) return 10;
     if (/棉服|羽绒|斯凯奇立领短/.test(name)) return 8;
     if (/马甲/.test(name)) return 5;
@@ -33,6 +34,13 @@ export function warmthTotals(items: ClothesItem[]) {
     if (['下装', '连衣裙'].includes(category)) total.lower += warmth;
     return total;
   }, { upper: 0, lower: 0 });
+}
+export function isOutdoorCoat(item: ClothesItem) { return categoryLabel(item.category) === '外套' && !item.sleepwear; }
+export function environmentWarmth(items: ClothesItem[], indoorCoat = false) {
+  return {
+    indoor: warmthTotals(indoorCoat ? items : items.filter((item) => !isOutdoorCoat(item))),
+    outdoor: warmthTotals(items),
+  };
 }
 export function wearable(item: ClothesItem) { return !item.deleted && item.status !== '收起'; }
 export function normalizeItem(item: ClothesItem): ClothesItem {

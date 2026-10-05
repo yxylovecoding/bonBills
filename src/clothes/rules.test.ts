@@ -1,6 +1,6 @@
-import { itemWarmth, warmthTotals } from './warmth';
+import { environmentWarmth, itemWarmth, warmthTotals } from './warmth';
 import { describe, expect, it } from 'vitest';
-import { calendarDestinations, chooseLocation, deviceDate, effectiveContext, emptyContext, inferActivities, recentCounts, recommend, replacePiece, replacements } from './rules';
+import { eligibleItems, calendarDestinations, chooseLocation, deviceDate, effectiveContext, emptyContext, inferActivities, recentCounts, recommend, replacePiece, replacements } from './rules';
 import type { Category, ClothesItem, ClothesLocation, WearRecord, WeatherSnapshot } from './types';
 
 const context = { ...emptyContext('2026-10-05', 'Asia/Shanghai'), scene: '基本室内' as const, active: false };
@@ -210,6 +210,25 @@ describe('BonClothes 日期、地点和条件', () => {
 
 
 describe('26度上下身独立匹配', () => {
+  it('室内默认脱外套，保留内搭和下装；室外仍计入全部外套', () => {
+    const pieces = [item('tee', '上装', { warmth: 1 }), item('inner', '内衣', { warmth: .5 }),
+      item('coat', '外套', { warmth: 4 }), item('vest', '外套', { warmth: 2 }), item('pants', '下装', { warmth: 3 })];
+    expect(environmentWarmth(pieces)).toEqual({ indoor: { upper: 1.5, lower: 3 }, outdoor: { upper: 7.5, lower: 3 } });
+    expect(environmentWarmth(pieces, true)).toEqual({ indoor: { upper: 7.5, lower: 3 }, outdoor: { upper: 7.5, lower: 3 } });
+    expect(pieces).toHaveLength(5);
+    expect(environmentWarmth([item('dress', '连衣裙', { warmth: 2 }), pieces[2]])).toEqual({ indoor: { upper: 2, lower: 2 }, outdoor: { upper: 6, lower: 2 } });
+    expect(environmentWarmth([])).toEqual({ indoor: { upper: 0, lower: 0 }, outdoor: { upper: 0, lower: 0 } });
+  });
+  it('睡衣披肩在室内保留，只给上身增加保暖值；日常推荐排除睡衣', () => {
+    const dress = item('nightdress', '连衣裙', { sleepwear: true, warmth: 1.5 });
+    const shrug = item('睡衣披肩', '外套', { sleepwear: true });
+    const coat = item('outdoor-coat', '外套', { warmth: 4 });
+    expect(itemWarmth(shrug)).toBe(2);
+    expect(environmentWarmth([dress, shrug, coat]).indoor).toEqual({ upper: 3.5, lower: 1.5 });
+    expect(eligibleItems([dress], '连衣裙', context, weather)).toEqual([]);
+    expect(eligibleItems([shrug, coat], '外套', context, weather).map((piece) => piece.id)).toEqual([coat.id]);
+    expect(recommend([...wardrobe, dress, shrug], context, weather).every((outfit) => outfit.items.every((piece) => !piece.sleepwear))).toBe(true);
+  });
   it('薄T恤初值1度，单件自定值优先，连衣裙分别计入上下身', () => {
     const tee = item('薄T恤', '上衣');
     expect(itemWarmth(tee)).toBe(1);
