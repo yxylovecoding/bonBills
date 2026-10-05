@@ -1,5 +1,5 @@
 import type { ClothesCalendar, ClothesDayContext, ClothesItem, ClothesLocation, Outfit, Scene, WearRecord, WeatherSnapshot } from './types';
-import type { Category } from './types';
+import { CATEGORIES, categoryLabel, type Category } from './types';
 
 export function deviceDate(now = new Date(), timezone = Intl.DateTimeFormat().resolvedOptions().timeZone) {
   return new Intl.DateTimeFormat('sv-SE', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
@@ -64,17 +64,43 @@ function needs(context: ClothesDayContext, weather: WeatherSnapshot) {
   return { cold, rain, wind, coat: cold < 18 || (weather.max - weather.min >= 10 && weather.min < 24) || rain || wind,
     accessory: cold < 5 && outdoor };
 }
-export function eligibleItems(items: ClothesItem[], category: Category, context: ClothesDayContext, weather: WeatherSnapshot) {
-  const n = needs(context, weather);
-  return items.filter((item) => !item.deleted && item.status === '可穿' && item.category === category
+function insulation(wearing: ClothesItem[], categories: string[]) {
+  return wearing.filter((piece) => categories.includes(categoryLabel(piece.category)))
+    .reduce((sum, piece) => sum + Math.max(0, piece.thickness - 1), 0);
+}
+function warmth(item: ClothesItem, wearing: ClothesItem[], cold: number) {
+  const category = categoryLabel(item.category);
+  if (['上衣', '连衣裙'].includes(category)) return item.thickness + insulation(wearing, ['内衣']);
+  // A shell retains the warmth of the insulating layers underneath. Below
+  // freezing, keep the requirement for an insulated outer garment itself.
+  if (category === '外套' && item.windproof && cold >= 0) return item.thickness + insulation(wearing, ['内衣', '上衣', '连衣裙']);
+  return item.thickness;
+}
+export function eligibleItems(items: ClothesItem[], requested: Category, context: ClothesDayContext, weather: WeatherSnapshot, wearing: ClothesItem[] = []) {
+  const n = needs(context, weather), category = categoryLabel(requested);
+  return items.filter((item) => !item.deleted && item.status === '可穿' && categoryLabel(item.category) === category
     && (!context.active || item.active)
-    && (!(n.cold < 8 && ['上装', '下装', '连衣裙', '鞋', '配饰'].includes(category)) || item.thickness >= 2)
-    && (!(weather.apparent >= 28 && ['上装', '下装', '连衣裙'].includes(category)) || item.thickness === 1)
-    && (category !== '外套' || (item.thickness >= (n.cold < 8 ? 3 : n.cold < 18 ? 2 : 1)
+    && (!(n.cold < 8 && ['上衣', '下装', '连衣裙', '鞋', '配饰'].includes(category)) || warmth(item, wearing, n.cold) >= 2)
+    && (!(weather.apparent >= 28 && ['内衣', '上衣', '下装', '连衣裙'].includes(category)) || item.thickness === 1)
+    && (category !== '外套' || (warmth(item, wearing, n.cold) >= (n.cold < 8 ? 3 : n.cold < 18 ? 2 : 1)
       && (!n.rain || item.waterproof) && (!n.wind || item.windproof)))
     && (category !== '鞋' || !n.rain || item.waterproof));
 }
 function outfitKey(items: ClothesItem[]) { return items.map((item) => item.id).sort().join(':'); }
+function ordered(items: ClothesItem[]) {
+  return [...items].sort((a, b) => CATEGORIES.indexOf(categoryLabel(a.category)) - CATEGORIES.indexOf(categoryLabel(b.category)));
+}
+export function needsBra(items: ClothesItem[]) {
+  const covering = items.find((item) => categoryLabel(item.category) === '内衣')
+    ?? items.find((item) => ['上衣', '连衣裙'].includes(categoryLabel(item.category)));
+  return Boolean(covering && covering.braRequirement !== 'optional');
+}
+function withBra(outfit: Outfit, bra: ClothesItem | undefined): Outfit {
+  const items = ordered([...outfit.items.filter((item) => categoryLabel(item.category) !== '文胸'), ...(bra ? [bra] : [])]);
+  const missing = outfit.missing.filter((label) => label !== '文胸');
+  if (needsBra(items) && !bra) missing.unshift('文胸');
+  return { items, missing, key: outfitKey(items) };
+}
 export function recommend(items: ClothesItem[], context: ClothesDayContext, inputWeather: WeatherSnapshot | null,
   records: WearRecord[] = []): Outfit[] {
   const weather = weatherFor(context, inputWeather);
@@ -82,40 +108,69 @@ export function recommend(items: ClothesItem[], context: ClothesDayContext, inpu
   const n = needs(context, weather), counts = recentCounts(records, context.date);
   const ideal = n.cold < 8 ? 3 : n.cold < 20 ? 2 : 1;
   const score = (list: ClothesItem[]) => {
-    const thermal = list.reduce((sum, item) => sum + Math.abs(item.thickness - ideal) * (item.category === '外套' ? 2 : 1), 0);
-    const colors = new Set(list.filter((item) => !['黑', '白', '灰', '米', '棕'].includes(item.color)).map((item) => item.color));
-    return thermal * 100 + Math.max(0, colors.size - 1) * 12 + list.reduce((sum, item) => sum + (counts[item.id] ?? 0) * 3, 0);
+    const upper = list.some((item) => ['上衣', '连衣裙'].includes(categoryLabel(item.category)));
+    const thermal = list.reduce((sum, item) => {
+      const category = categoryLabel(item.category);
+      if (category === '文胸' || (category === '内衣' && upper)) return sum;
+      return sum + Math.abs(warmth(item, list, n.cold) - ideal) * (category === '外套' ? 2 : 1);
+    }, 0);
+    const colors = new Set(list.filter((item) => !['文胸', '内衣'].includes(categoryLabel(item.category))
+      && !['黑', '白', '灰', '米', '棕'].includes(item.color)).map((item) => item.color));
+    return thermal * 100 + Math.max(0, colors.size - 1) * 12 + list.reduce((sum, item) => sum + (counts[item.id] ?? 0) * 3, 0)
+      + (list.some((item) => categoryLabel(item.category) === '内衣') ? 1 : 0);
   };
-  const compare = (a: Outfit, b: Outfit) => a.missing.length - b.missing.length || (a.missing.length ? b.items.length - a.items.length : 0) || score(a.items) - score(b.items) || a.key.localeCompare(b.key);
-  const layouts: Category[][] = [['上装', '下装', '鞋'], ['连衣裙', '鞋']];
+  // Judge the main outfit before its underwear, so missing a bra never hides an
+  // available shirt in favour of an empty dress outfit. Optional layers do not
+  // improve completeness simply by adding more pieces.
+  const coreMissing = (outfit: Outfit) => outfit.missing.filter((label) => label !== '文胸').length;
+  const coreCount = (outfit: Outfit) => outfit.items.filter((item) => !['文胸', '内衣'].includes(categoryLabel(item.category))).length;
+  const compare = (a: Outfit, b: Outfit) => coreMissing(a) - coreMissing(b)
+    || (coreMissing(a) ? coreCount(b) - coreCount(a) : 0) || a.missing.length - b.missing.length
+    || score(a.items) - score(b.items) || a.key.localeCompare(b.key);
+  const poolFor = (category: Category, wearing: ClothesItem[]) => eligibleItems(items, category, context, weather, wearing)
+    .sort((a, b) => score([...wearing, a]) - score([...wearing, b]) || a.id.localeCompare(b.id)).slice(0, 24);
+  const inners = n.cold < 18 ? poolFor('内衣', []) : [];
+  const bras = poolFor('文胸', []);
+  const layouts: Category[][] = [['上衣', '下装', '鞋'], ['连衣裙', '鞋']];
   const results: Outfit[] = [];
   for (const layout of layouts) {
     if (n.coat) layout.push('外套');
     if (n.accessory) layout.push('配饰');
-    let candidates: Outfit[] = [{ items: [], missing: [], key: '' }];
+    let candidates: Outfit[] = [{ items: [], missing: [], key: '' }, ...inners.map((item) => ({ items: [item], missing: [], key: item.id }))];
     for (const category of layout) {
-      const pool = eligibleItems(items, category, context, weather).sort((a, b) => score([a]) - score([b]) || a.id.localeCompare(b.id)).slice(0, 24);
       const label = category === '外套' && n.rain ? '防雨外套' : category === '外套' && n.wind ? '防风外套' : category;
-      if (!pool.length) candidates = candidates.map((outfit) => ({ ...outfit, missing: [...outfit.missing, label] }));
-      else candidates = candidates.flatMap((outfit) => pool.map((item) => {
-        const next = [...outfit.items, item];
-        return { ...outfit, items: next, key: outfitKey(next) };
-      })).sort(compare).slice(0, 96);
+      candidates = candidates.flatMap((outfit) => {
+        const pool = poolFor(category, outfit.items);
+        if (!pool.length) return [{ ...outfit, missing: [...outfit.missing, label] }];
+        return pool.map((item) => {
+          const next = [...outfit.items, item];
+          return { ...outfit, items: next, key: outfitKey(next) };
+        });
+      }).sort(compare).slice(0, 96);
     }
-    results.push(...candidates);
+    results.push(...candidates.flatMap((outfit) => needsBra(outfit.items) && bras.length
+      ? bras.map((bra) => withBra(outfit, bra)) : [withBra(outfit, undefined)]));
   }
   const unique = new Map(results.sort(compare).map((outfit) => [outfit.key + outfit.missing.join(), outfit]));
   const ranked = [...unique.values()].sort(compare);
   const best = ranked[0];
-  return ranked.filter((outfit) => outfit.missing.length === best.missing.length
-    && (!best.missing.length || outfit.items.length === best.items.length));
+  return ranked.filter((outfit) => coreMissing(outfit) === coreMissing(best) && outfit.missing.length === best.missing.length
+    && (!coreMissing(best) || coreCount(outfit) === coreCount(best)));
 }
 export function replacements(item: ClothesItem, outfit: Outfit, items: ClothesItem[], context: ClothesDayContext, inputWeather: WeatherSnapshot | null) {
   const weather = weatherFor(context, inputWeather);
   if (!weather || !context.scene || context.active === null) return [];
-  return eligibleItems(items, item.category, context, weather).filter((next) => next.id !== item.id && !outfit.items.some((worn) => worn.id === next.id));
+  const retained = outfit.items.filter((piece) => piece.id !== item.id);
+  return eligibleItems(items, item.category, context, weather, retained).filter((next) => next.id !== item.id
+    && !retained.some((worn) => worn.id === next.id)
+    && retained.every((worn) => eligibleItems([worn], worn.category, context, weather, [...retained, next]).length > 0))
+    .sort((a, b) => a.id.localeCompare(b.id));
 }
-export function replacePiece(outfit: Outfit, previous: string, next: ClothesItem): Outfit {
+export function replacePiece(outfit: Outfit, previous: string, next: ClothesItem,
+  wardrobe: ClothesItem[], context: ClothesDayContext, inputWeather: WeatherSnapshot | null): Outfit {
   const items = outfit.items.map((item) => item.id === previous ? next : item);
-  return { ...outfit, items, key: outfitKey(items) };
+  const weather = weatherFor(context, inputWeather);
+  const bra = needsBra(items) ? items.find((item) => categoryLabel(item.category) === '文胸')
+    ?? (weather ? eligibleItems(wardrobe, '文胸', context, weather).sort((a, b) => a.id.localeCompare(b.id))[0] : undefined) : undefined;
+  return withBra({ ...outfit, items }, bra);
 }

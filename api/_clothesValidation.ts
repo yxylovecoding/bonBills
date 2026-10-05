@@ -1,4 +1,4 @@
-import { CATEGORIES, COLORS, SCENES, type ClothesDayContext, type ClothesItem, type ClothesLocation } from '../src/clothes/types.js';
+import { CATEGORIES, COLORS, SCENES, categoryLabel, hasBraRequirement, type ClothesDayContext, type ClothesItem, type ClothesLocation } from '../src/clothes/types.js';
 import { isCalendarDate } from '../src/utils/outlookCalendar.js';
 
 export class ClothesInputError extends Error {}
@@ -30,12 +30,19 @@ export function locationInput(value: unknown): ClothesLocation | null {
 }
 export function itemInput(value: unknown): ClothesItem {
   const v = value as ClothesItem;
-  requireInput(v && CATEGORIES.includes(v.category) && COLORS.includes(v.color) && [1, 2, 3].includes(v.thickness)
+  requireInput(v && CATEGORIES.includes(categoryLabel(v.category)) && COLORS.includes(v.color) && [1, 2, 3].includes(v.thickness)
     && ['可穿', '待洗', '收起'].includes(v.status) && typeof v.active === 'boolean' && typeof v.windproof === 'boolean'
-    && typeof v.waterproof === 'boolean' && typeof v.name === 'string' && v.name.trim().length <= 60, '衣物信息无效');
-  return { id: id(v.id), revision: id(v.revision, true), name: v.name.trim() || `${v.color}色${v.category}`,
-    category: v.category, color: v.color, thickness: v.thickness, active: v.active, windproof: v.windproof,
+    && typeof v.waterproof === 'boolean' && typeof v.name === 'string' && v.name.trim().length <= 60
+    && (v.braRequirement === undefined || ['required', 'optional'].includes(v.braRequirement)), '衣物信息无效');
+  return { id: id(v.id), revision: id(v.revision, true), name: v.name.trim() || `${v.color === '多色' ? v.color : `${v.color}色`}${categoryLabel(v.category)}`,
+    category: categoryLabel(v.category), color: v.color, thickness: v.thickness, active: v.active, windproof: v.windproof,
+    ...(hasBraRequirement(v.category) ? { braRequirement: v.braRequirement ?? 'required' } : {}),
     waterproof: v.waterproof, status: v.status, photoId: id(v.photoId, true) };
+}
+export function validLayers(items: ClothesItem[]) {
+  const categories = items.map((item) => categoryLabel(item.category));
+  return new Set(categories).size === categories.length
+    && !(categories.includes('连衣裙') && (categories.includes('上衣') || categories.includes('下装')));
 }
 export function contextInput(value: unknown): ClothesDayContext {
   const v = value as ClothesDayContext;

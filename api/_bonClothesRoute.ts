@@ -2,8 +2,8 @@ import { kv } from '@vercel/kv';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { authOk, sameOrigin } from './_auth.js';
 import { CONTEXTS_KEY, ITEMS_KEY, WEAR_KEY, SAVE_CLOTHES, photoKey, receiptKey, signature, readClothesCalendar, readWeather, searchCities } from './_bonClothes.js';
-import { ClothesInputError, contextInput, dateInput, id, itemInput, locationInput, photoInput, requireInput, timezoneInput } from './_clothesValidation.js';
-import type { ClothesDayContext, ClothesItem, WearRecord, WeatherSnapshot } from '../src/clothes/types.js';
+import { ClothesInputError, contextInput, dateInput, id, itemInput, locationInput, photoInput, requireInput, timezoneInput, validLayers } from './_clothesValidation.js';
+import { CATEGORIES, type ClothesDayContext, type ClothesItem, type WearRecord, type WeatherSnapshot } from '../src/clothes/types.js';
 import { TRIP_PLANS_KEY, readClothesTrips, readTripForecast, tripPlanInput } from './_clothesTrips.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -76,8 +76,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (items.some((item) => !item || item.deleted || item.status !== '可穿')) return res.status(409).json({ error: '衣柜已更新，请刷新后重新选择', wardrobeChanged: true });
       for (const day of Object.values(plan.days)) {
         const pieces = items.filter((item) => day.itemIds?.includes(item!.id));
-        requireInput(new Set(pieces.map((item) => item!.category)).size === pieces.length
-          && !(pieces.some((item) => item!.category === '连衣裙') && pieces.some((item) => ['上装', '下装'].includes(item!.category)))
+        requireInput(validLayers(pieces as ClothesItem[])
           && (!day.active || pieces.every((item) => item!.active)), '搭配不符合行程条件');
       }
       checks = items.map((item) => ({ id: item!.id, revision: item!.revision }));
@@ -85,15 +84,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     } else if (body.action === 'confirm') {
       const context = contextInput(body.context);
       key = WEAR_KEY; field = context.date; expected = id(body.revision, true);
-      requireInput(Array.isArray(body.items) && body.items.length > 0 && body.items.length <= 6, '请选择穿搭');
+      requireInput(Array.isArray(body.items) && body.items.length > 0 && body.items.length <= CATEGORIES.length, '请选择穿搭');
       checks = body.items.map((item: { id: unknown; revision: unknown }) => ({ id: id(item.id), revision: id(item.revision) }));
       requireInput(new Set(checks.map((item) => item.id)).size === checks.length, '衣物重复');
       const items = await Promise.all(checks.map((check) => kv.hget<ClothesItem>(ITEMS_KEY, check.id)));
       if (items.some((item, i) => !item || item.deleted || item.status !== '可穿' || item.revision !== checks[i].revision)) {
         return res.status(409).json({ error: '衣柜已更新，请刷新后重新选择', wardrobeChanged: true });
       }
-      requireInput(new Set(items.map((item) => item!.category)).size === items.length
-        && !(items.some((item) => item!.category === '连衣裙') && items.some((item) => ['上装', '下装'].includes(item!.category)))
+      requireInput(validLayers(items as ClothesItem[])
         && (!context.active || items.every((item) => item!.active)), '搭配不符合当天条件');
       let weather: WeatherSnapshot | null = null;
       if (body.weather !== null) {

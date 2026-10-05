@@ -9,7 +9,7 @@ import { encryptOutlookConnection } from './_outlookCalendar';
 import { OUTLOOK_CONNECTION_KEY } from './_outlookSync';
 import { parseOutlookCalendar } from './_outlookCalendar';
 import { emptyContext } from '../src/clothes/rules';
-import type { ClothesItem } from '../src/clothes/types';
+import { CATEGORIES, type ClothesItem } from '../src/clothes/types';
 
 const { data, hashes, auth, origin, evalMock } = vi.hoisted(() => ({ data: new Map<string, any>(), hashes: new Map<string, Record<string, any>>(), auth: vi.fn(), origin: vi.fn(), evalMock: vi.fn() }));
 vi.mock('./_auth.js', () => ({ authOk: auth, sameOrigin: origin }));
@@ -64,10 +64,45 @@ describe('衣柜与实际穿搭接口', () => {
   });
   it('保存逐项使用 CAS 和同一事务照片，不触碰财务键', async () => {
     const result = await call('POST', {}, { action: 'save-item', item: { ...item, revision: '', name: '' }, photo: jpeg(), mutationId: uid('mutation') });
-    expect(result.status).toBe(200); expect(result.body.value.name).toBe('白色上装');
+    expect(result.status).toBe(200); expect(result.body.value.name).toBe('白色上衣');
     expect(evalMock.mock.calls[0][0]).toBe(SAVE_CLOTHES);
     expect(evalMock.mock.calls[0][1].every((key: string) => !key || key.startsWith('bonclothes:'))).toBe(true);
     expect(evalMock.mock.calls[0][2][4]).toBe(jpeg());
+  });
+  it('各层分类可保存，文胸选项校验并兼容旧上装', async () => {
+    for (const category of CATEGORIES) {
+      const result = await call('POST', {}, { action: 'save-item', item: { ...item, id: uid(`layer${CATEGORIES.indexOf(category)}`), category, revision: '', braRequirement: 'optional' }, photo: jpeg(), mutationId: uid(`save${CATEGORIES.indexOf(category)}`) });
+      expect(result.status).toBe(200);
+      expect(result.body.value.category).toBe(category);
+      expect(result.body.value.braRequirement).toBe(['内衣', '上衣', '连衣裙'].includes(category) ? 'optional' : undefined);
+    }
+    const legacy = await call('POST', {}, { action: 'save-item', item: { ...item, revision: '' }, photo: jpeg(), mutationId: uid('legacy') });
+    expect(legacy.body.value).toMatchObject({ category: '上衣', name: item.name, braRequirement: 'required' });
+    const invalid = await call('POST', {}, { action: 'save-item', item: { ...item, braRequirement: 'wrong' }, mutationId: uid('invalid') });
+    expect(invalid.status).toBe(400);
+  });
+  it('七件分层搭配可确认、保存计划，历史保留文胸要求快照', async () => {
+    const layers = CATEGORIES.filter((category) => category !== '连衣裙').map((category, i) => ({ ...item, id: uid(`layer${i}`), category, braRequirement: 'optional' as const }));
+    hashes.set(ITEMS_KEY, Object.fromEntries(layers.map((piece) => [piece.id, piece])));
+    const body = { action: 'confirm', context, items: layers.map(({ id, revision }) => ({ id, revision })), revision: '', weather: null, mutationId: uid('layers-confirm') };
+    const first = await call('POST', {}, body); expect(first.status).toBe(200); expect(first.body.value.items).toHaveLength(7);
+    expect((await call('POST', {}, body)).body).toEqual(first.body);
+    const plan = { tripId: 'trip:2026-10-05', revision: '', title: '出游', startDate: context.date, endDate: context.date, location: null,
+      days: { [context.date]: { scene: context.scene, active: false, itemIds: layers.map((piece) => piece.id) } } };
+    expect((await call('POST', {}, { action: 'save-trip-plan', plan, mutationId: uid('layers-plan') })).status).toBe(200);
+    hashes.set(ITEMS_KEY, {});
+    const history = await call('GET', { view: 'history', date: context.date });
+    expect(history.body.records[0].items).toEqual(layers);
+  });
+  it('旧上装与新上衣不能重复穿，内衣可与连衣裙叠穿', async () => {
+    const inner = { ...item, id: uid('inner'), category: '内衣' };
+    const top = { ...item, id: uid('top'), category: '上衣' };
+    const dress = { ...item, id: uid('dress'), category: '连衣裙' };
+    hashes.set(ITEMS_KEY, { [item.id]: item, [inner.id]: inner, [top.id]: top, [dress.id]: dress });
+    const confirm = (selected: typeof inner[], mutation: string) => call('POST', {}, { action: 'confirm', context, items: selected.map(({ id, revision }) => ({ id, revision })), revision: '', weather: null, mutationId: uid(mutation) });
+    expect((await confirm([item, top], 'duplicate')).status).toBe(400);
+    expect((await confirm([top, dress], 'dress-top')).status).toBe(400);
+    expect((await confirm([inner, dress], 'inner-dress')).status).toBe(200);
   });
   it('并发旧版本返回最新记录；客户端内容不作为成功保存', async () => {
     hashes.set(ITEMS_KEY, { [item.id]: { ...item, revision: uid('newer') } });

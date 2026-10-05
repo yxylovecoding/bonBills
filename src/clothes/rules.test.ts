@@ -4,7 +4,7 @@ import type { Category, ClothesItem, ClothesLocation, WearRecord, WeatherSnapsho
 
 const context = { ...emptyContext('2026-10-05', 'Asia/Shanghai'), scene: '基本室内' as const, active: false };
 const weather: WeatherSnapshot = { date: context.date, timezone: context.timezone, latitude: 30, longitude: 120, fetchedAt: '2026-10-05T00:00:00Z', temperature: 24, apparent: 24, min: 22, max: 26, apparentMin: 22, precipitation: 0, wind: 10 };
-const item = (id: string, category: Category, patch: Partial<ClothesItem> = {}): ClothesItem => ({ id, category, name: id, revision: id, photoId: id, color: '白', thickness: 1, active: true, windproof: false, waterproof: false, status: '可穿', ...patch });
+const item = (id: string, category: Category, patch: Partial<ClothesItem> = {}): ClothesItem => ({ id, category, name: id, revision: id, photoId: id, color: '白', thickness: 1, active: true, windproof: false, waterproof: false, status: '可穿', braRequirement: 'optional', ...patch });
 const wardrobe = [item('top', '上装'), item('bottom', '下装'), item('shoes', '鞋')];
 
 describe('BonClothes 规则推荐', () => {
@@ -48,7 +48,7 @@ describe('BonClothes 规则推荐', () => {
     const excluded = [item('laundry', '上装', { status: '待洗' }), item('stored', '上装', { status: '收起' }), item('deleted', '上装', { deleted: true }), item('tight', '上装', { active: false })];
     const result = recommend([...excluded, ...wardrobe.slice(1)], { ...context, active: true }, weather)[0];
     expect(result.items.every((i) => !excluded.some((e) => e.id === i.id))).toBe(true);
-    expect(result.missing).toContain('上装');
+    expect(result.missing).toContain('上衣');
   });
   it('先满足天气，再考虑颜色和近七天重复，结果不受输入顺序影响', () => {
     const items = [...wardrobe, item('new-top', '上装')];
@@ -64,10 +64,102 @@ describe('BonClothes 规则推荐', () => {
     const activeContext = { ...context, active: true };
     const original = recommend(wardrobe, activeContext, weather)[0];
     expect(replacements(wardrobe[0], original, [...wardrobe, alt, no], activeContext, weather)).toEqual([alt]);
-    expect(replacePiece(original, 'top', alt).items.map((i) => i.id)).toEqual(['alt', 'bottom', 'shoes']);
+    expect(replacePiece(original, 'top', alt, [...wardrobe, alt], activeContext, weather).items.map((i) => i.id)).toEqual(['alt', 'bottom', 'shoes']);
   });
   it('无天气可以手填继续推荐', () => {
     expect(recommend(wardrobe, { ...context, manualWeather: { temperature: 24, rain: false } }, null)[0].missing).toEqual([]);
+  });
+  it('保暖内胆与薄防风外壳按叠穿组合，不再误报缺少外套', () => {
+    const liner = item('liner', '上装', { thickness: 3 });
+    const shell = item('shell', '外套', { thickness: 1, windproof: true, waterproof: true });
+    const changeable = { ...weather, apparent: 19, apparentMin: 6, min: 9, max: 24 };
+    expect(recommend([liner, shell], context, changeable)[0]).toMatchObject({ items: [liner, shell], missing: ['下装', '鞋'] });
+    const thin = item('thin', '上装');
+    const rainy = { ...changeable, apparentMin: 12, precipitation: 2, wind: 30 };
+    const options = recommend([thin, liner, shell, ...wardrobe.slice(1).map((piece) => ({ ...piece, waterproof: true }))], { ...context, scene: '有室外' }, rainy);
+    expect(options.every((outfit) => outfit.items.some((piece) => piece.id === liner.id) && outfit.items.some((piece) => piece.id === shell.id))).toBe(true);
+  });
+  it('叠穿仍排除不满足防风防雨、活动或严寒条件的外壳', () => {
+    const liner = item('liner', '上装', { thickness: 3 });
+    const shell = item('shell', '外套', { thickness: 1, windproof: true, waterproof: true });
+    const cold = { ...weather, apparent: 10, apparentMin: 6, min: 9, max: 24, precipitation: 2, wind: 30 };
+    const outside = { ...context, scene: '有室外' as const, active: true };
+    for (const patch of [{ windproof: false }, { waterproof: false }, { active: false }, { status: '待洗' as const }]) {
+      expect(recommend([liner, { ...shell, ...patch }], outside, cold)[0].items).not.toContainEqual({ ...shell, ...patch });
+    }
+    expect(recommend([liner, shell], outside, { ...cold, apparentMin: -5 })[0].items).not.toContainEqual(shell);
+  });
+  it('替换内层或外套时重新检查整套叠穿保暖条件', () => {
+    const liner = item('liner', '上装', { thickness: 3 });
+    const shell = item('shell', '外套', { thickness: 1, windproof: true });
+    const warmCoat = item('warm-coat', '外套', { thickness: 3 });
+    const cool = { ...weather, apparent: 16, apparentMin: 12, min: 12, max: 20 };
+    const pieces = [liner, shell, warmCoat, ...wardrobe];
+    const outfit = { items: [liner, shell], missing: ['下装', '鞋'], key: 'liner:shell' };
+    expect(replacements(liner, outfit, pieces, context, cool)).not.toContainEqual(wardrobe[0]);
+    expect(replacements(warmCoat, { ...outfit, items: [liner, warmCoat] }, pieces, context, cool)).toContainEqual(shell);
+  });
+});
+describe('分层穿搭与文胸', () => {
+  const bra = item('bra', '文胸');
+  const top = item('shirt', '上衣', { braRequirement: 'required' });
+  const pieces = [top, bra, ...wardrobe.slice(1)];
+  const cool = { ...weather, apparent: 7, apparentMin: 6, min: 6, max: 12 };
+  it('旧上装默认需穿文胸，新旧上衣都能参与推荐', () => {
+    for (const category of ['上装', '上衣'] as const) {
+      const result = recommend([{ ...top, category, braRequirement: undefined }, bra, ...wardrobe.slice(1)], context, weather)[0];
+      expect(result.items.map((piece) => piece.id)).toEqual(['bra', 'shirt', 'bottom', 'shoes']);
+      expect(result.missing).toEqual([]);
+    }
+  });
+  it('文胸不足仍展示现有衣物，排除待洗及不方便活动的文胸', () => {
+    const shell = item('shell', '外套', { windproof: true });
+    const liner = { ...top, thickness: 3 as const };
+    expect(recommend([liner, shell], context, cool)[0]).toMatchObject({ items: [liner, shell], missing: ['文胸', '下装', '鞋'] });
+    for (const patch of [{ status: '待洗' as const }, { active: false }, { deleted: true }]) {
+      const result = recommend([top, { ...bra, ...patch }, ...wardrobe.slice(1)], { ...context, active: true }, weather)[0];
+      expect(result.items).not.toContainEqual({ ...bra, ...patch });
+      expect(result.missing).toEqual(['文胸']);
+    }
+  });
+  it('可不穿文胸的上衣和连衣裙省略文胸', () => {
+    for (const category of ['上衣', '连衣裙'] as const) {
+      const free = { ...top, category, braRequirement: 'optional' as const };
+      const result = recommend([free, bra, ...wardrobe.slice(1)], context, weather)[0];
+      expect(result.items).toContainEqual(free);
+      expect(result.items).not.toContainEqual(bra);
+      expect(result.missing).toEqual([]);
+    }
+  });
+  it('保暖内衣是可选内层，薄上衣加保暖内衣可以满足低温', () => {
+    const inner = item('thermal', '内衣', { thickness: 3, braRequirement: 'required' });
+    const winter = [inner, ...pieces, item('coat', '外套', { thickness: 3 }), ...wardrobe.slice(1).map((piece) => ({ ...piece, thickness: 3 as const }))];
+    const coldOutfit = recommend(winter, context, cool)[0];
+    expect(coldOutfit.items.map((piece) => piece.id)).toEqual(['bra', 'thermal', 'shirt', 'bottom', 'coat', 'shoes']);
+    expect(coldOutfit.missing).toEqual([]);
+    expect(recommend([inner, ...pieces], context, { ...weather, apparent: 32, apparentMin: 29 })[0].items).not.toContainEqual(inner);
+    expect(recommend(pieces, context, weather)[0].missing).not.toContain('内衣');
+  });
+  it('根据实际贴身内层的文胸要求选搭，不受外层标签覆盖', () => {
+    const inner = item('thermal', '内衣', { thickness: 3, braRequirement: 'optional' });
+    const winter = [inner, ...pieces, item('coat', '外套', { thickness: 3 }), ...wardrobe.slice(1).map((piece) => ({ ...piece, thickness: 3 as const }))];
+    expect(recommend(winter, context, cool)[0].items).not.toContainEqual(bra);
+    const reversed = winter.map((piece) => piece.id === 'thermal' ? { ...piece, braRequirement: 'required' as const }
+      : piece.id === 'shirt' ? { ...piece, braRequirement: 'optional' as const } : piece);
+    expect(recommend(reversed, context, cool)[0].items).toContainEqual(bra);
+    expect(recommend([...winter].reverse(), context, cool)).toEqual(recommend(winter, context, cool));
+  });
+  it('替换上衣会同步增减文胸及缺失提示，文胸也可单件替换', () => {
+    const free = item('free', '上衣');
+    const second = item('second-bra', '文胸');
+    const available = [...pieces, free, second];
+    const original = recommend(pieces, context, weather)[0];
+    const without = replacePiece(original, top.id, free, available, context, weather);
+    expect(without.items.map((piece) => piece.id)).toEqual(['free', 'bottom', 'shoes']);
+    expect(replacePiece(without, free.id, top, available, context, weather)).toEqual(original);
+    expect(replacePiece(without, free.id, top, [top], context, weather).missing).toEqual(['文胸']);
+    expect(replacements(bra, original, available, context, weather)).toEqual([second]);
+    expect(replacePiece(original, bra.id, second, available, context, weather).items[0]).toEqual(second);
   });
 });
 describe('BonClothes 日期、地点和条件', () => {

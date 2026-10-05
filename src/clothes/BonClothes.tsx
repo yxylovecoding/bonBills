@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import LoginPage from '../pages/LoginPage';
 import { requestSession, restoreSession } from '../utils/authClient';
 import type { ClothesData, ClothesDayContext, ClothesItem, WearRecord } from './types';
-import { CATEGORIES } from './types';
+import { CATEGORIES, categoryLabel } from './types';
 import { deviceDate, emptyContext } from './rules';
 import { ClothesError, clothesRequest, photoUrl } from './client';
 import ItemEditor, { newItem, readItemDraft, type ItemDraft } from './ItemEditor';
@@ -70,7 +70,7 @@ function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void
     setData((current) => current && ({ ...current, items: [...current.items.filter((old) => old.id !== item.id), ...(!item.deleted ? [item] : [])] }));
     setEditor(null); setHasDraft(false);
   }
-  const items = (data?.items ?? []).filter((item) => (category === '全部' || item.category === category) && (status === '全部状态' || item.status === status));
+  const items = (data?.items ?? []).filter((item) => (category === '全部' || categoryLabel(item.category) === category) && (status === '全部状态' || item.status === status));
   return <main className="life-shell clothes-shell">
     <header className="life-header"><h1><img src="/bonclothes.svg" alt="" width="27" height="27" />BonClothes</h1><div className="life-header-actions"><a href={APP_LINKS.log.url}>BonLog</a><InstallApp app="clothes" /><button onClick={async () => {
       try { await requestSession({ method: 'DELETE' }); localStorage.setItem('bonclothes-logout-at', String(Date.now())); onExpired(); }

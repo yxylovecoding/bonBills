@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { SCENES, type ClothesItem, type ClothesTrip, type ClothesTripPlan, type ClothesTripsData, type Outfit, type TripDayPlan, type TripForecast, type WearRecord } from './types';
+import { SCENES, categoryLabel, type ClothesItem, type ClothesTrip, type ClothesTripPlan, type ClothesTripsData, type Outfit, type TripDayPlan, type TripForecast, type WearRecord } from './types';
 import { ClothesError, clothesRequest, photoUrl, readLocal, writeLocal } from './client';
 import { newTripPlan, tripDayContext } from './tripRules';
 import { recommend, replacePiece, replacements } from './rules';
@@ -109,7 +109,7 @@ function TripEditor({ trip, saved, owner, date: today, timezone, items, records,
       {invalid && <p className="clothes-status">衣物或条件已变更 <button onClick={() => changeDay({ itemIds: null })}>重新选搭</button></p>}
       {outfit?.items.length ? <div className="clothes-grid clothes-outfit-grid">{outfit.items.map((item) => <article className="clothes-card" key={item.id}><img loading="lazy" src={photoUrl(item.photoId)} alt={item.name} /><div className="clothes-card-caption"><strong>{item.name}</strong><button disabled={!weather} onClick={() => setReplace(replace === item.id ? null : item.id)}>替换</button></div></article>)}</div> : <p className="clothes-empty">{!items.length ? '衣柜还是空的' : !context.scene || context.active === null ? '请补全出行条件' : !weather ? '等待目的地预报' : '暂无合适衣物'}</p>}
       {outfit?.missing.length ? <p className="clothes-status">缺少：{outfit.missing.join('、')}</p> : null}
-      {replacement && outfit && <div className="clothes-replacements"><div className="clothes-row"><span>替换{replacement.category}</span><button onClick={() => setReplace(null)}>收起</button></div><div className="clothes-grid">{replacements(replacement, outfit, items, context, weather).map((item) => <button key={item.id} onClick={() => { setSelection(replacePiece(outfit, replacement.id, item)); setReplace(null); }}><img src={photoUrl(item.photoId)} alt={item.name} /><span>{item.name}</span></button>)}</div></div>}
+      {replacement && outfit && <div className="clothes-replacements"><div className="clothes-row"><span>替换{categoryLabel(replacement.category)}</span><button onClick={() => setReplace(null)}>收起</button></div><div className="clothes-grid">{replacements(replacement, outfit, items, context, weather).map((item) => <button key={item.id} onClick={() => { setSelection(replacePiece(outfit, replacement.id, item, items, context, weather)); setReplace(null); }}><img src={photoUrl(item.photoId)} alt={item.name} /><span>{item.name}</span></button>)}</div></div>}
       <div className="clothes-confirm">{outfit?.items.length ? <button disabled={!weather || (!selection && invalid)} onClick={() => changeDay({ scene: context.scene, active: context.active, itemIds: outfit.items.map((item) => item.id) })}>{selectedIds && !selection ? '已选这套' : '选用这套'}</button> : null}{selectedIds && <button onClick={() => changeDay({ itemIds: null })}>取消选择</button>}</div>
     </fieldset>
     {error && <p className="life-error" role="alert">{error}</p>}

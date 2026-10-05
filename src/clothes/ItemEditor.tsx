@@ -1,16 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import { CATEGORIES, COLORS, type ClothesItem } from './types';
+import { CATEGORIES, COLORS, categoryLabel, hasBraRequirement, type ClothesItem } from './types';
 import { ClothesError, clothesRequest, compressPhoto, photoUrl, readLocal, writeLocal } from './client';
 
 export function newItem(): ClothesItem {
-  return { id: crypto.randomUUID(), revision: '', name: '', category: '上装', color: '白', thickness: 2, active: true,
+  return { id: crypto.randomUUID(), revision: '', name: '', category: '上衣', color: '白', thickness: 2, active: true, braRequirement: 'required',
     windproof: false, waterproof: false, status: '可穿', photoId: '' };
 }
 export interface ItemDraft { item: ClothesItem; photo: string; mutationId: string }
 export const itemDraftKey = (owner: string) => `bonclothes:item-draft:${owner}`;
 export function readItemDraft(owner: string): ItemDraft | null {
   const draft = readLocal<ItemDraft | null>(itemDraftKey(owner), null);
-  return draft?.item && CATEGORIES.includes(draft.item.category) && typeof draft.mutationId === 'string' ? draft : null;
+  return draft?.item && CATEGORIES.includes(categoryLabel(draft.item.category)) && typeof draft.mutationId === 'string' ? draft : null;
 }
 export default function ItemEditor({ initial, owner, onClose, onSaved, onExpired }: {
   initial: ItemDraft; owner: string; onClose: () => void; onSaved: (item: ClothesItem) => void; onExpired: () => void;
@@ -54,11 +54,12 @@ export default function ItemEditor({ initial, owner, onClose, onSaved, onExpired
           }} /><span>{photo || item.photoId ? '更换照片' : '选择照片'}</span>
         </label>
         <div className="clothes-fields">
-          <label className="clothes-full">名称<input value={item.name} maxLength={60} placeholder={`${item.color}色${item.category}`} onChange={(e) => change({ name: e.target.value })} /></label>
-          <label>类别<select aria-label="类别" value={item.category} onChange={(e) => change({ category: e.target.value as ClothesItem['category'] })}>{CATEGORIES.map((v) => <option key={v}>{v}</option>)}</select></label>
-          <label>颜色<select aria-label="颜色" value={item.color} onChange={(e) => change({ color: e.target.value as ClothesItem['color'] })}>{COLORS.map((v) => <option key={v} value={v}>{v}色</option>)}</select></label>
+          <label className="clothes-full">名称<input value={item.name} maxLength={60} placeholder={`${item.color === '多色' ? item.color : `${item.color}色`}${categoryLabel(item.category)}`} onChange={(e) => change({ name: e.target.value })} /></label>
+          <label>类别<select aria-label="类别" value={categoryLabel(item.category)} onChange={(e) => change({ category: e.target.value as ClothesItem['category'] })}>{CATEGORIES.map((v) => <option key={v}>{v}</option>)}</select></label>
+          <label>颜色<select aria-label="颜色" value={item.color} onChange={(e) => change({ color: e.target.value as ClothesItem['color'] })}>{COLORS.map((v) => <option key={v} value={v}>{v === '多色' ? v : `${v}色`}</option>)}</select></label>
           <label>厚薄<select aria-label="厚薄" value={item.thickness} onChange={(e) => change({ thickness: Number(e.target.value) as 1 | 2 | 3 })}><option value={1}>薄</option><option value={2}>适中</option><option value={3}>厚</option></select></label>
           <label>状态<select aria-label="状态" value={item.status} onChange={(e) => change({ status: e.target.value as ClothesItem['status'] })}>{['可穿', '待洗', '收起'].map((v) => <option key={v}>{v}</option>)}</select></label>
+          {hasBraRequirement(item.category) && <label>文胸<select aria-label="文胸" value={item.braRequirement ?? 'required'} onChange={(e) => change({ braRequirement: e.target.value as ClothesItem['braRequirement'] })}><option value="required">需穿文胸</option><option value="optional">可不穿文胸</option></select></label>}
         </div>
         <div className="clothes-checks">{([['active', '方便活动'], ['windproof', '防风'], ['waterproof', '防雨']] as const).map(([key, label]) => <label key={key}><input type="checkbox" checked={item[key]} onChange={(e) => change({ [key]: e.target.checked })} />{label}</label>)}</div>
       </fieldset>
