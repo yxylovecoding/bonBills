@@ -124,7 +124,7 @@ async function runSync(allowDisconnected = false) {
       const exercise = await syncExerciseSchedule(api, { connectionId, calendarState, excludedTaskIds, rolling: true });
       for (const id of exercise.managedTaskIds) excludedTaskIds.add(id);
       const laundry = await syncLaundrySchedule(api, { connectionId, tasks: await readAllTickTickTasks(api, [0]), history: dailyPlan.history,
-        calendarState, availability, profile: availabilityProfile(settings?.availabilityProfile),
+        calendarState, configState, trips, availability, profile: availabilityProfile(settings?.availabilityProfile),
         today, now: new Date(), excludedTaskIds });
       // Weather owns this cycle's date. Scene and daily rotation must not pull
       // it back to today, including when the forecast is temporarily unavailable.

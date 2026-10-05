@@ -224,7 +224,16 @@ export interface BonCvFireSnapshot {
   };
 }
 
+export interface SceneCity {
+  name: string;
+  latitude: number;
+  longitude: number;
+  timezone?: string;
+}
+
 export interface AppConfig {
+  homeCity?: SceneCity | null; // 寄
+  schoolCity?: SceneCity | null; // 居（含实习）
   birthDate: string;          // "2002-12-29"
   retireAge: number;          // 55
   fireTargetYears?: number;   // FIRE 攒钱目标年数，默认到退休年龄

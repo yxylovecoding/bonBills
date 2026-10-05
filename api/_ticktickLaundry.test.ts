@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { chooseLaundryDay, isLaundryTask, laundryAnchor, laundryLocation, readLaundryForecast, syncLaundrySchedule,
+import { chooseLaundryDay, isLaundryTask, laundryAnchor, laundryBeforeTrip, laundryLocation, readLaundryForecast, syncLaundrySchedule,
   LAUNDRY_STATE_KEY, type LaundryForecast, type LaundryState, type LaundryWeather } from './_ticktickLaundry';
-import type { ClothesDayContext } from '../src/clothes/types';
-import type { TickTickApi, TickTickTask } from './_ticktickTrips';
+import { buildTripSourcesFromSyncState, type TickTickApi, type TickTickTask } from './_ticktickTrips';
 const { data, upstream } = vi.hoisted(() => ({ data: new Map<string, any>(), upstream: vi.fn() }));
 vi.mock('@vercel/kv', () => ({ kv: { get: async (key: string) => structuredClone(data.get(key) ?? null),
   hgetall: async (key: string) => structuredClone(data.get(key) ?? null),
@@ -19,11 +18,11 @@ const sunny: LaundryWeather = { rain: 0, probability: 5, sunshine: 7 * 3600, cod
 const wet: LaundryWeather = { rain: 3, probability: 80, sunshine: 3600, code: 61 };
 const dates = Array.from({ length: 16 }, (_, i) => `2026-10-${String(i + 5).padStart(2, '0')}`);
 const forecast = (weather = wet): LaundryForecast => ({ fetchedAt: now.toISOString(), days: Object.fromEntries(dates.map(date => [date, { ...weather }])) });
+const city = { name: '北京', latitude: 40, longitude: 116.3 };
 const options = (fields: Record<string, any> = {}) => ({ tasks: [task()], history,
+  configState: { config: { schoolCity: city } },
   calendarState: { tagMap: Object.fromEntries(dates.map(date => [date, 'school'])) },
   availability: { startDate: '2026-10-05', endDate: '2026-11-01', events: [] }, today: '2026-10-05', now, ...fields });
-const context = (date: string, name = '北京'): ClothesDayContext => ({ date, timezone: 'Asia/Shanghai', revision: '',
-  location: { name, latitude: 40, longitude: 116.3, source: 'geo' }, scene: null, active: null, manualWeather: null });
 function mockWeather(f = forecast()) {
   upstream.mockResolvedValue({ daily: { time: dates, precipitation_sum: dates.map(d => f.days[d].rain),
     precipitation_probability_max: dates.map(d => f.days[d].probability), sunshine_duration: dates.map(d => f.days[d].sunshine),
@@ -36,7 +35,7 @@ function client(original = task()) {
   }) } as unknown as TickTickApi;
   return { api, current: () => current, change: (fields: Partial<TickTickTask>) => { current = { ...current, ...fields }; } };
 }
-beforeEach(() => { data.clear(); upstream.mockReset(); mockWeather(); data.set('contexts', { '2026-10-05': context('2026-10-05') }); });
+beforeEach(() => { data.clear(); upstream.mockReset(); mockWeather(); });
 afterEach(() => vi.restoreAllMocks());
 
 describe('洗衣周期和地点', () => {
@@ -62,13 +61,11 @@ describe('洗衣周期和地点', () => {
     expect(isLaundryTask(task({ title: '买洗衣凝珠' }))).toBe(false);
     expect(isLaundryTask(task({ tags: ['不关我事'] }))).toBe(false);
   });
-  it('居和实习沿用同场景位置，不能拿旅游目的地或过旧位置猜天气', () => {
-    const calendar = { tagMap: { '2026-10-05': 'school', '2026-10-07': 'travel', '2026-10-10': 'intern', '2026-10-12': 'home' } };
-    const contexts = [context('2026-10-05'), context('2026-10-07', '杭州')];
-    expect(laundryLocation('2026-10-10', calendar, contexts)?.name).toBe('北京');
-    expect(laundryLocation('2026-10-12', calendar, contexts)).toBeNull();
-    expect(laundryLocation('2026-11-10', { tagMap: { ...calendar.tagMap, '2026-11-10': 'school' } }, contexts)).toBeNull();
-    expect(laundryLocation('2026-10-12', calendar, [...contexts, context('2026-10-12', '家')])?.name).toBe('家');
+  it('固定读取设置中的居城市，缺失或非法坐标时不猜寄城市或定位', () => {
+    expect(laundryLocation({ config: { schoolCity: city, homeCity: { ...city, name: '杭州' } } })).toEqual(city);
+    expect(laundryLocation({ config: { homeCity: city } })).toBeNull();
+    for (const invalid of [null, { ...city, latitude: 100 }, { ...city, longitude: NaN }, { ...city, name: '' }])
+      expect(laundryLocation({ config: { schoolCity: invalid } })).toBeNull();
   });
 });
 
@@ -129,8 +126,10 @@ describe('洗衣同步与天气故障', () => {
     const c = client(); upstream.mockRejectedValue(new Error('weather unavailable'));
     expect((await syncLaundrySchedule(c.api, { ...options(), connectionId: 'connection' })).updated).toBe(0);
     expect(c.api.updateTask).not.toHaveBeenCalled(); expect(upstream).toHaveBeenCalledOnce();
-    data.delete('contexts');
-    expect((await syncLaundrySchedule(c.api, { ...options(), connectionId: 'connection' })).managedTaskIds.has('wash')).toBe(true);
+    const missing = await syncLaundrySchedule(c.api, { ...options({ configState: {} }), connectionId: 'connection' });
+    expect(missing.managedTaskIds.has('wash')).toBe(true);
+    expect(missing.decisions[0].reason).toContain('尚未设置居的城市');
+    expect(upstream).toHaveBeenCalledOnce();
     expect((await syncLaundrySchedule(c.api, { ...options(), connectionId: 'connection', excludedTaskIds: new Set(['wash']) })).managedTaskIds.size).toBe(0);
     expect((await syncLaundrySchedule(c.api, { ...options({ tasks: [task({ status: 2 })] }), connectionId: 'connection' })).updated).toBe(0);
   });
@@ -151,11 +150,72 @@ describe('洗衣同步与天气故障', () => {
     await expect(syncLaundrySchedule(c.api, { ...options(), connectionId: 'connection' })).rejects.toThrow('未正确保存');
   });
   it('不拿过期缓存改期，不把不完整返回的 null 当0毫米降水', async () => {
-    const loc = context('2026-10-05').location!;
+    const loc = city;
     await readLaundryForecast(loc, '2026-10-05', now);
     upstream.mockRejectedValueOnce(new Error('offline'));
     await expect(readLaundryForecast(loc, '2026-10-05', new Date(now.getTime() + 4 * 3600_000))).rejects.toThrow('offline');
     data.clear(); upstream.mockResolvedValue({ daily: { time: dates, precipitation_sum: dates.map(() => null) } });
     await expect(readLaundryForecast(loc, '2026-10-05', now)).rejects.toThrow('不完整');
+  });
+});
+
+
+describe('出行前洗衣', () => {
+  const tripOptions = (travelDays: string[], extra = {}) => {
+    const o = options(extra);
+    for (const day of travelDays) o.calendarState.tagMap[day] = 'travel';
+    return { ...o, connectionId: 'connection', trips: buildTripSourcesFromSyncState(o.calendarState, {}) };
+  };
+  it.each([
+    [['2026-10-10'], '2026-10-09'],
+    [['2026-10-09', '2026-10-10', '2026-10-11'], '2026-10-08'],
+    [['2026-10-07', '2026-10-08', '2026-10-09', '2026-10-10'], '2026-10-06'],
+  ])('周期日落在出行首日/中间/末日时固定到前一天：%s', async (travelDays, expected) => {
+    const original = task();
+    const actual = client(original);
+    const result = await syncLaundrySchedule(actual.api, tripOptions(travelDays as string[], {
+      tasks: [original], availability: undefined, configState: {},
+    }));
+    expect(result.decisions[0]).toMatchObject({ target: '2026-10-10', date: expected });
+    expect(result.updated).toBe(1); expect(upstream).not.toHaveBeenCalled();
+    expect(actual.current().dueDate).toBe(`${expected}T00:00:00Z`);
+  });
+  it('固定日前移可以超出天气窗口；反复同步不漂移，忽略当天日程冲突', async () => {
+    const c = client(), o = tripOptions(['2026-10-07', '2026-10-08', '2026-10-09', '2026-10-10']);
+    o.availability.events.push({ start: '2026-10-06T00:00:00+08:00', end: '2026-10-07T00:00:00+08:00', title: '全天安排' });
+    const first = await syncLaundrySchedule(c.api, o);
+    expect(first.decisions[0].date).toBe('2026-10-06');
+    const again = await syncLaundrySchedule(c.api, { ...o, tasks: [c.current()] });
+    expect(again.updated).toBe(0); expect(again.decisions[0].target).toBe('2026-10-10');
+    expect(c.current()).toMatchObject({ repeatFlag: task().repeatFlag, tags: task().tags, priority: 5 });
+  });
+  it('只有周期目标日落在出行中才提前，天气选日碰到出行不会触发出行前规则', async () => {
+    const c = client(), f = forecast();
+    for (const day of ['2026-10-07', '2026-10-08', '2026-10-09']) f.days[day] = sunny;
+    mockWeather(f);
+    const result = await syncLaundrySchedule(c.api, tripOptions(['2026-10-11', '2026-10-12']));
+    expect(result.decisions[0]).toMatchObject({ date: '2026-10-08', location: '北京' });
+    expect(upstream).toHaveBeenCalledOnce();
+    const url = upstream.mock.calls[0][0] as URL;
+    expect(url.searchParams.get('latitude')).toBe('40');
+    expect(url.searchParams.get('longitude')).toBe('116.3');
+  });
+  it('取消出行后仍沿原周期选天气；在前一天已经洗过不会再安排同一天', async () => {
+    const c = client(), o = tripOptions(['2026-10-09', '2026-10-10']);
+    expect((await syncLaundrySchedule(c.api, o)).decisions[0].date).toBe('2026-10-08');
+    mockWeather(forecast(sunny));
+    const canceled = await syncLaundrySchedule(c.api, { ...options({ tasks: [c.current()] }), connectionId: 'connection', trips: [] });
+    expect(canceled.decisions[0].date).toBe('2026-10-10');
+    const longTrip = tripOptions(['2026-10-09', '2026-10-10', '2026-10-11', '2026-10-12', '2026-10-13']);
+    expect(laundryBeforeTrip('2026-10-13', longTrip.trips, '2026-10-08')).toBeNull();
+  });
+  it('尊重相邻出行的手动拆分；错过出行前一天不会把未来任务写到过去', async () => {
+    const o = tripOptions(['2026-10-08', '2026-10-09', '2026-10-10']);
+    const split = buildTripSourcesFromSyncState(o.calendarState, { tripSplits: { '2026-10-10': true } });
+    expect(laundryBeforeTrip('2026-10-10', split)).toBe('2026-10-09');
+    const c = client();
+    const result = await syncLaundrySchedule(c.api, { ...o, today: '2026-10-09', now: new Date('2026-10-09T12:00:00+08:00') });
+    expect(result.updated).toBe(0); expect(result.decisions[0].reason).toContain('出行前一天已过');
+    expect(c.api.updateTask).not.toHaveBeenCalled(); expect(upstream).not.toHaveBeenCalled();
   });
 });

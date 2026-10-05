@@ -1,11 +1,12 @@
 import { kv } from '@vercel/kv';
-import { CONTEXTS_KEY, upstream } from './_bonClothes.js';
-import type { ClothesDayContext, ClothesLocation } from '../src/clothes/types.js';
+import { upstream } from './_bonClothes.js';
+import type { SceneCity } from '../src/models/types.js';
+import { readSceneCity } from '../src/utils/sceneCities.js';
 import type { OutlookAvailability } from '../src/utils/outlookCalendar.js';
 import { dayAvailability, type AvailabilityProfile } from './_dailyAvailability.js';
 import { cycleEnd, estimateTaskMinutes } from './_ticktickDailyPlan.js';
 import { calendarDateInTimeZone, routineOccurrenceKey, routineScenes, routineTaskDate, shiftTickTickDate,
-  type TickTickApi, type TickTickTask } from './_ticktickTrips.js';
+  type TickTickApi, type TickTickTask, type TickTickTripSource } from './_ticktickTrips.js';
 
 export const LAUNDRY_STATE_KEY = 'ticktick:laundry-weather:v1';
 const DAY = 86_400_000;
@@ -23,20 +24,12 @@ interface Anchor { projectId: string; repeatFlag: string; completion?: string; t
 export interface LaundryState { connectionId: string; anchors: Record<string, Anchor> }
 export interface LaundryDecision { id: string; target?: string; date?: string; reason: string; location?: string }
 
-export function laundryLocation(day: string, calendarState: unknown, contexts: ClothesDayContext[]): ClothesLocation | null {
-  const scenes = tagMap(calendarState), targetScene = scene(scenes[day]);
-  const valid = (location: ClothesLocation | null) => location && Number.isFinite(location.latitude) && Math.abs(location.latitude) <= 90
-    && Number.isFinite(location.longitude) && Math.abs(location.longitude) <= 180;
-  // A dated choice wins. Otherwise reuse only a recent location in the same
-  // home/school scene; a travel destination must never become the laundry home.
-  const choices = contexts.filter(context => valid(context.location) && context.date <= day
-    && (context.date === day || (targetScene && targetScene !== 'travel'
-      && scene(scenes[context.date]) === targetScene && context.date >= addDays(day, -30))))
-    .sort((a, b) => b.date.localeCompare(a.date));
-  return choices[0]?.location ?? null;
+export function laundryLocation(configState: unknown): SceneCity | null {
+  const config = (configState as { config?: { schoolCity?: unknown } } | null)?.config;
+  return readSceneCity(config?.schoolCity);
 }
 
-export async function readLaundryForecast(location: ClothesLocation, today: string, now = new Date()): Promise<LaundryForecast> {
+export async function readLaundryForecast(location: SceneCity, today: string, now = new Date()): Promise<LaundryForecast> {
   const latitude = Number(location.latitude.toFixed(3)), longitude = Number(location.longitude.toFixed(3));
   const key = `ticktick:laundry-forecast:v1:${latitude}:${longitude}:${today}`;
   const saved = await kv.get<LaundryForecast>(key);
@@ -84,7 +77,17 @@ export function laundryAnchor(task: TickTickTask, tasks: TickTickTask[], history
 
 interface PlanOptions {
   tasks: TickTickTask[]; history: TickTickTask[]; calendarState: unknown; availability?: OutlookAvailability;
+  configState?: unknown; trips?: TickTickTripSource[];
   profile?: AvailabilityProfile; now: Date; today: string;
+}
+
+export function laundryBeforeTrip(target: string, trips: TickTickTripSource[], completedDay?: string | null): string | null {
+  const trip = trips.find(trip => trip.startDate <= target && target <= trip.endDate);
+  if (!trip) return null;
+  const date = addDays(trip.startDate, -1);
+  // Finishing the pre-trip wash starts a new cycle; never move that next
+  // occurrence back to an already completed day during a long trip.
+  return completedDay && completedDay >= date ? null : date;
 }
 
 function hasTime(task: TickTickTask, date: string, options: PlanOptions) {
@@ -192,9 +195,7 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
   if (!tasks.length) return { updated: 0, managedTaskIds, decisions };
   const saved = await kv.get<LaundryState>(LAUNDRY_STATE_KEY);
   const state: LaundryState = saved?.connectionId === options.connectionId ? saved : { connectionId: options.connectionId, anchors: {} };
-  let contexts: ClothesDayContext[] = [];
-  try { contexts = Object.values(await kv.hgetall<Record<string, ClothesDayContext>>(CONTEXTS_KEY) ?? {}); }
-  catch { /* Keep dates if location data is unavailable. */ }
+  const location = laundryLocation(options.configState);
   const forecasts = new Map<string, Promise<LaundryForecast>>();
   let updated = 0;
   for (const task of tasks) {
@@ -202,13 +203,26 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
     if (!anchor) { decisions.push({ id: task.id, reason: '周期或日期不可用，保留原排期' }); continue; }
     // Persist the original cycle before any write; failed/partial retries cannot drift the window.
     await kv.set(LAUNDRY_STATE_KEY, state);
+    const beforeTrip = laundryBeforeTrip(anchor.target, options.trips ?? [], calendarDateInTimeZone(anchor.completion, task.timeZone));
+    if (beforeTrip) {
+      if (beforeTrip < options.today) {
+        decisions.push({ id: task.id, target: anchor.target, reason: '出行前一天已过，保留待办等待补做' });
+        continue;
+      }
+      // This explicit deadline takes precedence over weather, scene and free time.
+      const changed = await moveLaundry(api, task, beforeTrip);
+      if (changed) updated++;
+      decisions.push(changed === undefined
+        ? { id: task.id, target: anchor.target, reason: '任务已由用户更新，保留最新状态' }
+        : { id: task.id, target: anchor.target, date: beforeTrip, reason: '周期目标日位于出行期间，固定到出行前一天' });
+      continue;
+    }
+    if (!location) { decisions.push({ id: task.id, target: anchor.target, reason: '尚未设置居的城市，保留原排期' }); continue; }
     if (!options.availability) { decisions.push({ id: task.id, target: anchor.target, reason: '日程不可用，保留原排期' }); continue; }
     const weatherByDay = new Map<string, LaundryForecast>(), names = new Map<string, string>();
     for (let offset = -2; offset <= 2; offset++) {
       const date = addDays(anchor.target, offset);
       if (date < options.today || date > addDays(options.today, 14)) continue;
-      const location = laundryLocation(date, options.calendarState, contexts);
-      if (!location) continue;
       const key = `${location.latitude.toFixed(3)}:${location.longitude.toFixed(3)}`;
       if (!forecasts.has(key)) forecasts.set(key, readLaundryForecast(location, options.today, options.now));
       try { weatherByDay.set(date, await forecasts.get(key)!); names.set(date, location.name); }

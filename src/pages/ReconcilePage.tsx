@@ -5,6 +5,7 @@ import { formatCurrency } from '../components/CurrencyDisplay';
 import AmountInput from '../components/AmountInput';
 import FinanceImportPreviewDialog from '../components/FinanceImportPreviewDialog';
 import ImportCutoffHint from '../components/ImportCutoffHint';
+import SceneCityFields, { type SceneCitySettings } from '../components/SceneCityFields';
 
 const fmtInt = (v: number) => Math.round(v).toLocaleString('zh-CN');
 import { useSnapshotStore } from '../stores/snapshotStore';
@@ -228,6 +229,7 @@ const usStockInputsFromItems = (items: UsStockHoldingItem[]): UsStockItemInput[]
   }));
 
 function RebalanceSettingsModal({
+  cities,
   groupedTargetInputs,
   setGroupedTargetInputs,
   onRevealConsumptionWish,
@@ -235,13 +237,16 @@ function RebalanceSettingsModal({
   onClose,
   onSave,
 }: {
+  cities: SceneCitySettings;
   groupedTargetInputs: GroupedTargetInputs;
   setGroupedTargetInputs: (v: GroupedTargetInputs) => void;
   onRevealConsumptionWish: () => void;
   onHideConsumptionWish: () => void;
   onClose: () => void;
-  onSave: () => void;
+  onSave: (cities: SceneCitySettings, allocationChanged: boolean) => void;
 }) {
+  const [cityDraft, setCityDraft] = useState(cities);
+  const initialSettings = useRef({ cities, allocation: JSON.stringify(groupedTargetInputs) });
   const total = INVEST_GROUPS.reduce((sum, group) => sum + (parseFloat(groupedTargetInputs.groups[group.key]) || 0), 0);
   const totalOk = Math.abs(total - 100) < 0.01;
   const groupAssetsOk = INVEST_GROUPS.every((group) => {
@@ -291,12 +296,13 @@ function RebalanceSettingsModal({
   return (
     <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={onClose}>
-      <div className="reconcile-settings" role="dialog" aria-modal="true" aria-label="再平衡设置" style={{ backgroundColor: '#fff', borderRadius: 16, width: '100%', maxWidth: 380, boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}
+      <div className="reconcile-settings" role="dialog" aria-modal="true" aria-label="设置" style={{ backgroundColor: '#fff', borderRadius: 16, width: '100%', maxWidth: 380, boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}
         onClick={(e) => e.stopPropagation()}>
         <div style={{ padding: '20px 20px 12px' }}>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>再平衡设置</div>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>设置</div>
         </div>
         <div style={{ padding: '0 20px 4px' }}>
+          <SceneCityFields value={cityDraft} onChange={setCityDraft} />
           <div style={{ border: '1px solid #f1f3f4', borderRadius: 10, padding: '9px 10px', backgroundColor: '#fafafa', marginBottom: 12 }}>
             <div className="reconcile-settings-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
               <div>
@@ -413,7 +419,13 @@ function RebalanceSettingsModal({
             style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', color: C.sub, fontSize: 13, cursor: 'pointer' }}>
             取消
           </button>
-          <button onClick={onSave}
+          <button onClick={() => {
+            const cityChanges: SceneCitySettings = {};
+            for (const key of ['homeCity', 'schoolCity'] as const) {
+              if (JSON.stringify(cityDraft[key]) !== JSON.stringify(initialSettings.current.cities[key])) cityChanges[key] = cityDraft[key];
+            }
+            onSave(cityChanges, JSON.stringify(groupedTargetInputs) !== initialSettings.current.allocation);
+          }}
             style={{ padding: '8px 16px', borderRadius: 8, border: 'none', backgroundColor: C.blue, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
             保存
           </button>
@@ -2245,6 +2257,7 @@ export default function ReconcilePage() {
               setGroupedTargetInputs(groupedTargetInputFromConfig(effectiveInvestTargets(config.investAllocTargets)));
               setSettingsOpen(true);
             }}
+            aria-label="设置"
             style={{ fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', color: C.sub, lineHeight: 1 }}
           >
             ⚙️
@@ -2283,6 +2296,7 @@ export default function ReconcilePage() {
       </div>
       {settingsOpen && (
         <RebalanceSettingsModal
+          cities={{ homeCity: config.homeCity, schoolCity: config.schoolCity }}
           groupedTargetInputs={groupedTargetInputs}
           setGroupedTargetInputs={setGroupedTargetInputs}
           onRevealConsumptionWish={() => {
@@ -2297,9 +2311,8 @@ export default function ReconcilePage() {
             setSettingsOpen(false);
           }}
           onClose={() => setSettingsOpen(false)}
-          onSave={() => {
-            const investAllocTargets = groupedTargetInputsToConfig(groupedTargetInputs);
-            setConfig({ investAllocTargets });
+          onSave={(cities, allocationChanged) => {
+            setConfig({ ...cities, ...(allocationChanged ? { investAllocTargets: groupedTargetInputsToConfig(groupedTargetInputs) } : {}) });
             setSettingsOpen(false);
           }}
         />
