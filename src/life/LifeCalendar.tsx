@@ -1,7 +1,7 @@
 import InstallApp from '../components/InstallApp';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { resolveSkinRecord } from '../utils/lifeSkinProgress';
-import { skinLocalPlanValues, skinPlanValues, skinSeason } from '../utils/lifeSkin';
+import { SKIN_STATES, skinLocalPlanValues, skinPlanValues, skinSeason } from '../utils/lifeSkin';
 import { DEFAULT_SKIN_SETTINGS } from '../utils/lifeSkin';
 import LifeSkinSettings from './LifeSkinSettings';
 import { calendarCells, DEFAULT_CYCLE, entrySummary, LIFE_LABELS, type LifeView, type LifeYear, type TrainingRecord } from '../utils/bonLife';
@@ -217,7 +217,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
         onPeriodChange={(period) => setSelection((previous) => ({ ...previous, ...period }))}
         onEdit={(date) => openEntry({ date, kind: 'body', text: '', revision: '', ...current?.entries[`body:${date}`], mutationId: crypto.randomUUID() })} />
     </Suspense>}
-    {kind === 'done' ? <LifeDoneList onExpired={onExpired} /> : kind !== 'body' && <section className={`life-calendar${kind === 'training' ? ' life-training-calendar' : kind === 'eyes' || kind === 'discomfort' ? ' life-symptom-calendar' : ''}`} aria-label={`${year}年${month}月${LIFE_LABELS[kind]}日历`} aria-busy={loading}>
+    {kind === 'done' ? <LifeDoneList onExpired={onExpired} /> : kind !== 'body' && <section className={`life-calendar${kind === 'training' ? ' life-training-calendar' : kind === 'skin' || kind === 'eyes' || kind === 'discomfort' ? ' life-symptom-calendar' : ''}`} aria-label={`${year}年${month}月${LIFE_LABELS[kind]}日历`} aria-busy={loading}>
       <div className="life-weekdays">{WEEKDAYS.map((day) => <span key={day}>{day}</span>)}</div>
       <div className="life-days">{cells.map((date, index) => {
         if (!date) return <div className="life-empty-day" key={`empty-${index}`} aria-hidden="true" />;
@@ -232,6 +232,9 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
           ...skinLocalPlanValues(skinSettings, skinSuggestion) } : undefined;
         const summary = suggestedSkin ? entrySummary('skin', { text: '', revision: '', skin: suggestedSkin }) : entrySummary(kind, planned ? { ...entry, text: entry?.text ?? '', revision: entry?.revision ?? '', training: planned } : entry);
         const planStatus = suggestedSkin ? '个人方案' : planned?.completed ? '已完成' : entry?.training && planned?.mode !== 'auto' ? '手动安排' : date >= now && planned?.plan ? '自动计划' : '';
+        const displaySkin = suggestedSkin ?? entry?.skin;
+        const skinDetails = kind === 'skin' ? entrySummary('skin', { text: entry?.text ?? '', revision: '',
+          skin: { ...displaySkin, status: undefined, acneMarks: false } }) : '';
         return <button type="button" key={date} disabled={loading || !current || Boolean(error) || (kind === 'training' && trainingSource.busy && !trainingSource.current?.completions)}
           className={`life-day${phase ? ` phase-${phase.phase}` : period ? ' phase-menstrual' : ''}${date === now ? ' is-today' : ''}`}
           aria-label={`${date} ${LIFE_LABELS[kind]} ${phaseLabel}${planStatus ? ` ${planStatus}` : ''}${summary ? `：${summary}` : '：未记录'}`}
@@ -239,7 +242,13 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
             ...(planned ? { training: planned } : {}),
             mutationId: crypto.randomUUID() })}>
           <span className="life-day-heading"><span className="life-day-number">{Number(date.slice(-2))}</span>{phaseLabel && <span className={`life-period-mark phase-${phase?.phase}`} aria-hidden="true">{phaseLabel}</span>}</span>
-          {kind === 'eyes' || kind === 'discomfort' ? <span className="life-day-symptoms">
+          {kind === 'skin' ? <span className="life-day-symptoms">
+            {displaySkin?.status && <span className="life-symptom-mark life-day-symptom" style={symptomColor(`skin:${displaySkin.status}`)}>
+              {SKIN_STATES[displaySkin.status]}{displaySkin.planDay ? ` · 第 ${displaySkin.planDay} 天` : ''}
+            </span>}
+            {displaySkin?.acneMarks && <span className="life-symptom-mark life-day-symptom" style={symptomColor('skin:acneMarks')}>痘印</span>}
+            {skinDetails && <span className="life-day-text">{skinDetails}</span>}
+          </span> : kind === 'eyes' || kind === 'discomfort' ? <span className="life-day-symptoms">
             {Object.entries(symptomObservations(kind, entry?.[kind])).map(([key, item]) =>
               <span className="life-symptom-mark life-day-symptom" key={key} style={symptomColor(key)}
                 title={[kind === 'discomfort' ? SYMPTOM_AREAS[item.area] : '', item.name, SYMPTOM_STATES[item.status], item.note].filter(Boolean).join(' · ')}>

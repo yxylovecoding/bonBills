@@ -1,6 +1,7 @@
 import { useId } from 'react';
 import type { LifeEntries } from '../utils/bonLife';
 import { nextSkinPlan } from '../utils/lifeSkinProgress';
+import { symptomColor } from './symptomColor';
 import { DEFAULT_SKIN_SETTINGS, SKIN_FIELDS, SKIN_SEASONS, SKIN_STATES, matchingSkinProducts, skinLocalPlanValues, skinPlanValues, skinSeason,
   type SkinField, type SkinRecord, type SkinSeason, type SkinSettings, type SkinState } from '../utils/lifeSkin';
 
@@ -27,10 +28,12 @@ export default function LifeSkinFields({ value = {}, date, entries, settings = D
   return <div className="life-skin-editor">
     <fieldset className="life-skin-choices" disabled={busy}><legend>皮肤状态</legend><div>
       {(Object.entries(SKIN_STATES) as [SkinState, string][]).map(([key, label]) => <button type="button" key={key}
+        className="life-symptom-mark" style={symptomColor(`skin:${key}`)}
         aria-pressed={status === key} onClick={() => { if (key !== status) followHistory(key); }}>{label}</button>)}
     </div></fieldset>
     <fieldset className="life-skin-choices" disabled={busy}><legend>副状态</legend><div>
-      <button type="button" aria-pressed={value.acneMarks ?? false} onClick={() => change({ acneMarks: !value.acneMarks })}>痘印</button>
+      <button type="button" className="life-symptom-mark" style={symptomColor('skin:acneMarks')}
+        aria-pressed={value.acneMarks ?? false} onClick={() => change({ acneMarks: !value.acneMarks })}>痘印</button>
     </div></fieldset>
     {(plan || value.acneMarks) && <section className="life-skin-plan" aria-label="个人护理方案">
       <div className="life-skin-plan-heading"><h3>个人方案</h3><label>季节<select aria-label="护理季节" disabled={busy} value={season}

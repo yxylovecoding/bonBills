@@ -2,12 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { DEFAULT_ACNE_MARKS_MEDICATION, SKIN_SEASONS, SKIN_STATES, SKIN_TIMES, emptySkinDay, parseSkinSettings,
   type SkinProduct, type SkinSettings, type SkinState } from '../utils/lifeSkin';
 import { LifeError, lifeRequest } from './client';
+import { symptomColor } from './symptomColor';
 
-function TagChoices<T extends string>({ label, options, value, disabled, onChange }: {
+function TagChoices<T extends string>({ label, options, value, disabled, onChange, colorFor }: {
   label: string; options: Record<T, string>; value: T[]; disabled: boolean; onChange: (next: T[]) => void;
+  colorFor?: (key: T) => ReturnType<typeof symptomColor>;
 }) {
   return <fieldset className="life-skin-choices" disabled={disabled}><legend>{label}</legend><div>
     {(Object.entries(options) as [T, string][]).map(([key, name]) => <button type="button" key={key} aria-pressed={value.includes(key)}
+      className={colorFor ? 'life-symptom-mark' : undefined} style={colorFor?.(key)}
       onClick={() => onChange(value.includes(key) ? value.filter((item) => item !== key) : [...value, key])}>{name}</button>)}
   </div></fieldset>;
 }
@@ -72,7 +75,8 @@ export default function LifeSkinSettings({ initial, year, onSave, onClose, onExp
         <button type="button" disabled={busy || Boolean(item)} aria-pressed={tab === 'products'} onClick={() => setTab('products')}>在用清单 · {draft.products.filter((value) => value.active).length}</button></nav>
       {tab === 'plans' && <>
         <fieldset className="life-skin-choices" disabled={busy}><legend>皮肤状态</legend><div>{(Object.entries(SKIN_STATES) as [SkinState, string][]).map(([key, label]) =>
-          <button type="button" key={key} aria-pressed={state === key} onClick={() => setState(key)}>{label}</button>)}</div></fieldset>
+          <button type="button" key={key} className="life-symptom-mark" style={symptomColor(`skin:${key}`)}
+            aria-pressed={state === key} onClick={() => setState(key)}>{label}</button>)}</div></fieldset>
         {state === 'acne' && <label className="life-check"><input type="checkbox" disabled={busy} checked={plan.careFrom === 'damaged'} onChange={(event) => {
           const { careFrom: _careFrom, ...ownPlan } = plan;
           change({ ...draft, plans: { ...draft.plans, acne: event.target.checked ? { ...plan, careFrom: 'damaged' } : ownPlan } });
@@ -105,7 +109,8 @@ export default function LifeSkinSettings({ initial, year, onSave, onClose, onExp
             <button type="button" disabled={busy || draft.products.length >= 100} onClick={() => editProduct()}>＋ 添加用品</button></div>
           <ul className="life-skin-products">{products.map((product) => <li key={product.id} className={product.active ? '' : 'is-paused'}>
             <div><strong>{product.name}</strong><span className="life-skin-product-kind">{product.kind === 'medication' ? '药品' : '护肤品'} · {product.active ? '在用' : '停用'}</span>
-              <div className="life-skin-tags">{[...new Set([...product.states.map((key) => SKIN_STATES[key]), ...product.seasons.map((key) => SKIN_SEASONS[key]), ...product.times.map((key) => SKIN_TIMES[key]), ...product.tags])]
+              <div className="life-skin-tags">{product.states.map((key) => <span key={`skin:${key}`} className="life-symptom-mark" style={symptomColor(`skin:${key}`)}>{SKIN_STATES[key]}</span>)}
+                {[...new Set([...product.seasons.map((key) => SKIN_SEASONS[key]), ...product.times.map((key) => SKIN_TIMES[key]), ...product.tags])]
                 .map((label) => <span key={label}>{label}</span>)}</div>{product.notes && <p>{product.notes}</p>}</div>
             <div className="life-skin-product-actions"><button type="button" disabled={busy} aria-label={`编辑${product.name}`} onClick={() => editProduct(product)}>编辑</button>
               <button type="button" disabled={busy} aria-label={`${product.active ? '停用' : '启用'}${product.name}`} onClick={() => change({ ...draft,
@@ -115,7 +120,7 @@ export default function LifeSkinSettings({ initial, year, onSave, onClose, onExp
         </> : <div className="life-skin-product-editor">
           <div className="life-fields"><label>用品名称<input autoFocus required maxLength={100} disabled={busy} value={item.name} onChange={(event) => setItem({ ...item, name: event.target.value })} /></label>
             <label className="life-field">类型<select disabled={busy} value={item.kind} onChange={(event) => setItem({ ...item, kind: event.target.value as SkinProduct['kind'] })}><option value="skincare">护肤品</option><option value="medication">药品</option></select></label></div>
-          <TagChoices label="状态标签" options={SKIN_STATES} value={item.states} disabled={busy} onChange={(states) => setItem({ ...item, states })} />
+          <TagChoices label="状态标签" options={SKIN_STATES} value={item.states} disabled={busy} colorFor={(key) => symptomColor(`skin:${key}`)} onChange={(states) => setItem({ ...item, states })} />
           <TagChoices label="季节标签 · 不选为全年" options={SKIN_SEASONS} value={item.seasons} disabled={busy} onChange={(seasons) => setItem({ ...item, seasons })} />
           <TagChoices label="时段标签" options={SKIN_TIMES} value={item.times} disabled={busy} onChange={(times) => setItem({ ...item, times })} />
           <label className="life-field">自定义标签<input maxLength={310} disabled={busy} placeholder="例如：保湿，修护，局部使用" value={tags} onChange={(event) => setTags(event.target.value)} /></label>
