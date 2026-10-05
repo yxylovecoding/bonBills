@@ -6,8 +6,8 @@ const task = (name: string): TrainingTask => ({ id: name, name, title: name, sch
 const cycle = { ...DEFAULT_CYCLE, lastPeriodStart: '2026-10-01', trainingDays: [] };
 describe('按个人训练分化调整经期计划', () => {
   it('使用 TickTick 当日分化，不被旧的训练日设置覆盖；无经期也保留原计划', () => {
-    expect(personalTraining('2026-10-08', [task('上半身')], cycle, [])).toBe('上半身 · 常规强度');
-    expect(personalTraining('2026-10-14', [task('全身力训')], cycle, [])).toContain('全身力训 · 常规力量');
+    expect(personalTraining('2026-10-08', [task('上半身')], cycle, [])).toBe('上半身');
+    expect(personalTraining('2026-10-14', [task('全身力训')], cycle, [])).toBe('全身力训 · 可加量');
     expect(personalTraining('2026-10-08', [task('臀腿')], DEFAULT_CYCLE, [])).toBe('臀腿');
     expect(personalTraining('2026-10-08', [], cycle, [])).toContain('休息');
   });
@@ -19,7 +19,7 @@ describe('按个人训练分化调整经期计划', () => {
     expect(personalTraining('2026-10-08', [task('上半身')], cycle, [], 'rest')).toBe('休息');
   });
   it('同日多个任务都保留，已记录的经期覆盖估计阶段', () => {
-    expect(personalTraining('2026-10-08', [task('上半身'), task('爬坡')], cycle, [])).toBe('上半身 · 常规强度\n爬坡 · 常规强度');
+    expect(personalTraining('2026-10-08', [task('上半身'), task('爬坡')], cycle, [])).toBe('上半身\n爬坡');
     expect(personalTraining('2026-10-14', [task('HIIT')], cycle, ['2026-10-14'])).toContain('轻松散步');
   });
   it('经期初段把同日多个训练合并为一次恢复训练', () => {
@@ -167,8 +167,8 @@ describe('未来训练自动排期', () => {
     const dates = new Map(['2026-10-08', '2026-10-15', '2026-10-22', '2026-10-29'].map((date) => [date, [task('上半身')]]));
     const plans = monthlyTrainingPlan(2026, 10, '2026-10-04', dates, cycle, [], {});
     expect(plans.size).toBe(31);
-    expect(plans.get('2026-10-08')?.plan).toContain('常规强度');
-    expect(plans.get('2026-10-15')?.plan).toContain('常规力量');
+    expect(plans.get('2026-10-08')?.plan).toBe('上半身');
+    expect(plans.get('2026-10-15')?.plan).toBe('上半身 · 可加量');
     expect(plans.get('2026-10-22')?.plan).toContain('轻量');
     expect(plans.get('2026-10-29')?.plan).toContain('轻松散步');
     expect(plans.get('2026-10-09')?.plan).toContain('休息');
@@ -176,13 +176,13 @@ describe('未来训练自动排期', () => {
   it('新的经期设置、经期记录和训练来源都会更新未来自动计划', () => {
     const resolve = (settings = cycle, periods: string[] = [], name = 'HIIT') => plannedTraining('2026-10-22', '2026-10-04', [task(name)], settings, periods, saved);
     expect(resolve().plan).toContain('低强度有氧');
-    expect(resolve({ ...cycle, lastPeriodStart: '2026-10-15' }).plan).toBe('HIIT · 常规强度');
+    expect(resolve({ ...cycle, lastPeriodStart: '2026-10-15' }).plan).toBe('HIIT');
     expect(resolve(cycle, ['2026-10-22']).plan).toContain('轻松散步');
     expect(resolve(cycle, [], '游泳').plan).toContain('游泳 · 轻量');
   });
   it('跨年与闰月逐日排期，不限于当前任务的下一次发生', () => {
     const plans = monthlyTrainingPlan(2027, 1, '2026-12-20', new Map([['2027-01-07', [task('上半身')]]]), { ...cycle, lastPeriodStart: '2026-12-31' }, [], {});
-    expect(plans.get('2027-01-07')?.plan).toBe('上半身 · 常规强度');
+    expect(plans.get('2027-01-07')?.plan).toBe('上半身');
     expect(monthlyTrainingPlan(2028, 2, '2028-02-01', undefined, { ...cycle, lastPeriodStart: '2028-02-01' }, [], {}).size).toBe(29);
   });
   it('重排保留手动安排、旧记录、已完成记录和过去的自动计划', () => {

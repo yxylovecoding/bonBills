@@ -105,10 +105,10 @@ export function personalTraining(date: string, tasks: TrainingTask[], settings: 
     if (!phase) return task.name;
     if (phase?.phase === 'menstrual' || phase?.phase === 'lateLuteal') {
       if (/HIIT|间歇/i.test(task.name)) return '低强度有氧 20 分钟';
-      return `${task.name} · 轻量，减少训练量`;
+      return `${task.name} · 轻量`;
     }
-    if (phase.phase === 'earlyLuteal' && trainingTags(task).includes('力量')) return `${task.name} · 常规力量，按体感加量`;
-    return `${task.name} · 常规强度`;
+    if (phase.phase === 'earlyLuteal' && trainingTags(task).includes('力量')) return `${task.name} · 可加量`;
+    return task.name;
   }))].join('\n');
 }
 
