@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ClothesCalendar, ClothesDayContext, ClothesItem, ClothesLocation, Outfit, WearRecord, WeatherSnapshot } from './types';
-import { SCENES, PURPOSES, categoryLabel, wearId, type Purpose } from './types';
-import { calendarDestinations, chooseLocation, effectiveContext, recommend, replacePiece, replacements, weatherFor } from './rules';
+import type { ClothesCalendar, ClothesDayContext, ClothesItem, ClothesLocation, Outfit, PairCounts, WearRecord, WeatherSnapshot } from './types';
+import { SCENES, PURPOSES, wearId, type Purpose } from './types';
+import { calendarDestinations, chooseLocation, effectiveContext, recommend, replacements, weatherFor } from './rules';
 import { ClothesError, clothesRequest, photoUrl, readLocal, writeLocal } from './client';
 import CityPicker from './CityPicker';
 import { createWearDraft, type WearDraft } from './WearEditor';
@@ -9,16 +9,20 @@ import OutfitWarmth from './OutfitWarmth';
 import TripPlanner from './TripPlanner';
 import WearDetails from './WearDetails';
 import { useContextAutosave } from './useContextAutosave';
+import { outfitPairCounts } from './pairing';
+import { pinReplacement } from './outfitSelection';
+import OutfitPieces from './OutfitPieces';
+import PiecePicker from './PiecePicker';
 
 interface WeatherResult { weather: WeatherSnapshot | null; stale: boolean; error?: string }
 interface Props {
   owner: string; items: ClothesItem[]; initial: ClothesDayContext; records: WearRecord[]; outfits: WearRecord[];
   tomorrow: boolean; past: boolean; onReviewDay: (date: string) => void; onToggleDay: (location: ClothesLocation | null) => void;
-  wearCounts?: Record<string, number>;
+  wearCounts?: Record<string, number>; pairCounts?: PairCounts;
   onContext: (context: ClothesDayContext) => void; onOpenWear: (draft: WearDraft) => void; hasWearDraft: boolean; onExpired: () => void;
   onRefresh: () => void; onWardrobe: () => void;
 }
-export default function Today({ owner, items, initial, records, outfits, tomorrow, past, onReviewDay, onToggleDay, wearCounts, onContext, onOpenWear, hasWearDraft, onExpired, onRefresh, onWardrobe }: Props) {
+export default function Today({ owner, items, initial, records, outfits, tomorrow, past, onReviewDay, onToggleDay, wearCounts, pairCounts, onContext, onOpenWear, hasWearDraft, onExpired, onRefresh, onWardrobe }: Props) {
   const storageKey = `bonclothes:context-draft:${owner}:${initial.date}`;
   const lastCityKey = `bonclothes:last-city:${owner}`;
   const preferenceKey = `bonclothes:location-choice:${owner}`;
@@ -41,7 +45,7 @@ export default function Today({ owner, items, initial, records, outfits, tomorro
   const [weatherBusy, setWeatherBusy] = useState(false), [weatherRetry, setWeatherRetry] = useState(0);
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [manualTemperature, setManualTemperature] = useState(String(context.manualWeather?.temperature ?? 20));
-  const [selection, setSelection] = useState<Outfit | null>(null), [index, setIndex] = useState(0), [replace, setReplace] = useState<string | null>(null);
+  const [fixed, setFixed] = useState<ClothesItem[]>([]), [index, setIndex] = useState(0), [replace, setReplace] = useState<string | null>(null);
   const [history, setHistory] = useState(false), [older, setOlder] = useState<WearRecord[]>([]), [moreHistory, setMoreHistory] = useState(true);
   const calendarRequest = useRef(0), geoRequest = useRef(0);
   const contextRef = useRef(context); contextRef.current = context;
@@ -49,17 +53,16 @@ export default function Today({ owner, items, initial, records, outfits, tomorro
   const location = chooseLocation(context.location, located, lastCity);
   const effective = useMemo(() => ({ ...effectiveContext(context, calendar), location }), [context, calendar, location]);
   const weather = weatherState.weather;
-  const candidates = useMemo(() => effective.purpose ? recommend(items, effective, weather, records, wearCounts) : [], [items, effective, weather, records, wearCounts]);
-  const proposed = selection ?? candidates[index % Math.max(1, candidates.length)];
-  const outfit: Outfit | undefined = proposed;
+  const pairs = useMemo(() => pairCounts ?? outfitPairCounts([...records, ...outfits]), [pairCounts, records, outfits]);
+  const candidates = useMemo(() => effective.purpose ? recommend(items, effective, weather, records, wearCounts, { fixedItems: fixed, pairCounts: pairs }) : [], [items, effective, weather, records, wearCounts, fixed, pairs]);
+  const outfit: Outfit | undefined = candidates[index % Math.max(1, candidates.length)] ?? (fixed.length ? { items: fixed, missing: [], key: '' } : undefined);
   const openWear = (pieces: ClothesItem[] = [], record?: WearRecord) => onOpenWear(createWearDraft(effective, weatherFor(effective, weather), pieces, record));
   const changeContext = (next: Partial<ClothesDayContext>) => {
-    queue.change(next); setSelection(null); setIndex(0); setError('');
+    queue.change(next); setIndex(0); setReplace(null); setError('');
   };
   useEffect(() => { if (!sync.dirty && !sync.saving) onContext(context); }, [context, sync.dirty, sync.saving, onContext]);
   useEffect(() => { if (sync.error instanceof ClothesError && sync.error.status === 401) onExpired(); }, [sync.error, onExpired]);
-  // A stale selected outfit must never hide a newly unavailable item.
-  useEffect(() => { setSelection(null); setIndex(0); }, [items, weather, effective.scene, effective.active, effective.purpose]);
+  useEffect(() => { setIndex(0); setReplace(null); }, [items, weather, effective.scene, effective.active, effective.purpose]);
   const refreshCalendar = useCallback(async () => {
     const token = ++calendarRequest.current; setCalendarBusy(true); setCalendarError('');
     try {
@@ -141,7 +144,7 @@ export default function Today({ owner, items, initial, records, outfits, tomorro
   function failed(cause: unknown) {
     if (cause instanceof ClothesError) {
       if (cause.status === 401) onExpired();
-      if (cause.wardrobeChanged) { onRefresh(); setSelection(null); }
+      if (cause.wardrobeChanged) onRefresh();
     }
     setError(cause instanceof Error ? cause.message : '保存失败，请重试');
   }
@@ -190,14 +193,16 @@ export default function Today({ owner, items, initial, records, outfits, tomorro
       {calendar?.events.length ? <details className="clothes-events"><summary>当日日程</summary>{calendar.events.map((event, i) => <div key={i}><span>{event.allDay ? '全天' : new Date(event.startDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><span>{event.title}{event.location && <small>{event.location}</small>}</span></div>)}</details> : null}
     </section>
     {!past && <section className="clothes-outfit" aria-label="穿搭推荐">
-      <div className="clothes-row clothes-section-heading"><h2>{tomorrow ? '明日穿搭推荐' : '穿搭推荐'}</h2><button className="clothes-link" disabled={candidates.length < 2 || busy} onClick={() => { setSelection(null); setIndex((v) => v + 1); setReplace(null); }}>换一套</button></div>
+      <div className="clothes-row clothes-section-heading"><h2>{tomorrow ? '明日穿搭推荐' : '穿搭推荐'}</h2><button className="clothes-link" disabled={candidates.length < 2 || busy} onClick={() => { setIndex((v) => v + 1); setReplace(null); }}>换一套</button></div>
       <div className="clothes-fields clothes-picker-controls"><label>用途<select aria-label="推荐用途" value={effective.purpose ?? ''} onChange={(e) => changeContext({ purpose: e.target.value as Purpose || null })}><option value="">请选择</option>{PURPOSES.filter((purpose) => purpose !== '睡觉').map((purpose) => <option key={purpose}>{purpose}</option>)}</select></label></div>
-      {outfit?.items.length ? <div className="clothes-grid clothes-outfit-grid">{outfit.items.map((item) => <article className="clothes-card" key={item.id}><img loading="lazy" src={photoUrl(item.photoId)} alt={item.name} /><div className="clothes-card-caption"><div><strong>{item.name}</strong><span>{categoryLabel(item.category)}</span></div>{<button aria-label={`替换${item.name}`} onClick={() => setReplace(replace === item.id ? null : item.id)}>替换</button>}</div></article>)}</div>
+      {outfit?.items.length ? <OutfitPieces items={outfit.items} fixed={fixed} onReplace={(item) => setReplace(item.id)} onUnpin={(item) => { setFixed((value) => value.filter((piece) => piece.id !== item.id)); setIndex(0); setReplace(null); }} />
           : <div className="clothes-empty">{!items.length ? <><p>衣柜还是空的</p><button className="clothes-link" onClick={onWardrobe}>添加衣物</button></> : !effective.purpose ? '请选择用途' : !effective.scene || effective.active === null ? '请补全当天条件' : !weatherFor(effective, weather) ? '请选择城市或手填天气' : '暂无合适衣物'}</div>}
       {outfit?.missing.length ? <p className="clothes-status">缺少：{outfit.missing.join('、')}</p> : null}
-      {replaceItem && <div className="clothes-replacements"><div className="clothes-row"><span>替换{categoryLabel(replaceItem.category)}</span><button onClick={() => setReplace(null)}>收起</button></div><div className="clothes-grid">{replacements(replaceItem, outfit!, items, effective, weather).map((item) => <button key={item.id} onClick={() => { setSelection(replacePiece(outfit!, replaceItem.id, item, items, effective, weather)); setReplace(null); }}><img loading="lazy" src={photoUrl(item.photoId)} alt={item.name} /><span>{item.name}</span></button>)}</div>{!replacements(replaceItem, outfit!, items, effective, weather).length && <p className="clothes-muted">暂无可替换衣物</p>}</div>}
+      {fixed.length > 0 && !candidates.length && <p className="clothes-status" role="status">已选衣物不适合当前条件</p>}
+      {replaceItem && <PiecePicker key={replaceItem.id} previous={replaceItem} choices={replacements(replaceItem, { items: fixed, missing: [], key: '' }, items, effective, weather)} selected={outfit!.items} pairCounts={pairs}
+        onClose={() => setReplace(null)} onSelect={(item) => { setFixed((value) => pinReplacement(value, replaceItem, item)); setIndex(0); setReplace(null); }} />}
       {outfit && <OutfitWarmth items={outfit.items} />}
-      <div className="clothes-confirm"><button className="life-primary" disabled={!outfit?.items.length} onClick={() => openWear(outfit?.items)}>记录这套穿搭</button></div>
+      <div className="clothes-confirm"><button className="life-primary" disabled={!outfit?.items.length || !candidates.length} onClick={() => onOpenWear({ ...createWearDraft(effective, weatherFor(effective, weather), outfit?.items), adopted: true })}>采纳</button></div>
     </section>}
     {error && <div className="life-error" role="alert">{error}</div>}
     {sync.error && <div className="life-error" role="alert">{sync.error.message} {sync.conflict === null && <button onClick={() => void queue.flush()}>重试保存</button>}</div>}

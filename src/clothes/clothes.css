@@ -77,6 +77,10 @@
 .clothes-card-caption span, .clothes-card-caption button { color: var(--life-muted); font-size: 11px; white-space: nowrap; }
 .clothes-card-caption div span { display: block; margin-top: 6px; }
 .clothes-card-caption button { padding: 4px 0; }
+.bonclothes .clothes-piece-photo { display: block; width: 100%; padding: 0; border-radius: 10px; }
+.clothes-card-caption .clothes-pinned { color: var(--life-accent); }
+.clothes-wear-dialog .clothes-replacements { margin: 12px 0; }
+@media (max-width: 560px) { .clothes-wear-dialog .clothes-outfit-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .clothes-empty { text-align: center; color: var(--life-muted); font-size: 13px; padding: 58px 0; }
 .clothes-empty p { margin: 0 0 14px; }
 .clothes-confirm { display: flex; justify-content: center; gap: 12px; margin: 24px 0 12px; }

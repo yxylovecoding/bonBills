@@ -61,8 +61,10 @@ function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void
   const [hasWearDraft, setHasWearDraft] = useState(() => Boolean(readWearDraft(owner, date)));
   useEffect(() => { setHasWearDraft(Boolean(readWearDraft(owner, date))); }, [owner, date]);
   function openWear(draft: WearDraft) {
-    const storageKey = wearDraftKey(owner, draft.context.date) + (draft.revision ? `:${draft.id}` : '');
-    setWearEditor({ draft: readWearDraftAt(storageKey) ?? draft, storageKey });
+    const resumed = !draft.adopted && !draft.revision ? readWearDraft(owner, draft.context.date) : null;
+    const next = resumed ?? draft;
+    const storageKey = wearDraftKey(owner, next.context.date) + (next.revision ? `:${next.id}` : next.adopted ? ':recommendation' : '');
+    setWearEditor({ draft: draft.adopted ? draft : readWearDraftAt(storageKey) ?? next, storageKey });
   }
   useEffect(() => {
     const tick = () => { const next = { date: deviceDate(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
@@ -109,7 +111,7 @@ function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void
     <div className="life-toolbar"><nav className="life-tabs" aria-label="BonClothes"><button aria-pressed={tab === 'today'} onClick={() => setTab('today')}>今日</button><button aria-pressed={tab === 'wardrobe'} onClick={() => setTab('wardrobe')}>衣柜</button><button aria-pressed={tab === 'outfits'} onClick={() => setTab('outfits')}>搭配</button></nav><input className="clothes-date clothes-date-picker" type="date" aria-label="穿搭日期" min="2000-01-01" max="2100-12-31" value={date} onChange={(e) => { if (e.target.value && e.target.validity.valid) setSelectedDate(e.target.value === today ? null : e.target.value); }} /></div>
     {error && <div className="life-error-banner" role="alert">{error}<button onClick={() => setRefresh((v) => v + 1)}>重试</button></div>}
     {!data ? <div className="clothes-empty" role="status">{loading ? '加载中…' : '暂无数据'}</div>
-      : tab === 'today' ? <Today key={`${date}:${timezone}`} owner={owner} items={data.items} initial={context} records={data.records} outfits={data.outfits ?? []} wearCounts={data.wearCounts}
+      : tab === 'today' ? <Today key={`${date}:${timezone}`} owner={owner} items={data.items} initial={context} records={data.records} outfits={data.outfits ?? []} wearCounts={data.wearCounts} pairCounts={data.pairCounts}
         tomorrow={tomorrow} past={past} onReviewDay={setSelectedDate} onToggleDay={(location) => { setDayLocation(location); setSelectedDate(date === today ? addTripDays(today, 1) : null); }} onContext={onContext} onOpenWear={openWear} hasWearDraft={hasWearDraft} onExpired={onExpired} onRefresh={() => setRefresh((v) => v + 1)} onWardrobe={() => { setTab('wardrobe'); setEditor(readItemDraft(owner) ?? { item: newItem(), photo: '', mutationId: crypto.randomUUID() }); }} />
         : tab === 'outfits' ? <SavedOutfits outfits={data.outfits ?? []} items={data.items} context={context.date === today ? context : { ...emptyContext(today, timezone), location: context.location }} onOpenWear={openWear} hasWearDraft={hasWearDraft} />
         : <section aria-label="衣柜"><div className="clothes-wardrobe-toolbar"><div><select aria-label="衣物分类" value={category} onChange={(e) => setCategory(e.target.value)}>{['全部', ...CATEGORIES, '睡衣'].map((value) => <option key={value}>{value}</option>)}</select><select aria-label="衣物状态" value={status} onChange={(e) => setStatus(e.target.value)}>{['全部状态', '可穿', '收起'].map((value) => <option key={value}>{value}</option>)}</select></div><button className="life-primary" onClick={() => {

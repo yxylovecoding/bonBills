@@ -6,8 +6,12 @@ import OutfitWarmth from './OutfitWarmth';
 import { blankFeeling, recordFeelings, timePeriod } from './feelings';
 import { itemCategories, wearAs, pairingScore } from './pairing';
 import { deviceDate } from './rules';
+import OutfitPieces from './OutfitPieces';
+import PiecePicker from './PiecePicker';
+import { replacementChoices, replaceSelectedItem } from './outfitSelection';
 
 export interface WearDraft {
+  adopted?: boolean;
   kind: WearKind; feelings: WearFeelings;
   id: string; revision: string; items: ClothesItem[]; purpose: Purpose | ''; indoor: Sensation | null;
   outdoor: Sensation | null; time: string; context: ClothesDayContext; weather: WeatherSnapshot | null; mutationId: string;
@@ -15,7 +19,7 @@ export interface WearDraft {
 }
 export const wearDraftKey = (owner: string, date: string) => `bonclothes:wear-draft:${owner}:${date}`;
 export function readWearDraft(owner: string, date: string) {
-  return readWearDraftAt(wearDraftKey(owner, date));
+  return readWearDraftAt(`${wearDraftKey(owner, date)}:recommendation`) ?? readWearDraftAt(wearDraftKey(owner, date));
 }
 export function readWearDraftAt(key: string) {
   const draft = readLocal<WearDraft | null>(key, null);
@@ -33,6 +37,8 @@ export default function WearEditor({ initial, storageKey, items, pairCounts, onS
 }) {
   const [draft, setDraft] = useState(initial), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [query, setQuery] = useState('');
+  const [replace, setReplace] = useState<string | null>(null);
+  const [adding, setAdding] = useState(!initial.items.length);
   const [period, setPeriod] = useState<DayPeriod>(timePeriod(initial.time));
   const [conflict, setConflict] = useState<{ revision: string } | null>(null);
   const [wardrobeChanged, setWardrobeChanged] = useState(false);
@@ -51,6 +57,7 @@ export default function WearEditor({ initial, storageKey, items, pairCounts, onS
     change({ feelings: { ...draft.feelings, [period]: updated }, indoor: updated.indoor, outdoor: updated.outdoor });
   }
   const hasCoat = draft.items.some(isOutdoorCoat);
+  const replaceItem = draft.items.find((item) => item.id === replace);
   const positions: Category[] = ['上衣', '下装', '外套', '连衣裙', '鞋', '内衣', '文胸', '配饰'];
   const choices = items.filter((item) => wearable(item) && item.name.includes(query.trim()));
   const groups = positions.map((category) => ({ category, choices: choices.filter((item) => itemCategories(item).includes(categoryLabel(category)))
@@ -80,6 +87,23 @@ export default function WearEditor({ initial, storageKey, items, pairCounts, onS
     <form onSubmit={(e) => { e.preventDefault(); void save(); }}>
       <div className="life-editor-heading"><div className="clothes-row"><h2 id="wear-title">{draft.revision ? '编辑穿搭' : '记录穿搭'}</h2><button type="button" className="clothes-save" disabled={busy} aria-label={`当前${styled ? '搭了' : '穿了'}，切换为${styled ? '穿了' : '搭了'}`} onClick={() => change({ kind: styled ? 'worn' : 'styled' })}>{styled ? '搭了' : '穿了'}</button></div><button type="button" disabled={busy} onClick={onClose}>稍后继续</button></div>
       <fieldset disabled={busy}>
+        <div className="clothes-row clothes-selected-heading"><h3>{styled ? '我搭了什么' : '我穿了什么'}</h3><span className="clothes-muted">{draft.items.length} 件</span></div>
+        <OutfitPieces items={draft.items} onReplace={(item) => { setReplace(item.id); setAdding(false); }} onRemove={(item) => { change({ items: draft.items.filter((piece) => piece.id !== item.id) }); setReplace(null); }} />
+        {replaceItem && <PiecePicker key={replaceItem.id} previous={replaceItem} choices={replacementChoices(replaceItem, draft.items, items)} selected={draft.items} pairCounts={pairCounts}
+          onClose={() => setReplace(null)} onSelect={(next) => { change({ items: replaceSelectedItem(draft.items, replaceItem, next) }); setReplace(null); }} />}
+        <OutfitWarmth items={draft.items} indoorCoat={draft.indoorCoat} indoorOnly={draft.purpose === '睡觉'} />
+        <button type="button" className="clothes-link" aria-expanded={adding} onClick={() => { setAdding(!adding); setReplace(null); }}>{adding ? '收起衣柜' : '添加衣物'}</button>
+        {adding && <>
+        <div className="clothes-fields clothes-picker-controls"><label className="clothes-full">搜索衣物<input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="衣物名称" /></label></div>
+        {groups.filter((group) => group.choices.length || ['上衣', '下装', '外套'].includes(group.category)).map(({ category, choices: pieces }) => <section key={category} className="clothes-picker-section" aria-label={`选择${category}`}>
+          <div className="clothes-row"><h3>{category}</h3><span className="clothes-muted">{draft.items.filter((piece) => categoryLabel(piece.category) === category).length || '未选'}</span></div>
+          {pieces.length ? <div className="clothes-grid clothes-picker-grid">{pieces.map((item) => {
+            const selected = draft.items.some((piece) => piece.id === item.id && categoryLabel(piece.category) === category);
+            const paired = pairingScore(item, draft.items, pairCounts) > 0;
+            return <button type="button" className="clothes-card" key={item.id} aria-pressed={selected} aria-label={`${selected ? '取消选择' : '选择'}${item.name}作${category}`} onClick={() => select(item, category)}><img loading="lazy" src={photoUrl(item.photoId)} alt="" /><div className="clothes-card-caption"><strong>{item.name}</strong><span>{selected ? '✓' : paired ? '常搭' : `${itemWarmth(item)}°C`}</span></div></button>;
+          })}</div> : <p className="clothes-muted">暂无衣物</p>}
+        </section>)}
+        </>}
         <div className="clothes-fields">
           <label>用途<select required value={draft.purpose} onChange={(e) => change({ purpose: e.target.value as Purpose, ...(e.target.value === '睡觉' ? { outdoor: null } : {}) })}><option value="">请选择</option>{PURPOSES.map((purpose) => <option key={purpose}>{purpose}</option>)}</select></label>
           {hasCoat && <label className="clothes-check clothes-full"><input type="checkbox" checked={draft.indoorCoat} onChange={(e) => change({ indoorCoat: e.target.checked })} />室内穿外套</label>}
@@ -91,18 +115,6 @@ export default function WearEditor({ initial, storageKey, items, pairCounts, onS
             <label>{field === 'indoor' ? '室内温度 °C' : '室外温度 °C'}<input type="number" min={-60} max={60} step={0.5} placeholder="未记录" value={feeling[`${field}Temperature`] ?? ''} onChange={(e) => changeFeeling({ [`${field}Temperature`]: e.target.value === '' ? null : Number(e.target.value) })} /></label>
           </div>)}</div>
         </section>}
-        <div className="clothes-row clothes-selected-heading"><h3>{styled ? '我搭了什么' : '我穿了什么'}</h3><span className="clothes-muted">{draft.items.length} 件</span></div>
-        <div className="clothes-selected">{draft.items.map((item) => <button type="button" key={item.id} aria-label={`移除${item.name}`} onClick={() => change({ items: draft.items.filter((piece) => piece.id !== item.id) })}>{categoryLabel(item.category)} · {item.name} ×</button>)}</div>
-        <OutfitWarmth items={draft.items} indoorCoat={draft.indoorCoat} indoorOnly={draft.purpose === '睡觉'} />
-        <div className="clothes-fields clothes-picker-controls"><label className="clothes-full">搜索衣物<input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="衣物名称" /></label></div>
-        {groups.filter((group) => group.choices.length || ['上衣', '下装', '外套'].includes(group.category)).map(({ category, choices: pieces }) => <section key={category} className="clothes-picker-section" aria-label={`选择${category}`}>
-          <div className="clothes-row"><h3>{category}</h3><span className="clothes-muted">{draft.items.filter((piece) => categoryLabel(piece.category) === category).length || '未选'}</span></div>
-          {pieces.length ? <div className="clothes-grid clothes-picker-grid">{pieces.map((item) => {
-            const selected = draft.items.some((piece) => piece.id === item.id && categoryLabel(piece.category) === category);
-            const paired = pairingScore(item, draft.items, pairCounts) > 0;
-            return <button type="button" className="clothes-card" key={item.id} aria-pressed={selected} aria-label={`${selected ? '取消选择' : '选择'}${item.name}作${category}`} onClick={() => select(item, category)}><img loading="lazy" src={photoUrl(item.photoId)} alt="" /><div className="clothes-card-caption"><strong>{item.name}</strong><span>{selected ? '✓' : paired ? '常搭' : `${itemWarmth(item)}°C`}</span></div></button>;
-          })}</div> : <p className="clothes-muted">暂无衣物</p>}
-        </section>)}
       </fieldset>
       {error && <p className="life-error" role="alert">{error}</p>}
       {wardrobeChanged && <button type="button" className="clothes-link" disabled={busy} onClick={() => {
