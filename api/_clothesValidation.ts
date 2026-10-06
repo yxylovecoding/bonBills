@@ -74,7 +74,8 @@ export function feelingsInput(value: unknown): WearFeelings {
   for (const [key, entry] of Object.entries(value)) {
     requireInput(DAY_PERIODS.includes(key as typeof DAY_PERIODS[number]) && entry && typeof entry === 'object', '体感时段无效');
     requireInput([entry.indoor, entry.outdoor].every((feeling) => feeling === null || SENSATIONS.includes(feeling)), '体感记录无效');
-    result[key as typeof DAY_PERIODS[number]] = { indoor: entry.indoor, outdoor: entry.outdoor,
+    requireInput(entry.cycling === undefined || entry.cycling === null || SENSATIONS.includes(entry.cycling), '骑车体感无效');
+    result[key as typeof DAY_PERIODS[number]] = { ...(entry.cycling !== undefined ? { cycling: entry.cycling } : {}), indoor: entry.indoor, outdoor: entry.outdoor,
       indoorTemperature: entry.indoorTemperature === null ? null : numberInput(entry.indoorTemperature, -60, 60),
       outdoorTemperature: entry.outdoorTemperature === null ? null : numberInput(entry.outdoorTemperature, -60, 60) };
   }

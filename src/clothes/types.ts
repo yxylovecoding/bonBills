@@ -42,12 +42,13 @@ export type Purpose = typeof PURPOSES[number];
 export type Sensation = typeof SENSATIONS[number];
 export const DAY_PERIODS = ['早晨', '上午', '中午', '下午', '晚上'] as const;
 export type DayPeriod = typeof DAY_PERIODS[number];
-export interface PeriodFeeling { indoor: Sensation | null; outdoor: Sensation | null; indoorTemperature: number | null; outdoorTemperature: number | null }
+export interface PeriodFeeling { cycling?: Sensation | null; indoor: Sensation | null; outdoor: Sensation | null; indoorTemperature: number | null; outdoorTemperature: number | null }
 export type WearFeelings = Partial<Record<DayPeriod, PeriodFeeling>>;
 export type WearKind = 'worn' | 'styled';
 export const wearId = (record: WearRecord) => record.id ?? record.date;
 export interface WearRecord {
   feelings?: WearFeelings;
+  indoorTemperature?: number | null;
   kind?: WearKind;
   id?: string; purpose?: Purpose; indoor?: Sensation | null; outdoor?: Sensation | null; time?: string;
   indoorCoat?: boolean;

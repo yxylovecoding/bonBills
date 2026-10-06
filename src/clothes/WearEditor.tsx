@@ -16,6 +16,7 @@ export interface WearDraft {
   id: string; revision: string; items: ClothesItem[]; purpose: Purpose | ''; indoor: Sensation | null;
   outdoor: Sensation | null; time: string; context: ClothesDayContext; weather: WeatherSnapshot | null; mutationId: string;
   indoorCoat: boolean;
+  indoorTemperature?: number | null;
 }
 export const wearDraftKey = (owner: string, date: string) => `bonclothes:wear-draft:${owner}:${date}`;
 export function readWearDraft(owner: string, date: string) {
@@ -26,7 +27,7 @@ export function readWearDraftAt(key: string) {
   return draft?.id && draft.context?.date && Array.isArray(draft.items) ? { ...draft, feelings: draft.feelings ?? recordFeelings({ ...draft, purpose: draft.purpose || undefined, date: draft.context.date, confirmedAt: '' }), kind: draft.kind ?? 'worn', indoorCoat: draft.indoorCoat ?? false } : null;
 }
 export function createWearDraft(context: ClothesDayContext, weather: WeatherSnapshot | null, items: ClothesItem[] = [], record?: WearRecord): WearDraft {
-  return { feelings: record ? recordFeelings(record) : {}, kind: record ? record.kind ?? 'worn' : context.date > deviceDate(new Date(), context.timezone) ? 'styled' : 'worn', id: record ? wearId(record) : crypto.randomUUID(), revision: record?.revision ?? '', items: record?.items ?? items,
+  return { indoorTemperature: record?.indoorTemperature !== undefined ? record.indoorTemperature : record?.context.indoorTemperature ?? context.indoorTemperature ?? null, feelings: record ? recordFeelings(record) : {}, kind: record ? record.kind ?? 'worn' : context.date > deviceDate(new Date(), context.timezone) ? 'styled' : 'worn', id: record ? wearId(record) : crypto.randomUUID(), revision: record?.revision ?? '', items: record?.items ?? items,
     purpose: record?.purpose ?? context.purpose ?? '', indoor: record?.indoor ?? null, outdoor: record?.outdoor ?? null, indoorCoat: record?.indoorCoat ?? false,
     time: record?.time ?? new Date().toTimeString().slice(0, 5), context: record?.context ?? context,
     weather: record?.weather ?? weather, mutationId: crypto.randomUUID() };
@@ -54,7 +55,7 @@ export default function WearEditor({ initial, storageKey, items, pairCounts, onS
     outdoorTemperature: draft.context.manualWeather?.temperature ?? (snapshotTime && period === timePeriod(snapshotTime) ? draft.weather?.temperature ?? null : null) };
   function changeFeeling(next: Partial<PeriodFeeling>) {
     const updated = { ...feeling, ...next };
-    change({ feelings: { ...draft.feelings, [period]: updated }, indoor: updated.indoor, outdoor: updated.outdoor });
+    change({ feelings: { ...draft.feelings, [period]: updated }, outdoor: updated.outdoor });
   }
   const hasCoat = draft.items.some(isOutdoorCoat);
   const replaceItem = draft.items.find((item) => item.id === replace);
@@ -71,7 +72,7 @@ export default function WearEditor({ initial, storageKey, items, pairCounts, onS
     setBusy(true); setError('');
     try {
       const { value } = await clothesRequest<{ value: WearRecord }>('POST', { action: 'confirm', recordId: draft.id, revision: draft.revision,
-        mutationId: draft.mutationId, feelings: styled ? {} : draft.feelings, kind: draft.kind, purpose: draft.purpose, indoor: styled ? null : draft.indoor, outdoor: styled ? null : draft.outdoor, time: draft.time, indoorCoat: draft.indoorCoat,
+        mutationId: draft.mutationId, indoorTemperature: draft.indoorTemperature === undefined ? draft.context.indoorTemperature ?? null : draft.indoorTemperature, feelings: styled ? {} : draft.feelings, kind: draft.kind, purpose: draft.purpose, indoor: styled ? null : draft.indoor, outdoor: styled ? null : draft.outdoor, time: draft.time, indoorCoat: draft.indoorCoat,
         context: draft.context, weather: draft.weather, items: draft.items.map(({ id, revision, category }) => ({ id, revision, category })) });
       writeLocal(key, null); onSaved(value);
     } catch (cause) {
@@ -109,11 +110,16 @@ export default function WearEditor({ initial, storageKey, items, pairCounts, onS
           {hasCoat && <label className="clothes-check clothes-full"><input type="checkbox" checked={draft.indoorCoat} onChange={(e) => change({ indoorCoat: e.target.checked })} />室内穿外套</label>}
         </div>
         {!styled && <section className="clothes-feelings" aria-label="分时段体感">
-          <div className="clothes-view" aria-label="体感时段">{DAY_PERIODS.map((value) => <button type="button" key={value} aria-pressed={period === value} onClick={() => setPeriod(value)}>{value}{draft.feelings[value]?.indoor || draft.feelings[value]?.outdoor ? ' ·' : ''}</button>)}</div>
-          <div className="clothes-fields">{(['indoor', 'outdoor'] as const).filter((field) => field === 'indoor' || draft.purpose !== '睡觉').map((field) => <div className="clothes-feeling-field" key={field}>
-            <label>{field === 'indoor' ? '室内体感' : '室外体感'}<select value={feeling[field] ?? ''} onChange={(e) => changeFeeling({ [field]: e.target.value || null })}><option value="">未记录</option>{SENSATIONS.map((value) => <option key={value}>{value}</option>)}</select></label>
-            <label>{field === 'indoor' ? '室内温度 °C' : '室外温度 °C'}<input type="number" min={-60} max={60} step={0.5} placeholder="未记录" value={feeling[`${field}Temperature`] ?? ''} onChange={(e) => changeFeeling({ [`${field}Temperature`]: e.target.value === '' ? null : Number(e.target.value) })} /></label>
-          </div>)}</div>
+          <div className="clothes-fields">
+            <label>室内体感<select value={draft.indoor ?? ''} onChange={(e) => change({ indoor: (e.target.value || null) as Sensation | null })}><option value="">未记录</option>{SENSATIONS.map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label>室内温度 °C<input type="number" min={-60} max={60} step={0.5} placeholder="未记录" value={draft.indoorTemperature === undefined ? draft.context.indoorTemperature ?? '' : draft.indoorTemperature ?? ''} onChange={(e) => change({ indoorTemperature: e.target.value === '' ? null : Number(e.target.value) })} /></label>
+          </div>
+          {draft.purpose !== '睡觉' && <>
+            <div className="clothes-view" aria-label="体感时段">{DAY_PERIODS.map((value) => <button type="button" key={value} aria-pressed={period === value} onClick={() => setPeriod(value)}>{value}{draft.feelings[value]?.outdoor || draft.feelings[value]?.cycling ? ' ·' : ''}</button>)}</div>
+            <div className="clothes-fields">{(['outdoor', 'cycling'] as const).map((field) => <label key={field}>{field === 'outdoor' ? '室外体感' : '骑车体感'}<select value={feeling[field] ?? ''} onChange={(e) => changeFeeling({ [field]: e.target.value || null })}><option value="">未记录</option>{SENSATIONS.map((value) => <option key={value}>{value}</option>)}</select></label>)}
+              <label>室外温度 °C<input type="number" min={-60} max={60} step={0.5} placeholder="未记录" value={feeling.outdoorTemperature ?? ''} onChange={(e) => changeFeeling({ outdoorTemperature: e.target.value === '' ? null : Number(e.target.value) })} /></label>
+            </div>
+          </>}
         </section>}
       </fieldset>
       {error && <p className="life-error" role="alert">{error}</p>}

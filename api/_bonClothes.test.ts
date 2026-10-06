@@ -344,7 +344,7 @@ describe('衣柜与实际穿搭接口', () => {
   });
   it('分时段体感可保存、回顾和修改，非法时段或温度不落库', async () => {
     hashes.set(ITEMS_KEY, { [item.id]: item });
-    const feelings = { 上午: { indoor: '舒适', outdoor: '偏冷', indoorTemperature: 25, outdoorTemperature: 16 }, 晚上: { indoor: '偏热', outdoor: null, indoorTemperature: 25, outdoorTemperature: null } };
+    const feelings = { 上午: { indoor: '舒适', outdoor: '偏冷', cycling: '很冷', indoorTemperature: 25, outdoorTemperature: 16 }, 晚上: { indoor: '偏热', outdoor: null, indoorTemperature: 25, outdoorTemperature: null } };
     const body = { action: 'confirm', recordId: uid('periods'), revision: '', mutationId: uid('periods-save'), context: { ...context, indoorTemperature: 25 },
       items: [item], purpose: '休闲', time: '12:00', indoor: null, outdoor: null, weather: null, feelings };
     const saved = await call('POST', {}, body); expect(saved.status).toBe(200);
@@ -354,6 +354,12 @@ describe('衣柜与实际穿搭接口', () => {
     const invalid = await call('POST', {}, { ...body, revision: legacyEdit.body.value.revision, mutationId: uid('bad-period'), feelings: { 凌晨: feelings.上午 } });
     expect(invalid.status).toBe(400);
     expect((await call('POST', {}, { ...body, mutationId: uid('bad-temp'), feelings: { 上午: { ...feelings.上午, indoorTemperature: 200 } } })).status).toBe(400);
+    expect((await call('POST', {}, { ...body, mutationId: uid('bad-cycle'), feelings: { 上午: { ...feelings.上午, cycling: '错误' } } })).status).toBe(400);
+    const indoor = await call('POST', {}, { ...body, revision: legacyEdit.body.value.revision, mutationId: uid('indoor-once'), indoor: '舒适', indoorTemperature: 24 });
+    expect(indoor.body.value).toMatchObject({ indoor: '舒适', indoorTemperature: 24, feelings });
+    const roundtrip = await call('GET', { view: 'history', date: context.date });
+    expect(roundtrip.body.records.find((r: any) => r.id === body.recordId)).toMatchObject({ indoorTemperature: 24, feelings });
+    expect((await call('POST', {}, { ...body, mutationId: uid('bad-indoor'), indoorTemperature: 100 })).status).toBe(400);
   });
   it('实际体感校准衣柜和新快照，旧快照及原始估值保持可回顾', async () => {
     const shirt = { ...item, warmth: 4 };

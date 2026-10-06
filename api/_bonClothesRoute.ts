@@ -3,7 +3,7 @@ import { kv } from './_accountKv.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { authOk, sameOrigin } from './_auth.js';
 import { CONTEXTS_KEY, ITEMS_KEY, WEAR_KEY, SAVE_CLOTHES, photoKey, receiptKey, signature, readClothesCalendar, readWeather, searchCities } from './_bonClothes.js';
-import { ClothesInputError, feelingsInput, contextInput, dateInput, id, itemInput, locationInput, photoData, photoInput, requireInput, timezoneInput, validLayers } from './_clothesValidation.js';
+import { ClothesInputError, feelingsInput, numberInput, contextInput, dateInput, id, itemInput, locationInput, photoData, photoInput, requireInput, timezoneInput, validLayers } from './_clothesValidation.js';
 import { CATEGORIES, MAX_OUTFIT_ITEMS, PURPOSES, SENSATIONS, categoryLabel, type ClothesDayContext, type ClothesItem, type WearRecord, type WeatherSnapshot } from '../src/clothes/types.js';
 import { itemCategories, wearAs, outfitPairCounts } from '../src/clothes/pairing.js';
 import { calibratedItems } from '../src/clothes/thermalLearning.js';
@@ -159,9 +159,10 @@ async function handler(req: VercelRequest, res: VercelResponse) {
           && typeof w.fetchedAt === 'string' && w.fetchedAt.length <= 40, '天气快照无效');
         weather = Object.fromEntries(['date', 'timezone', 'latitude', 'longitude', 'fetchedAt', 'temperature', 'apparent', 'min', 'max', 'apparentMin', 'precipitation', 'wind'].map((key) => [key, w[key as keyof WeatherSnapshot]])) as unknown as WeatherSnapshot;
       }
+      const indoorTemperature = body.indoorTemperature === undefined ? previous?.indoorTemperature : body.indoorTemperature === null ? null : numberInput(body.indoorTemperature, -60, 60);
       const feelings = body.feelings === undefined ? previous?.feelings : feelingsInput(body.feelings);
-      value = { ...(feelings ? { feelings: kind === 'styled' ? {} : Object.fromEntries(Object.entries(feelings).map(([period, entry]) => [period,
-        body.purpose === '睡觉' ? { ...entry, outdoor: null, outdoorTemperature: null } : entry])) } : {}), kind, ...(manual ? { id: field, purpose: body.purpose, indoor: kind === 'styled' ? null : body.indoor, outdoor: kind === 'styled' || body.purpose === '睡觉' ? null : body.outdoor, time: body.time,
+      value = { ...(indoorTemperature !== undefined ? { indoorTemperature: kind === 'styled' ? null : indoorTemperature } : {}), ...(feelings ? { feelings: kind === 'styled' ? {} : Object.fromEntries(Object.entries(feelings).map(([period, entry]) => [period,
+        body.purpose === '睡觉' ? { ...entry, ...(entry.cycling !== undefined ? { cycling: null } : {}), outdoor: null, outdoorTemperature: null } : entry])) } : {}), kind, ...(manual ? { id: field, purpose: body.purpose, indoor: kind === 'styled' ? null : body.indoor, outdoor: kind === 'styled' || body.purpose === '睡觉' ? null : body.outdoor, time: body.time,
         ...(body.indoorCoat !== undefined || previous?.indoorCoat !== undefined ? { indoorCoat: body.indoorCoat ?? previous?.indoorCoat } : {}) } : {}), date: context.date, revision: mutationId, confirmedAt: previous?.confirmedAt ?? new Date().toISOString(), items, context, weather };
     } else throw new ClothesInputError('操作无效');
     const [ok, raw] = await kv.eval<string[], [number, string | unknown]>(SAVE_CLOTHES,

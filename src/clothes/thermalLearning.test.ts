@@ -48,6 +48,15 @@ describe('按分时段体感校准保暖值', () => {
     expect(calibratedItems([top], [cold, second], context.date)[0].learnedWarmth).toBe(3);
     expect(calibratedItems([top], [cold, { ...second, kind: 'styled' }], context.date)[0].learnedWarmth).toBeUndefined();
   });
+  it('每套室内只学习一次，骑车单独记录且不混入普通室外学习', () => {
+    const entry = { indoor: '很冷' as const, outdoor: null, cycling: '很冷' as const, indoorTemperature: 10, outdoorTemperature: 10 };
+    const one = record('one', { indoor: '舒适', indoorTemperature: 25, feelings: { 上午: entry, 晚上: entry } });
+    expect(feelingEntries(one)).toHaveLength(2);
+    expect(calibratedItems([top], [one], context.date)[0].learnedWarmth).toBeUndefined();
+    expect(calibratedItems([top], [one, { ...one, id: 'two' }], context.date)[0].learnedWarmth).toBe(2.5);
+    const cyclingOnly = record('bike', { indoor: null, indoorTemperature: null, feelings: { 上午: { ...entry, indoor: null } } });
+    expect(calibratedItems([top], [cyclingOnly, { ...cyclingOnly, id: 'bike-two' }], context.date)[0].learnedWarmth).toBeUndefined();
+  });
   it('旧体感可回顾且时段按早、上午、中午、下午、晚上划分', () => {
     expect(['07:00', '10:00', '12:00', '15:00', '20:00'].map(timePeriod)).toEqual(['早晨', '上午', '中午', '下午', '晚上']);
     const entries = feelingEntries(record('legacy', { feelings: undefined, time: '15:00', indoor: '舒适', outdoor: '偏冷' }));

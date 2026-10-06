@@ -1,4 +1,4 @@
-import { feelingEntries } from './feelings.js';
+import { calibrationFeelings } from './feelings.js';
 import { wearId, type ClothesItem, type Sensation, type WearRecord } from './types.js';
 import { COMFORT_TEMPERATURE, isOutdoorCoat, itemRegions, itemWarmth } from './warmth.js';
 
@@ -9,7 +9,7 @@ export function calibratedItems(items: ClothesItem[], records: WearRecord[], tod
   const history = [...new Map(records.map((record) => [wearId(record), record])).values()]
     .filter((record) => record.kind !== 'styled' && record.date <= today && record.purpose !== '运动' && !record.context?.active)
     .sort((a, b) => a.date.localeCompare(b.date) || a.confirmedAt.localeCompare(b.confirmedAt) || wearId(a).localeCompare(wearId(b)));
-  for (const record of history) for (const entry of feelingEntries(record)) {
+  for (const record of history) for (const entry of calibrationFeelings(record)) {
     for (const environment of ['indoor', 'outdoor'] as const) {
       const sensation = entry[environment], temperature = entry[`${environment}Temperature`];
       if (!sensation || temperature == null || !Number.isFinite(temperature) || (record.purpose === '睡觉' && environment === 'outdoor')) continue;

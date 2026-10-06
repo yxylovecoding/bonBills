@@ -15,5 +15,13 @@ export function recordFeelings(record: WearRecord) {
 }
 export function feelingEntries(record: WearRecord) {
   const feelings = recordFeelings(record);
-  return DAY_PERIODS.flatMap((period) => feelings[period] && (feelings[period]!.indoor || feelings[period]!.outdoor) ? [{ period, ...feelings[period]! }] : []);
+  return DAY_PERIODS.flatMap((period) => feelings[period] && (feelings[period]!.indoor || feelings[period]!.outdoor || feelings[period]!.cycling) ? [{ period, ...feelings[period]! }] : []);
+}
+
+// A per-outfit indoor observation must only contribute once, regardless of time slots.
+export function calibrationFeelings(record: WearRecord) {
+  const entries = feelingEntries(record);
+  if (record.indoorTemperature === undefined) return entries;
+  return [{ indoor: record.indoor ?? null, indoorTemperature: record.indoorTemperature, outdoor: null, outdoorTemperature: null },
+    ...entries.map((entry) => ({ ...entry, indoor: null, indoorTemperature: null }))];
 }
