@@ -100,11 +100,32 @@ export async function syncRecentLifePeriods(now = new Date()) {
 export const SAVE_LIFE_ENTRY = `
   local raw = redis.call('hget', KEYS[1], ARGV[1])
   local current = raw and cjson.decode(raw) or {revision = '', text = ''}
-  if current.revision == ARGV[3] then return {1, raw} end
-  if current.revision ~= ARGV[2] then return {0, raw or ''} end
+  local makeupKey = ARGV[6]
+  local makeup = nil
+  if makeupKey and makeupKey ~= '' then
+    local shared = redis.call('hget', KEYS[1], makeupKey)
+    if shared then makeup = cjson.decode(shared).makeup end
+  end
+  local function decorated(value)
+    if not makeup then return value end
+    local entry = value and value ~= '' and cjson.decode(value) or {revision = '', text = ''}
+    entry.makeup = makeup
+    return cjson.encode(entry)
+  end
+  if current.revision == ARGV[3] then return {1, decorated(raw)} end
+  if current.revision ~= ARGV[2] then return {0, decorated(raw or '')} end
   local encoded = ARGV[4]
   if ARGV[5] ~= 'cycle' and ARGV[5] ~= 'skin-settings' then
     local next = cjson.decode(ARGV[4])
+    if next.makeup and makeupKey and makeupKey ~= '' then
+      if next.makeup.revision ~= (makeup and makeup.revision or '') then return {0, decorated(raw or '')} end
+      if not makeup or next.makeup.face ~= makeup.face or next.makeup.eyes ~= makeup.eyes then
+        makeup = next.makeup
+        makeup.revision = ARGV[3]
+        redis.call('hset', KEYS[1], makeupKey, cjson.encode({text = '', revision = ARGV[3], makeup = makeup}))
+      end
+    end
+    next.makeup = nil
     for _, field in ipairs({'skin', 'eyes', 'discomfort', 'body', 'training'}) do
       if next[field] == nil then next[field] = current[field] end
     end
@@ -112,5 +133,5 @@ export const SAVE_LIFE_ENTRY = `
   end
   redis.call('hset', KEYS[1], ARGV[1], encoded)
   if KEYS[2] then redis.call('hset', KEYS[2], ARGV[1], encoded) end
-  return {1, encoded}
+  return {1, decorated(encoded)}
 `;

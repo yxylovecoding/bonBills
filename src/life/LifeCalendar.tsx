@@ -1,4 +1,5 @@
 import InstallApp from '../components/InstallApp';
+import { makeupSummary, syncMakeupEntries } from '../utils/lifeMakeup';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { resolveSkinRecord } from '../utils/lifeSkinProgress';
 import { SKIN_STATES, skinLocalPlanValues, skinPlanValues, skinSeason } from '../utils/lifeSkin';
@@ -224,11 +225,11 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
         const phase = visibleCycleDay(date, cycle, current?.periodDays ?? [], now);
         const phaseLabel = phase ? `${phase.estimated ? '预计·' : ''}${CYCLE_GUIDANCE[phase.phase].label}` : '';
         const planned = kind === 'training' ? trainingPlan.get(date) : undefined;
-        const skinSuggestion = kind === 'skin' && date === now && !entry ? resolveSkinRecord(date, skinSettings, skinEntries) : undefined;
+        const skinSuggestion = kind === 'skin' && date === now && (!entry || !entry.revision) ? resolveSkinRecord(date, skinSettings, skinEntries) : undefined;
         const suggestedSkin = skinSuggestion && ((skinSuggestion.status && skinSuggestion.planDay) || skinSuggestion.acneMarks) ? { ...skinSuggestion,
           ...(skinSuggestion.status && skinSuggestion.planDay ? skinPlanValues(skinSettings, skinSuggestion.status, skinSuggestion.planDay, skinSeason(date)) : {}),
           ...skinLocalPlanValues(skinSettings, skinSuggestion) } : undefined;
-        const summary = suggestedSkin ? entrySummary('skin', { text: '', revision: '', skin: suggestedSkin }) : entrySummary(kind, planned ? { ...entry, text: entry?.text ?? '', revision: entry?.revision ?? '', training: planned } : entry);
+        const summary = suggestedSkin ? entrySummary('skin', { text: '', revision: '', skin: suggestedSkin, makeup: entry?.makeup }) : entrySummary(kind, planned ? { ...entry, text: entry?.text ?? '', revision: entry?.revision ?? '', training: planned } : entry);
         const planStatus = suggestedSkin ? '个人方案' : planned?.completed ? '已完成' : entry?.training && planned?.mode !== 'auto' ? '手动安排' : date >= now && planned?.plan ? '自动计划' : '';
         const displaySkin = suggestedSkin ?? entry?.skin;
         const skinDetails = kind === 'skin' ? entrySummary('skin', { text: entry?.text ?? '', revision: '',
@@ -240,6 +241,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
             ...(planned ? { training: planned } : {}),
             mutationId: crypto.randomUUID() })}>
           <span className="life-day-heading"><span className="life-day-number">{Number(date.slice(-2))}</span>{phaseLabel && <span className={`life-period-mark phase-${phase?.phase}`} aria-hidden="true">{phaseLabel}</span>}</span>
+          {(kind === 'skin' || kind === 'eyes') && makeupSummary(entry?.makeup).length > 0 && <span className="life-day-text">{makeupSummary(entry?.makeup).join(' · ')}</span>}
           {kind === 'skin' ? <span className="life-day-symptoms">
             {displaySkin?.status && <span className="life-symptom-mark life-day-symptom" style={symptomColor(`skin:${displaySkin.status}`)}>
               {SKIN_STATES[displaySkin.status]}{displaySkin.planDay ? ` · 第 ${displaySkin.planDay} 天` : ''}
@@ -270,11 +272,13 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
           : <button onClick={() => setSettings(true)}>连接经期日历</button>}</div></footer>}
     {error && <div className="life-error-banner" role="alert">{error}<button onClick={() => setRetry((value) => value + 1)}>重试</button></div>}
     {periodError && <div className="life-error-banner" role="alert">{periodError}<button onClick={() => void syncPeriods(year, generation.current)}>重试</button></div>}
-    {draft && current && !loading && <LifeEditor key={`${draft.kind}:${draft.date}`} initial={draft} owner={owner} skinSettings={skinSettings} skinEntries={skinEntries} symptomEntries={symptomEntries} cycle={cycle} periodDays={current.periodDays} onExpired={onExpired}
+    {draft && current && !loading && <LifeEditor key={`${draft.kind}:${draft.date}`} initial={{ ...draft,
+      makeup: draft.makeup ?? current.entries[`${draft.kind}:${draft.date}`]?.makeup }} owner={owner} skinSettings={skinSettings} skinEntries={skinEntries} symptomEntries={symptomEntries} cycle={cycle} periodDays={current.periodDays} onExpired={onExpired}
       trainingTasks={rolling ? rolling.byDate.get(draft.date) ?? [] : undefined}
       trainingLibrary={library}
       onClose={() => setDraft(null)} onSave={(entry, savedDraft) => {
-        setData((previous) => previous ? { ...previous, entries: { ...previous.entries, [`${savedDraft.kind}:${savedDraft.date}`]: entry } } : previous);
+        setData((previous) => previous ? { ...previous, entries: syncMakeupEntries({ ...previous.entries,
+          [`${savedDraft.kind}:${savedDraft.date}`]: entry }, savedDraft.date, entry.makeup) } : previous);
         setDraft(null); setSaved(true);
       }} />}
     {skinSettingsOpen && current && <LifeSkinSettings initial={current.skinSettings ?? DEFAULT_SKIN_SETTINGS} year={year} onExpired={onExpired}

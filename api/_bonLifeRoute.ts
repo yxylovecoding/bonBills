@@ -1,4 +1,5 @@
 import { withAccountScope } from './_accountRoute.js';
+import { hydrateMakeupEntries } from '../src/utils/lifeMakeup.js';
 import { DEFAULT_SKIN_SETTINGS, parseSkinSettings, type SkinSettings } from '../src/utils/lifeSkin.js';
 import { randomUUID } from 'node:crypto';
 import { kv } from './_accountKv.js';
@@ -44,7 +45,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
         year > 1900 ? kv.hgetall<LifeEntries>(entriesKey(year - 1)) : null,
         kv.hgetall<LifeEntries>(LIFE_SYMPTOM_ENTRIES_KEY),
       ]);
-      return res.status(200).json({ year, entries: entries ?? {}, periodDays: days, cycle: settings?.cycle ?? DEFAULT_CYCLE,
+      return res.status(200).json({ year, entries: hydrateMakeupEntries(entries ?? {}), periodDays: days, cycle: settings?.cycle ?? DEFAULT_CYCLE,
         skinSettings: settings?.skin ?? DEFAULT_SKIN_SETTINGS,
         symptomHistory: Object.fromEntries(Object.entries({ ...symptoms, ...previousEntries, ...entries })
           .filter(([key]) => key.startsWith('eyes:') || key.startsWith('discomfort:'))),
@@ -118,12 +119,14 @@ async function handler(req: VercelRequest, res: VercelResponse) {
     try { edit = parseLifeEdit(body); }
     catch { return res.status(400).json({ error: '记录内容无效' }); }
     const entry: LifeEntry = { text: edit.text, revision: edit.mutationId,
+      ...(edit.makeup ? { makeup: edit.makeup } : {}),
       ...(edit.skin ? { skin: edit.skin } : {}), ...(edit.eyes ? { eyes: edit.eyes } : {}), ...(edit.discomfort ? { discomfort: edit.discomfort } : {}),
       ...(edit.body ? { body: edit.body } : {}), ...(edit.training ? { training: edit.training } : {}) };
     const [ok, raw] = await kv.eval<string[], [number, string | LifeEntry]>(SAVE_LIFE_ENTRY,
       [entriesKey(edit.year), ...(edit.kind === 'training' ? [LIFE_TRAINING_ENTRIES_KEY]
         : edit.kind === 'eyes' || edit.kind === 'discomfort' ? [LIFE_SYMPTOM_ENTRIES_KEY] : [])],
-      [`${edit.kind}:${edit.date}`, edit.revision, edit.mutationId, JSON.stringify(entry)]);
+      [`${edit.kind}:${edit.date}`, edit.revision, edit.mutationId, JSON.stringify(entry), '',
+        edit.kind === 'skin' || edit.kind === 'eyes' ? `makeup:${edit.date}` : '']);
     const stored = typeof raw === 'string' ? (raw ? JSON.parse(raw) : { text: '', revision: '' }) : raw;
     if (!ok) return res.status(409).json({ error: '这一天的记录已在其他页面更新', current: stored });
     return res.status(200).json({ entry: stored });

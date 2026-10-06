@@ -41,6 +41,31 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe('经期 Outlook 解析', () => {
+  it('读取按日期共享的化妆状态，保留皮肤和眼睛各自的记录', async () => {
+    const makeup = { face: true, eyes: false, revision: 'shared' };
+    getHash.mockImplementation(async (key) => key === entriesKey(2026) ? {
+      'skin:2026-10-06': { text: '皮肤备注', revision: 'skin-rev', skin: { status: 'healthy' } },
+      'makeup:2026-10-06': { text: '', revision: 'shared', makeup },
+    } : null);
+    const result = await call('GET');
+    expect(result.status).toBe(200);
+    expect(result.body.entries['skin:2026-10-06']).toMatchObject({ text: '皮肤备注', revision: 'skin-rev', makeup });
+    expect(result.body.entries['eyes:2026-10-06']).toEqual({ text: '', revision: '', makeup });
+    expect(result.body.entries).not.toHaveProperty('makeup:2026-10-06');
+  });
+  it('皮肤与眼睛写入同一天的共享字段，版本冲突返回最新化妆状态', async () => {
+    const makeup = { face: false, eyes: true, revision: 'shared-old' };
+    for (const kind of ['skin', 'eyes']) {
+      const current = { text: '原有备注', revision: 'current', makeup: { ...makeup, revision: 'shared-new' } };
+      evalMock.mockResolvedValueOnce([0, JSON.stringify(current)]);
+      const result = await call('POST', { action: 'save', kind, date: '2026-10-06', text: '', revision: '', mutationId: 'makeup-mutation-123', makeup });
+      expect(result.status).toBe(409);
+      expect(result.body.current).toEqual(current);
+      const args = evalMock.mock.calls.at(-1)![2];
+      expect(args[5]).toBe('makeup:2026-10-06');
+      expect(JSON.parse(args[3]).makeup).toEqual(makeup);
+    }
+  });
   it('预计经期不是实际记录，但保留 UID 以便清除旧快照中的预测', () => {
     const parsed = parsePeriodCalendar(calendar([
       event('actual', '月经'), event('predicted', '预计月经'), event('forecast', '🩸 预测'), event('estimate', '预估月经'),
