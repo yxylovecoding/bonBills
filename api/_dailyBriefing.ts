@@ -70,8 +70,11 @@ export function buildTrainingBriefing(today: string, source: TrainingSource, cyc
 
 export function buildTodayBriefing(tasks: TickTickTask[], plan: DailyPlanState | null, today: string): DailyBriefing['today'] {
   const decisions = new Map((plan?.briefing?.date === today ? plan.briefing.selected : []).map((item) => [JSON.stringify([item.projectId, item.id]), item]));
+  const order = new Map([...decisions.keys()].map((key, index) => [key, index]));
+  const position = (task: TickTickTask) => order.get(JSON.stringify([task.projectId, task.id])) ?? Number.MAX_SAFE_INTEGER;
   return tasks.filter((task) => (task.status ?? 0) === 0 && !task.completedTime && (task.priority ?? 0) < 5
     && routineTaskDate(task) === today && !(task.tags ?? []).some((tag) => ['routine', '不关我事'].includes(tag.normalize('NFKC').trim())))
+    .sort((a, b) => position(a) - position(b))
     .map((task) => {
       const decision = decisions.get(JSON.stringify([task.projectId, task.id]));
       return { title: task.title, minutes: estimateTaskMinutes(task),

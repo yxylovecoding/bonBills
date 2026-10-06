@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { annotatedMinutes } from './_taskDuration';
+import { annotatedMinutes, withoutDurationAnnotations } from './_taskDuration';
 import { estimateTaskMinutes, planTickTickDay, refreshDailyHistory, type DailyPlanState } from './_ticktickDailyPlan';
 import type { TickTickApi, TickTickTask } from './_ticktickTrips';
 const task = (fields: Partial<TickTickTask> = {}): TickTickTask => ({ id: 'a', projectId: 'life', title: '任务', status: 0,
@@ -7,14 +7,23 @@ const task = (fields: Partial<TickTickTask> = {}): TickTickTask => ({ id: 'a', p
 
 describe('描述中的耗时', () => {
   it.each([['(1m)', 1], ['（1h）', 60], ['(1h1m)', 61], ['（1h1m）', 61], ['说明\n（ 1 H 15 M ）\n备注', 75],
-    ['（１ｈ１ｍ）', 61], ['(0h30m)', 30], ['(2h0m)', 120], ['(90m)', 90], ['先写说明(参考资料)再标(2m)', 2], ['(10h)', 600]])('%s → %i 分钟', (content, expected) => {
+    ['（１ｈ１ｍ）', 61], ['(0h30m)', 30], ['(2h0m)', 120], ['(90m)', 90], ['先写说明(参考资料)再标(2m)', 2], ['(10h)', 600],
+    ['(1.5h)', 90], ['(5.25h)', 315], ['（０．５ｈ）', 30], ['(1.5h15m)', 105], ['(1.5m)', 2]])('%s → %i 分钟', (content, expected) => {
     expect(annotatedMinutes(content)).toBe(expected);
     expect(estimateTaskMinutes(task({ content }))).toBe(expected);
     expect(estimateTaskMinutes(task({ desc: content }))).toBe(expected);
   });
-  it.each(['(0m)', '(0h0m)', '(-1m)', '(1.5h)', '(1h1m左右)', '(1h1m2m)', '(1d)', '(1h', '1h1m', '(版本1m)', '()'])('不把 %s 误当完整耗时标注', content => {
+  it.each(['(0m)', '(0h0m)', '(-1m)', '(1..5h)', '(1h1m左右)', '(1h1m2m)', '(1d)', '(1h', '1h1m', '(版本1m)', '()'])('不把 %s 误当完整耗时标注', content => {
     expect(annotatedMinutes(content)).toBeNull();
     expect(estimateTaskMinutes(task({ content }))).toBe(15);
+  });
+  it('小数小时在标题识别和空档安排中使用同一耗时', () => {
+    expect(withoutDurationAnnotations('香香喷雾 (0.5h)')).toBe('香香喷雾');
+    expect(estimateTaskMinutes(task({ title: '讲座 (1.5h)' }))).toBe(90);
+    const s: DailyPlanState = { connectionId: 'same', history: [], deadlines: {} };
+    const plan = planTickTickDay({ tasks: [task({ content: '(1.5h)' })], state: s, today: '2026-10-05',
+      calendarState: {}, budgetMinutes: 60, now: new Date('2026-10-05T09:00:00+08:00') });
+    expect(plan.summary.todayCount).toBe(0);
   });
   it('描述优先于标题标签与时间区间；从前往后取首个有效总时长，不把分项重复相加', () => {
     expect(estimateTaskMinutes(task({ content: '(1h1m)', title: '任务 15m', tags: ['30m'], isAllDay: false,

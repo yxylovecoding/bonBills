@@ -272,11 +272,18 @@ export function planTickTickDay(options: {
   const cycleTarget = Math.min(available, Math.ceil(demand));
   candidates.sort((a, b) => {
     const urgent = (candidate: Candidate) => candidate.deadline <= today || !candidate.next || candidate.next > candidate.deadline;
-    return Number(urgent(b)) - Number(urgent(a))
-      || (a.last ? Date.parse(a.last) : Date.parse(a.task.createdTime ?? '') || 0) - (b.last ? Date.parse(b.last) : Date.parse(b.task.createdTime ?? '') || 0)
-      || a.deadline.localeCompare(b.deadline) || a.task.id.localeCompare(b.task.id);
+    // Actual completion age owns the rotation. A moved date or a short repeat
+    // interval must never promote recently completed work above older work.
+    // Unknown history is kept explicit, not replaced by a creation timestamp.
+    return Number(Boolean(a.last)) - Number(Boolean(b.last))
+      || (a.last ? Date.parse(a.last) : 0) - (b.last ? Date.parse(b.last) : 0)
+      || Number(urgent(b)) - Number(urgent(a))
+      || a.deadline.localeCompare(b.deadline)
+      || (Date.parse(a.task.createdTime ?? '') || 0) - (Date.parse(b.task.createdTime ?? '') || 0)
+      || a.task.id.localeCompare(b.task.id);
   });
   let used = 0, deferred = 0, oversizedCount = 0;
+  let oldestWaiting: number | undefined;
   const cycleRisks = new Set<string>();
   const selectedDetails: NonNullable<DailyPlanState['briefing']>['selected'] = fixed.map((task) => ({
     id: task.id, projectId: task.projectId, title: task.title, ...estimateTaskDuration(task),
@@ -297,15 +304,19 @@ export function planTickTickDay(options: {
     const originalDate = routineTaskDate(candidate.task);
     const fromBacklog = !originalDate || originalDate > today;
     const mustRetain = !candidate.next && !fromBacklog;
-    const choose = !sprayConflict && (mustRetain || (used + candidate.minutes <= available && fits));
+    const lastDay = calendarDateInTimeZone(candidate.last);
+    const completionTime = candidate.last ? Date.parse(candidate.last) : -Infinity;
+    // Leaving a small gap is preferable to repeating yesterday's work while
+    // older eligible work is still waiting for a large enough slot.
+    const recentRefill = lastDay === addDays(today, -1) && oldestWaiting !== undefined && oldestWaiting < completionTime;
+    const choose = !sprayConflict && (mustRetain || (!recentRefill && used + candidate.minutes <= available && fits));
     if (choose) {
-      const lastDay = calendarDateInTimeZone(candidate.last);
-      const reasons = [!candidate.next ? '后续没有适用场景日，优先留在今天'
-        : candidate.deadline <= today ? `周期或原定日期已到（${candidate.deadline}），优先安排`
-        : candidate.next > candidate.deadline ? '下次适用场景日晚于周期截止，提前安排'
-        : '按距离上次完成的时间排序，利用剩余空档'];
+      const reasons = [lastDay ? '按上次实际完成时间排序，最久没做的优先' : '尚无匹配的完成记录，优先补齐轮换'];
       if (fromBacklog) reasons.push('从明日事补入');
-      reasons.push(lastDay ? `上次完成 ${lastDay}` : '尚无匹配的完成记录');
+      if (lastDay) reasons.push(`上次完成 ${lastDay}`);
+      if (!candidate.next) reasons.push('后续没有适用场景日，保留在今天');
+      else if (candidate.deadline <= today) reasons.push(`周期或原定日期已到（${candidate.deadline}）`);
+      else if (candidate.next > candidate.deadline) reasons.push('下次适用场景日晚于周期截止');
       if (routineScenes(candidate.task).length) reasons.push('今天符合任务的场景标签');
       reasons.push(fits && used + candidate.minutes <= available ? `预计 ${candidate.minutes} 分钟，可放入剩余空档`
         : '当前空档不足，仍保留；需要手动协调时间');
@@ -316,6 +327,7 @@ export function planTickTickDay(options: {
       used += candidate.minutes;
       for (const member of candidate.members) dates.set(member.id, today);
     } else {
+      if (!sprayConflict) oldestWaiting = Math.min(oldestWaiting ?? Infinity, completionTime);
       // Unselected future tasks retain their date; refill is not permission to
       // postpone the rest of tomorrow's list.
       if (candidate.next && !fromBacklog) {

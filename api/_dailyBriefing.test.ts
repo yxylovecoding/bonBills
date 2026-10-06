@@ -52,6 +52,16 @@ describe('每日邮件简报', () => {
     plan.briefing!.date = '2026-10-04';
     expect(buildTodayBriefing([task('a')], plan, today)[0].reasons[0]).toContain('暂无匹配');
   });
+  it('简报遵循派单顺序，不被 TickTick 返回顺序打乱', () => {
+    const plan: DailyPlanState = { connectionId: '', history: [], deadlines: {}, briefing: {
+      date: today, generatedAt: `${today}T00:00:00Z`, selected: ['older', 'recent'].map(id => ({
+        id, projectId: 'p', title: id, minutes: 15, reasons: ['最久没做的优先'],
+      })),
+    } };
+    const tasks = [task('recent'), task('manual'), task('older')];
+    expect(buildTodayBriefing(tasks, plan, today).map(t => t.title)).toEqual(['older', 'recent', 'manual']);
+    expect(tasks.map(t => t.id)).toEqual(['recent', 'manual', 'older']);
+  });
   it('未来七天覆盖跨月跨年，沿用手动内容、完成顺序和经期游泳限制', () => {
     const source = { year: 2026, connected: true, syncedAt: null, tasks: ['爬坡', '游泳'].map((name) => ({ id: name, name, title: name,
       schedule: '', dates: [], notes: '30 分钟', links: [] })), completions: [{ project: '爬坡', date: '2026-12-28' }],

@@ -72,7 +72,7 @@ describe('每日待办动态安排', () => {
     expect(completed.todayCount).toBeLessThan(quiet.todayCount);
     expect(busy.plannedMinutes).toBeLessThanOrEqual(busy.availableMinutes);
   });
-  it('周期未到也能利用剩余空档，紧迫任务优先且不突破每日用时', () => {
+  it('周期未到也能利用剩余空档，最久未完成优先且不突破每日用时', () => {
     const pool = Array.from({ length: 10 }, (_, i) => task(String(i), { repeatFlag: 'RRULE:FREQ=WEEKLY' }));
     const near = run(pool, { state: state(pool.map((t) => done(t, '2026-09-27'))) });
     const far = run(pool, { state: state(pool.map((t) => done(t, '2026-10-03'))) });
@@ -81,6 +81,47 @@ describe('每日待办动态安排', () => {
     expect(near.summary.plannedMinutes).toBeLessThanOrEqual(60);
     const urgent = task('urgent', { repeatFlag: 'RRULE:FREQ=DAILY', content: '(1h)' });
     expect(run([pool[0], urgent], { state: state([done(pool[0], '2026-10-03'), done(urgent, '2026-10-02')]) }).dates.get('urgent')).toBe(today);
+  });
+  it('上次完成早于昨天的任务优先，昨天完成的任务即使周期到期也不能插队', () => {
+    const older = task('older', { content: '(30m)', repeatFlag: 'RRULE:FREQ=MONTHLY', dueDate: '2026-10-10T00:00:00+0800' });
+    const recent = task('recent', { content: '(30m)', repeatFlag: 'RRULE:FREQ=DAILY' });
+    const s = state([done(older, '2026-09-20', 'old-occurrence'), done(recent, '2026-10-03', 'recent-occurrence')]);
+    const p = run([recent, older], { state: s, budgetMinutes: 30 });
+    expect(p.dates.get(older.id)).toBe(today);
+    expect(p.dates.get(recent.id)).toBe('2026-10-05');
+    expect(s.briefing!.selected[0].reasons).toContain('按上次实际完成时间排序，最久没做的优先');
+  });
+  it('无完成记录的任务不能把创建时间当完成时间，母任务与子任务各自参与轮换', () => {
+    const parent = task('parent', { content: '(15m)', createdTime: `${today}T00:00:00+0800` });
+    const child = task('child', { parentId: parent.id, content: '(15m)', createdTime: `${today}T00:00:00+0800` });
+    const recent = task('recent', { content: '(1m)' });
+    const s = state([done(recent, '2026-10-03')]);
+    const p = run([recent, child, parent], { state: s, budgetMinutes: 30 });
+    expect(s.briefing!.selected.map(t => t.id).sort()).toEqual(['child', 'parent']);
+    expect(p.dates.get(recent.id)).toBe('2026-10-05');
+  });
+  it('更久没做的任务装不下时宁可留空，不用昨天刚完成的短任务填空', () => {
+    const first = task('first', { content: '(25m)' });
+    const waiting = task('waiting', { content: '(10m)' });
+    const recent = task('recent', { content: '(1m)', repeatFlag: 'RRULE:FREQ=DAILY' });
+    const s = state([done(first, '2026-09-01'), done(waiting, '2026-09-20'), done(recent, '2026-10-03')]);
+    const p = run([recent, waiting, first], { state: s, budgetMinutes: 30 });
+    expect(s.briefing!.selected.map(t => t.id)).toEqual(['first']);
+    expect(p.dates.get(waiting.id)).toBe('2026-10-05');
+    expect(p.dates.get(recent.id)).toBe('2026-10-05');
+    expect(s.briefing!.breakdown?.unallocatedMinutes).toBe(5);
+  });
+  it('其他任务均已安排时仍可安排昨天完成的事项，场景互斥不造成虚假的积压', () => {
+    const first = task('first', { content: '(25m)' });
+    const recent = task('recent', { content: '(1m)' });
+    const s = state([done(first, '2026-09-01'), done(recent, '2026-10-03')]);
+    run([recent, first], { state: s, budgetMinutes: 30 });
+    expect(s.briefing!.selected.map(t => t.id)).toEqual(['first', 'recent']);
+    const mite = task('mite', { title: '除螨喷雾', content: '(1m)' });
+    const fragrance = task('fragrance', { title: '香香喷雾', content: '(1m)' });
+    const sprays = state([done(mite, '2026-09-01'), done(fragrance, '2026-09-20'), done(recent, '2026-10-03')]);
+    run([recent, fragrance, mite], { state: sprays, budgetMinutes: 10 });
+    expect(sprays.briefing!.selected.map(t => t.id)).toEqual(['mite', 'recent']);
   });
   it('当天不因完成任务无限补入，也不会把刚完成的重复任务拉回', () => {
     const t = task('repeat', { repeatFlag: 'RRULE:FREQ=DAILY' });
