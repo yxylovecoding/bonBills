@@ -30,7 +30,7 @@ describe('BonClothes 规则推荐', () => {
   it('寒冷时选保暖主体、厚外套并补充配饰', () => {
     const coldItems = [...wardrobe.map((i) => ({ ...i, thickness: 3 as const })), item('coat', '外套', { thickness: 3 }), item('scarf', '配饰', { thickness: 3 })];
     const result = recommend(coldItems, { ...context, scene: '长时间室外' }, { ...weather, temperature: 0, apparent: 0, apparentMin: -2, min: -2, max: 5 })[0];
-    expect(result.missing).toEqual([]); expect(result.items).toHaveLength(5);
+    expect(result.missing).toEqual(['帽子', '口罩', '手套']); expect(result.items).toHaveLength(5);
   });
   it('降雨优先防雨外套和鞋，室内不额外要求', () => {
     const wet = { ...weather, precipitation: 5 };
@@ -233,22 +233,79 @@ describe('BonClothes 日期、地点和条件', () => {
 });
 
 
+const uncovered = { head: 0, face: 0, neck: 0, feet: 0, hands: 0 };
+
+describe('七部位穿搭推荐', () => {
+  const accessories = [item('厚帽子', '配饰', { thickness: 3 }), item('口罩', '配饰', { thickness: 2 }),
+    item('围巾', '配饰', { thickness: 3 }), item('手套', '配饰', { thickness: 3 })];
+  const pieces = [item('top', '上衣', { warmth: 5 }), item('pants', '下装', { warmth: 5 }), item('coat', '外套', { warmth: 8 }),
+    ...([1, 2, 3] as const).flatMap((thickness) => [item(`鞋${thickness}`, '鞋', { thickness }), item(`袜子${thickness}`, '配饰', { thickness })]), ...accessories];
+  const cool = { ...weather, temperature: 21, min: 21, max: 21 };
+  const cold = { ...cool, temperature: 4, min: 4, max: 4 };
+  it('21度上下身匹配26度，同时选择薄鞋袜，不要求保暖帽、围巾、口罩和手套', () => {
+    const result = recommend(pieces, context, cool)[0];
+    expect(result.items.map((piece) => piece.id).sort()).toEqual(['top', 'pants', '鞋1', '袜子1'].sort());
+    expect(warmthTotals(result.items)).toEqual({ upper: 5, lower: 5, head: 0, face: 0, neck: 0, feet: 1.5, hands: 0 });
+    expect(recommend([...pieces].reverse(), context, cool)[0]).toEqual(result);
+  });
+  it('袜子随温度选择薄、常规、厚款，不叠穿多双袜子去凑26度', () => {
+    for (const [temperature, thickness] of [[26, 1], [20, 1], [19, 2], [10, 2], [9, 3], [-10, 3]]) {
+      const result = recommend(pieces, context, { ...cool, temperature })[0];
+      expect(result.items.filter((piece) => piece.name.startsWith('袜子')).map((piece) => piece.id)).toEqual([`袜子${thickness}`]);
+      expect(result.items.find((piece) => piece.category === '鞋')?.id).toBe(`鞋${thickness}`);
+    }
+  });
+  it('厚保暖帽仅在低于5度时推荐，低温可以同时选用所有部位配饰', () => {
+    for (const temperature of [26, 15, 10, 5]) {
+      const result = recommend(pieces, context, { ...cool, temperature })[0];
+      expect(result.items.some((piece) => piece.id === '厚帽子')).toBe(false);
+      expect(eligibleItems(accessories, '配饰', context, { ...cool, temperature }).some((piece) => piece.id === '厚帽子')).toBe(false);
+    }
+    const result = recommend(pieces, { ...context, scene: '有室外' }, cold)[0];
+    expect(result.items).toHaveLength(9);
+    expect(result.missing).toEqual([]);
+    expect(warmthTotals(result.items)).toMatchObject({ head: 3, face: 1, neck: 3, feet: 5, hands: 2 });
+  });
+  it('连体围巾帽不会重复叠加帽子和围巾', () => {
+    const wardrobe = [...pieces.filter((piece) => !['厚帽子', '围巾'].includes(piece.id)), item('围巾帽', '配饰', { thickness: 3 })];
+    const result = recommend(wardrobe, context, cold)[0];
+    expect(result.items.filter((piece) => piece.id === '围巾帽')).toHaveLength(1);
+    expect(warmthTotals(result.items)).toMatchObject({ head: 3, neck: 3 });
+    expect(new Set(result.items.map((piece) => piece.id)).size).toBe(result.items.length);
+  });
+  it('替换帽子只提供相同部位配饰并保留其他配饰，不用手套替代', () => {
+    const original = recommend(pieces, context, cold)[0];
+    const hat = original.items.find((piece) => piece.id === '厚帽子')!;
+    const alternate = item('新帽子', '配饰', { thickness: 3 });
+    const wardrobe = [...pieces, alternate, item('新手套', '配饰', { thickness: 3 })];
+    expect(replacements(hat, original, wardrobe, context, cold)).toEqual([alternate]);
+    const next = replacePiece(original, hat.id, alternate, wardrobe, context, cold);
+    expect(next.items.map((piece) => piece.id).sort()).toEqual(original.items.map((piece) => piece.id === hat.id ? alternate.id : piece.id).sort());
+  });
+  it('室内温暖时减少保暖配饰，运动场景仍排除不便活动的配饰', () => {
+    const warmer = recommend(pieces, { ...context, indoorTemperature: 26 }, cold)[0];
+    expect(warmer.items.filter((piece) => piece.category === '配饰').map((piece) => piece.id)).toEqual(['袜子1']);
+    const sport = recommend(pieces.map((piece) => piece.id === '手套' ? { ...piece, active: false } : piece), { ...context, active: true }, cold)[0];
+    expect(sport.items.some((piece) => piece.id === '手套')).toBe(false);
+  });
+});
+
 describe('26度上下身独立匹配', () => {
   it('室内默认脱外套，保留内搭和下装；室外仍计入全部外套', () => {
     const pieces = [item('tee', '上装', { warmth: 1 }), item('inner', '内衣', { warmth: .5 }),
       item('coat', '外套', { warmth: 4 }), item('vest', '外套', { warmth: 2 }), item('pants', '下装', { warmth: 3 })];
-    expect(environmentWarmth(pieces)).toEqual({ indoor: { upper: 1.5, lower: 3 }, outdoor: { upper: 7.5, lower: 3 } });
-    expect(environmentWarmth(pieces, true)).toEqual({ indoor: { upper: 7.5, lower: 3 }, outdoor: { upper: 7.5, lower: 3 } });
+    expect(environmentWarmth(pieces)).toEqual({ indoor: { ...uncovered, upper: 1.5, lower: 3 }, outdoor: { ...uncovered, upper: 7.5, lower: 3 } });
+    expect(environmentWarmth(pieces, true)).toEqual({ indoor: { ...uncovered, upper: 7.5, lower: 3 }, outdoor: { ...uncovered, upper: 7.5, lower: 3 } });
     expect(pieces).toHaveLength(5);
-    expect(environmentWarmth([item('dress', '连衣裙', { warmth: 2 }), pieces[2]])).toEqual({ indoor: { upper: 2, lower: 2 }, outdoor: { upper: 6, lower: 2 } });
-    expect(environmentWarmth([])).toEqual({ indoor: { upper: 0, lower: 0 }, outdoor: { upper: 0, lower: 0 } });
+    expect(environmentWarmth([item('dress', '连衣裙', { warmth: 2 }), pieces[2]])).toEqual({ indoor: { ...uncovered, upper: 2, lower: 2 }, outdoor: { ...uncovered, upper: 6, lower: 2 } });
+    expect(environmentWarmth([])).toEqual({ indoor: { ...uncovered, upper: 0, lower: 0 }, outdoor: { ...uncovered, upper: 0, lower: 0 } });
   });
   it('睡衣披肩在室内保留，只给上身增加保暖值；日常推荐排除睡衣', () => {
     const dress = item('nightdress', '连衣裙', { sleepwear: true, warmth: 1.5 });
     const shrug = item('睡衣披肩', '外套', { sleepwear: true });
     const coat = item('outdoor-coat', '外套', { warmth: 4 });
     expect(itemWarmth(shrug)).toBe(2);
-    expect(environmentWarmth([dress, shrug, coat]).indoor).toEqual({ upper: 3.5, lower: 1.5 });
+    expect(environmentWarmth([dress, shrug, coat]).indoor).toEqual({ ...uncovered, upper: 3.5, lower: 1.5 });
     expect(eligibleItems([dress], '连衣裙', context, weather)).toEqual([]);
     expect(eligibleItems([shrug, coat], '外套', context, weather).map((piece) => piece.id)).toEqual([coat.id]);
     expect(recommend([...wardrobe, dress, shrug], context, weather).every((outfit) => outfit.items.every((piece) => !piece.sleepwear))).toBe(true);
@@ -257,8 +314,8 @@ describe('26度上下身独立匹配', () => {
     const tee = item('薄T恤', '上衣');
     expect(itemWarmth(tee)).toBe(1);
     expect(itemWarmth({ ...tee, warmth: 0 })).toBe(0);
-    expect(warmthTotals([tee, item('coat', '外套', { warmth: 4 }), item('pants', '下装', { warmth: 2 })])).toEqual({ upper: 5, lower: 2 });
-    expect(warmthTotals([item('dress', '连衣裙', { warmth: 2 }), item('coat', '外套', { warmth: 3 }), item('bra', '文胸')])).toEqual({ upper: 5, lower: 2 });
+    expect(warmthTotals([tee, item('coat', '外套', { warmth: 4 }), item('pants', '下装', { warmth: 2 })])).toEqual({ ...uncovered, upper: 5, lower: 2 });
+    expect(warmthTotals([item('dress', '连衣裙', { warmth: 2 }), item('coat', '外套', { warmth: 3 }), item('bra', '文胸')])).toEqual({ ...uncovered, upper: 5, lower: 2 });
   });
   it('25度分别挑1度上下装；21度优先1度上衣加4度外套与5度下装', () => {
     const tee = item('tee', '上衣', { warmth: 1 });
@@ -266,8 +323,8 @@ describe('26度上下身独立匹配', () => {
     const shorts = item('shorts', '下装', { warmth: 1 });
     const coat = item('coat', '外套', { warmth: 4 });
     const pieces = [tee, pants, shorts, coat, item('shoes', '鞋')];
-    expect(warmthTotals(recommend(pieces, context, { ...weather, temperature: 25 })[0].items)).toEqual({ upper: 1, lower: 1 });
-    expect(warmthTotals(recommend(pieces, context, { ...weather, temperature: 21 })[0].items)).toEqual({ upper: 5, lower: 5 });
+    expect(warmthTotals(recommend(pieces, context, { ...weather, temperature: 25 })[0].items)).toEqual({ ...uncovered, upper: 1, lower: 1, feet: 1 });
+    expect(warmthTotals(recommend(pieces, context, { ...weather, temperature: 21 })[0].items)).toEqual({ ...uncovered, upper: 5, lower: 5, feet: 1 });
   });
   it('旧待洗衣物参与推荐', () => {
     expect(recommend([{ ...wardrobe[0], status: '待洗' }, ...wardrobe.slice(1)], context, weather)[0].missing).toEqual([]);

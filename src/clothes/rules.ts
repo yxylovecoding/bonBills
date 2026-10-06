@@ -1,7 +1,7 @@
 import type { ClothesCalendar, ClothesDayContext, ClothesItem, ClothesLocation, Outfit, Scene, WearRecord, WeatherSnapshot } from './types';
 import { itemCategories, wearAs } from './pairing.js';
-import { environmentWarmth, warmthTotals, wearable } from './warmth.js';
-import { CATEGORIES, categoryLabel, hasBraRequirement, type Category } from './types.js';
+import { accessoriesOverlap, COMFORT_TEMPERATURE, isOutdoorCoat, itemRegions, warmthGap, wearable } from './warmth.js';
+import { BODY_REGIONS, CATEGORIES, categoryLabel, hasBraRequirement, type Category } from './types.js';
 
 export function deviceDate(now = new Date(), timezone = Intl.DateTimeFormat().resolvedOptions().timeZone) {
   return new Intl.DateTimeFormat('sv-SE', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
@@ -77,6 +77,8 @@ export function eligibleItems(items: ClothesItem[], requested: Category, context
   const n = needs(context, weather), category = categoryLabel(requested);
   return items.filter((item) => wearable(item) && !item.sleepwear && itemCategories(item).includes(category) && !wearing.some((piece) => piece.id === item.id)
     && (!(context.active || context.purpose === '运动') || item.active)
+    && (category !== '配饰' || !wearing.some((piece) => accessoriesOverlap(item, piece)))
+    && (category !== '配饰' || !itemRegions(item).includes('head') || item.thickness !== 3 || n.cold < 5)
     && (category !== '外套' || ((!n.rain || item.waterproof) && (!n.wind || item.windproof)))
     && (category !== '鞋' || !n.rain || item.waterproof)).map((item) => wearAs(item, category));
 }
@@ -100,21 +102,18 @@ export function recommend(items: ClothesItem[], context: ClothesDayContext, inpu
   if (!weather || !context.scene || context.active === null) return [];
   const n = needs(context, weather), counts = recentCounts(records, context.date);
   const thermalGap = (list: ClothesItem[], tolerance = 0) => {
-    const gap = (totals: { upper: number; lower: number }, temperature: number) => {
-      const target = Math.max(0, 26 - temperature);
-      return Math.max(0, Math.abs(totals.upper - target) - tolerance) + Math.max(0, Math.abs(totals.lower - target) - tolerance);
-    };
-    if (context.indoorTemperature == null) return gap(warmthTotals(list), weather.temperature);
-    const totals = environmentWarmth(list);
+    if (context.indoorTemperature == null) return warmthGap(list, weather.temperature, tolerance);
     const indoorWeight = context.scene === '基本室内' ? .8 : context.scene === '有室外' ? .5 : .2;
-    return gap(totals.indoor, context.indoorTemperature) * indoorWeight + gap(totals.outdoor, weather.temperature) * (1 - indoorWeight);
+    return warmthGap(list.filter((item) => !isOutdoorCoat(item)), context.indoorTemperature, tolerance) * indoorWeight
+      + warmthGap(list, weather.temperature, tolerance) * (1 - indoorWeight);
   };
   const score = (list: ClothesItem[]) => {
     const thermal = thermalGap(list);
     const colors = new Set(list.filter((item) => !['文胸', '内衣'].includes(categoryLabel(item.category))
       && !['黑', '白', '灰', '米', '棕'].includes(item.color)).map((item) => item.color));
     return thermal * 100 + Math.max(0, colors.size - 1) * 12 + list.reduce((sum, item) => sum + (counts[item.id] ?? 0) * 3, 0)
-      + (list.some((item) => categoryLabel(item.category) === '内衣') ? 1 : 0);
+      + (list.some((item) => categoryLabel(item.category) === '内衣') ? 1 : 0)
+      + list.filter((item) => categoryLabel(item.category) === '配饰').length * .1;
   };
   const comfortGap = (list: ClothesItem[]) => thermalGap(list, 2);
   const timesWorn = (list: ClothesItem[]) => list.reduce((sum, item) => sum + (wearCounts[item.id] ?? 0), 0);
@@ -124,19 +123,19 @@ export function recommend(items: ClothesItem[], context: ClothesDayContext, inpu
   // available shirt in favour of an empty dress outfit. Optional layers do not
   // improve completeness simply by adding more pieces.
   const coreMissing = (outfit: Outfit) => outfit.missing.filter((label) => label !== '文胸').length;
-  const coreCount = (outfit: Outfit) => outfit.items.filter((item) => !['文胸', '内衣'].includes(categoryLabel(item.category))).length;
+  const coreCount = (outfit: Outfit) => outfit.items.filter((item) => !['文胸', '内衣', '配饰'].includes(categoryLabel(item.category))).length;
   const compare = (a: Outfit, b: Outfit) => coreMissing(a) - coreMissing(b)
     || (coreMissing(a) ? coreCount(b) - coreCount(a) : 0) || a.missing.length - b.missing.length
     || compareItems(a.items, b.items) || a.key.localeCompare(b.key);
   const poolFor = (category: Category, wearing: ClothesItem[]) => eligibleItems(items, category, context, weather, wearing)
     .sort((a, b) => compareItems([...wearing, a], [...wearing, b]) || a.id.localeCompare(b.id)).slice(0, 24);
-  const inners = n.cold < 26 ? poolFor('内衣', []) : [];
+  const needsWarmth = Math.min(n.cold, context.indoorTemperature ?? n.cold) < COMFORT_TEMPERATURE;
+  const inners = needsWarmth ? poolFor('内衣', []) : [];
   const bras = poolFor('文胸', []);
   const layouts: Category[][] = [['上衣', '下装', '鞋'], ['连衣裙', '鞋']];
   const results: Outfit[] = [];
   for (const layout of layouts) {
-    if (n.coat || n.cold < 26) layout.push('外套');
-    if (n.accessory) layout.push('配饰');
+    if (n.coat || needsWarmth) layout.push('外套');
     let candidates: Outfit[] = [{ items: [], missing: [], key: '' }, ...inners.map((item) => ({ items: [item], missing: [], key: item.id }))];
     for (const category of layout) {
       const label = category === '外套' && n.rain ? '防雨外套' : category === '外套' && n.wind ? '防风外套' : category;
@@ -150,6 +149,15 @@ export function recommend(items: ClothesItem[], context: ClothesDayContext, inpu
         })];
       }).sort(compare).slice(0, 96);
     }
+    // One optional accessory per covered region, allowing hat + mask + scarf +
+    // socks + gloves together. Multi-region pieces are selected only once.
+    for (const region of BODY_REGIONS) {
+      const expanded = candidates.flatMap((outfit) => [outfit, ...eligibleItems(items, '配饰', context, weather, outfit.items)
+        .filter((item) => itemRegions(item).includes(region))
+        .sort((a, b) => compareItems([...outfit.items, a], [...outfit.items, b]) || a.id.localeCompare(b.id)).slice(0, 24)
+        .map((item) => { const next = [...outfit.items, item]; return { ...outfit, items: next, key: outfitKey(next) }; })]);
+      candidates = [...new Map(expanded.map((outfit) => [outfit.key + outfit.missing.join(), outfit])).values()].sort(compare).slice(0, 96);
+    }
     results.push(...candidates.flatMap((outfit) => needsBra(outfit.items) && bras.length
       ? bras.map((bra) => withBra(outfit, bra)) : [withBra(outfit, undefined)]));
   }
@@ -157,13 +165,21 @@ export function recommend(items: ClothesItem[], context: ClothesDayContext, inpu
   const ranked = [...unique.values()].sort(compare);
   const best = ranked[0];
   return ranked.filter((outfit) => coreMissing(outfit) === coreMissing(best) && outfit.missing.length === best.missing.length
-    && (!coreMissing(best) || coreCount(outfit) === coreCount(best)));
+    && (!coreMissing(best) || coreCount(outfit) === coreCount(best))).map((outfit) => {
+      if (!n.accessory) return outfit;
+      const covered = new Set(outfit.items.flatMap(itemRegions));
+      const missing = (['head', 'face', 'neck', 'hands'] as const).filter((region) => !covered.has(region))
+        .map((region) => ({ head: '帽子', face: '口罩', neck: '围巾', hands: '手套' })[region]);
+      return { ...outfit, missing: [...outfit.missing, ...missing] };
+    });
 }
 export function replacements(item: ClothesItem, outfit: Outfit, items: ClothesItem[], context: ClothesDayContext, inputWeather: WeatherSnapshot | null) {
   const weather = weatherFor(context, inputWeather);
   if (!weather || !context.scene || context.active === null) return [];
   const retained = outfit.items.filter((piece) => piece.id !== item.id);
   return eligibleItems(items, item.category, context, weather, retained).filter((next) => next.id !== item.id
+    && (categoryLabel(item.category) !== '配饰' || (itemRegions(next).length === itemRegions(item).length
+      && itemRegions(item).every((region) => itemRegions(next).includes(region))))
     && !retained.some((worn) => worn.id === next.id)
     && retained.every((worn) => eligibleItems([worn], worn.category, context, weather, [...retained.filter((piece) => piece.id !== worn.id), next]).length > 0))
     .sort((a, b) => a.id.localeCompare(b.id));

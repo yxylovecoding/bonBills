@@ -4,7 +4,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { authOk, sameOrigin } from './_auth.js';
 import { CONTEXTS_KEY, ITEMS_KEY, WEAR_KEY, SAVE_CLOTHES, photoKey, receiptKey, signature, readClothesCalendar, readWeather, searchCities } from './_bonClothes.js';
 import { ClothesInputError, feelingsInput, contextInput, dateInput, id, itemInput, locationInput, photoData, photoInput, requireInput, timezoneInput, validLayers } from './_clothesValidation.js';
-import { CATEGORIES, PURPOSES, SENSATIONS, categoryLabel, type ClothesDayContext, type ClothesItem, type WearRecord, type WeatherSnapshot } from '../src/clothes/types.js';
+import { CATEGORIES, MAX_OUTFIT_ITEMS, PURPOSES, SENSATIONS, categoryLabel, type ClothesDayContext, type ClothesItem, type WearRecord, type WeatherSnapshot } from '../src/clothes/types.js';
 import { itemCategories, wearAs, outfitPairCounts } from '../src/clothes/pairing.js';
 import { calibratedItems } from '../src/clothes/thermalLearning.js';
 import { itemWarmth, normalizeItem, wearable } from '../src/clothes/warmth.js';
@@ -126,7 +126,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
         requireInput(typeof body.time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(body.time), '穿着时间无效');
         requireInput(body.indoorCoat === undefined || typeof body.indoorCoat === 'boolean', '室内外套状态无效');
       }
-      requireInput(Array.isArray(body.items) && body.items.length > 0 && body.items.length <= (manual ? 24 : CATEGORIES.length), '请选择穿搭');
+      requireInput(Array.isArray(body.items) && body.items.length > 0 && body.items.length <= MAX_OUTFIT_ITEMS, '请选择穿搭');
       checks = body.items.map((item: { id: unknown; revision: unknown }) => ({ id: id(item.id), revision: id(item.revision) }));
       requireInput(new Set(checks.map((item) => item.id)).size === checks.length, '衣物重复');
       const currentItems = await Promise.all(checks.map((check) => kv.hget<ClothesItem>(ITEMS_KEY, check.id)));

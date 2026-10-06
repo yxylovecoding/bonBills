@@ -478,6 +478,23 @@ describe('出行预报与计划接口', () => {
   const city = { name: '杭州', latitude: 30, longitude: 120, source: 'manual' as const, timezone: 'Asia/Shanghai' };
   const plan = { tripId: 'trip:2026-10-05', revision: '', title: '杭州', startDate: '2026-10-05', endDate: '2026-10-06', location: city,
     days: { '2026-10-05': { scene: '基本室内', active: false, itemIds: [item.id] } } };
+  it('包含五种配饰的九件穿搭可以确认并保存行程，继续限制过大的请求', async () => {
+    const pieces: ClothesItem[] = [
+      ...(['上衣', '下装', '外套', '鞋'] as const).map((category, index) => ({ ...item, id: uid(`core-${index}`), category })),
+      ...['帽子', '口罩', '围巾', '袜子', '手套'].map((name, index) => ({ ...item, id: uid(`accessory-${index}`), name, category: '配饰' as const })),
+    ];
+    hashes.set(ITEMS_KEY, Object.fromEntries(pieces.map((piece) => [piece.id, piece])));
+    const confirmed = await call('POST', {}, { action: 'confirm', context, weather: null, revision: '', mutationId: uid('full-body-confirm'),
+      items: pieces.map(({ id, revision, category }) => ({ id, revision, category })) });
+    expect(confirmed.status).toBe(200);
+    expect(confirmed.body.value.items).toHaveLength(9);
+    const fullPlan = { ...plan, days: { [context.date]: { ...plan.days[context.date], itemIds: pieces.map((piece) => piece.id) } } };
+    const saved = await call('POST', {}, { action: 'save-trip-plan', plan: fullPlan, mutationId: uid('full-body-trip') });
+    expect(saved.status).toBe(200);
+    expect(saved.body.value.days[context.date].itemIds).toHaveLength(9);
+    const tooMany = Array.from({ length: 25 }, (_, index) => uid(`extra-${index}`));
+    expect((await call('POST', {}, { action: 'save-trip-plan', plan: { ...plan, days: { [context.date]: { ...plan.days[context.date], itemIds: tooMany } } }, mutationId: uid('too-many-clothes') })).status).toBe(400);
+  });
   it('未来使用逐日预报，只查询16天范围，缓存与失败回退独立于今日天气', async () => {
     vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-05T01:00:00Z'));
     const fetchMock = vi.fn(async (_url: URL) => new Response(JSON.stringify({ current: { temperature_2m: 40 }, daily: {

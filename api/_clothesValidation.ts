@@ -1,8 +1,8 @@
-import { CATEGORIES, COLORS, SCENES, PURPOSES, DAY_PERIODS, SENSATIONS, type WearFeelings, categoryLabel, hasBraRequirement, type ClothesDayContext, type ClothesItem, type ClothesLocation } from '../src/clothes/types.js';
+import { BODY_REGIONS, CATEGORIES, COLORS, SCENES, PURPOSES, DAY_PERIODS, SENSATIONS, type WearFeelings, categoryLabel, hasBraRequirement, type ClothesDayContext, type ClothesItem, type ClothesLocation } from '../src/clothes/types.js';
 import { isCalendarDate } from '../src/utils/outlookCalendar.js';
 
 import { itemCategories } from '../src/clothes/pairing.js';
-import { normalizeItem } from '../src/clothes/warmth.js';
+import { accessoriesOverlap, normalizeItem } from '../src/clothes/warmth.js';
 
 export class ClothesInputError extends Error {}
 export function requireInput(ok: unknown, message = '内容无效'): asserts ok { if (!ok) throw new ClothesInputError(message); }
@@ -40,16 +40,20 @@ export function itemInput(value: unknown): ClothesItem {
     && (v.braRequirement === undefined || ['required', 'optional'].includes(v.braRequirement)), '衣物信息无效');
   requireInput(v.wearAs === undefined || (Array.isArray(v.wearAs) && v.wearAs.length <= 2 && v.wearAs.every((role) =>
     categoryLabel(role) === categoryLabel(v.category) || (['上衣', '外套'].includes(categoryLabel(v.category)) && ['上衣', '外套'].includes(categoryLabel(role))))), '穿着位置无效');
+  requireInput(v.warmthRegions === undefined || (Array.isArray(v.warmthRegions) && v.warmthRegions.length <= BODY_REGIONS.length
+    && new Set(v.warmthRegions).size === v.warmthRegions.length && v.warmthRegions.every((region) => BODY_REGIONS.includes(region))), '保暖部位无效');
   return { id: id(v.id), revision: id(v.revision, true), name: v.name.trim() || `${v.color === '多色' ? v.color : `${v.color}色`}${categoryLabel(v.category)}`,
     category: categoryLabel(v.category), ...(v.wearAs ? { wearAs: itemCategories(v) } : {}), color: v.color, thickness: v.thickness, active: v.active, windproof: v.windproof,
     ...(itemCategories(v).some(hasBraRequirement) ? { braRequirement: v.braRequirement ?? 'required' } : {}),
     ...(v.warmth !== undefined ? { warmth: numberInput(v.warmth, 0, 40) } : {}),
+    ...(v.warmthRegions !== undefined ? { warmthRegions: v.warmthRegions } : {}),
     sleepwear: v.sleepwear ?? false,
     waterproof: v.waterproof, status: normalizeItem(v).status, photoId: id(v.photoId, true) };
 }
 export function validLayers(items: ClothesItem[]) {
-  const categories = items.map((item) => categoryLabel(item.category));
+  const categories = items.map((item) => categoryLabel(item.category)).filter((category) => category !== '配饰');
   return new Set(categories).size === categories.length
+    && !items.some((item, index) => items.slice(index + 1).some((other) => accessoriesOverlap(item, other)))
     && !(categories.includes('连衣裙') && (categories.includes('上衣') || categories.includes('下装')));
 }
 export function contextInput(value: unknown): ClothesDayContext {

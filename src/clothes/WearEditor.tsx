@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { PURPOSES, SENSATIONS, DAY_PERIODS, categoryLabel, wearId, type DayPeriod, type WearFeelings, type PeriodFeeling, type Category, type PairCounts, type ClothesDayContext, type ClothesItem, type Purpose, type Sensation, type WearKind, type WearRecord, type WeatherSnapshot } from './types';
+import { MAX_OUTFIT_ITEMS, PURPOSES, SENSATIONS, DAY_PERIODS, categoryLabel, wearId, type DayPeriod, type WearFeelings, type PeriodFeeling, type Category, type PairCounts, type ClothesDayContext, type ClothesItem, type Purpose, type Sensation, type WearKind, type WearRecord, type WeatherSnapshot } from './types';
 import { ClothesError, clothesRequest, photoUrl, readLocal, writeLocal } from './client';
 import { isOutdoorCoat, itemWarmth, wearable } from './warmth';
 import OutfitWarmth from './OutfitWarmth';
@@ -109,7 +109,7 @@ export default function WearEditor({ initial, storageKey, items, pairCounts, onS
         change({ items: draft.items.flatMap((piece) => { const current = items.find((item) => item.id === piece.id && wearable(item)); return current && itemCategories(current).includes(categoryLabel(piece.category)) ? [wearAs(current, piece.category)] : []; }) }); setWardrobeChanged(false);
       }}>更新已选衣物</button>}
       {conflict && <div className="life-conflict"><button type="button" disabled={busy} onClick={() => { change({ revision: conflict.revision }); setConflict(null); }}>保留当前编辑</button></div>}
-      <div className="life-editor-actions"><button type="button" disabled={busy} onClick={() => { writeLocal(key, null); onClose(); }}>放弃</button><button className="life-primary" disabled={busy || !draft.purpose || !draft.items.length || draft.items.length > 24 || !!conflict || wardrobeChanged}>{busy ? '保存中…' : styled ? '保存为一套' : '保存穿搭'}</button></div>
+      <div className="life-editor-actions"><button type="button" disabled={busy} onClick={() => { writeLocal(key, null); onClose(); }}>放弃</button><button className="life-primary" disabled={busy || !draft.purpose || !draft.items.length || draft.items.length > MAX_OUTFIT_ITEMS || !!conflict || wardrobeChanged}>{busy ? '保存中…' : styled ? '保存为一套' : '保存穿搭'}</button></div>
     </form>
   </dialog>;
 }

@@ -6,10 +6,15 @@ export function hasBraRequirement(category: Category) { return ['上衣', '连�
 export const COLORS = ['黑', '白', '灰', '米', '棕', '蓝', '绿', '红', '粉', '紫', '黄', '橙', '多色'] as const;
 export const SCENES = ['基本室内', '有室外', '长时间室外'] as const;
 export type Scene = typeof SCENES[number];
+export const BODY_REGIONS = ['upper', 'lower', 'head', 'face', 'neck', 'feet', 'hands'] as const;
+export type BodyRegion = typeof BODY_REGIONS[number];
+export const REGION_LABELS: Record<BodyRegion, string> = { upper: '上身', lower: '下身', head: '头', face: '脸', neck: '脖子', feet: '脚', hands: '手' };
+export const MAX_OUTFIT_ITEMS = 24;
 export interface ClothesItem {
   id: string; revision: string; name: string; category: Category; color: typeof COLORS[number];
   thickness: 1 | 2 | 3; active: boolean; windproof: boolean; waterproof: boolean;
   warmth?: number;
+  warmthRegions?: BodyRegion[];
   learnedWarmth?: number;
   wearAs?: Category[];
   sleepwear?: boolean;

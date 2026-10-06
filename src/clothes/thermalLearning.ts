@@ -1,6 +1,6 @@
 import { feelingEntries } from './feelings.js';
-import { categoryLabel, wearId, type ClothesItem, type Sensation, type WearRecord } from './types.js';
-import { isOutdoorCoat, itemWarmth } from './warmth.js';
+import { wearId, type ClothesItem, type Sensation, type WearRecord } from './types.js';
+import { COMFORT_TEMPERATURE, isOutdoorCoat, itemRegions, itemWarmth } from './warmth.js';
 
 const sensations: Record<Sensation, number> = { 很冷: -4, 偏冷: -2, 舒适: 0, 偏热: 2, 很热: 4 };
 export function calibratedItems(items: ClothesItem[], records: WearRecord[], today: string): ClothesItem[] {
@@ -15,19 +15,22 @@ export function calibratedItems(items: ClothesItem[], records: WearRecord[], tod
       if (!sensation || temperature == null || !Number.isFinite(temperature) || (record.purpose === '睡觉' && environment === 'outdoor')) continue;
       const worn = record.items.filter((item) => environment !== 'indoor' || record.indoorCoat || !isOutdoorCoat(item));
       const updated = new Set<string>();
-      for (const region of [['内衣', '上衣', '外套', '连衣裙'], ['下装', '连衣裙']]) {
-        const pieces = worn.filter((item) => region.includes(categoryLabel(item.category)));
+      const before = new Map(values);
+      // Whole-body feedback only calibrates torso layers; it cannot tell us
+      // whether a hat, sock or glove was too warm at its own local threshold.
+      for (const region of ['upper', 'lower'] as const) {
+        const pieces = worn.filter((item) => itemRegions(item).includes(region));
         if (!pieces.length) continue;
         const adjustable = pieces.filter((item) => base.has(item.id));
         if (!adjustable.length) continue;
-        const total = pieces.reduce((sum, item) => sum + (values.get(item.id) ?? itemWarmth(item)), 0);
-        const target = Math.max(0, 26 + sensations[sensation] - temperature);
+        const total = pieces.reduce((sum, item) => sum + (before.get(item.id) ?? itemWarmth(item)), 0);
+        const target = Math.max(0, COMFORT_TEMPERATURE + sensations[sensation] - temperature);
         const error = Math.max(-4, Math.min(4, target - total));
         const weight = adjustable.reduce((sum, item) => sum + Math.max(.5, base.get(item.id)!), 0);
         for (const item of adjustable) {
           const prior = base.get(item.id)!;
-          // A dress contributes to both regions; don't count one sensation twice.
-          const rate = categoryLabel(item.category) === '连衣裙' ? .125 : .25;
+          // Share one observation across all regions covered by this garment.
+          const rate = .25 / itemRegions(item).filter((part) => part === 'upper' || part === 'lower').length;
           const next = values.get(item.id)! + error * rate * Math.max(.5, prior) / weight;
           values.set(item.id, Math.max(0, prior - 3, Math.min(40, prior + 3, next)));
           updated.add(item.id);

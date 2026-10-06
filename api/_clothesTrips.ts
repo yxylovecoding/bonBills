@@ -4,7 +4,7 @@ import { decryptOutlookConnection, fetchCalendar, parseOutlookCalendar } from '.
 import { applyOutlookSnapshotToState, buildOutlookSnapshot } from '../src/utils/outlookCalendar.js';
 import { addTripDays, buildClothesTrips, tripDates } from '../src/clothes/tripRules.js';
 import { deviceDate } from '../src/clothes/rules.js';
-import { CATEGORIES, PURPOSES, SCENES, categoryLabel, type ClothesEvent, type ClothesLocation, type ClothesTripPlan, type ClothesTripsData, type TripForecast, type WeatherSnapshot } from '../src/clothes/types.js';
+import { CATEGORIES, MAX_OUTFIT_ITEMS, PURPOSES, SCENES, categoryLabel, type ClothesEvent, type ClothesLocation, type ClothesTripPlan, type ClothesTripsData, type TripForecast, type WeatherSnapshot } from '../src/clothes/types.js';
 import { dateInput, id, locationInput, requireInput } from './_clothesValidation.js';
 import { upstream } from './_bonClothes.js';
 
@@ -78,7 +78,7 @@ export function tripPlanInput(value: unknown): ClothesTripPlan {
     requireInput(date >= startDate && date <= endDate && day && (day.scene === null || SCENES.includes(day.scene))
       && (day.active === null || typeof day.active === 'boolean')
       && (day.purpose == null || PURPOSES.includes(day.purpose)), '每日条件无效');
-    requireInput(day.itemIds === null || (Array.isArray(day.itemIds) && day.itemIds.length <= CATEGORIES.length && new Set(day.itemIds).size === day.itemIds.length), '搭配无效');
+    requireInput(day.itemIds === null || (Array.isArray(day.itemIds) && day.itemIds.length <= MAX_OUTFIT_ITEMS && new Set(day.itemIds).size === day.itemIds.length), '搭配无效');
     requireInput(day.itemCategories === undefined || (day.itemCategories && typeof day.itemCategories === 'object' && !Array.isArray(day.itemCategories)
       && Object.entries(day.itemCategories).every(([id, role]) => day.itemIds?.includes(id) && CATEGORIES.includes(categoryLabel(role)))), '穿着位置无效');
     days[date] = { ...(day.itemCategories ? { itemCategories: day.itemCategories } : {}), ...(day.purpose ? { purpose: day.purpose } : {}), scene: day.scene, active: day.active, itemIds: day.itemIds?.map((value) => id(value)) ?? null };

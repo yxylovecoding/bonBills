@@ -11,6 +11,22 @@ const context = { ...emptyContext('2026-10-05', 'Asia/Shanghai'), indoorTemperat
 const record = (id: string, patch: Partial<WearRecord> = {}): WearRecord => ({ id, date: context.date, confirmedAt: '', revision: id, items: [top, coat], context, weather: null,
   feelings: { 上午: { indoor: '舒适', outdoor: null, indoorTemperature: 25, outdoorTemperature: null } }, ...patch });
 describe('按分时段体感校准保暖值', () => {
+  it('全身体感不用于反推帽子、口罩、围巾、鞋袜和手套的保暖值', () => {
+    const accessories: ClothesItem[] = ['帽子', '口罩', '围巾', '手套'].map((name) => ({ ...top, id: name, name, category: '配饰' }));
+    const shoes: ClothesItem = { ...top, id: '鞋', category: '鞋', warmth: 2 };
+    const socks: ClothesItem = { ...top, id: '袜子', name: '袜子', category: '配饰', warmth: 2 };
+    const jewellery: ClothesItem = { ...top, id: '项链', name: '项链', category: '配饰' };
+    const pieces = [...accessories, shoes, socks, jewellery];
+    const result = calibratedItems(pieces, [record('one', { items: pieces }), record('two', { items: pieces })], context.date);
+    expect(result.map((piece) => piece.learnedWarmth)).toEqual(Array(7).fill(undefined));
+    expect(pieces.map((piece) => piece.learnedWarmth)).toEqual(Array(7).fill(undefined));
+  });
+  it('连体配饰也不因全身体感改变本身的保暖值', () => {
+    const hood: ClothesItem = { ...top, id: 'hood', name: '围巾帽', category: '配饰' };
+    const records = [record('one', { items: [hood] }), record('two', { items: [hood] })];
+    expect(calibratedItems([hood], records.slice(0, 1), context.date)[0].learnedWarmth).toBeUndefined();
+    expect(calibratedItems([hood], records, context.date)[0].learnedWarmth).toBeUndefined();
+  });
   it('室内脱外套的记录只校准内搭，保留原始估值和历史快照', () => {
     const records = [record('one'), record('two')];
     const result = calibratedItems([top, coat], records, context.date);
