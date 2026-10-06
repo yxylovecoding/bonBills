@@ -8,6 +8,7 @@ import { DAILY_PLAN_KEY, DAILY_PLAN_SETTINGS_KEY, planTickTickDay, refreshDailyH
 import { isExerciseTask } from './_ticktickExercise.js';
 import { isLaundryTask } from './_ticktickLaundry.js';
 import { acquireTickTickLock, releaseTickTickLock } from './_ticktickLock.js';
+import { sleepTagStateKey, sleepWindow, type SleepTagJournal } from './_ticktickSleepTags.js';
 import { calendarDateInTimeZone, decryptTickTickToken, getTickTickRoutineExcludedTaskIds, readAllTickTickTasks,
   readConnectedTickTickTemplate, routineRecurrence, routineTaskDate, shiftTickTickDate, TickTickOpenApiClient,
   type TickTickTask, type TickTickConnection, type TickTickTripSyncState } from './_ticktickTrips.js';
@@ -32,13 +33,21 @@ function eligible(task: TickTickTask, horizon: string) {
 // today's open ordinary tasks and selected tasks from the 明日事 smart filter.
 // Outlook is read through existing subscriptions;
 // no tags, trips, training, laundry, or calendar events are synchronized here.
-export async function replanRemainingToday() {
+export async function replanRemainingToday(options: { scheduled?: boolean } = {}) {
+  if (options.scheduled && sleepWindow().hidden) return { busy: false as const, skipped: 'sleep-window' as const };
   const lock = await acquireTickTickLock();
   if (!lock) return { busy: true as const };
   try {
     const secret = (process.env.SYNC_SECRET || '').trim();
     const connection = await kv.get<TickTickConnection>(CONNECTION_KEY);
+    if (!connection && options.scheduled) return { busy: false as const, skipped: 'disconnected' as const };
     if (!connection) throw new Error('TickTick 未连接');
+    if (options.scheduled) {
+      const journal = await kv.get<SleepTagJournal>(sleepTagStateKey(connection.projectId));
+      // Morning restoration belongs to the existing visibility/full-sync jobs.
+      // Do not publish a partial plan while temporary tags still hide tasks.
+      if (journal && Object.keys(journal).length) return { busy: false as const, skipped: 'restore-pending' as const };
+    }
     const token = decryptTickTickToken(connection.encryptedToken, secret);
     const connectionId = createHash('sha256').update(token).digest('hex');
     const api = new TickTickOpenApiClient(token, (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
@@ -60,6 +69,7 @@ export async function replanRemainingToday() {
     ]);
     const now = new Date();
     if (calendarDateInTimeZone(now.toISOString()) !== today) throw new Error('日期已变化，请重新重排');
+    if (options.scheduled && sleepWindow(now).hidden) return { busy: false as const, skipped: 'sleep-window' as const };
     const calendarState = snapshot && input ? applyOutlookSnapshotToState(calendar ?? {}, snapshot, input.policy, today) : calendar;
     const excluded = getTickTickRoutineExcludedTaskIds(template, { ...trips, instances: trips?.instances ?? {} });
     // Preserve protected ancestors as well as individually managed tasks.

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TickTickTask } from './_ticktickTrips';
 import { replanRemainingToday } from './_ticktickReplan';
 import { DAILY_PLAN_KEY, DAILY_PLAN_SETTINGS_KEY } from './_ticktickDailyPlan';
+import { sleepTagStateKey } from './_ticktickSleepTags';
 
 const mocks = vi.hoisted(() => ({ data: new Map<string, any>(), tasks: [] as TickTickTask[], history: [] as TickTickTask[],
   getTask: vi.fn(), update: vi.fn(), historyRead: vi.fn(), snapshot: vi.fn(), set: vi.fn(),
@@ -47,6 +48,38 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('重排剩余今日事并从明日补入', () => {
+  it.each(['00:07', '04:59'])('每小时排期在凌晨 %s 跳过，不覆盖已有计划或改标签', async time => {
+    vi.setSystemTime(new Date(`${day}T${time}:00+08:00`));
+    await expect(replanRemainingToday({ scheduled: true })).resolves.toEqual({ busy: false, skipped: 'sleep-window' });
+    expect(mocks.acquire).not.toHaveBeenCalled();
+    expect(mocks.set).not.toHaveBeenCalled(); expect(mocks.update).not.toHaveBeenCalled();
+  });
+  it('每小时排期等候凌晨临时标签恢复，不把暂时隐藏的任务当作永久排除', async () => {
+    vi.setSystemTime(new Date(`${day}T05:07:00+08:00`));
+    mocks.data.set(sleepTagStateKey('life'), { hidden: { projectId: 'life', addedOn: day, phase: 'restoring' } });
+    await expect(replanRemainingToday({ scheduled: true })).resolves.toEqual({ busy: false, skipped: 'restore-pending' });
+    expect(mocks.historyRead).not.toHaveBeenCalled(); expect(mocks.set).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled(); expect(mocks.release).toHaveBeenCalledWith('lock');
+  });
+  it('凌晨恢复完成后，每小时排期沿用最久未完成顺序和最新日历空档', async () => {
+    mocks.data.set(sleepTagStateKey('life'), {});
+    mocks.data.set('outlook:calendar-connection:v1', { encrypted: 'encrypted' });
+    mocks.tasks = [task('older'), task('newer')];
+    mocks.history = [task('older', { status: 2, completedTime: '2026-09-20T12:00:00+08:00' }),
+      task('newer', { status: 2, completedTime: '2026-09-28T12:00:00+08:00' })];
+    const result = await replanRemainingToday({ scheduled: true });
+    expect(result).toMatchObject({ busy: false, updated: 1, dailyPlan: { todayCount: 1, plannedMinutes: 15 } });
+    expect(mocks.snapshot).toHaveBeenCalled(); expect(mocks.historyRead).toHaveBeenCalled();
+    expect(mocks.data.get(DAILY_PLAN_KEY).briefing.selected.map((t: TickTickTask) => t.id)).toEqual(['older']);
+    expect(mocks.set.mock.calls.every(([key]) => key === DAILY_PLAN_KEY)).toBe(true);
+    expect(mocks.broadSync).not.toHaveBeenCalled();
+  });
+  it('每小时排期在断开连接时跳过，手动重排仍提示连接缺失', async () => {
+    mocks.data.delete('ticktick:connection:v1');
+    await expect(replanRemainingToday({ scheduled: true })).resolves.toEqual({ busy: false, skipped: 'disconnected' });
+    await expect(replanRemainingToday()).rejects.toThrow('TickTick 未连接');
+    expect(mocks.set).not.toHaveBeenCalled(); expect(mocks.update).not.toHaveBeenCalled();
+  });
   it('按执行时刻剩余 15 分钟及完成间隔挑选，只顺延较新完成的任务', async () => {
     mocks.tasks = [task('older'), task('newer')];
     mocks.history = [task('older', { status: 2, completedTime: '2026-09-20T12:00:00+08:00' }),

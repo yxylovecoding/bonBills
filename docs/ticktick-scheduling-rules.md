@@ -129,6 +129,8 @@
 ## 9. 执行时间与操作范围
 
 - 自动完整同步：北京时间每天 `05:00 / 12:00 / 17:00 / 20:00`，先拉取 Outlook，再执行相关排期；也可手动「立即同步」。
+- 普通任务每小时重排：`.github/workflows/ticktick-hourly-plan.yml` 在每小时第 7 分钟调用仅接受定时密钥的 `hourly-replan` 入口，读取最新 Outlook 空档和完成记录，复用 DoneList 的限定重排；无需打开网页。`00:00–05:00` 隐藏时段、凌晨临时标签尚未恢复或 TickTick 未连接时跳过，不覆盖已有安排。与完整同步、显隐工作流共用并发组与写锁。
+- 每小时重排不运行 AI，不发送邮件，不改显隐标签、训练、洗衣或 Outlook 日程。使用公开仓库的标准 GitHub Actions runner，定时触发免费；服务器和存储请求计入现有平台额度，不新增付费服务或升级套餐。
 - GitHub Actions 的调度可能延迟，不能保证恰在整点执行。
 - `22:00` 处理夜间 routine 与未完成运动，`00:00` 临时隐藏，`05:00` 恢复并处理夜间 routine 与运动。
 - DoneList「重排今日事」只改剩余普通今日事和本轮选中的补入任务日期，不执行完整同步，不修改标签、训练、洗衣或 Outlook 日程。
@@ -145,6 +147,6 @@
 - `api/_ticktickReplan.ts`：DoneList「重排今日事」的限定范围。
 - `api/_ticktickSleepTags.ts`、`api/_ticktickNightRoutine.ts`：临时隐藏与固定显隐。
 - `api/_ticktickLaundry.ts`、`api/_ticktickExercise.ts`：洗衣与训练。
-- `.github/workflows/ticktick-daily-plan.yml`、`.github/workflows/ticktick-night-routine.yml`：定时入口。
+- `.github/workflows/ticktick-daily-plan.yml`、`.github/workflows/ticktick-hourly-plan.yml`、`.github/workflows/ticktick-night-routine.yml`：定时入口。
 
 修改排程或清单条件时，先阅读本文件，并同步更新受影响的文档与实现；尤其保持普通任务和重要任务的空档补入边界，明确区分实际实现、用户约定与尚未确认的任务改期原因。

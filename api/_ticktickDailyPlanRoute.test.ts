@@ -73,6 +73,28 @@ describe('每日安排接口', () => {
     expect(await request('POST', undefined, 'replan-today')).toMatchObject({ status: 202, body: { ok: false, busy: true } });
     expect(sleepTags).not.toHaveBeenCalled(); expect(syncTraining).not.toHaveBeenCalled();
   });
+  it('每小时重排仅接受定时密钥 GET，复用限定重排且不触发邮件或综合同步', async () => {
+    vi.stubEnv('CRON_SECRET', 'cron-secret');
+    replan.mockReset().mockResolvedValue({ busy: false, dailyPlan: { date: '2026-10-05', todayCount: 2 } });
+    auth.ok = false;
+    expect((await request('GET', undefined, 'hourly-replan', undefined, 'Bearer wrong')).status).toBe(401);
+    auth.ok = true;
+    expect((await request('GET', undefined, 'hourly-replan')).status).toBe(403);
+    expect((await request('POST', undefined, 'hourly-replan', undefined, 'Bearer cron-secret')).status).toBe(403);
+    expect(replan).not.toHaveBeenCalled();
+    auth.ok = false;
+    expect(await request('GET', undefined, 'hourly-replan', undefined, 'Bearer cron-secret')).toMatchObject({
+      status: 200, body: { ok: true, dailyPlan: { todayCount: 2 } },
+    });
+    expect(replan).toHaveBeenCalledWith({ scheduled: true });
+    replan.mockResolvedValueOnce({ busy: true });
+    expect((await request('GET', undefined, 'hourly-replan', undefined, 'Bearer cron-secret')).status).toBe(202);
+    replan.mockResolvedValueOnce({ busy: false, skipped: 'sleep-window' });
+    expect(await request('GET', undefined, 'hourly-replan', undefined, 'Bearer cron-secret')).toMatchObject({
+      status: 200, body: { ok: true, skipped: 'sleep-window' },
+    });
+    expect(sleepTags).not.toHaveBeenCalled(); expect(syncTraining).not.toHaveBeenCalled(); expect(sendEmail).not.toHaveBeenCalled();
+  });
   it('发信入口仅接受后台密钥；普通访问不发邮件，繁忙可以稍后重试', async () => {
     vi.stubEnv('CRON_SECRET', 'cron-secret');
     expect((await request('GET', undefined, 'daily-email')).status).toBe(403);

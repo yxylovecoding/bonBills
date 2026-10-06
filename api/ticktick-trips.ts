@@ -300,6 +300,12 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       const result = await replanRemainingToday();
       return res.status(result.busy ? 202 : 200).json({ ok: !result.busy, ...result });
     }
+    if (req.query?.action === 'hourly-replan') {
+      if (!isCron) return res.status(403).json({ error: 'cron authorization required' });
+      const { replanRemainingToday } = await import('./_ticktickReplan.js');
+      const result = await replanRemainingToday({ scheduled: true });
+      return res.status(result.busy ? 202 : 200).json({ ok: !result.busy, ...result });
+    }
     if (req.query?.action === 'daily-email') {
       if (!isCron) return res.status(403).json({ error: 'cron authorization required' });
       const { sendDailyEmail } = await import('./_dailyEmail.js');
