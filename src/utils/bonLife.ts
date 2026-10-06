@@ -2,7 +2,7 @@ import { parseSkinRecord, SKIN_FIELDS, SKIN_STATES, type SkinField, type SkinRec
 export { SKIN_FIELDS } from './lifeSkin.js';
 export type { SkinRecord } from './lifeSkin.js';
 import { isCalendarDate, nextCalendarDate } from './outlookCalendar.js';
-import { parseSymptomRecord, symptomSummary, type DiscomfortRecord, type EyeRecord } from './lifeSymptoms.js';
+import { SYMPTOM_STATES, parseSymptomRecord, symptomSummary, type DiscomfortRecord, type EyeRecord } from './lifeSymptoms.js';
 import { makeupSummary, parseMakeupRecord, type MakeupRecord } from './lifeMakeup.js';
 
 export const LIFE_KINDS = ['skin', 'eyes', 'discomfort', 'mood', 'body', 'training'] as const;
@@ -124,7 +124,8 @@ export function entrySummary(kind: LifeKind, entry?: LifeEntry): string {
     const value = entry.body?.[key as BodyMetric]; return isBodyValue(key as BodyMetric, value) ? [`${label} ${value}${unit ? ` ${unit}` : ''}`] : [];
   }) : kind === 'training' && entry.training ? [`${entry.training.completed ? '✓ ' : ''}${entry.training.plan}`] : [];
   const skinState = kind === 'skin' && entry.skin?.status ? `${SKIN_STATES[entry.skin.status]}${entry.skin.planDay ? ` · 第 ${entry.skin.planDay} 天` : ''}` : '';
-  const skinLabel = kind === 'skin' ? [skinState, entry.skin?.acneMarks ? '痘印' : ''].filter(Boolean).join(' · ') : '';
+  const skinLabel = kind === 'skin' ? [skinState, entry.skin?.status === 'acne' && entry.skin.acneProgress ? SYMPTOM_STATES[entry.skin.acneProgress] : '',
+    entry.skin?.acneMarks ? '痘印' : ''].filter(Boolean).join(' · ') : '';
   return [skinLabel, ...(kind === 'skin' || kind === 'eyes' ? makeupSummary(entry.makeup) : []), ...details, entry.text].filter(Boolean).join('\n');
 }
 

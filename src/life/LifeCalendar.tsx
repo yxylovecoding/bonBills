@@ -244,7 +244,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
           {(kind === 'skin' || kind === 'eyes') && makeupSummary(entry?.makeup).length > 0 && <span className="life-day-text">{makeupSummary(entry?.makeup).join(' · ')}</span>}
           {kind === 'skin' ? <span className="life-day-symptoms">
             {displaySkin?.status && <span className="life-symptom-mark life-day-symptom" style={symptomColor(`skin:${displaySkin.status}`)}>
-              {SKIN_STATES[displaySkin.status]}{displaySkin.planDay ? ` · 第 ${displaySkin.planDay} 天` : ''}
+              {SKIN_STATES[displaySkin.status]}{displaySkin.status === 'acne' && displaySkin.acneProgress ? ` · ${SYMPTOM_STATES[displaySkin.acneProgress]}` : ''}{displaySkin.planDay ? ` · 第 ${displaySkin.planDay} 天` : ''}
             </span>}
             {displaySkin?.acneMarks && <span className="life-symptom-mark life-day-symptom" style={symptomColor('skin:acneMarks')}>痘印</span>}
             {skinDetails && <span className="life-day-text">{skinDetails}</span>}
