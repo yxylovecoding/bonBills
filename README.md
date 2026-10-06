@@ -276,7 +276,7 @@ src/
 
 ### 洗衣日程写入 Outlook
 
-支持 Make 免费连接：创建即时 Custom Webhook → Microsoft 365 Calendar / Make an API Call → Webhook response 场景，用 Make 自带微软连接授权 `offline_access`、`User.Read`、`Calendars.ReadWrite`，无需自有 Azure 应用。Webhook 地址是访问凭据，不公开、不写日志或仓库；在「对账 → 设置 → 洗衣日程 · Outlook」输入后只读验证可写日历，选择目标日历再开启。地址以 AES-GCM 加密保存在原连接键中，浏览器只暂存于输入框，不持久化。
+支持 Make 免费连接：创建即时 Custom Webhook → Microsoft 365 Calendar / Make an API Call → Webhook response 场景，用 Make 自带微软连接授权 `offline_access`、`User.Read`、`Calendars.ReadWrite`，无需自有 Azure 应用。Webhook 地址是访问凭据，不公开、不写日志或仓库；在「BonLog → DoneList → 洗衣日程 · Outlook」输入后只读验证可写日历，选择目标日历再开启。地址以 AES-GCM 加密保存在原连接键中，浏览器只暂存于输入框，不持久化。
 
 Make 输入为 `path`（Graph `/v1.0/me/calendars…` 相对路径）、`method`（GET/POST/PATCH）、`body`（JSON 文本）、`headers`（key/value 数组）；固定发送 Graph `Prefer: IdType="ImmutableId", outlook.timezone="Asia/Shanghai"`，有 ETag 时发送 `If-Match`。回传 HTTP 200 JSON `{ "protocol": "bonbills-outlook-v1", "status": 200, "body": <Graph 响应对象> }`，错误分支也返回真实 Graph 状态（尤其 404/412）。Make 默认纯文本 `Accepted` 不视为执行成功。场景只放行所选日历的事件及必要的日历列表查询，不连接其他业务模块。
 

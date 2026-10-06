@@ -7,6 +7,7 @@ import { accountRequestHeaders } from '../utils/authClient';
 import { doneWeekDates, doneWeekMonths, doneWeekNumber, earlierDoneWeeks, groupDoneCategories, groupDoneWeek, shiftDoneDate } from '../utils/lifeDone';
 import { LifeError, lifeRequest } from './client';
 import LifePlanDetails from './LifePlanDetails';
+import OutlookLaundryControl from '../components/OutlookLaundryControl';
 
 const shanghaiToday = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date());
 const completionTime = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
@@ -190,6 +191,7 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
     </button> : replanMessage || (syncedAt ? `${completionTime.format(new Date(syncedAt))} 已同步` : '尚未同步')}</span>
       <div className="life-done-actions"><button disabled={busy || replanning || !months.some(value => value?.connected)} onClick={() => void replanToday()}>{replanning ? '重排中…' : '重排今日事'}</button>
         <button disabled={busy || replanning} onClick={() => void refresh(true)}>同步 TickTick</button></div></div>
+    <OutlookLaundryControl />
     {replanError && <p className="life-error" role="alert">{replanError}</p>}
     {detailsError && <p className="life-error" role="alert">{detailsError}</p>}
     {detailsOpen && planDetails && <LifePlanDetails plan={planDetails} />}

@@ -6,7 +6,6 @@ import AmountInput from '../components/AmountInput';
 import FinanceImportPreviewDialog from '../components/FinanceImportPreviewDialog';
 import ImportCutoffHint from '../components/ImportCutoffHint';
 import SceneCityFields, { type SceneCitySettings } from '../components/SceneCityFields';
-import OutlookLaundryControl from '../components/OutlookLaundryControl';
 
 const fmtInt = (v: number) => Math.round(v).toLocaleString('zh-CN');
 import { useSnapshotStore } from '../stores/snapshotStore';
@@ -304,7 +303,6 @@ function RebalanceSettingsModal({
         </div>
         <div style={{ padding: '0 20px 4px' }}>
           <SceneCityFields value={cityDraft} onChange={setCityDraft} />
-          <OutlookLaundryControl />
           <div style={{ border: '1px solid #f1f3f4', borderRadius: 10, padding: '9px 10px', backgroundColor: '#fafafa', marginBottom: 12 }}>
             <div className="reconcile-settings-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
               <div>
