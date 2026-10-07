@@ -49,6 +49,10 @@ async function handler(req: VercelRequest, res: VercelResponse) {
     const connection = await kv.get<Connection>(CONNECTION_KEY);
     if (!connection) return res.status(200).json({ connected: false });
     const input = decryptOutlookConnection(connection.encrypted, secret);
+    if (body.action === 'availability') {
+      const snapshot = await readOutlookSnapshot(input, startDate, endDate, { startDate, endDate });
+      return res.status(200).json({ connected: true, availability: snapshot.availability });
+    }
     const snapshot = await readOutlookSnapshot(input, startDate, endDate);
     await saveOutlookSnapshot(connection, snapshot, input.policy, requestedAt);
     return res.status(200).json({ connected: true, connectionId: connection.id, snapshot, policy: input.policy });
