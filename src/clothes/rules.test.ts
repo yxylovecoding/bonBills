@@ -123,6 +123,17 @@ describe('BonClothes 规则推荐', () => {
     expect(replacements(liner, outfit, pieces, context, cool)).toContainEqual(wardrobe[0]);
     expect(replacements(warmCoat, { ...outfit, items: [liner, warmCoat] }, pieces, context, cool)).toContainEqual(shell);
   });
+  it('支持同一层级（如上衣）叠穿多件衣物，保暖值正确累加', () => {
+    const shirt = item('shirt', '上衣', { warmth: 2 });
+    const sweater = item('sweater', '上衣', { warmth: 4 });
+    const fixed = [shirt, sweater, item('bottom', '下装', { warmth: 5 }), item('shoes', '鞋', { warmth: 2 })];
+    const result = recommend([shirt, sweater, ...wardrobe], context, weather, [], {}, { fixedItems: fixed });
+    expect(result.length).toBeGreaterThanOrEqual(1);
+    const outfit = result[0];
+    expect(outfit.items.map(i => i.id)).toContain('shirt');
+    expect(outfit.items.map(i => i.id)).toContain('sweater');
+    expect(warmthTotals(outfit.items).upper).toBe(6);
+  });
 });
 describe('分层穿搭与文胸', () => {
   const bra = item('bra', '文胸');

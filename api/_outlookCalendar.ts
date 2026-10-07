@@ -123,12 +123,13 @@ export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind
   const cancelledSeries = new Set(events.filter((event) => !event.isRecurrenceException() && isCancelled(event)).map((event) => event.uid));
   const result: OutlookDayEvent[] = [];
   const instant = (time: IcalTime, event: IcalEvent, property: string) => {
-    if (time.zone.tzid !== 'floating') return time.toJSDate().toISOString();
     const zone = event.component.getFirstProperty(property)?.getParameter('tzid')
       ?? event.component.getFirstProperty('dtstart')?.getParameter('tzid');
+    const aliases: Record<string, string> = { 'China Standard Time': 'Asia/Shanghai', 'Pacific Standard Time': 'America/Los_Angeles',
+      'Eastern Standard Time': 'America/New_York', 'GMT Standard Time': 'Europe/London' };
+    if (zone && aliases[String(zone)]) return wallTimeInstant(time.toString(), aliases[String(zone)]);
+    if (time.zone.tzid !== 'floating') return time.toJSDate().toISOString();
     if (options?.timezone) {
-      const aliases: Record<string, string> = { 'China Standard Time': 'Asia/Shanghai', 'Pacific Standard Time': 'America/Los_Angeles',
-        'Eastern Standard Time': 'America/New_York', 'GMT Standard Time': 'Europe/London' };
       const timezone = zone ? aliases[String(zone)] ?? String(zone) : options.timezone;
       return wallTimeInstant(time.toString(), timezone);
     }

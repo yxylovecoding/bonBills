@@ -108,7 +108,7 @@ export function recommend(items: ClothesItem[], context: ClothesDayContext, inpu
   });
   if (fixed.length !== (options.fixedItems?.length ?? 0) || new Set(fixed.map((item) => item.id)).size !== fixed.length
     || fixed.some((item, i) => fixed.slice(i + 1).some((other) => categoryLabel(item.category) === categoryLabel(other.category)
-      && (categoryLabel(item.category) !== '配饰' || accessoriesOverlap(item, other))))) return [];
+      && (categoryLabel(item.category) === '配饰' && accessoriesOverlap(item, other))))) return [];
   const fixedCategories = new Set(fixed.map((item) => categoryLabel(item.category)));
   if (fixedCategories.has('连衣裙') && (fixedCategories.has('上衣') || fixedCategories.has('下装'))) return [];
   const pairs = options.pairCounts ?? outfitPairCounts(records);

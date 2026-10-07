@@ -176,3 +176,6 @@
 .clothes-feelings .clothes-view { justify-content: flex-start; flex-wrap: wrap; gap: 6px; }
 .clothes-feeling-field { display: grid; gap: 10px; }
 .clothes-record-details p { line-height: 1.7; margin: 8px 0; }
+
+.clothes-add-layers { margin: 12px 0 24px; justify-content: flex-start; gap: 20px; }
+@media (max-width: 600px) { .clothes-add-layers { gap: 14px; } }

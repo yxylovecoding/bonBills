@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ClothesCalendar, ClothesDayContext, ClothesItem, ClothesLocation, Outfit, PairCounts, WearRecord, WeatherSnapshot } from './types';
-import { SCENES, PURPOSES, wearId, type Purpose } from './types';
-import { calendarDestinations, chooseLocation, effectiveContext, recommend, replacements, weatherFor } from './rules';
+import { SCENES, PURPOSES, wearId, type Purpose, type Category, categoryLabel } from './types';
+import { calendarDestinations, chooseLocation, effectiveContext, eligibleItems, recommend, replacements, weatherFor } from './rules';
 import { ClothesError, clothesRequest, photoUrl, readLocal, writeLocal } from './client';
 import CityPicker from './CityPicker';
 import { createWearDraft, type WearDraft } from './WearEditor';
@@ -45,7 +45,7 @@ export default function Today({ owner, items, initial, records, outfits, tomorro
   const [weatherBusy, setWeatherBusy] = useState(false), [weatherRetry, setWeatherRetry] = useState(0);
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [manualTemperature, setManualTemperature] = useState(String(context.manualWeather?.temperature ?? 20));
-  const [fixed, setFixed] = useState<ClothesItem[]>([]), [index, setIndex] = useState(0), [replace, setReplace] = useState<string | null>(null);
+  const [fixed, setFixed] = useState<ClothesItem[]>([]), [index, setIndex] = useState(0), [replace, setReplace] = useState<string | null>(null), [adding, setAdding] = useState<Category | null>(null);
   const [history, setHistory] = useState(false), [older, setOlder] = useState<WearRecord[]>([]), [moreHistory, setMoreHistory] = useState(true);
   const calendarRequest = useRef(0), geoRequest = useRef(0);
   const contextRef = useRef(context); contextRef.current = context;
@@ -195,12 +195,25 @@ export default function Today({ owner, items, initial, records, outfits, tomorro
     {!past && <section className="clothes-outfit" aria-label="穿搭推荐">
       <div className="clothes-row clothes-section-heading"><h2>{tomorrow ? '明日穿搭推荐' : '穿搭推荐'}</h2><button className="clothes-link" disabled={candidates.length < 2 || busy} onClick={() => { setIndex((v) => v + 1); setReplace(null); }}>换一套</button></div>
       <div className="clothes-fields clothes-picker-controls"><label>用途<select aria-label="推荐用途" value={effective.purpose ?? ''} onChange={(e) => changeContext({ purpose: e.target.value as Purpose || null })}><option value="">请选择</option>{PURPOSES.filter((purpose) => purpose !== '睡觉').map((purpose) => <option key={purpose}>{purpose}</option>)}</select></label></div>
-      {outfit?.items.length ? <OutfitPieces items={outfit.items} fixed={fixed} onReplace={(item) => setReplace(item.id)} onUnpin={(item) => { setFixed((value) => value.filter((piece) => piece.id !== item.id)); setIndex(0); setReplace(null); }} />
+      {outfit?.items.length ? <><OutfitPieces items={outfit.items} fixed={fixed} onReplace={(item) => setReplace(item.id)} onUnpin={(item) => { setFixed((value) => value.filter((piece) => piece.id !== item.id)); setIndex(0); setReplace(null); }} />
+          <div className="clothes-row clothes-add-layers">
+            <button type="button" className="clothes-link" onClick={() => setAdding('上衣')}>＋ 叠穿上衣</button>
+            <button type="button" className="clothes-link" onClick={() => setAdding('外套')}>＋ 加件外套</button>
+            <button type="button" className="clothes-link" onClick={() => setAdding('下装')}>＋ 叠穿下装</button>
+          </div></>
           : <div className="clothes-empty">{!items.length ? <><p>衣柜还是空的</p><button className="clothes-link" onClick={onWardrobe}>添加衣物</button></> : !effective.purpose ? '请选择用途' : !effective.scene || effective.active === null ? '请补全当天条件' : !weatherFor(effective, weather) ? '请选择城市或手填天气' : '暂无合适衣物'}</div>}
       {outfit?.missing.length ? <p className="clothes-status">缺少：{outfit.missing.join('、')}</p> : null}
       {fixed.length > 0 && !candidates.length && <p className="clothes-status" role="status">已选衣物不适合当前条件</p>}
       {replaceItem && <PiecePicker key={replaceItem.id} previous={replaceItem} choices={replacements(replaceItem, { items: fixed, missing: [], key: '' }, items, effective, weather)} selected={outfit!.items} pairCounts={pairs}
         onClose={() => setReplace(null)} onSelect={(item) => { setFixed((value) => pinReplacement(value, replaceItem, item)); setIndex(0); setReplace(null); }} />}
+      {adding && <PiecePicker title={`添加${adding}`} choices={eligibleItems(items, adding, effective, weatherFor(effective, weather)!, outfit?.items ?? [])} selected={outfit?.items ?? []} pairCounts={pairs}
+        onClose={() => setAdding(null)} onSelect={(item) => {
+          setFixed((value) => {
+            const existing = outfit?.items.filter((i) => categoryLabel(i.category) === adding && !value.some((v) => v.id === i.id)) ?? [];
+            return [...value, ...existing, item];
+          });
+          setIndex(0); setAdding(null);
+        }} />}
       {outfit && <OutfitWarmth items={outfit.items} />}
       <div className="clothes-confirm"><button className="life-primary" disabled={!outfit?.items.length || !candidates.length} onClick={() => onOpenWear({ ...createWearDraft(effective, weatherFor(effective, weather), outfit?.items), adopted: true })}>采纳</button></div>
     </section>}
