@@ -62,11 +62,11 @@ describe('按分时段体感校准保暖值', () => {
     const entries = feelingEntries(record('legacy', { feelings: undefined, time: '15:00', indoor: '舒适', outdoor: '偏冷' }));
     expect(entries).toMatchObject([{ period: '下午', indoor: '舒适', outdoor: '偏冷', indoorTemperature: 25, outdoorTemperature: null }]);
   });
-  it('逐小时天气可为补记时段填温度，手填天气优先且旧快照仅匹配抓取时段', () => {
+  it('逐小时天气按典型时刻为补记时段填温度，旧快照仅匹配抓取时段', () => {
     const weather: WeatherSnapshot = { date: context.date, timezone: context.timezone, latitude: 0, longitude: 0, fetchedAt: '', temperature: 23, apparent: 23,
       min: 15, max: 25, apparentMin: 15, wind: 0, precipitation: 0, periodTemperatures: { 上午: 18, 下午: 24 } };
     expect(outdoorTemperatureForPeriod(context, weather, '上午', '15')).toBe(18);
-    expect(outdoorTemperatureForPeriod({ ...context, manualWeather: { temperature: 20, rain: false } }, weather, '上午', '15')).toBe(20);
+    expect(outdoorTemperatureForPeriod({ ...context, manualWeather: { temperature: 20, rain: false } }, weather, '上午', '15')).toBe(18);
     expect(outdoorTemperatureForPeriod(context, { ...weather, periodTemperatures: undefined }, '上午', '15')).toBeNull();
     expect(outdoorTemperatureForPeriod(context, { ...weather, periodTemperatures: undefined }, '下午', '15')).toBe(23);
   });

@@ -117,7 +117,7 @@ export default function WearEditor({ initial, storageKey, items, pairCounts, onS
           {draft.purpose !== '睡觉' && <>
             <div className="clothes-view" aria-label="体感时段">{DAY_PERIODS.map((value) => <button type="button" key={value} aria-pressed={period === value} onClick={() => setPeriod(value)}>{value}{draft.feelings[value]?.outdoor || draft.feelings[value]?.cycling ? ' ·' : ''}</button>)}</div>
             <div className="clothes-fields">{(['outdoor', 'cycling'] as const).map((field) => <label key={field}>{field === 'outdoor' ? '室外体感' : '骑车体感'}<select value={feeling[field] ?? ''} onChange={(e) => changeFeeling({ [field]: e.target.value || null })}><option value="">未记录</option>{SENSATIONS.map((value) => <option key={value}>{value}</option>)}</select></label>)}
-              <label>室外温度 °C<input type="number" min={-60} max={60} step={0.5} placeholder="未记录" value={feeling.outdoorTemperature ?? ''} onChange={(e) => changeFeeling({ outdoorTemperature: e.target.value === '' ? null : Number(e.target.value) })} /></label>
+              <label>室外温度 °C<input type="text" inputMode="decimal" readOnly placeholder="天气未获取" value={feeling.outdoorTemperature ?? ''} /></label>
             </div>
           </>}
         </section>}

@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import { decryptOutlookConnection, fetchCalendar, parseOutlookCalendar } from './_outlookCalendar.js';
 import { OUTLOOK_CONNECTION_KEY, type OutlookConnection } from './_outlookSync.js';
 import { deviceDate } from '../src/clothes/rules.js';
-import { timePeriod } from '../src/clothes/feelings.js';
 import { nextCalendarDate } from '../src/utils/outlookCalendar.js';
 import type { ClothesCalendar, ClothesLocation, DayPeriod, WeatherSnapshot } from '../src/clothes/types.js';
 
@@ -78,17 +77,19 @@ export async function readWeather(location: ClothesLocation, date: string, timez
       daily?.temperature_2m_max?.[0], daily?.apparent_temperature_min?.[0], daily?.precipitation_sum?.[0], daily?.wind_speed_10m_max?.[0]];
     if (!fields.every((v) => typeof v === 'number' && Number.isFinite(v)) || daily?.time?.[0] !== date) throw new Error();
     const [temperature, apparent, min, max, apparentMin, precipitation, wind] = fields;
-    const periodValues = new Map<DayPeriod, number[]>();
+    const typicalHours: Record<DayPeriod, number> = { 早晨: 9, 上午: 10, 中午: 13, 下午: 16, 晚上: 20 };
+    const hourlyTemperatures = new Map<number, number>();
     if (Array.isArray(data.hourly?.time) && Array.isArray(data.hourly?.temperature_2m)) {
       data.hourly.time.forEach((time: unknown, index: number) => {
         const value = data.hourly.temperature_2m[index];
         if (typeof time !== 'string' || !time.startsWith(`${date}T`) || typeof value !== 'number' || !Number.isFinite(value)) return;
-        const period = timePeriod(time.slice(11, 16));
-        periodValues.set(period, [...(periodValues.get(period) ?? []), value]);
+        hourlyTemperatures.set(Number(time.slice(11, 13)), value);
       });
     }
-    const periodTemperatures = Object.fromEntries([...periodValues].map(([period, values]) =>
-      [period, Math.round(values.reduce((sum, value) => sum + value, 0) / values.length * 10) / 10])) as Partial<Record<DayPeriod, number>>;
+    const periodTemperatures = Object.fromEntries(Object.entries(typicalHours).flatMap(([period, hour]) => {
+      const temperature = hourlyTemperatures.get(hour);
+      return temperature === undefined ? [] : [[period, temperature]];
+    })) as Partial<Record<DayPeriod, number>>;
     const weather: WeatherSnapshot = { date, timezone, latitude, longitude, fetchedAt: new Date().toISOString(),
       temperature, apparent, min, max, apparentMin, precipitation, wind,
       ...(Object.keys(periodTemperatures).length ? { periodTemperatures } : {}) };
