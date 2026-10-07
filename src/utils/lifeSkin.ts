@@ -1,3 +1,5 @@
+import { SYMPTOM_STATES, type SymptomState } from './lifeSymptoms.js';
+
 export const SKIN_STATES = { acne: '痤疮', damaged: '受损', healthy: '健康', allergic: '过敏' } as const;
 export const SKIN_SEASONS = { spring: '春天', summer: '夏天', autumn: '秋天', winter: '冬天' } as const;
 export const SKIN_TIMES = { morning: '早间', evening: '晚间' } as const;
@@ -6,7 +8,7 @@ export type SkinSeason = keyof typeof SKIN_SEASONS;
 export type SkinTime = keyof typeof SKIN_TIMES;
 export const SKIN_FIELDS = { medication: '用药（未分早晚）', morningMedication: '早间用药', morningProducts: '早间护肤品', eveningMedication: '晚间用药', eveningProducts: '晚间护肤品', localMedication: '局部用药' } as const;
 export type SkinField = keyof typeof SKIN_FIELDS;
-export type SkinRecord = Partial<Record<SkinField, string>> & { status?: SkinState; planDay?: number; season?: SkinSeason; acneMarks?: boolean };
+export type SkinRecord = Partial<Record<SkinField, string>> & { status?: SkinState; planDay?: number; season?: SkinSeason; acneMarks?: boolean; acneProgress?: SymptomState };
 export interface SkinProduct {
   id: string; name: string; kind: 'medication' | 'skincare'; active: boolean;
   states: SkinState[]; seasons: SkinSeason[]; times: SkinTime[]; tags: string[]; notes: string;
@@ -65,6 +67,7 @@ export function parseSkinRecord(value: unknown): SkinRecord {
     else if (key === 'status' && has(SKIN_STATES, val)) result.status = val as SkinState;
     else if (key === 'season' && has(SKIN_SEASONS, val)) result.season = val as SkinSeason;
     else if (key === 'acneMarks' && typeof val === 'boolean') result.acneMarks = val;
+    else if (key === 'acneProgress' && has(SYMPTOM_STATES, val)) result.acneProgress = val as SymptomState;
     else if (key === 'planDay' && typeof val === 'number' && Number.isInteger(val) && val >= 1 && val <= 14) result.planDay = val;
     else throw new Error('护肤记录无效');
   }

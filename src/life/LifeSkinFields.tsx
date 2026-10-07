@@ -1,9 +1,26 @@
-import { useId } from 'react';
+import { useId, useRef } from 'react';
 import type { LifeEntries } from '../utils/bonLife';
 import { nextSkinPlan } from '../utils/lifeSkinProgress';
 import { symptomColor } from './symptomColor';
+import { SYMPTOM_STATES, type SymptomState } from '../utils/lifeSymptoms';
 import { DEFAULT_SKIN_SETTINGS, SKIN_FIELDS, SKIN_SEASONS, SKIN_STATES, matchingSkinProducts, skinLocalPlanValues, skinPlanValues, skinSeason,
   type SkinField, type SkinRecord, type SkinSeason, type SkinSettings, type SkinState } from '../utils/lifeSkin';
+
+function SkinProductChoices({ label, value, products, busy, onChange }: {
+  label: string; value: string; products: { name: string }[]; busy: boolean; onChange: (value: string) => void;
+}) {
+  const selected = [...new Set(value.split(/[、,，\n]/).map((name) => name.trim()).filter(Boolean))];
+  const original = useRef(selected);
+  const options = [...new Set([...products.map((item) => item.name), ...original.current, ...selected])];
+  return <fieldset className="life-skin-choices life-skin-product-choices" disabled={busy}><legend>{label}</legend>
+    <div>{options.map((name) => {
+      const checked = selected.includes(name);
+      const next = (checked ? selected.filter((item) => item !== name) : [...selected, name]).join('、');
+      return <button type="button" key={name} aria-pressed={checked} disabled={!checked && next.length > 500}
+        onClick={() => onChange(next)}>{name}</button>;
+    })}</div>{!options.length && <span className="life-empty-state">暂无在用护肤品</span>}
+  </fieldset>;
+}
 
 export default function LifeSkinFields({ value = {}, date, entries, settings = DEFAULT_SKIN_SETTINGS, busy, onChange }: {
   value?: SkinRecord; date: string; entries: LifeEntries; settings?: SkinSettings; busy: boolean; onChange: (skin: SkinRecord) => void;
@@ -21,6 +38,7 @@ export default function LifeSkinFields({ value = {}, date, entries, settings = D
   function change(next: Partial<SkinRecord>) { onChange({ ...value, ...next }); }
   function followHistory(state: SkinState) {
     const next = { ...value, status: state };
+    if (state !== 'acne') delete next.acneProgress;
     const inferred = nextSkinPlan(date, settings, entries, state);
     if (inferred.planDay === undefined) delete next.planDay; else next.planDay = inferred.planDay;
     onChange(next);
@@ -31,6 +49,13 @@ export default function LifeSkinFields({ value = {}, date, entries, settings = D
         className="life-symptom-mark" style={symptomColor(`skin:${key}`)}
         aria-pressed={status === key} onClick={() => { if (key !== status) followHistory(key); }}>{label}</button>)}
     </div></fieldset>
+    {status === 'acne' && <label className="life-field">痤疮状态<select disabled={busy} value={value.acneProgress ?? ''}
+      onChange={(event) => {
+        const next = { ...value };
+        if (event.target.value) next.acneProgress = event.target.value as SymptomState; else delete next.acneProgress;
+        onChange(next);
+      }}><option value="">未记录</option>{Object.entries(SYMPTOM_STATES).filter(([key]) => key !== 'recorded' || value.acneProgress === 'recorded')
+        .map(([key, label]) => <option value={key} key={key}>{label}</option>)}</select></label>}
     <fieldset className="life-skin-choices" disabled={busy}><legend>副状态</legend><div>
       <button type="button" className="life-symptom-mark" style={symptomColor('skin:acneMarks')}
         aria-pressed={value.acneMarks ?? false} onClick={() => change({ acneMarks: !value.acneMarks })}>痘印</button>
@@ -60,6 +85,8 @@ export default function LifeSkinFields({ value = {}, date, entries, settings = D
       const time = field.startsWith('morning') ? 'morning' : field.startsWith('evening') ? 'evening' : undefined;
       const products = field === 'localMedication' ? (local.localMedication ? [{ id: 'acne-marks', name: local.localMedication, tags: ['痘印'] }] : [])
         : matchingSkinProducts(settings, status, season, kind, time);
+      if (kind === 'skincare') return <SkinProductChoices key={field} label={label} value={value[field] ?? ''} products={products}
+        busy={busy} onChange={(next) => change({ [field]: next })} />;
       return <label key={field} className={field === 'medication' || field === 'localMedication' ? 'life-skin-full-field' : undefined}>{label}
         <input maxLength={500} list={`${id}-${field}`} disabled={busy} value={value[field] ?? ''} placeholder="输入或选择在用用品"
           onChange={(event) => change({ [field]: event.target.value })} />

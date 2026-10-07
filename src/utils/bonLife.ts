@@ -2,7 +2,8 @@ import { parseSkinRecord, SKIN_FIELDS, SKIN_STATES, type SkinField, type SkinRec
 export { SKIN_FIELDS } from './lifeSkin.js';
 export type { SkinRecord } from './lifeSkin.js';
 import { isCalendarDate, nextCalendarDate } from './outlookCalendar.js';
-import { parseSymptomRecord, symptomSummary, type DiscomfortRecord, type EyeRecord } from './lifeSymptoms.js';
+import { SYMPTOM_STATES, parseSymptomRecord, symptomSummary, type DiscomfortRecord, type EyeRecord } from './lifeSymptoms.js';
+import { makeupSummary, parseMakeupRecord, type MakeupRecord } from './lifeMakeup.js';
 
 export const LIFE_KINDS = ['skin', 'eyes', 'discomfort', 'mood', 'body', 'training'] as const;
 export type LifeKind = typeof LIFE_KINDS[number];
@@ -24,7 +25,7 @@ export type BodyMetric = keyof typeof BODY_FIELDS;
 export const CIRCUMFERENCE_FIELDS = ['chest', 'waist', 'hips', 'upperArm', 'thigh', 'calf'] as const;
 export type BodyRecord = Partial<Record<keyof typeof BODY_FIELDS, number>>;
 export interface TrainingRecord { plan: string; effort: 'normal' | 'easy' | 'rest'; completed: boolean; mode?: 'auto' | 'manual'; projects?: string[] }
-export interface LifeEntry { text: string; revision: string; skin?: SkinRecord; eyes?: EyeRecord; discomfort?: DiscomfortRecord; body?: BodyRecord; training?: TrainingRecord }
+export interface LifeEntry { text: string; revision: string; skin?: SkinRecord; eyes?: EyeRecord; discomfort?: DiscomfortRecord; body?: BodyRecord; training?: TrainingRecord; makeup?: MakeupRecord }
 export type LifeEntries = Record<string, LifeEntry>;
 export interface LifeYear {
   year: number;
@@ -66,7 +67,11 @@ export function parseLifeEdit(value: unknown) {
     || typeof edit.mutationId !== 'string' || !/^[a-zA-Z0-9-]{16,80}$/.test(edit.mutationId)) {
     throw new Error('记录内容无效');
   }
-  const details: Pick<LifeEntry, 'skin' | 'eyes' | 'discomfort' | 'body' | 'training'> = {};
+  const details: Pick<LifeEntry, 'skin' | 'eyes' | 'discomfort' | 'body' | 'training' | 'makeup'> = {};
+  if (edit.makeup !== undefined) {
+    if (edit.kind !== 'skin' && edit.kind !== 'eyes') throw new Error('记录类型不匹配');
+    details.makeup = parseMakeupRecord(edit.makeup);
+  }
   for (const field of ['skin', 'eyes', 'discomfort', 'body', 'training']) {
     if (edit[field] !== undefined && edit.kind !== field) throw new Error('记录类型不匹配');
   }
@@ -119,8 +124,9 @@ export function entrySummary(kind: LifeKind, entry?: LifeEntry): string {
     const value = entry.body?.[key as BodyMetric]; return isBodyValue(key as BodyMetric, value) ? [`${label} ${value}${unit ? ` ${unit}` : ''}`] : [];
   }) : kind === 'training' && entry.training ? [`${entry.training.completed ? '✓ ' : ''}${entry.training.plan}`] : [];
   const skinState = kind === 'skin' && entry.skin?.status ? `${SKIN_STATES[entry.skin.status]}${entry.skin.planDay ? ` · 第 ${entry.skin.planDay} 天` : ''}` : '';
-  const skinLabel = kind === 'skin' ? [skinState, entry.skin?.acneMarks ? '痘印' : ''].filter(Boolean).join(' · ') : '';
-  return [skinLabel, ...details, entry.text].filter(Boolean).join('\n');
+  const skinLabel = kind === 'skin' ? [skinState, entry.skin?.status === 'acne' && entry.skin.acneProgress ? SYMPTOM_STATES[entry.skin.acneProgress] : '',
+    entry.skin?.acneMarks ? '痘印' : ''].filter(Boolean).join(' · ') : '';
+  return [skinLabel, ...(kind === 'skin' || kind === 'eyes' ? makeupSummary(entry.makeup) : []), ...details, entry.text].filter(Boolean).join('\n');
 }
 
 export function isBodyValue(metric: BodyMetric, value: unknown): value is number {

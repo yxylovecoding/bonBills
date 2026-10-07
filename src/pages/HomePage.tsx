@@ -797,7 +797,7 @@ export default function HomePage() {
           </div>
           <div style={{ fontSize: 11, color: C.sub }}>{fire.lifeClockPeriod}</div>
           <div title={`v${APP_VERSION} 本版改动`} style={{ display: 'inline-block', marginTop: 4, fontSize: 10, fontWeight: 500, color: C.blue, backgroundColor: '#e8f0fe', padding: '2px 6px', borderRadius: 6 }}>
-            <a href="https://clothes.bonbills.cn/" style={{ color: 'inherit', textDecoration: 'none' }}>✨ {RELEASE_NOTE}</a>
+            <a href="/life?kind=skin" style={{ color: 'inherit', textDecoration: 'none' }}>✨ {RELEASE_NOTE}</a>
           </div>
         </div>
       </div>

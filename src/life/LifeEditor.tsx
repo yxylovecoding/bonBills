@@ -1,4 +1,5 @@
 import LifeSkinFields from './LifeSkinFields';
+import LifeMakeupFields from './LifeMakeupFields';
 import LifeSymptomFields from './LifeSymptomFields';
 import { reusableSymptom, symptomHistory, symptomKey, symptomObservations, type SymptomArea } from '../utils/lifeSymptoms';
 import { DEFAULT_SKIN_SETTINGS, type SkinSettings } from '../utils/lifeSkin';
@@ -99,6 +100,7 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
     <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
       <div className="life-editor-heading"><h2 id="life-editor-title">{LIFE_LABELS[draft.kind]} <span>{draft.date.replace(/-/g, '.')}</span></h2>
         {guidance && <span className={`life-period-label phase-${phase?.phase}`}>{phase?.estimated ? '预计·' : ''}{guidance.label}</span>}</div>
+      {(draft.kind === 'skin' || draft.kind === 'eyes') && <LifeMakeupFields value={draft.makeup} busy={busy} onChange={(makeup) => change({ makeup })} />}
       {draft.kind === 'skin' && <LifeSkinFields date={draft.date} value={skin} entries={skinEntries} settings={skinSettings} busy={busy} onChange={(skin) => change({ skin })} />}
       {(draft.kind === 'eyes' || draft.kind === 'discomfort') && <LifeSymptomFields kind={draft.kind}
         value={symptomObservations(draft.kind, draft[draft.kind])} names={draft.symptomNames ?? {}} history={history} date={draft.date} busy={busy}
@@ -142,7 +144,8 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
       {error && <p role="alert" className="life-error">{error}</p>}
       {conflict && <div className="life-conflict"><p>云端记录</p><blockquote>{entrySummary(draft.kind, conflict) || '（空白）'}</blockquote>
         <button type="button" onClick={() => {
-          const next = { ...draft, revision: conflict.revision, mutationId: crypto.randomUUID() };
+          const next = { ...draft, revision: conflict.revision, mutationId: crypto.randomUUID(),
+            ...(draft.makeup ? { makeup: { ...draft.makeup, revision: conflict.makeup?.revision ?? '' } } : {}) };
           setDraft(next); persist(next); setConflict(null); setError('');
         }}>保留我的记录并继续编辑</button></div>}
       <div className="life-editor-actions"><button type="button" disabled={busy} onClick={close}>{discarding ? '放弃修改' : '取消'}</button>

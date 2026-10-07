@@ -10,6 +10,16 @@ const history = (records: Record<string, SkinRecord>): LifeEntries => Object.fro
 );
 
 describe('个人皮肤方案接续', () => {
+  it('痤疮进展独立保存和展示，不改变实际用药决定的下一步', () => {
+    const skin = { status: 'acne' as const, acneProgress: 'improving' as const, acneMarks: true, medication: '炉甘石',
+      morningProducts: '面霜、修护乳', eveningProducts: '修护乳' };
+    expect(parseSkinRecord(skin)).toEqual(skin);
+    expect(entrySummary('skin', { text: '', revision: '', skin })).toContain('好转');
+    expect(nextSkinPlan('2026-10-06', settings, history({ '2026-10-05': skin }))).toEqual({ status: 'acne', planDay: 2 });
+    expect(entrySummary('skin', { text: '', revision: '', skin: { ...skin, status: 'healthy' } })).not.toContain('好转');
+    expect(() => parseSkinRecord({ acneProgress: 'unknown' })).toThrow();
+    expect(parseSkinRecord({ status: 'acne' })).toEqual({ status: 'acne' });
+  });
   it('昨天用炉甘石，今天接第 2 天的早间过氧和晚间阿达帕林', () => {
     const entries = history({ '2026-10-04': { status: 'acne', medication: '炉甘石' } });
     const current = resolveSkinRecord('2026-10-05', settings, entries);
