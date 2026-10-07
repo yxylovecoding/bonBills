@@ -1618,6 +1618,24 @@ input[type='number'] { -moz-appearance: textfield; }
     grid-row: 1;
   }
 
+  .reconcile-invest-input-row {
+    flex-wrap: nowrap;
+    align-items: flex-start !important;
+  }
+
+  .reconcile-invest-input-row > :first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .reconcile-invest-input-row .reconcile-currency-fields {
+    flex: 0 0 auto;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: flex-end;
+    gap: 6px;
+  }
+
   .reconcile-holding-row [data-label]::before {
     content: attr(data-label);
     display: block;

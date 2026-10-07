@@ -2758,7 +2758,7 @@ export default function ReconcilePage() {
           <span style={{ fontSize: 13, fontWeight: 600 }}>总金额 ¥{formatCurrency(investKeys.reduce((sum, key) => sum + reconcileTotalHoldings[key], 0))}</span>
         </div>
         {/* 本次投入 */}
-        <div className="reconcile-account-row" {...makeUsdSwipeHandlers('investUsdBank')} style={{ touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, border: '1.5px solid #fbbf24', borderRadius: 10, padding: '10px 12px', backgroundColor: '#fffbeb', marginBottom: 14 }}>
+        <div className="reconcile-account-row reconcile-invest-input-row" {...makeUsdSwipeHandlers('investUsdBank')} style={{ touchAction: 'pan-y', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, border: '1.5px solid #fbbf24', borderRadius: 10, padding: '10px 12px', backgroundColor: '#fffbeb', marginBottom: 14 }}>
           {([
             { cnyKey: 'investCnyBank', usdKey: 'investUsdBank', cnyIdx: 10, usdIdx: 11, color: C.orange },
           ] as const).map(({ cnyKey, usdKey, cnyIdx, usdIdx, color }) => (
