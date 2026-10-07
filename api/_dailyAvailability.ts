@@ -118,8 +118,11 @@ export function dayAvailability(options: {
   const unmatchedBusy = events.filter(e => ![...commitments, ...completed].some(t => matchingEvent(t) === e))
     .map(e => [Date.parse(e.start), Date.parse(e.end)] as TimeSlot);
   const unmatchedEventMinutes = windowFullMinutes - Math.floor(slotMinutes(freeSlots(windows, unmatchedBusy)));
+  const calendarEvents = events.map((event) => ({ title: event.title, start: event.start, end: event.end,
+    overlapMinutes: Math.floor(windows.reduce((sum, [start, end]) => sum + Math.max(0,
+      Math.min(end, Date.parse(event.end)) - Math.max(start, Date.parse(event.start))) / minute, 0)) }));
   return { totalMinutes, remainingMinutes, completedMinutes, slots, unmatchedEventMinutes, breakdown: {
-    clockRemainingMinutes: Math.max(0, Math.floor((at(24) - now) / minute)), remainingWindows,
+    clockRemainingMinutes: Math.max(0, Math.floor((at(24) - now) / minute)), remainingWindows, calendarEvents,
     windowMinutes, occupiedMinutes: windowMinutes - freeMinutes, freeMinutes,
     importantReservations, importantAdditionalMinutes: 0, importantReservationEnabled: false,
     fixedAdditionalMinutes: reserved, afterReservationsMinutes: remainingMinutes, bufferMinutes: 0, allocationRatio: 1,

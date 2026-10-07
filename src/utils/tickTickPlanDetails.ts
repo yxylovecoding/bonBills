@@ -15,6 +15,7 @@ export interface TickTickPlanDetails {
   breakdown?: {
     clockRemainingMinutes: number;
     remainingWindows: { start: string; end: string }[];
+    calendarEvents?: { title: string; start: string; end: string; overlapMinutes: number }[];
     windowMinutes: number;
     occupiedMinutes: number;
     freeMinutes: number;
