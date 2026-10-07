@@ -97,7 +97,7 @@ export default function WearEditor({ initial, storageKey, items, pairCounts, onS
         {adding && <>
         <div className="clothes-fields clothes-picker-controls"><label className="clothes-full">搜索衣物<input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="衣物名称" /></label></div>
         {groups.filter((group) => group.choices.length || ['上衣', '下装', '外套'].includes(group.category)).map(({ category, choices: pieces }) => <section key={category} className="clothes-picker-section" aria-label={`选择${category}`}>
-          <div className="clothes-row"><h3>{category}</h3><span className="clothes-muted">{draft.items.filter((piece) => categoryLabel(piece.category) === category).length || '未选'}</span></div>
+          <div className="clothes-row"><h3>{category}</h3><span className="clothes-muted">{draft.items.filter((piece) => categoryLabel(piece.category) === category).length || '未选'}</span>{category === '外套' && draft.items.some(isOutdoorCoat) && <button type="button" className="clothes-link" onClick={() => change({ items: draft.items.filter((p) => !isOutdoorCoat(p)) })}>不穿外套</button>}</div>
           {pieces.length ? <div className="clothes-grid clothes-picker-grid">{pieces.map((item) => {
             const selected = draft.items.some((piece) => piece.id === item.id && categoryLabel(piece.category) === category);
             const paired = pairingScore(item, draft.items, pairCounts) > 0;

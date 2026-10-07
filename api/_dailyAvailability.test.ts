@@ -49,6 +49,26 @@ describe('Outlook 实际空档', () => {
       expect(free({ profile }).slots.every(([start, end]) => ![[11, 14], [18, 20]].some(([from, to]) => start < Date.parse(at(to)) && end > Date.parse(at(from))))).toBe(true);
     }
   });
+  it('按上海时区扣除 2026-10-07 回归样本与排期窗口的交集', () => {
+    const day = '2026-10-07';
+    const iso = (hour: number) => `${day}T${String(hour).padStart(2, '0')}:00:00+08:00`;
+    const result = dayAvailability({
+      calendar: { startDate: day, endDate: '2026-10-08', events: [
+        { title: '奥森', start: iso(9), end: iso(11) },
+        { title: '吃饭', start: iso(12), end: iso(13) },
+        { title: '潘家园', start: iso(14), end: iso(16) },
+      ] },
+      day, today: day, timezone: 'Asia/Shanghai', now: new Date(iso(8)),
+      tasks: [], fixed: [], completed: [], estimate: estimateTaskMinutes,
+    });
+    expect(result.breakdown).toMatchObject({ windowMinutes: 480, occupiedMinutes: 240, freeMinutes: 240 });
+    expect(result.unmatchedEventMinutes).toBe(240);
+    expect(result.remainingMinutes).toBe(240);
+    expect(result.slots).toEqual([
+      [Date.parse(iso(16)), Date.parse(iso(18))],
+      [Date.parse(iso(20)), Date.parse(iso(22))],
+    ]);
+  });
   it('Outlook 与 TickTick 的同名唯一事项只计一次，歧义不猜配', () => {
     const important = task('reading', { title: '阅读', priority: 5 });
     const timed = task('training', { title: '训练', priority: 5, isAllDay: false, startDate: at(10), dueDate: at(11) });

@@ -157,7 +157,7 @@ export function recommend(items: ClothesItem[], context: ClothesDayContext, inpu
       const label = category === '外套' && n.rain ? '防雨外套' : category === '外套' && n.wind ? '防风外套' : category;
       candidates = candidates.flatMap((outfit) => {
         const pool = poolFor(category, outfit.items);
-        const optional = category === '外套' && !n.coat;
+        const optional = category === '外套';
         if (!pool.length) return [optional ? outfit : { ...outfit, missing: [...outfit.missing, label] }];
         return [...(optional ? [outfit] : []), ...pool.map((item) => {
           const next = [...outfit.items, item];
@@ -182,11 +182,16 @@ export function recommend(items: ClothesItem[], context: ClothesDayContext, inpu
   const best = ranked[0];
   return ranked.filter((outfit) => coreMissing(outfit) === coreMissing(best) && outfit.missing.length === best.missing.length
     && (!coreMissing(best) || coreCount(outfit) === coreCount(best))).map((outfit) => {
-      if (!n.accessory) return outfit;
-      const covered = new Set(outfit.items.flatMap(itemRegions));
+      const result = { ...outfit };
+      if (n.coat && !outfit.items.some(isOutdoorCoat)) {
+        const label = n.rain ? '防雨外套' : n.wind ? '防风外套' : '外套';
+        result.missing = [label, ...outfit.missing];
+      }
+      if (!n.accessory) return result;
+      const covered = new Set(result.items.flatMap(itemRegions));
       const missing = (['head', 'face', 'neck', 'hands'] as const).filter((region) => !covered.has(region))
         .map((region) => ({ head: '帽子', face: '口罩', neck: '围巾', hands: '手套' })[region]);
-      return { ...outfit, missing: [...outfit.missing, ...missing] };
+      return { ...result, missing: [...result.missing, ...missing] };
     });
 }
 export function replacements(item: ClothesItem, outfit: Outfit, items: ClothesItem[], context: ClothesDayContext, inputWeather: WeatherSnapshot | null) {

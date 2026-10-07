@@ -42,7 +42,8 @@ describe('BonClothes 规则推荐', () => {
   });
   it('温差和强风分别补充外套、防风外套', () => {
     expect(recommend(wardrobe, context, { ...weather, min: 17, max: 29 })[0].missing).toContain('外套');
-    const result = recommend([...wardrobe, item('coat', '外套'), item('wind', '外套', { windproof: true })], { ...context, scene: '有室外' }, { ...weather, wind: 30 })[0];
+    const windy = { ...weather, wind: 30, temperature: 15, apparent: 15, min: 12, max: 18 };
+    const result = recommend([...wardrobe, item('coat', '外套'), item('wind', '外套', { windproof: true })], { ...context, scene: '有室外' }, windy)[0];
     expect(result.items.map((i) => i.id)).toContain('wind');
   });
   it('收起、已删除以及不方便活动的衣物不可用于活动场景', () => {

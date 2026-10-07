@@ -43,6 +43,20 @@ describe('Outlook ICS 解析', () => {
     expect(result.tags).toEqual({ '2026-10-04': 'travel' });
     expect(result.availability?.events).toEqual([{ title: '课', start: '2026-10-04T01:00:00.000Z', end: '2026-10-04T02:00:00.000Z' }]);
   });
+  it('忙闲快照保留标为 Free/Transparent 的个人日程，避免排期漏扣', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(calendar([
+      event('UID:aosen\nDTSTART;TZID=China Standard Time:20261007T090000\nDTEND;TZID=China Standard Time:20261007T110000\nX-MICROSOFT-CDO-BUSYSTATUS:FREE\nSUMMARY:奥森'),
+      event('UID:meal\nDTSTART;TZID=China Standard Time:20261007T120000\nDTEND;TZID=China Standard Time:20261007T130000\nTRANSP:TRANSPARENT\nSUMMARY:吃饭'),
+      event('UID:panjiayuan\nDTSTART;TZID=China Standard Time:20261007T140000\nDTEND;TZID=China Standard Time:20261007T160000\nSUMMARY:潘家园'),
+    ].join('\r\n')))));
+    const result = await readOutlookSnapshot({ ...input, classUrl: '' }, '2026-10-01', '2026-11-01',
+      { startDate: '2026-10-07', endDate: '2026-10-08' }, 'Asia/Shanghai');
+    expect(result.availability?.events).toEqual([
+      { title: '奥森', start: '2026-10-07T01:00:00.000Z', end: '2026-10-07T03:00:00.000Z' },
+      { title: '吃饭', start: '2026-10-07T04:00:00.000Z', end: '2026-10-07T05:00:00.000Z' },
+      { title: '潘家园', start: '2026-10-07T06:00:00.000Z', end: '2026-10-07T08:00:00.000Z' },
+    ]);
+  });
   it('展开重复实习，排除 EXDATE、已取消单次日程，并应用改期与标题变更', () => {
     const ics = calendar([
       event('UID:intern\nDTSTART;VALUE=DATE:20260901\nDTEND;VALUE=DATE:20260902\nSUMMARY:实习\nRRULE:FREQ=DAILY;COUNT=5\nEXDATE;VALUE=DATE:20260902'),

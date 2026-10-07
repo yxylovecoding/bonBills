@@ -196,7 +196,11 @@ export async function readOutlookSnapshot(input: OutlookConnectionInput, startDa
     try {
       const text = await fetchCalendar(url);
       return { days: parseOutlookCalendar(text, calendar, startDate, endDate, false, false, { timezone }), timed: availabilityRange
-        ? parseOutlookCalendar(text, calendar, availabilityRange.startDate, availabilityRange.endDate, false, true, { timezone }).filter((event) => !event.allDay) : [] };
+        // A personal planning calendar is an explicit reservation source. Outlook's
+        // "Show as: Free" metadata controls attendee free/busy lookup, but must not
+        // silently remove the user's own appointment from task-planning capacity.
+        ? parseOutlookCalendar(text, calendar, availabilityRange.startDate, availabilityRange.endDate, false, true,
+          { timezone, includeFree: true }).filter((event) => !event.allDay) : [] };
     } catch {
       // Never forward upstream errors: they can contain the private subscription URL.
       throw new Error(`「${calendar === 'play' ? '玩' : '课'}」日历读取失败，请检查订阅链接与共享范围`);
