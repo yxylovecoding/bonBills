@@ -997,12 +997,12 @@ export default function HomePage() {
             <span style={{ fontSize: 15, fontWeight: 700 }}>FIRE</span>
             <span style={{ fontSize: 11, color: C.sub, transform: fireExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', display: 'inline-block' }}>▼</span>
           </button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', backgroundColor: '#f1f3f4', borderRadius: 999, padding: 2, gap: 2 }} onClick={(e) => e.stopPropagation()}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'nowrap', minWidth: 0, maxWidth: '100%', overflowX: 'auto', scrollbarWidth: 'none' }}>
+            <div style={{ display: 'flex', flex: '0 0 auto', backgroundColor: '#f1f3f4', borderRadius: 999, padding: 2, gap: 2 }} onClick={(e) => e.stopPropagation()}>
               {(Object.keys(FIRE_MODE_LABELS) as FireMode[]).map((mode) => {
                 const active = fireMode === mode;
                 return (
-                  <button key={mode} onClick={() => setFireMode(mode)} style={{ minWidth: 40, padding: '4px 8px', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, backgroundColor: active ? '#fff' : 'transparent', color: active ? C.blue : C.sub, boxShadow: active ? '0 1px 2px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.15s' }}>
+                  <button key={mode} onClick={() => setFireMode(mode)} style={{ minWidth: 0, padding: '4px 6px', whiteSpace: 'nowrap', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, backgroundColor: active ? '#fff' : 'transparent', color: active ? C.blue : C.sub, boxShadow: active ? '0 1px 2px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.15s' }}>
                     {FIRE_MODE_LABELS[mode]}
                   </button>
                 );
@@ -1016,7 +1016,7 @@ export default function HomePage() {
               value={fireTargetYearSelectValue}
               onClick={(e) => e.stopPropagation()}
               onChange={(e) => updateFireTargetYears(e.target.value)}
-              style={{ border: '1px solid #e0e0e0', borderRadius: 999, backgroundColor: '#fff', color: '#202124', fontSize: 12, fontWeight: 700, padding: '5px 8px', outline: 'none', cursor: 'pointer' }}
+              style={{ flex: '0 0 auto', border: '1px solid #e0e0e0', borderRadius: 999, backgroundColor: '#fff', color: '#202124', fontSize: 12, fontWeight: 700, padding: '5px 6px', outline: 'none', cursor: 'pointer' }}
             >
               <option value="retire">退休</option>
               {fireTargetYearOptions.map((year) => (
