@@ -226,7 +226,7 @@ export async function readOutlookSnapshot(input: OutlookConnectionInput, startDa
   const events = await Promise.all(sources.map(async ({ name, kind, url }) => {
     try {
       const text = await fetchCalendar(url);
-      return { days: parseOutlookCalendar(text, kind, startDate, endDate, false, false, { timezone }), timed: availabilityRange
+      return { name, days: parseOutlookCalendar(text, kind, startDate, endDate, false, false, { timezone }), timed: availabilityRange
         ? parseOutlookCalendar(text, kind, availabilityRange.startDate, availabilityRange.endDate, false, true,
           { timezone, includeFree: true }).filter((event) => !event.allDay) : [] };
     } catch {
@@ -234,7 +234,9 @@ export async function readOutlookSnapshot(input: OutlookConnectionInput, startDa
       throw new Error(`「${name}」日历读取失败，请检查订阅链接与共享范围`);
     }
   }));
-  const snapshot = buildOutlookSnapshot(events.flatMap((source) => source.days), startDate, endDate, input.rules);
+  const snapshot = buildOutlookSnapshot(events
+    .filter((source) => source.name === '玩' || source.name === '课')
+    .flatMap((source) => source.days), startDate, endDate, input.rules);
   if (availabilityRange) snapshot.availability = { ...availabilityRange, events: events.flatMap((source) => source.timed)
     .map((event) => ({ title: event.title, start: event.startDate, end: event.endDate })) };
   return snapshot;

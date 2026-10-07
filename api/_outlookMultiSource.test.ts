@@ -20,31 +20,30 @@ describe('Outlook 多源订阅扩展', () => {
     ]);
   });
 
-  it('支持聚合多个命名日历并正确应用规则', async () => {
+  it('全天日程只纳入「玩」和「课」，忽略「日历」和「干」', async () => {
     const input = {
       playUrl: '', classUrl: '',
       sources: [
+        { name: '玩', url: playUrl, kind: 'play' as const },
+        { name: '课', url: classUrl, kind: 'class' as const },
         { name: '日历', url: calUrl, kind: 'play' as const },
-        { name: '干', url: workUrl, kind: 'class' as const },
+        { name: '干', url: workUrl, kind: 'work' as const },
       ],
       policy: 'manual' as const,
       rules: DEFAULT_OUTLOOK_RULES
     };
 
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-      if (url === calUrl) return new Response(calendar(event('🏠')));
-      if (url === workUrl) return new Response(calendar(event('实习')));
+      if (url === playUrl) return new Response(calendar(event('新卡池')));
+      if (url === classUrl) return new Response(calendar(event('实习')));
+      if (url === calUrl) return new Response(calendar(event('退课截止')));
+      if (url === workUrl) return new Response(calendar(event('工作')));
       throw new Error('unknown url');
     }));
 
     const snapshot = await readOutlookSnapshot(input, '2026-10-01', '2026-11-01');
-    expect(snapshot.tags['2026-10-07']).toBe('home'); // '🏠' in play-like calendar
-    expect(snapshot.tags['2026-10-07']).not.toBe('intern'); // Combined result
-    
-    // In our rules: home has priority 2, intern has priority 1.
-    // Wait, let's check priorities in src/utils/outlookCalendar.ts:
-    // const priority = { intern: 1, home: 2, travel: 3 };
-    // So if one day has both 'home' and 'intern', it takes 'home'.
+    expect(snapshot.tags['2026-10-07']).toBe('intern');
+    expect(snapshot.travelTitles?.['2026-10-07']).toBeUndefined();
   });
 
   it('加密与解密支持多源，不泄露链接', () => {
