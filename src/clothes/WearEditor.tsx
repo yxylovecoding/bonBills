@@ -42,6 +42,7 @@ export default function WearEditor({ initial, storageKey, items, pairCounts, onS
   const [adding, setAdding] = useState(!initial.items.length);
   const [addingCategory, setAddingCategory] = useState<Category | null>(null);
   const [period, setPeriod] = useState<DayPeriod>(timePeriod(initial.time));
+  const [shownTemperature, setShownTemperature] = useState<'indoor' | 'outdoor' | null>(null);
   const [conflict, setConflict] = useState<{ revision: string } | null>(null);
   const [wardrobeChanged, setWardrobeChanged] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -113,16 +114,18 @@ export default function WearEditor({ initial, storageKey, items, pairCounts, onS
           {hasCoat && <label className="clothes-check clothes-full"><input type="checkbox" checked={draft.indoorCoat} onChange={(e) => change({ indoorCoat: e.target.checked })} />室内穿外套</label>}
         </div>
         {!styled && <section className="clothes-feelings" aria-label="分时段体感">
-          <div className="clothes-fields">
-            <label>室内体感<select value={draft.indoor ?? ''} onChange={(e) => change({ indoor: (e.target.value || null) as Sensation | null })}><option value="">未记录</option>{SENSATIONS.map((value) => <option key={value}>{value}</option>)}</select></label>
-            <label>室内温度 °C<input type="number" min={-60} max={60} step={0.5} placeholder="未记录" value={draft.indoorTemperature === undefined ? draft.context.indoorTemperature ?? '' : draft.indoorTemperature ?? ''} onChange={(e) => change({ indoorTemperature: e.target.value === '' ? null : Number(e.target.value) })} /></label>
-          </div>
-          {draft.purpose !== '睡觉' && <>
-            <div className="clothes-view" aria-label="体感时段">{DAY_PERIODS.map((value) => <button type="button" key={value} aria-pressed={period === value} onClick={() => setPeriod(value)}>{value}{draft.feelings[value]?.outdoor || draft.feelings[value]?.cycling ? ' ·' : ''}</button>)}</div>
-            <div className="clothes-fields">{(['outdoor', 'cycling'] as const).map((field) => <label key={field}>{field === 'outdoor' ? '室外体感' : '骑车体感'}<select value={feeling[field] ?? ''} onChange={(e) => changeFeeling({ [field]: e.target.value || null })}><option value="">未记录</option>{SENSATIONS.map((value) => <option key={value}>{value}</option>)}</select></label>)}
-              <label>室外温度 °C<input type="text" inputMode="decimal" readOnly placeholder="天气未获取" value={feeling.outdoorTemperature ?? ''} /></label>
+          <div className={`clothes-feeling-layout${draft.purpose === '睡觉' ? ' clothes-feeling-layout-indoor' : ''}`}>
+            {draft.purpose !== '睡觉' && <div className="clothes-periods" aria-label="体感时段">{DAY_PERIODS.map((value) => <button type="button" key={value} aria-pressed={period === value} onClick={() => setPeriod(value)}>{value}{draft.feelings[value]?.outdoor || draft.feelings[value]?.cycling ? ' ·' : ''}</button>)}</div>}
+            <div className="clothes-feeling-controls">
+              <label><button type="button" className="clothes-temperature-toggle" aria-expanded={shownTemperature === 'indoor'} onClick={() => setShownTemperature(shownTemperature === 'indoor' ? null : 'indoor')}>🏠 室内体感</button><select value={draft.indoor ?? ''} onChange={(e) => change({ indoor: (e.target.value || null) as Sensation | null })}><option value="">未记录</option>{SENSATIONS.map((value) => <option key={value}>{value}</option>)}</select></label>
+              {shownTemperature === 'indoor' && <label className="clothes-temperature-detail">室内温度 °C<input type="number" min={-60} max={60} step={0.5} placeholder="未记录" value={draft.indoorTemperature === undefined ? draft.context.indoorTemperature ?? '' : draft.indoorTemperature ?? ''} onChange={(e) => change({ indoorTemperature: e.target.value === '' ? null : Number(e.target.value) })} /></label>}
+              {draft.purpose !== '睡觉' && <>
+                <label><button type="button" className="clothes-temperature-toggle" aria-expanded={shownTemperature === 'outdoor'} onClick={() => setShownTemperature(shownTemperature === 'outdoor' ? null : 'outdoor')}>🌤️ 室外体感</button><select value={feeling.outdoor ?? ''} onChange={(e) => changeFeeling({ outdoor: (e.target.value || null) as Sensation | null })}><option value="">未记录</option>{SENSATIONS.map((value) => <option key={value}>{value}</option>)}</select></label>
+                {shownTemperature === 'outdoor' && <label className="clothes-temperature-detail">室外温度 °C<input type="text" inputMode="decimal" readOnly placeholder="天气未获取" value={feeling.outdoorTemperature ?? ''} /></label>}
+                <label>🛵 骑电动车体感<select value={feeling.cycling ?? ''} onChange={(e) => changeFeeling({ cycling: (e.target.value || null) as Sensation | null })}><option value="">未记录</option>{SENSATIONS.map((value) => <option key={value}>{value}</option>)}</select></label>
+              </>}
             </div>
-          </>}
+          </div>
         </section>}
       </fieldset>
       {error && <p className="life-error" role="alert">{error}</p>}

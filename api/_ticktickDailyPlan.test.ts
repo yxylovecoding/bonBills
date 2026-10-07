@@ -63,6 +63,16 @@ describe('每日待办动态安排', () => {
       task('unknown', { repeatFlag: 'LUNAR:FREQ=YEARLY' })], { excludedTaskIds: new Set(['template']), budgetMinutes: 240 });
     expect([...p.dates.keys()]).toEqual(['child']);
   });
+  it('routine 标签忽略大小写和空白，定时 routine 也不会进入今日事或挤占普通任务', () => {
+    const s = state();
+    const p = run([
+      task('morning', { title: '晨间routine', tags: [' Routine '], isAllDay: false, startDate: `${today}T08:00:00+0800`, dueDate: `${today}T08:50:00+0800` }),
+      task('lunch', { title: '🏫吃午饭了', tags: ['ROUTINE'], isAllDay: false, startDate: `${today}T12:00:00+0800`, dueDate: `${today}T12:30:00+0800` }),
+      task('ordinary', { title: '今天应该安排的普通任务 30分钟' }),
+    ], { state: s, budgetMinutes: 30 });
+    expect(s.briefing!.selected.map((item) => item.id)).toEqual(['ordinary']);
+    expect(p.summary).toMatchObject({ todayCount: 1, plannedMinutes: 30 });
+  });
   it('重要事项不另扣额度，实际完成仍计入手动上限', () => {
     const pool = Array.from({ length: 8 }, (_, i) => task(String(i)));
     const quiet = run(pool).summary;

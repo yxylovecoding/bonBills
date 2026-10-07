@@ -72,7 +72,7 @@
 .clothes-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
 .clothes-grid .clothes-card { min-width: 0; text-align: left; border-radius: 0; padding: 0; }
 .clothes-grid img { display: block; width: 100%; aspect-ratio: 4 / 5; object-fit: contain; background: var(--clothes-photo); border-radius: 10px; }
-.clothes-card-caption { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; padding: 12px 1px; font-size: 12px; }
+.clothes-card-caption { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 12px 1px; font-size: 12px; }
 .clothes-card-caption strong { display: block; font-weight: 500; color: var(--life-ink); overflow-wrap: anywhere; }
 .clothes-card-caption span, .clothes-card-caption button { color: var(--life-muted); font-size: 11px; white-space: nowrap; }
 .clothes-card-caption div span { display: block; margin-top: 6px; }
@@ -174,6 +174,18 @@
 
 .clothes-date-picker { width: 132px; border: 0; background: transparent; color: var(--life-muted); font: inherit; font-size: 13px; }
 .clothes-feelings { margin-top: 20px; }
+.clothes-feeling-layout { display: grid; grid-template-columns: minmax(82px, .65fr) minmax(0, 1.35fr); gap: 18px; align-items: start; }
+.clothes-feeling-layout-indoor { grid-template-columns: minmax(0, 1fr); }
+.clothes-periods { display: flex; flex-direction: column; gap: 6px; }
+.clothes-periods button { width: 100%; padding: 9px 10px; color: var(--life-muted); font-size: 12px; text-align: left; }
+.clothes-periods button[aria-pressed="true"] { background: var(--clothes-soft); color: var(--life-accent); }
+.clothes-feeling-controls { display: flex; flex-direction: column; gap: 14px; }
+.clothes-feeling-controls label { display: flex; flex-direction: column; gap: 8px; color: var(--life-muted); font-size: 12px; }
+.clothes-feeling-controls input, .clothes-feeling-controls select { width: 100%; min-width: 0; min-height: 40px; padding: 9px 10px; border: 1px solid var(--life-line); border-radius: 8px; background: var(--clothes-field); color: var(--life-ink); font-size: 13px; }
+.clothes-temperature-toggle { width: fit-content; padding: 0; color: var(--life-muted); font-size: 12px; text-align: left; }
+.clothes-temperature-toggle::after { content: '›'; display: inline-block; margin-left: 5px; transition: transform .15s ease; }
+.clothes-temperature-toggle[aria-expanded="true"]::after { transform: rotate(90deg); }
+.clothes-temperature-detail { padding-left: 12px; border-left: 2px solid var(--clothes-soft); }
 .clothes-feelings .clothes-view { justify-content: flex-start; flex-wrap: wrap; gap: 6px; }
 .clothes-feeling-field { display: grid; gap: 10px; }
 .clothes-record-details p { line-height: 1.7; margin: 8px 0; }

@@ -10,6 +10,7 @@ const titleKey = (title: string) => title.normalize('NFKC').trim().replace(/\s+/
 const localDay = (value: string | undefined, timezone: string) => value && Number.isFinite(Date.parse(value))
   ? new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value))
   : undefined;
+const normalizedTags = (task: TickTickTask) => (task.tags ?? []).map((tag) => tag.normalize('NFKC').trim().toLowerCase());
 const taskDay = (task: TickTickTask, timezone: string) => localDay(task.dueDate ?? task.startDate, timezone);
 const taskInterval = (task: TickTickTask, estimate: (task: TickTickTask) => number): TimeSlot | null => {
   if (task.isAllDay !== false) return null;
@@ -69,8 +70,8 @@ export function dayAvailability(options: {
   // All-day scene markers have no hours. Reserve daytime for work/travel,
   // while leaving the evening available to tasks allowed in that scene.
   if (profile !== 'calendar' && ['intern', 'travel'].includes(options.scene ?? '')) busy.push([at(9), at(18)]);
-  const relevant = tasks.filter((task) => !(task.tags ?? []).includes('不关我事'));
-  const important = relevant.filter((task) => (task.priority ?? 0) >= 5 && !(task.tags ?? []).includes('routine')
+  const relevant = tasks.filter((task) => !normalizedTags(task).includes('不关我事'));
+  const important = relevant.filter((task) => (task.priority ?? 0) >= 5 && !normalizedTags(task).includes('routine')
     && Boolean(taskDay(task, timezone) && (day === today ? taskDay(task, timezone)! <= day : taskDay(task, timezone) === day)));
   const commitments = [...new Map([...important, ...fixed].map((task) => [task.id, task])).values()];
   const titleCounts = new Map<string, number>();
