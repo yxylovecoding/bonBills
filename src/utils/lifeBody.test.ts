@@ -15,8 +15,15 @@ describe('身体数据记录', () => {
     expect(readDraft('body-tester')?.body).toEqual(body);
     localStorage.removeItem(draftKey('body-tester'));
   });
+  it('保存 InBody 指标并支持带方向的控制目标', () => {
+    const body = { bodyWater: 24.9, skeletalMuscleMass: 17.9, visceralFatLevel: 5, basalMetabolicRate: 1104,
+      targetWeightChange: 8.4, targetFatChange: -0.5, targetMuscleChange: 8.9, impedance250Ll: 255.4 };
+    expect(parseLifeEdit({ ...edit, body }).body).toEqual(body);
+    expect(entrySummary('body', entry(body))).toContain('骨骼肌量 17.9 kg');
+    expect(entrySummary('body', entry(body))).toContain('脂肪控制 -0.5 kg');
+  });
   it('拒绝无效数据与错误单位量级，仍允许单项记录和清空', () => {
-    for (const body of [{ weight: 501 }, { bmi: 151 }, { bodyFat: 100.1 }, { waist: 301 }, { weight: 0 }, { bmi: -1 }, { bodyFat: NaN }, { weight: Infinity }, { weight: '55' }, { unknown: 2 }]) {
+    for (const body of [{ weight: 501 }, { bmi: 151 }, { bodyFat: 100.1 }, { waist: 301 }, { weight: 0 }, { bmi: -1 }, { bodyFat: NaN }, { weight: Infinity }, { weight: '55' }, { targetFatChange: -501 }, { unknown: 2 }]) {
       expect(() => parseLifeEdit({ ...edit, body })).toThrow();
     }
     expect(parseLifeEdit({ ...edit, body: { weight: 350 } }).body).toEqual({ weight: 350 });
