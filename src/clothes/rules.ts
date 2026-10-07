@@ -130,15 +130,16 @@ export function recommend(items: ClothesItem[], context: ClothesDayContext, inpu
   };
   const comfortGap = (list: ClothesItem[]) => thermalGap(list, 2);
   const timesWorn = (list: ClothesItem[]) => list.reduce((sum, item) => sum + (wearCounts[item.id] ?? 0), 0);
-  const styledCounts = records.filter((record) => record.kind === 'styled').reduce((counts, record) => {
+  const social = context.purpose === '见朋友';
+  const formal = context.purpose === '见重要的人';
+  const styledCounts = records.filter((record) => record.kind === 'styled' && (!formal || record.purpose === context.purpose)).reduce((counts, record) => {
     const key = outfitKey(record.items);
     counts.set(key, (counts.get(key) ?? 0) + (record.purpose === context.purpose ? 2 : 1));
     return counts;
   }, new Map<string, number>());
-  const social = context.purpose === '见朋友' || context.purpose === '见重要的人';
   const underwearCount = (list: ClothesItem[]) => list.filter((item) => categoryLabel(item.category) === '内衣').length;
   const compareItems = (a: ClothesItem[], b: ClothesItem[]) => comfortGap(a) - comfortGap(b)
-    || (social ? (styledCounts.get(outfitKey(b)) ?? 0) - (styledCounts.get(outfitKey(a)) ?? 0) : 0)
+    || (social || formal ? (styledCounts.get(outfitKey(b)) ?? 0) - (styledCounts.get(outfitKey(a)) ?? 0) : 0)
     || (context.purpose === '休闲' ? underwearCount(a) - underwearCount(b) || timesWorn(a) - timesWorn(b) : 0)
     || score(a) - score(b);
   // Judge the main outfit before its underwear, so missing a bra never hides an

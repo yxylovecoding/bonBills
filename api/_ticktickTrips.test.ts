@@ -1046,6 +1046,7 @@ describe('TickTick 心愿七个月准备', () => {
       { ...futureWish, id: 'year-boundary', deadline: '2027-01-31' },
       { ...futureWish, id: 'inactive', isActive: false },
       { ...futureWish, id: 'linked', linkedTripStartDate: '2027-09-30' },
+      { ...futureWish, id: 'wish_trip_2027-09-30', name: '退课截止' },
       { ...futureWish, id: 'undated', deadline: null },
       { ...futureWish, id: 'invalid', deadline: '2027-02-30' },
       { ...futureWish, id: 'unnamed', name: ' ' },

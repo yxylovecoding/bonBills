@@ -38,6 +38,13 @@ export interface WeatherSnapshot {
 export interface ClothesEvent { title: string; location?: string; startDate: string; endDate: string; allDay: boolean }
 export interface ClothesCalendar { connected: boolean; events: ClothesEvent[]; fetchedAt: string }
 export const PURPOSES = ['休闲', '运动', '见朋友', '见重要的人', '睡觉'] as const;
+export const PURPOSE_LABELS: Record<typeof PURPOSES[number], string> = {
+  休闲: '日常休闲 · 随便穿舒服就行',
+  运动: '运动 · 方便活动',
+  见朋友: '见朋友 · 完整搭配',
+  见重要的人: '见导师／正式场合 · 稍正式',
+  睡觉: '睡觉',
+};
 export const SENSATIONS = ['很冷', '偏冷', '舒适', '偏热', '很热'] as const;
 export type Purpose = typeof PURPOSES[number];
 export type Sensation = typeof SENSATIONS[number];

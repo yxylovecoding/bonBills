@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { MAX_OUTFIT_ITEMS, PURPOSES, SENSATIONS, DAY_PERIODS, categoryLabel, wearId, type DayPeriod, type WearFeelings, type PeriodFeeling, type Category, type PairCounts, type ClothesDayContext, type ClothesItem, type Purpose, type Sensation, type WearKind, type WearRecord, type WeatherSnapshot } from './types';
+import { MAX_OUTFIT_ITEMS, PURPOSES, PURPOSE_LABELS, SENSATIONS, DAY_PERIODS, categoryLabel, wearId, type DayPeriod, type WearFeelings, type PeriodFeeling, type Category, type PairCounts, type ClothesDayContext, type ClothesItem, type Purpose, type Sensation, type WearKind, type WearRecord, type WeatherSnapshot } from './types';
 import { ClothesError, clothesRequest, photoUrl, readLocal, writeLocal } from './client';
 import { isOutdoorCoat, itemWarmth, wearable } from './warmth';
 import OutfitWarmth from './OutfitWarmth';
@@ -109,7 +109,7 @@ export default function WearEditor({ initial, storageKey, items, pairCounts, onS
         </section>)}
         </>}
         <div className="clothes-fields">
-          <label>用途<select required value={draft.purpose} onChange={(e) => change({ purpose: e.target.value as Purpose, ...(e.target.value === '睡觉' ? { outdoor: null } : {}) })}><option value="">请选择</option>{PURPOSES.map((purpose) => <option key={purpose}>{purpose}</option>)}</select></label>
+          <label>用途<select required value={draft.purpose} onChange={(e) => change({ purpose: e.target.value as Purpose, ...(e.target.value === '睡觉' ? { outdoor: null } : {}) })}><option value="">请选择</option>{PURPOSES.map((purpose) => <option key={purpose} value={purpose}>{PURPOSE_LABELS[purpose]}</option>)}</select></label>
           {hasCoat && <label className="clothes-check clothes-full"><input type="checkbox" checked={draft.indoorCoat} onChange={(e) => change({ indoorCoat: e.target.checked })} />室内穿外套</label>}
         </div>
         {!styled && <section className="clothes-feelings" aria-label="分时段体感">

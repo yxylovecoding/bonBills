@@ -496,7 +496,8 @@ export function buildWishPreparationSourcesFromSyncState(configState: unknown): 
     if (!value || typeof value !== 'object') continue;
     const wish = value as Record<string, unknown>;
     if (wish.isActive !== true || wish.linkedTripStartDate) continue;
-    if (typeof wish.id !== 'string' || !wish.id.trim() || typeof wish.name !== 'string' || !wish.name.trim()) continue;
+    if (typeof wish.id !== 'string' || !wish.id.trim() || /^wish_trip_\d{4}-\d{2}-\d{2}(?:_\d+)?$/.test(wish.id)
+      || typeof wish.name !== 'string' || !wish.name.trim()) continue;
     if (!isValidCalendarDate(wish.deadline)) continue;
     const preparationDate = addCalendarMonths(wish.deadline, -7);
     sources.set(wish.id, {
