@@ -66,7 +66,9 @@ export function parseOutlookInput(body: unknown): OutlookConnectionInput {
     }
     return [...new Set(value.map((item: string) => item.trim()).filter(Boolean))];
   };
-  return { playUrl, classUrl, sources, policy: input.policy, rules: {
+  const canonicalPlayUrl = playUrl || sources.find(source => source.name === '玩' && source.kind === 'play')?.url || '';
+  const canonicalClassUrl = classUrl || sources.find(source => source.name === '课' && source.kind === 'class')?.url || '';
+  return { playUrl: canonicalPlayUrl, classUrl: canonicalClassUrl, sources, policy: input.policy, rules: {
     homeTitles: titles(input.rules?.homeTitles), ignoredPlayTitles: titles(input.rules?.ignoredPlayTitles),
   } };
 }
