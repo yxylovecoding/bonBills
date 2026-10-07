@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { kv } from './_accountKv.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { authOk, sameOrigin } from './_auth.js';
-import { decryptOutlookConnection, encryptOutlookConnection, parseOutlookInput, parseOutlookRange, readOutlookSnapshot } from './_outlookCalendar.js';
+import { decryptOutlookConnection, diagnoseOutlookEvents, encryptOutlookConnection, parseOutlookInput, parseOutlookRange, readOutlookSnapshot } from './_outlookCalendar.js';
 import { disconnectOutlookCalendar, OUTLOOK_CONNECTION_KEY as CONNECTION_KEY, outlookSyncError, saveOutlookSnapshot, type OutlookConnection as Connection } from './_outlookSync.js';
 
 async function handler(req: VercelRequest, res: VercelResponse) {
@@ -49,6 +49,11 @@ async function handler(req: VercelRequest, res: VercelResponse) {
     const connection = await kv.get<Connection>(CONNECTION_KEY);
     if (!connection) return res.status(200).json({ connected: false });
     const input = decryptOutlookConnection(connection.encrypted, secret);
+    if (body.action === 'diagnose') {
+      const titles = Array.isArray(body.titles) && body.titles.every((title: unknown) => typeof title === 'string')
+        ? body.titles.slice(0, 20) : [];
+      return res.status(200).json({ connected: true, events: await diagnoseOutlookEvents(input, titles) });
+    }
     if (body.action === 'availability') {
       const snapshot = await readOutlookSnapshot(input, startDate, endDate, { startDate, endDate });
       return res.status(200).json({ connected: true, availability: snapshot.availability });

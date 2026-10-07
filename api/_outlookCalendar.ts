@@ -105,6 +105,26 @@ function isAllDay(event: IcalEvent) {
   return event.startDate?.isDate || String(event.component.getFirstPropertyValue('x-microsoft-cdo-alldayevent')).toUpperCase() === 'TRUE';
 }
 
+export async function diagnoseOutlookEvents(input: OutlookConnectionInput, titles: string[]) {
+  const wanted = titles.map((title) => title.normalize('NFKC').trim().toLowerCase()).filter(Boolean);
+  const sources = [{ calendar: 'play' as const, url: input.playUrl }, { calendar: 'class' as const, url: input.classUrl }].filter((item) => item.url);
+  return (await Promise.all(sources.map(async ({ calendar, url }) => {
+    const root = new ICAL.Component(ICAL.parse(await fetchCalendar(url)));
+    return root.getAllSubcomponents('vevent').flatMap((component) => {
+      const title = String(component.getFirstPropertyValue('summary') || '');
+      if (!wanted.some((value) => title.normalize('NFKC').trim().toLowerCase().includes(value))) return [];
+      const event = new ICAL.Event(component, { exceptions: [] });
+      return [{ calendar, title, start: event.startDate?.toString(), end: event.endDate?.toString(),
+        startTimezone: component.getFirstProperty('dtstart')?.getParameter('tzid'),
+        endTimezone: component.getFirstProperty('dtend')?.getParameter('tzid'),
+        recurrence: String(component.getFirstPropertyValue('rrule') || ''),
+        recurrenceId: event.recurrenceId?.toString(), status: String(component.getFirstPropertyValue('status') || ''),
+        transparency: String(component.getFirstPropertyValue('transp') || ''),
+        busyStatus: String(component.getFirstPropertyValue('x-microsoft-cdo-busystatus') || '') }];
+    });
+  }))).flat();
+}
+
 export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind, startDate: string, endDate: string, includeUid = false, includeTimed = false,
   options?: { includeLocation?: boolean; timezone?: string; includeFree?: boolean }): OutlookDayEvent[] {
   if (!/^\s*BEGIN:VCALENDAR\r?\n/i.test(text) || !/END:VCALENDAR\s*$/i.test(text)) throw new Error('订阅内容不是完整日历');
