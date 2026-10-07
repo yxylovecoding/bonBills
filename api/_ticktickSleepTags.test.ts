@@ -42,18 +42,18 @@ describe('阅读窗口与凌晨临时标签衔接', () => {
     expect(c.tasks.get('reading')?.tags).toEqual(['玩']);
     expect(data.has(key)).toBe(false);
     await syncSleepRoutineTags(c.api, config('05:00:00'));
-    expect(c.tasks.get('reading')?.tags).toEqual(['玩', 'routine']);
+    expect(c.tasks.get('reading')?.tags).toEqual(['玩', 'bon-hidden']);
     await syncSleepRoutineTags(c.api, config('12:00:00'));
     expect(c.write).toHaveBeenCalledTimes(1);
   });
-  it('旧版凌晨记录不能在五点清除阅读的日间 routine 标签', async () => {
+  it('旧版凌晨记录不会删除用户 routine；阅读规则独立添加 bon-hidden 后清理旧记录', async () => {
     const reading = task({ id: 'reading', title: '阅读', tags: ['玩', 'routine'] });
     const c = client(reading);
     data.set(key, { reading: { projectId: 'life', addedOn: '2026-10-05', phase: 'added' } });
     await syncSleepRoutineTags(c.api, config('05:00:00'));
-    expect(c.tasks.get('reading')?.tags).toEqual(['玩', 'routine']);
+    expect(c.tasks.get('reading')?.tags).toEqual(['玩', 'routine', 'bon-hidden']);
     expect(data.get(key)).toEqual({});
-    expect(c.write).not.toHaveBeenCalled();
+    expect(c.write).toHaveBeenCalledOnce();
   });
 });
 
@@ -81,17 +81,17 @@ describe('四个智能清单范围和凌晨窗口', () => {
 });
 
 describe('临时 routine 标签所有权', () => {
-  it('凌晨隐藏未来洗头任务，05 点不揭开旧记录中的洗头，也不影响原生 routine', async () => {
+  it('凌晨隐藏未来洗头任务，05 点保持 bon-hidden，不影响用户 routine', async () => {
     const wash = task({ id: 'wash', title: '洗头', dueDate: '2027-01-01T00:00:00+0800' });
     const c = client(wash);
     await syncSleepRoutineTags(c.api, config('00:00:00'));
-    expect(c.tasks.get('wash')).toEqual({ ...wash, tags: ['活', 'routine'] });
+    expect(c.tasks.get('wash')).toEqual({ ...wash, tags: ['活', 'bon-hidden'] });
     // Now syncHairWashVisibility adds to the journal
     expect(data.get(key)).toHaveProperty('wash');
     // A prior version may already have journaled this task as a temporary tag.
     data.set(key, { wash: { projectId: 'life', addedOn: '2026-10-05', phase: 'added' } });
     expect(await syncSleepRoutineTags(c.api, config('05:00:00'))).toMatchObject({ updated: 0, complete: true });
-    expect(c.tasks.get('wash')?.tags).toContain('routine');
+    expect(c.tasks.get('wash')?.tags).toContain('bon-hidden');
     expect(data.get(key)).toEqual({});
     expect(c.write).toHaveBeenCalledOnce();
   });
@@ -103,7 +103,7 @@ describe('临时 routine 标签所有权', () => {
     const c = client(original, permanent, outside);
     expect(await syncSleepRoutineTags(c.api, config('00:00:00'))).toMatchObject({ updated: 1, complete: true });
     expect(data.get(key)).toEqual({ task: { projectId: 'life', addedOn: '2026-10-05', phase: 'added' } });
-    expect(c.tasks.get('task')).toEqual({ ...original, tags: ['活', 'routine'] });
+    expect(c.tasks.get('task')).toEqual({ ...original, tags: ['活', 'bon-hidden'] });
     c.tasks.get('task')!.tags!.push('新标签');
     expect(await syncSleepRoutineTags(c.api, config('05:00:00'))).toMatchObject({ updated: 1, complete: true });
     expect(c.tasks.get('task')).toEqual({ ...original, tags: ['活', '新标签'] });
@@ -163,7 +163,7 @@ describe('临时 routine 标签所有权', () => {
     const c = client(night, originalDaily);
     await syncSleepRoutineTags(c.api, config('00:00:00'));
     await syncSleepRoutineTags(c.api, config('05:00:00'));
-    expect(c.tasks.get('night')?.tags).toContain('routine');
+    expect(c.tasks.get('night')?.tags).toContain('bon-hidden');
     expect(c.tasks.get('daily')?.tags).toEqual(['routine']);
     expect(data.get(key)).toEqual({});
   });

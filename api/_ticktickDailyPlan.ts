@@ -14,7 +14,7 @@ const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T12:00:00
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / DAY);
 const tags = (task: TickTickTask) => (task.tags ?? []).map((tag) => tag.normalize('NFKC').trim().toLowerCase());
 const pending = (task: TickTickTask) => (task.status ?? 0) === 0;
-const ordinary = (task: TickTickTask) => !tags(task).some((tag) => tag === 'routine' || tag === '不关我事') && (task.priority ?? 0) < 5;
+const ordinary = (task: TickTickTask) => !tags(task).some((tag) => ['routine', 'bon-hidden', '不关我事'].includes(tag)) && (task.priority ?? 0) < 5;
 const identity = (task: TickTickTask) => JSON.stringify([task.projectId, task.id]);
 
 export interface DailyPlanSummary {
@@ -217,7 +217,8 @@ export function planTickTickDay(options: {
     candidates.push({ task, members, minutes, last, deadline, next, cycleDays });
   }
   const candidateIds = new Set(candidates.flatMap((candidate) => candidate.members.map((task) => task.id)));
-  const important = open.filter((task) => (task.priority ?? 0) >= 5 && !tags(task).includes('routine')
+  const important = open.filter((task) => (task.priority ?? 0) >= 5
+    && !tags(task).some(tag => ['routine', 'bon-hidden'].includes(tag))
     && Boolean(routineTaskDate(task) && routineTaskDate(task)! <= today));
   const fixed = open.filter((task) => ordinary(task) && !candidateIds.has(task.id) && !dates.has(task.id) && routineTaskDate(task) === today);
   const fixedMinutes = fixed.reduce((sum, task) => sum + estimateTaskMinutes(task), 0);

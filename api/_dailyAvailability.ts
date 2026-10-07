@@ -71,7 +71,8 @@ export function dayAvailability(options: {
   // while leaving the evening available to tasks allowed in that scene.
   if (profile !== 'calendar' && ['intern', 'travel'].includes(options.scene ?? '')) busy.push([at(9), at(18)]);
   const relevant = tasks.filter((task) => !normalizedTags(task).includes('不关我事'));
-  const important = relevant.filter((task) => (task.priority ?? 0) >= 5 && !normalizedTags(task).includes('routine')
+  const important = relevant.filter((task) => (task.priority ?? 0) >= 5
+    && !normalizedTags(task).some(tag => ['routine', 'bon-hidden'].includes(tag))
     && Boolean(taskDay(task, timezone) && (day === today ? taskDay(task, timezone)! <= day : taskDay(task, timezone) === day)));
   const commitments = [...new Map([...important, ...fixed].map((task) => [task.id, task])).values()];
   const titleCounts = new Map<string, number>();

@@ -23,9 +23,9 @@ const fingerprint = (task: TickTickTask) => JSON.stringify([task.id, task.projec
 
 function eligible(task: TickTickTask, horizon: string) {
   const date = routineTaskDate(task);
-  const tags = (task.tags ?? []).map(tag => tag.normalize('NFKC').trim());
+  const tags = (task.tags ?? []).map(tag => tag.normalize('NFKC').trim().toLowerCase());
   return pending(task) && (!date || date <= horizon) && (task.priority ?? 0) < 5 && task.isAllDay !== false
-    && !tags.some(tag => ['routine', '不关我事', '洗头'].includes(tag))
+    && !tags.some(tag => ['routine', 'bon-hidden', '不关我事', '洗头'].includes(tag))
     && task.title.normalize('NFKC').trim() !== '洗头' && routineRecurrence(task.repeatFlag) !== 'unknown'
     && !isExerciseTask(task) && !isLaundryTask(task);
 }

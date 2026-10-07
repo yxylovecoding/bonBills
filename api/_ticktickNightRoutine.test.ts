@@ -34,7 +34,7 @@ describe('阅读按晚间窗口切换 routine', () => {
     const { api, current } = client(reading);
     // 到了 05:00，进入隐藏期，添加标签并占有。
     expect(await syncReadingVisibility(api, { now: new Date('2026-10-05T05:00:00+08:00'), projectId: 'inbox-real' })).toMatchObject({ updated: 1, hidden: 1 });
-    expect(current().tags).toEqual(['玩', 'routine']);
+    expect(current().tags).toEqual(['玩', 'bon-hidden']);
     // 到了 20:00，退出隐藏期，移除标签。
     expect(await syncReadingVisibility(api, { now: at('20:00:00'), projectId: 'inbox-real' })).toMatchObject({ updated: 1, visible: 1 });
     expect(current().tags).toEqual(['玩']);
@@ -93,7 +93,7 @@ describe('夜间 routine 标签同步', () => {
     const { api, current } = client(task({ priority: 0 }));
     expect(await syncNightRoutineVisibility(api, { now: at('20:00:00'), projectId: 'inbox-real' })).toMatchObject({ updated: 1, hidden: 1 });
     expect(current().priority).toBe(5);
-    expect(current().tags).toEqual(['居', '活', 'routine']);
+    expect(current().tags).toEqual(['居', '活', 'bon-hidden']);
   });
   it('读取真实收集箱，切换标签但保留优先级、场景、提醒、重复及 checklist；重复执行不重复写', async () => {
     const original = task({ content: 'existing content', reminders: ['TRIGGER:PT0S'], items: [{ id: 'item', title: 'item', status: 1 }] });
@@ -123,17 +123,31 @@ describe('夜间 routine 标签同步', () => {
     // 到点显示 (22:00)
     expect(await syncNightRoutineVisibility(api, { now: at('22:00:00'), projectId: 'inbox-real' })).toMatchObject({ visible: 1, updated: 0 });
     expect(current().tags).toContain('routine');
+    expect(current().tags).not.toContain('bon-hidden');
     expect(data.get(sleepTagStateKey('inbox-real'))).toBeFalsy();
   });
 
-  it('系统临时添加到点会移除', async () => {
+  it('旧 journal 对应任务没有 bon-hidden 时只清理记录，用户 routine 永远保留', async () => {
     const original = task({ tags: ['routine', '居'] });
+    const { api, current } = client(original);
+    const journalKey = sleepTagStateKey('inbox-real');
+    data.set(journalKey, { [original.id]: { projectId: original.projectId, phase: 'added', addedOn: '2026-10-04' } });
+    expect(await syncNightRoutineVisibility(api, { now: at('22:00:00'), projectId: 'inbox-real' }))
+      .toMatchObject({ visible: 1, updated: 0 });
+    expect(current().tags).toEqual(['routine', '居']);
+    expect(api.updateTask).not.toHaveBeenCalled();
+    expect(data.get(journalKey)).toEqual({});
+  });
+
+  it('旧 journal 绝不删除用户 routine；存在 bon-hidden 时只移除系统标签', async () => {
+    const original = task({ tags: ['routine', 'bon-hidden', '居'] });
     const { api, current } = client(original);
     // 预设 Journal 中已标记归系统所有
     data.set(sleepTagStateKey('inbox-real'), { [original.id]: { projectId: 'inbox-real', phase: 'added', addedOn: '2026-10-04' } });
 
     expect(await syncNightRoutineVisibility(api, { now: at('22:00:00'), projectId: 'inbox-real' })).toMatchObject({ visible: 1, updated: 1 });
-    expect(current().tags).not.toContain('routine');
+    expect(current().tags).not.toContain('bon-hidden');
+    expect(current().tags).toContain('routine');
     expect(data.get(sleepTagStateKey('inbox-real'))).toEqual({});
   });
 
@@ -144,13 +158,13 @@ describe('夜间 routine 标签同步', () => {
     // 场景 A: 隐藏过程中断 (phase: adding)
     data.set(journalKey, { 'night': { projectId: 'inbox-real', phase: 'adding', addedOn: '2026-10-04' } });
     await syncNightRoutineVisibility(api, { now: at('20:00:00'), projectId: 'inbox-real' });
-    expect(current().tags).toContain('routine');
+    expect(current().tags).toContain('bon-hidden');
     expect((data.get(journalKey) as any)['night'].phase).toBe('added');
 
     // 场景 B: 显示过程中断 (phase: restoring)
     data.set(journalKey, { 'night': { projectId: 'inbox-real', phase: 'restoring', addedOn: '2026-10-04' } });
     await syncNightRoutineVisibility(api, { now: at('22:00:00'), projectId: 'inbox-real' });
-    expect(current().tags).not.toContain('routine');
+    expect(current().tags).not.toContain('bon-hidden');
     expect(data.get(journalKey)).toEqual({});
   });
 });
@@ -171,7 +185,7 @@ describe('所有定时任务按开始时间显隐', () => {
   it('同步所有定时任务，保留原字段且重复执行不重复写', async () => {
     const { api, current } = client(timed);
     expect(await syncTimedTaskVisibility(api, { now: at('20:00:00'), projectId: 'inbox-real' })).toMatchObject({ updated: 1, hidden: 1 });
-    expect(current().tags).toEqual(['居', 'routine']);
+    expect(current().tags).toEqual(['居', 'bon-hidden']);
     expect(await syncTimedTaskVisibility(api, { now: at('20:30:00'), projectId: 'inbox-real' })).toMatchObject({ updated: 1, visible: 1 });
     expect(current()).toEqual(timed);
   });
@@ -181,6 +195,7 @@ describe('所有定时任务按开始时间显隐', () => {
     expect(timedTaskHidden(original, at('20:30:00'))).toBe(false);
     await syncTimedTaskVisibility(api, { now: at('20:30:00'), projectId: 'inbox-real' });
     expect(current().tags).toContain('routine');
+    expect(current().tags).not.toContain('bon-hidden');
   });
 });
 
@@ -207,7 +222,7 @@ describe('洗头 20 点显隐', () => {
     const { api, current } = client(original);
     // 凌晨加上
     await syncHairWashVisibility(api, { now: at('05:00:00'), projectId: 'inbox-real' });
-    expect(current().tags).toContain('routine');
+    expect(current().tags).toContain('bon-hidden');
     // 20 点移除
     expect(await syncHairWashVisibility(api, { now: at('20:00:00'), projectId: 'inbox-real' })).toMatchObject({ updated: 1, visible: 1 });
     expect(current().tags).toEqual(['居', '活']);

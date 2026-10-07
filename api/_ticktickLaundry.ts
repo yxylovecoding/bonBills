@@ -99,7 +99,7 @@ function hasTime(task: TickTickTask, date: string, options: PlanOptions) {
   const free = dayAvailability({ calendar: availability, day: date, today, now, profile,
     scene: tagMap(calendarState)[date], tasks: others,
     fixed: others.filter(other => routineTaskDate(other) === date && (other.priority ?? 0) < 5
-      && !(other.tags ?? []).some(tag => ['routine', '不关我事'].includes(normalize(tag)))),
+      && !(other.tags ?? []).some(tag => ['routine', 'bon-hidden', '不关我事'].includes(normalize(tag)))),
     completed: options.history.filter(record => calendarDateInTimeZone(record.completedTime) === date), estimate: estimateTaskMinutes });
   if (free.remainingMinutes < minutes || !free.slots.some(([start, end]) => end - start >= minutes * 60_000)) return false;
   if (task.isAllDay !== false) return true;

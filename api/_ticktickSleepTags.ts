@@ -1,14 +1,14 @@
 import { createHash } from 'node:crypto';
 import { kv } from './_accountKv.js';
 import { calendarDateInTimeZone, readAllTickTickTasks, type TickTickApi, type TickTickTask } from './_ticktickTrips.js';
-import { hairWashHidden, isHairWashTask, isReadingTask, nightRoutineHidden, readingHidden,
-  sleepTagStateKey, syncHairWashVisibility, syncReadingVisibility, timedTaskHidden, writeRoutineTag,
+import { hairWashHidden, hasHiddenTag, isHairWashTask, isReadingTask, nightRoutineHidden, readingHidden,
+  sleepTagStateKey, syncHairWashVisibility, syncReadingVisibility, timedTaskHidden, writeHiddenTag,
   type RoutineTagEntry as SleepTagEntry, type RoutineTagJournal as SleepTagJournal } from './_ticktickNightRoutine.js';
 
 export { sleepTagStateKey, type SleepTagEntry, type SleepTagJournal };
 
 const normalize = (value: string) => value.normalize('NFKC').trim().toLowerCase();
-const hasRoutine = (task: TickTickTask) => (task.tags ?? []).some(tag => normalize(tag) === 'routine');
+const hasSchedulingHiddenTag = (task: TickTickTask) => (task.tags ?? []).some(tag => ['routine', 'bon-hidden'].includes(normalize(tag)));
 const addDays = (day: string, count: number) => new Date(Date.parse(`${day}T00:00:00Z`) + count * 86_400_000).toISOString().slice(0, 10);
 
 export function sleepWindow(now = new Date()) {
@@ -20,7 +20,7 @@ export function sleepWindow(now = new Date()) {
 // Union of bon's four saved smart filters, read from TickTick on 2026-10-05.
 // Keep the important-today filter's intentional lack of 不关我事 exclusion.
 export function inSleepFilterScope(task: TickTickTask, today: string) {
-  if ((task.status ?? 0) !== 0 || hasRoutine(task) || isReadingTask(task)) return false;
+  if ((task.status ?? 0) !== 0 || hasSchedulingHiddenTag(task) || isReadingTask(task)) return false;
   const tags = (task.tags ?? []).map(normalize);
   const date = calendarDateInTimeZone(task.dueDate, task.timeZone);
   const priority = task.priority ?? 0;
@@ -59,7 +59,7 @@ export async function syncSleepRoutineTags(api: TickTickApi, options: {
     await syncReadingVisibility(api, { tasks, now: options.now, projectId: options.projectId });
     // Reuse midnight to hide washing until 20:00, including future occurrences
     // outside the four smart filters. It owns this tag until the evening.
-    await syncHairWashVisibility(api, { tasks: tasks.filter(task => !hasRoutine(task)), now: options.now, projectId: options.projectId });
+    await syncHairWashVisibility(api, { tasks: tasks.filter(task => !hasSchedulingHiddenTag(task)), now: options.now, projectId: options.projectId });
     const candidates = tasks.filter(task => !isHairWashTask(task) && inSleepFilterScope(task, window.day));
     let processed = 0;
     for (const candidate of candidates) {
@@ -71,7 +71,7 @@ export async function syncSleepRoutineTags(api: TickTickApi, options: {
       if (!inSleepFilterScope(task, window.day)) continue;
       journal[task.id] = { projectId: task.projectId, addedOn: window.day, phase: 'adding' };
       await save(); // Write-ahead ownership survives a timeout after the API saved the tag.
-      await writeRoutineTag(api, task, true);
+      await writeHiddenTag(api, task, true);
       journal[task.id].phase = 'added';
       await save();
       result.updated++;
@@ -98,12 +98,12 @@ export async function syncSleepRoutineTags(api: TickTickApi, options: {
       }
       if (task?.id !== id) throw new Error('临时标签任务读取失败');
       // Specific evening visibility rules take ownership again in the morning.
-      if (hasRoutine(task) && nightRoutineHidden(task, options.now) !== true && hairWashHidden(task, options.now) !== true
+      if (hasHiddenTag(task) && nightRoutineHidden(task, options.now) !== true && hairWashHidden(task, options.now) !== true
         && readingHidden(task, options.now) !== true && timedTaskHidden(task, options.now) !== true) {
         entry.phase = 'restoring';
         await save();
         // Merge with current tags, preserving tags added by the user overnight.
-        await writeRoutineTag(api, task, false);
+        await writeHiddenTag(api, task, false);
         result.updated++;
       }
       delete journal[id];

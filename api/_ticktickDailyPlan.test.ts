@@ -63,11 +63,12 @@ describe('每日待办动态安排', () => {
       task('unknown', { repeatFlag: 'LUNAR:FREQ=YEARLY' })], { excludedTaskIds: new Set(['template']), budgetMinutes: 240 });
     expect([...p.dates.keys()]).toEqual(['child']);
   });
-  it('routine 标签忽略大小写和空白，定时 routine 也不会进入今日事或挤占普通任务', () => {
+  it('routine 与 bon-hidden 标签忽略大小写和空白；定时 routine 到点后仍不会进入今日事', () => {
     const s = state();
     const p = run([
-      task('morning', { title: '晨间routine', tags: [' Routine '], isAllDay: false, startDate: `${today}T08:00:00+0800`, dueDate: `${today}T08:50:00+0800` }),
+      task('morning', { title: '晨间routine', tags: [' Routine '], isAllDay: false, startDate: `${today}T04:00:00+0800`, dueDate: `${today}T04:50:00+0800` }),
       task('lunch', { title: '🏫吃午饭了', tags: ['ROUTINE'], isAllDay: false, startDate: `${today}T12:00:00+0800`, dueDate: `${today}T12:30:00+0800` }),
+      task('system-hidden', { tags: [' BON-HIDDEN '] }),
       task('ordinary', { title: '今天应该安排的普通任务 30分钟' }),
     ], { state: s, budgetMinutes: 30 });
     expect(s.briefing!.selected.map((item) => item.id)).toEqual(['ordinary']);
