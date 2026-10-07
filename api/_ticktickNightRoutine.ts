@@ -1,3 +1,4 @@
+import { wallTimeInstant } from './_calendarTimezone.js';
 import type { TickTickApi, TickTickTask } from './_ticktickTrips.js';
 
 const normalized = (value: string) => value.normalize('NFKC').trim().toLowerCase();
@@ -61,9 +62,20 @@ export function syncNightRoutineVisibility(api: TickTickApi, options: Visibility
     task => nightRoutineHidden(task, options.now ?? new Date(), options.timeZone), 5);
 }
 
-export function timedTaskHidden(task: TickTickTask, now = new Date()): boolean | null {
+export function timedTaskHidden(task: TickTickTask, now = new Date(), fallbackTimeZone = 'Asia/Shanghai'): boolean | null {
   if ((task.status ?? 0) !== 0 || task.isAllDay !== false) return null;
-  const scheduled = Date.parse(task.startDate ?? task.dueDate ?? '');
+  const value = task.startDate ?? task.dueDate ?? '';
+  if (!value) return null;
+  let scheduled: number;
+  if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(value)) {
+    scheduled = Date.parse(value);
+  } else {
+    try {
+      scheduled = Date.parse(wallTimeInstant(value, task.timeZone || fallbackTimeZone));
+    } catch {
+      return null;
+    }
+  }
   if (!Number.isFinite(scheduled)) return null;
   return now.getTime() < scheduled;
 }
@@ -71,7 +83,7 @@ export function timedTaskHidden(task: TickTickTask, now = new Date()): boolean |
 export function syncTimedTaskVisibility(api: TickTickApi, options: VisibilityOptions = {}) {
   return syncRoutineVisibility(api, options,
     task => task.isAllDay === false && Boolean(task.startDate || task.dueDate),
-    task => timedTaskHidden(task, options.now ?? new Date()));
+    task => timedTaskHidden(task, options.now ?? new Date(), options.timeZone));
 }
 
 async function syncRoutineVisibility(api: TickTickApi, options: VisibilityOptions,
