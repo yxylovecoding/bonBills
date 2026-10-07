@@ -33,16 +33,6 @@ const tabs = [
     ),
   },
   {
-    to: '/wishes?view=shopping',
-    label: '清单',
-    icon: (active: boolean) => (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? '#7c3aed' : '#5f6368'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" fill={active ? '#f3e8ff' : 'none'} />
-        <path d="M3 6h18" /><path d="M16 10a4 4 0 0 1-8 0" />
-      </svg>
-    ),
-  },
-  {
     to: '/wishes',
     label: '心愿',
     icon: (active: boolean) => (
@@ -79,7 +69,7 @@ export default function Nav() {
           ? location.pathname === '/'
           : t.to.includes('?')
             ? location.pathname + location.search === t.to
-            : location.pathname === t.to && !location.search.includes('view=shopping');
+            : location.pathname === t.to;
 
         return (
           <NavLink

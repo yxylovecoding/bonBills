@@ -39,8 +39,20 @@ async function handler(req: VercelRequest, res: VercelResponse) {
     const requestedAt = Date.now();
     if (req.method === 'PUT' || body.action === 'preview') {
       let input;
-      try { input = parseOutlookInput(body); }
-      catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : '连接信息无效' }); }
+      try {
+        if (req.method === 'PUT' && Array.isArray(body.sources)) {
+          const current = await kv.get<Connection>(CONNECTION_KEY);
+          if (current) {
+            const saved = decryptOutlookConnection(current.encrypted, secret);
+            body = { ...body, sources: body.sources.map((source: { name?: unknown; kind?: unknown; url?: unknown; hasUrl?: unknown }) => {
+              if (source.url || source.hasUrl !== true) return source;
+              const match = saved.sources.find(item => item.name === source.name && item.kind === source.kind);
+              return match ? { ...source, url: match.url } : source;
+            }) };
+          }
+        }
+        input = parseOutlookInput(body);
+      } catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : '连接信息无效' }); }
       const snapshot = await readOutlookSnapshot(input, startDate, endDate);
       if (body.action === 'preview' && req.method === 'POST') return res.status(200).json({ snapshot, policy: input.policy });
       const connection: Connection = { id: randomUUID(), encrypted: encryptOutlookConnection(input, secret) };

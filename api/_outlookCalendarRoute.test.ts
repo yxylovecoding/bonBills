@@ -73,6 +73,22 @@ describe('Outlook 连接接口', () => {
     expect(result.status).toBe(502); expect(data.get(key)).toEqual(existing);
     expect(JSON.stringify(result)).not.toContain(input.playUrl);
   });
+  it('更新连接时可保留未回显的已有订阅链接', async () => {
+    await call('PUT', input);
+    const addedUrl = 'https://outlook.live.com/owa/calendar/added/published/calendar.ics';
+    const result = await call('PUT', { ...range, playUrl: '', classUrl: '', policy: 'manual', rules: DEFAULT_OUTLOOK_RULES, sources: [
+      { name: '玩', kind: 'play', url: '', hasUrl: true },
+      { name: '日历', kind: 'calendar', url: addedUrl },
+    ] });
+    expect(result.status).toBe(200);
+    const status = await call('GET');
+    expect(status.body.sources).toEqual([
+      { name: '玩', kind: 'play', hasUrl: true },
+      { name: '日历', kind: 'play', hasUrl: true },
+    ]);
+    expect(fetch).toHaveBeenCalledWith(input.playUrl, expect.anything());
+    expect(fetch).toHaveBeenCalledWith(addedUrl, expect.anything());
+  });
   it('读取期间连接被断开，拒绝返回旧快照', async () => {
     await call('PUT', input);
     vi.stubGlobal('fetch', vi.fn(async () => { data.delete(key); return new Response(ics); }));
