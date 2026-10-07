@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { calibratedItems } from './thermalLearning';
 import { emptyContext, recommend } from './rules';
-import { feelingEntries, timePeriod } from './feelings';
+import { feelingEntries, outdoorTemperatureForPeriod, timePeriod } from './feelings';
 import type { ClothesItem, WearRecord, WeatherSnapshot } from './types';
 
 const top: ClothesItem = { id: 'top', name: '短袖', category: '上衣', revision: 'v1', photoId: 'photo', color: '白', thickness: 1,
@@ -61,6 +61,14 @@ describe('按分时段体感校准保暖值', () => {
     expect(['07:00', '10:00', '12:00', '15:00', '20:00'].map(timePeriod)).toEqual(['早晨', '上午', '中午', '下午', '晚上']);
     const entries = feelingEntries(record('legacy', { feelings: undefined, time: '15:00', indoor: '舒适', outdoor: '偏冷' }));
     expect(entries).toMatchObject([{ period: '下午', indoor: '舒适', outdoor: '偏冷', indoorTemperature: 25, outdoorTemperature: null }]);
+  });
+  it('逐小时天气可为补记时段填温度，手填天气优先且旧快照仅匹配抓取时段', () => {
+    const weather: WeatherSnapshot = { date: context.date, timezone: context.timezone, latitude: 0, longitude: 0, fetchedAt: '', temperature: 23, apparent: 23,
+      min: 15, max: 25, apparentMin: 15, wind: 0, precipitation: 0, periodTemperatures: { 上午: 18, 下午: 24 } };
+    expect(outdoorTemperatureForPeriod(context, weather, '上午', '15')).toBe(18);
+    expect(outdoorTemperatureForPeriod({ ...context, manualWeather: { temperature: 20, rain: false } }, weather, '上午', '15')).toBe(20);
+    expect(outdoorTemperatureForPeriod(context, { ...weather, periodTemperatures: undefined }, '上午', '15')).toBeNull();
+    expect(outdoorTemperatureForPeriod(context, { ...weather, periodTemperatures: undefined }, '下午', '15')).toBe(23);
   });
   it('室内25度室外16度时优先薄内搭加外套，分别满足室内外温度', () => {
     const weather: WeatherSnapshot = { date: context.date, timezone: context.timezone, latitude: 0, longitude: 0, fetchedAt: '', temperature: 16, apparent: 16, min: 15, max: 18, apparentMin: 15, wind: 0, precipitation: 0 };

@@ -440,11 +440,15 @@ describe('天气、Outlook 和设备时区', () => {
   it('天气缓存30分钟，过期失败保留旧快照，没有缓存返回空', async () => {
     vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-05T01:00:00Z'));
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ current: { temperature_2m: 24, apparent_temperature: 25 },
+      hourly: { time: ['2026-10-05T07:00', '2026-10-05T09:00', '2026-10-05T10:00', '2026-10-05T15:00'], temperature_2m: [16, 18, 20, 24] },
       daily: { time: [context.date], temperature_2m_min: [18], temperature_2m_max: [27], apparent_temperature_min: [18], precipitation_sum: [0], wind_speed_10m_max: [12] } })));
     vi.stubGlobal('fetch', fetchMock);
     const city = { name: '杭州', latitude: 30, longitude: 120, source: 'manual' as const };
     const first = await readWeather(city, context.date, context.timezone);
-    expect(first.stale).toBe(false); await readWeather(city, context.date, context.timezone); expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(first.stale).toBe(false);
+    expect(first.weather?.periodTemperatures).toEqual({ 早晨: 16, 上午: 19, 下午: 24 });
+    expect(String(fetchMock.mock.calls[0][0])).toContain('hourly=temperature_2m');
+    await readWeather(city, context.date, context.timezone); expect(fetchMock).toHaveBeenCalledTimes(1);
     vi.setSystemTime(new Date('2026-10-05T01:31:00Z')); fetchMock.mockRejectedValue(new Error('offline'));
     const stale = await readWeather(city, context.date, context.timezone); expect(stale.stale).toBe(true); expect(stale.weather).toEqual(first.weather);
     const missing = await readWeather({ ...city, latitude: 40 }, context.date, context.timezone); expect(missing.weather).toBeNull();

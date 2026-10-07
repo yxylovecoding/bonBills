@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 
 const tabs = [
   {
@@ -33,6 +33,16 @@ const tabs = [
     ),
   },
   {
+    to: '/wishes?view=shopping',
+    label: '清单',
+    icon: (active: boolean) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? '#7c3aed' : '#5f6368'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" fill={active ? '#f3e8ff' : 'none'} />
+        <path d="M3 6h18" /><path d="M16 10a4 4 0 0 1-8 0" />
+      </svg>
+    ),
+  },
+  {
     to: '/wishes',
     label: '心愿',
     icon: (active: boolean) => (
@@ -44,6 +54,7 @@ const tabs = [
 ];
 
 export default function Nav() {
+  const location = useLocation();
   return (
     <nav
       style={{
@@ -63,57 +74,65 @@ export default function Nav() {
         boxShadow: '0 -2px 8px rgba(0,0,0,0.06)',
       }}
     >
-      {tabs.map((t) => (
-        <NavLink
-          key={t.to}
-          to={t.to}
-          end={t.to === '/'}
-          style={{ textDecoration: 'none', flex: 1 }}
-        >
-          {({ isActive }) => {
-            const isWishTab = t.to === '/wishes';
-            const activeColor = isWishTab ? '#7c3aed' : '#1a73e8';
-            const activeBackground = isWishTab ? '#f3e8ff' : '#e8f0fe';
-            return (
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: 2,
-                  color: isActive ? activeColor : '#5f6368',
-                  padding: '4px 0',
-                }}
-              >
-                {/* pill 背景 */}
+      {tabs.map((t) => {
+        const isActive = t.to === '/'
+          ? location.pathname === '/'
+          : t.to.includes('?')
+            ? location.pathname + location.search === t.to
+            : location.pathname === t.to && !location.search.includes('view=shopping');
+
+        return (
+          <NavLink
+            key={t.to}
+            to={t.to}
+            end={t.to === '/'}
+            style={{ textDecoration: 'none', flex: 1 }}
+          >
+            {() => {
+              const isWishTab = t.to.startsWith('/wishes');
+              const activeColor = isWishTab ? '#7c3aed' : '#1a73e8';
+              const activeBackground = isWishTab ? '#f3e8ff' : '#e8f0fe';
+              return (
                 <div
                   style={{
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    width: 52,
-                    height: 28,
-                    borderRadius: 14,
-                    backgroundColor: isActive ? activeBackground : 'transparent',
-                    transition: 'background-color 0.2s',
+                    gap: 2,
+                    color: isActive ? activeColor : '#5f6368',
+                    padding: '4px 0',
                   }}
                 >
-                  {t.icon(isActive)}
+                  {/* pill 背景 */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 52,
+                      height: 28,
+                      borderRadius: 14,
+                      backgroundColor: isActive ? activeBackground : 'transparent',
+                      transition: 'background-color 0.2s',
+                    }}
+                  >
+                    {t.icon(isActive)}
+                  </div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: isActive ? 600 : 400,
+                      lineHeight: 1,
+                    }}
+                  >
+                    {t.label}
+                  </span>
                 </div>
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: isActive ? 600 : 400,
-                    lineHeight: 1,
-                  }}
-                >
-                  {t.label}
-                </span>
-              </div>
-            );
-          }}
-        </NavLink>
-      ))}
+              );
+            }}
+          </NavLink>
+        );
+      })}
     </nav>
   );
 }

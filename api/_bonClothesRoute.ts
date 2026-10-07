@@ -157,7 +157,12 @@ async function handler(req: VercelRequest, res: VercelResponse) {
           && ['temperature', 'apparent', 'min', 'max', 'apparentMin', 'precipitation', 'wind', 'latitude', 'longitude']
             .every((key) => typeof w[key as keyof WeatherSnapshot] === 'number' && Number.isFinite(w[key as keyof WeatherSnapshot]))
           && typeof w.fetchedAt === 'string' && w.fetchedAt.length <= 40, '天气快照无效');
-        weather = Object.fromEntries(['date', 'timezone', 'latitude', 'longitude', 'fetchedAt', 'temperature', 'apparent', 'min', 'max', 'apparentMin', 'precipitation', 'wind'].map((key) => [key, w[key as keyof WeatherSnapshot]])) as unknown as WeatherSnapshot;
+        const periodTemperatures = w.periodTemperatures;
+        requireInput(periodTemperatures === undefined || (periodTemperatures && typeof periodTemperatures === 'object'
+          && Object.entries(periodTemperatures).every(([period, temperature]) => ['早晨', '上午', '中午', '下午', '晚上'].includes(period)
+            && typeof temperature === 'number' && Number.isFinite(temperature))), '天气快照无效');
+        weather = { ...Object.fromEntries(['date', 'timezone', 'latitude', 'longitude', 'fetchedAt', 'temperature', 'apparent', 'min', 'max', 'apparentMin', 'precipitation', 'wind'].map((key) => [key, w[key as keyof WeatherSnapshot]])),
+          ...(periodTemperatures ? { periodTemperatures } : {}) } as unknown as WeatherSnapshot;
       }
       const indoorTemperature = body.indoorTemperature === undefined ? previous?.indoorTemperature : body.indoorTemperature === null ? null : numberInput(body.indoorTemperature, -60, 60);
       const feelings = body.feelings === undefined ? previous?.feelings : feelingsInput(body.feelings);

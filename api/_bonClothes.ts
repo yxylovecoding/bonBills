@@ -3,8 +3,9 @@ import { createHash } from 'node:crypto';
 import { decryptOutlookConnection, fetchCalendar, parseOutlookCalendar } from './_outlookCalendar.js';
 import { OUTLOOK_CONNECTION_KEY, type OutlookConnection } from './_outlookSync.js';
 import { deviceDate } from '../src/clothes/rules.js';
+import { timePeriod } from '../src/clothes/feelings.js';
 import { nextCalendarDate } from '../src/utils/outlookCalendar.js';
-import type { ClothesCalendar, ClothesLocation, WeatherSnapshot } from '../src/clothes/types.js';
+import type { ClothesCalendar, ClothesLocation, DayPeriod, WeatherSnapshot } from '../src/clothes/types.js';
 
 export const ITEMS_KEY = 'bonclothes:items:v1';
 export const CONTEXTS_KEY = 'bonclothes:contexts:v1';
@@ -68,6 +69,7 @@ export async function readWeather(location: ClothesLocation, date: string, timez
     const url = new URL('https://api.open-meteo.com/v1/forecast');
     url.search = new URLSearchParams({ latitude: String(latitude), longitude: String(longitude), timezone,
       current: 'temperature_2m,apparent_temperature,precipitation,wind_speed_10m',
+      hourly: 'temperature_2m',
       daily: 'temperature_2m_min,temperature_2m_max,apparent_temperature_min,precipitation_sum,wind_speed_10m_max',
       start_date: date, end_date: date }).toString();
     const data = await upstream(url);
@@ -76,8 +78,20 @@ export async function readWeather(location: ClothesLocation, date: string, timez
       daily?.temperature_2m_max?.[0], daily?.apparent_temperature_min?.[0], daily?.precipitation_sum?.[0], daily?.wind_speed_10m_max?.[0]];
     if (!fields.every((v) => typeof v === 'number' && Number.isFinite(v)) || daily?.time?.[0] !== date) throw new Error();
     const [temperature, apparent, min, max, apparentMin, precipitation, wind] = fields;
+    const periodValues = new Map<DayPeriod, number[]>();
+    if (Array.isArray(data.hourly?.time) && Array.isArray(data.hourly?.temperature_2m)) {
+      data.hourly.time.forEach((time: unknown, index: number) => {
+        const value = data.hourly.temperature_2m[index];
+        if (typeof time !== 'string' || !time.startsWith(`${date}T`) || typeof value !== 'number' || !Number.isFinite(value)) return;
+        const period = timePeriod(time.slice(11, 16));
+        periodValues.set(period, [...(periodValues.get(period) ?? []), value]);
+      });
+    }
+    const periodTemperatures = Object.fromEntries([...periodValues].map(([period, values]) =>
+      [period, Math.round(values.reduce((sum, value) => sum + value, 0) / values.length * 10) / 10])) as Partial<Record<DayPeriod, number>>;
     const weather: WeatherSnapshot = { date, timezone, latitude, longitude, fetchedAt: new Date().toISOString(),
-      temperature, apparent, min, max, apparentMin, precipitation, wind };
+      temperature, apparent, min, max, apparentMin, precipitation, wind,
+      ...(Object.keys(periodTemperatures).length ? { periodTemperatures } : {}) };
     // Keep the observed day's weather for later reviews; never relabel live weather as a past day.
     await kv.set(key, weather);
     return { weather, stale: false };

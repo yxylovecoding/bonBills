@@ -66,7 +66,7 @@ export async function replanRemainingToday(options: { scheduled?: boolean } = {}
     const end = new Date(Date.parse(`${today}T00:00:00Z`) + 31 * 86_400_000).toISOString().slice(0, 10);
     const input = outlook ? decryptOutlookConnection(outlook.encrypted, secret) : null;
     const [snapshot] = await Promise.all([
-      input ? readOutlookSnapshot(input, today, end, { startDate: today, endDate: end }) : undefined,
+      input ? readOutlookSnapshot(input, today, end, { startDate: today, endDate: end }, connection.timeZone) : undefined,
       refreshDailyHistory(api, tasks, state),
     ]);
     const now = new Date();
@@ -86,6 +86,7 @@ export async function replanRemainingToday(options: { scheduled?: boolean } = {}
       return eligible(task, horizon);
     }).map(task => [task.id, task]));
     const plan = planTickTickDay({ tasks: tasks.filter(pending), calendarState, today, state, now,
+      timezone: connection.timeZone,
       availability: snapshot?.availability, budgetMinutes: settings?.budgetMinutes,
       availabilityProfile: availabilityProfile(settings?.availabilityProfile), excludedTaskIds: excluded,
       movableTaskIds: new Set(allowed.keys()) });

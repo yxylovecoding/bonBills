@@ -1,3 +1,4 @@
+import { wallTimeInstant } from './_calendarTimezone.js';
 import type { OutlookAvailability } from '../src/utils/outlookCalendar.js';
 import type { TickTickTask } from './_ticktickTrips.js';
 
@@ -6,9 +7,10 @@ export const availabilityProfile = (value: unknown): AvailabilityProfile => valu
 export type TimeSlot = [number, number];
 const minute = 60_000;
 const titleKey = (title: string) => title.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
-const localDay = (value?: string) => value && Number.isFinite(Date.parse(value))
-  ? new Date(Date.parse(value) + 8 * 60 * minute).toISOString().slice(0, 10) : undefined;
-const taskDay = (task: TickTickTask) => localDay(task.dueDate ?? task.startDate);
+const localDay = (value: string | undefined, timezone: string) => value && Number.isFinite(Date.parse(value))
+  ? new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value))
+  : undefined;
+const taskDay = (task: TickTickTask, timezone: string) => localDay(task.dueDate ?? task.startDate, timezone);
 const taskInterval = (task: TickTickTask, estimate: (task: TickTickTask) => number): TimeSlot | null => {
   if (task.isAllDay !== false) return null;
   const start = Date.parse(task.startDate ?? task.dueDate ?? '');
@@ -44,6 +46,7 @@ export function dayAvailability(options: {
   calendar: OutlookAvailability;
   day: string;
   today: string;
+  timezone?: string;
   now?: Date;
   profile?: AvailabilityProfile;
   scene?: string;
@@ -53,9 +56,10 @@ export function dayAvailability(options: {
   estimate: (task: TickTickTask) => number;
 }) {
   const { calendar, day, today, tasks, fixed, completed, estimate } = options;
+  const timezone = options.timezone ?? 'Asia/Shanghai';
   if (day < calendar.startDate || day >= calendar.endDate) throw new Error('Outlook 日程范围不足，未调整每日安排');
   const profile = options.profile ?? 'day';
-  const at = (hour: number) => Date.parse(`${day}T00:00:00+08:00`) + hour * 60 * minute;
+  const at = (hour: number) => Date.parse(wallTimeInstant(`${day}T${String(hour).padStart(2, '0')}:00:00`, timezone));
   const now = day === today ? (options.now?.getTime() ?? Date.now()) : at(0);
   // Meal/rest windows are explicit preferences, including in calendar mode.
   const windows: TimeSlot[] = (profile === 'calendar' ? [[0, 11], [14, 18], [20, 24]] : profile === 'evening' ? [[20, 22]] : [[9, 11], [14, 18], [20, 22]])
@@ -67,7 +71,7 @@ export function dayAvailability(options: {
   if (profile !== 'calendar' && ['intern', 'travel'].includes(options.scene ?? '')) busy.push([at(9), at(18)]);
   const relevant = tasks.filter((task) => !(task.tags ?? []).includes('不关我事'));
   const important = relevant.filter((task) => (task.priority ?? 0) >= 5 && !(task.tags ?? []).includes('routine')
-    && Boolean(taskDay(task) && (day === today ? taskDay(task)! <= day : taskDay(task) === day)));
+    && Boolean(taskDay(task, timezone) && (day === today ? taskDay(task, timezone)! <= day : taskDay(task, timezone) === day)));
   const commitments = [...new Map([...important, ...fixed].map((task) => [task.id, task])).values()];
   const titleCounts = new Map<string, number>();
   for (const task of [...commitments, ...completed]) titleCounts.set(titleKey(task.title), (titleCounts.get(titleKey(task.title)) ?? 0) + 1);
@@ -110,7 +114,11 @@ export function dayAvailability(options: {
   occupySlots(slots, reserved, false);
   const totalMinutes = Math.floor(Math.max(0, slotMinutes(full) - fullDayReserved));
   const remainingMinutes = Math.floor(slotMinutes(slots));
-  return { totalMinutes, remainingMinutes, completedMinutes, slots, breakdown: {
+  const windowFullMinutes = Math.floor(slotMinutes(windows));
+  const unmatchedBusy = events.filter(e => ![...commitments, ...completed].some(t => matchingEvent(t) === e))
+    .map(e => [Date.parse(e.start), Date.parse(e.end)] as TimeSlot);
+  const unmatchedEventMinutes = windowFullMinutes - Math.floor(slotMinutes(freeSlots(windows, unmatchedBusy)));
+  return { totalMinutes, remainingMinutes, completedMinutes, slots, unmatchedEventMinutes, breakdown: {
     clockRemainingMinutes: Math.max(0, Math.floor((at(24) - now) / minute)), remainingWindows,
     windowMinutes, occupiedMinutes: windowMinutes - freeMinutes, freeMinutes,
     importantReservations, importantAdditionalMinutes: 0, importantReservationEnabled: false,

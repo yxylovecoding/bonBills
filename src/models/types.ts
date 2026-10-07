@@ -155,6 +155,23 @@ export interface WishSpentItem {
   amount: number;
 }
 
+export interface ShoppingPriceRecord {
+  id: string;
+  price: number;
+  date: string;
+  note?: string;
+}
+
+export interface ShoppingItem {
+  id: string;
+  name: string;
+  targetPrice?: number;
+  status: 'pending' | 'bought';
+  note?: string;
+  priceHistory: ShoppingPriceRecord[];
+  createdAt: string;
+}
+
 export interface WishItem {
   id: string;
   name: string;
@@ -267,6 +284,7 @@ export interface AppConfig {
   futureFireExpenses: FutureFireExpense[];
   majorFireWishes?: MajorFireWish[];
   wishes?: WishItem[];
+  shoppingList?: ShoppingItem[];
   dismissedTripWishStarts?: Record<string, true>; // 主动删除或解除关联的出游不再自动补建心愿
   wishDebtTotal?: number; // 外部债务账户的当前总欠款；缺省时仅汇总心愿欠款
   wishInternSavingRecords?: WishInternSavingRecord[];

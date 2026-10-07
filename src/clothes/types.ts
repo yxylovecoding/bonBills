@@ -33,6 +33,7 @@ export interface WeatherSnapshot {
   date: string; timezone: string; latitude: number; longitude: number; fetchedAt: string;
   temperature: number; apparent: number; min: number; max: number; apparentMin: number;
   precipitation: number; wind: number;
+  periodTemperatures?: Partial<Record<DayPeriod, number>>;
 }
 export interface ClothesEvent { title: string; location?: string; startDate: string; endDate: string; allDay: boolean }
 export interface ClothesCalendar { connected: boolean; events: ClothesEvent[]; fetchedAt: string }

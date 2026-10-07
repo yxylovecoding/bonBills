@@ -3,7 +3,7 @@ import { MAX_OUTFIT_ITEMS, PURPOSES, SENSATIONS, DAY_PERIODS, categoryLabel, wea
 import { ClothesError, clothesRequest, photoUrl, readLocal, writeLocal } from './client';
 import { isOutdoorCoat, itemWarmth, wearable } from './warmth';
 import OutfitWarmth from './OutfitWarmth';
-import { blankFeeling, recordFeelings, timePeriod } from './feelings';
+import { blankFeeling, outdoorTemperatureForPeriod, recordFeelings, timePeriod } from './feelings';
 import { itemCategories, wearAs, pairingScore } from './pairing';
 import { deviceDate } from './rules';
 import OutfitPieces from './OutfitPieces';
@@ -52,7 +52,7 @@ export default function WearEditor({ initial, storageKey, items, pairCounts, onS
   const snapshotTime = draft.weather?.fetchedAt && Number.isFinite(Date.parse(draft.weather.fetchedAt))
     ? new Intl.DateTimeFormat('en-GB', { timeZone: draft.context.timezone, hour: '2-digit', hourCycle: 'h23' }).format(new Date(draft.weather.fetchedAt)) : null;
   const feeling = draft.feelings[period] ?? { ...blankFeeling(draft.context),
-    outdoorTemperature: draft.context.manualWeather?.temperature ?? (snapshotTime && period === timePeriod(snapshotTime) ? draft.weather?.temperature ?? null : null) };
+    outdoorTemperature: outdoorTemperatureForPeriod(draft.context, draft.weather, period, snapshotTime) };
   function changeFeeling(next: Partial<PeriodFeeling>) {
     const updated = { ...feeling, ...next };
     change({ feelings: { ...draft.feelings, [period]: updated }, outdoor: updated.outdoor });

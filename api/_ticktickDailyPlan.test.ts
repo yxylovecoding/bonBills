@@ -7,7 +7,7 @@ const task = (id: string, fields: Partial<TickTickTask> = {}): TickTickTask => (
 const done = (source: TickTickTask, day: string, id = source.id): TickTickTask => ({ ...source, id, status: 2, completedTime: `${day}T09:00:00+0800` });
 const state = (history: TickTickTask[] = []): DailyPlanState => ({ connectionId: 'same', history, deadlines: {} });
 const run = (tasks: TickTickTask[], other: Partial<Parameters<typeof planTickTickDay>[0]> = {}) => planTickTickDay({
-  tasks, state: state(), today, now: new Date(`${today}T05:00:00+08:00`), calendarState: {}, budgetMinutes: 60, ...other,
+  tasks, state: state(), today, timezone: 'Asia/Shanghai', now: new Date(`${today}T05:00:00+08:00`), calendarState: {}, budgetMinutes: 60, ...other,
 });
 const apply = (tasks: TickTickTask[], dates: Map<string, string>) => tasks.map((t) => dates.has(t.id)
   ? { ...t, startDate: `${dates.get(t.id)}T00:00:00+0800`, dueDate: `${dates.get(t.id)}T00:00:00+0800` } : t);

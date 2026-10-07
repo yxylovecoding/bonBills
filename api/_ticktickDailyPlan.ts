@@ -129,11 +129,13 @@ export function planTickTickDay(options: {
   budgetMinutes?: number | null;
   availability?: OutlookAvailability;
   availabilityProfile?: AvailabilityProfile;
+  timezone?: string;
   now?: Date;
   excludedTaskIds?: ReadonlySet<string>;
   movableTaskIds?: ReadonlySet<string>;
 }): { dates: Map<string, string>; summary: DailyPlanSummary } {
   const { tasks, calendarState, today, state, excludedTaskIds = new Set<string>() } = options;
+  const timezone = options.timezone ?? 'Asia/Shanghai';
   const now = options.now ?? new Date();
   const tomorrow = addDays(today, 1);
   const horizon = addDays(today, 30);
@@ -238,7 +240,7 @@ export function planTickTickDay(options: {
   const calendarDays = new Map<string, ReturnType<typeof dayAvailability>>();
   const getDay = (day: string) => {
     if (!calendarDays.has(day)) calendarDays.set(day, dayAvailability({ calendar: availability, day, today,
-      now, profile: options.availabilityProfile, scene: calendarTagMap[day], tasks: open,
+      timezone, now, profile: options.availabilityProfile, scene: calendarTagMap[day], tasks: open,
       fixed: day === today ? fixed : [], completed: day === today ? completedToday : [], estimate: estimateTaskMinutes }));
     return calendarDays.get(day)!;
   };
@@ -246,11 +248,11 @@ export function planTickTickDay(options: {
   // The day's ceiling only guards against unlimited refill after completions.
   // Each run's capacity and allocation start with the actual remaining slots.
   const dailyCeiling = options.availability
-    ? Math.min(base ?? Infinity, calendarDay.totalMinutes + fixedMinutes)
+    ? Math.min((base ?? Infinity) - calendarDay.unmatchedEventMinutes, calendarDay.totalMinutes + fixedMinutes)
     : base!;
   const available = Math.max(0, Math.min(calendarDay.remainingMinutes,
     dailyCeiling - fixedMinutes - (options.availability ? calendarDay.completedMinutes : alreadyDone),
-    (base ?? Infinity) - fixedMinutes - alreadyDone));
+    (base ?? Infinity) - fixedMinutes - alreadyDone - (options.availability ? calendarDay.unmatchedEventMinutes : 0)));
   const capacity = Math.min(dailyCeiling, available + fixedMinutes);
   const remainingSlots = calendarDay.slots.map(([start, end]) => [start, end] as [number, number]);
   const demand = candidates.reduce((sum, candidate) => {
