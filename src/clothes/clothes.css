@@ -79,6 +79,7 @@
 .clothes-card-caption button { padding: 4px 0; }
 .bonclothes .clothes-piece-photo { display: block; width: 100%; padding: 0; border-radius: 10px; }
 .clothes-card-caption .clothes-pinned { color: var(--life-accent); }
+.clothes-card-caption .clothes-layer-add { min-width: 28px; padding: 3px 8px; border: 1px solid var(--life-line); border-radius: 999px; color: var(--life-accent); font-size: 18px; line-height: 1; }
 .clothes-wear-dialog .clothes-replacements { margin: 12px 0; }
 @media (max-width: 560px) { .clothes-wear-dialog .clothes-outfit-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .clothes-empty { text-align: center; color: var(--life-muted); font-size: 13px; padding: 58px 0; }

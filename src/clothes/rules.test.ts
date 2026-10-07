@@ -84,6 +84,20 @@ describe('BonClothes 规则推荐', () => {
     expect(result[0].items.map((piece) => piece.id)).toContain('seldom');
     expect(result[0].items.map((piece) => piece.id)).not.toContain('too-warm');
   });
+  it('休闲优先不穿内衣，并在温度合适的方案中轮换少穿单品', () => {
+    const underwear = item('underwear', '内衣', { warmth: 0 });
+    const result = recommend([...wardrobe, underwear], { ...context, purpose: '休闲' }, weather, [], { top: 20, bottom: 20, shoes: 20 });
+    expect(result[0].items).not.toContainEqual(underwear);
+  });
+  it('见朋友或重要的人时，在温度适配的方案中优先历史完整搭配', () => {
+    const styledTop = item('styled-top', '上衣');
+    const styledBottom = item('styled-bottom', '下装');
+    const styledShoes = item('styled-shoes', '鞋');
+    const styled = { id: 'styled-look', date: context.date, confirmedAt: `${context.date}T10:00:00Z`, kind: 'styled' as const,
+      purpose: '见朋友' as const, items: [styledTop, styledBottom, styledShoes] } as WearRecord;
+    const result = recommend([...wardrobe, styledTop, styledBottom, styledShoes], { ...context, purpose: '见朋友' }, weather, [styled]);
+    expect(result[0].items.map((piece) => piece.id).sort()).toEqual(['styled-bottom', 'styled-shoes', 'styled-top']);
+  });
   it('用途为运动时，少穿但不方便活动的衣服仍不能推荐', () => {
     const tight = item('tight', '上衣', { active: false });
     const sporty = { ...context, active: false, purpose: '运动' as const };

@@ -54,7 +54,7 @@ export default function Today({ owner, items, initial, records, outfits, tomorro
   const effective = useMemo(() => ({ ...effectiveContext(context, calendar), location }), [context, calendar, location]);
   const weather = weatherState.weather;
   const pairs = useMemo(() => pairCounts ?? outfitPairCounts([...records, ...outfits]), [pairCounts, records, outfits]);
-  const candidates = useMemo(() => effective.purpose ? recommend(items, effective, weather, records, wearCounts, { fixedItems: fixed, pairCounts: pairs }) : [], [items, effective, weather, records, wearCounts, fixed, pairs]);
+  const candidates = useMemo(() => effective.purpose ? recommend(items, effective, weather, [...records, ...outfits], wearCounts, { fixedItems: fixed, pairCounts: pairs }) : [], [items, effective, weather, records, outfits, wearCounts, fixed, pairs]);
   const outfit: Outfit | undefined = candidates[index % Math.max(1, candidates.length)] ?? (fixed.length ? { items: fixed, missing: [], key: '' } : undefined);
   const openWear = (pieces: ClothesItem[] = [], record?: WearRecord) => onOpenWear(createWearDraft(effective, weatherFor(effective, weather), pieces, record));
   const changeContext = (next: Partial<ClothesDayContext>) => {

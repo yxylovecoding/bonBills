@@ -130,8 +130,17 @@ export function recommend(items: ClothesItem[], context: ClothesDayContext, inpu
   };
   const comfortGap = (list: ClothesItem[]) => thermalGap(list, 2);
   const timesWorn = (list: ClothesItem[]) => list.reduce((sum, item) => sum + (wearCounts[item.id] ?? 0), 0);
-  const compareItems = (a: ClothesItem[], b: ClothesItem[]) => (context.purpose === '休闲'
-    ? comfortGap(a) - comfortGap(b) || timesWorn(a) - timesWorn(b) : 0) || score(a) - score(b);
+  const styledCounts = records.filter((record) => record.kind === 'styled').reduce((counts, record) => {
+    const key = outfitKey(record.items);
+    counts.set(key, (counts.get(key) ?? 0) + (record.purpose === context.purpose ? 2 : 1));
+    return counts;
+  }, new Map<string, number>());
+  const social = context.purpose === '见朋友' || context.purpose === '见重要的人';
+  const underwearCount = (list: ClothesItem[]) => list.filter((item) => categoryLabel(item.category) === '内衣').length;
+  const compareItems = (a: ClothesItem[], b: ClothesItem[]) => comfortGap(a) - comfortGap(b)
+    || (social ? (styledCounts.get(outfitKey(b)) ?? 0) - (styledCounts.get(outfitKey(a)) ?? 0) : 0)
+    || (context.purpose === '休闲' ? underwearCount(a) - underwearCount(b) || timesWorn(a) - timesWorn(b) : 0)
+    || score(a) - score(b);
   // Judge the main outfit before its underwear, so missing a bra never hides an
   // available shirt in favour of an empty dress outfit. Optional layers do not
   // improve completeness simply by adding more pieces.
@@ -179,8 +188,10 @@ export function recommend(items: ClothesItem[], context: ClothesDayContext, inpu
   }
   const unique = new Map(results.sort(compare).map((outfit) => [outfit.key + outfit.missing.join(), outfit]));
   const ranked = [...unique.values()].sort(compare);
-  const best = ranked[0];
-  return ranked.filter((outfit) => coreMissing(outfit) === coreMissing(best) && outfit.missing.length === best.missing.length
+  const temperatureCompatible = ranked.filter((outfit) => comfortGap(outfit.items) === 0);
+  const eligibleRanked = temperatureCompatible.length ? temperatureCompatible : ranked;
+  const best = eligibleRanked[0];
+  return eligibleRanked.filter((outfit) => coreMissing(outfit) === coreMissing(best) && outfit.missing.length === best.missing.length
     && (!coreMissing(best) || coreCount(outfit) === coreCount(best))).map((outfit) => {
       const result = { ...outfit };
       if (n.coat && !outfit.items.some(isOutdoorCoat)) {
