@@ -1,8 +1,8 @@
 import InstallApp from '../components/InstallApp';
 import { makeupSummary, syncMakeupEntries } from '../utils/lifeMakeup';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { resolveSkinRecord } from '../utils/lifeSkinProgress';
-import { SKIN_STATES, skinLocalPlanValues, skinPlanValues, skinSeason } from '../utils/lifeSkin';
+import { skinLocalPlanValues, skinPlanValues, skinSeason } from '../utils/lifeSkin';
 import { DEFAULT_SKIN_SETTINGS } from '../utils/lifeSkin';
 import LifeSkinSettings from './LifeSkinSettings';
 import { calendarCells, DEFAULT_CYCLE, entrySummary, LIFE_LABELS, type LifeView, type LifeYear, type TrainingRecord } from '../utils/bonLife';
@@ -14,11 +14,12 @@ import LifeConnection from './LifeConnection';
 import LifeCycleSettings from './LifeCycleSettings';
 import LifeDoneList from './LifeDoneList';
 import { useLifeTraining } from './useLifeTraining';
-import { DEFAULT_TRAINING_SETTINGS, monthlyTrainingPlan, plannedTraining, rollingTrainingPlan, trainingLibrary } from '../utils/lifeTraining';
+import { DEFAULT_TRAINING_SETTINGS, monthlyTrainingPlan, plannedTraining, rollingTrainingPlan, trainingIdentity, trainingLibrary } from '../utils/lifeTraining';
 import LifeTrainingSettings from './LifeTrainingSettings';
-import { SYMPTOM_AREAS, SYMPTOM_STATES, symptomHistory, symptomObservations } from '../utils/lifeSymptoms';
+import { symptomHistory } from '../utils/lifeSymptoms';
 import LifeSymptomHistory from './LifeSymptomHistory';
 import { symptomColor } from './symptomColor';
+import { calendarStripSegments, lifeCalendarStripItems, type CalendarStripItem } from './calendarStrips';
 
 const LifeBodyTrends = lazy(() => import('./LifeBodyTrends'));
 
@@ -72,6 +73,18 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
     cycle, current?.periodDays ?? [], current?.entries ?? {}) : null, [hasTrainingSource, year, month, now, trainingSource.current, cycle, current]);
   const trainingPlan = kind === 'training' ? rolling?.plans ?? monthlyTrainingPlan(year, month, now,
     undefined, cycle, current?.periodDays ?? [], current?.entries ?? {}) : new Map<string, TrainingRecord>();
+  const stripItems = useMemo(() => {
+    const result = new Map<string, CalendarStripItem[]>();
+    const trainingNames = new Map(library.map((task) => [trainingIdentity(task), task.name]));
+    for (const date of cells) {
+      if (!date) continue;
+      const entry = current?.entries[`${kind}:${date}`];
+      const items = kind === 'done' ? [] : lifeCalendarStripItems(kind, entry, trainingPlan.get(date), trainingNames);
+      if (items.length) result.set(date, items);
+    }
+    return result;
+  }, [cells, current, kind, library, trainingPlan]);
+  const strips = useMemo(() => calendarStripSegments(cells, stripItems), [cells, stripItems]);
   const futurePlanCount = [...trainingPlan].filter(([date, record]) => date >= now && record.plan).length;
   const hasCycle = cells.some((date) => date && cycleDay(date, cycle, current?.periodDays ?? []));
   const todayOverview = useMemo(() => {
@@ -242,21 +255,21 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
             mutationId: crypto.randomUUID() })}>
           <span className="life-day-heading"><span className="life-day-number">{Number(date.slice(-2))}</span>{phaseLabel && <span className={`life-period-mark phase-${phase?.phase}`} aria-hidden="true">{phaseLabel}</span>}</span>
           {(kind === 'skin' || kind === 'eyes') && makeupSummary(entry?.makeup).length > 0 && <span className="life-day-text">{makeupSummary(entry?.makeup).join(' · ')}</span>}
-          {kind === 'skin' ? <span className="life-day-symptoms">
-            {displaySkin?.status && <span className="life-symptom-mark life-day-symptom" style={symptomColor(`skin:${displaySkin.status}`)}>
-              {SKIN_STATES[displaySkin.status]}{displaySkin.status === 'acne' && displaySkin.acneProgress ? ` · ${SYMPTOM_STATES[displaySkin.acneProgress]}` : ''}{displaySkin.planDay ? ` · 第 ${displaySkin.planDay} 天` : ''}
-            </span>}
-            {displaySkin?.acneMarks && <span className="life-symptom-mark life-day-symptom" style={symptomColor('skin:acneMarks')}>痘印</span>}
+          {kind === 'skin' ? <span className="life-day-content">
             {skinDetails && <span className="life-day-text">{skinDetails}</span>}
-          </span> : kind === 'eyes' || kind === 'discomfort' ? <span className="life-day-symptoms">
-            {Object.entries(symptomObservations(kind, entry?.[kind])).map(([key, item]) =>
-              <span className="life-symptom-mark life-day-symptom" key={key} style={symptomColor(key)}
-                title={[kind === 'discomfort' ? SYMPTOM_AREAS[item.area] : '', item.name, SYMPTOM_STATES[item.status], item.note].filter(Boolean).join(' · ')}>
-                {kind === 'discomfort' && `${SYMPTOM_AREAS[item.area]} · `}{item.name} · {SYMPTOM_STATES[item.status]}{item.note && ` · ${item.note}`}
-              </span>)}
+          </span> : kind === 'eyes' || kind === 'discomfort' ? <span className="life-day-content">
             {entry?.text && <span className="life-day-text">{entry.text}</span>}
           </span> : <span className="life-day-text">{summary}</span>}
           {planStatus && <span className="life-plan-status">{planStatus}</span>}
+          {(strips.get(date)?.length ?? 0) > 0 && <span className="life-calendar-strips" aria-hidden="true">
+            {strips.get(date)!.map((strip) => {
+              const colors = symptomColor(strip.key);
+              return <span key={`${strip.key}:${strip.lane}`} className={`life-calendar-strip${strip.starts ? ' starts' : ''}${strip.ends ? ' ends' : ''}`}
+                style={{ gridRow: strip.lane + 1, backgroundColor: colors.borderColor } as CSSProperties} title={strip.label}>
+                {strip.starts && <span>{strip.label}</span>}
+              </span>;
+            })}
+          </span>}
         </button>;
       })}</div>
     </section>}
