@@ -88,7 +88,9 @@ describe('每日安排接口', () => {
     });
     expect(replan).toHaveBeenCalledWith({ scheduled: true });
     replan.mockResolvedValueOnce({ busy: true });
-    expect((await request('GET', undefined, 'hourly-replan', undefined, 'Bearer cron-secret')).status).toBe(202);
+    expect(await request('GET', undefined, 'hourly-replan', undefined, 'Bearer cron-secret')).toMatchObject({
+      status: 200, body: { ok: true, busy: false, deferred: true, dailyPlan: { deferred: true } },
+    });
     replan.mockResolvedValueOnce({ busy: false, skipped: 'sleep-window' });
     expect(await request('GET', undefined, 'hourly-replan', undefined, 'Bearer cron-secret')).toMatchObject({
       status: 200, body: { ok: true, skipped: 'sleep-window' },
