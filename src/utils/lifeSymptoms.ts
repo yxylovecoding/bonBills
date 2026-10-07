@@ -3,7 +3,8 @@ import { isCalendarDate } from './outlookCalendar.js';
 
 export const EYE_FIELDS = { leftEye: '左眼', rightEye: '右眼' } as const;
 export const DISCOMFORT_FIELDS = { leftSacroiliac: '左骶髂', rightSacroiliac: '右骶髂', lowerBack: '腰' } as const;
-export const SYMPTOM_AREAS = { eye: '眼睛', ...DISCOMFORT_FIELDS } as const;
+export const GENERAL_DISCOMFORT_AREA = 'body' as const;
+export const SYMPTOM_AREAS = { eye: '眼睛', body: '通用身体', ...DISCOMFORT_FIELDS } as const;
 export const SYMPTOM_STATES = { appeared: '出现', ongoing: '持续', improving: '好转', worsening: '加重', resolved: '消失', recorded: '已记录' } as const;
 export const SYMPTOM_TEXT_LIMIT = 500;
 export const SYMPTOM_LIMIT = 30;

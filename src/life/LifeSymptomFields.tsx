@@ -1,4 +1,4 @@
-import { DISCOMFORT_FIELDS, SYMPTOM_AREAS, SYMPTOM_LIMIT, SYMPTOM_STATES, SYMPTOM_TEXT_LIMIT, reusableSymptom, symptomKey,
+import { DISCOMFORT_FIELDS, GENERAL_DISCOMFORT_AREA, SYMPTOM_AREAS, SYMPTOM_LIMIT, SYMPTOM_STATES, SYMPTOM_TEXT_LIMIT, reusableSymptom, symptomKey,
   type SymptomArea, type SymptomHistory, type SymptomKind, type SymptomNames, type SymptomObservation, type SymptomObservations, type SymptomState } from '../utils/lifeSymptoms';
 import { symptomColor } from './symptomColor';
 
@@ -33,11 +33,11 @@ function SymptomAreaFields({ area, value, names, history, date, busy, onChange }
           const next = { ...value }; delete next[key]; onChange(next, names);
         }}>×</button>
       </div>
-      <input aria-label={`${label}·${item.name}备注`} placeholder="当天变化（选填）" maxLength={SYMPTOM_TEXT_LIMIT} value={item.note}
+      <input aria-label={`${label}·${item.name}备注`} placeholder="跟进备注 / 用药（选填）" maxLength={SYMPTOM_TEXT_LIMIT} value={item.note}
         onChange={(event) => change(key, { note: event.target.value })} />
     </div>)}
     <div className="life-symptom-add"><input aria-label={`${label}新症状`} value={name} disabled={full} maxLength={SYMPTOM_TEXT_LIMIT}
-      placeholder={area === 'eye' ? '如：瞳孔周围一圈红血丝' : '添加症状'}
+      placeholder={area === 'eye' ? '如：瞳孔周围一圈红血丝' : area === GENERAL_DISCOMFORT_AREA ? '如：身上痒' : '添加症状'}
       onChange={(event) => onChange(value, { ...names, [area]: event.target.value })}
       onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); add(name, true); } }} />
       <button type="button" disabled={full || !name.trim()} onClick={() => add(name, true)}>添加</button>
@@ -49,7 +49,7 @@ export default function LifeSymptomFields({ kind, value, names, history, date, b
   kind: SymptomKind; value: SymptomObservations; names: SymptomNames; history: SymptomHistory[]; date: string;
   busy: boolean; onChange: (value: SymptomObservations, names: SymptomNames) => void;
 }) {
-  const areas: SymptomArea[] = kind === 'eyes' ? ['eye'] : Object.keys(DISCOMFORT_FIELDS) as SymptomArea[];
+  const areas: SymptomArea[] = kind === 'eyes' ? ['eye'] : [GENERAL_DISCOMFORT_AREA, ...Object.keys(DISCOMFORT_FIELDS)] as SymptomArea[];
   return <div className="life-symptom-fields">{areas.map((area) =>
     <SymptomAreaFields key={area} area={area} value={value} names={names} history={history} date={date} busy={busy} onChange={onChange} />)}</div>;
 }

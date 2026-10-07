@@ -22,6 +22,27 @@ describe('症状复用与跟踪', () => {
       ['leftSacroiliac', '酸胀'], ['rightSacroiliac', '酸胀'], ['lowerBack', '僵硬'],
     ]);
   });
+  it('通用身体症状可结构化保存并跨日期连续跟踪备注和用药', () => {
+    const itchy: SymptomObservation = { area: 'body', name: '身上痒', status: 'appeared', note: '晚饭后出现；氯雷他定 1 片' };
+    const itchyKey = symptomKey(itchy.area, itchy.name);
+    const first = parseLifeEdit({ ...base, kind: 'discomfort', discomfort: { symptoms: { [itchyKey]: itchy } } });
+    expect(first.discomfort?.symptoms?.[itchyKey]).toEqual(itchy);
+    expect(entrySummary('discomfort', first)).toContain('通用身体 · 身上痒 · 出现 · 晚饭后出现；氯雷他定 1 片');
+
+    const history = symptomHistory('discomfort', {
+      'discomfort:2026-10-05': { text: '', revision: 'r1', discomfort: first.discomfort },
+      'discomfort:2026-10-06': { text: '', revision: 'r2', discomfort: { symptoms: {
+        [itchyKey]: { ...itchy, status: 'improving', note: '服药后减轻' },
+      } } },
+    });
+    expect(history[0].points.map(({ date, status, note }) => ({ date, status, note }))).toEqual([
+      { date: '2026-10-06', status: 'improving', note: '服药后减轻' },
+      { date: '2026-10-05', status: 'appeared', note: '晚饭后出现；氯雷他定 1 片' },
+    ]);
+    expect(reusableSymptom('body', '身上痒', '2026-10-07', history)).toEqual({
+      area: 'body', name: '身上痒', status: 'ongoing', note: '',
+    });
+  });
   it('新症状往返保存，清空显式覆盖旧字段且保留备注', () => {
     const saved = parseLifeEdit({ ...base, eyes: { symptoms: { [key]: bloodshot } } });
     expect(saved.eyes?.symptoms?.[key]).toEqual(bloodshot);
@@ -77,6 +98,7 @@ describe('症状复用与跟踪', () => {
   it('未添加的名称可暂存，拒绝无效部位和内容', () => {
     expect(parseSymptomNames({ eye: '干涩' }, 'eyes')).toEqual({ eye: '干涩' });
     expect(parseSymptomNames({ lowerBack: '' }, 'discomfort')).toEqual({ lowerBack: '' });
+    expect(parseSymptomNames({ body: '身上痒' }, 'discomfort')).toEqual({ body: '身上痒' });
     for (const invalid of [null, [], { eye: 1 }, { eye: '字'.repeat(501) }, { leftEye: '干涩' }, { lowerBack: '酸' }]) {
       expect(() => parseSymptomNames(invalid, 'eyes')).toThrow();
     }
