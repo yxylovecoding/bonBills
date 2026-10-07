@@ -11,10 +11,10 @@ const task = (id: string, fields: Partial<TickTickTask> = {}): TickTickTask => (
 const event = (start: number, end: number, title = '课程', day = today) => ({ title, start: at(start, day), end: at(end, day) });
 const calendar = (events: OutlookAvailability['events'] = []): OutlookAvailability => ({ startDate: today, endDate: '2026-11-04', events });
 const free = (overrides: Partial<Parameters<typeof dayAvailability>[0]> = {}) => dayAvailability({ calendar: calendar(), day: today, today,
-  now: new Date(at(9)), tasks: [], fixed: [], completed: [], estimate: estimateTaskMinutes, ...overrides });
+  timezone: 'Asia/Shanghai', now: new Date(at(9)), tasks: [], fixed: [], completed: [], estimate: estimateTaskMinutes, ...overrides });
 const state = (history: TickTickTask[] = []): DailyPlanState => ({ connectionId: 'same', deadlines: {}, history });
 const plan = (tasks: TickTickTask[], overrides: Partial<Parameters<typeof planTickTickDay>[0]> = {}) => planTickTickDay({
-  tasks, calendarState: {}, today, now: new Date(at(9)), state: state(), availability: calendar(), ...overrides });
+  tasks, calendarState: {}, today, timezone: 'Asia/Shanghai', now: new Date(at(9)), state: state(), availability: calendar(), ...overrides });
 
 describe('Outlook 实际空档', () => {
   it('明细区分距午夜、排期时段与日程占用，重叠和进行中的日程只扣一次', () => {
@@ -92,6 +92,18 @@ describe('Outlook 实际空档', () => {
     expect(slotMinutes(slots)).toBe(60);
     expect(occupySlots(slots, 45)).toBe(false);
   });
+  it('时区不同时，日程和空档窗口仍能正确对齐', () => {
+    const londonNow = new Date('2026-10-04T09:00:00Z');
+    const result = dayAvailability({
+      calendar: { startDate: today, endDate: '2026-11-04', events: [
+        { title: 'London Meeting', start: '2026-10-04T10:00:00Z', end: '2026-10-04T11:00:00Z' }
+      ] },
+      day: today, today, timezone: 'UTC', now: londonNow,
+      tasks: [], fixed: [], completed: [], estimate: estimateTaskMinutes
+    });
+    expect(result.totalMinutes).toBe(420);
+    expect(result.remainingMinutes).toBe(420);
+  });
 });
 
 describe('根据日历安排普通待办', () => {
@@ -165,5 +177,14 @@ describe('根据日历安排普通待办', () => {
     expect(plan([task('new')], { state: state(history) }).summary.todayCount).toBe(0);
     expect(plan(Array.from({ length: 10 }, (_, i) => task(String(i))), { budgetMinutes: 30 }).summary.plannedMinutes).toBe(30);
     expect(() => plan([task('new')], { availability: { ...calendar(), endDate: today } })).toThrow('范围不足');
+  });
+  it('未匹配到任务的 Outlook 日程会正确扣减每日上限额度', () => {
+    const pool = [task('task', { content: '(30m)' })];
+    const result = plan(pool, {
+      availability: calendar([{ title: 'Meeting', start: at(9), end: at(10) }]),
+      budgetMinutes: 60
+    });
+    expect(result.summary.todayCount).toBe(0);
+    expect(result.summary.availableMinutes).toBe(0);
   });
 });

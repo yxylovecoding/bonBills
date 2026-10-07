@@ -189,13 +189,13 @@ export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind
 }
 
 export async function readOutlookSnapshot(input: OutlookConnectionInput, startDate: string, endDate: string,
-  availabilityRange?: { startDate: string; endDate: string }) {
+  availabilityRange?: { startDate: string; endDate: string }, timezone?: string) {
   const sources = [{ calendar: 'play' as const, url: input.playUrl }, { calendar: 'class' as const, url: input.classUrl }].filter((item) => item.url);
   const events = await Promise.all(sources.map(async ({ calendar, url }) => {
     try {
       const text = await fetchCalendar(url);
-      return { days: parseOutlookCalendar(text, calendar, startDate, endDate), timed: availabilityRange
-        ? parseOutlookCalendar(text, calendar, availabilityRange.startDate, availabilityRange.endDate, false, true).filter((event) => !event.allDay) : [] };
+      return { days: parseOutlookCalendar(text, calendar, startDate, endDate, false, false, { timezone }), timed: availabilityRange
+        ? parseOutlookCalendar(text, calendar, availabilityRange.startDate, availabilityRange.endDate, false, true, { timezone }).filter((event) => !event.allDay) : [] };
     } catch {
       // Never forward upstream errors: they can contain the private subscription URL.
       throw new Error(`「${calendar === 'play' ? '玩' : '课'}」日历读取失败，请检查订阅链接与共享范围`);

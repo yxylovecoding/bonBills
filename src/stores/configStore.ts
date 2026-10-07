@@ -40,6 +40,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   futureFireExpenses: [],
   majorFireWishes: [],
   wishes: [],
+  shoppingList: [],
   wishInternSavingRecords: [],
   wishDeadlineMilestones: DEFAULT_WISH_DEADLINE_MILESTONES,
   majorExpenseThreshold: 500,

@@ -52,13 +52,14 @@ export async function replanRemainingToday(options: { scheduled?: boolean } = {}
     const token = decryptTickTickToken(connection.encryptedToken, secret);
     const connectionId = createHash('sha256').update(token).digest('hex');
     const api = new TickTickOpenApiClient(token, (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
-    const [tasks, saved, settings, calendar, outlook, trips, template] = await Promise.all([
+    const [sourceTasks, saved, settings, calendar, outlook, trips, template] = await Promise.all([
       readAllTickTickTasks(api, [0]), kv.get<DailyPlanState>(DAILY_PLAN_KEY),
       kv.get<{ budgetMinutes?: number | null; availabilityProfile?: string }>(DAILY_PLAN_SETTINGS_KEY),
       kv.get<Record<string, unknown>>('calendar-tags'), kv.get<OutlookConnection>(OUTLOOK_CONNECTION_KEY),
       kv.get<TickTickTripSyncState>('ticktick:trip-sync:v1'), readConnectedTickTickTemplate(api, connection),
     ]);
-    const timedTasks = await syncTimedTaskVisibility(api, { tasks });
+    const timedTasks = await syncTimedTaskVisibility(api, { tasks: sourceTasks, timeZone: connection.timeZone });
+    const tasks = await readAllTickTickTasks(api, [0]);
     const state: DailyPlanState = saved?.connectionId === connectionId
       ? structuredClone(saved) : { connectionId, history: [], deadlines: {} };
     const today = calendarDateInTimeZone(new Date().toISOString())!;
@@ -66,7 +67,7 @@ export async function replanRemainingToday(options: { scheduled?: boolean } = {}
     const end = new Date(Date.parse(`${today}T00:00:00Z`) + 31 * 86_400_000).toISOString().slice(0, 10);
     const input = outlook ? decryptOutlookConnection(outlook.encrypted, secret) : null;
     const [snapshot] = await Promise.all([
-      input ? readOutlookSnapshot(input, today, end, { startDate: today, endDate: end }) : undefined,
+      input ? readOutlookSnapshot(input, today, end, { startDate: today, endDate: end }, connection.timeZone) : undefined,
       refreshDailyHistory(api, tasks, state),
     ]);
     const now = new Date();
@@ -86,6 +87,7 @@ export async function replanRemainingToday(options: { scheduled?: boolean } = {}
       return eligible(task, horizon);
     }).map(task => [task.id, task]));
     const plan = planTickTickDay({ tasks: tasks.filter(pending), calendarState, today, state, now,
+      timezone: connection.timeZone,
       availability: snapshot?.availability, budgetMinutes: settings?.budgetMinutes,
       availabilityProfile: availabilityProfile(settings?.availabilityProfile), excludedTaskIds: excluded,
       movableTaskIds: new Set(allowed.keys()) });

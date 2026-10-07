@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { kv } from './_accountKv.js';
 import { calendarDateInTimeZone, readAllTickTickTasks, type TickTickApi, type TickTickTask } from './_ticktickTrips.js';
 import { hairWashHidden, isHairWashTask, isReadingTask, nightRoutineHidden, readingHidden,
-  syncHairWashVisibility, syncReadingVisibility, writeRoutineTag } from './_ticktickNightRoutine.js';
+  syncHairWashVisibility, syncReadingVisibility, timedTaskHidden, writeRoutineTag } from './_ticktickNightRoutine.js';
 
 const normalize = (value: string) => value.normalize('NFKC').trim().toLowerCase();
 const hasRoutine = (task: TickTickTask) => (task.tags ?? []).some(tag => normalize(tag) === 'routine');
@@ -105,7 +105,7 @@ export async function syncSleepRoutineTags(api: TickTickApi, options: {
       if (task?.id !== id) throw new Error('临时标签任务读取失败');
       // Specific evening visibility rules take ownership again in the morning.
       if (hasRoutine(task) && nightRoutineHidden(task, options.now) !== true && hairWashHidden(task, options.now) !== true
-        && readingHidden(task, options.now) !== true) {
+        && readingHidden(task, options.now) !== true && timedTaskHidden(task, options.now) !== true) {
         entry.phase = 'restoring';
         await save();
         // Merge with current tags, preserving tags added by the user overnight.

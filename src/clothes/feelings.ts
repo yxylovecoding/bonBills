@@ -1,4 +1,4 @@
-import { DAY_PERIODS, type ClothesDayContext, type DayPeriod, type PeriodFeeling, type WearRecord } from './types.js';
+import { DAY_PERIODS, type ClothesDayContext, type DayPeriod, type PeriodFeeling, type WearRecord, type WeatherSnapshot } from './types.js';
 
 export function timePeriod(time: string): DayPeriod {
   const hour = Number(time.slice(0, 2));
@@ -6,6 +6,10 @@ export function timePeriod(time: string): DayPeriod {
 }
 export function blankFeeling(context: ClothesDayContext): PeriodFeeling {
   return { indoor: null, outdoor: null, indoorTemperature: context.indoorTemperature ?? null, outdoorTemperature: context.manualWeather?.temperature ?? null };
+}
+export function outdoorTemperatureForPeriod(context: ClothesDayContext, weather: WeatherSnapshot | null, period: DayPeriod, snapshotTime: string | null) {
+  return context.manualWeather?.temperature ?? weather?.periodTemperatures?.[period]
+    ?? (snapshotTime && period === timePeriod(snapshotTime) ? weather?.temperature ?? null : null);
 }
 export function recordFeelings(record: WearRecord) {
   if (record.feelings) return record.feelings;

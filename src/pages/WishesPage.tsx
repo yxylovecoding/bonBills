@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import AmountInput from '../components/AmountInput';
 import Card from '../components/Card';
 import { formatCurrency } from '../components/CurrencyDisplay';
@@ -7,6 +8,7 @@ import WishCompactCalendar from '../components/WishCompactCalendar';
 import WishSpendingSummary from '../components/WishSpendingSummary';
 import WishDebtSummary from '../components/WishDebtSummary';
 import WishActualAmount from '../components/WishActualAmount';
+import ShoppingList from '../components/ShoppingList';
 import { calcHistoryStats } from '../calculations/history';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useCalendarStore } from '../stores/calendarStore';
@@ -134,6 +136,15 @@ export default function WishesPage() {
   const [selectedSegmentDays, setSelectedSegmentDays] = useState<Record<string, number>>({});
   const [deadlineSettingsOpen, setDeadlineSettingsOpen] = useState(false);
   const [planningDetail, setPlanningDetail] = useState<PlanningDetailKind | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeView = searchParams.get('view') === 'shopping' ? 'shopping' : 'wishes';
+  const setActiveView = (view: 'wishes' | 'shopping') => {
+    if (view === 'shopping') setSearchParams({ view: 'shopping' }, { replace: true });
+    else {
+      searchParams.delete('view');
+      setSearchParams(searchParams, { replace: true });
+    }
+  };
   const wishListScrollRef = useRef<HTMLDivElement>(null);
   const mobileSummaryRef = useRef<HTMLElement>(null);
   const planningDetailRef = useRef<HTMLDialogElement>(null);
@@ -810,6 +821,16 @@ export default function WishesPage() {
     </div>
   );
 
+  if (activeView === 'shopping') {
+    return (
+      <ShoppingList
+        items={config.shoppingList ?? []}
+        onChange={(shoppingList) => setConfig({ shoppingList })}
+        onBack={() => setActiveView('wishes')}
+      />
+    );
+  }
+
   return (
     <div className="wishes-page-shell">
       <dialog
@@ -850,12 +871,19 @@ export default function WishesPage() {
         activeRangeLabel={activeTimelineTrip ? '当前心愿关联行程' : '当前心愿截止日'}
       />
       <div className="wishes-page-content">
-      <div className="wishes-page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, marginBottom: 16 }}>
+      <div className="wishes-page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 2px' }}>心愿</h1>
           <p style={{ fontSize: 13, color: C.sub, margin: 0 }}>把想要的，变成每个月做得到的</p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <button
+            type="button"
+            onClick={() => setActiveView('shopping')}
+            style={{ border: '1px solid #ddd6fe', borderRadius: 999, backgroundColor: '#fff', color: C.purple, fontSize: 12, fontWeight: 700, padding: '7px 11px', cursor: 'pointer' }}
+          >
+            🛒 购物清单
+          </button>
           <button
             type="button"
             aria-expanded={deadlineSettingsOpen}
