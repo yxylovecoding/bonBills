@@ -9,6 +9,7 @@ import { isExerciseTask } from './_ticktickExercise.js';
 import { isLaundryTask } from './_ticktickLaundry.js';
 import { acquireTickTickLock, releaseTickTickLock } from './_ticktickLock.js';
 import { sleepTagStateKey, sleepWindow, type SleepTagJournal } from './_ticktickSleepTags.js';
+import { syncTimedTaskVisibility } from './_ticktickNightRoutine.js';
 import { calendarDateInTimeZone, decryptTickTickToken, getTickTickRoutineExcludedTaskIds, readAllTickTickTasks,
   readConnectedTickTickTemplate, routineRecurrence, routineTaskDate, shiftTickTickDate, TickTickOpenApiClient,
   type TickTickTask, type TickTickConnection, type TickTickTripSyncState } from './_ticktickTrips.js';
@@ -57,6 +58,7 @@ export async function replanRemainingToday(options: { scheduled?: boolean } = {}
       kv.get<Record<string, unknown>>('calendar-tags'), kv.get<OutlookConnection>(OUTLOOK_CONNECTION_KEY),
       kv.get<TickTickTripSyncState>('ticktick:trip-sync:v1'), readConnectedTickTickTemplate(api, connection),
     ]);
+    const timedTasks = await syncTimedTaskVisibility(api, { tasks });
     const state: DailyPlanState = saved?.connectionId === connectionId
       ? structuredClone(saved) : { connectionId, history: [], deadlines: {} };
     const today = calendarDateInTimeZone(new Date().toISOString())!;
@@ -125,7 +127,7 @@ export async function replanRemainingToday(options: { scheduled?: boolean } = {}
       }
     }
     await kv.set(DAILY_PLAN_KEY, state);
-    return { busy: false as const, dailyPlan: plan.summary, details: state.briefing, updated: changes.length };
+    return { busy: false as const, dailyPlan: plan.summary, details: state.briefing, updated: changes.length, timedTasks };
   } finally {
     await releaseTickTickLock(lock);
   }

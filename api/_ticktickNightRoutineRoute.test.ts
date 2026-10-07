@@ -2,12 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from './ticktick-trips';
 
-const { auth, lock, release, sync, hair, daily, exercise, data, outlook, archive } = vi.hoisted(() => ({ auth: vi.fn(), lock: vi.fn(), release: vi.fn(),
-  sync: vi.fn(), hair: vi.fn(), daily: vi.fn(), exercise: vi.fn(), data: new Map<string, unknown>(), outlook: vi.fn(), archive: vi.fn() }));
+const { auth, lock, release, sync, timed, hair, daily, exercise, data, outlook, archive } = vi.hoisted(() => ({ auth: vi.fn(), lock: vi.fn(), release: vi.fn(),
+  sync: vi.fn(), timed: vi.fn(), hair: vi.fn(), daily: vi.fn(), exercise: vi.fn(), data: new Map<string, unknown>(), outlook: vi.fn(), archive: vi.fn() }));
 vi.mock('./_auth.js', () => ({ authOk: auth }));
 vi.mock('./_ticktickLock.js', () => ({ acquireTickTickLock: lock, releaseTickTickLock: release }));
 vi.mock('@vercel/kv', () => ({ kv: { get: async (key: string) => data.get(key) } }));
-vi.mock('./_ticktickNightRoutine.js', () => ({ syncNightRoutineVisibility: sync, syncHairWashVisibility: hair,
+vi.mock('./_ticktickNightRoutine.js', () => ({ syncNightRoutineVisibility: sync, syncTimedTaskVisibility: timed,
+  syncHairWashVisibility: hair,
   syncReadingVisibility: vi.fn(async () => ({ matched: 1, updated: 1, visible: 1, hidden: 0, skipped: 0 })) }));
 vi.mock('./_ticktickSleepTags.js', () => ({ syncSleepRoutineTags: daily }));
 vi.mock('./_ticktickExercise.js', () => ({ syncExerciseSchedule: exercise }));
@@ -26,6 +27,7 @@ async function request(method = 'GET', authorization?: string, action = 'night-r
 beforeEach(() => {
   vi.clearAllMocks(); data.clear(); vi.stubEnv('CRON_SECRET', 'cron-secret'); auth.mockResolvedValue(false);
   lock.mockResolvedValue('lock'); sync.mockResolvedValue({ matched: 1, updated: 1, visible: 1, hidden: 0, skipped: 0 });
+  timed.mockResolvedValue({ matched: 2, updated: 1, visible: 1, hidden: 1, skipped: 0 });
   exercise.mockResolvedValue({ updated: 1, minimumDates: new Map() });
   daily.mockResolvedValue({ mode: 'restore', updated: 1, remaining: 0, complete: true });
   hair.mockResolvedValue({ matched: 1, updated: 1, visible: 1, hidden: 0, skipped: 0 });
@@ -43,7 +45,7 @@ describe('夜间显隐轻量入口', () => {
     expect(outlook).not.toHaveBeenCalled(); expect(archive).not.toHaveBeenCalled();
     expect(release).toHaveBeenCalledWith('lock');
   });
-  it.each(['night-routine', 'daily-routine', 'routine-visibility', 'hair-wash', 'reading-visibility'])('%s 普通 GET 无副作用，仅认证 POST 能手动执行', async (action) => {
+  it.each(['night-routine', 'daily-routine', 'routine-visibility', 'hair-wash', 'reading-visibility', 'timed-visibility'])('%s 普通 GET 无副作用，仅认证 POST 能手动执行', async (action) => {
     expect((await request('GET', undefined, action)).status).toBe(401);
     expect((await request('POST', 'Bearer wrong', action)).status).toBe(401);
     auth.mockResolvedValue(true);
@@ -58,6 +60,12 @@ describe('夜间显隐轻量入口', () => {
     expect(hair).toHaveBeenCalledOnce(); expect(release).toHaveBeenCalledOnce();
     expect(daily).not.toHaveBeenCalled(); expect(sync).not.toHaveBeenCalled(); expect(exercise).not.toHaveBeenCalled();
     expect(outlook).not.toHaveBeenCalled(); expect(archive).not.toHaveBeenCalled();
+  });
+  it('定时任务入口只同步具体时间的任务', async () => {
+    expect(await request('GET', 'Bearer cron-secret', 'timed-visibility')).toMatchObject({ status: 200,
+      body: { timedTasks: { matched: 2, updated: 1 } } });
+    expect(timed).toHaveBeenCalledOnce(); expect(release).toHaveBeenCalledOnce();
+    expect(daily).not.toHaveBeenCalled(); expect(sync).not.toHaveBeenCalled(); expect(exercise).not.toHaveBeenCalled();
   });
   it('零点入口只切换日常任务；五点入口在同一把锁内处理两种 routine 和运动', async () => {
     expect(await request('GET', 'Bearer cron-secret', 'daily-routine')).toMatchObject({ status: 200, body: { sleepTags: { updated: 1, complete: true } } });

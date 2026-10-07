@@ -123,7 +123,7 @@ describe('重排剩余今日事并从明日补入', () => {
     expect(result.details!.selected.find(t => t.id === 'tomorrow')!.reasons).toContain('从明日事补入');
     expect(mocks.broadSync).not.toHaveBeenCalled();
   });
-  it('明日补入按最久未完成排序，未选中、场景不符及超出清单范围的任务保留原日期', async () => {
+  it('明日补入按最久未完成排序，定时任务只更新显隐，其他未选中任务保留原日期', async () => {
     const tomorrow = { dueDate: '2026-10-06T00:00:00+0800' };
     mocks.tasks = [task('newer', tomorrow), task('older', tomorrow), task('too-long', { ...tomorrow, content: '(1h1m)' }),
       task('wrong-scene', { ...tomorrow, tags: ['寄'] }), task('later', { dueDate: '2026-11-05T00:00:00+0800' }),
@@ -135,9 +135,11 @@ describe('重排剩余今日事并从明日补入', () => {
       task('already-done-today', { status: 2, completedTime: `${day}T12:00:00+08:00` })];
     const before = structuredClone(mocks.tasks);
     const result = await replanRemainingToday();
-    expect(result).toMatchObject({ updated: 1, dailyPlan: { todayCount: 1, plannedMinutes: 15 } });
-    expect(mocks.update.mock.calls.map(([id]) => id)).toEqual(['older']);
-    expect(mocks.tasks.filter(t => t.id !== 'older')).toEqual(before.filter(t => t.id !== 'older'));
+    expect(result).toMatchObject({ updated: 1, timedTasks: { matched: 1, updated: 1, hidden: 1 },
+      dailyPlan: { todayCount: 1, plannedMinutes: 15 } });
+    expect(mocks.update.mock.calls.map(([id]) => id)).toEqual(['timed', 'older']);
+    expect(mocks.tasks.find(t => t.id === 'timed')).toEqual({ ...before.find(t => t.id === 'timed')!, tags: ['routine'] });
+    expect(mocks.tasks.filter(t => !['older', 'timed'].includes(t.id))).toEqual(before.filter(t => !['older', 'timed'].includes(t.id)));
   });
   it('按智能清单范围补入无日期和未来30天任务，未选中的无日期任务保持不变', async () => {
     vi.setSystemTime(new Date(`${day}T21:30:00+08:00`));

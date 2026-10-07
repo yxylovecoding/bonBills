@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { hairWashHidden, nightRoutineHidden, readingHidden, syncHairWashVisibility, syncNightRoutineVisibility,
-  syncReadingVisibility } from './_ticktickNightRoutine';
+  syncReadingVisibility, syncTimedTaskVisibility, timedTaskHidden } from './_ticktickNightRoutine';
 import type { TickTickApi, TickTickTask } from './_ticktickTrips';
 
 const task = (fields: Partial<TickTickTask> = {}): TickTickTask => ({ id: 'night', projectId: 'inbox-real', title: '夜间routine ',
@@ -112,6 +112,29 @@ describe('夜间 routine 标签同步', () => {
     await expect(syncNightRoutineVisibility(api)).rejects.toThrow('offline');
     api.getTask.mockResolvedValue(task());
     await expect(syncNightRoutineVisibility(api, { tasks: [task()], now: at('22:00:00') })).rejects.toThrow('未保存');
+  });
+});
+
+describe('所有定时任务按开始时间显隐', () => {
+  const timed = task({ id: 'timed', title: '普通定时任务', tags: ['居'], priority: 3,
+    startDate: '2026-10-04T20:30:00+08:00', dueDate: '2026-10-04T21:00:00+08:00' });
+  it('开始前隐藏，到点显示；未来日期仍隐藏', () => {
+    expect(timedTaskHidden(timed, at('20:29:59'))).toBe(true);
+    expect(timedTaskHidden(timed, at('20:30:00'))).toBe(false);
+    expect(timedTaskHidden({ ...timed, startDate: '2026-10-05T08:00:00+08:00' }, at('23:00:00'))).toBe(true);
+  });
+  it('全天、无具体时间、已完成和错误时间不处理，缺少开始时间时使用截止时间', () => {
+    expect(timedTaskHidden({ ...timed, startDate: undefined, dueDate: '2026-10-04T20:30:00+08:00' }, at('20:29:59'))).toBe(true);
+    for (const fields of [{ isAllDay: true }, { startDate: undefined, dueDate: undefined }, { status: 2 },
+      { startDate: 'bad', dueDate: undefined }]) expect(timedTaskHidden({ ...timed, ...fields }, at('20:00:00'))).toBeNull();
+  });
+  it('同步所有定时任务，保留原字段且重复执行不重复写', async () => {
+    const { api, current } = client(timed);
+    expect(await syncTimedTaskVisibility(api, { now: at('20:00:00') })).toMatchObject({ updated: 1, hidden: 1 });
+    expect(current()).toEqual({ ...timed, tags: ['居', 'routine'] });
+    expect(await syncTimedTaskVisibility(api, { now: at('20:10:00') })).toMatchObject({ updated: 0, hidden: 1 });
+    expect(await syncTimedTaskVisibility(api, { now: at('20:30:00') })).toMatchObject({ updated: 1, visible: 1 });
+    expect(current()).toEqual(timed);
   });
 });
 

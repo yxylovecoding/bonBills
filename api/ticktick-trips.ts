@@ -11,7 +11,7 @@ import { availabilityProfile } from './_dailyAvailability.js';
 import type { OutlookAvailability } from '../src/utils/outlookCalendar.js';
 import { acquireTickTickLock, releaseTickTickLock } from './_ticktickLock.js';
 import { syncSwimmingSchedule } from './_lifeSwimming.js';
-import { syncHairWashVisibility, syncNightRoutineVisibility, syncReadingVisibility } from './_ticktickNightRoutine.js';
+import { syncHairWashVisibility, syncNightRoutineVisibility, syncReadingVisibility, syncTimedTaskVisibility } from './_ticktickNightRoutine.js';
 import { syncSleepRoutineTags } from './_ticktickSleepTags.js';
 import { syncExerciseSchedule } from './_ticktickExercise.js';
 import { syncLaundrySchedule } from './_ticktickLaundry.js';
@@ -179,7 +179,7 @@ async function runSync(allowDisconnected = false) {
   }
 }
 
-async function runRoutineVisibilitySync(kind: 'night' | 'daily' | 'all' | 'hair' | 'reading') {
+async function runRoutineVisibilitySync(kind: 'night' | 'daily' | 'all' | 'hair' | 'reading' | 'timed') {
   const lockId = await acquireTickTickLock();
   if (!lockId) return { busy: true as const };
   try {
@@ -190,6 +190,7 @@ async function runRoutineVisibilitySync(kind: 'night' | 'daily' | 'all' | 'hair'
     const api = new TickTickOpenApiClient(token,
       (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
     if (kind === 'reading') return { busy: false as const, connected: true as const, reading: await syncReadingVisibility(api) };
+    if (kind === 'timed') return { busy: false as const, connected: true as const, timedTasks: await syncTimedTaskVisibility(api) };
     if (kind === 'hair') return { busy: false as const, connected: true as const,
       hairWash: await syncHairWashVisibility(api), reading: await syncReadingVisibility(api) };
     const sleepTags = kind !== 'night' ? await syncSleepRoutineTags(api, { projectId: connection.projectId }) : undefined;
@@ -331,9 +332,11 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ ok: true, ...await syncRecentLifePeriods() });
     }
     if (req.query?.action === 'night-routine' || req.query?.action === 'daily-routine'
-      || req.query?.action === 'routine-visibility' || req.query?.action === 'hair-wash' || req.query?.action === 'reading-visibility') {
+      || req.query?.action === 'routine-visibility' || req.query?.action === 'hair-wash'
+      || req.query?.action === 'reading-visibility' || req.query?.action === 'timed-visibility') {
       if (!isCron && req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
       const result = await runRoutineVisibilitySync(req.query.action === 'reading-visibility' ? 'reading'
+        : req.query.action === 'timed-visibility' ? 'timed'
         : req.query.action === 'hair-wash' ? 'hair'
         : req.query.action === 'daily-routine' ? 'daily'
         : req.query.action === 'night-routine' ? 'night' : 'all');

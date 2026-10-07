@@ -61,6 +61,19 @@ export function syncNightRoutineVisibility(api: TickTickApi, options: Visibility
     task => nightRoutineHidden(task, options.now ?? new Date(), options.timeZone), 5);
 }
 
+export function timedTaskHidden(task: TickTickTask, now = new Date()): boolean | null {
+  if ((task.status ?? 0) !== 0 || task.isAllDay !== false) return null;
+  const scheduled = Date.parse(task.startDate ?? task.dueDate ?? '');
+  if (!Number.isFinite(scheduled)) return null;
+  return now.getTime() < scheduled;
+}
+
+export function syncTimedTaskVisibility(api: TickTickApi, options: VisibilityOptions = {}) {
+  return syncRoutineVisibility(api, options,
+    task => task.isAllDay === false && Boolean(task.startDate || task.dueDate),
+    task => timedTaskHidden(task, options.now ?? new Date()));
+}
+
 async function syncRoutineVisibility(api: TickTickApi, options: VisibilityOptions,
   matches: (task: TickTickTask) => boolean, hiddenFor: (task: TickTickTask) => boolean | null, priorityOverride?: number) {
   let tasks = options.tasks;
