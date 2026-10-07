@@ -9,6 +9,7 @@ interface Reply {
   connected?: boolean;
   snapshot?: OutlookSnapshot;
   policy?: OutlookConflictPolicy;
+  sources?: { name: string; kind: 'play' | 'class' | 'calendar' | 'work'; hasUrl: boolean }[];
 }
 
 function monthRange(yearMonth: string) {
@@ -24,6 +25,7 @@ export function useOutlookCalendarSync(yearMonth: string, enabled: boolean) {
   const [editing, setEditing] = useState(false);
   const [playUrl, setPlayUrl] = useState('');
   const [classUrl, setClassUrl] = useState('');
+  const [sources, setSources] = useState<{ name: string; url: string; kind: 'play' | 'class' | 'calendar' | 'work' }[]>([]);
   const [policy, setPolicy] = useState<OutlookConflictPolicy>('manual');
   const [preview, setPreview] = useState<OutlookSnapshot | null>(null);
   const [message, setMessage] = useState('');
@@ -75,7 +77,11 @@ export function useOutlookCalendarSync(yearMonth: string, enabled: boolean) {
         setConnected(Boolean(status.connected));
         setLoaded(true);
         setMessage('');
-        if (!status.connected) return;
+        if (!status.connected) {
+          setSources([]);
+          return;
+        }
+        setSources(status.sources?.map((s) => ({ ...s, url: '' })) ?? []);
         setBusy(true);
         const reply = await request('POST', monthRange(yearMonth), abort.signal);
         if (!active || id !== requestId.current) return;
@@ -114,7 +120,7 @@ export function useOutlookCalendarSync(yearMonth: string, enabled: boolean) {
     setBusy(true);
     setMessage('');
     try {
-      const input = { ...range, playUrl, classUrl, policy, rules: DEFAULT_OUTLOOK_RULES };
+      const input = { ...range, playUrl, classUrl, sources, policy, rules: DEFAULT_OUTLOOK_RULES };
       const reply = await request(action === 'disconnect' ? 'DELETE' : action === 'connect' ? 'PUT' : 'POST',
         action === 'disconnect' ? undefined : action === 'preview' ? { ...input, action: 'preview' }
           : action === 'connect' ? input : range, abort.signal);
@@ -133,6 +139,7 @@ export function useOutlookCalendarSync(yearMonth: string, enabled: boolean) {
         setPreview(null);
         setPlayUrl('');
         setClassUrl('');
+        setSources([]);
       }
     } catch (error) {
       if (id === requestId.current) setMessage(error instanceof Error ? error.message : 'Outlook 同步失败');
@@ -147,7 +154,7 @@ export function useOutlookCalendarSync(yearMonth: string, enabled: boolean) {
 
   return {
     yearMonth, connected, loaded, busy, editing, setEditing,
-    playUrl, setPlayUrl, classUrl, setClassUrl, policy, setPolicy,
+    playUrl, setPlayUrl, classUrl, setClassUrl, sources, setSources, policy, setPolicy,
     preview, setPreview, message, syncedAt, projected, changes, run,
   };
 }

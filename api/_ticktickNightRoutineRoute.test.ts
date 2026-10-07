@@ -41,7 +41,7 @@ describe('夜间显隐轻量入口', () => {
     expect(result).toMatchObject({ status: 200, body: { ok: true, connected: true, nightRoutine: { updated: 1 }, exercise: { updated: 1 } } });
     expect(exercise).toHaveBeenCalledOnce();
     expect(daily).not.toHaveBeenCalled();
-    expect(sync).toHaveBeenCalledWith(expect.anything(), { timeZone: 'Asia/Shanghai' });
+    expect(sync).toHaveBeenCalledWith(expect.anything(), { timeZone: 'Asia/Shanghai', projectId: 'life' });
     expect(outlook).not.toHaveBeenCalled(); expect(archive).not.toHaveBeenCalled();
     expect(release).toHaveBeenCalledWith('lock');
   });

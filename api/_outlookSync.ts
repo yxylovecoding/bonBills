@@ -108,7 +108,7 @@ export async function saveUploadedCalendarState(value: unknown) {
 }
 
 export function outlookSyncError(error: unknown): string {
-  return error instanceof Error && /^(「[玩课]」日历读取失败|连接已变更，请重新同步|日历已更新，请重新同步|日历正在同步，请稍后重试)/.test(error.message)
+  return error instanceof Error && /^(「.+」日历读取失败|连接已变更，请重新同步|日历已更新，请重新同步|日历正在同步，请稍后重试)/.test(error.message)
     ? error.message : 'Outlook 暂不可用，请稍后重试';
 }
 

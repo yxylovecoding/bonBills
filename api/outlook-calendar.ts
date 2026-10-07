@@ -25,7 +25,8 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       if (!connection) return res.status(200).json({ connected: false });
       const input = decryptOutlookConnection(connection.encrypted, secret);
       return res.status(200).json({ connected: true, connectionId: connection.id, policy: input.policy, rules: input.rules,
-        calendars: { play: Boolean(input.playUrl), class: Boolean(input.classUrl) } });
+        calendars: { play: Boolean(input.playUrl), class: Boolean(input.classUrl) },
+        sources: input.sources.map((s) => ({ name: s.name, kind: s.kind, hasUrl: true })) });
     }
     let body;
     try {

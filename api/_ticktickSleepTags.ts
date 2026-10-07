@@ -2,7 +2,10 @@ import { createHash } from 'node:crypto';
 import { kv } from './_accountKv.js';
 import { calendarDateInTimeZone, readAllTickTickTasks, type TickTickApi, type TickTickTask } from './_ticktickTrips.js';
 import { hairWashHidden, isHairWashTask, isReadingTask, nightRoutineHidden, readingHidden,
-  syncHairWashVisibility, syncReadingVisibility, timedTaskHidden, writeRoutineTag } from './_ticktickNightRoutine.js';
+  sleepTagStateKey, syncHairWashVisibility, syncReadingVisibility, timedTaskHidden, writeRoutineTag,
+  type RoutineTagEntry as SleepTagEntry, type RoutineTagJournal as SleepTagJournal } from './_ticktickNightRoutine.js';
+
+export { sleepTagStateKey, type SleepTagEntry, type SleepTagJournal };
 
 const normalize = (value: string) => value.normalize('NFKC').trim().toLowerCase();
 const hasRoutine = (task: TickTickTask) => (task.tags ?? []).some(tag => normalize(tag) === 'routine');
@@ -29,15 +32,6 @@ export function inSleepFilterScope(task: TickTickTask, today: string) {
   return [0, 1, 3].includes(priority) && !tags.includes('不关我事') && (!date || date <= addDays(today, 30));
 }
 
-export interface SleepTagEntry {
-  projectId: string;
-  addedOn: string;
-  phase: 'adding' | 'added' | 'restoring';
-}
-export type SleepTagJournal = Record<string, SleepTagEntry>;
-// The connected project is globally unique and remains stable across token refreshes.
-export const sleepTagStateKey = (projectId: string) => `ticktick:sleep-tags:v1:${createHash('sha256').update(projectId).digest('hex')}`;
-
 // Caller holds the shared TickTick write lock. No TTL: an interrupted morning
 // must retain ownership until every temporary tag has actually been restored.
 export async function syncSleepRoutineTags(api: TickTickApi, options: {
@@ -62,10 +56,10 @@ export async function syncSleepRoutineTags(api: TickTickApi, options: {
   if (mode === 'hide') {
     const tasks = await readAllTickTickTasks(api, [0]);
     // Reading stays visible across midnight and owns its routine tag until 05:00.
-    await syncReadingVisibility(api, { tasks, now: options.now });
+    await syncReadingVisibility(api, { tasks, now: options.now, projectId: options.projectId });
     // Reuse midnight to hide washing until 20:00, including future occurrences
     // outside the four smart filters. It owns this tag until the evening.
-    await syncHairWashVisibility(api, { tasks: tasks.filter(task => !hasRoutine(task)), now: options.now });
+    await syncHairWashVisibility(api, { tasks: tasks.filter(task => !hasRoutine(task)), now: options.now, projectId: options.projectId });
     const candidates = tasks.filter(task => !isHairWashTask(task) && inSleepFilterScope(task, window.day));
     let processed = 0;
     for (const candidate of candidates) {
@@ -86,7 +80,7 @@ export async function syncSleepRoutineTags(api: TickTickApi, options: {
   } else {
     // Run even with an empty journal: recurring reading tasks need the daytime
     // tag every morning, independently of whether midnight masked other tasks.
-    await syncReadingVisibility(api, { now: options.now });
+    await syncReadingVisibility(api, { now: options.now, projectId: options.projectId });
     const entries = Object.entries(journal);
     if (!entries.length) return result;
     // Resolve moved tasks by ID; completed tasks can still be fetched from their

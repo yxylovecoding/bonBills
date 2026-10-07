@@ -109,7 +109,10 @@ describe('Outlook 订阅地址和加密', () => {
   it('加密内容不能直接读取链接，错误密钥或篡改后无法解密', () => {
     const encrypted = encryptOutlookConnection(input, 'secret');
     expect(encrypted).not.toContain('private-play');
-    expect(decryptOutlookConnection(encrypted, 'secret')).toEqual(input);
+    expect(decryptOutlookConnection(encrypted, 'secret')).toEqual({ ...input, sources: [
+      { name: '玩', url: playUrl, kind: 'play' },
+      { name: '课', url: classUrl, kind: 'class' },
+    ] });
     expect(() => decryptOutlookConnection(encrypted, 'wrong')).toThrow();
     expect(() => decryptOutlookConnection(encrypted.slice(0, -5) + 'AAAAA', 'secret')).toThrow();
   });

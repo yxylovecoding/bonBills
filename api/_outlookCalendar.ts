@@ -3,9 +3,16 @@ import { wallTimeInstant } from './_calendarTimezone.js';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { buildOutlookSnapshot, isCalendarDate, type OutlookCalendarKind, type OutlookConflictPolicy, type OutlookDayEvent, type OutlookRules } from '../src/utils/outlookCalendar.js';
 
+export interface OutlookSource {
+  name: string;
+  url: string;
+  kind: OutlookCalendarKind;
+}
+
 export interface OutlookConnectionInput {
   playUrl: string;
   classUrl: string;
+  sources: OutlookSource[];
   policy: OutlookConflictPolicy;
   rules: OutlookRules;
 }
@@ -31,8 +38,27 @@ export function parseOutlookInput(body: unknown): OutlookConnectionInput {
   };
   const playUrl = readUrl(input.playUrl);
   const classUrl = readUrl(input.classUrl);
-  if (!playUrl && !classUrl) throw new Error('请至少填写一个日历链接');
-  if (playUrl && playUrl === classUrl) throw new Error('「玩」和「课」需要各自的订阅链接');
+  const rawSources = Array.isArray(input.sources) ? input.sources : [];
+  const sources: OutlookSource[] = [];
+  const add = (name: string, url: string, kind: OutlookCalendarKind) => {
+    if (!url) return;
+    if (sources.some((s) => s.url === url)) throw new Error('订阅链接不能重复');
+    if (sources.some((s) => s.name === name)) throw new Error(`日历名称「${name}」重复`);
+    sources.push({ name, url, kind });
+  };
+  add('玩', playUrl, 'play');
+  add('课', classUrl, 'class');
+  for (const s of rawSources) {
+    const url = readUrl(s?.url);
+    const name = String(s?.name || '').trim();
+    if (!url) continue;
+    if (!name) throw new Error('日历名称无效');
+    const kind = s?.kind === 'class' || s?.kind === 'work' ? s.kind : 'play';
+    const existing = sources.find(source => source.url === url);
+    if (existing && existing.name === name && existing.kind === kind) continue;
+    add(name, url, kind);
+  }
+  if (!sources.length) throw new Error('请至少填写一个日历链接');
   if (input.policy !== 'manual' && input.policy !== 'outlook') throw new Error('同步优先级无效');
   const titles = (value: unknown): string[] => {
     if (!Array.isArray(value) || value.length > 100 || value.some((item) => typeof item !== 'string' || item.length > 200)) {
@@ -40,7 +66,7 @@ export function parseOutlookInput(body: unknown): OutlookConnectionInput {
     }
     return [...new Set(value.map((item: string) => item.trim()).filter(Boolean))];
   };
-  return { playUrl, classUrl, policy: input.policy, rules: {
+  return { playUrl, classUrl, sources, policy: input.policy, rules: {
     homeTitles: titles(input.rules?.homeTitles), ignoredPlayTitles: titles(input.rules?.ignoredPlayTitles),
   } };
 }
@@ -191,19 +217,19 @@ export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind
 
 export async function readOutlookSnapshot(input: OutlookConnectionInput, startDate: string, endDate: string,
   availabilityRange?: { startDate: string; endDate: string }, timezone?: string) {
-  const sources = [{ calendar: 'play' as const, url: input.playUrl }, { calendar: 'class' as const, url: input.classUrl }].filter((item) => item.url);
-  const events = await Promise.all(sources.map(async ({ calendar, url }) => {
+  const sources = input.sources?.length ? input.sources : [
+    { name: '玩', url: input.playUrl, kind: 'play' as const },
+    { name: '课', url: input.classUrl, kind: 'class' as const },
+  ].filter((s) => s.url);
+  const events = await Promise.all(sources.map(async ({ name, kind, url }) => {
     try {
       const text = await fetchCalendar(url);
-      return { days: parseOutlookCalendar(text, calendar, startDate, endDate, false, false, { timezone }), timed: availabilityRange
-        // A personal planning calendar is an explicit reservation source. Outlook's
-        // "Show as: Free" metadata controls attendee free/busy lookup, but must not
-        // silently remove the user's own appointment from task-planning capacity.
-        ? parseOutlookCalendar(text, calendar, availabilityRange.startDate, availabilityRange.endDate, false, true,
+      return { days: parseOutlookCalendar(text, kind, startDate, endDate, false, false, { timezone }), timed: availabilityRange
+        ? parseOutlookCalendar(text, kind, availabilityRange.startDate, availabilityRange.endDate, false, true,
           { timezone, includeFree: true }).filter((event) => !event.allDay) : [] };
     } catch {
       // Never forward upstream errors: they can contain the private subscription URL.
-      throw new Error(`「${calendar === 'play' ? '玩' : '课'}」日历读取失败，请检查订阅链接与共享范围`);
+      throw new Error(`「${name}」日历读取失败，请检查订阅链接与共享范围`);
     }
   }));
   const snapshot = buildOutlookSnapshot(events.flatMap((source) => source.days), startDate, endDate, input.rules);

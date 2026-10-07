@@ -1,6 +1,6 @@
 import type { TagKind } from '../models/types';
 
-export type OutlookCalendarKind = 'play' | 'class';
+export type OutlookCalendarKind = 'play' | 'class' | 'calendar' | 'work';
 export type OutlookTag = Extract<TagKind, 'travel' | 'intern' | 'home'>;
 export type OutlookConflictPolicy = 'manual' | 'outlook';
 
@@ -79,7 +79,8 @@ export function buildOutlookSnapshot(
     if (!event.allDay || event.cancelled) continue;
     const title = event.title.trim();
     if (HOLIDAY_REMINDER_TITLES.has(title)) continue;
-    const tag: OutlookTag | null = event.calendar === 'class'
+    const isClassLike = event.calendar === 'class' || event.calendar === 'work';
+    const tag: OutlookTag | null = isClassLike
       ? (title === '实习' ? 'intern' : 'travel')
       : ignoredTitles.has(title) ? null : homeTitles.has(title) ? 'home' : 'travel';
     if (!tag) continue;

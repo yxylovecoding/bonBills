@@ -86,7 +86,8 @@ describe('临时 routine 标签所有权', () => {
     const c = client(wash);
     await syncSleepRoutineTags(c.api, config('00:00:00'));
     expect(c.tasks.get('wash')).toEqual({ ...wash, tags: ['活', 'routine'] });
-    expect(data.get(key)).toBeUndefined();
+    // Now syncHairWashVisibility adds to the journal
+    expect(data.get(key)).toHaveProperty('wash');
     // A prior version may already have journaled this task as a temporary tag.
     data.set(key, { wash: { projectId: 'life', addedOn: '2026-10-05', phase: 'added' } });
     expect(await syncSleepRoutineTags(c.api, config('05:00:00'))).toMatchObject({ updated: 0, complete: true });

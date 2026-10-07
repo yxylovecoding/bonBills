@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto';
 import { wallTimeInstant } from './_calendarTimezone.js';
+import { kv } from './_accountKv.js';
 import type { TickTickApi, TickTickTask } from './_ticktickTrips.js';
 
 const normalized = (value: string) => value.normalize('NFKC').trim().toLowerCase();
@@ -6,6 +8,15 @@ const isNightRoutine = (task: TickTickTask) => normalized(task.title).replace(/\
 export const isHairWashTask = (task: TickTickTask) => normalized(task.title) === '洗头';
 export const isReadingTask = (task: TickTickTask) => ['阅读', '而阅读📖是另一个🪝'].includes(normalized(task.title));
 const hasRoutine = (task: TickTickTask) => (task.tags ?? []).some(tag => normalized(tag) === 'routine');
+
+export const sleepTagStateKey = (projectId: string) => `ticktick:sleep-tags:v1:${createHash('sha256').update(projectId).digest('hex')}`;
+
+export interface RoutineTagEntry {
+  projectId: string;
+  addedOn: string;
+  phase: 'adding' | 'added' | 'restoring';
+}
+export type RoutineTagJournal = Record<string, RoutineTagEntry>;
 
 function localTime(date: Date, timeZone: string) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit',
@@ -34,6 +45,7 @@ interface VisibilityOptions {
   tasks?: TickTickTask[];
   now?: Date;
   timeZone?: string;
+  projectId?: string;
 }
 
 export function hairWashHidden(task: TickTickTask, now = new Date()): boolean | null {
@@ -94,6 +106,11 @@ async function syncRoutineVisibility(api: TickTickApi, options: VisibilityOption
     const [filtered, inbox] = await Promise.all([api.filterTasks(undefined, [0]), api.getProjectData('inbox')]);
     tasks = [...new Map([...filtered, ...inbox.tasks].map(task => [task.id, task])).values()];
   }
+  const journalKey = options.projectId ? sleepTagStateKey(options.projectId) : null;
+  const journal = journalKey ? await kv.get<RoutineTagJournal>(journalKey) ?? {} : null;
+  const today = options.now ? localTime(options.now, 'Asia/Shanghai').day : localTime(new Date(), 'Asia/Shanghai').day;
+  const save = () => journalKey ? kv.set(journalKey, journal) : Promise.resolve('OK');
+
   const result = { matched: 0, updated: 0, hidden: 0, visible: 0, skipped: 0 };
   for (const candidate of tasks.filter(task => matches(task) && (task.status ?? 0) === 0)) {
     // Re-read only matching tasks, preserving edits and repeat occurrences
@@ -106,9 +123,49 @@ async function syncRoutineVisibility(api: TickTickApi, options: VisibilityOption
     result[hidden ? 'hidden' : 'visible']++;
     // Only the night routine needs high priority for "今天重要之事".
     const priority = priorityOverride ?? task.priority;
-    if (hasRoutine(task) === hidden && task.priority === priority) continue;
-    await writeRoutineTag(api, task, hidden, priority);
-    result.updated++;
+    const hasTag = hasRoutine(task);
+    const owned = journal && journal[task.id];
+    if (hidden) {
+      if (hasTag) {
+        if ((owned || priorityOverride !== undefined) && task.priority !== priority) {
+          await writeRoutineTag(api, task, true, priority);
+          result.updated++;
+        }
+      } else {
+        if (journal && journalKey) {
+          journal[task.id] = { projectId: task.projectId, addedOn: today, phase: 'adding' };
+          await save();
+        }
+        await writeRoutineTag(api, task, true, priority);
+        if (journal && journalKey) {
+          journal[task.id].phase = 'added';
+          await save();
+        }
+        result.updated++;
+      }
+    } else {
+      if (hasTag) {
+        if (owned) {
+          if (journal && journalKey) {
+            journal[task.id].phase = 'restoring';
+            await save();
+          }
+          await writeRoutineTag(api, task, false, priority);
+          if (journal && journalKey) {
+            delete journal[task.id];
+            await save();
+          }
+          result.updated++;
+        } else if (priorityOverride !== undefined && task.priority !== priority) {
+          // Preserve user routine tag but update priority if requested.
+          await writeRoutineTag(api, task, true, priority);
+          result.updated++;
+        }
+      } else if (priorityOverride !== undefined && task.priority !== priority) {
+        await writeRoutineTag(api, task, false, priority);
+        result.updated++;
+      }
+    }
   }
   return result;
 }

@@ -8,7 +8,7 @@ const INPUT: React.CSSProperties = { width: '100%', minWidth: 0, border: '1px so
 export default function OutlookCalendarSyncControl({ sync }: { sync: ReturnType<typeof useOutlookCalendarSync> }) {
   const {
     yearMonth, connected, loaded, busy, editing, setEditing,
-    playUrl, setPlayUrl, classUrl, setClassUrl, policy, setPolicy,
+    playUrl, setPlayUrl, classUrl, setClassUrl, sources, setSources, policy, setPolicy,
     preview, setPreview, message, syncedAt, projected, changes, run,
   } = sync;
 
@@ -33,6 +33,26 @@ export default function OutlookCalendarSyncControl({ sync }: { sync: ReturnType<
           <label style={{ fontSize: 11, color: '#5f6368' }}>课 · ICS
             <input type="password" autoComplete="off" disabled={busy} aria-label="课日历 ICS 链接" value={classUrl} onChange={(event) => { setClassUrl(event.target.value); setPreview(null); }} style={{ ...INPUT, marginTop: 4 }} />
           </label>
+          {sources.map((source, index) => (
+            <label key={index} style={{ fontSize: 11, color: '#5f6368' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>{source.name} · {source.kind === 'class' || source.kind === 'work' ? '课/干' : '玩/日历'} · ICS</span>
+                <button type="button" onClick={() => setSources(sources.filter((_, i) => i !== index))} style={{ ...BUTTON, border: 'none', color: '#ea4335', padding: 0, height: 'auto' }}>删除</button>
+              </div>
+              <input type="password" autoComplete="off" disabled={busy} aria-label={`${source.name} ICS 链接`} value={source.url} onChange={(event) => {
+                const next = [...sources];
+                next[index] = { ...next[index], url: event.target.value };
+                setSources(next);
+                setPreview(null);
+              }} style={{ ...INPUT, marginTop: 4 }} />
+            </label>
+          ))}
+          <button type="button" disabled={busy} onClick={() => {
+            const name = prompt('请输入新日历名称', '日历');
+            if (!name) return;
+            const kind = confirm('是否使用“课/干”规则（识别实习标签）？') ? 'work' : 'calendar';
+            setSources([...sources, { name, url: '', kind }]);
+          }} style={{ ...BUTTON, justifySelf: 'start' }}>+ 新增订阅源</button>
           <label style={{ fontSize: 11, color: '#5f6368' }}>日常标记冲突时
             <select disabled={busy} aria-label="Outlook 同步优先级" value={policy} onChange={(event) => setPolicy(event.target.value as OutlookConflictPolicy)} style={{ ...INPUT, marginTop: 4 }}>
               <option value="manual">保留手动标记</option><option value="outlook">以 Outlook 为准</option>
