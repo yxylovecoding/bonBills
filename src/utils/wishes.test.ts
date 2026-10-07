@@ -81,10 +81,16 @@ describe('本月出游自动创建并关联心愿', () => {
     expect(split[1].deadline).toBe('2027-03-31');
   });
 
-  it('只含无名出游或孤立的标题标签时不创建，行程取消也不删除已有心愿', () => {
+  it('只含无名出游或孤立的标题标签时不创建，行程取消保留手动心愿', () => {
     const previous = [wish()];
     expect(reconcileTripWishes(previous, trips)).toBe(previous);
     expect(reconcileTripWishes(previous, [], { '2027-03-22': '赏樱' }, titles)).toBe(previous);
+  });
+
+  it('移除已不存在行程对应的未编辑自动心愿，保留已有资金的心愿', () => {
+    const generated = reconcileTripWishes([], trips, {}, titles)[0];
+    expect(reconcileTripWishes([generated], [], {}, {})).toEqual([]);
+    expect(reconcileTripWishes([{ ...generated, savedAmount: 100 }], [], {}, {})).toEqual([{ ...generated, savedAmount: 100 }]);
   });
 
   it('多个未关联同名心愿时不擅自覆盖其中任意一个', () => {

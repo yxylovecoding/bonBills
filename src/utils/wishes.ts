@@ -257,7 +257,14 @@ export function reconcileTripWishes(
     return day.toISOString().slice(0, 10);
   };
   const eligibleTrips = trips.filter((trip) => !dismissedStarts[trip.startDate]);
-  const next = reconcileWishTripLinks(wishes, eligibleTrips, tripTags, travelTitles).map((wish) => {
+  const eligibleStarts = new Set(eligibleTrips.map((trip) => trip.startDate));
+  const retainedWishes = wishes.filter((wish) => {
+    const synthetic = /^wish_trip_\d{4}-\d{2}-\d{2}(?:_\d+)?$/.test(wish.id);
+    const untouched = wish.targetAmount === 0 && wish.savedAmount === 0 && wish.plannedTravelDays === 0
+      && !wish.repaidAmount && !(wish.spentItems?.length);
+    return !(synthetic && untouched && wish.linkedTripStartDate && !eligibleStarts.has(wish.linkedTripStartDate));
+  });
+  const next = reconcileWishTripLinks(retainedWishes, eligibleTrips, tripTags, travelTitles).map((wish) => {
     if (!wish.linkedTripStartDate) return wish;
     const deadline = beforeDeparture(wish.linkedTripStartDate);
     return wish.deadline === deadline ? wish : { ...wish, deadline };
