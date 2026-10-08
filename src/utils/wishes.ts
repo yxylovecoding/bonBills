@@ -142,6 +142,11 @@ function wishTagName(value: string) {
   return value.trim().replace(/^\d{2}\.\d{1,2}(?:\.\d{1,2})?\s*/, '').replace(/\s+/g, '').toLowerCase();
 }
 
+/** “XX”与“XX心愿”视为同一个出游心愿，避免手动项和自动项并存。 */
+function wishTripMatchName(value: string) {
+  return wishTagName(value).replace(/心愿$/, '');
+}
+
 export function classifyWishBill(item: Pick<BillExpenseItem, 'tags'>): 'consumption' | 'life' | 'unclassified' {
   const tags = new Set((item.tags || '').split(',').map((tag) => tag.trim()));
   const consumption = tags.has('消费');
@@ -264,18 +269,33 @@ export function reconcileTripWishes(
       && !wish.repaidAmount && !(wish.spentItems?.length);
     return !(synthetic && untouched && wish.linkedTripStartDate && !eligibleStarts.has(wish.linkedTripStartDate));
   });
-  const next = reconcileWishTripLinks(retainedWishes, eligibleTrips, tripTags, travelTitles).map((wish) => {
+  let next = reconcileWishTripLinks(retainedWishes, eligibleTrips, tripTags, travelTitles).map((wish) => {
     if (!wish.linkedTripStartDate) return wish;
     const deadline = beforeDeparture(wish.linkedTripStartDate);
     return wish.deadline === deadline ? wish : { ...wish, deadline };
   });
+  // 旧版本可能先自动补建空白项，后又保留了用户填写的同名项。自动合并时始终保留用户数据。
+  for (const trip of eligibleTrips) {
+    const generated = next.find((wish) => wish.linkedTripStartDate === trip.startDate
+      && /^wish_trip_\d{4}-\d{2}-\d{2}(?:_\d+)?$/.test(wish.id)
+      && wish.targetAmount === 0 && wish.savedAmount === 0 && !wish.repaidAmount && !(wish.spentItems?.length));
+    if (!generated) continue;
+    const generatedName = wishTripMatchName(generated.name);
+    const manualCandidates = next.filter((wish) => !wish.linkedTripStartDate
+      && !/^wish_trip_\d{4}-\d{2}-\d{2}(?:_\d+)?$/.test(wish.id)
+      && wishTripMatchName(wish.name) === generatedName);
+    if (manualCandidates.length !== 1) continue;
+    const manual = manualCandidates[0];
+    const linked = { ...manual, linkedTripStartDate: trip.startDate, deadline: beforeDeparture(trip.startDate) };
+    next = next.map((wish) => wish === manual ? linked : wish).filter((wish) => wish !== generated);
+  }
   for (const trip of [...trips].sort((a, b) => a.startDate.localeCompare(b.startDate))) {
     if (dismissedStarts[trip.startDate] || next.some((wish) => wish.linkedTripStartDate === trip.startDate)) continue;
     const title = getTripDisplayTitle(tripTags[trip.startDate], trip.dates, travelTitles).trim();
     if (!title) continue;
     const names = new Set([title, getTripDisplayTitle(undefined, trip.dates, travelTitles)]
-      .map(wishTagName).filter(Boolean));
-    const candidates = next.filter((wish) => !wish.linkedTripStartDate && names.has(wishTagName(wish.name)));
+      .map(wishTripMatchName).filter(Boolean));
+    const candidates = next.filter((wish) => !wish.linkedTripStartDate && names.has(wishTripMatchName(wish.name)));
     const deadline = beforeDeparture(trip.startDate);
     if (candidates.length === 1) {
       const existing = candidates[0];
