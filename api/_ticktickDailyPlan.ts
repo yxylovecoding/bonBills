@@ -117,6 +117,7 @@ interface Candidate {
   minutes: number;
   last?: string;
   deadline: string;
+  notBefore: string | null;
   next: string | null;
   cycleDays: number;
 }
@@ -189,6 +190,7 @@ export function planTickTickDay(options: {
     const end = lastDay ? cycleEnd(task, lastDay) : null;
     const deadline = end ?? (saved && saved.completion === last && saved.repeatFlag === task.repeatFlag
       ? saved.date : date ?? addDays(today, 7));
+    const notBefore = tags(task).includes('at-least') ? end : null;
     const minutes = members.reduce((sum, member) => sum + estimateTaskMinutes(member), 0);
     const cycleDays = end && lastDay ? Math.max(1, daysBetween(lastDay, end)) : task.repeatFlag
       ? Math.max(1, daysBetween(today, cycleEnd(task, today) ?? addDays(today, 7))) : 14;
@@ -214,7 +216,7 @@ export function planTickTickDay(options: {
       if (next && !fromBacklog) for (const member of members) dates.set(member.id, next);
       continue;
     }
-    candidates.push({ task, members, minutes, last, deadline, next, cycleDays });
+    candidates.push({ task, members, minutes, last, deadline, notBefore, next, cycleDays });
   }
   const candidateIds = new Set(candidates.flatMap((candidate) => candidate.members.map((task) => task.id)));
   const important = open.filter((task) => (task.priority ?? 0) >= 5
@@ -312,7 +314,9 @@ export function planTickTickDay(options: {
     // Leaving a small gap is preferable to repeating yesterday's work while
     // older eligible work is still waiting for a large enough slot.
     const recentRefill = lastDay === addDays(today, -1) && oldestWaiting !== undefined && oldestWaiting < completionTime;
-    const choose = !sprayConflict && (mustRetain || (!recentRefill && used + candidate.minutes <= available && fits));
+    const reachedMinimumInterval = !candidate.notBefore || today >= candidate.notBefore;
+    const choose = reachedMinimumInterval && !sprayConflict
+      && (mustRetain || (!recentRefill && used + candidate.minutes <= available && fits));
     if (choose) {
       const reasons = [lastDay ? '按上次实际完成时间排序，最久没做的优先' : '尚无匹配的完成记录，优先补齐轮换'];
       if (fromBacklog) reasons.push('从明日事补入');
@@ -330,7 +334,7 @@ export function planTickTickDay(options: {
       used += candidate.minutes;
       for (const member of candidate.members) dates.set(member.id, today);
     } else {
-      if (!sprayConflict) oldestWaiting = Math.min(oldestWaiting ?? Infinity, completionTime);
+      if (reachedMinimumInterval && !sprayConflict) oldestWaiting = Math.min(oldestWaiting ?? Infinity, completionTime);
       // Unselected future tasks retain their date; refill is not permission to
       // postpone the rest of tomorrow's list.
       if (candidate.next && !fromBacklog) {

@@ -93,6 +93,19 @@ describe('每日待办动态安排', () => {
     const urgent = task('urgent', { repeatFlag: 'RRULE:FREQ=DAILY', content: '(1h)' });
     expect(run([pool[0], urgent], { state: state([done(pool[0], '2026-10-03'), done(urgent, '2026-10-02')]) }).dates.get('urgent')).toBe(today);
   });
+  it('at-least 标签要求距上次完成至少经过一个重复周期', () => {
+    const early = task('early', { tags: [' At-Least '], repeatFlag: 'RRULE:FREQ=WEEKLY' });
+    const reached = task('reached', { tags: ['at-least'], repeatFlag: 'RRULE:FREQ=WEEKLY' });
+    const ordinary = task('ordinary', { repeatFlag: 'RRULE:FREQ=WEEKLY' });
+    const p = run([early, reached, ordinary], { budgetMinutes: 60, state: state([
+      done(early, '2026-09-28', 'early-old'),
+      done(reached, '2026-09-27', 'reached-old'),
+      done(ordinary, '2026-09-28', 'ordinary-old'),
+    ]) });
+    expect(p.dates.get(early.id)).toBe('2026-10-05');
+    expect(p.dates.get(reached.id)).toBe(today);
+    expect(p.dates.get(ordinary.id)).toBe(today);
+  });
   it('上次完成早于昨天的任务优先，昨天完成的任务即使周期到期也不能插队', () => {
     const older = task('older', { content: '(30m)', repeatFlag: 'RRULE:FREQ=MONTHLY', dueDate: '2026-10-10T00:00:00+0800' });
     const recent = task('recent', { content: '(30m)', repeatFlag: 'RRULE:FREQ=DAILY' });
