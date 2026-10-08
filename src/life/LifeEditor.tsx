@@ -105,8 +105,8 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
       {(draft.kind === 'eyes' || draft.kind === 'discomfort') && <LifeSymptomFields kind={draft.kind}
         value={symptomObservations(draft.kind, draft[draft.kind])} names={draft.symptomNames ?? {}} history={history} date={draft.date} busy={busy}
         onChange={(symptoms, symptomNames) => change({ [draft.kind]: { symptoms }, symptomNames })} />}
-      {draft.kind === 'body' && <div className="life-fields">{Object.entries(BODY_FIELDS).map(([key, { label, unit, max }]) =>
-        <label key={key}>{label}{unit && ` · ${unit}`}<input type="number" min="0.01" max={max} step="any" inputMode="decimal" disabled={busy}
+      {draft.kind === 'body' && <div className="life-fields">{Object.entries(BODY_FIELDS).map(([key, field]) =>
+        <label key={key}>{field.label}{field.unit && ` · ${field.unit}`}<input type="number" min={'min' in field ? field.min : 0.01} max={field.max} step="any" inputMode="decimal" disabled={busy}
           value={draft.body?.[key as keyof BodyRecord] ?? ''} onChange={(event) => {
             const body = { ...draft.body };
             if (!event.target.value) delete body[key as keyof BodyRecord]; else body[key as keyof BodyRecord] = Number(event.target.value);
