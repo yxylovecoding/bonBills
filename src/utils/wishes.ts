@@ -281,7 +281,8 @@ export function reconcileTripWishes(
       && wish.targetAmount === 0 && wish.savedAmount === 0 && !wish.repaidAmount && !(wish.spentItems?.length));
     if (!generated) continue;
     const generatedName = wishTripMatchName(generated.name);
-    const manualCandidates = next.filter((wish) => !wish.linkedTripStartDate
+    const manualCandidates = next.filter((wish) => wish !== generated
+      && (!wish.linkedTripStartDate || wish.linkedTripStartDate === trip.startDate)
       && !/^wish_trip_\d{4}-\d{2}-\d{2}(?:_\d+)?$/.test(wish.id)
       && wishTripMatchName(wish.name) === generatedName);
     if (manualCandidates.length !== 1) continue;

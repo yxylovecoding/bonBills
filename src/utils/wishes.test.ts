@@ -57,12 +57,13 @@ describe('本月出游自动创建并关联心愿', () => {
     ]);
   });
 
-  it('清理旧版本产生的重复自动项，保留有预算的手动项并接管行程', () => {
+  it('清理旧版本产生的重复自动项，保留有预算且已关联的手动项', () => {
     const generated = reconcileTripWishes([], trips, {}, titles)[0];
-    const manual = wish({ id: 'manual', name: '釜山樱花季心愿', targetAmount: 2430.2, savedAmount: 0 });
-    expect(reconcileTripWishes([generated, manual], trips, {}, titles)).toEqual([
-      { ...manual, linkedTripStartDate: '2027-03-22', deadline: '2027-03-21' },
-    ]);
+    const manual = wish({
+      id: 'manual', name: '釜山樱花季心愿', targetAmount: 2430.2, savedAmount: 0,
+      linkedTripStartDate: '2027-03-22', deadline: '2027-03-21',
+    });
+    expect(reconcileTripWishes([generated, manual], trips, {}, titles)).toEqual([manual]);
   });
 
   it('选了不同的账单标签也能复用原 Outlook 同名心愿', () => {
