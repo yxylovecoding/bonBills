@@ -298,6 +298,11 @@ async function handler(req: VercelRequest, res: VercelResponse) {
   if (!isCron && !await authOk(req)) return res.status(401).json({ error: 'unauthorized' });
 
   try {
+    if (req.query?.action === 'electric-vehicle-charge') {
+      if (!isCron) return res.status(403).json({ error: 'cron authorization required' });
+      const { scheduleElectricVehicleCharge } = await import('./_electricVehicleCharge.js');
+      return res.status(200).json({ ok: true, ...await scheduleElectricVehicleCharge() });
+    }
     if (req.query?.action === 'plan-details') {
       if (req.method !== 'GET') return res.status(405).json({ error: 'method not allowed' });
       const { readTickTickPlanDetails } = await import('./_ticktickPlanDetails.js');
