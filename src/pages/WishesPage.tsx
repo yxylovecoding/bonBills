@@ -406,9 +406,9 @@ export default function WishesPage() {
     ? '全勤'
     : `${compactAttendanceDays / attendanceDivisor}/${compactAttendanceTotal / attendanceDivisor}勤`;
   const planningShortfallLabel = internPlan.shortfall > 0.005
-    ? internPlan.shortfall < 100
+    ? `${internPlan.shortfall < 100
       ? '还差不足 ¥100'
-      : `还差约 ¥${(Math.round(internPlan.shortfall / 100) * 100).toLocaleString('zh-CN')}`
+      : `还差约 ¥${(Math.round(internPlan.shortfall / 100) * 100).toLocaleString('zh-CN')}`}${internPlan.shortfallWorkDays === null ? '' : ` · 约需额外工作 ${internPlan.shortfallWorkDays} 天`}`
     : null;
   const planningAttendanceLabel = planningShortfallLabel ? '全勤也不够！' : attendanceLabel;
   const selectedSegmentLabel = activeSegment?.wishNames.join('、') || selectedPlanningWish?.name || '当前心愿';
@@ -1145,6 +1145,7 @@ export default function WishesPage() {
               && remainingActualWishSavingAmount <= 0;
             const budgetEstimateVisible = !hasActualTarget && budgetEstimateWishId === item.id;
             const isSelectedPlanningWish = selectedPlanningWish?.id === item.id;
+            const itemShortfallWorkDays = milestonePlan.segmentByWishId[item.id]?.cumulativePlan.shortfallWorkDays;
             return (
               <div
                 key={item.id}
@@ -1474,9 +1475,18 @@ export default function WishesPage() {
                 <div style={{ height: 6, borderRadius: 999, backgroundColor: '#ede9fe', overflow: 'hidden', marginTop: 12 }}>
                   <div style={{ width: `${progress * 100}%`, height: '100%', borderRadius: 999, backgroundColor: progress >= 1 ? C.green : C.purple, transition: 'width 0.2s' }} />
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 6, fontSize: 10, color: C.sub }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginTop: 6, fontSize: 10, color: C.sub }}>
                   <span>{item.targetAmount > 0 || hasActualTarget ? `完成 ${(progress * 100).toFixed(0)}%` : '等待填写目标'}</span>
-                  {(item.targetAmount > 0 || hasActualTarget) && <span>还差 ¥{formatCurrency(remainingActualWishSavingAmount)}</span>}
+                  {(item.targetAmount > 0 || hasActualTarget) && (
+                    <span style={{ textAlign: 'right' }}>
+                      <span style={{ display: 'block' }}>还差 ¥{formatCurrency(remainingActualWishSavingAmount)}</span>
+                      {Boolean(itemShortfallWorkDays !== undefined && itemShortfallWorkDays !== null && itemShortfallWorkDays > 0) && (
+                        <span style={{ display: 'block', marginTop: 2, color: C.orange, fontWeight: 700 }}>
+                          行程后约需额外工作 {itemShortfallWorkDays} 天补上
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </div>
 
                 <div style={{ marginTop: 10, borderRadius: 10, padding: '8px 9px', backgroundColor: isOngoingTrip ? '#f5f3ff' : item.deadlineState === 'overdue' && !actualWishSavingCompleted ? '#fef2f2' : actualWishSavingCompleted ? '#ecfdf5' : '#f5f3ff', color: isOngoingTrip ? C.purple : item.deadlineState === 'overdue' && !actualWishSavingCompleted ? C.red : actualWishSavingCompleted ? C.green : C.purple, fontSize: 11, fontWeight: 700, lineHeight: 1.5 }}>

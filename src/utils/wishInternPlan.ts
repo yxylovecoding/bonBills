@@ -79,6 +79,7 @@ export interface WishInternPlan {
   excludedLivingDays: number;
   excludedLifeExpense: number;
   shortfall: number;
+  shortfallWorkDays: number | null;
 }
 
 export interface WishInternPlanOptions {
@@ -209,7 +210,7 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
   }
 
   const includedWishes = options.wishes.filter((wish) => {
-    if (!wish.isActive || !wish.deadline || wish.deadline < startDate || wish.deadline > deadline) return false;
+    if (!wish.isActive || !wish.deadline || wish.deadline > deadline) return false;
     return calculateWishFunding(wish, wishTravelLifeAmount(wish, options.stateDailyAvg.travel, options.tripDatesByStart)).remainingAmount > 0;
   }).sort((first, second) => (
     (first.deadline ?? '').localeCompare(second.deadline ?? '') || first.id.localeCompare(second.id)
@@ -468,6 +469,18 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
   const projectedInvestmentSaving = positiveRecommendedSurplus * POST_LIFE_INVESTMENT_SHARE;
   const projectedTotalSaving = projectedWishBalance + projectedInvestmentSaving;
   const shortfall = Math.max(wishAmount - projectedWishSaving, 0);
+  const positiveFullAttendanceGains = allMarginalIncome
+    .map((amount) => amount - expenseDeltaPerInternDay)
+    .filter((amount) => amount > 1e-7);
+  const averageAdditionalCoreSurplus = positiveFullAttendanceGains.length > 0
+    ? positiveFullAttendanceGains.reduce((sum, amount) => sum + amount, 0) / positiveFullAttendanceGains.length
+    : 0;
+  const additionalWishShare = POST_LIFE_WISH_SHARE + POST_LIFE_CONSUMPTION_SHARE;
+  const shortfallWorkDays = shortfall <= 1e-7
+    ? 0
+    : averageAdditionalCoreSurplus > 1e-7 && additionalWishShare > 0
+      ? Math.ceil(shortfall / (averageAdditionalCoreSurplus * additionalWishShare))
+      : null;
   if (minimumInternDays === null && consumptionTransferredToWish > 0) usesConsumptionTransfer = true;
   if (minimumInternDays === null && shortfall <= 1e-7) minimumInternDays = recommendedDates.length;
   const scheduledInternDays = flexibleWorkingDates.filter((date) => options.tagMap[date] === 'intern').length;
@@ -523,5 +536,6 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
     excludedLivingDays: linkedTravelDates.size + manualTravelDays,
     excludedLifeExpense,
     shortfall,
+    shortfallWorkDays,
   };
 }

@@ -66,4 +66,31 @@ describe('欠款与实习规划', () => {
     expect(plan.segmentByWishId.later.cumulativePlan.wishAmount).toBe(8000);
     expect(plan.segmentByWishId.paused).toBeUndefined();
   });
+
+  it('全勤仍有缺口时给出行程后的额外工作天数', () => {
+    const plan = calculateWishInternPlan({
+      ...options,
+      today: new Date(2026, 8, 22),
+      deadline: '2026-09-22',
+      wishes: [{ ...baseWish, deadline: '2026-09-22', targetAmount: 1000, savedAmount: 0, repaidAmount: 0, spentItems: [] }],
+      incomeItems: [{ id: 'intern', name: '实习', amount: 0, payDay: 10, isActive: true, dailyRate: 1000, tagKind: 'intern' }],
+    });
+    expect(plan.shortfall).toBe(500);
+    expect(plan.shortfallWorkDays).toBe(1);
+  });
+
+  it('后续心愿的工作规划会继续承担此前逾期心愿的缺口', () => {
+    const wishes = [
+      { ...baseWish, id: 'overdue', deadline: '2026-09-21', targetAmount: 500, savedAmount: 0, repaidAmount: 0, spentItems: [] },
+      { ...baseWish, id: 'later', deadline: '2026-12-01', targetAmount: 500, savedAmount: 0, repaidAmount: 0, spentItems: [] },
+    ];
+    const plan = calculateWishMilestonePlan({
+      ...options,
+      wishes,
+      repaymentDues: [],
+      incomeItems: [{ id: 'intern', name: '实习', amount: 0, payDay: 10, isActive: true, dailyRate: 1000, tagKind: 'intern' }],
+    });
+    expect(plan.segmentByWishId.later.cumulativePlan.wishAmount).toBe(1000);
+    expect(plan.segmentByWishId.later.minimumInternDateKeys).toHaveLength(3);
+  });
 });
