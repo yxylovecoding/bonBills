@@ -316,10 +316,15 @@ async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (req.query?.action === 'hourly-replan') {
       if (!isCron) return res.status(403).json({ error: 'cron authorization required' });
-      const { replanRemainingToday } = await import('./_ticktickReplan.js');
+      const [{ replanRemainingToday }, { scheduleElectricVehicleCharge }] = await Promise.all([
+        import('./_ticktickReplan.js'), import('./_electricVehicleCharge.js'),
+      ]);
+      let electricVehicle: Awaited<ReturnType<typeof scheduleElectricVehicleCharge>> | undefined;
+      try { electricVehicle = await scheduleElectricVehicleCharge(); }
+      catch { /* Keep hourly planning available; the next run retries this idempotent one-time setup. */ }
       const result = await replanRemainingToday({ scheduled: true });
-      if (result.busy) return res.status(200).json({ ok: true, busy: false, deferred: true, dailyPlan: { deferred: true } });
-      return res.status(200).json({ ok: true, ...result });
+      if (result.busy) return res.status(200).json({ ok: true, busy: false, deferred: true, electricVehicle, dailyPlan: { deferred: true } });
+      return res.status(200).json({ ok: true, electricVehicle, ...result });
     }
     if (req.query?.action === 'daily-email') {
       if (!isCron) return res.status(403).json({ error: 'cron authorization required' });
