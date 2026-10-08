@@ -205,13 +205,26 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
     if (!anchor) { decisions.push({ id: task.id, reason: '周期或日期不可用，保留原排期' }); continue; }
     // Persist the original cycle before any write; failed/partial retries cannot drift the window.
     await kv.set(LAUNDRY_STATE_KEY, state);
+    // A four-day laundry cadence is a fixed interval. TickTick may create the next
+    // occurrence from its previous due date (for example 10/08 + 4 = 10/12), so repair
+    // it from the latest actual completion before applying any optional heuristics.
+    if (/(?:^|;)INTERVAL=4(?:;|$)/i.test(task.repeatFlag!)) {
+      const changed = await moveLaundry(api, task, anchor.target);
+      if (changed === undefined) {
+        decisions.push({ id: task.id, target: anchor.target, reason: '任务已由用户更新，保留最新状态' });
+        continue;
+      }
+      if (changed) updated++;
+      decisions.push({ id: task.id, target: anchor.target, date: anchor.target, location: location?.name,
+        reason: '按最近一次实际完成日期和四天固定间隔排期' });
+      continue;
+    }
     const beforeTrip = laundryBeforeTrip(anchor.target, options.trips ?? [], calendarDateInTimeZone(anchor.completion, task.timeZone));
     if (beforeTrip) {
       if (beforeTrip < options.today) {
         decisions.push({ id: task.id, target: anchor.target, reason: '出行前一天已过，保留待办等待补做' });
         continue;
       }
-      // This explicit deadline takes precedence over weather, scene and free time.
       const changed = await moveLaundry(api, task, beforeTrip);
       if (changed) updated++;
       decisions.push(changed === undefined

@@ -117,6 +117,23 @@ describe('天气与日程选日', () => {
 });
 
 describe('洗衣同步与天气故障', () => {
+  it('四天固定周期始终从实际完成日计算，并纠正 TickTick 按旧到期日生成的日期', async () => {
+    const original = task({
+      startDate: '2026-10-12T00:00:00Z', dueDate: '2026-10-12T00:00:00Z',
+      repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=4',
+    });
+    const c = client(original);
+    const result = await syncLaundrySchedule(c.api, {
+      ...options({ tasks: [original], availability: undefined, configState: {} }), connectionId: 'connection',
+    });
+    expect(result.updated).toBe(1);
+    expect(result.decisions[0]).toMatchObject({ target: '2026-10-09', date: '2026-10-09' });
+    expect(c.current()).toMatchObject({
+      startDate: '2026-10-09T00:00:00Z', dueDate: '2026-10-09T00:00:00Z',
+      repeatFlag: original.repeatFlag,
+    });
+    expect(upstream).not.toHaveBeenCalled();
+  });
   it('纠正旧窗口内提前两天的排期，保留时刻/重复/标签/清单和周期，再次执行幂等', async () => {
     const original = task({ startDate: '2026-10-08T00:00:00Z', dueDate: '2026-10-08T00:00:00Z',
       items: [{ id: 'pending', title: '晾衣', status: 0, startDate: '2026-10-08T02:00:00Z' },
