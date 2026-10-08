@@ -308,6 +308,11 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       const { readTickTickPlanDetails } = await import('./_ticktickPlanDetails.js');
       return res.status(200).json({ details: await readTickTickPlanDetails() });
     }
+    if (req.query?.action === 'trigger-replan') {
+      if (req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
+      const { dispatchFullReplan } = await import('./_githubActions.js');
+      return res.status(202).json({ ok: true, triggered: true, ...await dispatchFullReplan() });
+    }
     if (req.query?.action === 'replan-today') {
       if (req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
       const { replanRemainingToday } = await import('./_ticktickReplan.js');

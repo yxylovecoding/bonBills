@@ -43,7 +43,7 @@ export default function LifePlanDetails({ plan }: { plan: TickTickPlanDetails })
           : `按周期分摊，本轮新增挑选目标 ${minuteText(b.cycleTargetMinutes)}；任务还须满足场景、连续空档及喷雾错开规则。`}</p>
         {(b.unallocatedMinutes ?? 0) > 0 && <p className="life-plan-meta">尚余 {minuteText(b.unallocatedMinutes!)} 未排入任务，当前没有更多符合条件且能放入空档的待办。</p>}
       </section>
-    </> : <p className="life-plan-meta">这次排期未记录时间明细；再次点击“重排今日事”后可查看。</p>}
+    </> : <p className="life-plan-meta">这次排期未记录时间明细；任务完成重排后可查看。</p>}
     <section aria-label="排入今日事的任务"><h3>排入今日事 · {plan.selected.length} 项 · 约 {minuteText(plannedMinutes)}</h3>
       {plan.selected.length ? <ul className="life-plan-tasks">{plan.selected.map(task => <li key={`${task.projectId}:${task.id}`}>
         <div><span>{task.title}</span><span>{minuteText(task.minutes)}</span></div>

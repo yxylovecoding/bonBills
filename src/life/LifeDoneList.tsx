@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { DoneItem, DoneMonth } from '../utils/bonLife';
-import type { TickTickDailyPlan } from '../utils/tickTickSync';
 import type { TickTickPlanDetails } from '../utils/tickTickPlanDetails';
 import { requestWithRetry } from '../utils/requestWithRetry';
 import { accountRequestHeaders } from '../utils/authClient';
@@ -84,37 +83,28 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
     }));
     if (!request.signal.aborted) setBusy(false);
   }, [monthKey, onExpired]);
-  async function replanToday() {
+  async function triggerReplan() {
     if (busy || replanController.current) return;
-    detailsController.current?.abort();
     const request = new AbortController(); replanController.current = request;
-    let timedOut = false;
-    const timer = window.setTimeout(() => { timedOut = true; request.abort(); }, 300_000);
+    const timer = window.setTimeout(() => request.abort(), 20_000);
     setReplanning(true); setReplanError(''); setReplanMessage('');
     try {
-      const response = await fetch('/api/ticktick-trips?action=replan-today', {
+      const response = await fetch('/api/ticktick-trips?action=trigger-replan', {
         method: 'POST', credentials: 'same-origin', cache: 'no-store', signal: request.signal,
         headers: accountRequestHeaders(),
       });
       if (response.status === 401) { onExpired(); return; }
-      const result = await response.json() as { busy?: boolean; error?: string; dailyPlan?: TickTickDailyPlan; details?: TickTickPlanDetails };
-      if (response.status === 202 || result.busy) throw new Error('已有重排正在运行，请稍后重试');
-      if (!response.ok) throw new Error(result.error || '重排失败，请重试');
-      const plan = result.dailyPlan;
-      if (!plan || plan.date !== shanghaiToday() || !Number.isInteger(plan.todayCount) || !Number.isFinite(plan.plannedMinutes)) {
-        throw new Error('尚未确认今日安排，请稍后重试');
-      }
-      if (request.signal.aborted) return;
-      setReplanMessage(`已重排 · 剩余 ${plan.todayCount} 项 · 约 ${plan.plannedMinutes} 分钟`);
-      setPlanDetails(result.details ?? null); setDetailsError('');
-      await refresh(true);
+      const result = await response.json() as { triggered?: boolean; error?: string };
+      if (!response.ok || !result.triggered) throw new Error(result.error || '触发重排失败，请重试');
+      if (!request.signal.aborted) setReplanMessage('已触发重排 · Outlook、今日重要之事和今日事将依次更新');
     } catch (cause) {
-      if (!request.signal.aborted || timedOut) setReplanError(timedOut || cause instanceof TypeError
-        ? '重排结果暂未确认，请稍后刷新查看' : cause instanceof Error ? cause.message : '重排失败，请重试');
+      if (!request.signal.aborted) setReplanError(cause instanceof TypeError
+        ? '触发请求失败，请检查网络后重试' : cause instanceof Error ? cause.message : '触发重排失败，请重试');
+      else setReplanError('触发结果暂未确认，请稍后查看 GitHub Actions');
     } finally {
       clearTimeout(timer);
       if (replanController.current === request) replanController.current = null;
-      if (!request.signal.aborted || timedOut) setReplanning(false);
+      setReplanning(false);
     }
   }
   useEffect(() => () => { replanController.current?.abort(); }, []);
@@ -189,7 +179,7 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
     <div className="life-done-toolbar"><span role="status">{replanning ? '重排中…' : busy ? '同步中…' : planDetails ? <button className="life-plan-trigger" aria-expanded={detailsOpen} aria-controls="life-plan-details" onClick={() => setDetailsOpen(open => !open)}>
       {replanMessage || `上次排期 · 剩余 ${planDetails.selected.length} 项 · 约 ${planDetails.selected.reduce((sum, task) => sum + task.minutes, 0)} 分钟`}
     </button> : replanMessage || (syncedAt ? `${completionTime.format(new Date(syncedAt))} 已同步` : '尚未同步')}</span>
-      <div className="life-done-actions"><button disabled={busy || replanning || !months.some(value => value?.connected)} onClick={() => void replanToday()}>{replanning ? '重排中…' : '重排今日事'}</button>
+      <div className="life-done-actions"><button disabled={busy || replanning} onClick={() => void triggerReplan()}>{replanning ? '触发中…' : '重排任务'}</button>
         <button disabled={busy || replanning} onClick={() => void refresh(true)}>同步 TickTick</button></div></div>
     <OutlookLaundryControl />
     {replanError && <p className="life-error" role="alert">{replanError}</p>}
