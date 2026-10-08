@@ -31,7 +31,7 @@ import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { dateLabel, daysUntilDate, resolveIncomeForMonth } from '../utils/payroll';
 import { calculateCreditRepaymentPlan, getPlanningLongBondTotal } from '../utils/creditRepayment';
-import { getAverageAnnualizedRate } from '../utils/investRecords';
+import { getAverageAnnualizedRate, getInvestTotalForRate } from '../utils/investRecords';
 import { detectAllTrips } from '../utils/trips';
 import { getTripDisplayTitle } from '../utils/outlookCalendar';
 import { calculateWishMilestonePlan, type WishRepaymentDue } from '../utils/wishMilestonePlan';
@@ -44,7 +44,7 @@ import {
 import { version as APP_VERSION } from '../../package.json';
 import { useSyncStatus } from '../utils/syncStatus';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '连续色条';
+const RELEASE_NOTE = '收益速览';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -715,6 +715,37 @@ export default function HomePage() {
   );
 
   // 月度快照
+  const investmentProfitSummary = useMemo(() => {
+    const recordsByMonth = new Map(records.map((record) => [record.yearMonth, record]));
+    const currentRecord = recordsByMonth.get(currentYearMonth);
+    const previousRecord = recordsByMonth.get(prevYearMonth(currentYearMonth));
+    const monthIncome = currentRecord && previousRecord
+      ? currentRecord.accumulatedProfit - previousRecord.accumulatedProfit
+      : null;
+    const monthInvestTotal = currentRecord
+      ? getInvestTotalForRate(currentYearMonth, currentRecord.investTotal, records)
+      : null;
+    const monthRate = monthIncome !== null && monthInvestTotal
+      ? monthIncome / monthInvestTotal.value
+      : null;
+
+    const yearRecords = records.filter((record) => record.yearMonth.startsWith(`${currentYear}-`));
+    const yearIncomeParts = yearRecords.flatMap((record) => {
+      const previous = recordsByMonth.get(prevYearMonth(record.yearMonth));
+      return previous ? [record.accumulatedProfit - previous.accumulatedProfit] : [];
+    });
+    const previousDecember = recordsByMonth.get(`${currentYear - 1}-12`);
+    const yearRateRecords = previousDecember ? [...yearRecords, previousDecember] : yearRecords;
+
+    return {
+      monthIncome,
+      monthRate,
+      yearIncome: yearIncomeParts.length > 0
+        ? yearIncomeParts.reduce((sum, income) => sum + income, 0)
+        : null,
+      yearAnnualizedRate: getAverageAnnualizedRate(yearRateRecords),
+    };
+  }, [currentYear, currentYearMonth, records]);
   const monthlySurplus = stats.monthlyIncomeAvg - stats.totalExpenseAvg;
   type SceneDailyRow = { tagKind: TagKind; val: number; lifeVal: number; consumptionVal: number };
   const sceneDailyTagKinds = ['school', 'intern', 'home', 'travel'] as TagKind[];
@@ -801,6 +832,40 @@ export default function HomePage() {
           </div>
         </div>
       </div>
+
+      {/* 理财收益 */}
+      <Card title="理财收益" subtitle="按月度记录计算">
+        <StatRow
+          label="本月赚了"
+          value={(
+            <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8 }}>
+              {investmentProfitSummary.monthIncome === null
+                ? <span style={{ color: C.sub }}>—</span>
+                : <CurrencyDisplay value={investmentProfitSummary.monthIncome} color={investmentProfitSummary.monthIncome >= 0 ? C.red : C.green} />}
+              <span style={{ fontSize: 12, color: C.sub }}>
+                {investmentProfitSummary.monthRate === null
+                  ? '收益率 —'
+                  : `收益率 ${(investmentProfitSummary.monthRate * 100).toFixed(2)}%`}
+              </span>
+            </span>
+          )}
+        />
+        <StatRow
+          label="今年赚了"
+          value={(
+            <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8 }}>
+              {investmentProfitSummary.yearIncome === null
+                ? <span style={{ color: C.sub }}>—</span>
+                : <CurrencyDisplay value={investmentProfitSummary.yearIncome} color={investmentProfitSummary.yearIncome >= 0 ? C.red : C.green} />}
+              <span style={{ fontSize: 12, color: C.sub }}>
+                {investmentProfitSummary.yearAnnualizedRate === null
+                  ? '年化收益率 —'
+                  : `年化收益率 ${(investmentProfitSummary.yearAnnualizedRate * 100).toFixed(2)}%`}
+              </span>
+            </span>
+          )}
+        />
+      </Card>
 
       {/* 月度快照 */}
       <Card title="月度快照" subtitle={`近两年均值 · 共 ${records.length} 个月`}>
