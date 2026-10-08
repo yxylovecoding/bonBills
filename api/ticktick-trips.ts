@@ -16,6 +16,7 @@ import { syncSleepRoutineTags } from './_ticktickSleepTags.js';
 import { syncExerciseSchedule } from './_ticktickExercise.js';
 import { syncLaundrySchedule } from './_ticktickLaundry.js';
 import { syncLaundryOutlook } from './_outlookLaundry.js';
+import { syncPeriodPredictionTask } from './_ticktickPeriodPrediction.js';
 
 const CONNECTION_KEY = 'ticktick:connection:v1';
 const SYNC_STATE_KEY = 'ticktick:trip-sync:v1';
@@ -136,6 +137,7 @@ async function runSync(allowDisconnected = false) {
       // Weather owns this cycle's date. Scene and daily rotation must not pull
       // it back to today, including when the forecast is temporarily unavailable.
       for (const id of laundry.managedTaskIds) excludedTaskIds.add(id);
+      const periodPrediction = await syncPeriodPredictionTask(api, { connection, tasks: sourceTasks, today });
       const routineResult = await syncTickTickRoutines({
         api, calendarState, today,
         excludedTaskIds, minimumTaskDates: exercise.minimumDates, fixedTaskDates: exercise.fixedDates, completedTasks: dailyPlan.history,
@@ -159,7 +161,9 @@ async function runSync(allowDisconnected = false) {
       console.info('[ticktick-trip-sync]', JSON.stringify({ ...result, ...wishResult }));
       return { busy: false as const, ...result, ...wishResult, ...routineResult, exercise: { updated: exercise.updated },
         timedTasks, restoredRoutineTags,
-        laundry: { updated: laundry.updated, decisions: laundry.decisions, outlook: laundryOutlook }, dailyPlan: dailyPlan.summary, budgetMinutes: dailyBudget(settings?.budgetMinutes),
+        laundry: { updated: laundry.updated, decisions: laundry.decisions, outlook: laundryOutlook },
+        periodPrediction,
+        dailyPlan: dailyPlan.summary, budgetMinutes: dailyBudget(settings?.budgetMinutes),
         availabilityProfile: availabilityProfile(settings?.availabilityProfile), lastSyncAt: state.lastSyncAt };
     } catch (error) {
       state.lastError = error instanceof Error ? error.message : String(error);
