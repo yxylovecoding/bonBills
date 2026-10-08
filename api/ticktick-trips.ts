@@ -343,7 +343,12 @@ async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.query?.action === 'life-periods') {
       if (!isCron && req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
       const { syncRecentLifePeriods } = await import('./_bonLife.js');
-      return res.status(200).json({ ok: true, ...await syncRecentLifePeriods() });
+      const periods = await syncRecentLifePeriods();
+      if (isCron) {
+        const { scheduleElectricVehicleCharge } = await import('./_electricVehicleCharge.js');
+        return res.status(200).json({ ok: true, ...periods, electricVehicle: await scheduleElectricVehicleCharge() });
+      }
+      return res.status(200).json({ ok: true, ...periods });
     }
     if (req.query?.action === 'night-routine' || req.query?.action === 'daily-routine'
       || req.query?.action === 'routine-visibility' || req.query?.action === 'hair-wash'

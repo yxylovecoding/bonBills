@@ -12,10 +12,6 @@ on:
         description: Only import and archive Outlook periods
         type: boolean
         default: false
-      schedule_ebike:
-        description: Create the one-time electric vehicle tasks and Outlook events
-        type: boolean
-        default: false
       send_email:
         description: Send today's briefing after planning (deduplicated by date)
         type: boolean
@@ -28,28 +24,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  electric-vehicle-charge:
-    if: ${{ inputs.schedule_ebike == true }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 4
-    steps:
-      - name: Create electric vehicle tasks and Outlook events
-        env:
-          CRON_SECRET: ${{ secrets.BONBILLS_CRON_SECRET }}
-        shell: bash
-        run: |
-          node --input-type=module <<'NODE'
-          const secret = process.env.CRON_SECRET?.trim();
-          if (!secret) throw new Error('Missing BONBILLS_CRON_SECRET');
-          const response = await fetch('https://www.bonbills.cn/api/ticktick-trips?action=electric-vehicle-charge', {
-            headers: { Authorization: `Bearer ${secret}` }, redirect: 'error', signal: AbortSignal.timeout(120_000),
-          });
-          const result = await response.json().catch(() => null);
-          if (response.status !== 200 || result?.ok !== true || result?.complete !== true) {
-            throw new Error(`Electric vehicle scheduling did not complete (HTTP ${response.status})`);
-          }
-          console.log('Electric vehicle tasks and Outlook events created successfully.');
-          NODE
   hair-wash:
     if: ${{ github.event_name == 'schedule' && github.event.schedule == '0 12 * * *' }}
     runs-on: ubuntu-latest
