@@ -187,14 +187,14 @@
 .life-week-page-heading > div { display: flex; align-items: baseline; gap: 12px; }
 .life-week-page-heading h3 { margin: 0; font-size: 27px; font-weight: 300; color: #77786d; letter-spacing: 1px; }
 .life-week-page-heading span { font-size: 10px; color: #8e8e80; white-space: nowrap; }
-.life-week-day { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 14px; min-height: 88px; padding: 16px 0; border-top: 1px solid #e8e5dd; }
+.life-week-day { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 14px; height: 128px; min-height: 0; padding: 12px 0; border-top: 1px solid #e8e5dd; overflow: hidden; }
 .life-week-day.is-today { background: #f3f5ec; margin: 0 -10px; padding-left: 10px; padding-right: 10px; }
 .life-week-day.is-future { opacity: .6; }
 .life-week-day-heading { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; color: #909185; }
 .life-week-day-heading > time { font-size: 21px; line-height: 1.15; font-weight: 300; font-variant-numeric: tabular-nums; }
 .life-week-day-heading > span { font-size: 9px; letter-spacing: .5px; }
 .life-week-day-heading > .life-week-today { margin-top: 4px; color: var(--life-accent); letter-spacing: 0; font-size: 10px; }
-.life-week-day-content { min-width: 0; }
+.life-week-day-content { min-width: 0; min-height: 0; max-height: 100%; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #d5d3ca transparent; }
 .life-week-day-summary { display: flex; flex-wrap: wrap; gap: 10px 18px; padding-top: 4px; color: #838478; font-size: 11px; }
 .life-week-day-summary > span { display: flex; gap: 8px; }
 .life-week-day-summary > span > span { color: #aaa99e; font-variant-numeric: tabular-nums; }
