@@ -6,8 +6,8 @@ import { decryptTickTickToken, readAllTickTickTasks, TICKTICK_CONNECTION_KEY, Ti
 const STATE_KEY = 'electric-vehicle-charge:2026-10:v1';
 const EVENT_PROPERTY = 'String {d9d1e730-7742-4a9c-91af-bab2a9a45f69} Name BonBillsElectricVehicle';
 const ITEMS = [
-  { key: 'charge', title: '电动车充电', date: '2026-10-09', start: '2026-10-09T20:00:00', end: '2026-10-09T21:00:00' },
-  { key: 'collect', title: '接电动车', date: '2026-10-10', start: '2026-10-10T09:00:00', end: '2026-10-10T10:00:00' },
+  { key: 'charge', title: '电动车充电', date: '2026-10-09', start: '2026-10-09T20:00:00', end: '2026-10-09T21:00:00', tags: [] },
+  { key: 'collect', title: '接电动车', date: '2026-10-10', start: '2026-10-10T09:00:00', end: '2026-10-10T10:00:00', tags: ['当天', '活'] },
 ] as const;
 interface State { taskIds?: Record<string, string>; eventIds?: Record<string, string> }
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -29,7 +29,7 @@ export async function scheduleElectricVehicleCharge() {
     if (existing) state.taskIds[item.key] = existing.id;
     else if (!state.taskIds[item.key]) {
       const created = await tasks.createTask({ projectId: ticktick.projectId || 'inbox', title: item.title, priority: 5, isAllDay: true,
-        timeZone: ticktick.timeZone || 'Asia/Shanghai', startDate: `${item.date}T00:00:00+0800`, dueDate: `${item.date}T00:00:00+0800` });
+        tags: [...item.tags], timeZone: ticktick.timeZone || 'Asia/Shanghai', startDate: `${item.date}T00:00:00+0800`, dueDate: `${item.date}T00:00:00+0800` });
       if (!created?.id) throw new Error('TickTick 创建任务后未返回任务 ID');
       state.taskIds[item.key] = created.id; tasksCreated++; await kv.set(STATE_KEY, state);
     }
