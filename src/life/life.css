@@ -207,6 +207,9 @@
 .life-week-category ul { margin: 0; padding: 0; list-style: none; }
 .life-week-category li { display: flex; flex-direction: column; gap: 3px; margin-bottom: 12px; font-size: 11px; line-height: 1.8; }
 .life-week-category li:last-child { margin-bottom: 0; }
+/* 今日视图下，三列任务块按耗时比例渲染，形成时间轴块的视觉效果。 */
+.life-week-categories.is-timeline .life-week-category ul { display: flex; flex-direction: column; gap: 6px; }
+.life-week-categories.is-timeline .life-week-category li { margin-bottom: 0; padding: 6px 10px; border-left: 2px solid var(--life-accent, #a7b36a); background: #fbfaf3; border-radius: 4px; justify-content: space-between; box-sizing: border-box; }
 .life-done-task-title { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .life-week-category time { color: #a3a397; font-size: 9px; font-variant-numeric: tabular-nums; }
 .life-week-category-empty { margin: 0; color: #b3b1a5; font-size: 11px; }

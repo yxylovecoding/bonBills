@@ -27,6 +27,27 @@ export function groupDoneCategories(items: DoneItem[]) {
   return [...groups].map(([category, entries]) => ({ category, items: entries }));
 }
 
+// 根据完成时间戳差值推算每个任务的耗时（分钟）：
+// 把一天内所有任务按完成时间升序排列，相邻两次完成之间的时间差即为后一个任务的耗时；
+// 第一项没有前驱，使用其余项的中位数作为兜底，若全天只有一项则兜底为 15 分钟。
+// 结果用于「今日完成」三列视图按耗时比例渲染任务块高度。
+export function computeDoneDurations(items: DoneItem[]): Map<string, number> {
+  const sorted = [...items].sort((a, b) => a.completedAt.localeCompare(b.completedAt));
+  const minutes = new Map<string, number>();
+  const diffs: number[] = [];
+  for (let index = 1; index < sorted.length; index++) {
+    const delta = (Date.parse(sorted[index].completedAt) - Date.parse(sorted[index - 1].completedAt)) / 60_000;
+    const safe = Number.isFinite(delta) && delta > 0 ? delta : 15;
+    minutes.set(sorted[index].id, safe);
+    diffs.push(safe);
+  }
+  if (sorted.length) {
+    const fallback = diffs.length ? [...diffs].sort((a, b) => a - b)[Math.floor(diffs.length / 2)] : 15;
+    minutes.set(sorted[0].id, fallback);
+  }
+  return minutes;
+}
+
 export function splitDoneDays(items: DoneItem[], month: string, today: string) {
   const current: DoneItem[] = [];
   const history = new Map<string, DoneItem[]>();

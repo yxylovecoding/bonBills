@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import type { DoneItem, DoneMonth } from '../utils/bonLife';
 import type { TickTickPlanDetails } from '../utils/tickTickPlanDetails';
 import { requestWithRetry } from '../utils/requestWithRetry';
 import { accountRequestHeaders } from '../utils/authClient';
-import { doneWeekDates, doneWeekMonths, doneWeekNumber, earlierDoneWeeks, groupDoneCategories, groupDoneWeek, shiftDoneDate } from '../utils/lifeDone';
+import { doneWeekDates, doneWeekMonths, doneWeekNumber, earlierDoneWeeks, computeDoneDurations, groupDoneCategories, groupDoneWeek, shiftDoneDate } from '../utils/lifeDone';
 import { LifeError, lifeRequest } from './client';
 import LifePlanDetails from './LifePlanDetails';
 import OutlookLaundryControl from '../components/OutlookLaundryControl';
@@ -24,13 +25,23 @@ function DoneDay({ date, index, items, today, pending, busy, error }: {
   const open = isToday || expanded;
   const future = date > today;
   const groups = groupDoneCategories(items);
+  // 今日视图下按完成时间戳差值推算每个任务的耗时，并把耗时映射为任务块的最小高度，
+  // 让耗时越长的任务块在列里占的垂直空间越大，形成类似时间轴块的视觉效果。
+  const durations = isToday ? computeDoneDurations(items) : null;
+  const blockStyle = (id: string): CSSProperties | undefined => {
+    if (!durations) return undefined;
+    const minutes = durations.get(id) ?? 15;
+    // 2px/分钟，夹在 28~220px 之间，避免极短/极长任务把列拉成极端比例。
+    const height = Math.min(220, Math.max(28, Math.round(minutes * 2)));
+    return { minHeight: `${height}px` };
+  };
   return <section className={`life-week-day${isToday ? ' is-today' : ''}${future ? ' is-future' : ''}`} aria-label={`${date}完成记录`}>
     <header className="life-week-day-heading"><time dateTime={date}>{Number(date.slice(8))}</time><span>{weekdays[index]}</span>{isToday && <span className="life-week-today">今天</span>}</header>
     <div className="life-week-day-content">
       {future ? null : pending && !items.length ? <p className="life-week-empty">{busy ? '读取中…' : error ? '暂未读到记录' : '等待同步'}</p> : <>
-        {open ? <div className="life-week-categories">{groups.map((group) => <section className="life-week-category" key={group.category} aria-label={`${group.category} · ${group.items.length} 项完成`}>
+        {open ? <div className={`life-week-categories${durations ? ' is-timeline' : ''}`}>{groups.map((group) => <section className="life-week-category" key={group.category} aria-label={`${group.category} · ${group.items.length} 项完成`}>
           <h3>{group.category}<span>{group.items.length}</span></h3>
-          {group.items.length ? <ul>{group.items.map((item) => <li key={item.id}><span className="life-done-task-title">{item.title}</span><time dateTime={item.completedAt}>{completionTime.format(new Date(item.completedAt))}</time></li>)}</ul> : <p className="life-week-category-empty">—</p>}
+          {group.items.length ? <ul>{group.items.map((item) => <li key={item.id} style={blockStyle(item.id)} title={durations ? `约 ${Math.round(durations.get(item.id) ?? 0)} 分钟` : undefined}><span className="life-done-task-title">{item.title}</span><time dateTime={item.completedAt}>{completionTime.format(new Date(item.completedAt))}</time></li>)}</ul> : <p className="life-week-category-empty">—</p>}
         </section>)}</div> : <div className="life-week-day-summary">{groups.map((group) => <span key={group.category}>{group.category}<span>{group.items.length}</span></span>)}</div>}
         {!isToday && items.length > 0 && <button className="life-week-expand" aria-expanded={open} onClick={() => setExpanded((value) => !value)}>{open ? '收起' : `展开 ${items.length} 项`}</button>}
       </>}
