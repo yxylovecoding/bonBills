@@ -756,6 +756,7 @@ export default function HomePage() {
 
   // 同期每月定投标普500对比（数据源与「bill-资产配置比例-回测」一致）
   const [sp500Charts, setSp500Charts] = useState<Partial<Record<PortfolioBacktestSeriesId, MarketChartResponse>> | null>(null);
+  const [sp500Error, setSp500Error] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     void Promise.all(SP500_COMPARISON_REQUESTS.map(async (definition) => {
@@ -764,9 +765,11 @@ export default function HomePage() {
       return [definition.id, await response.json() as MarketChartResponse] as const;
     })).then((entries) => {
       setSp500Charts(Object.fromEntries(entries));
+      setSp500Error(false);
     }).catch((error) => {
       if (controller.signal.aborted) return;
       console.warn('sp500 comparison unavailable', error);
+      setSp500Error(true);
     });
     return () => controller.abort();
   }, []);
@@ -780,6 +783,17 @@ export default function HomePage() {
   const sp500YearDiff = investmentProfitSummary.yearIncome !== null && sp500Comparison.yearSp500Profit !== null
     ? investmentProfitSummary.yearIncome - sp500Comparison.yearSp500Profit
     : null;
+  const renderSp500Cell = (diff: number | null) => {
+    if (sp500Error) return <span style={{ fontSize: 11, color: C.sub }}>标普数据获取失败</span>;
+    if (!sp500Charts) return <span style={{ fontSize: 11, color: C.sub }}>标普数据加载中…</span>;
+    if (diff === null) return <span style={{ fontSize: 11, color: C.sub }}>标普数据不足</span>;
+    return (
+      <span style={{ fontSize: 12, fontWeight: 600, color: diff >= 0 ? C.red : C.green }}>
+        {diff >= 0 ? '跑赢标普 ' : '跑输标普 '}
+        ¥{formatCurrency(Math.abs(diff))}
+      </span>
+    );
+  };
   const monthlySurplus = stats.monthlyIncomeAvg - stats.totalExpenseAvg;
   type SceneDailyRow = { tagKind: TagKind; val: number; lifeVal: number; consumptionVal: number };
   const sceneDailyTagKinds = ['school', 'intern', 'home', 'travel'] as TagKind[];
@@ -869,48 +883,48 @@ export default function HomePage() {
 
       {/* 理财收益 */}
       <Card title="理财收益" subtitle="按月度记录计算">
-        <StatRow
-          label="本月赚了"
-          value={(
-            <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              {investmentProfitSummary.monthIncome === null
+        {([
+          {
+            key: 'month',
+            label: '本月赚了',
+            income: investmentProfitSummary.monthIncome,
+            rateText: investmentProfitSummary.monthRate === null
+              ? '收益率 —'
+              : `收益率 ${(investmentProfitSummary.monthRate * 100).toFixed(2)}%`,
+            diff: sp500MonthDiff,
+          },
+          {
+            key: 'year',
+            label: '今年赚了',
+            income: investmentProfitSummary.yearIncome,
+            rateText: investmentProfitSummary.yearAnnualizedRate === null
+              ? '年化收益率 —'
+              : `年化收益率 ${(investmentProfitSummary.yearAnnualizedRate * 100).toFixed(2)}%`,
+            diff: sp500YearDiff,
+          },
+        ] as const).map((row) => (
+          <div
+            key={row.key}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: '7px 0',
+              fontSize: 14,
+            }}
+          >
+            <span style={{ color: C.sub, flexShrink: 0 }}>{row.label}</span>
+            <span style={{ flex: 1, display: 'inline-flex', alignItems: 'baseline', gap: 8, fontWeight: 500, fontVariantNumeric: 'tabular-nums', minWidth: 0 }}>
+              {row.income === null
                 ? <span style={{ color: C.sub }}>—</span>
-                : <CurrencyDisplay value={investmentProfitSummary.monthIncome} color={investmentProfitSummary.monthIncome >= 0 ? C.red : C.green} />}
-              <span style={{ fontSize: 12, color: C.sub }}>
-                {investmentProfitSummary.monthRate === null
-                  ? '收益率 —'
-                  : `收益率 ${(investmentProfitSummary.monthRate * 100).toFixed(2)}%`}
-              </span>
-              {sp500MonthDiff !== null && (
-                <span style={{ fontSize: 12, fontWeight: 600, color: sp500MonthDiff >= 0 ? C.red : C.green }}>
-                  {sp500MonthDiff >= 0 ? '跑赢标普 ' : '跑输标普 '}
-                  ¥{formatCurrency(Math.abs(sp500MonthDiff))}
-                </span>
-              )}
+                : <CurrencyDisplay value={row.income} color={row.income >= 0 ? C.red : C.green} />}
+              <span style={{ fontSize: 12, color: C.sub, whiteSpace: 'nowrap' }}>{row.rateText}</span>
             </span>
-          )}
-        />
-        <StatRow
-          label="今年赚了"
-          value={(
-            <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              {investmentProfitSummary.yearIncome === null
-                ? <span style={{ color: C.sub }}>—</span>
-                : <CurrencyDisplay value={investmentProfitSummary.yearIncome} color={investmentProfitSummary.yearIncome >= 0 ? C.red : C.green} />}
-              <span style={{ fontSize: 12, color: C.sub }}>
-                {investmentProfitSummary.yearAnnualizedRate === null
-                  ? '年化收益率 —'
-                  : `年化收益率 ${(investmentProfitSummary.yearAnnualizedRate * 100).toFixed(2)}%`}
-              </span>
-              {sp500YearDiff !== null && (
-                <span style={{ fontSize: 12, fontWeight: 600, color: sp500YearDiff >= 0 ? C.red : C.green }}>
-                  {sp500YearDiff >= 0 ? '跑赢标普 ' : '跑输标普 '}
-                  ¥{formatCurrency(Math.abs(sp500YearDiff))}
-                </span>
-              )}
+            <span style={{ flexShrink: 0, minWidth: 140, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+              {renderSp500Cell(row.diff)}
             </span>
-          )}
-        />
+          </div>
+        ))}
       </Card>
 
       {/* 月度快照 */}
