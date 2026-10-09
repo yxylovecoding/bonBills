@@ -90,7 +90,7 @@ describe('个人皮肤方案接续', () => {
     expect(resolveSkinRecord('2026-10-09', settings, entries)).toEqual({ status: 'acne', planDay: 1 });
   });
 
-  it('修正持久化设置时移除一次性精华，并保留其他用品与历史记录', () => {
+  it('修正持久化设置时移除一次性精华，保留安修泽油橄榄精华并校正为痤疮状态', () => {
     const persisted = structuredClone(settings);
     persisted.plans.acne.repeat = false;
     const extras = [
@@ -102,7 +102,14 @@ describe('个人皮肤方案接续', () => {
       states: ['damaged'], seasons: [], times: ['morning'], tags: [], notes: '' });
     const corrected = currentSkinSettings(persisted);
     expect(corrected.plans.acne.repeat).toBe(true);
-    for (const extra of extras) expect(corrected.products.some((item) => item.name === extra.name)).toBe(false);
+    const olive = corrected.products.find((item) => item.name === '安修泽油橄榄精华');
+    expect(olive).toBeDefined();
+    expect(olive!.states).toEqual(['acne']);
+    expect(olive!.times).toEqual([]);
+    expect(olive!.active).toBe(true);
+    for (const extra of ['修丽可五酸精华', '海蓝之谴水']) {
+      expect(corrected.products.some((item) => item.name === extra)).toBe(false);
+    }
     expect(corrected.products).toContainEqual(settings.products[0]);
     expect(history({ '2026-10-07': { morningProducts: '安修泽油橄榄精华' } })['skin:2026-10-07'].skin?.morningProducts)
       .toBe('安修泽油橄榄精华');

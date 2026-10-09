@@ -33,6 +33,7 @@ export const DEFAULT_SKIN_SETTINGS: SkinSettings = {
     product('growth-factor', '生长因子', 'medication', ['damaged']),
     product('curel-cream', '珂润霜', 'skincare', ['damaged'], ['autumn', 'winter']),
     product('curel-lotion', '珂润乳', 'skincare', ['damaged'], ['spring', 'summer']),
+    product('olive-essence', '安修泽油橄榄精华', 'skincare', ['acne']),
   ],
   plans: {
     acne: { careFrom: 'damaged', repeat: true, days: [
@@ -105,14 +106,30 @@ export function parseSkinSettings(value: unknown): SkinSettings {
   return { revision, products, plans, ...(input.acneMarksMedication !== undefined ? { acneMarksMedication: text(input.acneMarksMedication, 500) } : {}) };
 }
 
-const ONE_OFF_SKIN_PRODUCT_NAMES = new Set(['安修泽油橄榄精华', '修丽可五酸精华', '海蓝之谴水']);
+const ONE_OFF_SKIN_PRODUCT_NAMES = new Set(['修丽可五酸精华', '海蓝之谴水']);
+
+// Products that must always exist with a canonical configuration, overriding
+// any stale persisted states/kind so they appear in the right "可选加用" lists.
+const ENSURED_SKIN_PRODUCTS: readonly SkinProduct[] = [
+  { id: 'olive-essence', name: '安修泽油橄榄精华', kind: 'skincare', active: true,
+    states: ['acne'], seasons: [], times: [], tags: [], notes: '' },
+];
 
 // Apply one-off corrections to persisted personal settings without rewriting
 // historical entries, whose saved product names must remain unchanged.
 export function currentSkinSettings(settings: SkinSettings): SkinSettings {
+  const kept = settings.products.filter((item) => !ONE_OFF_SKIN_PRODUCT_NAMES.has(item.name));
+  const normalized = kept.map((item) => {
+    const canonical = ENSURED_SKIN_PRODUCTS.find((value) => value.name === item.name);
+    return canonical ? { ...item, kind: canonical.kind, active: true,
+      states: [...canonical.states], seasons: [...canonical.seasons], times: [...canonical.times] } : item;
+  });
+  const names = new Set(normalized.map((item) => item.name));
+  const ensured = ENSURED_SKIN_PRODUCTS.filter((item) => !names.has(item.name))
+    .map((item) => ({ ...item, states: [...item.states], seasons: [...item.seasons], times: [...item.times], tags: [...item.tags] }));
   return {
     ...settings,
-    products: settings.products.filter((item) => !ONE_OFF_SKIN_PRODUCT_NAMES.has(item.name)),
+    products: [...normalized, ...ensured],
     plans: { ...settings.plans, acne: { ...settings.plans.acne, repeat: true } },
   };
 }
@@ -129,6 +146,17 @@ export function matchingSkinProducts(settings: SkinSettings, state: SkinState | 
   return settings.products.filter((item) => item.active && item.kind === kind
     && (!careState || !item.states.length || item.states.includes(careState))
     && (!item.seasons.length || item.seasons.includes(season)) && (!time || !item.times.length || item.times.includes(time)));
+}
+// Products marked as suitable for the current skin state directly (ignoring the
+// state's careFrom chain) and not already in `matchingSkinProducts`, so they can
+// be surfaced as "可选加用" extras next to the固定方案.
+export function optionalSkinProducts(settings: SkinSettings, state: SkinState | undefined, season: SkinSeason, kind: SkinProduct['kind'], time?: SkinTime): SkinProduct[] {
+  if (!state) return [];
+  const primary = new Set(matchingSkinProducts(settings, state, season, kind, time).map((item) => item.id));
+  return settings.products.filter((item) => item.active && item.kind === kind
+    && !primary.has(item.id) && item.states.includes(state)
+    && (!item.seasons.length || item.seasons.includes(season))
+    && (!time || !item.times.length || item.times.includes(time)));
 }
 export function skinPlanValues(settings: SkinSettings, state: SkinState, day: number, season: SkinSeason): Partial<Record<SkinField, string>> {
   const plan = settings.plans[state].days[day - 1];

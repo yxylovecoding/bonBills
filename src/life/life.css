@@ -266,6 +266,10 @@
 .life-skin-choices > div, .life-skin-day-options { display: flex; flex-wrap: wrap; gap: 8px; }
 .life-skin-choices button, .life-skin-day-options button { padding: 8px 16px; background: #f3f4f0; font-size: 12px; color: var(--life-ink); }
 .life-skin-product-choices button { max-width: 100%; overflow-wrap: anywhere; text-align: left; }
+.life-skin-extra-choices { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.life-skin-extra-choices > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.life-skin-extra-label { font-size: 11px; color: var(--life-muted); }
+.life-skin-extra-toggle { margin-top: 8px; align-self: flex-start; }
 .life-skin-choices button[aria-pressed="true"], .life-skin-day-options button[aria-pressed="true"] { background: var(--life-accent); color: #fff; }
 .life-skin-plan { border: 1px solid var(--life-line); background: #fafaf7; border-radius: 10px; padding: 14px; margin-bottom: 20px; font-size: 12px; }
 .life-skin-plan-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
