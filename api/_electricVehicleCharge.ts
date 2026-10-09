@@ -12,8 +12,8 @@ const nextDate = (date: string) => {
   return value.toISOString().slice(0, 10);
 };
 const ITEMS = [
-  { key: 'charge', title: '电动车充电', date: CHARGE_DATE, start: '2026-10-09T20:00:00', end: '2026-10-09T21:00:00' },
-  { key: 'collect', title: '接电动车', date: nextDate(CHARGE_DATE), start: '2026-10-10T09:00:00', end: '2026-10-10T10:00:00' },
+  { key: 'charge', title: '电动车充电', date: CHARGE_DATE, start: '2026-10-09T20:00:00', end: '2026-10-09T20:30:00' },
+  { key: 'collect', title: '接电动车', date: nextDate(CHARGE_DATE), start: '2026-10-10T09:00:00', end: '2026-10-10T09:30:00' },
 ] as const;
 interface State { taskIds?: Record<string, string>; eventIds?: Record<string, string> }
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
