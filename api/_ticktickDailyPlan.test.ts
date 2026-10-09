@@ -180,6 +180,15 @@ describe('每日待办动态安排', () => {
     expect(p.dates.get('tomorrow')).toBe(today);
     expect(p.dates.get('undated')).toBe(today);
   });
+  it('重复任务完成后使用 TickTick 更新的下一截止日，而不是从完成时间推算', () => {
+    const eyeWash = task('eye-wash', { title: '洗眼睛', tags: ['at-least'], repeatFlag: 'RRULE:FREQ=DAILY', repeatFrom: '0',
+      startDate: '2026-10-19T00:00:00+0800', dueDate: '2026-10-19T00:00:00+0800' });
+    const s = state([done(eyeWash, '2026-10-05', 'completed-occurrence')]);
+    const result = run([eyeWash], { state: s, today: '2026-10-09', now: new Date('2026-10-09T05:00:00+08:00') });
+    expect(s.deadlines[eyeWash.id].date).toBe('2026-10-19');
+    expect(result.dates.has(eyeWash.id)).toBe(false);
+    expect(s.briefing!.selected).toEqual([]);
+  });
   it('周期计算覆盖自然月和每周指定日，用时优先取显式信息', () => {
     expect(cycleEnd(task('x', { repeatFlag: 'RRULE:FREQ=WEEKLY' }), '2026-09-27')).toBe(today);
     expect(cycleEnd(task('x', { repeatFlag: 'RRULE:FREQ=MONTHLY' }), '2026-09-04')).toBe(today);
