@@ -11,6 +11,10 @@ const ITEMS = [
 ] as const;
 interface State { taskIds?: Record<string, string>; eventIds?: Record<string, string> }
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
+const tickTickAllDayDate = (date: string) => new Date(`${date}T00:00:00+08:00`).toISOString().replace('Z', '+0000');
+const tickTickCalendarDate = (value: string | undefined, timeZone: string) => value
+  ? new Intl.DateTimeFormat('sv-SE', { timeZone }).format(new Date(value))
+  : undefined;
 
 export async function scheduleElectricVehicleCharge() {
   const [ticktick, outlook, saved] = await Promise.all([
@@ -23,13 +27,23 @@ export async function scheduleElectricVehicleCharge() {
   const token = decryptTickTickToken(ticktick.encryptedToken, (process.env.SYNC_SECRET || '').trim());
   const tasks = new TickTickOpenApiClient(token, (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
   const openTasks = await readAllTickTickTasks(tasks, [0]);
-  let tasksCreated = 0, eventsCreated = 0;
+  const timeZone = ticktick.timeZone || 'Asia/Shanghai';
+  let tasksCreated = 0, tasksUpdated = 0, eventsCreated = 0;
   for (const item of ITEMS) {
-    const existing = openTasks.find(task => task.title === item.title && (task.dueDate || task.startDate)?.slice(0, 10) === item.date);
-    if (existing) state.taskIds[item.key] = existing.id;
-    else if (!state.taskIds[item.key]) {
+    const existing = openTasks.find(task => task.id === state.taskIds![item.key])
+      ?? openTasks.find(task => task.title === item.title);
+    const taskDate = tickTickAllDayDate(item.date);
+    if (existing) {
+      state.taskIds[item.key] = existing.id;
+      if (tickTickCalendarDate(existing.dueDate || existing.startDate, timeZone) !== item.date) {
+        await tasks.updateTask(existing.id, { ...existing, projectId: existing.projectId || ticktick.projectId || 'inbox',
+          title: item.title, priority: 5, isAllDay: true, tags: [...item.tags], timeZone,
+          startDate: taskDate, dueDate: taskDate });
+        tasksUpdated++;
+      }
+    } else {
       const created = await tasks.createTask({ projectId: ticktick.projectId || 'inbox', title: item.title, priority: 5, isAllDay: true,
-        tags: [...item.tags], timeZone: ticktick.timeZone || 'Asia/Shanghai', startDate: `${item.date}T00:00:00+0800`, dueDate: `${item.date}T00:00:00+0800` });
+        tags: [...item.tags], timeZone, startDate: taskDate, dueDate: taskDate });
       if (!created?.id) throw new Error('TickTick 创建任务后未返回任务 ID');
       state.taskIds[item.key] = created.id; tasksCreated++; await kv.set(STATE_KEY, state);
     }
@@ -50,5 +64,5 @@ export async function scheduleElectricVehicleCharge() {
       state.eventIds![item.key] = created.id; eventsCreated++; await kv.set(STATE_KEY, state);
     }
   });
-  return { tasksCreated, eventsCreated, complete: ITEMS.every(item => state.taskIds![item.key] && state.eventIds![item.key]) };
+  return { tasksCreated, tasksUpdated, eventsCreated, complete: ITEMS.every(item => state.taskIds![item.key] && state.eventIds![item.key]) };
 }
