@@ -4,6 +4,7 @@ import type { TickTickPlanDetails } from '../utils/tickTickPlanDetails';
 import { requestWithRetry } from '../utils/requestWithRetry';
 import { accountRequestHeaders } from '../utils/authClient';
 import { doneCategory, doneWeekDates, doneWeekMonths, doneWeekNumber, earlierDoneWeeks, computeDoneDurations, groupDoneWeek, shiftDoneDate } from '../utils/lifeDone';
+import { squarifiedTreemap } from '../utils/squarifiedTreemap';
 import { LifeError, lifeRequest } from './client';
 import LifePlanDetails from './LifePlanDetails';
 import OutlookLaundryControl from '../components/OutlookLaundryControl';
@@ -13,38 +14,61 @@ const completionTime = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shangh
 const weekdays = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 // 任务按分类映射到色系：课绿、活蓝、玩粉，未归类走中性灰。
 const CATEGORY_CLASS: Record<string, string> = { 课: 'is-study', 活: 'is-life', 玩: 'is-play', 未分类: 'is-other' };
+// 每天任务瓷砖的固定容器高度（与早期列表版本保持一致，不随任务数量撑高）。
+const DAY_TILE_HEIGHT = 128;
 
 // 每次加载 DoneList 页面时自动触发一次重排（静默，不打扰用户）。
 // 使用模块级 flag 避免因组件在同一次会话内多次挂载/卸载重复触发。
 let autoReplanDispatched = false;
+
+// 瓷砖面板：固定高度 + 自适应宽度，用 squarified treemap 把任务按耗时占比铺满无缝。
+function DoneTiles({ items, durations }: { items: DoneItem[]; durations: Map<string, number> }) {
+  const container = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  useLayoutEffect(() => {
+    const el = container.current;
+    if (!el) return;
+    const update = () => setWidth(el.clientWidth);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const sorted = [...items].sort((a, b) => a.completedAt.localeCompare(b.completedAt));
+  const byId = new Map(sorted.map((item) => [item.id, item] as const));
+  const rects = width > 0 ? squarifiedTreemap(
+    sorted.map((item) => ({ id: item.id, value: Math.max(1, durations.get(item.id) ?? 15) })),
+    width,
+    DAY_TILE_HEIGHT,
+  ) : [];
+  return <div ref={container} className="life-week-tiles" style={{ height: DAY_TILE_HEIGHT }}>
+    {rects.map((rect) => {
+      const item = byId.get(rect.id);
+      if (!item) return null;
+      const minutes = durations.get(item.id) ?? 15;
+      const category = doneCategory(item);
+      return <div key={item.id} className={`life-week-tile ${CATEGORY_CLASS[category] ?? 'is-other'}`}
+        style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
+        title={`[${category}] ${item.title} · 约 ${Math.round(minutes)} 分钟 · ${completionTime.format(new Date(item.completedAt))}`}>
+        <span className="life-done-task-title">{item.title}</span>
+        <time dateTime={item.completedAt}>{completionTime.format(new Date(item.completedAt))}</time>
+      </div>;
+    })}
+  </div>;
+}
 
 function DoneDay({ date, index, items, today, pending, busy, error }: {
   date: string; index: number; items: DoneItem[]; today: string; pending: boolean; busy: boolean; error: boolean;
 }) {
   const isToday = date === today;
   const future = date > today;
-  // 每天都默认全部展开，按完成时间升序铺成瓷砖布局：块的宽高按耗时比例分配，一行可容纳多个任务并自然换行，
-  // 不再按课/活/玩分列，改用颜色区分分类（课绿、活蓝、玩粉）。
+  // 每天固定高度展示，squarified treemap 按耗时占比把任务瓷砖铺满容器、无缝隙；颜色区分课/活/玩分类。
   const durations = computeDoneDurations(items);
-  const sorted = [...items].sort((a, b) => a.completedAt.localeCompare(b.completedAt));
   return <section className={`life-week-day${isToday ? ' is-today' : ''}${future ? ' is-future' : ''}`} aria-label={`${date}完成记录`}>
     <header className="life-week-day-heading"><time dateTime={date}>{Number(date.slice(8))}</time><span>{weekdays[index]}</span>{isToday && <span className="life-week-today">今天</span>}</header>
     <div className="life-week-day-content">
       {future ? null : pending && !items.length ? <p className="life-week-empty">{busy ? '读取中…' : error ? '暂未读到记录' : '等待同步'}</p>
-        : sorted.length ? <ul className="life-week-timeline">{sorted.map((item) => {
-          const minutes = durations.get(item.id) ?? 15;
-          const category = doneCategory(item);
-          // 瓷砖式布局：按耗时决定块的相对宽高，sqrt 缩放避免长任务挤占整行；短任务保留最小可读尺寸。
-          const scale = Math.sqrt(Math.max(5, minutes));
-          const basis = Math.max(78, Math.min(240, Math.round(scale * 18)));
-          const height = Math.max(28, Math.min(96, Math.round(scale * 7) + 18));
-          return <li key={item.id} className={CATEGORY_CLASS[category] ?? 'is-other'}
-            style={{ flexGrow: Math.max(1, minutes / 10), flexShrink: 1, flexBasis: `${basis}px`, height: `${height}px` }}
-            title={`[${category}] ${item.title} · 约 ${Math.round(minutes)} 分钟 · ${completionTime.format(new Date(item.completedAt))}`}>
-            <span className="life-done-task-title">{item.title}</span>
-            <time dateTime={item.completedAt}>{completionTime.format(new Date(item.completedAt))}</time>
-          </li>;
-        })}</ul> : <p className="life-week-category-empty">—</p>}
+        : items.length ? <DoneTiles items={items} durations={durations} /> : <p className="life-week-category-empty">—</p>}
     </div>
   </section>;
 }
