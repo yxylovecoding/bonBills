@@ -170,6 +170,13 @@
 .life-plan-tasks { list-style: none; padding: 0; margin: 0; }
 .life-plan-tasks li { padding: 9px 0; border-top: 1px solid var(--life-line); overflow-wrap: anywhere; }
 .life-plan-tasks li > div > span:last-child { white-space: nowrap; flex-shrink: 0; color: var(--life-muted); font-variant-numeric: tabular-nums; }
+.life-plan-collapsible { margin: 10px 0 0; }
+.life-plan-collapsible > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px; color: var(--life-muted); font-size: 11px; padding: 4px 0; user-select: none; }
+.life-plan-collapsible > summary::-webkit-details-marker { display: none; }
+.life-plan-collapsible > summary::before { content: '▸'; display: inline-block; font-size: 10px; transition: transform .15s ease; color: var(--life-muted); }
+.life-plan-collapsible[open] > summary::before { transform: rotate(90deg); }
+.life-plan-collapsible > summary h3 { margin: 0; font-size: 13px; font-weight: 500; color: var(--life-ink); }
+.life-plan-collapsible > summary > span { font-size: 13px; font-weight: 500; color: var(--life-ink); }
 .life-done-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-top: 24px; }
 .life-done-heading h2 { margin: 0; font-size: 21px; font-weight: 500; letter-spacing: -.4px; }
 .life-week-navigation { display: flex; align-items: center; gap: 4px; }

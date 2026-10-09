@@ -12,18 +12,27 @@ export default function LifePlanDetails({ plan }: { plan: TickTickPlanDetails })
     {b ? <>
       <section aria-label="今天剩余时间"><h3>今天剩余时间</h3>
         <dl className="life-plan-ledger">
-          <div><dt>距离今天 24:00</dt><dd>{minuteText(b.clockRemainingMinutes)}</dd></div>
           <div><dt>可排期时段内剩余</dt><dd>{minuteText(b.windowMinutes)}</dd></div>
           <div><dt>日程、定时事项及出行占用</dt><dd>− {minuteText(b.occupiedMinutes)}</dd></div>
           <div className="life-plan-subtotal"><dt>扣除后空闲</dt><dd>{minuteText(b.freeMinutes)}</dd></div>
         </dl>
         <p className="life-plan-meta">本次可排期时段：{b.remainingWindows.length ? b.remainingWindows.map(window => `${time.format(new Date(window.start))}—${time.format(new Date(window.end))}`).join('、') : '今天已无剩余时段'}</p>
+        {b.calendarEvents && b.calendarEvents.length > 0 && <details className="life-plan-collapsible">
+          <summary><span>Outlook 日程 · 共 {b.calendarEvents.length} 项 · 约 {minuteText(b.occupiedMinutes)}</span></summary>
+          <ul className="life-plan-tasks">{b.calendarEvents.map((event, index) => <li key={`${event.start}:${event.title}:${index}`}>
+            <div><span>{event.title || '未命名日程'}</span><span>{minuteText(event.overlapMinutes)}</span></div>
+            <p>{time.format(new Date(event.start))}—{time.format(new Date(event.end))}</p>
+          </li>)}</ul>
+        </details>}
       </section>
-      <section aria-label="今日重要之事占用"><h3>今日重要之事 · {b.important.length} 项 · 约 {minuteText(b.important.reduce((sum, task) => sum + task.minutes, 0))}</h3>
-        {b.important.length ? <ul className="life-plan-tasks">{b.important.map(task => <li key={`${task.projectId}:${task.id}`}>
-          <div><span>{task.title}</span><span>{minuteText(task.minutes)}</span></div>
-          <p>{task.durationBasis}；{b.importantReservationEnabled === false ? '不额外预留时间' : task.additionalMinutes ? `另需预留 ${minuteText(task.additionalMinutes)}` : '已有日程或定时安排，不重复预留'}</p>
-        </li>)}</ul> : <p className="life-plan-meta">本次没有未完成的重要事项。</p>}
+      <section aria-label="今日重要之事占用">
+        <details className="life-plan-collapsible">
+          <summary><h3>今日重要之事 · 共 {b.important.length} 项 · 约 {minuteText(b.important.reduce((sum, task) => sum + task.minutes, 0))}</h3></summary>
+          {b.important.length ? <ul className="life-plan-tasks">{b.important.map(task => <li key={`${task.projectId}:${task.id}`}>
+            <div><span>{task.title}</span><span>{minuteText(task.minutes)}</span></div>
+            <p>{task.durationBasis}；{b.importantReservationEnabled === false ? '不额外预留时间' : task.additionalMinutes ? `另需预留 ${minuteText(task.additionalMinutes)}` : '已有日程或定时安排，不重复预留'}</p>
+          </li>)}</ul> : <p className="life-plan-meta">本次没有未完成的重要事项。</p>}
+        </details>
       </section>
       <section aria-label="剩余时间的分配"><h3>留给今日事的时间</h3>
         <dl className="life-plan-ledger">
