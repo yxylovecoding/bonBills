@@ -12,6 +12,10 @@ const shanghaiToday = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/S
 const completionTime = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
 const weekdays = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 
+// 每次加载 DoneList 页面时自动触发一次重排（静默，不打扰用户）。
+// 使用模块级 flag 避免因组件在同一次会话内多次挂载/卸载重复触发。
+let autoReplanDispatched = false;
+
 function DoneDay({ date, index, items, today, pending, busy, error }: {
   date: string; index: number; items: DoneItem[]; today: string; pending: boolean; busy: boolean; error: boolean;
 }) {
@@ -108,6 +112,24 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
     }
   }
   useEffect(() => () => { replanController.current?.abort(); }, []);
+  // 页面打开时自动静默触发一次重排任务，等价于用户点击「重排任务」按钮，
+  // 不走组件状态，避免打扰用户；失败也静默忽略。
+  useEffect(() => {
+    if (autoReplanDispatched) return;
+    autoReplanDispatched = true;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 20_000);
+    void (async () => {
+      try {
+        await fetch('/api/ticktick-trips?action=trigger-replan', {
+          method: 'POST', credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
+          headers: accountRequestHeaders(),
+        });
+      } catch { /* 静默忽略触发失败，用户仍可手动点击「重排任务」。*/ }
+      finally { clearTimeout(timer); }
+    })();
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, []);
   useEffect(() => {
     const request = new AbortController(); detailsController.current = request;
     setDetailsError('');
