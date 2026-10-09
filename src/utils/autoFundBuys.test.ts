@@ -66,7 +66,7 @@ describe('基金自动入账与账单校对', () => {
     useMonthlyStore.setState({ records: [bookPendingFundBuy(baseRecord(), 'order-1', estimate)] });
     const result = await importInvestmentFileIntoStores(statement());
     expect(result.reconciledTransactions).toBe(1);
-    expect(result.eligibleTransactions).toBe(0);
+    expect(result.eligibleTransactions).toBe(1);
     expect(result.formalImportedTransactions).toBe(0);
     expect(fund(current())).toMatchObject({ shares: 14.9, costPrice: 1.6779 });
     expect(fund(current()).pendingBuys).toBeUndefined();

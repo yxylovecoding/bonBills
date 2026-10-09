@@ -161,7 +161,7 @@ describe('理财导出表导入', () => {
     expect(transactions[1]).toMatchObject({ symbol: '008163', groupKey: 'us', currency: 'CNY', quoteSource: 'eastmoney-fund' });
   });
 
-  it('过滤编辑时间以前的历史，只把新份额并入已有基金', async () => {
+  it('全量匹配：将 Excel 中的所有历史行导入到对应月份', async () => {
     const base = septemberRecord();
     base.investPositionItems = {
       a: [{
@@ -179,14 +179,19 @@ describe('理财导出表导入', () => {
     useMonthlyStore.setState({ records: [base] });
 
     const result = await importInvestmentFileIntoStores(fundInvestmentFile());
-    const record = useMonthlyStore.getState().records[0];
+    const records = useMonthlyStore.getState().records;
+    const september = records.find((record) => record.yearMonth === '2026-09');
+    const august = records.find((record) => record.yearMonth === '2026-08');
 
     expect(result.parsedTransactions).toBe(2);
-    expect(result.eligibleTransactions).toBe(1);
-    expect(result.importedTransactions).toBe(1);
-    expect(record.investPositionItems?.a).toHaveLength(1);
-    expect(record.investPositionItems?.a?.[0]).toMatchObject({ name: '红利低波A', symbol: '008163', shares: 542.96 });
-    expect(record.investPositionItems?.us ?? []).toHaveLength(0);
+    expect(result.eligibleTransactions).toBe(2);
+    expect(result.importedTransactions).toBe(2);
+    // 手动持仓与导入行并入同一基金，九月份额 = 494.59 + 48.37
+    expect(september?.investPositionItems?.a).toHaveLength(1);
+    expect(september?.investPositionItems?.a?.[0]).toMatchObject({ name: '红利低波A', symbol: '008163', shares: 542.96 });
+    expect(september?.investPositionItems?.us ?? []).toHaveLength(0);
+    // 八月行作为独立月份导入（无同代码持仓时按解析得到的 us 分组落位）
+    expect(august?.investPositionItems?.us?.[0]).toMatchObject({ symbol: '008163', shares: 300 });
   });
 
   it('归一化旧数据中已经生成的重复基金条目', () => {
@@ -381,7 +386,7 @@ describe('理财导出表导入', () => {
     ]);
   });
 
-  it('跨月确认越过编辑时间过滤转正，并保持历史月份待确认快照', async () => {
+  it('全量匹配下跨月确认替换前次待确认导入，并沿继承链传播', async () => {
     useMonthlyStore.setState({ records: [augustFundRecord()] });
     await importInvestmentFileIntoStores(pendingFundFile({
       rows: [['ORDER-2', '2026-08-31 10:20', '', '买入', '南方标普红利低波50ETF联接A', '008163', '', '', 100, '招商', '待确认']],
@@ -398,11 +403,12 @@ describe('理财导出表导入', () => {
     const augustAfter = records.find((record) => record.yearMonth === '2026-08')!;
     const september = records.find((record) => record.yearMonth === '2026-09')!;
 
-    expect(result.eligibleTransactions).toBe(0);
-    expect(result.resolvedPendingBuys).toBe(1);
+    // 全量同步：原待确认已被清空再重建，只保留 Excel 中的确认行
+    expect(result.eligibleTransactions).toBe(1);
+    expect(result.formalImportedTransactions).toBe(1);
     expect(september.investPositionItems?.a?.[0]).toMatchObject({ shares: 110, costPrice: 1 });
     expect(september.investPositionItems?.a?.[0].pendingBuys).toBeUndefined();
-    expect(augustAfter.investPositionItems?.a?.[0].pendingBuys).toHaveLength(1);
+    expect(augustAfter.investPositionItems?.a?.[0].pendingBuys).toBeUndefined();
 
     const updatedAugustItems = structuredClone(augustAfter.investPositionItems!);
     updatedAugustItems.a![0].shares = 20;
@@ -411,11 +417,12 @@ describe('理财导出表导入', () => {
     expect(propagatedSeptember?.investPositionItems?.a?.[0].shares).toBe(120);
     expect(propagatedSeptember?.investPositionItems?.a?.[0].pendingBuys).toBeUndefined();
 
+    // 重复导入同一文件应保持幂等
     await importInvestmentFileIntoStores(confirmed);
     expect(useMonthlyStore.getState().records.find((record) => record.yearMonth === '2026-09')?.investPositionItems?.a?.[0].shares).toBe(120);
   });
 
-  it('无流水号的完全相同待确认操作不自动猜测转正', async () => {
+  it('全量匹配下无流水号的确认行覆盖之前的待确认记录', async () => {
     useMonthlyStore.setState({ records: [augustFundRecord()] });
     await importInvestmentFileIntoStores(pendingFundFile({
       rows: [
@@ -423,15 +430,18 @@ describe('理财导出表导入', () => {
         ['', '2026-08-31 10:20', '', '买入', '红利低波A', '008163', '', '', 100, '招商', '确认中'],
       ],
     }));
+    expect(useMonthlyStore.getState().records[0].investPositionItems?.a?.[0].pendingBuys).toHaveLength(2);
 
     const result = await importInvestmentFileIntoStores(pendingFundFile({
       rows: [['', '2026-08-31 10:20', '2026-09-03 09:10', '买入', '红利低波A', '008163', 1, 100, 100, '招商', '交易成功']],
     }));
+    const august = useMonthlyStore.getState().records.find((record) => record.yearMonth === '2026-08')!;
     const september = useMonthlyStore.getState().records.find((record) => record.yearMonth === '2026-09');
 
-    expect(result.resolvedPendingBuys).toBe(0);
-    expect(september).toBeUndefined();
-    expect(useMonthlyStore.getState().records[0].investPositionItems?.a?.[0].pendingBuys).toHaveLength(2);
+    // 第二次导入全量覆盖：前次两条待确认被清掉，只剩本次 Excel 中的确认行
+    expect(result.formalImportedTransactions).toBe(1);
+    expect(august.investPositionItems?.a?.[0].pendingBuys).toBeUndefined();
+    expect(september?.investPositionItems?.a?.[0].shares).toBe(110);
   });
 
   it('同一文件跨月包含待确认和确认行时按月份顺序转正', async () => {
@@ -447,7 +457,7 @@ describe('理财导出表导入', () => {
     }));
     const september = useMonthlyStore.getState().records.find((record) => record.yearMonth === '2026-09');
 
-    expect(result.eligibleTransactions).toBe(0);
+    expect(result.eligibleTransactions).toBe(1);
     expect(result.resolvedPendingBuys).toBe(1);
     expect(result.formalImportedTransactions).toBe(1);
     expect(september?.investPositionItems?.a?.[0].shares).toBe(110);

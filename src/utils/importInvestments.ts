@@ -5,6 +5,7 @@ import type {
   InvestPositionItems,
   InvestQuoteSource,
   InvestmentTransactionRecord,
+  MonthlyRecord,
   PendingInvestmentBuy,
 } from '../models/types';
 import { useMonthlyStore } from '../stores/monthlyStore';
@@ -437,6 +438,151 @@ function countPending(items: InvestPositionItems | undefined) {
   );
 }
 
+const IMPORTED_TRANSACTION_ID_PREFIX = 'mail-invest:';
+const IMPORTED_PENDING_ID_PREFIX = 'pending-invest:';
+
+function isImportedTransactionId(id: string) {
+  return id.startsWith(IMPORTED_TRANSACTION_ID_PREFIX);
+}
+
+function isImportedPendingId(id: string) {
+  return id.startsWith(IMPORTED_PENDING_ID_PREFIX);
+}
+
+/**
+ * Full-sync preparation: strip every transaction and pending-buy previously brought in by an
+ * Excel import, so the next pass rebuilds the imported slice from scratch while leaving manual
+ * entries and auto-fund bookings intact.
+ */
+function stripImportedInvestmentState(record: MonthlyRecord): {
+  record: MonthlyRecord;
+  priorImportedPending: Map<string, PendingInvestmentBuy>;
+  droppedTransactions: InvestmentTransactionRecord[];
+  changed: boolean;
+} {
+  const priorImportedPending = new Map<string, PendingInvestmentBuy>();
+  const originalTransactions = record.investmentTransactions ?? [];
+  const droppedTransactions: InvestmentTransactionRecord[] = [];
+  const retainedTransactions = originalTransactions.filter((transaction) => {
+    if (isImportedTransactionId(transaction.id)) {
+      droppedTransactions.push(transaction);
+      return false;
+    }
+    return true;
+  });
+  const transactionsChanged = retainedTransactions.length !== originalTransactions.length;
+
+  const originalItems = record.investPositionItems;
+  const rebuiltItems: InvestPositionItems = {};
+  let itemsChanged = false;
+  if (originalItems) {
+    for (const groupKey of Object.keys(originalItems) as (keyof InvestPositionItems)[]) {
+      const group = originalItems[groupKey];
+      if (!group) continue;
+      rebuiltItems[groupKey] = group.map((item) => {
+        const pendingBuys = item.pendingBuys ?? [];
+        const retained: PendingInvestmentBuy[] = [];
+        let itemChanged = false;
+        for (const pending of pendingBuys) {
+          if (isImportedPendingId(pending.id)) {
+            priorImportedPending.set(pending.id, pending);
+            itemChanged = true;
+          } else {
+            retained.push(pending);
+          }
+        }
+        if (!itemChanged) return item;
+        itemsChanged = true;
+        return { ...item, pendingBuys: retained.length > 0 ? retained : undefined };
+      });
+    }
+  }
+
+  const importedIds = record.importedInvestmentTransactionIds ?? [];
+  // Only drop the imported-ids list when we actually strip something from the ledger or
+  // pending state. Preserving it otherwise keeps reconciled auto-fund imports idempotent
+  // on repeat runs (same inputs → same stored state).
+  const importedIdsChanged = (transactionsChanged || itemsChanged) && importedIds.length > 0;
+  const changed = transactionsChanged || itemsChanged || importedIdsChanged;
+  if (!changed) {
+    return { record, priorImportedPending, droppedTransactions: [], changed: false };
+  }
+
+  let nextRecord: MonthlyRecord = { ...record };
+  if (transactionsChanged) nextRecord.investmentTransactions = retainedTransactions;
+  if (itemsChanged) nextRecord = syncInvestPositionItems(nextRecord, rebuiltItems);
+  if (importedIdsChanged) nextRecord.importedInvestmentTransactionIds = [];
+  return { record: nextRecord, priorImportedPending, droppedTransactions, changed };
+}
+
+/**
+ * Reverse the position-items effect of a previously-applied imported transaction. Used by
+ * full-sync root-record cleanup so manual positions that pre-dated the import are preserved
+ * while the imported deltas are rolled back.
+ */
+function unapplyInvestmentTransaction(items: InvestPositionItems, transaction: InvestmentTransactionRecord) {
+  const group = [...(items[transaction.groupKey] ?? [])];
+  const existingIndex = group.findIndex((item) =>
+    (transaction.symbol && canonicalInvestmentSymbol(item.symbol) === canonicalInvestmentSymbol(transaction.symbol))
+      || (!transaction.symbol && item.name.trim().toLowerCase() === transaction.name.trim().toLowerCase()),
+  );
+  if (existingIndex < 0) return;
+  const existing = group[existingIndex];
+  const currentShares = Math.max(existing.shares ?? 0, 0);
+  const currentCost = Math.max(existing.costPrice ?? 0, 0);
+  const addedCost = transaction.costFromAmount && transaction.amount !== undefined
+    ? transaction.amount
+    : transaction.shares * transaction.price + transaction.fee;
+  if (transaction.side === 'buy') {
+    const previousShares = Math.max(currentShares - transaction.shares, 0);
+    const denominator = Math.max(currentShares, transaction.shares);
+    const previousCost = previousShares > 0
+      ? Math.max((currentCost * denominator - addedCost) / previousShares, 0)
+      : 0;
+    if (previousShares <= 0.0000001) {
+      // Position only existed because of this import — drop it entirely.
+      group.splice(existingIndex, 1);
+    } else {
+      group[existingIndex] = {
+        ...existing,
+        shares: Math.round(previousShares * 10000) / 10000,
+        costPrice: Math.round(previousCost * 10000) / 10000,
+      };
+    }
+  } else {
+    // Sell: restore the shares, keep cost basis (sells don't change cost basis on apply).
+    const previousShares = currentShares + transaction.shares;
+    group[existingIndex] = {
+      ...existing,
+      shares: Math.round(previousShares * 10000) / 10000,
+      costPrice: Math.round(currentCost * 10000) / 10000,
+      status: 'active',
+    };
+  }
+  if (group.length > 0) items[transaction.groupKey] = group;
+  else delete items[transaction.groupKey];
+}
+
+/**
+ * Rebuild a cleaned record's investment ending state so position shares/cost no longer reflect
+ * the dropped imported transactions. For records with a parent, replay from the parent; for
+ * root records, inverse-apply the dropped transactions so manually-managed positions survive.
+ */
+function rebuildClearedRecord(
+  record: MonthlyRecord,
+  parent: MonthlyRecord | undefined,
+  droppedTransactions: InvestmentTransactionRecord[],
+): MonthlyRecord {
+  if (parent) {
+    return replayInvestmentRecord(parent, record);
+  }
+  // Root record: inverse-apply the dropped imports to restore the pre-import baseline so
+  // user-managed positions do not get wiped by replay-from-empty.
+  const items = cloneInvestPositionItems(investmentPositionItemsForRecord(record));
+  for (const transaction of droppedTransactions) unapplyInvestmentTransaction(items, transaction);
+  return syncInvestPositionItems(record, items);
+}
+
 export async function importInvestmentFileIntoStores(file: File, options?: { mailUid?: number; deferUpload?: boolean }) {
   const parsed = await parseInvestmentFileDetails(file);
   if (parsed.transactions.length === 0 && parsed.pendingBuys.length === 0) {
@@ -444,16 +590,36 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
   }
   const currentRecords = useMonthlyStore.getState().records;
   const editedAt = getInvestmentImportCutoff(currentRecords);
-  if (!editedAt && parsed.transactions.length > 0 && currentRecords.some(hasInvestmentEndingState)) {
-    throw new Error('理财增量起点尚未建立，请刷新页面后重试');
-  }
 
-  const ordinaryTransactions = editedAt
-    ? parsed.transactions.filter((transaction) => transactionIsAfterEdit(transaction, editedAt))
-    : parsed.transactions;
-  const ordinaryIds = new Set(ordinaryTransactions.map((transaction) => transaction.id));
+  // Full-sync preparation: wipe every previously-imported transaction and pending-buy. When
+  // imported transactions were present, replay the record from its parent so position shares
+  // and cost no longer reflect the dropped imports. Records that only had pending-invest
+  // entries removed (pending buys do not shift shares) keep their position state untouched.
   const workingRecords = new Map(currentRecords.map((record) => [record.yearMonth, record]));
   const changedMonths = new Set<string>();
+  const priorImportedPendingAll = new Map<string, PendingInvestmentBuy>();
+  const priorImportedTransactionIds = new Set<string>();
+  const clearedMonths = [...workingRecords.keys()].sort();
+  for (const month of clearedMonths) {
+    const current = workingRecords.get(month)!;
+    (current.investmentTransactions ?? []).forEach((transaction) => {
+      if (isImportedTransactionId(transaction.id)) priorImportedTransactionIds.add(transaction.id);
+    });
+    const stripped = stripImportedInvestmentState(current);
+    for (const [id, pending] of stripped.priorImportedPending) priorImportedPendingAll.set(id, pending);
+    if (!stripped.changed) continue;
+    let rebuilt = stripped.record;
+    if (stripped.droppedTransactions.length > 0) {
+      const parent = stripped.record.investmentRolledOverFrom
+        ? workingRecords.get(stripped.record.investmentRolledOverFrom)
+        : undefined;
+      rebuilt = rebuildClearedRecord(stripped.record, parent, stripped.droppedTransactions);
+    }
+    workingRecords.set(month, rebuilt);
+    changedMonths.add(month);
+  }
+
+  const ordinaryTransactions = parsed.transactions;
   let newPendingBuys = 0;
   let resolvedPendingBuys = 0;
   let formalImportedTransactions = 0;
@@ -480,20 +646,24 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
   };
 
   for (const parsedPending of parsed.pendingBuys) {
-    // A stale pending export must not resurrect an already booked or confirmed order.
+    // A pending export must not resurrect an already booked or confirmed order.
     if ([...workingRecords.values()].some((record) => record.investmentTransactions?.some((transaction) =>
       matchesInvestmentOrder(transaction, parsedPending)))) continue;
     const yearMonth = parsedPending.operationAt.slice(0, 7);
     let record = ensureWorkingRecord(yearMonth);
     const items = cloneInvestPositionItems(investmentPositionItemsForRecord(record));
     const pending = useMatchedPositionGroup(items, parsedPending);
-    if (attachPendingBuy(items, pending)) newPendingBuys += 1;
+    // Restore booking metadata (e.g. auto-fund estimates) that was wiped during the strip pass.
+    const prior = priorImportedPendingAll.get(pending.id);
+    const pendingToAttach = prior?.booking ? { ...pending, booking: prior.booking } : pending;
+    const wasNew = !priorImportedPendingAll.has(pending.id);
+    if (attachPendingBuy(items, pendingToAttach) && wasNew) newPendingBuys += 1;
     record = syncInvestPositionItems(record, items);
     workingRecords.set(yearMonth, record);
     changedMonths.add(yearMonth);
   }
 
-  for (const parsedTransaction of parsed.transactions) {
+  for (const parsedTransaction of ordinaryTransactions) {
     if (parsedTransaction.side === 'buy') {
       const reconciliation = reconcileAutoFundBuy([...workingRecords.values()], parsedTransaction);
       if (reconciliation.matched) {
@@ -513,7 +683,6 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
     const isUniquePendingResolution = matches.length === 1
       && transaction.shares > 0
       && (transaction.amount ?? 0) > 0;
-    if (!ordinaryIds.has(transaction.id) && !isUniquePendingResolution) continue;
     if (!transaction.orderId && matches.length > 1) continue;
 
     const importedIds = new Set(record.importedInvestmentTransactionIds ?? []);
@@ -548,7 +717,8 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
       if (!formalTransaction.orderId) legacyTransactionFingerprints.add(legacyTransactionFingerprint(formalTransaction));
       applyInvestmentTransaction(items, formalTransaction);
       importedIds.add(formalTransaction.id);
-      formalImportedTransactions += 1;
+      // Only count toward formally-imported if this id was not already imported in a prior run.
+      if (!priorImportedTransactionIds.has(formalTransaction.id)) formalImportedTransactions += 1;
     } else {
       importedIds.add(transaction.id);
     }
@@ -575,7 +745,7 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
   const months = [...changedMonths].sort();
   useMonthlyStore.getState().upsertMany(
     months.map((month) => workingRecords.get(month)!).filter(Boolean),
-    { investmentSource: 'import' },
+    { investmentSource: 'import', replaceInvestmentState: true },
   );
   const latestChanged = months.at(-1);
   const latestItems = latestChanged

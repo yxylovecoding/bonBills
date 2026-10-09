@@ -24,6 +24,12 @@ export type InvestmentMutationSource = 'manual' | 'import' | 'rollover';
 
 export interface MonthlyUpsertOptions {
   investmentSource?: InvestmentMutationSource;
+  /**
+   * When true, incoming investment-related fields replace existing ones instead of merging.
+   * Used by full-sync Excel import so that previously-imported entries missing from the latest
+   * file are actually removed.
+   */
+  replaceInvestmentState?: boolean;
 }
 
 interface MonthlyStore {
@@ -36,12 +42,19 @@ interface MonthlyStore {
   getByYearMonth: (ym: string) => MonthlyRecord | undefined;
 }
 
-function mergeMonthlyRecord(a: MonthlyRecord | undefined, b: MonthlyRecord): MonthlyRecord {
+function mergeMonthlyRecord(
+  a: MonthlyRecord | undefined,
+  b: MonthlyRecord,
+  options?: { replaceInvestmentState?: boolean },
+): MonthlyRecord {
   if (!a) return b;
-  const transactionLedger = new Map(
-    [...(a.investmentTransactions ?? []), ...(b.investmentTransactions ?? [])]
-      .map((transaction) => [transaction.id, transaction]),
-  );
+  const replaceInvestmentState = options?.replaceInvestmentState === true;
+  const transactionLedger = replaceInvestmentState
+    ? new Map((b.investmentTransactions ?? []).map((transaction) => [transaction.id, transaction]))
+    : new Map(
+        [...(a.investmentTransactions ?? []), ...(b.investmentTransactions ?? [])]
+          .map((transaction) => [transaction.id, transaction]),
+      );
   return {
     ...a,
     ...b,
@@ -52,14 +65,18 @@ function mergeMonthlyRecord(a: MonthlyRecord | undefined, b: MonthlyRecord): Mon
     investProfitComponents: b.investProfitComponents ?? a.investProfitComponents,
     investBreakdownPastProfit: b.investBreakdownPastProfit ?? a.investBreakdownPastProfit,
     investPastProfitComponents: b.investPastProfitComponents ?? a.investPastProfitComponents,
-    investPositionItems: b.investPositionItems ?? a.investPositionItems,
+    investPositionItems: replaceInvestmentState
+      ? b.investPositionItems
+      : (b.investPositionItems ?? a.investPositionItems),
     investmentTransactions: transactionLedger.size > 0
       ? [...transactionLedger.values()].sort((left, right) => left.date.localeCompare(right.date) || left.id.localeCompare(right.id))
       : undefined,
-    importedInvestmentTransactionIds: [...new Set([
-      ...(a.importedInvestmentTransactionIds ?? []),
-      ...(b.importedInvestmentTransactionIds ?? []),
-    ])],
+    importedInvestmentTransactionIds: replaceInvestmentState
+      ? (b.importedInvestmentTransactionIds ?? [])
+      : [...new Set([
+          ...(a.importedInvestmentTransactionIds ?? []),
+          ...(b.importedInvestmentTransactionIds ?? []),
+        ])],
     lastInvestmentMailUid: Math.max(a.lastInvestmentMailUid ?? 0, b.lastInvestmentMailUid ?? 0) || undefined,
     investmentEditedAt: b.investmentEditedAt ?? a.investmentEditedAt,
     majorExpenses: b.majorExpenses?.length ? b.majorExpenses : a.majorExpenses,
@@ -75,11 +92,12 @@ function mergeAndPropagateMonthlyRecords(
 ) {
   const byMonth = new Map(current.map((record) => [record.yearMonth, record]));
   const changedMonths = new Set<string>();
+  const mergeOptions = { replaceInvestmentState: options?.replaceInvestmentState === true };
   for (const rawRecord of incoming) {
     const record = options?.investmentSource === 'manual'
       ? { ...rawRecord, investmentRolledOverFrom: undefined }
       : rawRecord;
-    byMonth.set(record.yearMonth, mergeMonthlyRecord(byMonth.get(record.yearMonth), record));
+    byMonth.set(record.yearMonth, mergeMonthlyRecord(byMonth.get(record.yearMonth), record, mergeOptions));
     changedMonths.add(record.yearMonth);
   }
   return propagateInvestmentInheritance([...byMonth.values()], changedMonths);
