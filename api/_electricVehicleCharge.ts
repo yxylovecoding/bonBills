@@ -5,9 +5,15 @@ import { decryptTickTickToken, readAllTickTickTasks, TICKTICK_CONNECTION_KEY, Ti
 
 const STATE_KEY = 'electric-vehicle-charge:2026-10:v1';
 const EVENT_PROPERTY = 'String {d9d1e730-7742-4a9c-91af-bab2a9a45f69} Name BonBillsElectricVehicle';
+const CHARGE_DATE = '2026-10-09';
+const nextDate = (date: string) => {
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + 1);
+  return value.toISOString().slice(0, 10);
+};
 const ITEMS = [
-  { key: 'charge', title: '电动车充电', date: '2026-10-09', start: '2026-10-09T20:00:00', end: '2026-10-09T21:00:00', tags: [] },
-  { key: 'collect', title: '接电动车', date: '2026-10-10', start: '2026-10-10T09:00:00', end: '2026-10-10T10:00:00', tags: ['当天', '活'] },
+  { key: 'charge', title: '电动车充电', date: CHARGE_DATE, start: '2026-10-09T20:00:00', end: '2026-10-09T21:00:00' },
+  { key: 'collect', title: '接电动车', date: nextDate(CHARGE_DATE), start: '2026-10-10T09:00:00', end: '2026-10-10T10:00:00' },
 ] as const;
 interface State { taskIds?: Record<string, string>; eventIds?: Record<string, string> }
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -30,20 +36,22 @@ export async function scheduleElectricVehicleCharge() {
   const timeZone = ticktick.timeZone || 'Asia/Shanghai';
   let tasksCreated = 0, tasksUpdated = 0, eventsCreated = 0;
   for (const item of ITEMS) {
-    const existing = openTasks.find(task => task.id === state.taskIds![item.key])
-      ?? openTasks.find(task => task.title === item.title);
+    const existing = item.key === 'collect'
+      ? openTasks.find(task => task.title === item.title && Boolean(task.repeatFlag?.trim()))
+      : openTasks.find(task => task.id === state.taskIds![item.key]) ?? openTasks.find(task => task.title === item.title);
     const taskDate = tickTickAllDayDate(item.date);
     if (existing) {
       state.taskIds[item.key] = existing.id;
       if (tickTickCalendarDate(existing.dueDate || existing.startDate, timeZone) !== item.date) {
         await tasks.updateTask(existing.id, { ...existing, projectId: existing.projectId || ticktick.projectId || 'inbox',
-          title: item.title, priority: 5, isAllDay: true, tags: [...item.tags], timeZone,
           startDate: taskDate, dueDate: taskDate });
         tasksUpdated++;
       }
+    } else if (item.key === 'collect') {
+      throw new Error('未找到“接电动车”循环任务');
     } else {
       const created = await tasks.createTask({ projectId: ticktick.projectId || 'inbox', title: item.title, priority: 5, isAllDay: true,
-        tags: [...item.tags], timeZone, startDate: taskDate, dueDate: taskDate });
+        timeZone, startDate: taskDate, dueDate: taskDate });
       if (!created?.id) throw new Error('TickTick 创建任务后未返回任务 ID');
       state.taskIds[item.key] = created.id; tasksCreated++; await kv.set(STATE_KEY, state);
     }
