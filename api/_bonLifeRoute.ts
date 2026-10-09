@@ -1,6 +1,6 @@
 import { withAccountScope } from './_accountRoute.js';
 import { hydrateMakeupEntries } from '../src/utils/lifeMakeup.js';
-import { DEFAULT_SKIN_SETTINGS, parseSkinSettings, type SkinSettings } from '../src/utils/lifeSkin.js';
+import { DEFAULT_SKIN_SETTINGS, currentSkinSettings, parseSkinSettings, type SkinSettings } from '../src/utils/lifeSkin.js';
 import { randomUUID } from 'node:crypto';
 import { kv } from './_accountKv.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
@@ -46,7 +46,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
         kv.hgetall<LifeEntries>(LIFE_SYMPTOM_ENTRIES_KEY),
       ]);
       return res.status(200).json({ year, entries: hydrateMakeupEntries(entries ?? {}), periodDays: days, cycle: settings?.cycle ?? DEFAULT_CYCLE,
-        skinSettings: settings?.skin ?? DEFAULT_SKIN_SETTINGS,
+        skinSettings: currentSkinSettings(settings?.skin ?? DEFAULT_SKIN_SETTINGS),
         symptomHistory: Object.fromEntries(Object.entries({ ...symptoms, ...previousEntries, ...entries })
           .filter(([key]) => key.startsWith('eyes:') || key.startsWith('discomfort:'))),
         skinHistory: Object.fromEntries(Object.entries(previousEntries ?? {}).filter(([key]) => key.startsWith(`skin:${year - 1}-`))), syncedAt: periods?.syncedAt ?? null, connected: Boolean(connection) });
@@ -105,7 +105,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
     if (body.action === 'save-skin-settings') {
       let settings: SkinSettings;
       try {
-        settings = parseSkinSettings(body.settings);
+        settings = currentSkinSettings(parseSkinSettings(body.settings));
         if (typeof body.mutationId !== 'string' || !/^[a-zA-Z0-9-]{16,80}$/.test(body.mutationId)) throw new Error();
       } catch { return res.status(400).json({ error: '皮肤方案或用品信息无效' }); }
       const next = { ...settings, revision: body.mutationId };

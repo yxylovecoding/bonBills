@@ -35,7 +35,7 @@ export const DEFAULT_SKIN_SETTINGS: SkinSettings = {
     product('curel-lotion', '珂润乳', 'skincare', ['damaged'], ['spring', 'summer']),
   ],
   plans: {
-    acne: { careFrom: 'damaged', days: [
+    acne: { careFrom: 'damaged', repeat: true, days: [
       { ...emptySkinDay(), medication: '炉甘石' },
       { ...emptySkinDay(), morningMedication: '过氧', eveningMedication: '阿达帕林' },
       { ...emptySkinDay(), medication: '酸' },
@@ -104,6 +104,17 @@ export function parseSkinSettings(value: unknown): SkinSettings {
   }
   return { revision, products, plans, ...(input.acneMarksMedication !== undefined ? { acneMarksMedication: text(input.acneMarksMedication, 500) } : {}) };
 }
+
+// Apply one-off corrections to persisted personal settings without rewriting
+// historical entries, whose saved product names must remain unchanged.
+export function currentSkinSettings(settings: SkinSettings): SkinSettings {
+  return {
+    ...settings,
+    products: settings.products.filter((item) => item.name !== '安修泽油橄榄精华'),
+    plans: { ...settings.plans, acne: { ...settings.plans.acne, repeat: true } },
+  };
+}
+
 export function skinLocalPlanValues(settings: SkinSettings, skin: SkinRecord): Partial<Record<SkinField, string>> {
   return skin.acneMarks ? { localMedication: settings.acneMarksMedication ?? DEFAULT_ACNE_MARKS_MEDICATION } : {};
 }

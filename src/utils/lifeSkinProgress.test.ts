@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LifeEntries } from './bonLife';
-import { DEFAULT_SKIN_SETTINGS, parseSkinRecord, parseSkinSettings, skinLocalPlanValues, skinPlanValues, type SkinRecord } from './lifeSkin';
+import { DEFAULT_SKIN_SETTINGS, currentSkinSettings, parseSkinRecord, parseSkinSettings, skinLocalPlanValues, skinPlanValues, type SkinRecord } from './lifeSkin';
 import { entrySummary, parseLifeEdit } from './bonLife';
 import { nextSkinPlan, resolveSkinRecord } from './lifeSkinProgress';
 
@@ -84,13 +84,23 @@ describe('个人皮肤方案接续', () => {
     expect(nextSkinPlan('2026-10-05', settings, history({ '2026-10-04': { medication: '玻尿酸' } }))).toEqual({});
   });
 
-  it('多天方案结束后等待选择，只有打开循环才回第 1 天', () => {
-    const entries = history({ '2026-10-04': { status: 'acne', medication: '酸' } });
-    expect(nextSkinPlan('2026-10-05', settings, entries)).toEqual({ status: 'acne', completed: true });
-    const repeated = structuredClone(settings);
-    repeated.plans.acne.repeat = true;
-    expect(nextSkinPlan('2026-10-05', parseSkinSettings(repeated), entries)).toEqual({ status: 'acne', planDay: 1 });
-    expect(resolveSkinRecord('2026-10-05', settings, entries)).toEqual({ status: 'acne' });
+  it('痤疮第 3 天用酸后，隔日循环到第 1 天', () => {
+    const entries = history({ '2026-10-07': { status: 'acne', medication: '酸' } });
+    expect(nextSkinPlan('2026-10-09', settings, entries)).toEqual({ status: 'acne', planDay: 1 });
+    expect(resolveSkinRecord('2026-10-09', settings, entries)).toEqual({ status: 'acne', planDay: 1 });
+  });
+
+  it('修正持久化设置时移除一次性精华，并保留其他用品与历史记录', () => {
+    const persisted = structuredClone(settings);
+    persisted.plans.acne.repeat = false;
+    persisted.products.push({ id: 'olive-essence', name: '安修泽油橄榄精华', kind: 'skincare', active: true,
+      states: ['damaged'], seasons: [], times: ['morning'], tags: [], notes: '' });
+    const corrected = currentSkinSettings(persisted);
+    expect(corrected.plans.acne.repeat).toBe(true);
+    expect(corrected.products.some((item) => item.name === '安修泽油橄榄精华')).toBe(false);
+    expect(corrected.products).toContainEqual(settings.products[0]);
+    expect(history({ '2026-10-07': { morningProducts: '安修泽油橄榄精华' } })['skin:2026-10-07'].skin?.morningProducts)
+      .toBe('安修泽油橄榄精华');
   });
 
   it('单天护理始终沿用第 1 天，秋冬用霜、春夏用乳', () => {
