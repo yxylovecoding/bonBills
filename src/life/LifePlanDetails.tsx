@@ -37,6 +37,14 @@ export default function LifePlanDetails({ plan }: { plan: TickTickPlanDetails })
   const outlookOccupied = b ? outlookOccupancyMinutes(b.calendarEvents, b.remainingWindows) : 0;
   const occupiedMinutes = b ? Math.min(b.occupiedMinutes, outlookOccupied) : 0;
   const freeMinutes = b ? Math.max(0, b.windowMinutes - occupiedMinutes) : 0;
+  // Legacy cached briefings may have inflated `occupiedMinutes` by also deducting unmatched
+  // TickTick task intervals. Propagate the delta into downstream subtotals so the second
+  // ledger stays arithmetically consistent with the recomputed `freeMinutes` above.
+  const delta = b ? Math.max(0, b.occupiedMinutes - occupiedMinutes) : 0;
+  const importantTotalMinutes = b ? b.important.reduce((sum, task) => sum + task.minutes, 0) : 0;
+  const freeAfterImportantMinutes = b ? Math.max(0, freeMinutes - importantTotalMinutes) : 0;
+  const afterReservationsMinutes = b ? Math.max(0, b.afterReservationsMinutes + delta - importantTotalMinutes) : 0;
+  const newTaskCapacityMinutes = b ? Math.max(0, b.newTaskCapacityMinutes + delta - importantTotalMinutes) : 0;
   return <div className="life-plan-details" id="life-plan-details" role="region" aria-label="排期详情">
     <p className="life-plan-meta">{when.format(new Date(plan.generatedAt))} 排期快照 · 北京时间</p>
     {b ? <>
@@ -66,17 +74,21 @@ export default function LifePlanDetails({ plan }: { plan: TickTickPlanDetails })
       </section>
       <section aria-label="剩余时间的分配"><h3>留给今日事的时间</h3>
         <dl className="life-plan-ledger">
-          <div><dt>扣除日程后的空闲</dt><dd>{minuteText(b.freeMinutes)}</dd></div>
+          <div><dt>扣除日程后的空闲</dt><dd>{minuteText(freeMinutes)}</dd></div>
+          {importantTotalMinutes > 0 && <>
+            <div><dt>今日重要之事占用</dt><dd>− {minuteText(importantTotalMinutes)}</dd></div>
+            <div className="life-plan-subtotal"><dt>扣除重要之事后的空闲</dt><dd>{minuteText(freeAfterImportantMinutes)}</dd></div>
+          </>}
           {b.importantReservationEnabled !== false && <div><dt>重要之事另需预留</dt><dd>− {minuteText(b.importantAdditionalMinutes)}</dd></div>}
           <div><dt>原定今日事另需预留</dt><dd>− {minuteText(b.fixedAdditionalMinutes)}</dd></div>
-          <div><dt>预留后剩余</dt><dd>{minuteText(b.afterReservationsMinutes)}</dd></div>
+          <div><dt>预留后剩余</dt><dd>{minuteText(afterReservationsMinutes)}</dd></div>
           {b.bufferMinutes > 0 && <div><dt>休息与缓冲</dt><dd>− {minuteText(b.bufferMinutes)}</dd></div>}
           <div><dt>本日额度及已完成用时扣减</dt><dd>− {minuteText(b.dailyLimitReductionMinutes)}</dd></div>
-          <div className="life-plan-subtotal"><dt>本轮可新增安排</dt><dd>{minuteText(b.newTaskCapacityMinutes)}</dd></div>
+          <div className="life-plan-subtotal"><dt>本轮可新增安排</dt><dd>{minuteText(newTaskCapacityMinutes)}</dd></div>
         </dl>
         <p className="life-plan-meta">日用时上限：{b.dailyLimitMinutes === null ? '自动' : minuteText(b.dailyLimitMinutes)}；今日已完成普通任务约 {minuteText(b.completedTodayMinutes)}。{b.allocationRatio < 1 ? `空闲预留后，取 ${b.allocationRatio * 100}% 用于待办，其余留作休息与缓冲。` : ''}</p>
         {b.importantReservationEnabled === false && <p className="life-plan-meta">11:00–14:00、18:00–20:00 为吃饭与休息时段；其余空档不再额外预留休息或重要待办用时。</p>}
-        {b.importantAdditionalMinutes + b.fixedAdditionalMinutes > b.freeMinutes && <p className="life-plan-meta">重要及原定事项超出空闲 {minuteText(b.importantAdditionalMinutes + b.fixedAdditionalMinutes - b.freeMinutes)}，新增额度按 0 计算。</p>}
+        {b.importantAdditionalMinutes + b.fixedAdditionalMinutes > freeMinutes && <p className="life-plan-meta">重要及原定事项超出空闲 {minuteText(b.importantAdditionalMinutes + b.fixedAdditionalMinutes - freeMinutes)}，新增额度按 0 计算。</p>}
         <p className="life-plan-meta">{b.selectionMode === 'remaining-time'
           ? '按周期紧迫程度及最久未完成优先挑选，可从明日事补入；任务须满足场景、连续空档及喷雾错开规则。'
           : `按周期分摊，本轮新增挑选目标 ${minuteText(b.cycleTargetMinutes)}；任务还须满足场景、连续空档及喷雾错开规则。`}</p>
