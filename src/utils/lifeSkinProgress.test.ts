@@ -93,11 +93,16 @@ describe('个人皮肤方案接续', () => {
   it('修正持久化设置时移除一次性精华，并保留其他用品与历史记录', () => {
     const persisted = structuredClone(settings);
     persisted.plans.acne.repeat = false;
-    persisted.products.push({ id: 'olive-essence', name: '安修泽油橄榄精华', kind: 'skincare', active: true,
+    const extras = [
+      { id: 'olive-essence', name: '安修泽油橄榄精华' },
+      { id: 'skinceuticals', name: '修丽可五酸精华' },
+      { id: 'lamer-water', name: '海蓝之谴水' },
+    ];
+    for (const extra of extras) persisted.products.push({ ...extra, kind: 'skincare', active: true,
       states: ['damaged'], seasons: [], times: ['morning'], tags: [], notes: '' });
     const corrected = currentSkinSettings(persisted);
     expect(corrected.plans.acne.repeat).toBe(true);
-    expect(corrected.products.some((item) => item.name === '安修泽油橄榄精华')).toBe(false);
+    for (const extra of extras) expect(corrected.products.some((item) => item.name === extra.name)).toBe(false);
     expect(corrected.products).toContainEqual(settings.products[0]);
     expect(history({ '2026-10-07': { morningProducts: '安修泽油橄榄精华' } })['skin:2026-10-07'].skin?.morningProducts)
       .toBe('安修泽油橄榄精华');

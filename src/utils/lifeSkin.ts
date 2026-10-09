@@ -105,12 +105,14 @@ export function parseSkinSettings(value: unknown): SkinSettings {
   return { revision, products, plans, ...(input.acneMarksMedication !== undefined ? { acneMarksMedication: text(input.acneMarksMedication, 500) } : {}) };
 }
 
+const ONE_OFF_SKIN_PRODUCT_NAMES = new Set(['安修泽油橄榄精华', '修丽可五酸精华', '海蓝之谴水']);
+
 // Apply one-off corrections to persisted personal settings without rewriting
 // historical entries, whose saved product names must remain unchanged.
 export function currentSkinSettings(settings: SkinSettings): SkinSettings {
   return {
     ...settings,
-    products: settings.products.filter((item) => item.name !== '安修泽油橄榄精华'),
+    products: settings.products.filter((item) => !ONE_OFF_SKIN_PRODUCT_NAMES.has(item.name)),
     plans: { ...settings.plans, acne: { ...settings.plans.acne, repeat: true } },
   };
 }
