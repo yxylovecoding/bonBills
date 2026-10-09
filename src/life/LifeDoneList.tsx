@@ -23,7 +23,7 @@ function DoneDay({ date, index, items, today, pending, busy, error }: {
 }) {
   const isToday = date === today;
   const future = date > today;
-  // 每天都默认全部展开，按完成时间升序铺成一条按耗时比例分配高度的时间轴，
+  // 每天都默认全部展开，按完成时间升序铺成瓷砖布局：块的宽高按耗时比例分配，一行可容纳多个任务并自然换行，
   // 不再按课/活/玩分列，改用颜色区分分类（课绿、活蓝、玩粉）。
   const durations = computeDoneDurations(items);
   const sorted = [...items].sort((a, b) => a.completedAt.localeCompare(b.completedAt));
@@ -34,8 +34,12 @@ function DoneDay({ date, index, items, today, pending, busy, error }: {
         : sorted.length ? <ul className="life-week-timeline">{sorted.map((item) => {
           const minutes = durations.get(item.id) ?? 15;
           const category = doneCategory(item);
+          // 瓷砖式布局：按耗时决定块的相对宽高，sqrt 缩放避免长任务挤占整行；短任务保留最小可读尺寸。
+          const scale = Math.sqrt(Math.max(5, minutes));
+          const basis = Math.max(78, Math.min(240, Math.round(scale * 18)));
+          const height = Math.max(28, Math.min(96, Math.round(scale * 7) + 18));
           return <li key={item.id} className={CATEGORY_CLASS[category] ?? 'is-other'}
-            style={{ flex: `${Math.max(1, minutes)} 1 0` }}
+            style={{ flexGrow: Math.max(1, minutes / 10), flexShrink: 1, flexBasis: `${basis}px`, height: `${height}px` }}
             title={`[${category}] ${item.title} · 约 ${Math.round(minutes)} 分钟 · ${completionTime.format(new Date(item.completedAt))}`}>
             <span className="life-done-task-title">{item.title}</span>
             <time dateTime={item.completedAt}>{completionTime.format(new Date(item.completedAt))}</time>
