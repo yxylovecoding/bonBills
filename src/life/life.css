@@ -194,24 +194,17 @@
 .life-week-day-heading > time { font-size: 21px; line-height: 1.15; font-weight: 300; font-variant-numeric: tabular-nums; }
 .life-week-day-heading > span { font-size: 9px; letter-spacing: .5px; }
 .life-week-day-heading > .life-week-today { margin-top: 4px; color: var(--life-accent); letter-spacing: 0; font-size: 10px; }
-.life-week-day-content { min-width: 0; min-height: 0; max-height: 100%; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #d5d3ca transparent; }
-.life-week-day-summary { display: flex; flex-wrap: wrap; gap: 10px 18px; padding-top: 4px; color: #838478; font-size: 11px; }
-.life-week-day-summary > span { display: flex; gap: 8px; }
-.life-week-day-summary > span > span { color: #aaa99e; font-variant-numeric: tabular-nums; }
-.life-week-expand { margin-top: 12px; color: var(--life-accent); font-size: 10px; padding: 0; }
+.life-week-day-content { min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
 .life-week-empty { margin: 4px 0 0; color: var(--life-muted); font-size: 11px; }
-.life-week-categories { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-.life-week-category { min-width: 0; }
-.life-week-category h3 { display: flex; align-items: baseline; gap: 8px; margin: 1px 0 12px; color: #72776a; font-size: 12px; font-weight: 400; }
-.life-week-category h3 span { font-size: 9px; color: #a0a094; }
-.life-week-category ul { margin: 0; padding: 0; list-style: none; }
-.life-week-category li { display: flex; flex-direction: column; gap: 3px; margin-bottom: 12px; font-size: 11px; line-height: 1.8; }
-.life-week-category li:last-child { margin-bottom: 0; }
-/* 今日视图下，三列任务块按耗时比例渲染，形成时间轴块的视觉效果。 */
-.life-week-categories.is-timeline .life-week-category ul { display: flex; flex-direction: column; gap: 6px; }
-.life-week-categories.is-timeline .life-week-category li { margin-bottom: 0; padding: 6px 10px; border-left: 2px solid var(--life-accent, #a7b36a); background: #fbfaf3; border-radius: 4px; justify-content: space-between; box-sizing: border-box; }
-.life-done-task-title { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
-.life-week-category time { color: #a3a397; font-size: 9px; font-variant-numeric: tabular-nums; }
+/* 每天的任务按完成时间升序铺成一条时间轴：高度按耗时比例分配，不再按课/活/玩分列，用颜色区分分类。 */
+.life-week-timeline { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; height: 100%; gap: 2px; }
+.life-week-timeline li { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 2px 8px; min-height: 0; min-width: 0; font-size: 11px; line-height: 1.3; border-radius: 3px; border-left: 2px solid currentColor; background: #f1efe8; color: #8a8a7f; overflow: hidden; box-sizing: border-box; }
+.life-week-timeline li.is-study { background: #e4efd5; border-left-color: #6fa83a; color: #4e7628; }
+.life-week-timeline li.is-life  { background: #d9e7f5; border-left-color: #3f80bb; color: #2b5c8e; }
+.life-week-timeline li.is-play  { background: #f6d7e5; border-left-color: #d16a9a; color: #944666; }
+.life-week-timeline li.is-other { background: #efede6; border-left-color: #b5b3a9; color: #7c7c73; }
+.life-week-timeline time { font-size: 9px; font-variant-numeric: tabular-nums; opacity: .75; flex-shrink: 0; }
+.life-done-task-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .life-week-category-empty { margin: 0; color: #b3b1a5; font-size: 11px; }
 .life-empty-state { color: var(--life-muted); font-size: 12px; padding: 14px 0; }
 .life-empty-state a { color: var(--life-accent); }
@@ -246,7 +239,6 @@
 @media (max-width: 600px) {
   .life-week-page { flex-basis: 100%; min-width: 0; padding: 20px 14px 14px; }
   .life-week-day { grid-template-columns: 32px minmax(0, 1fr); gap: 10px; }
-  .life-week-categories { gap: 10px; }
   .life-week-page-heading > div { gap: 8px; }
   .life-done-heading h2 { font-size: 19px; }
   .life-body-charts { grid-template-columns: minmax(0, 1fr); gap: 16px; }

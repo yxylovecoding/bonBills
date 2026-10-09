@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
 import type { DoneItem, DoneMonth } from '../utils/bonLife';
 import type { TickTickPlanDetails } from '../utils/tickTickPlanDetails';
 import { requestWithRetry } from '../utils/requestWithRetry';
 import { accountRequestHeaders } from '../utils/authClient';
-import { doneWeekDates, doneWeekMonths, doneWeekNumber, earlierDoneWeeks, computeDoneDurations, groupDoneCategories, groupDoneWeek, shiftDoneDate } from '../utils/lifeDone';
+import { doneCategory, doneWeekDates, doneWeekMonths, doneWeekNumber, earlierDoneWeeks, computeDoneDurations, groupDoneWeek, shiftDoneDate } from '../utils/lifeDone';
 import { LifeError, lifeRequest } from './client';
 import LifePlanDetails from './LifePlanDetails';
 import OutlookLaundryControl from '../components/OutlookLaundryControl';
@@ -12,6 +11,8 @@ import OutlookLaundryControl from '../components/OutlookLaundryControl';
 const shanghaiToday = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date());
 const completionTime = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
 const weekdays = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+// 任务按分类映射到色系：课绿、活蓝、玩粉，未归类走中性灰。
+const CATEGORY_CLASS: Record<string, string> = { 课: 'is-study', 活: 'is-life', 玩: 'is-play', 未分类: 'is-other' };
 
 // 每次加载 DoneList 页面时自动触发一次重排（静默，不打扰用户）。
 // 使用模块级 flag 避免因组件在同一次会话内多次挂载/卸载重复触发。
@@ -20,31 +21,26 @@ let autoReplanDispatched = false;
 function DoneDay({ date, index, items, today, pending, busy, error }: {
   date: string; index: number; items: DoneItem[]; today: string; pending: boolean; busy: boolean; error: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const isToday = date === today;
-  const open = isToday || expanded;
   const future = date > today;
-  const groups = groupDoneCategories(items);
-  // 今日视图下按完成时间戳差值推算每个任务的耗时，并把耗时映射为任务块的最小高度，
-  // 让耗时越长的任务块在列里占的垂直空间越大，形成类似时间轴块的视觉效果。
-  const durations = isToday ? computeDoneDurations(items) : null;
-  const blockStyle = (id: string): CSSProperties | undefined => {
-    if (!durations) return undefined;
-    const minutes = durations.get(id) ?? 15;
-    // 2px/分钟，夹在 28~220px 之间，避免极短/极长任务把列拉成极端比例。
-    const height = Math.min(220, Math.max(28, Math.round(minutes * 2)));
-    return { minHeight: `${height}px` };
-  };
+  // 每天都默认全部展开，按完成时间升序铺成一条按耗时比例分配高度的时间轴，
+  // 不再按课/活/玩分列，改用颜色区分分类（课绿、活蓝、玩粉）。
+  const durations = computeDoneDurations(items);
+  const sorted = [...items].sort((a, b) => a.completedAt.localeCompare(b.completedAt));
   return <section className={`life-week-day${isToday ? ' is-today' : ''}${future ? ' is-future' : ''}`} aria-label={`${date}完成记录`}>
     <header className="life-week-day-heading"><time dateTime={date}>{Number(date.slice(8))}</time><span>{weekdays[index]}</span>{isToday && <span className="life-week-today">今天</span>}</header>
     <div className="life-week-day-content">
-      {future ? null : pending && !items.length ? <p className="life-week-empty">{busy ? '读取中…' : error ? '暂未读到记录' : '等待同步'}</p> : <>
-        {open ? <div className={`life-week-categories${durations ? ' is-timeline' : ''}`}>{groups.map((group) => <section className="life-week-category" key={group.category} aria-label={`${group.category} · ${group.items.length} 项完成`}>
-          <h3>{group.category}<span>{group.items.length}</span></h3>
-          {group.items.length ? <ul>{group.items.map((item) => <li key={item.id} style={blockStyle(item.id)} title={durations ? `约 ${Math.round(durations.get(item.id) ?? 0)} 分钟` : undefined}><span className="life-done-task-title">{item.title}</span><time dateTime={item.completedAt}>{completionTime.format(new Date(item.completedAt))}</time></li>)}</ul> : <p className="life-week-category-empty">—</p>}
-        </section>)}</div> : <div className="life-week-day-summary">{groups.map((group) => <span key={group.category}>{group.category}<span>{group.items.length}</span></span>)}</div>}
-        {!isToday && items.length > 0 && <button className="life-week-expand" aria-expanded={open} onClick={() => setExpanded((value) => !value)}>{open ? '收起' : `展开 ${items.length} 项`}</button>}
-      </>}
+      {future ? null : pending && !items.length ? <p className="life-week-empty">{busy ? '读取中…' : error ? '暂未读到记录' : '等待同步'}</p>
+        : sorted.length ? <ul className="life-week-timeline">{sorted.map((item) => {
+          const minutes = durations.get(item.id) ?? 15;
+          const category = doneCategory(item);
+          return <li key={item.id} className={CATEGORY_CLASS[category] ?? 'is-other'}
+            style={{ flex: `${Math.max(1, minutes)} 1 0` }}
+            title={`[${category}] ${item.title} · 约 ${Math.round(minutes)} 分钟 · ${completionTime.format(new Date(item.completedAt))}`}>
+            <span className="life-done-task-title">{item.title}</span>
+            <time dateTime={item.completedAt}>{completionTime.format(new Date(item.completedAt))}</time>
+          </li>;
+        })}</ul> : <p className="life-week-category-empty">—</p>}
     </div>
   </section>;
 }
