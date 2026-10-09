@@ -127,9 +127,15 @@ export function dayAvailability(options: {
       overlapMinutes: Math.floor(windows.reduce((sum, [start, end]) => sum + Math.max(0,
         Math.min(end, eventEnd) - Math.max(start, eventStart)) / minute, 0)) };
   });
+  // Only count Outlook events whose end is after `now`, deduplicating overlapping/duplicate
+  // intervals via union over the already-clamped remaining windows.
+  const calendarBusy: TimeSlot[] = events.filter((event) => Date.parse(event.end) > now)
+    .map((event) => [Math.max(Date.parse(event.start), now), Date.parse(event.end)] as TimeSlot);
+  const calendarOccupiedMinutes = Math.max(0, windowMinutes - Math.floor(slotMinutes(freeSlots(remainingWindows, calendarBusy))));
+  const displayedFreeMinutes = Math.max(0, windowMinutes - calendarOccupiedMinutes);
   return { totalMinutes, remainingMinutes, completedMinutes, slots, unmatchedEventMinutes, breakdown: {
     clockRemainingMinutes: Math.max(0, Math.floor((at(24) - now) / minute)), remainingWindows, calendarEvents,
-    windowMinutes, occupiedMinutes: windowMinutes - freeMinutes, freeMinutes,
+    windowMinutes, occupiedMinutes: calendarOccupiedMinutes, freeMinutes: displayedFreeMinutes,
     importantReservations, importantAdditionalMinutes: 0, importantReservationEnabled: false,
     fixedAdditionalMinutes: reserved, afterReservationsMinutes: remainingMinutes, bufferMinutes: 0, allocationRatio: 1,
   } };

@@ -18,7 +18,7 @@ export default function LifePlanDetails({ plan }: { plan: TickTickPlanDetails })
         </dl>
         <p className="life-plan-meta">本次可排期时段：{b.remainingWindows.length ? b.remainingWindows.map(window => `${time.format(new Date(window.start))}—${time.format(new Date(window.end))}`).join('、') : '今天已无剩余时段'}</p>
         {b.calendarEvents && b.calendarEvents.length > 0 && <details className="life-plan-collapsible">
-          <summary><span>Outlook 日程 · 共 {b.calendarEvents.length} 项 · 约 {minuteText(b.calendarEvents.reduce((sum, event) => sum + event.overlapMinutes, 0))}</span></summary>
+          <summary><span>Outlook 日程 · 共 {b.calendarEvents.length} 项 · 约 {minuteText(b.occupiedMinutes)}</span></summary>
           <ul className="life-plan-tasks">{b.calendarEvents.map((event, index) => <li key={`${event.start}:${event.title}:${index}`}>
             <div><span>{event.title || '未命名日程'}</span><span>{minuteText(event.overlapMinutes)}</span></div>
             <p>{time.format(new Date(event.start))}—{time.format(new Date(event.end))}</p>
