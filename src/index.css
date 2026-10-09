@@ -140,6 +140,9 @@ input[type='number'] { -moz-appearance: textfield; }
   .invest-position-group-add-label {
     display: none;
   }
+  .rate-label-prefix {
+    display: none;
+  }
 }
 
 .invest-holdings-group {

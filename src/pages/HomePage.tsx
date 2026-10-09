@@ -888,18 +888,20 @@ export default function HomePage() {
             key: 'month',
             label: '本月赚了',
             income: investmentProfitSummary.monthIncome,
-            rateText: investmentProfitSummary.monthRate === null
-              ? '收益率 —'
-              : `收益率 ${(investmentProfitSummary.monthRate * 100).toFixed(2)}%`,
+            rateLabel: '收益率',
+            rateValue: investmentProfitSummary.monthRate === null
+              ? '—'
+              : `${(investmentProfitSummary.monthRate * 100).toFixed(2)}%`,
             diff: sp500MonthDiff,
           },
           {
             key: 'year',
             label: '今年赚了',
             income: investmentProfitSummary.yearIncome,
-            rateText: investmentProfitSummary.yearAnnualizedRate === null
-              ? '年化收益率 —'
-              : `年化收益率 ${(investmentProfitSummary.yearAnnualizedRate * 100).toFixed(2)}%`,
+            rateLabel: '年化收益率',
+            rateValue: investmentProfitSummary.yearAnnualizedRate === null
+              ? '—'
+              : `${(investmentProfitSummary.yearAnnualizedRate * 100).toFixed(2)}%`,
             diff: sp500YearDiff,
           },
         ] as const).map((row) => (
@@ -918,7 +920,9 @@ export default function HomePage() {
               {row.income === null
                 ? <span style={{ color: C.sub }}>—</span>
                 : <CurrencyDisplay value={row.income} color={row.income >= 0 ? C.red : C.green} />}
-              <span style={{ fontSize: 12, color: C.sub, whiteSpace: 'nowrap' }}>{row.rateText}</span>
+              <span style={{ fontSize: 12, color: C.sub, whiteSpace: 'nowrap' }}>
+                <span className="rate-label-prefix">{row.rateLabel} </span>{row.rateValue}
+              </span>
             </span>
             <span style={{ flexShrink: 0, minWidth: 140, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
               {renderSp500Cell(row.diff)}
