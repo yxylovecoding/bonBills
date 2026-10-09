@@ -12,15 +12,23 @@ const nextDate = (date: string) => {
   return value.toISOString().slice(0, 10);
 };
 const ITEMS = [
-  { key: 'charge', title: '电动车充电', date: CHARGE_DATE, start: '2026-10-09T20:00:00', end: '2026-10-09T20:30:00' },
-  { key: 'collect', title: '接电动车', date: nextDate(CHARGE_DATE), start: '2026-10-10T09:00:00', end: '2026-10-10T09:30:00' },
+  { key: 'charge', title: '电动车充电', date: CHARGE_DATE, start: '2026-10-09T20:00:00', end: '2026-10-09T20:30:00', isAllDay: false },
+  { key: 'collect', title: '接电动车', date: nextDate(CHARGE_DATE), start: '2026-10-10T09:00:00', end: '2026-10-10T09:30:00', isAllDay: true },
 ] as const;
 interface State { taskIds?: Record<string, string>; eventIds?: Record<string, string> }
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 const tickTickAllDayDate = (date: string) => new Date(`${date}T00:00:00+08:00`).toISOString().replace('Z', '+0000');
+const tickTickTimedDate = (localDateTime: string) => new Date(`${localDateTime}+08:00`).toISOString().replace('Z', '+0000');
 const tickTickCalendarDate = (value: string | undefined, timeZone: string) => value
   ? new Intl.DateTimeFormat('sv-SE', { timeZone }).format(new Date(value))
   : undefined;
+const tickTickCalendarDateTime = (value: string | undefined, timeZone: string) => {
+  if (!value) return undefined;
+  const parts = new Intl.DateTimeFormat('sv-SE', { timeZone, hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(new Date(value));
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find(part => part.type === type)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}:${get('second')}`;
+};
 
 export async function scheduleElectricVehicleCharge() {
   const [ticktick, outlook, saved] = await Promise.all([
@@ -39,19 +47,27 @@ export async function scheduleElectricVehicleCharge() {
     const existing = item.key === 'collect'
       ? openTasks.find(task => task.title === item.title && Boolean(task.repeatFlag?.trim()))
       : openTasks.find(task => task.id === state.taskIds![item.key]) ?? openTasks.find(task => task.title === item.title);
-    const taskDate = tickTickAllDayDate(item.date);
+    const taskStartDate = item.isAllDay ? tickTickAllDayDate(item.date) : tickTickTimedDate(item.start);
+    const taskDueDate = item.isAllDay ? tickTickAllDayDate(item.date) : tickTickTimedDate(item.end);
     if (existing) {
       state.taskIds[item.key] = existing.id;
-      if (tickTickCalendarDate(existing.dueDate || existing.startDate, timeZone) !== item.date) {
+      // Only the charge task is managed as a timed task; collect is left as-is (recurring, user-managed).
+      const needsReschedule = item.key === 'charge'
+        ? tickTickCalendarDateTime(existing.startDate, timeZone) !== item.start
+          || tickTickCalendarDateTime(existing.dueDate, timeZone) !== item.end
+          || existing.isAllDay !== false
+        : tickTickCalendarDate(existing.dueDate || existing.startDate, timeZone) !== item.date;
+      if (needsReschedule) {
         await tasks.updateTask(existing.id, { ...existing, projectId: existing.projectId || ticktick.projectId || 'inbox',
-          startDate: taskDate, dueDate: taskDate });
+          startDate: taskStartDate, dueDate: taskDueDate,
+          ...(item.key === 'charge' ? { isAllDay: false, timeZone } : {}) });
         tasksUpdated++;
       }
     } else if (item.key === 'collect') {
       throw new Error('未找到“接电动车”循环任务');
     } else {
-      const created = await tasks.createTask({ projectId: ticktick.projectId || 'inbox', title: item.title, priority: 5, isAllDay: true,
-        timeZone, startDate: taskDate, dueDate: taskDate });
+      const created = await tasks.createTask({ projectId: ticktick.projectId || 'inbox', title: item.title, priority: 5,
+        isAllDay: item.isAllDay, timeZone, startDate: taskStartDate, dueDate: taskDueDate });
       if (!created?.id) throw new Error('TickTick 创建任务后未返回任务 ID');
       state.taskIds[item.key] = created.id; tasksCreated++; await kv.set(STATE_KEY, state);
     }
