@@ -61,14 +61,16 @@ describe('四个智能清单范围和凌晨窗口', () => {
   it.each([['00:00:00', true], ['04:59:59', true], ['05:00:00', false], ['23:59:59', false]])('%s 的北京时间边界', (time, hidden) => {
     expect(sleepWindow(at(time))).toEqual({ day: '2026-10-05', hidden });
   });
-  it('精确区分重要事项的当天标签、21天窗口，以及普通事项的30天窗口', () => {
+  it('重要事项仅在逾期或今天进入临时隐藏范围，明日之重要事保持可见', () => {
     const today = '2026-10-05';
     const check = (fields: Partial<TickTickTask>) => inSleepFilterScope(task(fields), today);
     expect(check({ priority: 5, tags: ['不关我事'], dueDate: '2026-10-04T12:00:00+0800' })).toBe(true);
+    expect(check({ priority: 5, dueDate: '2026-10-05T12:00:00+0800' })).toBe(true);
     expect(check({ priority: 5, tags: ['当天'], dueDate: '2026-10-06T12:00:00+0800' })).toBe(false);
-    expect(check({ priority: 5, dueDate: '2026-10-26T12:00:00+0800' })).toBe(true);
+    expect(check({ priority: 5, dueDate: '2026-10-06T12:00:00+0800' })).toBe(false);
+    expect(check({ priority: 5, dueDate: '2026-10-26T12:00:00+0800' })).toBe(false);
     expect(check({ priority: 5, dueDate: '2026-10-27T12:00:00+0800' })).toBe(false);
-    expect(check({ priority: 5, dueDate: undefined })).toBe(true);
+    expect(check({ priority: 5, dueDate: undefined })).toBe(false);
     expect(check({ priority: 5, tags: ['当天'], dueDate: undefined })).toBe(false);
     expect(check({ dueDate: '2026-11-04T12:00:00+0800' })).toBe(true);
     expect(check({ dueDate: '2026-11-05T12:00:00+0800' })).toBe(false);

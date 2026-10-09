@@ -19,16 +19,15 @@ export function sleepWindow(now = new Date()) {
 
 // Union of bon's four saved smart filters, read from TickTick on 2026-10-05.
 // Keep the important-today filter's intentional lack of 不关我事 exclusion.
+// 明日之重要事 (future-important) stays visible across midnight: those tasks must
+// never receive the temporary `bon-hidden` tag, so this function only enrolls
+// the overdue/today slice of priority-5 items.
 export function inSleepFilterScope(task: TickTickTask, today: string) {
   if ((task.status ?? 0) !== 0 || hasSchedulingHiddenTag(task) || isReadingTask(task)) return false;
   const tags = (task.tags ?? []).map(normalize);
   const date = calendarDateInTimeZone(task.dueDate, task.timeZone);
   const priority = task.priority ?? 0;
-  if (priority === 5) {
-    if (date && date <= today) return true;
-    return !tags.includes('不关我事') && !tags.includes('当天')
-      && (!date || (date > today && date <= addDays(today, 21)));
-  }
+  if (priority === 5) return !!date && date <= today;
   return [0, 1, 3].includes(priority) && !tags.includes('不关我事') && (!date || date <= addDays(today, 30));
 }
 
