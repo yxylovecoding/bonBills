@@ -872,7 +872,7 @@ export default function HomePage() {
         <StatRow
           label="本月赚了"
           value={(
-            <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               {investmentProfitSummary.monthIncome === null
                 ? <span style={{ color: C.sub }}>—</span>
                 : <CurrencyDisplay value={investmentProfitSummary.monthIncome} color={investmentProfitSummary.monthIncome >= 0 ? C.red : C.green} />}
@@ -881,13 +881,19 @@ export default function HomePage() {
                   ? '收益率 —'
                   : `收益率 ${(investmentProfitSummary.monthRate * 100).toFixed(2)}%`}
               </span>
+              {sp500MonthDiff !== null && (
+                <span style={{ fontSize: 12, fontWeight: 600, color: sp500MonthDiff >= 0 ? C.red : C.green }}>
+                  {sp500MonthDiff >= 0 ? '跑赢标普 ' : '跑输标普 '}
+                  ¥{formatCurrency(Math.abs(sp500MonthDiff))}
+                </span>
+              )}
             </span>
           )}
         />
         <StatRow
           label="今年赚了"
           value={(
-            <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               {investmentProfitSummary.yearIncome === null
                 ? <span style={{ color: C.sub }}>—</span>
                 : <CurrencyDisplay value={investmentProfitSummary.yearIncome} color={investmentProfitSummary.yearIncome >= 0 ? C.red : C.green} />}
@@ -896,22 +902,12 @@ export default function HomePage() {
                   ? '年化收益率 —'
                   : `年化收益率 ${(investmentProfitSummary.yearAnnualizedRate * 100).toFixed(2)}%`}
               </span>
-            </span>
-          )}
-        />
-        <Divider />
-        <StatRow
-          label="vs 定投标普"
-          value={(
-            <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              <span style={{ fontSize: 12, color: C.sub }}>本月</span>
-              {sp500MonthDiff === null
-                ? <span style={{ color: C.sub }}>—</span>
-                : <CurrencyDisplay value={sp500MonthDiff} color={sp500MonthDiff >= 0 ? C.red : C.green} />}
-              <span style={{ fontSize: 12, color: C.sub, marginLeft: 4 }}>今年</span>
-              {sp500YearDiff === null
-                ? <span style={{ color: C.sub }}>—</span>
-                : <CurrencyDisplay value={sp500YearDiff} color={sp500YearDiff >= 0 ? C.red : C.green} />}
+              {sp500YearDiff !== null && (
+                <span style={{ fontSize: 12, fontWeight: 600, color: sp500YearDiff >= 0 ? C.red : C.green }}>
+                  {sp500YearDiff >= 0 ? '跑赢标普 ' : '跑输标普 '}
+                  ¥{formatCurrency(Math.abs(sp500YearDiff))}
+                </span>
+              )}
             </span>
           )}
         />
