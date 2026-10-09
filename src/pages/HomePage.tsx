@@ -32,6 +32,13 @@ import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../util
 import { dateLabel, daysUntilDate, resolveIncomeForMonth } from '../utils/payroll';
 import { calculateCreditRepaymentPlan, getPlanningLongBondTotal } from '../utils/creditRepayment';
 import { getAverageAnnualizedRate, getInvestTotalForRate } from '../utils/investRecords';
+import {
+  SP500_COMPARISON_REQUESTS,
+  calculateSp500Comparison,
+  portfolioBacktestRequestUrl,
+} from '../utils/sp500Comparison';
+import type { PortfolioBacktestSeriesId } from '../utils/portfolioBacktest';
+import type { MarketChartResponse } from '../utils/dramDecision';
 import { detectAllTrips } from '../utils/trips';
 import { getTripDisplayTitle } from '../utils/outlookCalendar';
 import { calculateWishMilestonePlan, type WishRepaymentDue } from '../utils/wishMilestonePlan';
@@ -746,6 +753,33 @@ export default function HomePage() {
       yearAnnualizedRate: getAverageAnnualizedRate(yearRateRecords),
     };
   }, [currentYear, currentYearMonth, records]);
+
+  // 同期每月定投标普500对比（数据源与「bill-资产配置比例-回测」一致）
+  const [sp500Charts, setSp500Charts] = useState<Partial<Record<PortfolioBacktestSeriesId, MarketChartResponse>> | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void Promise.all(SP500_COMPARISON_REQUESTS.map(async (definition) => {
+      const response = await fetch(portfolioBacktestRequestUrl(definition), { signal: controller.signal });
+      if (!response.ok) throw new Error(`${definition.symbol} history ${response.status}`);
+      return [definition.id, await response.json() as MarketChartResponse] as const;
+    })).then((entries) => {
+      setSp500Charts(Object.fromEntries(entries));
+    }).catch((error) => {
+      if (controller.signal.aborted) return;
+      console.warn('sp500 comparison unavailable', error);
+    });
+    return () => controller.abort();
+  }, []);
+  const sp500Comparison = useMemo(() => {
+    if (!sp500Charts) return { monthSp500Profit: null, yearSp500Profit: null };
+    return calculateSp500Comparison(sp500Charts, records, currentYearMonth);
+  }, [sp500Charts, records, currentYearMonth]);
+  const sp500MonthDiff = investmentProfitSummary.monthIncome !== null && sp500Comparison.monthSp500Profit !== null
+    ? investmentProfitSummary.monthIncome - sp500Comparison.monthSp500Profit
+    : null;
+  const sp500YearDiff = investmentProfitSummary.yearIncome !== null && sp500Comparison.yearSp500Profit !== null
+    ? investmentProfitSummary.yearIncome - sp500Comparison.yearSp500Profit
+    : null;
   const monthlySurplus = stats.monthlyIncomeAvg - stats.totalExpenseAvg;
   type SceneDailyRow = { tagKind: TagKind; val: number; lifeVal: number; consumptionVal: number };
   const sceneDailyTagKinds = ['school', 'intern', 'home', 'travel'] as TagKind[];
@@ -862,6 +896,22 @@ export default function HomePage() {
                   ? '年化收益率 —'
                   : `年化收益率 ${(investmentProfitSummary.yearAnnualizedRate * 100).toFixed(2)}%`}
               </span>
+            </span>
+          )}
+        />
+        <Divider />
+        <StatRow
+          label="vs 定投标普"
+          value={(
+            <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <span style={{ fontSize: 12, color: C.sub }}>本月</span>
+              {sp500MonthDiff === null
+                ? <span style={{ color: C.sub }}>—</span>
+                : <CurrencyDisplay value={sp500MonthDiff} color={sp500MonthDiff >= 0 ? C.red : C.green} />}
+              <span style={{ fontSize: 12, color: C.sub, marginLeft: 4 }}>今年</span>
+              {sp500YearDiff === null
+                ? <span style={{ color: C.sub }}>—</span>
+                : <CurrencyDisplay value={sp500YearDiff} color={sp500YearDiff >= 0 ? C.red : C.green} />}
             </span>
           )}
         />
