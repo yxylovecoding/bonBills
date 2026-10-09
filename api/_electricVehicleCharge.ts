@@ -34,7 +34,7 @@ export async function scheduleElectricVehicleCharge() {
   const tasks = new TickTickOpenApiClient(token, (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
   const openTasks = await readAllTickTickTasks(tasks, [0]);
   const timeZone = ticktick.timeZone || 'Asia/Shanghai';
-  let tasksCreated = 0, tasksUpdated = 0, eventsCreated = 0;
+  let tasksCreated = 0, tasksUpdated = 0, eventsCreated = 0, eventsUpdated = 0;
   for (const item of ITEMS) {
     const existing = item.key === 'collect'
       ? openTasks.find(task => task.title === item.title && Boolean(task.repeatFlag?.trim()))
@@ -60,7 +60,19 @@ export async function scheduleElectricVehicleCharge() {
     const request = await outlookGraphClient(outlook);
     const path = `/me/calendars/${encodeURIComponent(outlook.calendarId!)}/events`;
     for (const item of ITEMS) {
-      if (state.eventIds![item.key]) continue;
+      const eventId = state.eventIds![item.key];
+      if (eventId) {
+        await keepLease();
+        const eventPath = `/me/calendars/${encodeURIComponent(outlook.calendarId!)}/events/${encodeURIComponent(eventId)}`;
+        const existingEvent = await request<{ start?: { dateTime?: string }; end?: { dateTime?: string } }>(eventPath);
+        const startMatches = (existingEvent.start?.dateTime || '').startsWith(item.start);
+        const endMatches = (existingEvent.end?.dateTime || '').startsWith(item.end);
+        if (startMatches && endMatches) continue;
+        await request(eventPath, { method: 'PATCH', body: JSON.stringify({
+          start: { dateTime: item.start, timeZone: 'Asia/Shanghai' }, end: { dateTime: item.end, timeZone: 'Asia/Shanghai' } }) });
+        eventsUpdated++;
+        continue;
+      }
       await keepLease();
       const transactionId = digest(`${STATE_KEY}:${item.key}`);
       const created = await request<{ id?: string }>(path, { method: 'POST', body: JSON.stringify({ subject: item.title,
@@ -72,5 +84,5 @@ export async function scheduleElectricVehicleCharge() {
       state.eventIds![item.key] = created.id; eventsCreated++; await kv.set(STATE_KEY, state);
     }
   });
-  return { tasksCreated, tasksUpdated, eventsCreated, complete: ITEMS.every(item => state.taskIds![item.key] && state.eventIds![item.key]) };
+  return { tasksCreated, tasksUpdated, eventsCreated, eventsUpdated, complete: ITEMS.every(item => state.taskIds![item.key] && state.eventIds![item.key]) };
 }
