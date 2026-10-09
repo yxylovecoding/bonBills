@@ -11,6 +11,18 @@ import { isHairWashTitle, type HairWashSchedule } from '../src/utils/lifeSwimmin
 import { entriesKey, LIFE_SETTINGS_KEY, LIFE_TRAINING_ENTRIES_KEY } from './_bonLife.js';
 import { collectCompleted, shanghaiDay } from './_lifeDone.js';
 import { DAILY_PLAN_KEY, type DailyPlanState } from './_ticktickDailyPlan.js';
+import { decryptOutlookConnection, fetchCalendar, parseOutlookCalendar } from './_outlookCalendar.js';
+import { OUTLOOK_CONNECTION_KEY, type OutlookConnection } from './_outlookSync.js';
+
+// Outlook「干」日历的运动日程，按标题关键词同步成额外的训练完成记录。
+// 游泳单独记为 `游泳` 项目：rollingTrainingPlan 把它判定为 swimming，
+// 不会触发 mainDone，因此燃脂操等有氧轮换推荐照常。其他关键词统一记为
+// `有氧` 分类：走 categoryHistory 分支成为非轮换的历史任务，触发 mainDone，
+// 从而抑制七天计划里的有氧推荐。
+const OUTLOOK_SWIM_KEYWORDS = ['游泳'] as const;
+const OUTLOOK_AEROBIC_KEYWORDS = ['爬坡', '跑步', '骑行', 'HIIT'] as const;
+const OUTLOOK_AEROBIC_BACKFILL_DAYS = 60;
+const OUTLOOK_AEROBIC_MAX_SPAN_DAYS = 400;
 
 export const TRAINING_SOURCE_KEY = 'bonlife:training-source:v1';
 const WEEKDAYS: Record<string, string> = { MO: '一', TU: '二', WE: '三', TH: '四', FR: '五', SA: '六', SU: '日' };
@@ -106,6 +118,73 @@ export function trainingCompletions(tasks: TickTickTask[], today: string): Train
   return [...result.values()];
 }
 
+function matchOutlookAerobicProjects(title: string): string[] {
+  const projects: string[] = [];
+  if (OUTLOOK_SWIM_KEYWORDS.some((keyword) => title.includes(keyword))) projects.push('游泳');
+  const upper = title.toUpperCase();
+  if (OUTLOOK_AEROBIC_KEYWORDS.some((keyword) => keyword === 'HIIT' ? upper.includes('HIIT') : title.includes(keyword))) {
+    projects.push('有氧');
+  }
+  return projects;
+}
+
+function outlookEventDays(event: { startDate: string; endDate: string; allDay: boolean }, startDate: string, endDate: string): string[] {
+  const days: string[] = [];
+  if (event.allDay) {
+    // Outlook/ICS 全天事件 endDate 为不含端的下一天。按天展开，覆盖多日活动。
+    let day = event.startDate < startDate ? startDate : event.startDate;
+    const stop = event.endDate < endDate ? event.endDate : endDate;
+    while (day < stop && days.length < OUTLOOK_AEROBIC_MAX_SPAN_DAYS) {
+      days.push(day);
+      day = new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+    }
+    return days;
+  }
+  const day = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date(event.startDate));
+  if (day >= startDate && day < endDate) days.push(day);
+  return days;
+}
+
+// 读取 Outlook「干」日历的运动日程，产出额外的训练完成记录。
+// 任何环节失败都降级为空数组，不阻塞 TickTick 训练同步。
+export async function collectOutlookAerobicCompletions(today: string): Promise<TrainingCompletion[]> {
+  if (!isCalendarDate(today)) return [];
+  const connection = await kv.get<OutlookConnection>(OUTLOOK_CONNECTION_KEY);
+  if (!connection) return [];
+  const secret = (process.env.SYNC_SECRET || '').trim();
+  if (!secret) return [];
+  let input;
+  try { input = decryptOutlookConnection(connection.encrypted, secret); } catch { return []; }
+  const sources = input.sources.filter((source) => source.kind === 'work' || source.name === '干');
+  if (!sources.length) return [];
+  const todayMs = Date.parse(`${today}T00:00:00Z`);
+  const shift = (offset: number) => new Date(todayMs + offset * 86_400_000).toISOString().slice(0, 10);
+  const startDate = shift(-OUTLOOK_AEROBIC_BACKFILL_DAYS);
+  const endDate = shift(1);
+  const result = new Map<string, TrainingCompletion>();
+  await Promise.all(sources.map(async (source) => {
+    let text: string;
+    try { text = await fetchCalendar(source.url); } catch { return; }
+    let events;
+    try {
+      events = parseOutlookCalendar(text, source.kind, startDate, endDate, false, true,
+        { timezone: 'Asia/Shanghai', includeFree: true });
+    } catch { return; }
+    for (const event of events) {
+      const projects = matchOutlookAerobicProjects(String(event.title || ''));
+      if (!projects.length) continue;
+      for (const date of outlookEventDays(event, startDate, endDate)) {
+        if (date > today) continue;
+        for (const project of projects) {
+          const key = `${project}:${date}`;
+          if (!result.has(key)) result.set(key, { project, date });
+        }
+      }
+    }
+  }));
+  return [...result.values()];
+}
+
 export async function syncTrainingSource(year: number, options: { lockHeld?: boolean } = {}): Promise<TrainingSource> {
   const requestedAt = Date.now();
   const connection = await kv.get<TickTickConnection>(TICKTICK_CONNECTION_KEY);
@@ -127,7 +206,8 @@ export async function syncTrainingSource(year: number, options: { lockHeld?: boo
     const from = Math.max(now.getTime() - 60 * 86_400_000, through - 86_400_000);
     const historyProjects = [...new Set([...tasks, ...pending.filter(task => isHairWashTitle(task.title))].map(task => task.projectId))];
     const rows = historyProjects.length ? await collectCompleted(api, historyProjects, from, now.getTime(), Date.now() + 25_000) : [];
-    const completions = [...new Map([...(previous?.completions ?? []), ...trainingCompletions([...(history?.history ?? []), ...rows], shanghaiDay(now))]
+    const outlookCompletions = await collectOutlookAerobicCompletions(shanghaiDay(now));
+    const completions = [...new Map([...(previous?.completions ?? []), ...trainingCompletions([...(history?.history ?? []), ...rows], shanghaiDay(now)), ...outlookCompletions]
       .map((completion) => [`${completion.project}:${completion.date}`, completion])).values()];
     const completedDates = [...new Set([...(previous?.hairWash?.completedDates ?? []), ...[...(history?.history ?? []), ...rows]
       .filter(task => isHairWashTitle(task.title) && (task.status ?? 2) === 2 && task.completedTime
