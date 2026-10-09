@@ -61,6 +61,7 @@ export default function Today({ owner, items, initial, records, outfits, tomorro
     queue.change(next); setIndex(0); setReplace(null); setError('');
   };
   useEffect(() => { if (!sync.dirty && !sync.saving) onContext(context); }, [context, sync.dirty, sync.saving, onContext]);
+  useEffect(() => { if (context.purpose == null) queue.change({ purpose: '休闲' }); }, [context.purpose, queue]);
   useEffect(() => { if (sync.error instanceof ClothesError && sync.error.status === 401) onExpired(); }, [sync.error, onExpired]);
   useEffect(() => { setIndex(0); setReplace(null); }, [items, weather, effective.scene, effective.active, effective.purpose]);
   const refreshCalendar = useCallback(async () => {
