@@ -188,11 +188,16 @@ export function planTickTickDay(options: {
     const lastDay = calendarDateInTimeZone(last);
     const saved = state.deadlines[task.id];
     const end = lastDay ? cycleEnd(task, lastDay) : null;
-    const deadline = end ?? (saved && saved.completion === last && saved.repeatFlag === task.repeatFlag
-      ? saved.date : date ?? addDays(today, 7));
-    const notBefore = tags(task).includes('at-least') ? end : null;
+    const savedDeadline = saved && saved.completion === last && saved.repeatFlag === task.repeatFlag ? saved.date : null;
+    // TickTick advances a recurring task's due date when an occurrence is completed.
+    // Prefer that provider-updated date for a newly observed completion; deriving the
+    // next occurrence from completedTime can be wrong when the series repeats from due date.
+    const repeatsFromDueDate = String(task.repeatFrom ?? '') === '0';
+    const providerNextDue = repeatsFromDueDate && lastDay && date && date > lastDay ? date : null;
+    const deadline = savedDeadline ?? providerNextDue ?? end ?? date ?? addDays(today, 7);
+    const notBefore = tags(task).includes('at-least') ? deadline : null;
     const minutes = members.reduce((sum, member) => sum + estimateTaskMinutes(member), 0);
-    const cycleDays = end && lastDay ? Math.max(1, daysBetween(lastDay, end)) : task.repeatFlag
+    const cycleDays = lastDay ? Math.max(1, daysBetween(lastDay, deadline)) : task.repeatFlag
       ? Math.max(1, daysBetween(today, cycleEnd(task, today) ?? addDays(today, 7))) : 14;
     const nextDates = members.map((member) => sceneDate(member, tomorrow));
     // Scene constraints apply to each task independently, as in the existing scheduler.
