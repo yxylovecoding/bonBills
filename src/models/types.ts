@@ -30,6 +30,10 @@ export interface AlipayActualFund {
   totalAmount: number;
   holdingProfit: number;
   shares?: number;
+  costPrice?: number;
+  nav?: number; // NAV verified for this snapshot's holding amount, never a live replacement.
+  navDate?: string;
+  pendingOrdersComplete?: boolean;
   // Only a confirmed-position amount supports deriving cost from holding profit.
   amountKind: 'total' | 'confirmed';
 }

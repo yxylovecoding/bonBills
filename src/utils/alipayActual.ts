@@ -64,10 +64,17 @@ export function parseAlipayActual(text: string): AlipayActualSnapshot {
     const fund = object(raw);
     if (typeof fund.name !== 'string' || !fund.name.trim() || fund.name.length > 100) throw new Error('基金名称不正确');
     if (fund.amountKind !== 'total' && fund.amountKind !== 'confirmed') throw new Error('金额类型不正确');
+    if (fund.pendingOrdersComplete !== undefined && typeof fund.pendingOrdersComplete !== 'boolean') throw new Error('在途核对状态不正确');
+    if ((fund.nav === undefined) !== (fund.navDate === undefined)
+      || (fund.navDate !== undefined && (typeof fund.navDate !== 'string' || !validConfirmationDate(fund.navDate) || fund.navDate > date))) throw new Error('实录净值日期不正确');
+    if (fund.nav !== undefined && number(fund.nav, '实录净值') <= 0) throw new Error('实录净值不正确');
     return {
       code: code(fund.code), name: fund.name.trim(), amountKind: fund.amountKind,
       totalAmount: number(fund.totalAmount, '金额'), holdingProfit: number(fund.holdingProfit, '持有收益', true),
       ...(fund.shares === undefined ? {} : { shares: number(fund.shares, '份额') }),
+      ...(fund.costPrice === undefined ? {} : { costPrice: number(fund.costPrice, '成本价') }),
+      ...(fund.nav === undefined ? {} : { nav: fund.nav as number, navDate: fund.navDate as string }),
+      ...(fund.pendingOrdersComplete === undefined ? {} : { pendingOrdersComplete: fund.pendingOrdersComplete as boolean }),
     };
   });
   const codes = new Set(funds.map((fund) => fund.code));
@@ -121,19 +128,48 @@ export function alipayActualCost(fund: AlipayActualFund): number | null {
   return fund.amountKind === 'confirmed' ? Math.round((fund.totalAmount - fund.holdingProfit) * 100) / 100 : null;
 }
 
-/** Screenshot fields win; a unique account position may supply explicitly estimated fields. */
-export function alipayActualBasis(fund: AlipayActualFund, items: InvestPositionItems) {
+/** Reconcile screenshot money with its verified NAV and complete in-flight orders.
+ * Ledger positions are comparison evidence only; they cannot supply a different balance's basis.
+ */
+export function alipayActualBasis(fund: AlipayActualFund, items: InvestPositionItems, orders: AlipayActualOrder[] = []) {
   const matches = Object.values(items).flatMap((rows) => rows ?? []).filter((item) =>
     item.status !== 'closed' && item.quoteSource !== 'yahoo' && canonicalInvestmentSymbol(item.symbol) === fund.code);
   const item = matches.length === 1 ? matches[0] : undefined;
   const finite = (value: number | undefined) => value !== undefined && Number.isFinite(value) && value >= 0 ? value : null;
   const actualShares = finite(fund.shares);
-  const shares = actualShares ?? finite(item?.shares);
-  const actualCost = alipayActualCost(fund);
+  const unique = new Map<string, AlipayActualOrder>();
+  let conflict = false;
+  for (const order of orders.filter((entry) => entry.code === fund.code)) {
+    if (unique.has(order.id) && JSON.stringify(unique.get(order.id)) !== JSON.stringify(order)) conflict = true;
+    unique.set(order.id, order);
+  }
+  const relevant = [...unique.values()];
+  const pending = relevant.filter((order) => order.status === 'pending');
+  const unavailable = conflict || relevant.some((order) => order.status === 'unknown')
+    || pending.some((order) => order.side === 'sell' || order.unit !== 'CNY');
+  const pendingBuy = pending.filter((order) => order.side === 'buy' && order.unit === 'CNY')
+    .reduce((sum, order) => sum + Math.round(order.quantity * 100), 0) / 100;
+  const amount = fund.amountKind === 'confirmed' ? fund.totalAmount
+    : fund.pendingOrdersComplete && !unavailable ? Math.round((fund.totalAmount - pendingBuy) * 100) / 100 : null;
+  const confirmedAmount = amount !== null && amount >= 0 ? amount : null;
+  const nav = finite(fund.nav);
+  const estimatedShares = confirmedAmount !== null && nav !== null && nav > 0 && fund.navDate
+    ? Math.round((confirmedAmount / nav + Number.EPSILON) * 100) / 100 : null;
+  // A cent-rounded amount does not always determine hundredth-rounded shares uniquely.
+  const matchesAmount = estimatedShares !== null && nav !== null
+    && Math.round(estimatedShares * nav * 100) === Math.round(confirmedAmount! * 100)
+    && (estimatedShares === 0 || Math.round((estimatedShares - 0.01) * nav * 100) !== Math.round(confirmedAmount! * 100))
+    && Math.round((estimatedShares + 0.01) * nav * 100) !== Math.round(confirmedAmount! * 100);
+  const shares = actualShares ?? (matchesAmount ? estimatedShares : null);
+  const amountCost = confirmedAmount !== null ? Math.round((confirmedAmount - fund.holdingProfit) * 100) / 100 : null;
+  const confirmedCost = amountCost !== null && amountCost >= 0 ? amountCost : null;
+  const explicitPrice = finite(fund.costPrice);
+  const costPrice = explicitPrice ?? (confirmedCost !== null && shares !== null && shares > 0 ? confirmedCost / shares : null);
+  const costTotal = confirmedCost ?? (actualShares !== null && explicitPrice !== null ? Math.round(actualShares * explicitPrice * 100) / 100 : null);
   const currency = (item?.quoteCurrency || item?.lastCurrency || 'CNY').toUpperCase();
-  const estimatedPrice = ['CNY', 'CNH'].includes(currency) ? finite(item?.costPrice) : null;
-  const costPrice = actualCost !== null && actualShares !== null && actualShares > 0
-    ? actualCost / actualShares : actualCost === null ? estimatedPrice : null;
-  const costTotal = actualCost ?? (shares !== null && costPrice !== null ? Math.round(shares * costPrice * 100) / 100 : null);
-  return { item, shares, costPrice, costTotal, sharesEstimated: actualShares === null && shares !== null, costEstimated: actualCost === null };
+  const bookMismatch = (shares !== null && finite(item?.shares) !== null && Math.abs(shares - item!.shares!) > 0.005)
+    || (costPrice !== null && finite(item?.costPrice) !== null && ['CNY', 'CNH'].includes(currency) && Math.abs(costPrice - item!.costPrice!) > 0.0001);
+  return { item, shares, costPrice, costTotal, confirmedAmount, pendingBuy, bookMismatch,
+    needsReview: shares === null || costTotal === null,
+    sharesEstimated: actualShares === null && shares !== null, costPriceEstimated: explicitPrice === null };
 }

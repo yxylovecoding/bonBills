@@ -9,9 +9,11 @@ const money = (value: number) => `¥${value.toLocaleString('zh-CN', { minimumFra
 const statusLabel = { pending: '交易进行中', confirmed: '已确认', cancelled: '已撤销', unknown: '状态待核对' };
 type Estimate = { asOf: string; items: InvestPositionItems; reviewItemIds: Set<string>; renderOrders: (item: InvestPositionItem) => ReactNode };
 
-function ActualFundDetails({ fund, orders, rule, estimate }: { fund: AlipayActualFund; orders: AlipayActualOrder[]; rule?: FundConfirmationRule; estimate?: Estimate }) {
-  const basis = alipayActualBasis(fund, estimate?.items ?? {});
-  const review = basis.item && estimate?.reviewItemIds.has(basis.item.id) && (basis.sharesEstimated || basis.costEstimated);
+function ActualFundDetails({ fund, orders, rule, estimate, date, onChange }: { fund: AlipayActualFund; orders: AlipayActualOrder[]; rule?: FundConfirmationRule; estimate?: Estimate; date: string; onChange: (fund: AlipayActualFund) => void }) {
+  const basis = alipayActualBasis(fund, estimate?.items ?? {}, orders);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ shares: '', costPrice: '', nav: '', navDate: '', pendingOrdersComplete: false });
+  const [error, setError] = useState('');
   return <div className="alipay-actual-fund">
     <div className="alipay-actual-fund-header">
       <span className="alipay-actual-fund-name">{fund.name}{typeof rule === 'number' && <small> · T+{rule}</small>}</span>
@@ -19,13 +21,40 @@ function ActualFundDetails({ fund, orders, rule, estimate }: { fund: AlipayActua
     </div>
     <div className="alipay-position-basis">
       <span><span className="alipay-metric-label">份额{basis.sharesEstimated ? '（推算）' : ''}</span><b>{basis.shares?.toLocaleString('zh-CN', { maximumFractionDigits: 4 }) ?? '待补充'}</b></span>
-      <span><span className="alipay-metric-label">成本价（推算）</span><b>{basis.costPrice?.toFixed(4) ?? '待补充'}</b></span>
+      <span><span className="alipay-metric-label">成本价{basis.costPriceEstimated ? '（推算）' : ''}</span><b>{basis.costPrice?.toFixed(4) ?? '待补充'}</b></span>
       <span><span className="alipay-metric-label">成本合计（推算）</span><b>{basis.costTotal === null ? '待补充' : money(basis.costTotal)}</b></span>
     </div>
-    {review && <div className="alipay-pending">份额／成本待校正</div>}
+    {basis.needsReview ? <div className="alipay-pending">份额／成本待核对</div> : basis.bookMismatch && <div className="alipay-pending">与一木账本不一致</div>}
     <details className="alipay-orders alipay-item-detail">
       <summary>交易与确认</summary>
       <div>{fund.code}</div>
+      {fund.nav !== undefined && <div className="alipay-detail-line"><span>实录净值 {fund.nav.toFixed(4)}</span><span>{fund.navDate}</span></div>}
+      {basis.confirmedAmount !== null && <div className="alipay-detail-line"><span>已确认金额 {money(basis.confirmedAmount)}</span><span>买入中 {money(basis.pendingBuy)}</span></div>}
+      <button type="button" className="alipay-text-button" onClick={() => {
+        setDraft({ shares: fund.shares?.toString() ?? '', costPrice: fund.costPrice?.toString() ?? '', nav: fund.nav?.toString() ?? '', navDate: fund.navDate ?? '', pendingOrdersComplete: fund.pendingOrdersComplete ?? false });
+        setError(''); setEditing(true);
+      }}>校对持仓</button>
+      {editing && <form className="alipay-item-detail" aria-label={`${fund.name}校对持仓`} onSubmit={(event) => {
+        event.preventDefault();
+        try {
+          const next = parseAlipayActual(JSON.stringify({ date, orders, funds: [{ ...fund,
+            shares: draft.shares.trim() ? Number(draft.shares) : undefined,
+            costPrice: draft.costPrice.trim() ? Number(draft.costPrice) : undefined,
+            nav: draft.nav.trim() ? Number(draft.nav) : undefined, navDate: draft.navDate || undefined,
+            pendingOrdersComplete: draft.pendingOrdersComplete,
+          }] })).funds[0];
+          onChange(next); setEditing(false); setError('');
+        } catch (cause) { setError(cause instanceof Error ? cause.message : '保存失败'); }
+      }}>
+        {(['shares', 'costPrice', 'nav'] as const).map((field) => <label className="alipay-detail-line" key={field}>
+          {{ shares: '实录份额', costPrice: '实录成本价', nav: '金额对应净值' }[field]}
+          <input type="number" step="any" min="0" value={draft[field]} placeholder="未提供" onChange={(event) => setDraft({ ...draft, [field]: event.target.value })} />
+        </label>)}
+        <label className="alipay-detail-line">净值日期<input type="date" max={date} value={draft.navDate} onChange={(event) => setDraft({ ...draft, navDate: event.target.value })} /></label>
+        <label><input type="checkbox" checked={draft.pendingOrdersComplete} onChange={(event) => setDraft({ ...draft, pendingOrdersComplete: event.target.checked })} /> 已核对全部在途订单</label>
+        {error && <span role="alert">{error}</span>}
+        <div className="alipay-detail-line"><button type="submit" className="alipay-text-button">保存校对</button><button type="button" className="alipay-text-button" onClick={() => setEditing(false)}>取消</button></div>
+      </form>}
       <label className="alipay-detail-line">确认规则
         <select aria-label={`${fund.name}确认规则`} value={rule ?? 'auto'} onChange={(event) => {
           const { config, setConfig } = useConfigStore.getState();
@@ -51,7 +80,7 @@ function ActualFundDetails({ fund, orders, rule, estimate }: { fund: AlipayActua
   </div>;
 }
 
-function SnapshotDetails({ snapshot, items, estimate }: { snapshot: AlipayActualSnapshot; items: InvestPositionItems; estimate?: Estimate }) {
+function SnapshotDetails({ snapshot, items, estimate, onFundChange }: { snapshot: AlipayActualSnapshot; items: InvestPositionItems; estimate?: Estimate; onFundChange: (fund: AlipayActualFund) => void }) {
   const rules = useConfigStore((state) => state.config.fundConfirmationRules);
   const totals = summarizeAlipayActual(snapshot);
   const sections = useMemo(() => groupAlipayActual(snapshot, items), [snapshot, items]);
@@ -70,7 +99,7 @@ function SnapshotDetails({ snapshot, items, estimate }: { snapshot: AlipayActual
           <span className="alipay-actual-group-label">{group.label}</span>
           <AlipayAmountProfit amount={group.totals.totalAmount} holdingProfit={group.totals.holdingProfit} />
         </summary>
-        {group.funds.map((fund) => <ActualFundDetails key={fund.code} fund={fund} rule={rules?.[fundConfirmationKey(fund.code)]} orders={snapshot.orders.filter((order) => order.code === fund.code)} estimate={estimate?.asOf === snapshot.date ? estimate : undefined} />)}
+        {group.funds.map((fund) => <ActualFundDetails key={fund.code} fund={fund} rule={rules?.[fundConfirmationKey(fund.code)]} orders={snapshot.orders.filter((order) => order.code === fund.code)} estimate={estimate?.asOf === snapshot.date ? estimate : undefined} date={snapshot.date} onChange={onFundChange} />)}
       </details>)}
     </section>)}
   </>;
@@ -108,7 +137,7 @@ export default function AlipayActualPanel({ yearMonth, items, estimate, fallback
       {message && <div role="status">{message}</div>}
       {preview ? <div className="alipay-actual-preview">
         <b>待保存 · {preview.date}{snapshots?.[preview.date] ? ' · 替换当日实录' : ''}</b>
-        <SnapshotDetails snapshot={preview} items={items} estimate={estimate} />
+        <SnapshotDetails snapshot={preview} items={items} estimate={estimate} onFundChange={(fund) => setPreview({ ...preview, funds: preview.funds.map((row) => row.code === fund.code ? fund : row) })} />
         <div className="alipay-detail-line">
           <button type="button" className="alipay-text-button" onClick={() => {
             const { config, setConfig } = useConfigStore.getState();
@@ -117,7 +146,13 @@ export default function AlipayActualPanel({ yearMonth, items, estimate, fallback
           }}>保存实录</button>
           <button type="button" className="alipay-text-button" onClick={() => setPreview(null)}>取消</button>
         </div>
-      </div> : snapshot ? <SnapshotDetails snapshot={snapshot} items={items} estimate={estimate} /> : fallback}
+      </div> : snapshot ? <SnapshotDetails snapshot={snapshot} items={items} estimate={estimate} onFundChange={(fund) => {
+        const { config, setConfig } = useConfigStore.getState();
+        const latest = config.alipayActualSnapshots?.[snapshot.date];
+        if (!latest) throw new Error('实录已变化，请刷新后校对');
+        setConfig({ alipayActualSnapshots: { ...config.alipayActualSnapshots, [snapshot.date]: { ...latest, funds: latest.funds.map((row) => row.code === fund.code ? { ...row, shares: fund.shares, costPrice: fund.costPrice, nav: fund.nav, navDate: fund.navDate, pendingOrdersComplete: fund.pendingOrdersComplete } : row) } } });
+        setMessage('校对已保存');
+      }} /> : fallback}
     </div>
   </div>;
 }

@@ -66,7 +66,7 @@ describe('cached startup synchronization', () => {
     state.config.getState().setConfig({
       fundConfirmationRules: { 'eastmoney-fund:017641': 2 },
       fundConfirmationOverrides: { 'test-order': { status: 'pending' } },
-      alipayActualSnapshots: { '2026-09-29': { date: '2026-09-29', funds: [{ code: '123456', name: '示例基金', totalAmount: 100, holdingProfit: 2, amountKind: 'total' }], orders: [] } },
+      alipayActualSnapshots: { '2026-09-29': { date: '2026-09-29', funds: [{ code: '123456', name: '示例基金', totalAmount: 100, holdingProfit: 2, amountKind: 'total', nav: 1.25, navDate: '2026-09-28', pendingOrdersComplete: true }], orders: [] } },
     });
     await vi.advanceTimersByTimeAsync(2000);
     const payload = JSON.parse(uploads().at(-1)![1].body);

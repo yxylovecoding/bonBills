@@ -1688,3 +1688,5 @@ input[type='number'] { -moz-appearance: textfield; }
 .alipay-position-basis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 8px; font-variant-numeric: tabular-nums; }
 .alipay-position-basis > span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .alipay-position-basis b { font-size: 11px; font-weight: 600; color: #202124; overflow-wrap: anywhere; }
+
+.alipay-actual input[type="number"], .alipay-actual input[type="date"] { max-width: 55%; min-width: 0; border: 1px solid #dadce0; border-radius: 6px; padding: 4px 6px; background: #fff; color: inherit; font: inherit; }
