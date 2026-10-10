@@ -1,6 +1,7 @@
 import type { AlipayActualFund, AlipayActualOrder, AlipayActualSnapshot, InvestKey, InvestPositionItems } from '../models/types';
 import { validConfirmationDate } from './alipayHoldings';
 import { canonicalInvestmentSymbol } from './investmentInstrument';
+import type { AlipayActualNav } from './alipayActualNav';
 
 type ActualGroupKey = InvestKey | 'japan' | 'unclassified';
 const ACTUAL_SECTIONS: { label: string; groups: { key: ActualGroupKey; label: string }[] }[] = [
@@ -128,10 +129,10 @@ export function alipayActualCost(fund: AlipayActualFund): number | null {
   return fund.amountKind === 'confirmed' ? Math.round((fund.totalAmount - fund.holdingProfit) * 100) / 100 : null;
 }
 
-/** Reconcile screenshot money with its verified NAV and complete in-flight orders.
+/** Estimate from the observed balance, recorded in-flight cash and a dated NAV.
  * Ledger positions are comparison evidence only; they cannot supply a different balance's basis.
  */
-export function alipayActualBasis(fund: AlipayActualFund, items: InvestPositionItems, orders: AlipayActualOrder[] = []) {
+export function alipayActualBasis(fund: AlipayActualFund, items: InvestPositionItems, orders: AlipayActualOrder[] = [], automaticNav?: AlipayActualNav) {
   const matches = Object.values(items).flatMap((rows) => rows ?? []).filter((item) =>
     item.status !== 'closed' && item.quoteSource !== 'yahoo' && canonicalInvestmentSymbol(item.symbol) === fund.code);
   const item = matches.length === 1 ? matches[0] : undefined;
@@ -146,21 +147,22 @@ export function alipayActualBasis(fund: AlipayActualFund, items: InvestPositionI
   const relevant = [...unique.values()];
   const pending = relevant.filter((order) => order.status === 'pending');
   const unavailable = conflict || relevant.some((order) => order.status === 'unknown')
-    || pending.some((order) => order.side === 'sell' || order.unit !== 'CNY');
+    || pending.some((order) => order.unit !== 'CNY');
   const pendingBuy = pending.filter((order) => order.side === 'buy' && order.unit === 'CNY')
     .reduce((sum, order) => sum + Math.round(order.quantity * 100), 0) / 100;
+  const pendingSell = pending.filter((order) => order.side === 'sell' && order.unit === 'CNY')
+    .reduce((sum, order) => sum + Math.round(order.quantity * 100), 0) / 100;
+  // Missing manual verification is not missing data: use the recorded orders and label the result 推算.
   const amount = fund.amountKind === 'confirmed' ? fund.totalAmount
-    : fund.pendingOrdersComplete && !unavailable ? Math.round((fund.totalAmount - pendingBuy) * 100) / 100 : null;
+    : !unavailable ? Math.round((fund.totalAmount - pendingBuy - pendingSell) * 100) / 100 : null;
   const confirmedAmount = amount !== null && amount >= 0 ? amount : null;
-  const nav = finite(fund.nav);
-  const estimatedShares = confirmedAmount !== null && nav !== null && nav > 0 && fund.navDate
+  const quote = automaticNav?.code === fund.code ? automaticNav : undefined;
+  const nav = finite(fund.nav ?? quote?.nav);
+  const navDate = fund.nav !== undefined ? fund.navDate : quote?.date;
+  const estimatedShares = confirmedAmount !== null && nav !== null && nav > 0 && navDate
     ? Math.round((confirmedAmount / nav + Number.EPSILON) * 100) / 100 : null;
-  // A cent-rounded amount does not always determine hundredth-rounded shares uniquely.
-  const matchesAmount = estimatedShares !== null && nav !== null
-    && Math.round(estimatedShares * nav * 100) === Math.round(confirmedAmount! * 100)
-    && (estimatedShares === 0 || Math.round((estimatedShares - 0.01) * nav * 100) !== Math.round(confirmedAmount! * 100))
-    && Math.round((estimatedShares + 0.01) * nav * 100) !== Math.round(confirmedAmount! * 100);
-  const shares = actualShares ?? (matchesAmount ? estimatedShares : null);
+  // Cent-rounded balances can only give approximate shares; do not discard a useful estimate.
+  const shares = actualShares ?? estimatedShares;
   const amountCost = confirmedAmount !== null ? Math.round((confirmedAmount - fund.holdingProfit) * 100) / 100 : null;
   const confirmedCost = amountCost !== null && amountCost >= 0 ? amountCost : null;
   const explicitPrice = finite(fund.costPrice);
@@ -169,7 +171,9 @@ export function alipayActualBasis(fund: AlipayActualFund, items: InvestPositionI
   const currency = (item?.quoteCurrency || item?.lastCurrency || 'CNY').toUpperCase();
   const bookMismatch = (shares !== null && finite(item?.shares) !== null && Math.abs(shares - item!.shares!) > 0.005)
     || (costPrice !== null && finite(item?.costPrice) !== null && ['CNY', 'CNH'].includes(currency) && Math.abs(costPrice - item!.costPrice!) > 0.0001);
-  return { item, shares, costPrice, costTotal, confirmedAmount, pendingBuy, bookMismatch,
+  const issue = confirmedAmount === null ? 'amount' : confirmedCost === null ? 'cost' : shares === null ? 'nav' : null;
+  return { item, shares, costPrice, costTotal, confirmedAmount, pendingBuy, pendingSell, bookMismatch,
+    nav, navDate, navEstimated: fund.nav === undefined, issue,
     needsReview: shares === null || costTotal === null,
     sharesEstimated: actualShares === null && shares !== null, costPriceEstimated: explicitPrice === null };
 }
