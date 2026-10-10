@@ -66,17 +66,20 @@ describe('cached startup synchronization', () => {
     state.config.getState().setConfig({
       fundConfirmationRules: { 'eastmoney-fund:017641': 2 },
       fundConfirmationOverrides: { 'test-order': { status: 'pending' } },
+      alipayActualSnapshots: { '2026-09-29': { date: '2026-09-29', funds: [{ code: '123456', name: '示例基金', totalAmount: 100, holdingProfit: 2, amountKind: 'total' }], orders: [] } },
     });
     await vi.advanceTimersByTimeAsync(2000);
     const payload = JSON.parse(uploads().at(-1)![1].body);
     expect(payload['user-prefs'].investmentHoldingsView).toBe('alipay');
     expect(payload['app-config'].config.fundConfirmationRules).toEqual({ 'eastmoney-fund:017641': 2 });
     expect(state.monthly.getState().records).toEqual(original);
+    expect(payload['app-config'].config.alipayActualSnapshots).toEqual(state.config.getState().config.alipayActualSnapshots);
     vi.resetModules();
     const refreshedPrefs = (await import('../stores/prefsStore')).usePrefsStore;
     const refreshedConfig = (await import('../stores/configStore')).useConfigStore;
     expect(refreshedPrefs.getState().investmentHoldingsView).toBe('alipay');
     expect(refreshedConfig.getState().config.fundConfirmationOverrides).toEqual({ 'test-order': { status: 'pending' } });
+    expect(refreshedConfig.getState().config.alipayActualSnapshots).toEqual(payload['app-config'].config.alipayActualSnapshots);
   });
   const namedTrip = {
     tagMap: { '2027-03-22': 'travel' as const, '2027-03-23': 'travel' as const },

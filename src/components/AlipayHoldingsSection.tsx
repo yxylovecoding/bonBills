@@ -5,6 +5,7 @@ import { useAlipayHoldings } from '../hooks/useAlipayHoldings';
 import { fundConfirmationKey, isConfirmationFund, resolveFundConfirmationRule, validConfirmationDate, type AlipayOrder } from '../utils/alipayHoldings';
 import { calculateInvestPositionMonthlyProfit, summarizeInvestPositionItems, type InvestMarketSnapshot } from '../utils/investPositionItems';
 import { investMeta } from '../data/mockData';
+import AlipayActualPanel from './AlipayActualPanel';
 
 const C = { sub: '#5f6368', blue: '#1a73e8', red: '#ea4335', green: '#0d9488', orange: '#e8710a' };
 const color = (value: number | null) => value === null ? C.sub : value >= 0 ? C.red : C.green;
@@ -95,6 +96,7 @@ export default function AlipayHoldingsSection({ items, previousItems, records, y
   const sections = past ? [{ label: '', keys: ['account' as const] }, ...SECTIONS, { label: '', keys: ['aggregate' as const] }] : SECTIONS;
 
   return <div className="alipay-holdings">
+    <AlipayActualPanel key={yearMonth} yearMonth={yearMonth} />
     <div className="alipay-detail-line" style={{ color: C.sub, fontSize: 10 }}>
       <span>推算 · {view.asOf}</span><span>{[pendingCount > 0 && `待确认 ${pendingCount} 笔`, reviewCount > 0 && `待校正 ${reviewCount} 项`].filter(Boolean).join(' · ')}</span>
     </div>
@@ -140,9 +142,10 @@ export default function AlipayHoldingsSection({ items, previousItems, records, y
               const monthlyProfit = monthly.byItemId[item.id];
               const fundKey = fundConfirmationKey(item.symbol);
               const rule = resolveFundConfirmationRule(view.metadata[fundKey]);
+              const effectiveRule = isConfirmationFund(item) ? resolveFundConfirmationRule(view.metadata[fundKey], rules?.[fundKey]) : undefined;
               return <div key={item.id} className="alipay-holding-item">
                 <button type="button" className="alipay-item-button" aria-expanded={expanded.has(item.id)} onClick={() => toggle(item.id)}>
-                  <span>{item.name} {view.reviewItemIds.has(item.id) && <small style={{ color: C.orange }}>待校正</small>}</span><span>{money((metric?.marketValueCny ?? 0) / fx, currency)}</span>
+                  <span>{item.name} {effectiveRule && <small style={{ color: C.sub }}>T+{effectiveRule}</small>} {view.reviewItemIds.has(item.id) && <small style={{ color: C.orange }}>待校正</small>}</span><span>{money((metric?.marketValueCny ?? 0) / fx, currency)}</span>
                 </button>
                 <div className="invest-position-summary" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', background: '#f8f9fa', color: C.sub }}>
                   <span>累计收益<br /><b style={{ color: color(metric?.totalProfitCny ?? null) }}>{money((metric?.totalProfitCny ?? 0) / (metric?.profitFxRateToCny ?? 1), metric?.profitCurrency ?? currency, true)}</b></span>

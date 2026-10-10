@@ -24,6 +24,38 @@ export type InvestQuoteSource = 'yahoo' | 'eastmoney-fund';
 export type FundConfirmationRule = 'auto' | 1 | 2;
 export type FundConfirmationOverride = { status: 'pending' } | { status: 'confirmed'; date: string };
 
+export interface AlipayActualFund {
+  code: string;
+  name: string;
+  totalAmount: number;
+  holdingProfit: number;
+  shares?: number;
+  // Only a confirmed-position amount supports deriving cost from holding profit.
+  amountKind: 'total' | 'confirmed';
+}
+
+export interface AlipayActualOrder {
+  id: string;
+  code: string;
+  operationAt: string; // Beijing local time
+  side: 'buy' | 'sell';
+  quantity: number;
+  unit: 'CNY' | 'shares';
+  status: 'pending' | 'confirmed' | 'cancelled' | 'unknown';
+  navDate?: string;
+  confirmationDate?: string;
+  expectedConfirmationDate?: string;
+  confirmedShares?: number;
+  nav?: number;
+  fee?: number;
+}
+
+export interface AlipayActualSnapshot {
+  date: string;
+  funds: AlipayActualFund[];
+  orders: AlipayActualOrder[];
+}
+
 export interface PendingInvestmentBuy {
   id: string;
   orderId?: string;
@@ -298,6 +330,7 @@ export interface AppConfig {
   investmentProfitBaseline?: InvestmentProfitBaseline; // 从一次确认过的持仓与累计收益继续推算
   fundConfirmationRules?: Record<string, FundConfirmationRule>;
   fundConfirmationOverrides?: Record<string, FundConfirmationOverride | null>;
+  alipayActualSnapshots?: Record<string, AlipayActualSnapshot>;
   dramDecision?: DramDecisionConfig;
 }
 
