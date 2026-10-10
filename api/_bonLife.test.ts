@@ -66,12 +66,17 @@ describe('经期 Outlook 解析', () => {
       expect(JSON.parse(args[3]).makeup).toEqual(makeup);
     }
   });
-  it('预计经期不是实际记录，但保留 UID 以便清除旧快照中的预测', () => {
+  it('标题含月经或血滴均计入，不额外排除预计、预测或预估', () => {
     const parsed = parsePeriodCalendar(calendar([
       event('actual', '月经'), event('predicted', '预计月经'), event('forecast', '🩸 预测'), event('estimate', '预估月经'),
     ]), 2026);
-    expect(parsed.events.map((value) => value.uid)).toEqual(['actual']);
+    expect(parsed.events.map((value) => value.uid)).toEqual(['actual', 'predicted', 'forecast', 'estimate']);
     expect(parsed.seenUids).toEqual(['actual', 'predicted', 'forecast', 'estimate']);
+  });
+  it.each(['经期', '例假', '大姨妈', '其他日程'])('标题仅为 %s 时不作为经期，保留 UID 供同步移除旧标记', (title) => {
+    const parsed = parsePeriodCalendar(calendar([event('other', title)]), 2026);
+    expect(parsed.events).toEqual([]);
+    expect(parsed.seenUids).toEqual(['other']);
   });
   it('浏览远期年份也带上当前记录，日历和服务端能采用同一估算', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
@@ -86,14 +91,26 @@ describe('经期 Outlook 解析', () => {
       expect(estimateCycle(DEFAULT_CYCLE, current)).toMatchObject({ cycleLength: 31, periodLength: 4 });
     } finally { vi.useRealTimers(); }
   });
-  it('只选标题包含月经或血滴的全天事件，同时识别被取消或更名的 UID', () => {
+  it('标题包含月经或血滴的全天和定时事件都计入，同时识别被取消或更名的 UID', () => {
     const parsed = parsePeriodCalendar(calendar([
       event('a', '月经第1天'), event('b', '🩸 经期'), event('renamed', '其他日程'), event('cancel', '月经', undefined, undefined, 'STATUS:CANCELLED\r\n'),
       'BEGIN:VEVENT\r\nUID:timed\r\nDTSTART:20261001T100000Z\r\nDTEND:20261001T110000Z\r\nSUMMARY:月经\r\nEND:VEVENT',
     ]), 2026);
-    expect(parsed.events.map((value) => value.uid)).toEqual(['a', 'b']);
+    expect(parsed.events.map((value) => value.uid)).toEqual(['a', 'b', 'timed']);
     expect(parsed.seenUids).toEqual(['a', 'b', 'renamed', 'cancel', 'timed']);
     expect(parsed.events[0]).toMatchObject({ startDate: '2026-09-29', endDate: '2026-10-03' });
+    expect(parsed.events[2]).toEqual({ uid: 'timed', startDate: '2026-10-01', endDate: '2026-10-02' });
+  });
+  it.each([
+    ['20261001T153000Z', '20261001T163000Z', '2026-10-01', '2026-10-03'],
+    ['20261001T153000Z', '20261001T160000Z', '2026-10-01', '2026-10-02'],
+    ['20261001T230000Z', '20261002T000000Z', '2026-10-02', '2026-10-03'],
+    ['20261001T233000', '20261002T003000', '2026-10-01', '2026-10-03'],
+  ])('定时经期 %s 至 %s 按上海日期覆盖，保留结束边界且不受空闲状态影响', (start, end, startDate, endDate) => {
+    const parsed = parsePeriodCalendar(calendar([
+      `BEGIN:VEVENT\r\nUID:timed\r\nDTSTART:${start}\r\nDTEND:${end}\r\nSUMMARY:🩸\r\nTRANSP:TRANSPARENT\r\nX-MICROSOFT-CDO-BUSYSTATUS:FREE\r\nEND:VEVENT`,
+    ]), 2026);
+    expect(parsed.events).toEqual([{ uid: 'timed', startDate, endDate }]);
   });
   it('重复日程保留 EXDATE 与改期，跨年仍能查询往年', () => {
     const parsed = parsePeriodCalendar(calendar([

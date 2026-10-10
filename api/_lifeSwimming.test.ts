@@ -31,8 +31,11 @@ function apiFor(initial: TickTickTask[]) {
   return { api: api as unknown as TickTickApi, state, write: api.updateTask, read: api.getTask };
 }
 
-beforeEach(() => { data.clear(); vi.stubEnv('SYNC_SECRET', 'secret'); });
-afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
+beforeEach(() => {
+  data.clear(); vi.stubEnv('SYNC_SECRET', 'secret');
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date(`${today}T12:00:00+08:00`));
+});
+afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe('经期游泳顺延', () => {
   it('游泳及洗头标签准备项只排非经期洗头日，不移到经期结束的非洗头日', async () => {

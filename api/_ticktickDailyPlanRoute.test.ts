@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from './ticktick-trips';
+import type { TickTickTask } from './_ticktickTrips';
 import { DAILY_PLAN_KEY, DAILY_PLAN_SETTINGS_KEY } from './_ticktickDailyPlan';
 import * as laundryModule from './_ticktickLaundry';
 const { replan, planDetails } = vi.hoisted(() => ({ replan: vi.fn(), planDetails: vi.fn() }));
+const { sourceTasks, taskWrite } = vi.hoisted(() => ({ sourceTasks: { value: [] as TickTickTask[] }, taskWrite: vi.fn() }));
 vi.mock('./_ticktickReplan.js', () => ({ replanRemainingToday: replan }));
 vi.mock('./_ticktickPlanDetails.js', () => ({ readTickTickPlanDetails: planDetails }));
 const { data, auth, failHistory, failWrite, sleepTags, briefing, syncTraining, sendEmail, routineOptions } = vi.hoisted(() => ({ data: new Map<string, any>(), auth: { ok: true }, failHistory: { value: false }, failWrite: { value: false }, sleepTags: vi.fn(), briefing: vi.fn(), syncTraining: vi.fn(), sendEmail: vi.fn(), routineOptions: { value: null as any } }));
@@ -15,14 +17,19 @@ vi.mock('./_outlookSync.js', () => ({ syncOutlookCalendar: async () => ({ connec
   availability: { startDate: '2020-01-01', endDate: '2030-01-01', events: [] } }) }));
 vi.mock('./_ticktickSleepTags.js', () => ({ syncSleepRoutineTags: sleepTags }));
 vi.mock('./_lifeSwimming.js', () => ({ syncSwimmingSchedule: async () => undefined }));
+vi.mock('./_ticktickPeriodPrediction.js', () => ({ syncPeriodPredictionTask: async () => ({ updated: 0, created: 0 }) }));
 vi.mock('./_ticktickLock.js', () => ({ acquireTickTickLock: async () => 'lock', releaseTickTickLock: async () => undefined }));
 vi.mock('@vercel/kv', () => ({ kv: { get: async (key: string) => structuredClone(data.get(key) ?? null),
   set: async (key: string, value: unknown) => { data.set(key, structuredClone(value)); return 'OK'; } } }));
 vi.mock('./_ticktickTrips.js', async (original) => ({
   ...await original<typeof import('./_ticktickTrips')>(),
   decryptTickTickToken: () => 'test-token',
-  TickTickOpenApiClient: class { async listCompletedTasks() { if (failHistory.value) throw new Error('history unavailable'); return []; } },
-  readAllTickTickTasks: async () => [],
+  TickTickOpenApiClient: class {
+    async listCompletedTasks() { if (failHistory.value) throw new Error('history unavailable'); return []; }
+    async getTask(_project: string, id: string) { return structuredClone(sourceTasks.value.find(task => task.id === id)); }
+    updateTask = taskWrite;
+  },
+  readAllTickTickTasks: async () => structuredClone(sourceTasks.value),
   readConnectedTickTickTemplate: async () => ({ rootTask: { id: 'root' }, tasks: [] }),
   reconcileTickTickTrips: async () => ({}), reconcileTickTickWishPreparations: async () => ({}),
   syncTickTickRoutines: async (options: any) => {
@@ -40,12 +47,26 @@ async function request(method: string, body?: unknown, action?: string, format?:
   return result;
 }
 beforeEach(() => { data.clear(); auth.ok = true; failHistory.value = false; failWrite.value = false;
+  sourceTasks.value = []; taskWrite.mockReset().mockImplementation(async (id, payload) => {
+    const task = sourceTasks.value.find(task => task.id === id)!;
+    Object.assign(task, payload); return structuredClone(task);
+  });
   briefing.mockReset().mockResolvedValue({}); syncTraining.mockReset().mockResolvedValue({});
   sendEmail.mockReset().mockResolvedValue({ sent: true, duplicate: false });
   sleepTags.mockResolvedValue({ mode: 'restore', updated: 0, remaining: 0, complete: true });
   data.set('ticktick:connection:v1', { encryptedToken: {} }); });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 describe('每日安排接口', () => {
+  it('完整同步保留用户的 routine 标签选择，不再补回晨间与午饭任务的标签', async () => {
+    sourceTasks.value = ['晨间routine', '🏫吃午饭了', '🏠吃午饭了'].flatMap((title, index) => [
+      { id: `without-${index}`, projectId: 'life', title, status: 0, isAllDay: true, tags: ['活'] },
+      { id: `with-${index}`, projectId: 'life', title, status: 0, isAllDay: true, tags: ['活', 'routine'] },
+    ]);
+    const original = structuredClone(sourceTasks.value);
+    expect((await request('POST')).status).toBe(200);
+    expect(taskWrite).not.toHaveBeenCalled();
+    expect(sourceTasks.value).toEqual(original);
+  });
   it('排期详情仅限已登录 GET，读取不重排、不触发其他同步', async () => {
     planDetails.mockReset().mockResolvedValue({ date: '2026-10-05', selected: [] });
     replan.mockClear(); sleepTags.mockClear(); syncTraining.mockClear();

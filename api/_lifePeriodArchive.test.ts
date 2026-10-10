@@ -16,12 +16,13 @@ const event = (uid: string, title: string, start: string, end: string, extra = '
   `BEGIN:VEVENT\r\nUID:${uid}\r\nDTSTART;VALUE=DATE:${start}\r\nDTEND;VALUE=DATE:${end}\r\nSUMMARY:${title}\r\n${extra}END:VEVENT`;
 const calendar = (events: string[]) => `BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${events.join('\r\n')}\r\nEND:VCALENDAR\r\n`;
 const feed = () => calendar([
-  event('last-year', '例假', '20250102', '20250106'),
-  event('cross-year', '经期', '20251230', '20260104'),
+  event('last-year', '月经', '20250102', '20250106'),
+  event('cross-year', '🩸 经期', '20251230', '20260104'),
   event('current', '月经', '20260929', '20261003'),
   event('next-year', '🩸', '20261230', '20270104'),
   event('forecast', '预计月经', '20261029', '20261103'),
   event('other', '上课', '20261001', '20261002'),
+  event('alias', '例假', '20261110', '20261113'),
 ]);
 
 beforeEach(() => {
@@ -60,7 +61,8 @@ describe('独立经期定时归档', () => {
     expect([2025, 2026, 2027].every((year) => Boolean(data.get(periodsKey(year))?.syncedAt))).toBe(true);
     const days = await readPeriodDays(2026);
     expect(days).toEqual(expect.arrayContaining(['2025-01-02', '2025-12-30', '2026-01-03', '2026-09-29', '2026-10-02', '2027-01-03']));
-    expect(days).not.toContain('2026-10-29'); expect(days).not.toContain('2026-10-03');
+    expect(days).toContain('2026-10-29'); expect(days).not.toContain('2026-10-03');
+    expect(days).not.toContain('2026-11-10');
   });
   it('同一日程反复同步不重复，断开后仍能读取已保存的经期', async () => {
     await syncRecentLifePeriods();

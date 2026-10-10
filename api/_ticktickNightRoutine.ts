@@ -9,7 +9,6 @@ export const isHairWashTask = (task: TickTickTask) => normalized(task.title) ===
 export const isReadingTask = (task: TickTickTask) => ['阅读', '而阅读📖是另一个🪝'].includes(normalized(task.title));
 export const TICKTICK_HIDDEN_TAG = 'bon-hidden';
 export const hasHiddenTag = (task: TickTickTask) => (task.tags ?? []).some(tag => normalized(tag) === TICKTICK_HIDDEN_TAG);
-const hasUserRoutine = (task: TickTickTask) => (task.tags ?? []).some(tag => normalized(tag) === 'routine');
 
 export const sleepTagStateKey = (projectId: string) => `ticktick:sleep-tags:v1:${createHash('sha256').update(projectId).digest('hex')}`;
 
@@ -170,28 +169,6 @@ async function syncRoutineVisibility(api: TickTickApi, options: VisibilityOption
     }
   }
   return result;
-}
-
-export async function restoreUserRoutineTags(api: TickTickApi, tasks: TickTickTask[]) {
-  const titles = new Set(['晨间routine', '🏫吃午饭了', '🏠吃午饭了'].map(normalized));
-  let updated = 0;
-  for (const candidate of tasks.filter(task => (task.status ?? 0) === 0 && titles.has(normalized(task.title)))) {
-    const task = await api.getTask(candidate.projectId, candidate.id);
-    if (!task || hasUserRoutine(task)) { if (task) candidate.tags = task.tags; continue; }
-    const tags = [...(task.tags ?? []), 'routine'];
-    const payload: Record<string, unknown> = { id: task.id, projectId: task.projectId, title: task.title, tags };
-    if (task.priority !== undefined) payload.priority = task.priority;
-    for (const key of ['content', 'desc', 'isAllDay', 'startDate', 'dueDate', 'timeZone', 'reminders',
-      'repeatFlag', 'repeatFrom', 'sortOrder', 'kind', 'parentId', 'items'] as const) {
-      if (task[key] !== undefined) payload[key] = task[key];
-    }
-    await api.updateTask(task.id, payload);
-    const saved = await api.getTask(task.projectId, task.id);
-    if (!saved || !hasUserRoutine(saved)) throw new Error(`TickTick 未恢复 ${task.title} 的 routine 标签`);
-    candidate.tags = saved.tags;
-    updated++;
-  }
-  return { matched: tasks.filter(task => titles.has(normalized(task.title))).length, updated };
 }
 
 export async function writeHiddenTag(api: TickTickApi, task: TickTickTask, hidden: boolean, priority = task.priority) {

@@ -11,7 +11,7 @@ import { availabilityProfile } from './_dailyAvailability.js';
 import type { OutlookAvailability } from '../src/utils/outlookCalendar.js';
 import { acquireTickTickLock, releaseTickTickLock } from './_ticktickLock.js';
 import { syncSwimmingSchedule } from './_lifeSwimming.js';
-import { restoreUserRoutineTags, syncHairWashVisibility, syncNightRoutineVisibility, syncReadingVisibility, syncTimedTaskVisibility } from './_ticktickNightRoutine.js';
+import { syncHairWashVisibility, syncNightRoutineVisibility, syncReadingVisibility, syncTimedTaskVisibility } from './_ticktickNightRoutine.js';
 import { syncSleepRoutineTags } from './_ticktickSleepTags.js';
 import { syncExerciseSchedule } from './_ticktickExercise.js';
 import { syncLaundrySchedule } from './_ticktickLaundry.js';
@@ -96,7 +96,6 @@ async function runSync(allowDisconnected = false) {
         kv.get<{ budgetMinutes?: number | null; availabilityProfile?: string }>(DAILY_PLAN_SETTINGS_KEY),
         readAllTickTickTasks(api, [0]),
       ]);
-      const restoredRoutineTags = await restoreUserRoutineTags(api, sourceTasks);
       const timedTasks = await syncTimedTaskVisibility(api, { tasks: sourceTasks, timeZone: connection.timeZone, projectId: connection.projectId });
       const dailyPlan: DailyPlanState = savedPlan?.connectionId === connectionId
         ? { ...savedPlan, history: [...savedPlan.history], deadlines: { ...savedPlan.deadlines } }
@@ -160,7 +159,7 @@ async function runSync(allowDisconnected = false) {
       console.info('[ticktick-routine-sync]', JSON.stringify(routineResult));
       console.info('[ticktick-trip-sync]', JSON.stringify({ ...result, ...wishResult }));
       return { busy: false as const, ...result, ...wishResult, ...routineResult, exercise: { updated: exercise.updated },
-        timedTasks, restoredRoutineTags,
+        timedTasks,
         laundry: { updated: laundry.updated, decisions: laundry.decisions, outlook: laundryOutlook },
         periodPrediction,
         dailyPlan: dailyPlan.summary, budgetMinutes: dailyBudget(settings?.budgetMinutes),

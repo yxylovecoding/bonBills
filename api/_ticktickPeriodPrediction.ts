@@ -25,7 +25,7 @@ export async function syncPeriodPredictionTask(api: TickTickApi, options: {
   const existing = tasks.find(t => t.title === PERIOD_PREDICTION_TITLE && (t.status ?? 0) === 0);
 
   const priority = 5;
-  const tags = ['当天', '活'];
+  const tags = [...new Set([...(existing?.tags ?? []), '当天', '活'])];
   const startDate = `${targetDate}T00:00:00+0800`;
   const dueDate = `${targetDate}T00:00:00+0800`;
   const isAllDay = true;

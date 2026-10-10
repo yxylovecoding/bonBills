@@ -85,4 +85,25 @@ describe('syncPeriodPredictionTask', () => {
       startDate: '2026-10-29T00:00:00+0800',
     }));
   });
+  it.each([['routine', '个人标签'], ['个人标签']])('更新提醒保留现有标签 %j，不添加或移除 routine', async (...tags) => {
+    vi.mocked(await import('./_lifeSwimming.js')).readSwimmingCycle.mockResolvedValue({
+      cycle: { ...DEFAULT_CYCLE, lastPeriodStart: '2026-10-01', cycleLength: 30, periodLength: 5, automatic: false },
+      periods: ['2026-10-01'],
+    });
+    await syncPeriodPredictionTask(api as any, { connection, today: '2026-10-08', tasks: [{
+      id: 't1', projectId: 'p1', title: PERIOD_PREDICTION_TITLE, status: 0, tags,
+    } as any] });
+    expect(api.updateTask).toHaveBeenCalledWith('t1', expect.objectContaining({ tags: [...tags, '当天', '活'] }));
+  });
+  it('日期与必要标签一致时，不因用户的额外标签重复写入', async () => {
+    vi.mocked(await import('./_lifeSwimming.js')).readSwimmingCycle.mockResolvedValue({
+      cycle: { ...DEFAULT_CYCLE, lastPeriodStart: '2026-10-01', cycleLength: 28, periodLength: 5, automatic: false },
+      periods: ['2026-10-01'],
+    });
+    expect(await syncPeriodPredictionTask(api as any, { connection, today: '2026-10-08', tasks: [{
+      id: 't1', projectId: 'p1', title: PERIOD_PREDICTION_TITLE, status: 0, isAllDay: true, priority: 5,
+      startDate: '2026-10-27T00:00:00+0800', dueDate: '2026-10-27T00:00:00+0800', tags: ['routine', '当天', '活'],
+    } as any] })).toEqual({ updated: 0, created: 0 });
+    expect(api.updateTask).not.toHaveBeenCalled();
+  });
 });
