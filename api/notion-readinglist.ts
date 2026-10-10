@@ -68,24 +68,74 @@ function findTitleProp(props: Record<string, any>): string | null {
 
 function toRatingValue(propDef: any, rating: number | string | undefined): any {
   if (rating === undefined || rating === null || rating === '') return null;
-  const num = typeof rating === 'number' ? rating : parseInt(String(rating).replace(/[^0-9]/g, ''), 10);
-  if (!Number.isFinite(num)) return null;
-  if (propDef.type === 'number') return { number: num };
+  const asString = typeof rating === 'string' ? rating : String(rating);
+  const num = typeof rating === 'number' ? rating : parseInt(asString.replace(/[^0-9]/g, ''), 10);
   if (propDef.type === 'select') {
-    // find option matching stars
     const options: any[] = propDef.select?.options || [];
-    const starStr = '★'.repeat(num);
-    const found = options.find((o) => o.name === String(num) || o.name === starStr || o.name.includes(String(num)));
-    return found ? { select: { name: found.name } } : { select: { name: String(num) } };
+    // 1) exact option name
+    const exact = options.find((o) => o.name === asString);
+    if (exact) return { select: { name: exact.name } };
+    // 2) match by star count (⭐ / ⭐️ / ★)
+    if (Number.isFinite(num) && num > 0) {
+      const stars = options.filter((o) => /^[⭐★️]+/.test(o.name));
+      const byStars = stars.find((o) => {
+        const count = (o.name.match(/⭐️|⭐|★/g) || []).length;
+        return count === num;
+      });
+      if (byStars) return { select: { name: byStars.name } };
+      // fallback: contains the digit
+      const byDigit = options.find((o) => o.name.includes(String(num)));
+      if (byDigit) return { select: { name: byDigit.name } };
+    }
+    return { select: { name: asString } };
   }
-  if (propDef.type === 'multi_select') return { multi_select: [{ name: String(num) }] };
-  if (propDef.type === 'rich_text') return { rich_text: [{ text: { content: String(num) } }] };
+  if (propDef.type === 'number') {
+    if (!Number.isFinite(num)) return null;
+    return { number: num };
+  }
+  if (propDef.type === 'multi_select') return { multi_select: [{ name: asString }] };
+  if (propDef.type === 'rich_text') return { rich_text: [{ text: { content: asString } }] };
   return null;
 }
 
 function toTypeValue(propDef: any, type: string | undefined): any {
   if (!type) return null;
-  if (propDef.type === 'select') return { select: { name: type } };
+  if (propDef.type === 'select') {
+    const options: any[] = propDef.select?.options || [];
+    const parts = type.split(/[\/、,，]/).map((p) => p.trim()).filter(Boolean);
+    for (const part of [type, ...parts]) {
+      const exact = options.find((o) => o.name === part);
+      if (exact) return { select: { name: exact.name } };
+    }
+    for (const part of parts) {
+      const fuzzy = options.find((o) => o.name.includes(part) || part.includes(o.name));
+      if (fuzzy) return { select: { name: fuzzy.name } };
+    }
+    // common english → emoji mappings
+    const alias: Record<string, string[]> = {
+      'tv show': ['📺剧', '📺动画', '📺综艺'],
+      'tv': ['📺剧'],
+      'drama': ['📺剧', '🎬戏剧'],
+      'series': ['📺剧'],
+      'show': ['📺剧'],
+      'anime': ['📺动画'],
+      'movie': ['🎬电影'],
+      'film': ['🎬电影'],
+      'book': ['📖书'],
+      'manga': ['📖漫画'],
+      'game': ['🎮游戏'],
+    };
+    const lower = type.toLowerCase();
+    for (const key of Object.keys(alias)) {
+      if (lower.includes(key)) {
+        for (const candidate of alias[key]) {
+          const hit = options.find((o) => o.name === candidate);
+          if (hit) return { select: { name: hit.name } };
+        }
+      }
+    }
+    return { select: { name: type } };
+  }
   if (propDef.type === 'multi_select') {
     const parts = type.split(/[\/、,，]/).map((p) => p.trim()).filter(Boolean);
     return { multi_select: parts.map((name) => ({ name })) };
