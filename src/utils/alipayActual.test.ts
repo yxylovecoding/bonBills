@@ -1,10 +1,59 @@
 import { describe, expect, it } from 'vitest';
-import { alipayActualCost, parseAlipayActual, summarizeAlipayActual } from './alipayActual';
-import type { AlipayActualOrder, AlipayActualSnapshot } from '../models/types';
+import { alipayActualCost, groupAlipayActual, parseAlipayActual, summarizeAlipayActual } from './alipayActual';
+import type { AlipayActualFund, AlipayActualOrder, AlipayActualSnapshot, InvestKey, InvestPositionItem, InvestPositionItems } from '../models/types';
 
 const order: AlipayActualOrder = { id: 'buy-1', code: '123456', operationAt: '2026-10-08T10:30:00', side: 'buy', quantity: 20, unit: 'CNY', status: 'pending' };
 const sample = (): AlipayActualSnapshot => ({
   date: '2026-10-10', funds: [{ code: '123456', name: '示例基金', totalAmount: 120, holdingProfit: -3, amountKind: 'total' }], orders: [order],
+});
+
+describe('支付宝实录分类', () => {
+  const fund = (code: string, name = '示例基金', totalAmount = 100, holdingProfit = 10): AlipayActualFund => ({ code, name, totalAmount, holdingProfit, amountKind: 'total' });
+  const position = (symbol: string): InvestPositionItem => ({ id: symbol, symbol, name: '账本简称', quoteSource: 'eastmoney-fund', status: 'active', historicalProfitCny: 0 });
+  const snapshot = (funds: AlipayActualFund[]): AlipayActualSnapshot => ({ date: '2026-10-10', funds, orders: [] });
+
+  it('按已有分类分为股债商及地区，汇总与每只基金一致且不改原数据', () => {
+    const keys: InvestKey[] = ['us', 'asia', 'eu', 'a', 'asia', 'longBond', 'usBond', 'gold'];
+    const funds = keys.map((_, i) => fund(`12345${i}`, i === 1 ? '示例日经225联接C' : '示例基金', (i + 1) * 100, (i + 1) * (i % 2 ? -10 : 10)));
+    const items: InvestPositionItems = {};
+    keys.forEach((key, i) => { items[key] = [...(items[key] ?? []), position(funds[i].code)]; });
+    const input = snapshot(funds); const before = structuredClone({ input, items });
+    const sections = groupAlipayActual(input, items);
+    expect(sections.map((section) => section.label)).toEqual(['股', '债', '商']);
+    expect(sections[0].groups.map((group) => group.label)).toEqual(['美股', '日股', '欧股', 'A股', '其他亚股']);
+    expect(sections[1].groups.map((group) => group.label)).toEqual(['长债', '美债']);
+    expect(sections[2].groups.map((group) => group.label)).toEqual(['黄金']);
+    expect(sections.map((section) => [section.totals.totalAmount, section.totals.holdingProfit])).toEqual([[1500, 30], [1300, 10], [800, -80]]);
+    expect(sections.flatMap((section) => section.groups.flatMap((group) => group.funds)).map((row) => row.code).sort()).toEqual(funds.map((row) => row.code));
+    expect({ input, items }).toEqual(before);
+  });
+  it('按基金代码匹配简称和前缀，暂停持仓仍可归类，重复持仓不重复累计', () => {
+    const input = snapshot([fund('123456')]);
+    const sections = groupAlipayActual(input, { gold: [{ ...position('OF123456'), status: 'paused' }, position('123456')] });
+    expect(sections).toHaveLength(1);
+    expect(sections[0].label).toBe('商');
+    expect(sections[0].totals.totalAmount).toBe(100);
+    expect(sections[0].groups[0].funds).toHaveLength(1);
+  });
+  it('缺失、冲突或只有股票代码匹配时保留在待分类，不凭基金名称归类', () => {
+    const input = snapshot([fund('123456', '黄金基金'), fund('123457'), fund('123458')]);
+    const sections = groupAlipayActual(input, {
+      us: [position('123457'), { ...position('123458'), quoteSource: 'yahoo' }],
+      eu: [position('123457')],
+    });
+    expect(sections.map((section) => section.label)).toEqual(['待分类']);
+    expect(sections[0].groups[0].funds).toHaveLength(3);
+    expect(sections[0].totals).toMatchObject({ totalAmount: 300, holdingProfit: 30 });
+  });
+  it('保留零金额基金，按分汇总，隐藏没有实录的分类', () => {
+    const input = snapshot([fund('123456', '基金甲', 0.1, 0.01), fund('123457', '基金乙', 0.2, -0.02), fund('123458', '基金丙', 0, 0)]);
+    const sections = groupAlipayActual(input, { a: input.funds.map((row) => position(row.code)) });
+    expect(sections).toHaveLength(1);
+    expect(sections[0].groups).toHaveLength(1);
+    expect(sections[0].totals).toMatchObject({ totalAmount: 0.3, holdingProfit: -0.01 });
+    expect(sections[0].groups[0].funds).toHaveLength(3);
+    expect(groupAlipayActual(snapshot([]), {})).toEqual([]);
+  });
 });
 const parse = (value: unknown) => parseAlipayActual(JSON.stringify(value));
 

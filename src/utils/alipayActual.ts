@@ -1,5 +1,42 @@
-import type { AlipayActualFund, AlipayActualOrder, AlipayActualSnapshot } from '../models/types';
+import type { AlipayActualFund, AlipayActualOrder, AlipayActualSnapshot, InvestKey, InvestPositionItems } from '../models/types';
 import { validConfirmationDate } from './alipayHoldings';
+import { canonicalInvestmentSymbol } from './investmentInstrument';
+
+type ActualGroupKey = InvestKey | 'japan' | 'unclassified';
+const ACTUAL_SECTIONS: { label: string; groups: { key: ActualGroupKey; label: string }[] }[] = [
+  { label: '股', groups: [{ key: 'us', label: '美股' }, { key: 'japan', label: '日股' }, { key: 'eu', label: '欧股' }, { key: 'a', label: 'A股' }, { key: 'asia', label: '其他亚股' }] },
+  { label: '债', groups: [{ key: 'longBond', label: '长债' }, { key: 'usBond', label: '美债' }] },
+  { label: '商', groups: [{ key: 'gold', label: '黄金' }] },
+  { label: '待分类', groups: [{ key: 'unclassified', label: '待分类基金' }] },
+];
+
+/** Match account categories by exact fund code; ambiguous or missing matches stay visible. */
+export function groupAlipayActual(snapshot: AlipayActualSnapshot, items: InvestPositionItems) {
+  const categories = new Map<string, Set<InvestKey>>();
+  for (const key of ['us', 'eu', 'asia', 'a', 'longBond', 'usBond', 'gold'] as const) {
+    for (const item of items[key] ?? []) {
+      const symbol = canonicalInvestmentSymbol(item.symbol);
+      if (item.quoteSource === 'yahoo' || !/^\d{6}$/.test(symbol)) continue;
+      const matches = categories.get(symbol) ?? new Set<InvestKey>();
+      matches.add(key);
+      categories.set(symbol, matches);
+    }
+  }
+  const fundsByGroup = new Map<ActualGroupKey, AlipayActualFund[]>();
+  for (const fund of snapshot.funds) {
+    const matches = categories.get(fund.code);
+    let key: ActualGroupKey = matches?.size === 1 ? [...matches][0] : 'unclassified';
+    if (key === 'asia' && /日经|日本|日股|TOPIX/i.test(fund.name)) key = 'japan';
+    fundsByGroup.set(key, [...(fundsByGroup.get(key) ?? []), fund]);
+  }
+  return ACTUAL_SECTIONS.map((section) => {
+    const groups = section.groups.flatMap((group) => {
+      const funds = fundsByGroup.get(group.key) ?? [];
+      return funds.length ? [{ ...group, funds, totals: summarizeAlipayActual({ ...snapshot, funds, orders: [] }) }] : [];
+    });
+    return { label: section.label, groups, totals: summarizeAlipayActual({ ...snapshot, funds: groups.flatMap((group) => group.funds), orders: [] }) };
+  }).filter((section) => section.groups.length > 0);
+}
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('实录格式不正确');

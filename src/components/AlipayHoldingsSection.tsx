@@ -98,7 +98,7 @@ export default function AlipayHoldingsSection({ items, previousItems, records, y
   const sections = past ? [{ label: '', keys: ['account' as const] }, ...SECTIONS, { label: '', keys: ['aggregate' as const] }] : SECTIONS;
 
   return <div className="alipay-holdings">
-    <AlipayActualPanel key={yearMonth} yearMonth={yearMonth} />
+    <AlipayActualPanel key={yearMonth} yearMonth={yearMonth} items={items} />
     <div className="alipay-detail-line" style={{ color: C.sub, fontSize: 10 }}>
       <span>推算 · {view.asOf}</span><span>{[pendingCount > 0 && `待确认 ${pendingCount} 笔`, reviewCount > 0 && `待校正 ${reviewCount} 项`].filter(Boolean).join(' · ')}</span>
     </div>
