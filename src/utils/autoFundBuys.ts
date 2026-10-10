@@ -48,6 +48,7 @@ export function bookPendingFundBuy(
     operationAt: pending.operationAt, occurredAt: pending.operationAt, account: pending.account, orderId: pending.orderId,
     pendingMatchKey: pending.matchKey, pendingBaseMatchKey: pending.baseMatchKey,
     applicationOrder: nextInvestmentApplicationOrder(ledger),
+    positionBefore: { shares: item.shares ?? 0, costPrice: item.costPrice ?? 0 },
     autoBuy: {
       pendingId, status: 'estimated', navDate: estimate.navDate, beforeFee: estimate.beforeFee,
       beforeShares: item.shares ?? 0, beforeCostPrice: item.costPrice ?? 0,
@@ -85,6 +86,7 @@ export function reconcileAutoFundBuy(records: MonthlyRecord[], actual: Investmen
   const replacement: InvestmentTransactionRecord = {
     ...actual, id: booked.id, date: booked.date, groupKey: booked.groupKey, costFromAmount: true,
     applicationOrder: booked.applicationOrder, autoBuy: { ...meta, status: 'reconciled' },
+    positionBefore: { shares: meta.beforeShares, costPrice: meta.beforeCostPrice },
   };
   const previousIds = new Set(meta.previousTransactionIds);
   const following = records.filter((record) => record.yearMonth >= owner.yearMonth)
@@ -109,9 +111,9 @@ export function reconcileAutoFundBuy(records: MonthlyRecord[], actual: Investmen
     while (cursor < following.length && following[cursor].month <= record.yearMonth) {
       const transaction = following[cursor++].transaction;
       const before = positionForSymbol(newItems, booked.symbol)!.item;
-      const updated = transaction.autoBuy ? {
+      const updated = { ...(transaction.autoBuy ? {
         ...transaction, autoBuy: { ...transaction.autoBuy, beforeShares: before.shares ?? 0, beforeCostPrice: before.costPrice ?? 0 },
-      } : transaction;
+      } : transaction), positionBefore: { shares: before.shares ?? 0, costPrice: before.costPrice ?? 0 } };
       replacements.set(transaction.id, updated);
       // Simulations use one group even when the position was moved between categories later.
       applyInvestmentTransaction(oldItems, { ...transaction, groupKey: booked.groupKey });

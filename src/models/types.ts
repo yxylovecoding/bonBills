@@ -21,6 +21,9 @@ export interface InvestAllocTargets extends InvestHoldings {}
 export type InvestPositionStatus = 'active' | 'paused' | 'closed';
 export type InvestQuoteSource = 'yahoo' | 'eastmoney-fund';
 
+export type FundConfirmationRule = 'auto' | 1 | 2;
+export type FundConfirmationOverride = { status: 'pending' } | { status: 'confirmed'; date: string };
+
 export interface PendingInvestmentBuy {
   id: string;
   orderId?: string;
@@ -90,6 +93,7 @@ export interface InvestmentTransactionRecord {
   pendingBaseMatchKey?: string;
   costFromAmount?: boolean;
   applicationOrder?: number;
+  positionBefore?: { shares: number; costPrice: number }; // 入账前基准，仅用于展示视图的校验与重放
   autoBuy?: {
     pendingId: string;
     status: 'estimated' | 'reconciled';
@@ -292,6 +296,8 @@ export interface AppConfig {
   majorExpenseThreshold: number; // 大额支出筛选门槛，默认 500
   investAutoSumStartMonth?: string; // 从该月起累计盈利由理财条目自动求和；此前保留手填值
   investmentProfitBaseline?: InvestmentProfitBaseline; // 从一次确认过的持仓与累计收益继续推算
+  fundConfirmationRules?: Record<string, FundConfirmationRule>;
+  fundConfirmationOverrides?: Record<string, FundConfirmationOverride | null>;
   dramDecision?: DramDecisionConfig;
 }
 

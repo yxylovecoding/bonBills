@@ -214,6 +214,11 @@ export function normalizeInvestmentRecordInstruments(record: MonthlyRecord): Mon
   };
 }
 
+export function captureInvestmentPositionBefore(items: InvestPositionItems, transaction: InvestmentTransactionRecord): InvestmentTransactionRecord {
+  const item = items[transaction.groupKey]?.find((candidate) => sameInstrument(candidate, transaction));
+  return { ...transaction, positionBefore: { shares: item?.shares ?? 0, costPrice: item?.costPrice ?? 0 } };
+}
+
 export function applyInvestmentTransaction(
   items: InvestPositionItems,
   transaction: InvestmentTransactionRecord,
@@ -400,13 +405,13 @@ export function replayInvestmentRecord(parent: MonthlyRecord, child: MonthlyReco
   const appliedIds: string[] = [];
   for (const original of transactions) {
     const before = items[original.groupKey]?.find((item) => sameInstrument(item, original));
-    const transaction = original.autoBuy ? {
+    const transaction = captureInvestmentPositionBefore(items, original.autoBuy ? {
       ...original,
       autoBuy: {
         ...original.autoBuy, beforeShares: before?.shares ?? 0, beforeCostPrice: before?.costPrice ?? 0,
         previousTransactionIds: [...appliedIds],
       },
-    } : original;
+    } : original);
     updatePendingBuyFromTransaction(items, transaction);
     applyInvestmentTransaction(items, transaction);
     replayedLedger.set(transaction.id, transaction);

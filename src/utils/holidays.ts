@@ -92,6 +92,7 @@ export function useHolidayYears(years: number[]) {
   const [dataByYear, setDataByYear] = useState<HolidayDataByYear>({});
   const [loading, setLoading] = useState(false);
   const [warning, setWarning] = useState('');
+  const [unavailableYears, setUnavailableYears] = useState<number[]>([]);
 
   useEffect(() => {
     if (normalizedYears.length === 0) {
@@ -112,6 +113,7 @@ export function useHolidayYears(years: number[]) {
           return next;
         });
         setWarning(results.map((result) => result.warning).filter(Boolean).join('；'));
+        setUnavailableYears(results.filter((result) => result.warning).map((result) => result.year));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -122,5 +124,5 @@ export function useHolidayYears(years: number[]) {
     };
   }, [normalizedYears]);
 
-  return { holidayDataByYear: dataByYear, holidayLoading: loading, holidayWarning: warning };
+  return { holidayDataByYear: dataByYear, holidayLoading: loading, holidayWarning: warning, unavailableYears };
 }

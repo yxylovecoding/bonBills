@@ -58,6 +58,26 @@ afterEach(() => {
 });
 
 describe('cached startup synchronization', () => {
+  it('支付宝偏好和校正可同步并在刷新后恢复，原始月度账本不受影响', async () => {
+    await engine.initSync('bon');
+    const { usePrefsStore } = await import('../stores/prefsStore');
+    const original = structuredClone(state.monthly.getState().records);
+    usePrefsStore.getState().setInvestmentHoldingsView('alipay');
+    state.config.getState().setConfig({
+      fundConfirmationRules: { 'eastmoney-fund:017641': 2 },
+      fundConfirmationOverrides: { 'test-order': { status: 'pending' } },
+    });
+    await vi.advanceTimersByTimeAsync(2000);
+    const payload = JSON.parse(uploads().at(-1)![1].body);
+    expect(payload['user-prefs'].investmentHoldingsView).toBe('alipay');
+    expect(payload['app-config'].config.fundConfirmationRules).toEqual({ 'eastmoney-fund:017641': 2 });
+    expect(state.monthly.getState().records).toEqual(original);
+    vi.resetModules();
+    const refreshedPrefs = (await import('../stores/prefsStore')).usePrefsStore;
+    const refreshedConfig = (await import('../stores/configStore')).useConfigStore;
+    expect(refreshedPrefs.getState().investmentHoldingsView).toBe('alipay');
+    expect(refreshedConfig.getState().config.fundConfirmationOverrides).toEqual({ 'test-order': { status: 'pending' } });
+  });
   const namedTrip = {
     tagMap: { '2027-03-22': 'travel' as const, '2027-03-23': 'travel' as const },
     outlookTravelTitles: { '2027-03-22': '釜山樱花季', '2027-03-23': '釜山樱花季' },

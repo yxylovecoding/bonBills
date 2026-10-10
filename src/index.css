@@ -1648,3 +1648,20 @@ input[type='number'] { -moz-appearance: textfield; }
     color: var(--color-text-sub);
   }
 }
+.holdings-view-toggle { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid #dadce0; border-radius: 8px; overflow: hidden; }
+.holdings-view-toggle > button { border: 0; padding: 7px 4px; background: #fff; color: #5f6368; font: inherit; font-size: 12px; cursor: pointer; }
+.holdings-view-toggle > button + button { border-left: 1px solid #dadce0; }
+.holdings-view-toggle > button[aria-pressed="true"] { background: #e8f0fe; color: #1a73e8; font-weight: 800; }
+.alipay-holdings { display: flex; flex-direction: column; gap: 10px; }
+.alipay-holdings-group { border: 1px solid #e8eaed; border-radius: 10px; padding: 8px; background: #fff; }
+.alipay-group-button { width: 100%; border: 0; padding: 0; background: transparent; cursor: pointer; text-align: left; }
+.alipay-detail-line, .alipay-item-button, .alipay-pending { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 8px; }
+.alipay-holding-item { border-top: 1px solid #f1f3f4; padding: 8px 0 2px; }
+.alipay-item-button { width: 100%; border: 0; padding: 4px 0; background: transparent; text-align: left; font-size: 12px; font-weight: 800; cursor: pointer; }
+.alipay-item-button > span:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.alipay-item-detail { display: grid; gap: 7px; margin-top: 8px; color: #5f6368; font-size: 11px; font-variant-numeric: tabular-nums; }
+.alipay-pending { margin-top: 5px; padding: 5px 7px; border-radius: 7px; background: #fff4e5; color: #e8710a; font-size: 10px; }
+.alipay-orders > summary { cursor: pointer; padding: 5px 0; }
+.alipay-order { display: grid; gap: 5px; padding: 8px 0; border-top: 1px solid #e8eaed; }
+.alipay-order-controls { display: flex; flex-wrap: wrap; gap: 6px; }
+.alipay-text-button { border: 0; background: transparent; color: #1a73e8; cursor: pointer; padding: 5px 0; font-size: 11px; }

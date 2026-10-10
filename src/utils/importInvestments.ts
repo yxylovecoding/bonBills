@@ -15,6 +15,7 @@ import { canonicalInvestmentSymbol } from './investmentInstrument';
 import { investmentImportCutoff } from './importCutoffs';
 import {
   applyInvestmentTransaction,
+  captureInvestmentPositionBefore,
   cloneInvestPositionItems,
   createInvestmentRolloverRecord,
   emptyMonthlyRecord,
@@ -705,13 +706,13 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
     if (!importedIds.has(transaction.id)
       && !transactionFingerprints.has(fingerprint)
       && !legacyTransactionFingerprints.has(legacyFingerprint)) {
-      const formalTransaction = isUniquePendingResolution
+      const formalTransaction = captureInvestmentPositionBefore(items, isUniquePendingResolution
         ? {
             ...transaction,
             costFromAmount: true,
             applicationOrder: nextInvestmentApplicationOrder([...transactionLedger.values()]),
           }
-        : { ...transaction, applicationOrder: nextInvestmentApplicationOrder([...transactionLedger.values()]) };
+        : { ...transaction, applicationOrder: nextInvestmentApplicationOrder([...transactionLedger.values()]) });
       transactionLedger.set(formalTransaction.id, formalTransaction);
       transactionFingerprints.add(transactionFingerprint(formalTransaction));
       if (!formalTransaction.orderId) legacyTransactionFingerprints.add(legacyTransactionFingerprint(formalTransaction));

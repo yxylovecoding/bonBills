@@ -19,6 +19,7 @@ import AmountInput from '../components/AmountInput';
 import InvestInstrumentPicker from '../components/InvestInstrumentPicker';
 import FinanceImportPreviewDialog from '../components/FinanceImportPreviewDialog';
 import PendingInvestmentBuyRow from '../components/PendingInvestmentBuyRow';
+import AlipayHoldingsSection from '../components/AlipayHoldingsSection';
 import TickTickTripSyncControl from '../components/TickTickTripSyncControl';
 import OutlookCalendarSyncControl from '../components/OutlookCalendarSyncControl';
 import { useOutlookCalendarSync } from '../hooks/useOutlookCalendarSync';
@@ -2092,6 +2093,7 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     positionDraftGroups, updatePositionDraft, addPositionDraft, removePositionDraft,
     splitPositionAccount, movePositionDraft,
     positionSummary, positionMonthlyIncome, positionMonthlyProfitById, positionQuotes, positionQuoteErrors, isCurrentRecordMonth,
+    positionItemsForSave, previousPositionItems, marketsBySymbol, previousMarketsBySymbol, allRecords, previousMonth: prevRecord?.yearMonth,
     handleSave,
     fieldStyle, labelStyle,
     yearMonth,
@@ -2287,6 +2289,20 @@ function InvestmentMonthlyReturn({ label, profit, marketValue }: { label: string
 }
 
 function HoldingsSection({ state }: { state: MonthFormState }) {
+  const view = usePrefsStore((prefs) => prefs.investmentHoldingsView);
+  const setView = usePrefsStore((prefs) => prefs.setInvestmentHoldingsView);
+  return <>
+    <div className="holdings-view-toggle" style={{ marginBottom: 10 }} aria-label="持仓版本">
+      <button type="button" aria-pressed={view !== 'alipay'} onClick={() => setView('yimu')}>一木</button>
+      <button type="button" aria-pressed={view === 'alipay'} onClick={() => setView('alipay')}>支付宝</button>
+    </div>
+    {view === 'alipay' ? <AlipayHoldingsSection items={state.positionItemsForSave} previousItems={state.previousPositionItems}
+      records={state.allRecords} yearMonth={state.yearMonth} previousMonth={state.previousMonth}
+      markets={state.marketsBySymbol} previousMarkets={state.previousMarketsBySymbol} /> : <YimuHoldingsSection state={state} />}
+  </>;
+}
+
+function YimuHoldingsSection({ state }: { state: MonthFormState }) {
   const {
     positionDraftGroups, updatePositionDraft, addPositionDraft, removePositionDraft,
     splitPositionAccount, movePositionDraft,

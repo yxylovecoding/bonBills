@@ -138,6 +138,7 @@ const stores: StoreEntry[] = [
         reviewableCategories: s.reviewableCategories,
         expenseScopeHelpText: s.expenseScopeHelpText,
         revealConsumptionWishUsd: s.revealConsumptionWishUsd,
+        investmentHoldingsView: s.investmentHoldingsView,
       };
     },
   },

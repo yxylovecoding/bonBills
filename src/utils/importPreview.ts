@@ -100,8 +100,8 @@ export function diffInvestmentOperations(
     const before = beforeTransactions.get(id);
     if (!before) changes.push({ kind: 'transaction', change: 'added', item });
     else if (changed(
-      { ...before, autoBuy: undefined, applicationOrder: undefined },
-      { ...item, autoBuy: undefined, applicationOrder: undefined },
+      { ...before, autoBuy: undefined, applicationOrder: undefined, positionBefore: undefined },
+      { ...item, autoBuy: undefined, applicationOrder: undefined, positionBefore: undefined },
     )) changes.push({ kind: 'transaction', change: 'updated', item });
   }
   for (const [id, item] of afterPending) {

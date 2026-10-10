@@ -17,6 +17,8 @@ export const DEFAULT_EXPENSE_SCOPE_HELP_TEXT = [
 ].join('\n');
 
 interface PrefsStore {
+  investmentHoldingsView: 'yimu' | 'alipay';
+  setInvestmentHoldingsView: (view: 'yimu' | 'alipay') => void;
   tagOrder: TagKind[];
   accountOrder: AccountKey[];
   weekdayTags: WeekdayTags;
@@ -37,6 +39,8 @@ interface PrefsStore {
 export const usePrefsStore = create<PrefsStore>()(
   persist(
     (set) => ({
+      investmentHoldingsView: 'yimu',
+      setInvestmentHoldingsView: (investmentHoldingsView) => set({ investmentHoldingsView }),
       tagOrder: ['intern', 'school', 'home', 'travel'],
       accountOrder: ['credit', 'campusCard', 'livingBank'],
       weekdayTags: {},
