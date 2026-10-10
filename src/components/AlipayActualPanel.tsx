@@ -3,6 +3,7 @@ import type { AlipayActualSnapshot } from '../models/types';
 import { useConfigStore } from '../stores/configStore';
 import { alipayActualCost, parseAlipayActual, summarizeAlipayActual } from '../utils/alipayActual';
 import { fundConfirmationKey } from '../utils/alipayHoldings';
+import AlipayAmountProfit from './AlipayAmountProfit';
 
 const money = (value: number) => `¥${value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const statusLabel = { pending: '交易进行中', confirmed: '已确认', cancelled: '已撤销', unknown: '状态待核对' };
@@ -11,7 +12,8 @@ function SnapshotDetails({ snapshot }: { snapshot: AlipayActualSnapshot }) {
   const rules = useConfigStore((state) => state.config.fundConfirmationRules);
   const totals = summarizeAlipayActual(snapshot);
   return <>
-    <div className="alipay-detail-line"><b>已录入 {snapshot.funds.length} 只基金</b><b>{money(totals.totalAmount)}</b></div>
+    <b>已录入 {snapshot.funds.length} 只基金</b>
+    <div className="alipay-overview"><AlipayAmountProfit amount={totals.totalAmount} holdingProfit={totals.holdingProfit} /></div>
     <div className="alipay-detail-line"><span>已记录买入中 {money(totals.pendingBuy)}</span><span>卖出未到账 {money(totals.pendingSell)}</span></div>
     {totals.unknownCount > 0 && <div className="alipay-pending">状态待核对 {totals.unknownCount} 笔</div>}
     {snapshot.funds.map((fund) => {
@@ -19,9 +21,12 @@ function SnapshotDetails({ snapshot }: { snapshot: AlipayActualSnapshot }) {
       const cost = alipayActualCost(fund);
       const rule = rules?.[fundConfirmationKey(fund.code)];
       return <details key={fund.code} className="alipay-actual-fund">
-        <summary><span>{fund.name}{typeof rule === 'number' && <small> · T+{rule}</small>}</span><b>{money(fund.totalAmount)}</b></summary>
+        <summary>
+          <span className="alipay-actual-fund-name">{fund.name}{typeof rule === 'number' && <small> · T+{rule}</small>}</span>
+          <AlipayAmountProfit amount={fund.totalAmount} holdingProfit={fund.holdingProfit} />
+        </summary>
         <div className="alipay-item-detail">
-          <div className="alipay-detail-line"><span>{fund.code}</span><span>持有收益 {money(fund.holdingProfit)}</span></div>
+          <div>{fund.code}</div>
           <div className="alipay-detail-line"><span>实录份额 {fund.shares?.toLocaleString('zh-CN', { maximumFractionDigits: 4 }) ?? '待补'}</span><span>成本合计（反推）{cost === null ? '待核对' : money(cost)}</span></div>
           {orders.map((order) => <div className="alipay-order" key={order.id}>
             <div className="alipay-detail-line"><span>{order.side === 'buy' ? '买入' : '卖出'} {order.unit === 'CNY' ? money(order.quantity) : `${order.quantity} 份`}</span><span>{statusLabel[order.status]}</span></div>
@@ -48,7 +53,7 @@ export default function AlipayActualPanel({ yearMonth }: { yearMonth: string }) 
   const [selected, setSelected] = useState('');
   const [preview, setPreview] = useState<AlipayActualSnapshot | null>(null);
   const [message, setMessage] = useState('');
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(() => dates.length > 0);
   const input = useRef<HTMLInputElement>(null);
   const date = dates.includes(selected) ? selected : dates[0];
   const snapshot = date ? snapshots?.[date] : undefined;

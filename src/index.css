@@ -1670,6 +1670,12 @@ input[type='number'] { -moz-appearance: textfield; }
 .alipay-actual-content, .alipay-actual-preview { display: grid; gap: 8px; padding-top: 6px; }
 .alipay-actual select { border: 1px solid #dadce0; border-radius: 6px; padding: 4px 6px; background: #fff; color: inherit; font-size: inherit; }
 .alipay-actual-fund { border-top: 1px solid #f1f3f4; padding-top: 7px; }
-.alipay-actual-fund > summary { display: flex; gap: 8px; justify-content: space-between; cursor: pointer; }
-.alipay-actual-fund > summary span { min-width: 0; overflow-wrap: anywhere; }
-.alipay-actual-fund > summary b { white-space: nowrap; }
+.alipay-actual-fund > summary { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 8px; align-items: center; cursor: pointer; padding: 3px 0 7px; }
+.alipay-actual-fund-name { min-width: 0; overflow-wrap: anywhere; line-height: 1.6; }
+.alipay-amount-profit { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; min-width: 0; font-variant-numeric: tabular-nums; }
+.alipay-amount-profit > span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.alipay-amount-profit b { font-size: 12px; white-space: nowrap; font-weight: 700; color: #202124; }
+.alipay-metric-label { font-size: 10px; font-weight: 400; color: #5f6368; }
+.alipay-actual-fund .alipay-amount-profit { text-align: right; }
+.alipay-overview { background: #f8f9fa; border-radius: 7px; padding: 10px; }
+.alipay-overview .alipay-amount-profit b { font-size: 16px; }

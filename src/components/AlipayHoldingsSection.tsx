@@ -6,6 +6,7 @@ import { fundConfirmationKey, isConfirmationFund, resolveFundConfirmationRule, v
 import { calculateInvestPositionMonthlyProfit, summarizeInvestPositionItems, type InvestMarketSnapshot } from '../utils/investPositionItems';
 import { investMeta } from '../data/mockData';
 import AlipayActualPanel from './AlipayActualPanel';
+import AlipayAmountProfit from './AlipayAmountProfit';
 
 const C = { sub: '#5f6368', blue: '#1a73e8', red: '#ea4335', green: '#0d9488', orange: '#e8710a' };
 const color = (value: number | null) => value === null ? C.sub : value >= 0 ? C.red : C.green;
@@ -83,6 +84,7 @@ export default function AlipayHoldingsSection({ items, previousItems, records, y
   const previousSummary = useMemo(() => view.previous ? summarizeInvestPositionItems(view.previous.items, previousMarkets) : undefined, [view.previous, previousMarkets]);
   const monthly = useMemo(() => calculateInvestPositionMonthlyProfit(view.items, view.previous?.items, markets, previousMarkets), [view.items, view.previous, markets, previousMarkets]);
   const profit = previousSummary ? Math.round((summary.totalProfitCny - previousSummary.totalProfitCny) * 100) / 100 : null;
+  const holdingProfit = Object.values(summary.metricsById).reduce((sum, metric) => sum + Math.round(metric.holdingProfitCny * 100), 0) / 100;
   const ordersByItem = useMemo(() => {
     const map = new Map<string, AlipayOrder[]>();
     view.orders.forEach((order) => map.set(order.itemId, [...(map.get(order.itemId) ?? []), order]));
@@ -100,16 +102,15 @@ export default function AlipayHoldingsSection({ items, previousItems, records, y
     <div className="alipay-detail-line" style={{ color: C.sub, fontSize: 10 }}>
       <span>推算 · {view.asOf}</span><span>{[pendingCount > 0 && `待确认 ${pendingCount} 笔`, reviewCount > 0 && `待校正 ${reviewCount} 项`].filter(Boolean).join(' · ')}</span>
     </div>
-    <div className="invest-holdings-totals">
-      <div style={{ backgroundColor: '#f1f3f4' }}><div style={{ fontSize: 10, color: C.sub }}>持有市值</div><div className="invest-holdings-total-amount">{money(summary.totalMarketValueCny)}</div></div>
-      <div style={{ backgroundColor: profit === null ? '#f1f3f4' : profit >= 0 ? '#fce8e6' : '#e6f4ea' }}>
-        <div style={{ fontSize: 10, color: C.sub }}>本月收益</div><div className="invest-holdings-total-value-row" style={{ color: color(profit) }}>
-          <span className="invest-holdings-total-amount">{profit === null ? '—' : money(profit, 'CNY', true)}</span>
-          <span className="invest-holdings-total-rate">{profit === null || summary.totalMarketValueCny <= 0 ? '—' : `${(profit / summary.totalMarketValueCny * 100).toFixed(2)}%`}</span>
-        </div>
+    <div className="alipay-overview"><AlipayAmountProfit amount={summary.totalMarketValueCny} holdingProfit={holdingProfit} /></div>
+    <details className="alipay-orders alipay-item-detail">
+      <summary>收益明细</summary>
+      <div className="alipay-detail-line">
+        <span>本月收益 <b style={{ color: color(profit) }}>{profit === null ? '—' : money(profit, 'CNY', true)}</b></span>
+        <span>月收益率 <b style={{ color: color(profit) }}>{profit === null || summary.totalMarketValueCny <= 0 ? '—' : `${(profit / summary.totalMarketValueCny * 100).toFixed(2)}%`}</b></span>
       </div>
-      <div style={{ backgroundColor: summary.totalProfitCny >= 0 ? '#fce8e6' : '#e6f4ea' }}><div style={{ fontSize: 10, color: C.sub }}>累计收益</div><div className="invest-holdings-total-amount" style={{ color: color(summary.totalProfitCny) }}>{money(summary.totalProfitCny, 'CNY', true)}</div></div>
-    </div>
+      <div>累计收益 <b style={{ color: color(summary.totalProfitCny) }}>{money(summary.totalProfitCny, 'CNY', true)}</b></div>
+    </details>
     <div className="holdings-view-toggle">
       {[false, true].map((isPast) => <button type="button" key={String(isPast)} aria-pressed={past === isPast} onClick={() => setPast(isPast)}>{isPast ? '历史' : '持有'}</button>)}
     </div>
@@ -145,19 +146,20 @@ export default function AlipayHoldingsSection({ items, previousItems, records, y
               const effectiveRule = isConfirmationFund(item) ? resolveFundConfirmationRule(view.metadata[fundKey], rules?.[fundKey]) : undefined;
               return <div key={item.id} className="alipay-holding-item">
                 <button type="button" className="alipay-item-button" aria-expanded={expanded.has(item.id)} onClick={() => toggle(item.id)}>
-                  <span>{item.name} {effectiveRule && <small style={{ color: C.sub }}>T+{effectiveRule}</small>} {view.reviewItemIds.has(item.id) && <small style={{ color: C.orange }}>待校正</small>}</span><span>{money((metric?.marketValueCny ?? 0) / fx, currency)}</span>
+                  <span>{item.name} {effectiveRule && <small style={{ color: C.sub }}>T+{effectiveRule}</small>} {view.reviewItemIds.has(item.id) && <small style={{ color: C.orange }}>待校正</small>}</span><span aria-hidden="true">{expanded.has(item.id) ? '▾' : '▸'}</span>
                 </button>
-                <div className="invest-position-summary" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', background: '#f8f9fa', color: C.sub }}>
-                  <span>累计收益<br /><b style={{ color: color(metric?.totalProfitCny ?? null) }}>{money((metric?.totalProfitCny ?? 0) / (metric?.profitFxRateToCny ?? 1), metric?.profitCurrency ?? currency, true)}</b></span>
-                  <span>本月收益<br /><b style={{ color: color(monthlyProfit?.value ?? null) }}>{monthlyProfit ? money(monthlyProfit.value, monthlyProfit.currency, true) : '—'}</b></span>
-                </div>
+                <AlipayAmountProfit amount={metric ? metric.marketValueCny / fx : null} holdingProfit={metric ? metric.holdingProfitCny / metric.profitFxRateToCny : null} currency={currency} profitCurrency={metric?.profitCurrency ?? currency} />
                 {itemOrders.filter((order) => order.status === 'pending').map((order, i) => <div className="alipay-pending" key={`${order.key}:${i}`}>
                   <span>待确认 {order.amount === undefined ? '金额待补' : money(order.amount, order.currency)}</span><span>{order.confirmationDate ? `预计 ${order.confirmationDate}` : '手动待确认'}</span>
                 </div>)}
                 {expanded.has(item.id) && <div className="alipay-item-detail">
                   <div className="alipay-detail-line"><span>{item.symbol}</span><span>份额 {item.shares?.toFixed(4) ?? '—'}</span></div>
                   <div className="alipay-detail-line"><span>{isConfirmationFund(item) ? '净值' : '现价'} {metric?.price?.toFixed(isConfirmationFund(item) ? 4 : 2) ?? '—'}</span><span>{metric?.quoteAt?.slice(0, 10)}</span></div>
-                  <div className="alipay-detail-line"><span>成本价 {item.costPrice?.toFixed(4) ?? '—'}</span><span>持有收益 {money((metric?.holdingProfitCny ?? 0) / (metric?.profitFxRateToCny ?? 1), metric?.profitCurrency ?? currency, true)}</span></div>
+                  <div>成本价 {item.costPrice?.toFixed(4) ?? '—'}</div>
+                  <div className="alipay-detail-line">
+                    <span>累计收益 <b style={{ color: color(metric?.totalProfitCny ?? null) }}>{metric ? money(metric.totalProfitCny / metric.profitFxRateToCny, metric.profitCurrency, true) : '—'}</b></span>
+                    <span>本月收益 <b style={{ color: color(monthlyProfit?.value ?? null) }}>{monthlyProfit ? money(monthlyProfit.value, monthlyProfit.currency, true) : '—'}</b></span>
+                  </div>
                   {isConfirmationFund(item) && <label className="alipay-detail-line">确认规则
                     <select aria-label={`${item.name}确认规则`} style={controlStyle} value={rules?.[fundKey] ?? 'auto'} onChange={(event) => {
                       const { config, setConfig } = useConfigStore.getState();
