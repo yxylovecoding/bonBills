@@ -14,34 +14,33 @@ const completionTime = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shangh
 const weekdays = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 // 任务按分类映射到色系：课绿、活蓝、玩粉，未归类走中性灰。
 const CATEGORY_CLASS: Record<string, string> = { 课: 'is-study', 活: 'is-life', 玩: 'is-play', 未分类: 'is-other' };
-// 每天任务瓷砖的固定容器高度（与早期列表版本保持一致，不随任务数量撑高）。
-const DAY_TILE_HEIGHT = 128;
-
 // 每次加载 DoneList 页面时自动触发一次重排（静默，不打扰用户）。
 // 使用模块级 flag 避免因组件在同一次会话内多次挂载/卸载重复触发。
 let autoReplanDispatched = false;
 
-// 瓷砖面板：固定高度 + 自适应宽度，用 squarified treemap 把任务按耗时占比铺满无缝。
+// 按每天框内的实际可用宽高布局，外框的留白不计入瓷砖面积。
 function DoneTiles({ items, durations }: { items: DoneItem[]; durations: Map<string, number> }) {
   const container = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(0);
+  const [{ width, height }, setSize] = useState({ width: 0, height: 0 });
   useLayoutEffect(() => {
     const el = container.current;
     if (!el) return;
-    const update = () => setWidth(el.clientWidth);
-    update();
-    const observer = new ResizeObserver(update);
+    const update = ({ width, height }: { width: number; height: number }) => {
+      setSize((previous) => previous.width === width && previous.height === height ? previous : { width, height });
+    };
+    update(el.getBoundingClientRect());
+    const observer = new ResizeObserver(([entry]) => update(entry.contentRect));
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
   const sorted = [...items].sort((a, b) => a.completedAt.localeCompare(b.completedAt));
   const byId = new Map(sorted.map((item) => [item.id, item] as const));
-  const rects = width > 0 ? squarifiedTreemap(
+  const rects = width > 0 && height > 0 ? squarifiedTreemap(
     sorted.map((item) => ({ id: item.id, value: Math.max(1, durations.get(item.id) ?? 15) })),
     width,
-    DAY_TILE_HEIGHT,
+    height,
   ) : [];
-  return <div ref={container} className="life-week-tiles" style={{ height: DAY_TILE_HEIGHT }}>
+  return <div ref={container} className="life-week-tiles">
     {rects.map((rect) => {
       const item = byId.get(rect.id);
       if (!item) return null;
@@ -50,8 +49,10 @@ function DoneTiles({ items, durations }: { items: DoneItem[]; durations: Map<str
       return <div key={item.id} className={`life-week-tile ${CATEGORY_CLASS[category] ?? 'is-other'}`}
         style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
         title={`[${category}] ${item.title} · 约 ${Math.round(minutes)} 分钟 · ${completionTime.format(new Date(item.completedAt))}`}>
-        <span className="life-done-task-title">{item.title}</span>
-        <time dateTime={item.completedAt}>{completionTime.format(new Date(item.completedAt))}</time>
+        <div className="life-week-tile-content">
+          <span className="life-done-task-title">{item.title}</span>
+          <time dateTime={item.completedAt}>{completionTime.format(new Date(item.completedAt))}</time>
+        </div>
       </div>;
     })}
   </div>;

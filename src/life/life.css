@@ -197,8 +197,10 @@
 .life-week-day-content { min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
 .life-week-empty { margin: 4px 0 0; color: var(--life-muted); font-size: 11px; }
 /* 每天任务用 squarified treemap 瓷砖铺满固定容器，面积严格 = 该任务耗时 / 当天总耗时；颜色区分课/活/玩分类。 */
-.life-week-tiles { position: relative; width: 100%; }
-.life-week-tile { position: absolute; display: flex; flex-direction: column; justify-content: space-between; gap: 2px; padding: 3px 6px; font-size: 11px; line-height: 1.2; box-sizing: border-box; overflow: hidden; background: #f1efe8; color: #8a8a7f; border-right: 1px solid rgba(255, 255, 255, .55); border-bottom: 1px solid rgba(255, 255, 255, .55); }
+.life-week-tiles { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; }
+.life-week-tile { position: absolute; font-size: 11px; line-height: 1.2; overflow: hidden; background: #f1efe8; color: #8a8a7f; box-shadow: inset -1px -1px rgba(255, 255, 255, .55); }
+/* 内边距放在内容层，极小色块也保持计算出的面积，不被文字或边框撑大。 */
+.life-week-tile-content { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; gap: 2px; padding: 3px 6px; overflow: hidden; }
 .life-week-tile.is-study { background: #e4efd5; color: #4e7628; }
 .life-week-tile.is-life  { background: #d9e7f5; color: #2b5c8e; }
 .life-week-tile.is-play  { background: #f6d7e5; color: #944666; }
