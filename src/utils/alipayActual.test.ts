@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alipayActualCost, groupAlipayActual, parseAlipayActual, summarizeAlipayActual } from './alipayActual';
+import { alipayActualBasis, alipayActualCost, groupAlipayActual, parseAlipayActual, summarizeAlipayActual } from './alipayActual';
 import type { AlipayActualFund, AlipayActualOrder, AlipayActualSnapshot, InvestKey, InvestPositionItem, InvestPositionItems } from '../models/types';
 
 const order: AlipayActualOrder = { id: 'buy-1', code: '123456', operationAt: '2026-10-08T10:30:00', side: 'buy', quantity: 20, unit: 'CNY', status: 'pending' };
@@ -56,6 +56,41 @@ describe('支付宝实录分类', () => {
   });
 });
 const parse = (value: unknown) => parseAlipayActual(JSON.stringify(value));
+
+describe('支付宝基金份额与成本', () => {
+  const position: InvestPositionItem = { id: 'fund', symbol: 'OF123456', name: '账本简称', status: 'active', quoteSource: 'eastmoney-fund', shares: 40, costPrice: 2, historicalProfitCny: 0 };
+  it('实录份额和明确持有金额优先于账本，保留输入不写回', () => {
+    const fund: AlipayActualFund = { ...sample().funds[0], amountKind: 'confirmed', shares: 42.5 };
+    const items = { us: [position] }; const original = structuredClone({ fund, items });
+    const result = alipayActualBasis(fund, items);
+    expect(result).toMatchObject({ shares: 42.5, costTotal: 123, sharesEstimated: false, costEstimated: false });
+    expect(result.costPrice).toBeCloseTo(123 / 42.5, 8);
+    expect({ fund, items }).toEqual(original);
+  });
+  it('含在途总金额不反推成本，仅使用唯一持仓的份额和成本价并标推算', () => {
+    expect(alipayActualBasis(sample().funds[0], { us: [position] })).toMatchObject({ shares: 40, costPrice: 2, costTotal: 80, sharesEstimated: true, costEstimated: true });
+  });
+  it('有实录份额但缺成本时，按实录份额和账本成本价推算合计', () => {
+    expect(alipayActualBasis({ ...sample().funds[0], shares: 42.5 }, { us: [position] })).toMatchObject({ shares: 42.5, costPrice: 2, costTotal: 85, sharesEstimated: false, costEstimated: true });
+  });
+  it('代码未匹配、重复匹配、已关闭和股票持仓均不补入基金字段', () => {
+    const ambiguous = [
+      {}, { us: [position], eu: [{ ...position, id: 'other' }] },
+      { us: [{ ...position, status: 'closed' as const }] },
+      { us: [{ ...position, quoteSource: 'yahoo' as const }] },
+      { us: [{ ...position, symbol: '654321' }] },
+    ];
+    for (const items of ambiguous) expect(alipayActualBasis(sample().funds[0], items)).toMatchObject({ item: undefined, shares: null, costPrice: null, costTotal: null });
+  });
+  it('外币份额可以匹配，外币成本不能冒充人民币成本', () => {
+    expect(alipayActualBasis(sample().funds[0], { us: [{ ...position, quoteCurrency: 'USD' }] })).toMatchObject({ shares: 40, costPrice: null, costTotal: null });
+    expect(alipayActualBasis(sample().funds[0], { us: [{ ...position, lastCurrency: 'USD' }] })).toMatchObject({ shares: 40, costPrice: null, costTotal: null });
+  });
+  it('保留实录零份额，未知份额不以订单确认量或账本份额反推真实成本价', () => {
+    expect(alipayActualBasis({ ...sample().funds[0], amountKind: 'confirmed', totalAmount: 0, holdingProfit: 0, shares: 0 }, { us: [position] })).toMatchObject({ shares: 0, costPrice: null, costTotal: 0, sharesEstimated: false });
+    expect(alipayActualBasis({ ...sample().funds[0], amountKind: 'confirmed' }, { us: [position] })).toMatchObject({ shares: 40, costPrice: null, costTotal: 123, sharesEstimated: true });
+  });
+});
 
 describe('支付宝实录', () => {
   it('记录实际确认数据和预计日期，不将预期确认当作实际确认', () => {

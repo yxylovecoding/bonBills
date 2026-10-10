@@ -34,7 +34,7 @@ function ConfirmationOrders({ orders, asOf, name }: { orders: AlipayOrder[]; asO
   };
   if (!orders.length) return null;
   return <details className="alipay-orders">
-    <summary>买入确认 · {orders.length} 笔</summary>
+    <summary>买入确认 · 推算 · {orders.length} 笔</summary>
     {sorted.slice(0, limit).map((order, index) => {
       const override = order.override;
       const mode = override?.status ?? 'auto';
@@ -97,8 +97,7 @@ export default function AlipayHoldingsSection({ items, previousItems, records, y
   });
   const sections = past ? [{ label: '', keys: ['account' as const] }, ...SECTIONS, { label: '', keys: ['aggregate' as const] }] : SECTIONS;
 
-  return <div className="alipay-holdings">
-    <AlipayActualPanel key={yearMonth} yearMonth={yearMonth} items={items} />
+  const estimatedHoldings = <>
     <div className="alipay-detail-line" style={{ color: C.sub, fontSize: 10 }}>
       <span>推算 · {view.asOf}</span><span>{[pendingCount > 0 && `待确认 ${pendingCount} 笔`, reviewCount > 0 && `待校正 ${reviewCount} 项`].filter(Boolean).join(' · ')}</span>
     </div>
@@ -149,13 +148,17 @@ export default function AlipayHoldingsSection({ items, previousItems, records, y
                   <span>{item.name} {effectiveRule && <small style={{ color: C.sub }}>T+{effectiveRule}</small>} {view.reviewItemIds.has(item.id) && <small style={{ color: C.orange }}>待校正</small>}</span><span aria-hidden="true">{expanded.has(item.id) ? '▾' : '▸'}</span>
                 </button>
                 <AlipayAmountProfit amount={metric ? metric.marketValueCny / fx : null} holdingProfit={metric ? metric.holdingProfitCny / metric.profitFxRateToCny : null} currency={currency} profitCurrency={metric?.profitCurrency ?? currency} />
+                <div className="alipay-position-basis">
+                  <span><span className="alipay-metric-label">份额（推算）</span><b>{item.shares?.toLocaleString('zh-CN', { maximumFractionDigits: 4 }) ?? '待补充'}</b></span>
+                  <span><span className="alipay-metric-label">成本价（推算）</span><b>{item.costPrice?.toFixed(4) ?? '待补充'}</b></span>
+                  <span><span className="alipay-metric-label">成本合计（推算）</span><b>{item.shares !== undefined && item.costPrice !== undefined ? money(item.shares * item.costPrice, currency) : '待补充'}</b></span>
+                </div>
                 {itemOrders.filter((order) => order.status === 'pending').map((order, i) => <div className="alipay-pending" key={`${order.key}:${i}`}>
                   <span>待确认 {order.amount === undefined ? '金额待补' : money(order.amount, order.currency)}</span><span>{order.confirmationDate ? `预计 ${order.confirmationDate}` : '手动待确认'}</span>
                 </div>)}
                 {expanded.has(item.id) && <div className="alipay-item-detail">
-                  <div className="alipay-detail-line"><span>{item.symbol}</span><span>份额 {item.shares?.toFixed(4) ?? '—'}</span></div>
+                  <div>{item.symbol}</div>
                   <div className="alipay-detail-line"><span>{isConfirmationFund(item) ? '净值' : '现价'} {metric?.price?.toFixed(isConfirmationFund(item) ? 4 : 2) ?? '—'}</span><span>{metric?.quoteAt?.slice(0, 10)}</span></div>
-                  <div>成本价 {item.costPrice?.toFixed(4) ?? '—'}</div>
                   <div className="alipay-detail-line">
                     <span>累计收益 <b style={{ color: color(metric?.totalProfitCny ?? null) }}>{metric ? money(metric.totalProfitCny / metric.profitFxRateToCny, metric.profitCurrency, true) : '—'}</b></span>
                     <span>本月收益 <b style={{ color: color(monthlyProfit?.value ?? null) }}>{monthlyProfit ? money(monthlyProfit.value, monthlyProfit.currency, true) : '—'}</b></span>
@@ -175,5 +178,12 @@ export default function AlipayHoldingsSection({ items, previousItems, records, y
         })}
       </section>;
     })}
+  </>;
+
+  return <div className="alipay-holdings">
+    <AlipayActualPanel key={yearMonth} yearMonth={yearMonth} items={items} fallback={estimatedHoldings} estimate={{
+      asOf: view.asOf, items: view.items, reviewItemIds: view.reviewItemIds,
+      renderOrders: (item) => <ConfirmationOrders orders={ordersByItem.get(item.id) ?? []} asOf={view.asOf} name={item.name} />,
+    }} />
   </div>;
 }

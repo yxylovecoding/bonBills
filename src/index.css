@@ -1666,11 +1666,10 @@ input[type='number'] { -moz-appearance: textfield; }
 .alipay-order-controls { display: flex; flex-wrap: wrap; gap: 6px; }
 .alipay-text-button { border: 0; background: transparent; color: #1a73e8; cursor: pointer; padding: 5px 0; font-size: 11px; }
 .alipay-actual { border-bottom: 1px solid #e8eaed; padding-bottom: 8px; font-size: 11px; color: #5f6368; }
-.alipay-actual > summary { cursor: pointer; padding: 5px 0; font-weight: 700; }
 .alipay-actual-content, .alipay-actual-preview { display: grid; gap: 8px; padding-top: 6px; }
 .alipay-actual select { border: 1px solid #dadce0; border-radius: 6px; padding: 4px 6px; background: #fff; color: inherit; font-size: inherit; }
 .alipay-actual-fund { border-top: 1px solid #f1f3f4; padding-top: 7px; }
-.alipay-actual-fund > summary { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 8px; align-items: center; cursor: pointer; padding: 3px 0 7px; }
+.alipay-actual-fund-header { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 8px; align-items: center; padding: 3px 0 7px; }
 .alipay-actual-fund-name { min-width: 0; overflow-wrap: anywhere; line-height: 1.6; }
 .alipay-amount-profit { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; min-width: 0; font-variant-numeric: tabular-nums; }
 .alipay-amount-profit > span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
@@ -1686,3 +1685,6 @@ input[type='number'] { -moz-appearance: textfield; }
 .alipay-actual-group-label::before { content: '▸'; margin-right: 5px; }
 .alipay-actual-group[open] > summary .alipay-actual-group-label::before { content: '▾'; }
 .alipay-actual-group[open] > summary { padding-bottom: 8px; }
+.alipay-position-basis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 8px; font-variant-numeric: tabular-nums; }
+.alipay-position-basis > span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.alipay-position-basis b { font-size: 11px; font-weight: 600; color: #202124; overflow-wrap: anywhere; }

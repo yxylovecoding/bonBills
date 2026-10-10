@@ -120,3 +120,20 @@ export function summarizeAlipayActual(snapshot: AlipayActualSnapshot) {
 export function alipayActualCost(fund: AlipayActualFund): number | null {
   return fund.amountKind === 'confirmed' ? Math.round((fund.totalAmount - fund.holdingProfit) * 100) / 100 : null;
 }
+
+/** Screenshot fields win; a unique account position may supply explicitly estimated fields. */
+export function alipayActualBasis(fund: AlipayActualFund, items: InvestPositionItems) {
+  const matches = Object.values(items).flatMap((rows) => rows ?? []).filter((item) =>
+    item.status !== 'closed' && item.quoteSource !== 'yahoo' && canonicalInvestmentSymbol(item.symbol) === fund.code);
+  const item = matches.length === 1 ? matches[0] : undefined;
+  const finite = (value: number | undefined) => value !== undefined && Number.isFinite(value) && value >= 0 ? value : null;
+  const actualShares = finite(fund.shares);
+  const shares = actualShares ?? finite(item?.shares);
+  const actualCost = alipayActualCost(fund);
+  const currency = (item?.quoteCurrency || item?.lastCurrency || 'CNY').toUpperCase();
+  const estimatedPrice = ['CNY', 'CNH'].includes(currency) ? finite(item?.costPrice) : null;
+  const costPrice = actualCost !== null && actualShares !== null && actualShares > 0
+    ? actualCost / actualShares : actualCost === null ? estimatedPrice : null;
+  const costTotal = actualCost ?? (shares !== null && costPrice !== null ? Math.round(shares * costPrice * 100) / 100 : null);
+  return { item, shares, costPrice, costTotal, sharesEstimated: actualShares === null && shares !== null, costEstimated: actualCost === null };
+}
