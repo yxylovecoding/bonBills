@@ -300,8 +300,9 @@ async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (req.query?.action === 'electric-vehicle-charge') {
       if (!isCron) return res.status(403).json({ error: 'cron authorization required' });
-      const { scheduleElectricVehicleCharge } = await import('./_electricVehicleCharge.js');
-      return res.status(200).json({ ok: true, ...await scheduleElectricVehicleCharge() });
+      // The October 9–10 setup has ended. Replaying it rewinds the next
+      // recurring occurrence even after the user has completed the original.
+      return res.status(410).json({ error: '该次电动车安排已结束，不再重放' });
     }
     if (req.query?.action === 'plan-details') {
       if (req.method !== 'GET') return res.status(405).json({ error: 'method not allowed' });
@@ -321,15 +322,10 @@ async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (req.query?.action === 'hourly-replan') {
       if (!isCron) return res.status(403).json({ error: 'cron authorization required' });
-      const [{ replanRemainingToday }, { scheduleElectricVehicleCharge }] = await Promise.all([
-        import('./_ticktickReplan.js'), import('./_electricVehicleCharge.js'),
-      ]);
-      let electricVehicle: Awaited<ReturnType<typeof scheduleElectricVehicleCharge>> | undefined;
-      try { electricVehicle = await scheduleElectricVehicleCharge(); }
-      catch { /* Keep hourly planning available; the next run retries this idempotent one-time setup. */ }
+      const { replanRemainingToday } = await import('./_ticktickReplan.js');
       const result = await replanRemainingToday({ scheduled: true });
-      if (result.busy) return res.status(200).json({ ok: true, busy: false, deferred: true, electricVehicle, dailyPlan: { deferred: true } });
-      return res.status(200).json({ ok: true, electricVehicle, ...result });
+      if (result.busy) return res.status(200).json({ ok: true, busy: false, deferred: true, dailyPlan: { deferred: true } });
+      return res.status(200).json({ ok: true, ...result });
     }
     if (req.query?.action === 'daily-email') {
       if (!isCron) return res.status(403).json({ error: 'cron authorization required' });
@@ -354,10 +350,6 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       if (!isCron && req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
       const { syncRecentLifePeriods } = await import('./_bonLife.js');
       const periods = await syncRecentLifePeriods();
-      if (isCron) {
-        const { scheduleElectricVehicleCharge } = await import('./_electricVehicleCharge.js');
-        return res.status(200).json({ ok: true, ...periods, electricVehicle: await scheduleElectricVehicleCharge() });
-      }
       return res.status(200).json({ ok: true, ...periods });
     }
     if (req.query?.action === 'night-routine' || req.query?.action === 'daily-routine'
