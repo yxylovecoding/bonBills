@@ -1,5 +1,6 @@
 import type { DoneItem } from './bonLife';
 import { isCalendarDate } from './outlookCalendar.js';
+import { markedTaskMinutes, withoutDurationAnnotations } from './taskDuration.js';
 
 export const DONE_CATEGORIES = ['课', '活', '玩'] as const;
 export type DoneCategory = typeof DONE_CATEGORIES[number] | '未分类';
@@ -27,25 +28,40 @@ export function groupDoneCategories(items: DoneItem[]) {
   return [...groups].map(([category, entries]) => ({ category, items: entries }));
 }
 
-// 根据完成时间戳差值推算每个任务的耗时（分钟）：
-// 把一天内所有任务按完成时间升序排列，相邻两次完成之间的时间差即为后一个任务的耗时；
-// 第一项没有前驱，使用其余项的中位数作为兜底，若全天只有一项则兜底为 15 分钟。
-// 结果用于「今日完成」三列视图按耗时比例渲染任务块高度。
+// 未标注任务用固定默认值，绝不把两次勾选之间的空档当作任务耗时。
 export function computeDoneDurations(items: DoneItem[]): Map<string, number> {
-  const sorted = [...items].sort((a, b) => a.completedAt.localeCompare(b.completedAt));
-  const minutes = new Map<string, number>();
-  const diffs: number[] = [];
-  for (let index = 1; index < sorted.length; index++) {
-    const delta = (Date.parse(sorted[index].completedAt) - Date.parse(sorted[index - 1].completedAt)) / 60_000;
-    const safe = Number.isFinite(delta) && delta > 0 ? delta : 15;
-    minutes.set(sorted[index].id, safe);
-    diffs.push(safe);
+  return new Map(items.map(item => [item.id, Number.isFinite(item.durationMinutes) && item.durationMinutes! > 0
+    ? item.durationMinutes! : markedTaskMinutes(item) ?? 15]));
+}
+
+function doneTitle(title: string): string {
+  return withoutDurationAnnotations(title).toLowerCase()
+    .replace(/\d+(?:\.\d+)?\s*(?:小时|hours?|hrs?|h|分钟|minutes?|mins?|m)(?![a-z0-9])/gi, '')
+    .replace(/[\p{P}\p{S}\s]/gu, '');
+}
+
+/** Exact task links take precedence; otherwise match equal titles on the same day, one occurrence at a time. */
+export function mergeDoneItems(tasks: DoneItem[], events: DoneItem[]): DoneItem[] {
+  const used = new Set<string>();
+  const matchedEvents = new Set<DoneItem>();
+  const seenEvents = new Set<string>();
+  const unique = [...events].sort((a, b) => Number(Boolean(b.linkedTaskId)) - Number(Boolean(a.linkedTaskId)) || a.completedAt.localeCompare(b.completedAt)).filter(event => {
+    const key = JSON.stringify([event.date, doneTitle(event.title), event.startedAt, event.completedAt]);
+    if (seenEvents.has(key)) return false;
+    seenEvents.add(key); return true;
+  });
+  const candidates = unique.flatMap(event => {
+    const title = doneTitle(event.title);
+    return tasks.filter(task => task.date === event.date
+      && (event.linkedTaskId ? task.taskId === event.linkedTaskId && (!event.linkedProjectId || task.projectId === event.linkedProjectId)
+        : Boolean(title) && doneTitle(task.title) === title))
+      .map(task => ({ event, task, distance: Math.abs(Date.parse(task.completedAt) - Date.parse(event.completedAt)) }));
+  }).sort((a, b) => Number(Boolean(b.event.linkedTaskId)) - Number(Boolean(a.event.linkedTaskId)) || a.distance - b.distance);
+  for (const { event, task } of candidates) {
+    if (used.has(task.id) || matchedEvents.has(event)) continue;
+    used.add(task.id); matchedEvents.add(event);
   }
-  if (sorted.length) {
-    const fallback = diffs.length ? [...diffs].sort((a, b) => a - b)[Math.floor(diffs.length / 2)] : 15;
-    minutes.set(sorted[0].id, fallback);
-  }
-  return minutes;
+  return [...tasks, ...unique.filter(event => !matchedEvents.has(event))].sort((a, b) => b.completedAt.localeCompare(a.completedAt));
 }
 
 export function splitDoneDays(items: DoneItem[], month: string, today: string) {

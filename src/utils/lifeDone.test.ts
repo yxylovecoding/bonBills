@@ -1,9 +1,59 @@
 import { describe, expect, it } from 'vitest';
 import type { DoneItem } from './bonLife';
-import { classifyDoneCategory, doneWeekDates, doneWeekMonths, doneWeekNumber, earlierDoneWeeks, groupDoneCategories, groupDoneWeek, shiftDoneDate, splitDoneDays } from './lifeDone';
+import { classifyDoneCategory, computeDoneDurations, mergeDoneItems, doneWeekDates, doneWeekMonths, doneWeekNumber, earlierDoneWeeks, groupDoneCategories, groupDoneWeek, shiftDoneDate, splitDoneDays } from './lifeDone';
 
 const item = (id: string, date: string, category?: DoneItem['category']): DoneItem => ({
   id, taskId: id, projectId: 'inbox', title: id, date, completedAt: `${date}T09:00:00Z`, category,
+});
+
+describe('完成记录的时长与跨来源去重', () => {
+  const date = '2026-10-04';
+  const event = (id: string, title: string, hour = '09', fields: Partial<DoneItem> = {}): DoneItem => ({
+    ...item(id, date), source: 'outlook', title, startedAt: `${date}T${hour}:00:00Z`, completedAt: `${date}T${hour}:30:00Z`,
+    durationMinutes: 30, durationBasis: 'outlook', ...fields,
+  });
+  it('按标注的 30m 与 1.5h 得到 1:3，勾选时间相同或相隔半天都不影响', () => {
+    const a = { ...item('a', date), title: '阅读(30m)', completedAt: `${date}T00:00:00Z` };
+    const b = { ...item('b', date), title: '学习(1.5h)', completedAt: `${date}T12:00:00Z` };
+    expect([...computeDoneDurations([a, b])]).toEqual([['a', 30], ['b', 90]]);
+    expect([...computeDoneDurations([a, { ...b, completedAt: a.completedAt }])]).toEqual([['a', 30], ['b', 90]]);
+    expect(computeDoneDurations([{ ...a, durationMinutes: 45, durationBasis: 'task' }]).get('a')).toBe(45);
+  });
+  it('旧记录与无效时长采用标注或固定默认值，Outlook 保留不足一分钟的真实区间', () => {
+    expect([...computeDoneDurations([item('a', date), { ...item('b', date), durationMinutes: NaN },
+      { ...item('c', date), durationMinutes: -10, title: '任务(5m)' }, event('d', '短日程', '09', { durationMinutes: 0.5 })])])
+      .toEqual([['a', 15], ['b', 15], ['c', 5], ['d', 0.5]]);
+  });
+  it('同日忽略时长标注和装饰符号，保留 TickTick 的时长；其他日期和不同标题不误删', () => {
+    const task = { ...item('a', date), title: '阅读📖（30m）', durationMinutes: 30 };
+    const result = mergeDoneItems([task], [event('same', ' 阅读 '), event('other', '日语阅读'),
+      event('tomorrow', '阅读', '09', { date: '2026-10-05' })]);
+    expect(result.map(item => item.id).sort()).toEqual(['a', 'other', 'tomorrow']);
+    expect(result.find(item => item.id === 'a')?.durationMinutes).toBe(30);
+  });
+  it('同名的多次日程逐项匹配，只有一个完成任务时保留其余时段', () => {
+    const task = { ...item('a', date), title: '阅读', completedAt: `${date}T09:30:00Z` };
+    expect(mergeDoneItems([task], [event('one', '阅读'), event('two', '阅读', '10')]).map(item => item.id).sort()).toEqual(['a', 'two']);
+    expect(mergeDoneItems([task], [event('early', '阅读', '08'), event('closest', '阅读')]).map(item => item.id).sort()).toEqual(['a', 'early']);
+    expect(mergeDoneItems([task, { ...task, id: 'b', completedAt: `${date}T10:30:00Z` }],
+      [event('one', '阅读'), event('two', '阅读', '10')]).map(item => item.id).sort()).toEqual(['a', 'b']);
+  });
+  it('任务链接优先于标题，明确关联其他任务的同名日程仍保留', () => {
+    const task = { ...item('a', date), title: '洗衣服(50m)' };
+    const linked = event('linked', '洗衣日程', '10', { linkedTaskId: 'a', linkedProjectId: 'inbox' });
+    const wrong = event('different', '洗衣服', '11', { linkedTaskId: 'b' });
+    expect(mergeDoneItems([task], [event('title', '洗衣服'), wrong, linked]).map(item => item.id).sort()).toEqual(['a', 'different', 'title']);
+  });
+  it('重复订阅的同一时段只计一次，保留有任务链接的一份用于去重', () => {
+    const task = { ...item('a', date), title: '已更名' };
+    expect(mergeDoneItems([task], [event('copy', '日程'), event('linked-copy', '日程', '09', { linkedTaskId: 'a' })])).toEqual([task]);
+    expect(mergeDoneItems([], [event('one', '日程'), event('copy', '日程'), event('later', '日程', '10')])).toHaveLength(2);
+  });
+  it('routine 待办先用于去重再隐藏，避免从 Outlook 副本重新显示', () => {
+    const task = { ...item('a', date), title: '夜间 routine', tags: ['routine'] };
+    const merged = mergeDoneItems([task], [event('copy', '夜间 routine')]);
+    expect(groupDoneWeek(merged, date, date).flatMap(day => day.items)).toEqual([]);
+  });
 });
 
 describe('连续周本', () => {

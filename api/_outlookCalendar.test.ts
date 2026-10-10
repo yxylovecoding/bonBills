@@ -11,6 +11,14 @@ const input = { playUrl, classUrl, policy: 'manual' as const, rules: DEFAULT_OUT
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Outlook ICS 解析', () => {
+  it('只在请求时提取 TickTick 关联标识，不把日程正文或私人链接返回前端', () => {
+    const ics = calendar(event('UID:laundry\nDTSTART:20261004T010000Z\nDTEND:20261004T020000Z\nSUMMARY:洗衣服\nDESCRIPTION:private note https://ticktick.com/webapp/#p/life/tasks/laundry'));
+    expect(parseOutlookCalendar(ics, 'work', '2026-10-01', '2026-11-01', true, true)[0]).not.toHaveProperty('taskLink');
+    const linked = parseOutlookCalendar(ics, 'work', '2026-10-01', '2026-11-01', true, true, { includeTaskLink: true })[0];
+    expect(linked.taskLink).toEqual({ projectId: 'life', taskId: 'laundry' });
+    expect(JSON.stringify(linked)).not.toContain('private note');
+    expect(JSON.stringify(linked)).not.toContain('https://');
+  });
   it('忙闲读取保留具体时刻、上海跨日、循环例外；空闲和取消日程不占用', () => {
     const ics = calendar([
       event('UID:timed\nDTSTART:20261003T163000Z\nDTEND:20261003T173000Z\nRRULE:FREQ=DAILY;COUNT=3\nEXDATE:20261004T163000Z\nSUMMARY:课程'),

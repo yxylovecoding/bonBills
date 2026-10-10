@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { DEFAULT_OUTLOOK_RULES, type OutlookSnapshot } from '../src/utils/outlookCalendar';
+import { DEFAULT_CYCLE } from '../src/utils/bonLife';
 import { encryptOutlookConnection } from './_outlookCalendar';
 import { OUTLOOK_CONNECTION_KEY, saveOutlookSnapshot, saveUploadedCalendarState, syncOutlookCalendar } from './_outlookSync';
 import ticktickHandler from './ticktick-trips';
@@ -9,7 +10,8 @@ import syncHandler from './sync';
 const { data, routineSync, tripSync, wishSync, templateRead, auth, events, doneSync, swimmingSync } = vi.hoisted(() => ({
   data: new Map<string, unknown>(), routineSync: vi.fn(), tripSync: vi.fn(), wishSync: vi.fn(), templateRead: vi.fn(), auth: vi.fn(), events: [] as string[], doneSync: vi.fn(), swimmingSync: vi.fn(),
 }));
-vi.mock('./_lifeSwimming.js', () => ({ syncSwimmingSchedule: swimmingSync }));
+vi.mock('./_lifeSwimming.js', () => ({ syncSwimmingSchedule: swimmingSync,
+  readSwimmingCycle: async () => ({ cycle: DEFAULT_CYCLE, periods: [] }) }));
 vi.mock('./_lifeTraining.js', () => ({ syncTrainingSource: vi.fn(async () => undefined) }));
 vi.mock('./_lifeDone.js', () => ({ syncRecentLifeDone: doneSync, collectCompleted: async () => [] }));
 vi.mock('./_auth.js', () => ({ authOk: auth }));

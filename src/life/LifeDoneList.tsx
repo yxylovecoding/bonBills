@@ -8,12 +8,16 @@ import { squarifiedTreemap } from '../utils/squarifiedTreemap';
 import { LifeError, lifeRequest } from './client';
 import LifePlanDetails from './LifePlanDetails';
 import OutlookLaundryControl from '../components/OutlookLaundryControl';
+import { markedTaskMinutes } from '../utils/taskDuration';
 
 const shanghaiToday = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date());
 const completionTime = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
 const weekdays = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 // 任务按分类映射到色系：课绿、活蓝、玩粉，未归类走中性灰。
 const CATEGORY_CLASS: Record<string, string> = { 课: 'is-study', 活: 'is-life', 玩: 'is-play', 未分类: 'is-other' };
+const needsDoneSync = (month: DoneMonth) => Boolean(month.connected && (month.needsTagSync || month.needsDurationSync
+  || !month.syncedAt || Date.now() - Date.parse(month.syncedAt) > 300_000)
+  || month.outlookConnected && (month.outlookError || !month.outlookSyncedAt || Date.now() - Date.parse(month.outlookSyncedAt) > 300_000));
 // 每次加载 DoneList 页面时自动触发一次重排（静默，不打扰用户）。
 // 使用模块级 flag 避免因组件在同一次会话内多次挂载/卸载重复触发。
 let autoReplanDispatched = false;
@@ -36,7 +40,7 @@ function DoneTiles({ items, durations }: { items: DoneItem[]; durations: Map<str
   const sorted = [...items].sort((a, b) => a.completedAt.localeCompare(b.completedAt));
   const byId = new Map(sorted.map((item) => [item.id, item] as const));
   const rects = width > 0 && height > 0 ? squarifiedTreemap(
-    sorted.map((item) => ({ id: item.id, value: Math.max(1, durations.get(item.id) ?? 15) })),
+    sorted.map((item) => ({ id: item.id, value: durations.get(item.id) ?? 15 })),
     width,
     height,
   ) : [];
@@ -46,9 +50,11 @@ function DoneTiles({ items, durations }: { items: DoneItem[]; durations: Map<str
       if (!item) return null;
       const minutes = durations.get(item.id) ?? 15;
       const category = doneCategory(item);
+      const durationLabel = item.durationBasis === 'default' || (!item.durationBasis && markedTaskMinutes(item) === null)
+        ? '未标注时长，暂按 15 分钟' : `${Number(minutes.toFixed(1))} 分钟`;
       return <div key={item.id} className={`life-week-tile ${CATEGORY_CLASS[category] ?? 'is-other'}`}
         style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
-        title={`[${category}] ${item.title} · 约 ${Math.round(minutes)} 分钟 · ${completionTime.format(new Date(item.completedAt))}`}>
+        title={`${item.source === 'outlook' ? 'Outlook' : 'TickTick'} · [${category}] ${item.title} · ${durationLabel} · ${completionTime.format(new Date(item.completedAt))}`}>
         <div className="life-week-tile-content">
           <span className="life-done-task-title">{item.title}</span>
           <time dateTime={item.completedAt}>{completionTime.format(new Date(item.completedAt))}</time>
@@ -107,13 +113,15 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
       const store = (value: DoneMonth) => { cache.current[key] = value; setData((previous) => ({ ...previous, [key]: value })); };
       try {
         const local = cache.current[key];
-        if (!force && local?.syncedAt && !local.needsTagSync && Date.now() - Date.parse(local.syncedAt) < 300_000) return;
+        if (!force && local && (local.connected || local.outlookConnected) && !needsDoneSync(local)) return;
         const cached = await lifeRequest<DoneMonth>('GET', { view: 'done', year, month }, request.signal);
         if (request.signal.aborted) return;
         store(cached);
-        if (cached.connected && (force || cached.needsTagSync || !cached.syncedAt || Date.now() - Date.parse(cached.syncedAt) > 300_000)) {
+        if ((cached.connected || cached.outlookConnected) && (force || needsDoneSync(cached))) {
           const result = await lifeRequest<DoneMonth>('POST', { action: 'sync-done', year, month }, request.signal);
-          if (!request.signal.aborted) store(result);
+          if (request.signal.aborted) return;
+          store(result);
+          if (result.outlookError) setErrors((previous) => ({ ...previous, [key]: result.outlookError! }));
         }
       } catch (cause) {
         if (request.signal.aborted) return;
@@ -227,7 +235,12 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
     element.scrollBy({ left: direction * distance, behavior: 'smooth' });
   }
   const months = monthKey.split(',').filter(Boolean).map((key) => data[key]);
-  const syncedAt = months.every((value) => value?.syncedAt) ? months.map((value) => value.syncedAt!).sort()[0] : null;
+  const syncTimes = months.map(value => {
+    if (!value) return undefined;
+    const times = [...(value.connected ? [value.syncedAt] : []), ...(value.outlookConnected ? [value.outlookSyncedAt] : [])];
+    return times.length && times.every(Boolean) ? (times as string[]).sort()[0] : undefined;
+  });
+  const syncedAt = syncTimes.every(Boolean) ? syncTimes.sort()[0] : null;
   return <section className="life-done" aria-label="DoneList 周本" aria-busy={busy || replanning}>
     <div className="life-done-heading"><h2>完成周本</h2><nav className="life-week-navigation" aria-label="翻阅周本">
       <button className="life-arrow" aria-label="上一周" onClick={() => move(-1)}>‹</button>
@@ -238,7 +251,7 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
       {replanMessage || `上次排期 · 剩余 ${planDetails.selected.length} 项 · 约 ${planDetails.selected.reduce((sum, task) => sum + task.minutes, 0)} 分钟`}
     </button> : replanMessage || (syncedAt ? `${completionTime.format(new Date(syncedAt))} 已同步` : '尚未同步')}</span>
       <div className="life-done-actions"><button disabled={busy || replanning} onClick={() => void triggerReplan()}>{replanning ? '触发中…' : '重排任务'}</button>
-        <button disabled={busy || replanning} onClick={() => void refresh(true)}>同步 TickTick</button></div></div>
+        <button disabled={busy || replanning} onClick={() => void refresh(true)}>同步记录</button></div></div>
     <OutlookLaundryControl />
     {replanError && <p className="life-error" role="alert">{replanError}</p>}
     {detailsError && <p className="life-error" role="alert">{detailsError}</p>}
@@ -257,7 +270,8 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
         return <article key={week} className="life-week-page" aria-label={`${week}至${days[6]}周本`} data-week={week}>
           <header className="life-week-page-heading"><div><h3>{firstMonth}{firstMonth !== lastMonth && <> | {lastMonth}</>}</h3><span>{doneWeekDates(week)[3].slice(0, 4)} · 第 {doneWeekNumber(week)} 周</span></div>
             <span>{days[0].slice(5).replace('-', '.')} — {days[6].slice(5).replace('-', '.')}</span></header>
-          {records.map((day, index) => <DoneDay key={day.date} {...day} index={index} today={today} busy={busy} error={Boolean(errors[day.date.slice(0, 7)])} pending={!data[day.date.slice(0, 7)]?.syncedAt} />)}
+          {records.map((day, index) => <DoneDay key={day.date} {...day} index={index} today={today} busy={busy} error={Boolean(errors[day.date.slice(0, 7)])}
+            pending={!data[day.date.slice(0, 7)]?.syncedAt && !data[day.date.slice(0, 7)]?.outlookSyncedAt} />)}
         </article>;
       })}
     </div>

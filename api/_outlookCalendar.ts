@@ -134,7 +134,7 @@ function isAllDay(event: IcalEvent) {
 }
 
 export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind, startDate: string, endDate: string, includeUid = false, includeTimed = false,
-  options?: { includeLocation?: boolean; timezone?: string; includeFree?: boolean }): OutlookDayEvent[] {
+  options?: { includeLocation?: boolean; timezone?: string; includeFree?: boolean; includeTaskLink?: boolean }): OutlookDayEvent[] {
   if (!/^\s*BEGIN:VCALENDAR\r?\n/i.test(text) || !/END:VCALENDAR\s*$/i.test(text)) throw new Error('订阅内容不是完整日历');
   const root = new ICAL.Component(ICAL.parse(text));
   const components = root.getAllSubcomponents('vevent');
@@ -171,6 +171,9 @@ export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind
   const append = (event: IcalEvent, start: IcalTime, end: IcalTime) => {
     if (isCancelled(event)) return;
     const location = options?.includeLocation ? { location: String(event.component.getFirstPropertyValue('location') || '').slice(0, 500) } : {};
+    const link = options?.includeTaskLink ? `${event.component.getFirstPropertyValue('description') || ''} ${event.component.getFirstPropertyValue('url') || ''}`
+      .match(/https:\/\/(?:www\.)?(?:ticktick\.com|dida365\.com)\/webapp\/#p\/([\w-]+)\/tasks\/([\w-]+)/i) : null;
+    const taskLink = link ? { taskLink: { projectId: link[1], taskId: link[2] } } : {};
     if (!isAllDay(event)) {
       if (!includeTimed || (!options?.includeFree && (String(event.component.getFirstPropertyValue('transp')).toUpperCase() === 'TRANSPARENT'
         || String(event.component.getFirstPropertyValue('x-microsoft-cdo-busystatus')).toUpperCase() === 'FREE'))) return;
@@ -180,7 +183,7 @@ export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind
       const rangeEnd = options?.timezone ? wallTimeInstant(`${endDate}T00:00:00`, options.timezone) : new Date(`${endDate}T00:00:00+08:00`).toISOString();
       if (from < rangeEnd && to > rangeStart) {
         result.push({ calendar, title: event.summary || '', startDate: from, endDate: to, allDay: false,
-          ...location, ...(includeUid ? { uid: event.uid } : {}) });
+          ...location, ...taskLink, ...(includeUid ? { uid: event.uid } : {}) });
       }
       return;
     }

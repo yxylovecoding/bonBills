@@ -104,8 +104,16 @@ export interface CycleSettings {
   automatic?: boolean;
 }
 export const DEFAULT_CYCLE: CycleSettings = { lastPeriodStart: '', cycleLength: 28, periodLength: 5, trainingDays: [1, 3, 5], revision: '', automatic: true };
-export interface DoneItem { id: string; taskId: string; projectId: string; title: string; completedAt: string; date: string; tags?: string[]; category?: '课' | '活' | '玩' | '未分类'; projectName?: string }
-export interface DoneMonth { month: string; items: DoneItem[]; connected: boolean; syncedAt: string | null; needsTagSync?: boolean }
+export interface DoneItem {
+  id: string; taskId: string; projectId: string; title: string; completedAt: string; date: string;
+  tags?: string[]; category?: '课' | '活' | '玩' | '未分类'; projectName?: string;
+  source?: 'ticktick' | 'outlook'; durationMinutes?: number; durationBasis?: 'task' | 'default' | 'outlook';
+  startedAt?: string; linkedTaskId?: string; linkedProjectId?: string;
+}
+export interface DoneMonth {
+  month: string; items: DoneItem[]; connected: boolean; syncedAt: string | null; needsTagSync?: boolean;
+  needsDurationSync?: boolean; outlookConnected?: boolean; outlookSyncedAt?: string | null; outlookError?: string;
+}
 export interface PeriodEvent { uid: string; startDate: string; endDate: string }
 
 export function lifeYear(value: unknown): number {
