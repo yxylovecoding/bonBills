@@ -10,6 +10,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.query?.app === 'write') return (await import('./_outlookWriteRoute.js')).default(req, res);
   if (req.query?.app === 'bonclothes') return (await import('./_bonClothesRoute.js')).default(req, res);
   if (req.query?.app === 'bonlife') return (await import('./_bonLifeRoute.js')).default(req, res);
+  if (req.query?.app === 'notion-readinglist') return (await import('./_notionReadingListRoute.js')).default(req, res);
   res.setHeader('Cache-Control', 'private, no-store');
   if (!sameOrigin(req)) return res.status(403).json({ error: '请求来源无效' });
   if (!await authOk(req)) return res.status(401).json({ error: 'unauthorized' });

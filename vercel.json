@@ -9,6 +9,7 @@
   "rewrites": [
     { "source": "/api/bonclothes", "destination": "/api/outlook-calendar?app=bonclothes" },
     { "source": "/api/bonlife", "destination": "/api/outlook-calendar?app=bonlife" },
+    { "source": "/api/notion-readinglist", "destination": "/api/outlook-calendar?app=notion-readinglist" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
