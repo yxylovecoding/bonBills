@@ -111,7 +111,6 @@ export function dayAvailability(options: {
   const slots = full.map(([start, end]): TimeSlot => [Math.max(start, now), end]).filter(([start, end]) => end > start);
   const remainingWindows = windows.map(([start, end]): TimeSlot => [Math.max(start, now), end]).filter(([start, end]) => end > start);
   const windowMinutes = Math.floor(slotMinutes(remainingWindows));
-  const freeMinutes = Math.floor(slotMinutes(slots));
   const importantReservations = important.map(task => ({ task, additionalMinutes: 0 }));
   occupySlots(slots, reserved, false);
   const totalMinutes = Math.floor(Math.max(0, slotMinutes(full) - fullDayReserved));

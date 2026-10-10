@@ -84,7 +84,7 @@ class ImapClient {
       };
       const onData = (chunk: Buffer) => {
         chunks.push(chunk);
-        const text = Buffer.concat(chunks).toString('utf8');
+        const text = Buffer.concat(chunks as unknown as Uint8Array[]).toString('utf8');
         if (/^\* (OK|PREAUTH)/.test(text)) {
           cleanup();
           resolve(new ImapClient(socket, timeoutMs));
@@ -114,7 +114,7 @@ class ImapClient {
       };
       const onData = (chunk: Buffer) => {
         chunks.push(chunk);
-        const buf = Buffer.concat(chunks);
+        const buf = Buffer.concat(chunks as unknown as Uint8Array[]);
         const text = buf.toString('latin1');
         const status = taggedStatus(text, tag);
         if (!status) return;

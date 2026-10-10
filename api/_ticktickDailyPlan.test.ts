@@ -189,6 +189,37 @@ describe('每日待办动态安排', () => {
     expect(result.dates.has(eyeWash.id)).toBe(false);
     expect(s.briefing!.selected).toEqual([]);
   });
+  it('at-least 阻止入选时，不把过期任务只推进一天，而是直接推到最小间隔外', () => {
+    // 任务上一次完成在 09-27，重复周期 7 天：最早可做日是 10-04，而当前日期 10-04
+    // 其实已经到期。但为了模拟 at-least 还没到：把 today 提前到 10-03。
+    const past = '2026-10-03';
+    const eye = task('eye', { tags: ['at-least'], repeatFlag: 'RRULE:FREQ=WEEKLY',
+      startDate: `${past}T00:00:00+0800`, dueDate: `${past}T00:00:00+0800` });
+    const s = state([done(eye, '2026-09-30', 'cycle-1')]);
+    const p = planTickTickDay({ tasks: [eye], state: s, today: past, timezone: 'Asia/Shanghai',
+      now: new Date(`${past}T05:00:00+08:00`), calendarState: {}, budgetMinutes: 60 });
+    // notBefore = 2026-10-07（上次完成 + 7 天）。原逻辑会推到 2026-10-04，这里应直接跳到 2026-10-07。
+    expect(p.dates.get(eye.id)).toBe('2026-10-07');
+    expect(s.briefing!.selected).toEqual([]);
+  });
+  it('at-least 任务已有的未来日期不会被重新规划往前拉', () => {
+    // 回放用户“洗眼睛”场景：10-05 完成后 TickTick 已把下一截止日推到 10-19，
+    // 10-06 的任何一次重新规划都不应把它拉回今天或明天。
+    const eye = task('eye-wash', { title: '洗眼睛', tags: ['at-least'],
+      repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=14', repeatFrom: '0',
+      startDate: '2026-10-19T00:00:00+0800', dueDate: '2026-10-19T00:00:00+0800' });
+    const s = state([done(eye, '2026-10-05', 'cycle-oct-5')]);
+    const first = planTickTickDay({ tasks: [eye], state: s, today: '2026-10-06',
+      timezone: 'Asia/Shanghai', now: new Date('2026-10-06T01:37:00+08:00'),
+      calendarState: {}, budgetMinutes: 60 });
+    expect(first.dates.has(eye.id)).toBe(false);
+    expect(s.deadlines[eye.id].date).toBe('2026-10-19');
+    const second = planTickTickDay({ tasks: [eye], state: s, today: '2026-10-06',
+      timezone: 'Asia/Shanghai', now: new Date('2026-10-06T10:15:00+08:00'),
+      calendarState: {}, budgetMinutes: 60 });
+    expect(second.dates.has(eye.id)).toBe(false);
+    expect(s.deadlines[eye.id].date).toBe('2026-10-19');
+  });
   it('周期计算覆盖自然月和每周指定日，用时优先取显式信息', () => {
     expect(cycleEnd(task('x', { repeatFlag: 'RRULE:FREQ=WEEKLY' }), '2026-09-27')).toBe(today);
     expect(cycleEnd(task('x', { repeatFlag: 'RRULE:FREQ=MONTHLY' }), '2026-09-04')).toBe(today);

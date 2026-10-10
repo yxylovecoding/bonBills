@@ -57,7 +57,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
         if (typeof body.url !== 'string' || body.url.length > 4096) throw new Error();
         url = validateOutlookUrl(body.url);
       } catch { return res.status(400).json({ error: '请输入 Outlook 发布的 ICS 订阅链接' }); }
-      const connection: LifeConnection = { id: randomUUID(), encrypted: encryptOutlookConnection({ playUrl: url, classUrl: '',
+      const connection: LifeConnection = { id: randomUUID(), encrypted: encryptOutlookConnection({ playUrl: url, classUrl: '', sources: [],
         policy: 'manual', rules: DEFAULT_OUTLOOK_RULES }, (process.env.SYNC_SECRET || '').trim()) };
       // Verify the subscription before replacing a working connection.
       await readPeriodCalendar(connection, year);

@@ -199,7 +199,11 @@ export function planTickTickDay(options: {
     const minutes = members.reduce((sum, member) => sum + estimateTaskMinutes(member), 0);
     const cycleDays = lastDay ? Math.max(1, daysBetween(lastDay, deadline)) : task.repeatFlag
       ? Math.max(1, daysBetween(today, cycleEnd(task, today) ?? addDays(today, 7))) : 14;
-    const nextDates = members.map((member) => sceneDate(member, tomorrow));
+    // When at-least enforces a minimum interval, deferring just one day forward
+    // would only inch the task across the cycle. Start searching for the next
+    // scene day from notBefore so a single run reaches the honored interval.
+    const earliestNext = notBefore && notBefore > tomorrow ? notBefore : tomorrow;
+    const nextDates = members.map((member) => sceneDate(member, earliestNext));
     // Scene constraints apply to each task independently, as in the existing scheduler.
     let next: string | null = nextDates.some((day) => !day) ? null : nextDates.sort().at(-1)!;
     for (let i = 0; next && i < 740; i++) {
