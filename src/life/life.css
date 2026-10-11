@@ -324,8 +324,9 @@
 .life-symptom-item-heading > span { flex: 1; min-width: 0; font-size: 13px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
 .life-symptom-item-heading select { flex-shrink: 0; max-width: 90px; border: 0; border-radius: 6px; background: #f3f4f0; padding: 5px; color: var(--life-accent); font-size: 12px; }
 .life-symptom-item-heading button { padding: 0 5px; font-size: 20px; line-height: 1.4; color: var(--life-muted); }
-.life-symptom-add { display: flex; gap: 8px; align-items: center; }
+.life-symptom-add { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
 .life-symptom-add input { min-width: 0; flex: 1; }
+.life-symptom-add > span { flex-shrink: 0; font-size: 12px; color: var(--life-muted); }
 .life-symptom-add button { padding: 8px 2px; flex-shrink: 0; color: var(--life-accent); font-size: 12px; }
 .life-symptom-history { margin: 0 0 18px; padding: 12px 0; border-top: 1px solid var(--life-line); border-bottom: 1px solid var(--life-line); font-size: 12px; }
 .life-symptom-history summary { cursor: pointer; color: var(--life-accent); }
