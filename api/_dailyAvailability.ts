@@ -50,7 +50,6 @@ export function dayAvailability(options: {
   timezone?: string;
   now?: Date;
   profile?: AvailabilityProfile;
-  scene?: string;
   tasks: TickTickTask[];
   fixed: TickTickTask[];
   completed: TickTickTask[];
@@ -67,9 +66,8 @@ export function dayAvailability(options: {
     .map(([start, end]) => [at(start), at(end)]);
   const events = calendar.events.filter((event) => Date.parse(event.start) < at(24) && Date.parse(event.end) > at(0));
   const busy: TimeSlot[] = events.map((event) => [Date.parse(event.start), Date.parse(event.end)]);
-  // All-day scene markers have no hours. Reserve daytime for work/travel,
-  // while leaving the evening available to tasks allowed in that scene.
-  if (profile !== 'calendar' && ['intern', 'travel'].includes(options.scene ?? '')) busy.push([at(9), at(18)]);
+  // Availability contains timed events only. All-day events and scene labels
+  // do not imply occupied hours; scene eligibility is handled by the caller.
   const relevant = tasks.filter((task) => !normalizedTags(task).includes('不关我事'));
   const important = relevant.filter((task) => (task.priority ?? 0) >= 5
     && !normalizedTags(task).some(tag => ['routine', 'bon-hidden'].includes(tag))

@@ -92,12 +92,12 @@ export function laundryBeforeTrip(target: string, trips: TickTickTripSource[], c
 }
 
 function hasTime(task: TickTickTask, date: string, options: PlanOptions) {
-  const { availability, today, now, profile, calendarState } = options;
+  const { availability, today, now, profile } = options;
   if (!availability || date < availability.startDate || date >= availability.endDate) return false;
   const others = options.tasks.filter(other => other.id !== task.id && pending(other));
   const minutes = estimateTaskMinutes(task);
   const free = dayAvailability({ calendar: availability, day: date, today, now, profile,
-    scene: tagMap(calendarState)[date], tasks: others,
+    tasks: others,
     fixed: others.filter(other => routineTaskDate(other) === date && (other.priority ?? 0) < 5
       && !(other.tags ?? []).some(tag => ['routine', 'bon-hidden', '不关我事'].includes(normalize(tag)))),
     completed: options.history.filter(record => calendarDateInTimeZone(record.completedTime) === date), estimate: estimateTaskMinutes });
@@ -111,7 +111,6 @@ function hasTime(task: TickTickTask, date: string, options: PlanOptions) {
   if (!Number.isFinite(start) || start < now.getTime() || start < midnight + 8 * 3600_000 || end > midnight + 22 * 3600_000
     || (profile === 'evening' && start < midnight + 20 * 3600_000)) return false;
   if ([[11, 14], [18, 20]].some(([from, to]) => start < midnight + to * 3600_000 && end > midnight + from * 3600_000)) return false;
-  if (tagMap(calendarState)[date] === 'intern' && start < midnight + 18 * 3600_000 && end > midnight + 9 * 3600_000) return false;
   const intervals = [...availability.events.map(event => [Date.parse(event.start), Date.parse(event.end)]),
     ...others.filter(other => other.isAllDay === false).map(other => {
       const from = Date.parse(other.startDate ?? other.dueDate ?? '');

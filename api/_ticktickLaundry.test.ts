@@ -101,6 +101,13 @@ describe('天气与日程选日', () => {
     }
     expect(chooseLaundryDay(task(), '2026-10-10', options(), () => forecast(sunny))).toBe('2026-10-10');
   });
+  it('实习日期标记不占用洗衣时段，具体时刻冲突仍避开', () => {
+    const laundry = task({ startDate: '2026-10-10T14:00:00+08:00', dueDate: '2026-10-10T14:00:00+08:00' });
+    const o = options({ tasks: [laundry], calendarState: { tagMap: Object.fromEntries(dates.map(date => [date, 'intern'])) } });
+    expect(chooseLaundryDay(laundry, '2026-10-10', o, () => forecast(sunny))).toBe('2026-10-10');
+    o.availability.events.push({ title: '会议', start: '2026-10-10T14:00:00+08:00', end: '2026-10-10T15:00:00+08:00' });
+    expect(chooseLaundryDay(laundry, '2026-10-10', o, () => forecast(sunny))).not.toBe('2026-10-10');
+  });
   it('只考虑剩余时间；过了08点不把定时待办排回今天；窗口过期不无限滚动', () => {
     expect(chooseLaundryDay(task(), '2026-10-05', options(), () => forecast(sunny))).toBe('2026-10-06');
     expect(chooseLaundryDay(task(), '2026-10-01', options(), () => forecast(sunny))).toBeNull();

@@ -246,13 +246,12 @@ export function planTickTickDay(options: {
   const base = dailyBudget(options.budgetMinutes);
   if (!options.availability && base === null) throw new Error('请连接 Outlook 后自动安排每日待办');
   const alreadyDone = completedToday.reduce((sum, task) => sum + estimateTaskMinutes(task), 0);
-  const calendarTagMap = (calendarState as { tagMap?: Record<string, string> } | null)?.tagMap ?? {};
   // A manually chosen daily cap still cannot make elapsed hours usable.
   const availability = options.availability ?? { startDate: today, endDate: addDays(horizon, 1), events: [] };
   const calendarDays = new Map<string, ReturnType<typeof dayAvailability>>();
   const getDay = (day: string) => {
     if (!calendarDays.has(day)) calendarDays.set(day, dayAvailability({ calendar: availability, day, today,
-      timezone, now, profile: options.availabilityProfile, scene: calendarTagMap[day], tasks: open,
+      timezone, now, profile: options.availabilityProfile, tasks: open,
       fixed: day === today ? fixed : [], completed: day === today ? completedToday : [], estimate: estimateTaskMinutes }));
     return calendarDays.get(day)!;
   };

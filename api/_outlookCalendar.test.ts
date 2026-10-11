@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { decryptOutlookConnection, encryptOutlookConnection, parseOutlookCalendar, parseOutlookInput, readOutlookSnapshot, validateOutlookUrl } from './_outlookCalendar';
 import { DEFAULT_OUTLOOK_RULES } from '../src/utils/outlookCalendar';
+import { planTickTickDay, type DailyPlanState } from './_ticktickDailyPlan';
 
 const calendar = (events: string) => `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//test//EN\r\n${events}\r\nEND:VCALENDAR\r\n`;
 const event = (properties: string) => `BEGIN:VEVENT\r\n${properties.replace(/\n/g, '\r\n')}\r\nEND:VEVENT`;
@@ -64,6 +65,27 @@ describe('Outlook ICS 解析', () => {
       { title: '吃饭', start: '2026-10-07T04:00:00.000Z', end: '2026-10-07T05:00:00.000Z' },
       { title: '潘家园', start: '2026-10-07T06:00:00.000Z', end: '2026-10-07T08:00:00.000Z' },
     ]);
+  });
+  it.each([
+    'DTSTART;VALUE=DATE:20261010\nDTEND;VALUE=DATE:20261013',
+    'DTSTART;TZID=China Standard Time:20261010T000000\nDTEND;TZID=China Standard Time:20261013T000000\nX-MICROSOFT-CDO-ALLDAYEVENT:TRUE',
+  ])('跨日全天日程只保留场景，下午仍可安排普通任务：%s', async (allDayDates) => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(calendar([
+      event(`UID:trip\n${allDayDates}\nSUMMARY:出游`),
+      event('UID:evening\nDTSTART:20261011T110000Z\nDTEND:20261011T140000Z\nSUMMARY:晚间约定'),
+    ].join('\r\n')))));
+    const snapshot = await readOutlookSnapshot({ ...input, classUrl: '' }, '2026-10-01', '2026-12-01',
+      { startDate: '2026-10-11', endDate: '2026-11-12' }, 'Asia/Shanghai');
+    expect(snapshot.tags['2026-10-11']).toBe('travel');
+    expect(snapshot.availability!.events).toEqual([
+      { title: '晚间约定', start: '2026-10-11T11:00:00.000Z', end: '2026-10-11T14:00:00.000Z' },
+    ]);
+    const state: DailyPlanState = { connectionId: 'test', deadlines: {}, history: [] };
+    const result = planTickTickDay({ tasks: [{ id: 'ordinary', projectId: 'inbox', title: '普通任务', content: '(30m)',
+      isAllDay: true, dueDate: '2026-10-11T00:00:00+08:00' }], state, today: '2026-10-11',
+      now: new Date('2026-10-11T14:45:01+08:00'), calendarState: { tagMap: snapshot.tags }, availability: snapshot.availability });
+    expect(result.summary).toMatchObject({ todayCount: 1, plannedMinutes: 30, availableMinutes: 194 });
+    expect(result.dates.get('ordinary')).toBe('2026-10-11');
   });
   it('展开重复实习，排除 EXDATE、已取消单次日程，并应用改期与标题变更', () => {
     const ics = calendar([

@@ -42,8 +42,6 @@ describe('Outlook 实际空档', () => {
     expect(free().totalMinutes).toBe(480);
     expect(free({ calendar: calendar([event(9, 13), event(10, 14), event(9, 13)]) }).totalMinutes).toBe(360);
     expect(free({ calendar: calendar([event(11, 14), event(18, 20)]) }).totalMinutes).toBe(480);
-    expect(free({ scene: 'intern' }).totalMinutes).toBe(120);
-    expect(free({ scene: 'travel' }).totalMinutes).toBe(120);
     expect(free({ profile: 'evening' }).totalMinutes).toBe(120);
     for (const profile of ['day', 'evening', 'calendar'] as const) {
       expect(free({ profile }).slots.every(([start, end]) => ![[11, 14], [18, 20]].some(([from, to]) => start < Date.parse(at(to)) && end > Date.parse(at(from))))).toBe(true);
@@ -127,6 +125,26 @@ describe('Outlook 实际空档', () => {
 });
 
 describe('根据日历安排普通待办', () => {
+  it.each(['travel', 'intern'])('%s 日期标记不占用下午，晚间约定仍扣时且任务场景仍生效', (scene) => {
+    const s = state();
+    const result = plan([
+      task('ordinary', { content: '(30m)' }),
+      task('home-only', { tags: ['寄'], content: '(10m)' }),
+    ], { state: s, calendarState: { tagMap: { [today]: scene } },
+      now: new Date(`${today}T14:45:01+08:00`), availability: calendar([event(19, 22, '晚间约定')]) });
+    expect(result.summary).toMatchObject({ todayCount: 1, plannedMinutes: 30, availableMinutes: 194 });
+    expect(s.briefing!.selected.map(t => t.id)).toEqual(['ordinary']);
+    expect(s.briefing!.breakdown).toMatchObject({ windowMinutes: 314, occupiedMinutes: 120,
+      freeMinutes: 194, afterReservationsMinutes: 194, newTaskCapacityMinutes: 194 });
+  });
+  it.each(['day', 'evening', 'calendar'] as const)('%s 模式在不同日期场景下使用相同时间预算', (profile) => {
+    const tasks = [task('ordinary', { content: '(30m)' })];
+    const overrides = { availabilityProfile: profile, availability: calendar([event(15, 16), event(20, 21)]) };
+    const expected = plan(tasks, overrides).summary;
+    for (const scene of ['travel', 'intern']) {
+      expect(plan(tasks, { ...overrides, calendarState: { tagMap: { [today]: scene } } }).summary).toEqual(expected);
+    }
+  });
   it('保存同次排期明细、日上限扣减、所选任务与估时来源，读取不需要重新推断', () => {
     const s = state([task('done', { content: '(45m)', status: 2, completedTime: at(10) })]);
     const result = plan([task('short', { title: '小任务', content: '（1m）' })], { state: s,
