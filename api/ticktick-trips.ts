@@ -136,7 +136,7 @@ async function runSync(allowDisconnected = false) {
       // Weather owns this cycle's date. Scene and daily rotation must not pull
       // it back to today, including when the forecast is temporarily unavailable.
       for (const id of laundry.managedTaskIds) excludedTaskIds.add(id);
-      const periodPrediction = await syncPeriodPredictionTask(api, { connection, tasks: sourceTasks, today });
+      const periodPrediction = await syncPeriodPredictionTask(api, { connection, tasks: sourceTasks, completedTasks: dailyPlan.history, today });
       const routineResult = await syncTickTickRoutines({
         api, calendarState, today,
         excludedTaskIds, minimumTaskDates: exercise.minimumDates, fixedTaskDates: exercise.fixedDates, completedTasks: dailyPlan.history,

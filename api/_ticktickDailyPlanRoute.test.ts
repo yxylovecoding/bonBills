@@ -6,6 +6,7 @@ import { DAILY_PLAN_KEY, DAILY_PLAN_SETTINGS_KEY } from './_ticktickDailyPlan';
 import * as laundryModule from './_ticktickLaundry';
 const { replan, planDetails } = vi.hoisted(() => ({ replan: vi.fn(), planDetails: vi.fn() }));
 const { sourceTasks, taskWrite } = vi.hoisted(() => ({ sourceTasks: { value: [] as TickTickTask[] }, taskWrite: vi.fn() }));
+const { completedTasks, periodPrediction } = vi.hoisted(() => ({ completedTasks: { value: [] as TickTickTask[] }, periodPrediction: vi.fn() }));
 vi.mock('./_ticktickReplan.js', () => ({ replanRemainingToday: replan }));
 vi.mock('./_ticktickPlanDetails.js', () => ({ readTickTickPlanDetails: planDetails }));
 const { data, auth, failHistory, failWrite, sleepTags, briefing, syncTraining, sendEmail, routineOptions } = vi.hoisted(() => ({ data: new Map<string, any>(), auth: { ok: true }, failHistory: { value: false }, failWrite: { value: false }, sleepTags: vi.fn(), briefing: vi.fn(), syncTraining: vi.fn(), sendEmail: vi.fn(), routineOptions: { value: null as any } }));
@@ -17,7 +18,7 @@ vi.mock('./_outlookSync.js', () => ({ syncOutlookCalendar: async () => ({ connec
   availability: { startDate: '2020-01-01', endDate: '2030-01-01', events: [] } }) }));
 vi.mock('./_ticktickSleepTags.js', () => ({ syncSleepRoutineTags: sleepTags }));
 vi.mock('./_lifeSwimming.js', () => ({ syncSwimmingSchedule: async () => undefined }));
-vi.mock('./_ticktickPeriodPrediction.js', () => ({ syncPeriodPredictionTask: async () => ({ updated: 0, created: 0 }) }));
+vi.mock('./_ticktickPeriodPrediction.js', () => ({ syncPeriodPredictionTask: periodPrediction }));
 vi.mock('./_ticktickLock.js', () => ({ acquireTickTickLock: async () => 'lock', releaseTickTickLock: async () => undefined }));
 vi.mock('@vercel/kv', () => ({ kv: { get: async (key: string) => structuredClone(data.get(key) ?? null),
   set: async (key: string, value: unknown) => { data.set(key, structuredClone(value)); return 'OK'; } } }));
@@ -25,7 +26,7 @@ vi.mock('./_ticktickTrips.js', async (original) => ({
   ...await original<typeof import('./_ticktickTrips')>(),
   decryptTickTickToken: () => 'test-token',
   TickTickOpenApiClient: class {
-    async listCompletedTasks() { if (failHistory.value) throw new Error('history unavailable'); return []; }
+    async listCompletedTasks() { if (failHistory.value) throw new Error('history unavailable'); return completedTasks.value; }
     async getTask(_project: string, id: string) { return structuredClone(sourceTasks.value.find(task => task.id === id)); }
     updateTask = taskWrite;
   },
@@ -47,6 +48,7 @@ async function request(method: string, body?: unknown, action?: string, format?:
   return result;
 }
 beforeEach(() => { data.clear(); auth.ok = true; failHistory.value = false; failWrite.value = false;
+  completedTasks.value = []; periodPrediction.mockReset().mockResolvedValue({ updated: 0, created: 0 });
   sourceTasks.value = []; taskWrite.mockReset().mockImplementation(async (id, payload) => {
     const task = sourceTasks.value.find(task => task.id === id)!;
     Object.assign(task, payload); return structuredClone(task);
@@ -57,6 +59,18 @@ beforeEach(() => { data.clear(); auth.ok = true; failHistory.value = false; fail
   data.set('ticktick:connection:v1', { encryptedToken: {} }); });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 describe('每日安排接口', () => {
+  it('完整同步把本轮读取的完成历史传入月经提醒去重', async () => {
+    completedTasks.value = [{ id: 'done', projectId: 'life', title: '月经提醒', status: 2,
+      completedTime: new Date(Date.now() - 60_000).toISOString(), dueDate: '2026-10-11T00:00:00+0800' }];
+    expect((await request('POST')).status).toBe(200);
+    expect(periodPrediction).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      completedTasks: [expect.objectContaining({ id: 'done', status: 2 })],
+    }));
+    failHistory.value = true;
+    periodPrediction.mockClear();
+    expect((await request('POST')).status).toBe(502);
+    expect(periodPrediction).not.toHaveBeenCalled();
+  });
   it('完整同步保留用户的 routine 标签选择，不再补回晨间与午饭任务的标签', async () => {
     sourceTasks.value = ['晨间routine', '🏫吃午饭了', '🏠吃午饭了'].flatMap((title, index) => [
       { id: `without-${index}`, projectId: 'life', title, status: 0, isAllDay: true, tags: ['活'] },
