@@ -69,7 +69,7 @@ export function dayAvailability(options: {
   // Availability contains timed events only. All-day events and scene labels
   // do not imply occupied hours; scene eligibility is handled by the caller.
   const relevant = tasks.filter((task) => !normalizedTags(task).includes('不关我事'));
-  const important = relevant.filter((task) => (task.priority ?? 0) >= 5
+  const important = tasks.filter((task) => (task.status ?? 0) === 0 && (task.priority ?? 0) >= 5
     && !normalizedTags(task).some(tag => ['routine', 'bon-hidden'].includes(tag))
     && Boolean(taskDay(task, timezone) && (day === today ? taskDay(task, timezone)! <= day : taskDay(task, timezone) === day)));
   const commitments = [...new Map([...important, ...fixed].map((task) => [task.id, task])).values()];
@@ -82,7 +82,7 @@ export function dayAvailability(options: {
     const unique = [...new Map(matching.map((event) => [`${event.start}/${event.end}`, event])).values()];
     return unique.length === 1 ? unique[0] : undefined;
   };
-  for (const task of relevant) {
+  for (const task of new Set([...relevant, ...important])) {
     const interval = taskInterval(task, estimate);
     if (interval && !matchingEvent(task)) busy.push(interval);
   }
@@ -99,8 +99,11 @@ export function dayAvailability(options: {
     if (!event && interval && interval[0] < at(24) && interval[1] > from) return 0;
     return estimate(task);
   };
-  // Important tasks remain visible, but no longer reserve estimated time.
-  // Concrete Outlook/dated task intervals are already included in busy above.
+  // Reserve unfinished important work before ordinary tasks. Existing future
+  // calendar/task reservations cover the work once; missed ones do not.
+  const importantReservations = important.map(task => ({ task, additionalMinutes: uncovered(task, now) }));
+  const importantAdditionalMinutes = importantReservations.reduce((sum, item) => sum + item.additionalMinutes, 0);
+  const fullDayImportantMinutes = important.reduce((sum, task) => sum + uncovered(task), 0);
   const fixedOrdinary = fixed.filter(task => (task.priority ?? 0) < 5);
   const reserved = fixedOrdinary.reduce((sum, task) => sum + uncovered(task, now), 0);
   const fullDayReserved = fixedOrdinary.reduce((sum, task) => sum + uncovered(task), 0);
@@ -109,9 +112,8 @@ export function dayAvailability(options: {
   const slots = full.map(([start, end]): TimeSlot => [Math.max(start, now), end]).filter(([start, end]) => end > start);
   const remainingWindows = windows.map(([start, end]): TimeSlot => [Math.max(start, now), end]).filter(([start, end]) => end > start);
   const windowMinutes = Math.floor(slotMinutes(remainingWindows));
-  const importantReservations = important.map(task => ({ task, additionalMinutes: 0 }));
-  occupySlots(slots, reserved, false);
-  const totalMinutes = Math.floor(Math.max(0, slotMinutes(full) - fullDayReserved));
+  occupySlots(slots, importantAdditionalMinutes + reserved, false);
+  const totalMinutes = Math.floor(Math.max(0, slotMinutes(full) - fullDayReserved - fullDayImportantMinutes));
   const remainingMinutes = Math.floor(slotMinutes(slots));
   const windowFullMinutes = Math.floor(slotMinutes(windows));
   const unmatchedBusy = events.filter(e => ![...commitments, ...completed].some(t => matchingEvent(t) === e))
@@ -130,10 +132,18 @@ export function dayAvailability(options: {
     .map((event) => [Math.max(Date.parse(event.start), now), Date.parse(event.end)] as TimeSlot);
   const calendarOccupiedMinutes = Math.max(0, windowMinutes - Math.floor(slotMinutes(freeSlots(remainingWindows, calendarBusy))));
   const displayedFreeMinutes = Math.max(0, windowMinutes - calendarOccupiedMinutes);
+  const importantBusy = important.flatMap((task): TimeSlot[] => {
+    const interval = taskInterval(task, estimate);
+    return interval && !matchingEvent(task) ? [interval] : [];
+  });
+  const afterImportantIntervals = Math.floor(slotMinutes(freeSlots(remainingWindows, [...calendarBusy, ...importantBusy])));
+  const importantOccupiedMinutes = displayedFreeMinutes - afterImportantIntervals + importantAdditionalMinutes;
+  const freeAfterImportantMinutes = Math.max(0, displayedFreeMinutes - importantOccupiedMinutes);
   return { totalMinutes, remainingMinutes, completedMinutes, slots, unmatchedEventMinutes, breakdown: {
     clockRemainingMinutes: Math.max(0, Math.floor((at(24) - now) / minute)), remainingWindows, calendarEvents,
     windowMinutes, occupiedMinutes: calendarOccupiedMinutes, freeMinutes: displayedFreeMinutes,
-    importantReservations, importantAdditionalMinutes: 0, importantReservationEnabled: false,
+    importantReservations, importantAdditionalMinutes, importantReservationEnabled: true,
+    importantOccupiedMinutes, freeAfterImportantMinutes,
     fixedAdditionalMinutes: reserved, afterReservationsMinutes: remainingMinutes, bufferMinutes: 0, allocationRatio: 1,
   } };
 }

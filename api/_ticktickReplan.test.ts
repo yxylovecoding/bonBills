@@ -168,14 +168,17 @@ describe('重排剩余今日事并从明日补入', () => {
     expect(result).toMatchObject({ updated: 0, dailyPlan: { todayCount: 0 } });
     expect(mocks.update).not.toHaveBeenCalled();
   });
-  it('读取最新 Outlook 空档，不写日历；重要事项不再额外占用剩余容量', async () => {
+  it('读取最新 Outlook 空档，重要事项用完剩余时间后顺延普通任务', async () => {
     vi.setSystemTime(new Date(`${day}T20:00:00+08:00`));
     mocks.data.set('outlook:calendar-connection:v1', { encrypted: 'encrypted' });
     mocks.snapshot.mockResolvedValueOnce({ startDate: day, endDate: '2026-11-05', tags: {},
       availability: { startDate: day, endDate: '2026-11-05', events: [{ title: '其他日程', start: `${day}T21:00:00+08:00`, end: `${day}T22:00:00+08:00` }] } });
     mocks.tasks = [task('ordinary'), task('important', { priority: 5, content: '(1h)' })];
     const result = await replanRemainingToday();
-    expect(result).toMatchObject({ dailyPlan: { todayCount: 1, plannedMinutes: 15, availableMinutes: 60, importantCount: 1 } });
+    expect(result).toMatchObject({ dailyPlan: { todayCount: 0, plannedMinutes: 0, availableMinutes: 0, importantCount: 1 },
+      details: { selected: [], breakdown: { freeMinutes: 60, freeAfterImportantMinutes: 0, newTaskCapacityMinutes: 0 } } });
+    expect(mocks.tasks.find(task => task.id === 'ordinary')!.dueDate).toBe('2026-10-06T00:00:00+0800');
+    expect(mocks.tasks.find(task => task.id === 'important')!.dueDate).toBe(`${day}T00:00:00+0800`);
     expect(mocks.snapshot).toHaveBeenCalledTimes(1);
     expect(mocks.broadSync).not.toHaveBeenCalled();
     expect(mocks.set.mock.calls.every(([key]) => key === DAILY_PLAN_KEY)).toBe(true);

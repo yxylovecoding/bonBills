@@ -22,6 +22,9 @@ export interface TickTickPlanDetails {
     important: { id: string; projectId: string; title: string; minutes: number; additionalMinutes: number; durationBasis: string }[];
     importantAdditionalMinutes: number;
     importantReservationEnabled?: boolean;
+    // Missing in legacy snapshots. These values are calculated by the scheduler.
+    importantOccupiedMinutes?: number;
+    freeAfterImportantMinutes?: number;
     fixedAdditionalMinutes: number;
     afterReservationsMinutes: number;
     bufferMinutes: number;

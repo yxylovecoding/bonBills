@@ -23,20 +23,21 @@ describe('Outlook 实际空档', () => {
       tasks: [task('reading', { title: '阅读', priority: 5, content: '(1h)' })] });
     expect(result.breakdown).toMatchObject({ clockRemainingMinutes: 210, windowMinutes: 90,
       occupiedMinutes: 30, freeMinutes: 60, importantAdditionalMinutes: 0,
-      afterReservationsMinutes: 60, bufferMinutes: 0, allocationRatio: 1, importantReservationEnabled: false });
+      afterReservationsMinutes: 60, bufferMinutes: 0, allocationRatio: 1, importantReservationEnabled: true,
+      importantOccupiedMinutes: 0, freeAfterImportantMinutes: 60 });
     expect(result.breakdown.importantReservations).toHaveLength(1);
     expect(result.breakdown.importantReservations[0].additionalMinutes).toBe(0);
     expect(result.remainingMinutes).toBe(60);
   });
-  it('重要事项不额外预留，原定普通任务仍计入负担', () => {
+  it('先预留未完成重要事项，再预留原定普通任务', () => {
     const important = task('important', { title: '准备材料', priority: 5, content: '(30m)' });
     const fixed = task('fixed', { content: '(10m)' });
     const result = free({ now: new Date(at(20)), calendar: calendar([event(10, 11, important.title)]),
       tasks: [important, fixed], fixed: [fixed] });
     expect(result.breakdown).toMatchObject({ clockRemainingMinutes: 240, windowMinutes: 120,
-      freeMinutes: 120, importantAdditionalMinutes: 0, fixedAdditionalMinutes: 10,
-      afterReservationsMinutes: 110, bufferMinutes: 0 });
-    expect(result.remainingMinutes).toBe(110);
+      freeMinutes: 120, importantAdditionalMinutes: 30, fixedAdditionalMinutes: 10,
+      importantOccupiedMinutes: 30, freeAfterImportantMinutes: 90, afterReservationsMinutes: 80, bufferMinutes: 0 });
+    expect(result.remainingMinutes).toBe(80);
   });
   it('午餐 11–14、晚餐 18–20 与重叠日程按并集扣除，没有额外休息系数', () => {
     expect(free().totalMinutes).toBe(480);
@@ -72,11 +73,11 @@ describe('Outlook 实际空档', () => {
     const timed = task('training', { title: '训练', priority: 5, isAllDay: false, startDate: at(10), dueDate: at(11) });
     const cal = calendar([event(9, 10, '阅读'), event(10, 11, '训练')]);
     expect(free({ calendar: cal, tasks: [important, timed] }).totalMinutes).toBe(free({ calendar: cal }).totalMinutes);
-    expect(free({ calendar: cal, tasks: [important, { ...important, id: 'another' }] }).totalMinutes).toBe(360);
+    expect(free({ calendar: cal, tasks: [important, { ...important, id: 'another' }] }).totalMinutes).toBe(330);
   });
-  it('只计算剩余时间，未定时的重要事项不另扣容量', () => {
+  it('只计算剩余时间，未定时重要事项从剩余空档先预留', () => {
     expect(free({ now: new Date(at(21)) }).remainingMinutes).toBe(60);
-    expect(free({ now: new Date(at(21)), tasks: [task('important', { priority: 5, title: '重要事项 45分钟' })] }).remainingMinutes).toBe(60);
+    expect(free({ now: new Date(at(21)), tasks: [task('important', { priority: 5, title: '重要事项 45分钟' })] }).remainingMinutes).toBe(15);
     expect(free({ now: new Date(at(23)) }).remainingMinutes).toBe(0);
   });
   it.each([[5, 300], [12, 300], [17, 120], [20, 60]])('在 %i 点只使用剩余空档，日程重叠部分不重复扣', (hour, minutes) => {
@@ -84,12 +85,12 @@ describe('Outlook 实际空档', () => {
     expect(result.remainingMinutes).toBe(minutes);
     expect(result.slots.every(([start]) => start >= Date.parse(at(hour)))).toBe(true);
   });
-  it('已错过的重要事项不额外预留，其尚未结束的具体时段仍是占用', () => {
+  it('已错过但未完成的重要事项重新预留，未结束的具体时段不重复扣估时', () => {
     const important = task('reading', { title: '阅读 45分钟', priority: 5 });
     expect(free({ now: new Date(at(20)), calendar: calendar([event(9, 10, important.title)]),
-      tasks: [important] }).remainingMinutes).toBe(120);
+      tasks: [important] }).remainingMinutes).toBe(75);
     expect(free({ now: new Date(at(20)), tasks: [task('timed', { priority: 5, isAllDay: false,
-      startDate: at(9), dueDate: at(10) })] }).remainingMinutes).toBe(120);
+      startDate: at(9), dueDate: at(10) })] }).remainingMinutes).toBe(60);
     expect(free({ now: new Date(at(20)), tasks: [task('timed', { priority: 5, isAllDay: false,
       startDate: at(20), dueDate: at(21) })] }).remainingMinutes).toBe(60);
   });
@@ -98,6 +99,27 @@ describe('Outlook 实际空档', () => {
       tasks: [task('reading', { title: '阅读', priority: 5 })] });
     expect(result.remainingMinutes).toBe(60);
     expect(free({ now: new Date(at(20)), day: '2026-10-05' }).remainingMinutes).toBe(480);
+  });
+  it('重要清单保留不关我事，排除 routine、隐藏、已完成及未来事项', () => {
+    const result = free({ now: new Date(at(21)), tasks: [
+      task('included', { priority: 5, tags: ['不关我事'], content: '(20m)' }),
+      task('routine', { priority: 5, tags: ['routine'], content: '(30m)' }),
+      task('hidden', { priority: 5, tags: ['bon-hidden'], content: '(30m)' }),
+      task('done', { priority: 5, status: 2, content: '(30m)' }),
+      task('future', { priority: 5, dueDate: at(0, '2026-10-05'), content: '(30m)' }),
+    ] });
+    expect(result.breakdown.importantReservations.map(item => item.task.id)).toEqual(['included']);
+    expect(result.breakdown).toMatchObject({ importantAdditionalMinutes: 20, freeAfterImportantMinutes: 40 });
+    expect(result.remainingMinutes).toBe(40);
+  });
+  it('重要事项定时区间与 Outlook 重叠只扣并集，未定时估时再扣一次', () => {
+    const result = free({ now: new Date(at(20)), calendar: calendar([event(20, 21)]), tasks: [
+      task('timed', { priority: 5, isAllDay: false, startDate: `${today}T20:30:00+08:00`, dueDate: `${today}T21:30:00+08:00` }),
+      task('untimed', { priority: 5, content: '(15m)' }),
+    ] });
+    expect(result.breakdown).toMatchObject({ freeMinutes: 60, importantAdditionalMinutes: 15,
+      importantOccupiedMinutes: 45, freeAfterImportantMinutes: 15, afterReservationsMinutes: 15 });
+    expect(result.remainingMinutes).toBe(15);
   });
   it('已完成任务若已在日历中占用时间，不再扣一次；未记在日历的完成量仍占额度', () => {
     const done = task('done', { title: '阅读', status: 2, completedTime: at(10) });

@@ -74,12 +74,13 @@ describe('每日待办动态安排', () => {
     expect(s.briefing!.selected.map((item) => item.id)).toEqual(['ordinary']);
     expect(p.summary).toMatchObject({ todayCount: 1, plannedMinutes: 30 });
   });
-  it('重要事项不另扣额度，实际完成仍计入手动上限', () => {
+  it('重要事项先占剩余时间，实际完成仍计入手动上限', () => {
     const pool = Array.from({ length: 8 }, (_, i) => task(String(i)));
     const quiet = run(pool).summary;
-    const busy = run([...pool, task('important', { priority: 5 })]).summary;
+    const busy = run([...pool, task('important', { priority: 5 })], { now: new Date(`${today}T21:00:00+08:00`) }).summary;
     const completed = run(pool, { state: state([done(task('finished'), today)]) }).summary;
-    expect(busy.todayCount).toBe(quiet.todayCount);
+    expect(busy.todayCount).toBe(3);
+    expect(busy.todayCount).toBeLessThan(quiet.todayCount);
     expect(completed.todayCount).toBeLessThan(quiet.todayCount);
     expect(busy.plannedMinutes).toBeLessThanOrEqual(busy.availableMinutes);
   });
