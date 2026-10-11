@@ -3,34 +3,43 @@ import { canonicalInvestmentSymbol } from './investmentInstrument';
 import { syncInvestPositionItems } from './investPositionItems';
 import { applyInvestmentTransaction, cloneInvestPositionItems, investmentApplicationOrder, nextInvestmentApplicationOrder, updatePendingBuyFromTransaction } from './investmentRollover';
 import type { PendingFundEstimate } from './pendingFundEstimate';
+import { coveredByAlipayCorrection } from './investmentCorrectionBoundary';
 
 const roundShares = (value: number) => Math.round(value * 10_000) / 10_000;
 const sameSymbol = (left: string, right: string) => canonicalInvestmentSymbol(left) === canonicalInvestmentSymbol(right);
 
 export function matchesInvestmentOrder(
-  transaction: InvestmentTransactionRecord,
+  transaction: InvestmentTransactionRecord | PendingInvestmentBuy,
   entry: PendingInvestmentBuy | InvestmentTransactionRecord,
   allowAmountChange = false,
 ) {
-  if (transaction.side !== 'buy' || !sameSymbol(transaction.symbol, entry.symbol)
+  if (('side' in transaction && transaction.side !== 'buy') || !sameSymbol(transaction.symbol, entry.symbol)
     || transaction.currency.toUpperCase() !== entry.currency.toUpperCase()) return false;
   if (transaction.orderId && entry.orderId) return transaction.orderId === entry.orderId;
+  if ((entry.id.startsWith('alipay:') || ('notBefore' in entry && entry.notBefore)
+    || ('autoBuy' in entry && entry.autoBuy?.alipayAsOf) || ('autoBuy' in transaction && transaction.autoBuy?.alipayAsOf))
+    && entry.operationAt === transaction.operationAt && (allowAmountChange
+      || (entry.amount !== undefined && transaction.amount !== undefined && Math.abs(entry.amount - transaction.amount) < 0.005))) return true;
   const baseKey = 'baseMatchKey' in entry ? entry.baseMatchKey : entry.pendingBaseMatchKey;
   const matchKey = 'matchKey' in entry ? entry.matchKey : entry.pendingMatchKey;
-  return Boolean((matchKey && transaction.pendingMatchKey === matchKey)
-    || (allowAmountChange && baseKey && transaction.pendingBaseMatchKey === baseKey));
+  const transactionKey = 'matchKey' in transaction ? transaction.matchKey : transaction.pendingMatchKey;
+  const transactionBaseKey = 'baseMatchKey' in transaction ? transaction.baseMatchKey : transaction.pendingBaseMatchKey;
+  return Boolean((matchKey && transactionKey === matchKey)
+    || (allowAmountChange && baseKey && transactionBaseKey === baseKey));
 }
 
 export function bookPendingFundBuy(
   record: MonthlyRecord,
   pendingId: string,
   estimate: PendingFundEstimate,
+  now = Date.now(),
 ): MonthlyRecord {
   const items = cloneInvestPositionItems(record.investPositionItems);
   const found = Object.entries(items).flatMap(([groupKey, group]) => (group ?? []).flatMap((item) =>
     (item.pendingBuys ?? []).filter((pending) => pending.id === pendingId).map((pending) => ({ groupKey, item, pending }))));
   if (found.length !== 1) return record;
   const { pending, item, groupKey } = found[0];
+  if (coveredByAlipayCorrection(item, pending) || (pending.notBefore && pending.notBefore > new Date(now + 8 * 3_600_000).toISOString().slice(0, 10))) return record;
   if (pending.booking || groupKey === 'account' || groupKey === 'aggregate'
     || !(pending.amount && pending.amount > 0) || !(estimate.shares > 0) || !(estimate.price > 0)) return record;
   const ledger = record.investmentTransactions ?? [];
@@ -39,7 +48,8 @@ export function bookPendingFundBuy(
     .filter((candidate) => pending.orderId ? candidate.orderId === pending.orderId : candidate.baseMatchKey === pending.baseMatchKey);
   if (sameOrders.length !== 1) return record;
   // Late-published NAVs enter the current open month; closed monthly snapshots keep their pending state.
-  const date = estimate.navDate < `${record.yearMonth}-01` ? `${record.yearMonth}-01` : estimate.navDate;
+  const effectiveDate = pending.notBefore ?? estimate.navDate;
+  const date = effectiveDate < `${record.yearMonth}-01` ? `${record.yearMonth}-01` : effectiveDate;
   if (date.slice(0, 7) !== record.yearMonth) return record;
   const transaction: InvestmentTransactionRecord = {
     id: `auto-invest:${pending.id}`, date, side: 'buy', name: pending.name, symbol: canonicalInvestmentSymbol(pending.symbol),
@@ -120,6 +130,9 @@ export function reconcileAutoFundBuy(records: MonthlyRecord[], actual: Investmen
       applyInvestmentTransaction(newItems, { ...updated, groupKey: booked.groupKey });
     }
     const position = positionForSymbol(record.investPositionItems, booked.symbol);
+    // A later explicit balance is already authoritative; old estimate revisions must not move it.
+    if (position && coveredByAlipayCorrection(position.item, booked)
+      && position.item.alipayCorrection?.date !== meta.alipayAsOf) continue;
     const hasBooking = position?.item.pendingBuys?.some((pending) => pending.booking?.transactionId === booked.id);
     if (record.yearMonth !== owner.yearMonth && !hasBooking) continue;
     const items = cloneInvestPositionItems(record.investPositionItems);

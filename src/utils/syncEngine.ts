@@ -416,7 +416,7 @@ async function refreshFromServer() {
     // Let onBlur saves and import transactions finish before replacing store values.
     while (syncPauseDepth > 0 || (typeof document !== 'undefined'
       && (document.activeElement?.matches('input:not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="button"]):not([type="submit"]), textarea, select, [contenteditable="true"]')
-        || document.querySelector('.finance-import-preview-shell')))) {
+        || document.querySelector('.finance-import-preview-shell, .alipay-correction-preview')))) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     syncingFromServer = true;

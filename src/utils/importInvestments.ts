@@ -26,6 +26,7 @@ import {
 } from './investmentRollover';
 import { triggerUpload } from './syncEngine';
 import { matchesInvestmentOrder, reconcileAutoFundBuy } from './autoFundBuys';
+import { coveredByAlipayCorrection } from './investmentCorrectionBoundary';
 
 type InvestmentSide = 'buy' | 'sell';
 
@@ -389,6 +390,12 @@ function attachPendingBuy(items: InvestPositionItems, pending: PendingInvestment
   let pendingIndex = existingPending.findIndex((candidate) => (
     pending.orderId ? candidate.orderId === pending.orderId : candidate.id === pending.id
   ));
+  if (pendingIndex < 0) {
+    const correctionMatches = existingPending.map((candidate, index) => ({ candidate, index }))
+      .filter(({ candidate }) => candidate.notBefore && matchesInvestmentOrder(pending, candidate));
+    if (correctionMatches.length > 1) return false;
+    if (correctionMatches.length === 1) pendingIndex = correctionMatches[0].index;
+  }
   const hasSameIdentity = !pending.orderId
     && existingPending.some((candidate) => candidate.matchKey === pending.matchKey);
   if (pendingIndex < 0 && !pending.orderId && !hasSameIdentity) {
@@ -399,7 +406,8 @@ function attachPendingBuy(items: InvestPositionItems, pending: PendingInvestment
     if (baseCandidates.length > 1) return false;
   }
   const nextPending = [...existingPending];
-  if (pendingIndex >= 0) nextPending[pendingIndex] = { ...pending, id: nextPending[pendingIndex].id, booking: nextPending[pendingIndex].booking };
+  if (pendingIndex >= 0) nextPending[pendingIndex] = { ...pending, id: nextPending[pendingIndex].id,
+    booking: nextPending[pendingIndex].booking, notBefore: nextPending[pendingIndex].notBefore };
   else nextPending.push({ ...pending });
   group[itemIndex] = { ...item, pendingBuys: nextPending };
   items[pending.groupKey] = group;
@@ -411,9 +419,7 @@ function findPendingMatches(items: InvestPositionItems, transaction: InvestmentT
   for (const groupKey of ['us', 'eu', 'asia', 'a', 'longBond', 'usBond', 'gold'] as const) {
     (items[groupKey] ?? []).forEach((item, itemIndex) => {
       (item.pendingBuys ?? []).forEach((pending, pendingIndex) => {
-        const exact = transaction.orderId
-          ? pending.orderId === transaction.orderId
-          : pending.matchKey === transaction.pendingMatchKey;
+        const exact = matchesInvestmentOrder(transaction, pending);
         const missingAmountFallback = !transaction.orderId
           && !pending.amount
           && pending.baseMatchKey === transaction.pendingBaseMatchKey;
@@ -465,7 +471,7 @@ function stripImportedInvestmentState(record: MonthlyRecord): {
   const originalTransactions = record.investmentTransactions ?? [];
   const droppedTransactions: InvestmentTransactionRecord[] = [];
   const retainedTransactions = originalTransactions.filter((transaction) => {
-    if (isImportedTransactionId(transaction.id)) {
+    if (isImportedTransactionId(transaction.id) && !transaction.autoBuy?.alipayAsOf) {
       droppedTransactions.push(transaction);
       return false;
     }
@@ -485,7 +491,7 @@ function stripImportedInvestmentState(record: MonthlyRecord): {
         const retained: PendingInvestmentBuy[] = [];
         let itemChanged = false;
         for (const pending of pendingBuys) {
-          if (isImportedPendingId(pending.id)) {
+          if (isImportedPendingId(pending.id) && !pending.notBefore) {
             priorImportedPending.set(pending.id, pending);
             itemChanged = true;
           } else {
@@ -529,6 +535,7 @@ function unapplyInvestmentTransaction(items: InvestPositionItems, transaction: I
   );
   if (existingIndex < 0) return;
   const existing = group[existingIndex];
+  if (coveredByAlipayCorrection(existing, transaction)) return;
   const currentShares = Math.max(existing.shares ?? 0, 0);
   const currentCost = Math.max(existing.costPrice ?? 0, 0);
   const addedCost = transaction.costFromAmount && transaction.amount !== undefined
@@ -647,6 +654,9 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
   };
 
   for (const parsedPending of parsed.pendingBuys) {
+    if ([...workingRecords.values()].some((record) => Object.values(record.investPositionItems ?? {}).flat().some((item) => item
+      && canonicalInvestmentSymbol(item.symbol) === canonicalInvestmentSymbol(parsedPending.symbol)
+      && coveredByAlipayCorrection(item, parsedPending)))) continue;
     // A pending export must not resurrect an already booked or confirmed order.
     if ([...workingRecords.values()].some((record) => record.investmentTransactions?.some((transaction) =>
       matchesInvestmentOrder(transaction, parsedPending)))) continue;

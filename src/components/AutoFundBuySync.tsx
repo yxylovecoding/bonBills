@@ -18,7 +18,7 @@ function candidates(record: MonthlyRecord | undefined) {
 }
 
 function canUpdate() {
-  return !document.hidden && !isSyncPaused() && !document.querySelector('.finance-import-preview-shell')
+  return !document.hidden && !isSyncPaused() && !document.querySelector('.finance-import-preview-shell, .alipay-correction-preview')
     && !document.activeElement?.matches('input, textarea, select, [contenteditable="true"]');
 }
 

@@ -7,6 +7,7 @@ import AlipayAmountProfit from './AlipayAmountProfit';
 import { useAlipayActualNavs } from '../hooks/useAlipayActualNavs';
 import type { AlipayActualNav } from '../utils/alipayActualNav';
 import { getAccountStorage } from '../utils/accountCache';
+import AlipayCorrectionButton from './AlipayCorrectionButton';
 import AlipayScreenshotImport from './AlipayScreenshotImport';
 
 const money = (value: number) => `¥${value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -128,6 +129,7 @@ export default function AlipayActualPanel({ yearMonth, items, estimate, fallback
       <div className="alipay-detail-line">
         <b>{snapshot ? '支付宝实录' : '支付宝持仓'}</b>
         {dates.length > 0 && <select aria-label="支付宝实录日期" value={date} onChange={(event) => setSelected(event.target.value)}>{dates.map((value) => <option key={value}>{value}</option>)}</select>}
+        <AlipayCorrectionButton snapshot={snapshot} items={items} disabled={!!preview} />
         <AlipayScreenshotImport key={yearMonth} yearMonth={yearMonth} items={items} snapshots={snapshots ?? {}} onPreview={(next, baseline) => {
           previewOwner.current = getAccountStorage(); setPreview(next); setPreviewBaseline(baseline); setMessage('');
         }} />

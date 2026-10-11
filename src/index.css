@@ -1702,3 +1702,7 @@ input[type='number'] { -moz-appearance: textfield; }
 .alipay-import-warning { color: #b06000; }
 .alipay-import-images { display: flex; flex-wrap: wrap; gap: 8px; }
 .alipay-import-images img { width: 70px; height: 110px; object-fit: cover; object-position: top; border: 1px solid #e8eaed; }
+
+.holdings-mode-pill { flex-shrink: 0; margin-left: 10px; padding: 5px 11px; border: 1px solid #dadce0; border-radius: 999px; background: #fff; color: #5f6368; font: inherit; font-size: 11px; cursor: pointer; white-space: nowrap; }
+.holdings-mode-pill[aria-pressed="true"] { color: #1a73e8; border-color: #d2e3fc; background: #e8f0fe; }
+.alipay-text-button:disabled { opacity: .45; cursor: default; }

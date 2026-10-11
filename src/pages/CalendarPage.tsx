@@ -19,6 +19,7 @@ import AmountInput from '../components/AmountInput';
 import InvestInstrumentPicker from '../components/InvestInstrumentPicker';
 import FinanceImportPreviewDialog from '../components/FinanceImportPreviewDialog';
 import PendingInvestmentBuyRow from '../components/PendingInvestmentBuyRow';
+import HoldingsViewToggle from '../components/HoldingsViewToggle';
 import AlipayHoldingsSection from '../components/AlipayHoldingsSection';
 import TickTickTripSyncControl from '../components/TickTickTripSyncControl';
 import OutlookCalendarSyncControl from '../components/OutlookCalendarSyncControl';
@@ -2290,12 +2291,7 @@ function InvestmentMonthlyReturn({ label, profit, marketValue }: { label: string
 
 function HoldingsSection({ state }: { state: MonthFormState }) {
   const view = usePrefsStore((prefs) => prefs.investmentHoldingsView);
-  const setView = usePrefsStore((prefs) => prefs.setInvestmentHoldingsView);
   return <>
-    <div className="holdings-view-toggle" style={{ marginBottom: 10 }} aria-label="持仓版本">
-      <button type="button" aria-pressed={view !== 'alipay'} onClick={() => setView('yimu')}>一木</button>
-      <button type="button" aria-pressed={view === 'alipay'} onClick={() => setView('alipay')}>支付宝</button>
-    </div>
     {view === 'alipay' ? <AlipayHoldingsSection items={state.positionItemsForSave} previousItems={state.previousPositionItems}
       records={state.allRecords} yearMonth={state.yearMonth} previousMonth={state.previousMonth}
       markets={state.marketsBySymbol} previousMarkets={state.previousMarketsBySymbol} /> : <YimuHoldingsSection state={state} />}
@@ -2921,7 +2917,7 @@ function MonthFormCards(props: MonthFormProps & { subtitle?: string }) {
       <Card title="大额支出" subtitle={majorSubtitle}>
         <MajorExpensesSection state={state} />
       </Card>
-      <Card title="理财各品类持仓 & 累计收益">
+      <Card title="理财各品类持仓 & 累计收益" headerAction={<HoldingsViewToggle />}>
         <HoldingsSection state={state} />
       </Card>
     </>

@@ -75,6 +75,7 @@ export interface PendingInvestmentBuy {
   name: string;
   symbol: string;
   groupKey: InvestKey;
+  notBefore?: string; // Earliest Yimu T+1 booking date after an Alipay correction.
   booking?: {
     transactionId: string;
     date: string;
@@ -104,6 +105,10 @@ export interface InvestPositionItem {
   lastFxRateToCny?: number;
   quoteAt?: string;
   pendingBuys?: PendingInvestmentBuy[];
+  alipayCorrection?: {
+    date: string;
+    deferredBuys: { operationAt: string; amount: number; orderId?: string }[];
+  };
 }
 
 export type InvestPositionGroupKey = InvestKey | 'account' | 'aggregate';
@@ -140,6 +145,7 @@ export interface InvestmentTransactionRecord {
     beforeShares: number;
     beforeCostPrice: number;
     previousTransactionIds: string[];
+    alipayAsOf?: string; // Reconciliable T+1 bridge above the observed Alipay balance.
   };
 }
 

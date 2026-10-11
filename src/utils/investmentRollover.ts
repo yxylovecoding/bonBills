@@ -11,6 +11,7 @@ import {
   syncInvestPositionItems,
 } from './investPositionItems';
 import { canonicalInvestmentSymbol, isPrefixedFundSymbol } from './investmentInstrument';
+import { coveredByAlipayCorrection } from './investmentCorrectionBoundary';
 
 const INVESTMENT_LABELS: Record<InvestKey, string> = {
   us: '美股',
@@ -226,6 +227,7 @@ export function applyInvestmentTransaction(
   const group = [...(items[transaction.groupKey] ?? [])];
   const existingIndex = group.findIndex((item) => sameInstrument(item, transaction));
   const existing = existingIndex >= 0 ? group[existingIndex] : undefined;
+  if (existing && coveredByAlipayCorrection(existing, transaction)) return;
   const currentShares = Math.max(existing?.shares ?? 0, 0);
   const currentCost = Math.max(existing?.costPrice ?? 0, 0);
   const currentHistory = Number(existing?.historicalProfitCny) || 0;
