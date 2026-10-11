@@ -69,6 +69,11 @@ export function parseAlipayActual(text: string): AlipayActualSnapshot {
     if ((fund.nav === undefined) !== (fund.navDate === undefined)
       || (fund.navDate !== undefined && (typeof fund.navDate !== 'string' || !validConfirmationDate(fund.navDate) || fund.navDate > date))) throw new Error('实录净值日期不正确');
     if (fund.nav !== undefined && number(fund.nav, '实录净值') <= 0) throw new Error('实录净值不正确');
+    const totalAmount = number(fund.totalAmount, '金额');
+    const held = fund.confirmedAmount === undefined ? undefined : number(fund.confirmedAmount, '持有金额');
+    const pendingBuy = fund.pendingBuyAmount === undefined ? undefined : number(fund.pendingBuyAmount, '待确认金额');
+    if ((held !== undefined && held > totalAmount + 0.01) || (fund.amountKind === 'total' && pendingBuy !== undefined && pendingBuy > totalAmount + 0.01)
+      || (fund.amountKind === 'total' && held !== undefined && pendingBuy !== undefined && held + pendingBuy > totalAmount + 0.01)) throw new Error('持有金额或待确认金额超过总金额');
     return {
       code: code(fund.code), name: fund.name.trim(), amountKind: fund.amountKind,
       totalAmount: number(fund.totalAmount, '金额'), holdingProfit: number(fund.holdingProfit, '持有收益', true),
@@ -76,6 +81,8 @@ export function parseAlipayActual(text: string): AlipayActualSnapshot {
       ...(fund.costPrice === undefined ? {} : { costPrice: number(fund.costPrice, '成本价') }),
       ...(fund.nav === undefined ? {} : { nav: fund.nav as number, navDate: fund.navDate as string }),
       ...(fund.pendingOrdersComplete === undefined ? {} : { pendingOrdersComplete: fund.pendingOrdersComplete as boolean }),
+      ...(fund.confirmedAmount === undefined ? {} : { confirmedAmount: number(fund.confirmedAmount, '持有金额') }),
+      ...(fund.pendingBuyAmount === undefined ? {} : { pendingBuyAmount: number(fund.pendingBuyAmount, '待确认金额') }),
     };
   });
   const codes = new Set(funds.map((fund) => fund.code));
@@ -119,7 +126,7 @@ export function summarizeAlipayActual(snapshot: AlipayActualSnapshot) {
   return {
     totalAmount: cents(snapshot.funds.map((fund) => fund.totalAmount)),
     holdingProfit: cents(snapshot.funds.map((fund) => fund.holdingProfit)),
-    pendingBuy: cents(pending.filter((order) => order.side === 'buy').map((order) => order.quantity)),
+    pendingBuy: cents(snapshot.funds.map((fund) => fund.pendingBuyAmount ?? cents(pending.filter((order) => order.code === fund.code && order.side === 'buy').map((order) => order.quantity)))),
     pendingSell: cents(pending.filter((order) => order.side === 'sell').map((order) => order.quantity)),
     unknownCount: snapshot.orders.filter((order) => order.status === 'unknown').length,
   };
@@ -148,13 +155,13 @@ export function alipayActualBasis(fund: AlipayActualFund, items: InvestPositionI
   const pending = relevant.filter((order) => order.status === 'pending');
   const unavailable = conflict || relevant.some((order) => order.status === 'unknown')
     || pending.some((order) => order.unit !== 'CNY');
-  const pendingBuy = pending.filter((order) => order.side === 'buy' && order.unit === 'CNY')
+  const pendingBuy = finite(fund.pendingBuyAmount) ?? pending.filter((order) => order.side === 'buy' && order.unit === 'CNY')
     .reduce((sum, order) => sum + Math.round(order.quantity * 100), 0) / 100;
   const pendingSell = pending.filter((order) => order.side === 'sell' && order.unit === 'CNY')
     .reduce((sum, order) => sum + Math.round(order.quantity * 100), 0) / 100;
   // Missing manual verification is not missing data: use the recorded orders and label the result 推算.
-  const amount = fund.amountKind === 'confirmed' ? fund.totalAmount
-    : !unavailable ? Math.round((fund.totalAmount - pendingBuy - pendingSell) * 100) / 100 : null;
+  const amount = finite(fund.confirmedAmount) ?? (fund.amountKind === 'confirmed' ? fund.totalAmount
+    : !unavailable ? Math.round((fund.totalAmount - pendingBuy - pendingSell) * 100) / 100 : null);
   const confirmedAmount = amount !== null && amount >= 0 ? amount : null;
   const quote = automaticNav?.code === fund.code ? automaticNav : undefined;
   const nav = finite(fund.nav ?? quote?.nav);

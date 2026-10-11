@@ -1690,3 +1690,15 @@ input[type='number'] { -moz-appearance: textfield; }
 .alipay-position-basis b { font-size: 11px; font-weight: 600; color: #202124; overflow-wrap: anywhere; }
 
 .alipay-actual input[type="number"], .alipay-actual input[type="date"] { max-width: 55%; min-width: 0; border: 1px solid #dadce0; border-radius: 6px; padding: 4px 6px; background: #fff; color: inherit; font: inherit; }
+.alipay-import-backdrop { position: fixed; inset: 0; z-index: 1100; background: #20212466; display: flex; justify-content: center; align-items: flex-start; padding: 24px 12px; overflow-y: auto; }
+.alipay-import-dialog { width: min(100%, 580px); background: #fff; border-radius: 14px; padding: 16px; display: grid; gap: 14px; color: #5f6368; font-size: 12px; }
+.alipay-import-dialog header { color: #202124; font-size: 15px; }
+.alipay-import-dialog fieldset { min-width: 0; border: 1px solid #e8eaed; border-radius: 10px; margin: 0; padding: 10px; display: grid; gap: 8px; }
+.alipay-import-dialog legend { max-width: 100%; overflow-wrap: anywhere; color: #202124; }
+.alipay-import-dialog input:not([type="checkbox"]), .alipay-import-dialog select { width: 100%; max-width: 100%; min-width: 0; border: 1px solid #dadce0; border-radius: 6px; padding: 6px; font: inherit; background: #fff; color: inherit; box-sizing: border-box; }
+.alipay-import-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.alipay-import-fields label { display: grid; gap: 4px; min-width: 0; }
+.alipay-import-dialog summary { cursor: pointer; }
+.alipay-import-warning { color: #b06000; }
+.alipay-import-images { display: flex; flex-wrap: wrap; gap: 8px; }
+.alipay-import-images img { width: 70px; height: 110px; object-fit: cover; object-position: top; border: 1px solid #e8eaed; }

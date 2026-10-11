@@ -225,3 +225,32 @@ describe('支付宝实录', () => {
     expect(Object.keys(result).sort()).toEqual(['date', 'funds', 'orders']);
   });
 });
+
+
+describe('截图明确的持有与待确认金额', () => {
+  it('待确认金额覆盖订单合计，不叠加扣两次，份额成本使用截图原值', () => {
+    const fund: AlipayActualFund = { ...sample().funds[0], totalAmount: 110, holdingProfit: -10, confirmedAmount: 90, pendingBuyAmount: 20, shares: 50, costPrice: 2, nav: 1.8, navDate: '2026-10-08' };
+    const input = { date: '2026-10-10', funds: [fund], orders: [order, { ...order, id: 'second' }] };
+    const before = structuredClone(input);
+    expect(parse(input)).toEqual(input);
+    expect(summarizeAlipayActual(input)).toMatchObject({ totalAmount: 110, pendingBuy: 20 });
+    expect(alipayActualBasis(fund, {}, input.orders)).toMatchObject({ shares: 50, costPrice: 2, costTotal: 100, confirmedAmount: 90, pendingBuy: 20, sharesEstimated: false });
+    expect(input).toEqual(before);
+  });
+  it('截图明确持有金额时未知卖出份额不妨碍该快照成本，缺少持有金额则待核对', () => {
+    const fund: AlipayActualFund = { ...sample().funds[0], confirmedAmount: 90, holdingProfit: -10, nav: 1.8, navDate: '2026-10-08' };
+    const orders: AlipayActualOrder[] = [{ ...order, side: 'sell', unit: 'shares' }];
+    expect(alipayActualBasis(fund, {}, orders)).toMatchObject({ shares: 50, costTotal: 100 });
+    expect(alipayActualBasis({ ...fund, confirmedAmount: undefined }, {}, orders)).toMatchObject({ shares: null, costTotal: null });
+  });
+  it('金额明确为已确认持有金额时，允许待确认资金超过现有持有金额', () => {
+    const fund: AlipayActualFund = { ...sample().funds[0], totalAmount: 20, holdingProfit: 0, amountKind: 'confirmed', pendingBuyAmount: 100 };
+    const snapshot = parse({ date: '2026-10-10', funds: [fund], orders: [] });
+    expect(alipayActualBasis(snapshot.funds[0], {})).toMatchObject({ confirmedAmount: 20, costTotal: 20, pendingBuy: 100 });
+  });
+  it('拒绝明显超过总额或无效的持有与待确认金额', () => {
+    for (const patch of [{ confirmedAmount: -1 }, { pendingBuyAmount: 121 }, { confirmedAmount: 90, pendingBuyAmount: 40 }]) {
+      expect(() => parse({ ...sample(), funds: [{ ...sample().funds[0], ...patch }] })).toThrow();
+    }
+  });
+});

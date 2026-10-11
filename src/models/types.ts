@@ -34,6 +34,8 @@ export interface AlipayActualFund {
   nav?: number; // NAV verified for this snapshot's holding amount, never a live replacement.
   navDate?: string;
   pendingOrdersComplete?: boolean;
+  confirmedAmount?: number; // Explicit balance from a fund detail screenshot.
+  pendingBuyAmount?: number; // Explicit unconfirmed cash; do not add order cash a second time.
   // Only a confirmed-position amount supports deriving cost from holding profit.
   amountKind: 'total' | 'confirmed';
 }

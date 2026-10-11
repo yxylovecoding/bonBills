@@ -48,7 +48,9 @@ export type FinanceScreenshotApplyResult = {
   skippedUsdUsStockHoldings: number;
 };
 
-type TesseractRecognizeResult = { data: { text: string } };
+export type OcrWord = { text: string; confidence: number; bbox: { x0: number; y0: number; x1: number; y1: number } };
+export type OcrPage = { text: string; words?: OcrWord[]; blocks?: { paragraphs: { lines: { words: OcrWord[] }[] }[] }[] };
+type TesseractRecognizeResult = { data: OcrPage };
 type OcrAmountToken = {
   value: number;
   currency: ScreenshotCurrency;
@@ -57,6 +59,11 @@ type OcrAmountToken = {
 declare global {
   interface Window {
     Tesseract?: {
+      createWorker: (langs: string, oem?: number, options?: Record<string, unknown>) => Promise<{
+        setParameters: (parameters: Record<string, string>) => Promise<unknown>;
+        recognize: (image: File | HTMLCanvasElement, options?: Record<string, unknown>, output?: Record<string, boolean>) => Promise<TesseractRecognizeResult>;
+        terminate: () => Promise<unknown>;
+      }>;
       recognize: (
         image: File,
         langs: string,
@@ -116,23 +123,22 @@ function emptyScreenshotParseResult(mode: ScreenshotImportMode): ScreenshotParse
   };
 }
 
-function loadTesseract(): Promise<NonNullable<Window['Tesseract']>> {
+let tesseractLoading: Promise<NonNullable<Window['Tesseract']>> | undefined;
+export function loadTesseract(): Promise<NonNullable<Window['Tesseract']>> {
   if (window.Tesseract) return Promise.resolve(window.Tesseract);
-  return new Promise((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>('script[data-ocr="tesseract"]');
-    if (existing) {
-      existing.addEventListener('load', () => window.Tesseract ? resolve(window.Tesseract) : reject(new Error('OCR 加载失败')));
-      existing.addEventListener('error', () => reject(new Error('OCR 加载失败')));
-      return;
-    }
+  if (tesseractLoading) return tesseractLoading;
+  tesseractLoading = new Promise<NonNullable<Window['Tesseract']>>((resolve, reject) => {
     const script = document.createElement('script');
+    const failed = () => { clearTimeout(timer); script.remove(); reject(new Error('图片识别加载失败，请检查网络后重试')); };
+    const timer = setTimeout(failed, 30_000);
     script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
     script.async = true;
     script.dataset.ocr = 'tesseract';
-    script.onload = () => window.Tesseract ? resolve(window.Tesseract) : reject(new Error('OCR 加载失败'));
-    script.onerror = () => reject(new Error('OCR 加载失败'));
+    script.onload = () => { clearTimeout(timer); if (window.Tesseract) resolve(window.Tesseract); else failed(); };
+    script.onerror = failed;
     document.head.appendChild(script);
-  });
+  }).catch((error) => { tesseractLoading = undefined; throw error; });
+  return tesseractLoading;
 }
 
 function parseOcrAmounts(raw: string): OcrAmountToken[] {
