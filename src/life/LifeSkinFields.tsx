@@ -1,46 +1,52 @@
-import { useId, useRef, useState } from 'react';
+import { useState } from 'react';
 import type { LifeEntries } from '../utils/bonLife';
 import { nextSkinPlan } from '../utils/lifeSkinProgress';
 import { symptomColor } from './symptomColor';
 import { SYMPTOM_STATES, type SymptomState } from '../utils/lifeSymptoms';
-import { DEFAULT_SKIN_SETTINGS, SKIN_FIELDS, SKIN_SEASONS, SKIN_STATES, matchingSkinProducts, optionalSkinProducts, skinLocalPlanValues, skinPlanValues, skinSeason,
+import { DEFAULT_SKIN_SETTINGS, SKIN_FIELDS, SKIN_SEASONS, SKIN_STATES, matchingSkinProducts, skinLocalPlanValues, skinPlanValues, skinSeason,
   type SkinField, type SkinRecord, type SkinSeason, type SkinSettings, type SkinState } from '../utils/lifeSkin';
 
-function SkinProductChoices({ label, value, products, extras = [], busy, onChange }: {
-  label: string; value: string; products: { name: string }[]; extras?: { name: string }[]; busy: boolean; onChange: (value: string) => void;
+const productNames = (value: string) => [...new Set(value.split(/[、,，\n]/).map((name) => name.trim()).filter(Boolean))];
+
+function SkinProductChoices({ label, kind, value, products, fullWidth, busy, onChange }: {
+  label: string; kind: 'medication' | 'skincare'; value: string; products: { name: string }[];
+  fullWidth: boolean; busy: boolean; onChange: (value: string) => void;
 }) {
-  const selected = [...new Set(value.split(/[、,，\n]/).map((name) => name.trim()).filter(Boolean))];
-  const original = useRef(selected);
-  const options = [...new Set([...products.map((item) => item.name), ...original.current, ...selected])];
-  const extraOptions = extras.map((item) => item.name).filter((name) => !options.includes(name));
-  const [showExtras, setShowExtras] = useState(false);
-  const toggle = (name: string, pool: string[]) => (pool.includes(name) ? pool.filter((item) => item !== name) : [...pool, name]).join('、');
-  return <fieldset className="life-skin-choices life-skin-product-choices" disabled={busy}><legend>{label}</legend>
-    <div>{options.map((name) => {
-      const checked = selected.includes(name);
-      const next = toggle(name, selected);
-      return <button type="button" key={name} aria-pressed={checked} disabled={!checked && next.length > 500}
-        onClick={() => onChange(next)}>{name}</button>;
-    })}</div>{!options.length && <span className="life-empty-state">暂无在用护肤品</span>}
-    {extraOptions.length > 0 && (showExtras
-      ? <div className="life-skin-extra-choices" role="group" aria-label={`${label} · 加用其他`}>
-          <span className="life-skin-extra-label">加用其他</span>
-          <div>{extraOptions.map((name) => {
-            const checked = selected.includes(name);
-            const next = toggle(name, selected);
-            return <button type="button" key={name} aria-pressed={checked} disabled={!checked && next.length > 500}
-              onClick={() => onChange(next)}>{name}</button>;
-          })}</div>
-        </div>
-      : <button type="button" className="life-skin-text-action life-skin-extra-toggle"
-          onClick={() => setShowExtras(true)}>＋ 加用其他</button>)}
+  const selected = productNames(value);
+  const [remembered, setRemembered] = useState(selected);
+  const [editing, setEditing] = useState(false);
+  const names = [...new Set([...products.flatMap((item) => productNames(item.name)), ...remembered])]
+    .filter((name) => !selected.includes(name));
+  const kindLabel = kind === 'medication' ? '药品' : '护肤品';
+  function remember(names: string[]) { setRemembered((previous) => [...new Set([...previous, ...names])]); }
+  function finishEditing() { remember(selected); setEditing(false); }
+  return <fieldset className={`life-skin-choices life-skin-product-choices${fullWidth ? ' life-skin-full-field' : ''}`} disabled={busy}><legend>{label}</legend>
+    {editing ? <div className="life-skin-product-input">
+      <input autoFocus aria-label={`${label}名称`} maxLength={500} value={value} placeholder={`填写${kindLabel}名称`}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); finishEditing(); } }} />
+      <button type="button" onClick={finishEditing}>完成</button>
+    </div> : <>
+      {selected.length > 0 && <div>{selected.map((name) => <button type="button" key={name} aria-pressed="true" aria-label={`${label} · 移除${name}`}
+        onClick={() => { remember(selected); onChange(selected.filter((item) => item !== name).join('、')); }}>{name}<span aria-hidden="true"> ×</span></button>)}</div>}
+      <select className="life-skin-product-picker" aria-label={`${label} · 选择${kindLabel}`} value="" onChange={(event) => {
+        if (event.target.value === 'custom') { setEditing(true); return; }
+        const name = event.target.value.slice('product:'.length);
+        if (!name) return;
+        const next = [...new Set([...selected, name])].join('、');
+        if (next.length <= 500) { remember([...selected, name]); onChange(next); }
+      }}>
+        <option value="" disabled>＋ 选择{kindLabel}</option>
+        {names.map((name) => <option key={name} value={`product:${name}`} disabled={[...selected, name].join('、').length > 500}>{name}</option>)}
+        <option value="custom">手动填写…</option>
+      </select>
+    </>}
   </fieldset>;
 }
 
 export default function LifeSkinFields({ value = {}, date, entries, settings = DEFAULT_SKIN_SETTINGS, busy, onChange }: {
   value?: SkinRecord; date: string; entries: LifeEntries; settings?: SkinSettings; busy: boolean; onChange: (skin: SkinRecord) => void;
 }) {
-  const id = useId();
   const status = value.status;
   const season = value.season ?? skinSeason(date);
   const plan = status ? settings.plans[status] : undefined;
@@ -100,14 +106,9 @@ export default function LifeSkinFields({ value = {}, date, entries, settings = D
       const time = field.startsWith('morning') ? 'morning' : field.startsWith('evening') ? 'evening' : undefined;
       const products = field === 'localMedication' ? (local.localMedication ? [{ id: 'acne-marks', name: local.localMedication, tags: ['痘印'] }] : [])
         : matchingSkinProducts(settings, status, season, kind, time);
-      const extras = kind === 'skincare' && field !== 'localMedication' ? optionalSkinProducts(settings, status, season, kind, time) : [];
-      if (kind === 'skincare') return <SkinProductChoices key={field} label={label} value={value[field] ?? ''} products={products} extras={extras}
-        busy={busy} onChange={(next) => change({ [field]: next })} />;
-      return <label key={field} className={field === 'medication' || field === 'localMedication' ? 'life-skin-full-field' : undefined}>{label}
-        <input maxLength={500} list={`${id}-${field}`} disabled={busy} value={value[field] ?? ''} placeholder="输入或选择在用用品"
-          onChange={(event) => change({ [field]: event.target.value })} />
-        <datalist id={`${id}-${field}`}>{products.map((item) => <option key={item.id} value={item.name}>{item.tags.join(' · ')}</option>)}</datalist>
-      </label>;
+      const available = settings.products.filter((item) => item.active && item.kind === kind);
+      return <SkinProductChoices key={field} label={label} kind={kind} value={value[field] ?? ''} products={[...products, ...available]}
+        fullWidth={field === 'medication' || field === 'localMedication'} busy={busy} onChange={(next) => change({ [field]: next })} />;
     })}</div>
   </div>;
 }
