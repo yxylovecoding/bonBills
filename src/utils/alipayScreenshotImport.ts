@@ -10,6 +10,7 @@ export interface AlipayFundDraft {
   totalAmount?: number; holdingProfit?: number; shares?: number; costPrice?: number;
   nav?: number; navDate?: string; confirmedAmount?: number; pendingBuyAmount?: number;
   amountKind: 'total' | 'confirmed';
+  amountMatch?: { code: string; totalAmount: number; amountKind: 'total' | 'confirmed' };
 }
 export interface AlipayOrderDraft {
   id: string; source: string; name: string; code: string; selected: boolean; notes: string[];
@@ -55,6 +56,8 @@ export function matchAlipayFund(name: string, choices: AlipayFundChoice[], code 
   const target = fundName(name);
   if (target.length < 5) return '';
   const shareClass = target.match(/([ACE])$/)?.[1];
+  // A truncated Nikkei name cannot establish its share class, even with one known code.
+  if (target.includes('日经') && !shareClass) return '';
   const truncated = /…|\.{2,}/.test(name);
   const matches = choices.filter((choice) => choice.aliases.some((alias) => {
     const candidate = fundName(alias);
@@ -64,6 +67,31 @@ export function matchAlipayFund(name: string, choices: AlipayFundChoice[], code 
     return truncated && !!shareClass && target.length >= 10 && candidate.slice(0, -1).startsWith(target.slice(0, -1));
   }));
   return matches.length === 1 ? matches[0].code : '';
+}
+
+/** Amounts suggest a share class; they never assign a code without confirmation. */
+export function suggestAlipayFundByAmount(row: AlipayFundDraft, choices: AlipayFundChoice[], snapshots: Record<string, AlipayActualSnapshot>, date: string) {
+  const target = fundName(row.name);
+  if (row.code || !target.includes('日经') || /[ACE]$/.test(target) || target.length < 9
+    || row.totalAmount === undefined || !Number.isFinite(row.totalAmount) || row.totalAmount < 0) return [];
+  const candidates = choices.flatMap((choice) => {
+    const families = choice.aliases.map(fundName).filter((name) => /[AC]$/.test(name) && name.startsWith(target)).map((name) => name.slice(0, -1));
+    return families.length ? [{ choice, families }] : [];
+  });
+  // A similar balance must not turn two different products into an A/C pair.
+  if (new Set(candidates.flatMap(({ families }) => families)).size !== 1) return [];
+  const history = Object.values(snapshots).filter((snapshot) => snapshot.date <= date).sort((a, b) => b.date.localeCompare(a.date));
+  const amount = row.totalAmount;
+  return candidates.flatMap(({ choice }) => {
+    const previous = history.find((snapshot) => snapshot.funds.some((fund) => fund.code === choice.code));
+    const fund = previous?.funds.find((fund) => fund.code === choice.code);
+    if (!fund || !previous) return [];
+    const previousAmount = fund.amountKind === row.amountKind ? fund.totalAmount
+      : row.amountKind === 'confirmed' ? fund.confirmedAmount : undefined;
+    if (previousAmount === undefined || !Number.isFinite(previousAmount) || previousAmount < 0) return [];
+    return [{ code: choice.code, name: choice.name, previousDate: previous.date, previousAmount,
+      difference: Math.abs(Math.round(amount * 100) - Math.round(previousAmount * 100)) }];
+  }).sort((a, b) => a.difference - b.difference || a.code.localeCompare(b.code));
 }
 
 function visualLines(words: OcrWord[]): Line[] {
@@ -237,6 +265,8 @@ export function materializeAlipayScreenshots(draft: AlipayScreenshotDraft, date:
   const funds = new Map<string, AlipayActualFund>((old?.funds ?? []).map((fund) => [fund.code, { ...fund }]));
   const selected = draft.funds.filter((row) => row.selected);
   for (const row of selected) {
+    if ((!row.code && fundName(row.name).includes('日经')) || (row.amountMatch && (row.code !== row.amountMatch.code
+      || row.totalAmount !== row.amountMatch.totalAmount || row.amountKind !== row.amountMatch.amountKind))) throw new Error('请先确认日经基金的 A/C 类别和代码');
     if (!/^\d{6}$/.test(row.code) || row.totalAmount === undefined || row.holdingProfit === undefined) throw new Error('请补全勾选基金的代码、金额和持有收益');
     const value: AlipayActualFund = { code: row.code, name: choices.find((choice) => choice.code === row.code)?.name ?? row.name,
       totalAmount: row.totalAmount, holdingProfit: row.holdingProfit, amountKind: row.amountKind };

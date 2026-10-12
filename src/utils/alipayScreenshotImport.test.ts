@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { alipayFundChoices, matchAlipayFund, parseAlipayScreenshot, combineAlipayScreenshotDrafts, materializeAlipayScreenshots, type AlipayFundDraft, type AlipayOrderDraft, type AlipayScreenshotDraft } from './alipayScreenshotImport';
+import { alipayFundChoices, matchAlipayFund, parseAlipayScreenshot, combineAlipayScreenshotDrafts, materializeAlipayScreenshots, suggestAlipayFundByAmount, type AlipayFundDraft, type AlipayOrderDraft, type AlipayScreenshotDraft } from './alipayScreenshotImport';
 import type { AlipayOcrImage } from './alipayScreenshotOcr';
+import type { AlipayActualSnapshot } from '../models/types';
 
 const date = '2026-10-10';
 const choices = [
@@ -146,6 +147,79 @@ describe('支付宝基金匹配与截图布局', () => {
   it('无法识别的图片保留提示，不生成空的准确持仓', () => {
     expect(parseAlipayScreenshot(screen([[10, [['广告', 40, 300]]]]), choices, date)).toMatchObject({ funds: [], orders: [] });
     expect(parseAlipayScreenshot(screen([]), choices, date).notes).toHaveLength(1);
+  });
+});
+
+describe('日经 A/C 历史金额推测与确认', () => {
+  const truncated = (patch: Partial<AlipayFundDraft> = {}) => fund({ name: '华安三菱日联日经225…', code: '', totalAmount: 151, ...patch });
+  const history = (day = '2026-10-09', c = 150, a = 1000): AlipayActualSnapshot => ({ date: day, orders: [],
+    funds: indexChoices.slice(2).map((choice, index) => ({ code: choice.code, name: choice.name,
+      totalAmount: index === 0 ? c : a, holdingProfit: 0, amountKind: 'total' })),
+  });
+
+  it('缺失类别时即使只知道 C 类也需要确认，明确类别或代码仍直接匹配', () => {
+    expect(matchAlipayFund(truncated().name, [indexChoices[2]])).toBe('');
+    expect(matchAlipayFund(indexChoices[2].name, indexChoices)).toBe('800003');
+    expect(matchAlipayFund(truncated().name, indexChoices, '800004')).toBe('800004');
+  });
+  it('按上次金额给出候选，不修改截图金额、收益或填入代码', () => {
+    const row = truncated();
+    const snapshots = { old: history() };
+    const before = structuredClone({ row, snapshots });
+    expect(suggestAlipayFundByAmount(row, indexChoices, snapshots, date)).toEqual([
+      { code: '800003', name: indexChoices[2].name, previousDate: '2026-10-09', previousAmount: 150, difference: 100 },
+      { code: '800004', name: indexChoices[3].name, previousDate: '2026-10-09', previousAmount: 1000, difference: 84900 },
+    ]);
+    expect({ row, snapshots }).toEqual(before);
+    expect(() => materializeAlipayScreenshots(draft([row]), date, indexChoices)).toThrow('请先确认日经');
+  });
+  it('每只基金采用最近实录，同日旧实录可参考，不能参考未来金额', () => {
+    const suggestions = suggestAlipayFundByAmount(truncated(), indexChoices, {
+      oldest: history('2026-10-08', 150, 1000), current: history(date, 900, 152), future: history('2026-10-11', 151, 1000),
+    }, date);
+    expect(suggestions.map(({ code, previousDate, previousAmount }) => ({ code, previousDate, previousAmount }))).toEqual([
+      { code: '800004', previousDate: date, previousAmount: 152 }, { code: '800003', previousDate: date, previousAmount: 900 },
+    ]);
+    const partial = history(); partial.funds = partial.funds.slice(0, 1);
+    expect(suggestAlipayFundByAmount(truncated(), indexChoices, { older: history('2026-10-08'), partial }, date)
+      .map(({ previousDate }) => previousDate)).toEqual(['2026-10-09', '2026-10-08']);
+  });
+  it('无历史、无有效金额或明确指定基金时不推测', () => {
+    expect(suggestAlipayFundByAmount(truncated(), indexChoices, {}, date)).toEqual([]);
+    for (const totalAmount of [undefined, NaN, Infinity, -1]) {
+      expect(suggestAlipayFundByAmount(truncated({ totalAmount }), indexChoices, { old: history() }, date)).toEqual([]);
+    }
+    expect(suggestAlipayFundByAmount(truncated({ code: '800004' }), indexChoices, { old: history() }, date)).toEqual([]);
+    expect(suggestAlipayFundByAmount(truncated({ name: indexChoices[3].name }), indexChoices, { old: history() }, date)).toEqual([]);
+  });
+  it('同基金 A/C 之外的产品不按金额凑匹配', () => {
+    const extra = { code: '800005', name: '华安三菱日联日经225其他产品C', aliases: ['华安三菱日联日经225其他产品C'] };
+    expect(suggestAlipayFundByAmount(truncated(), [...indexChoices, extra], { old: history() }, date)).toEqual([]);
+    expect(suggestAlipayFundByAmount(truncated({ name: '易方达日经225…' }), indexChoices, { old: history() }, date)).toEqual([]);
+    expect(suggestAlipayFundByAmount(truncated({ name: '华泰柏瑞沪深300…' }), indexChoices, { old: history() }, date)).toEqual([]);
+  });
+  it('相同差额保留两个候选等待选择，包括零金额', () => {
+    const suggestions = suggestAlipayFundByAmount(truncated({ totalAmount: 150 }), indexChoices, { old: history('2026-10-09', 149, 151) }, date);
+    expect(suggestions.map(({ difference }) => difference)).toEqual([100, 100]);
+    expect(suggestAlipayFundByAmount(truncated({ totalAmount: 0 }), indexChoices, { old: history('2026-10-09', 0, 0) }, date)
+      .map(({ difference }) => difference)).toEqual([0, 0]);
+  });
+  it('比较同种金额，最近记录缺少可比金额时不使用更早的余额', () => {
+    const recent = history(); recent.funds[0].confirmedAmount = 140;
+    expect(suggestAlipayFundByAmount(truncated({ amountKind: 'confirmed' }), indexChoices, { recent }, date)
+      .map(({ code, previousAmount }) => ({ code, previousAmount }))).toEqual([{ code: '800003', previousAmount: 140 }]);
+    recent.funds[0].amountKind = 'confirmed';
+    expect(suggestAlipayFundByAmount(truncated(), indexChoices, { recent, older: history('2026-10-08') }, date)
+      .map(({ code }) => code)).toEqual(['800004']);
+  });
+  it('确认后保留本次数值，金额或类别改变后旧确认失效，也允许手动选 A', () => {
+    const confirmed = truncated({ code: '800003', amountMatch: { code: '800003', totalAmount: 151, amountKind: 'total' } });
+    const snapshot = materializeAlipayScreenshots(draft([confirmed]), date, indexChoices);
+    expect(snapshot.funds).toEqual([{ code: '800003', name: indexChoices[2].name, totalAmount: 151, holdingProfit: -10, amountKind: 'total' }]);
+    for (const patch of [{ totalAmount: 160 }, { code: '800004' }, { amountKind: 'confirmed' as const }]) {
+      expect(() => materializeAlipayScreenshots(draft([{ ...confirmed, ...patch }]), date, indexChoices)).toThrow('请先确认日经');
+    }
+    expect(materializeAlipayScreenshots(draft([truncated({ code: '800004' })]), date, indexChoices).funds[0].code).toBe('800004');
   });
 });
 

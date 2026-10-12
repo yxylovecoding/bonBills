@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AlipayActualSnapshot, InvestPositionItems } from '../models/types';
-import { alipayFundChoices, combineAlipayScreenshotDrafts, materializeAlipayScreenshots, parseAlipayScreenshot, type AlipayScreenshotDraft, type AlipayFundDraft, type AlipayOrderDraft } from '../utils/alipayScreenshotImport';
+import { alipayFundChoices, combineAlipayScreenshotDrafts, materializeAlipayScreenshots, parseAlipayScreenshot, suggestAlipayFundByAmount, type AlipayScreenshotDraft, type AlipayFundDraft, type AlipayOrderDraft } from '../utils/alipayScreenshotImport';
 import { readAlipayScreenshots } from '../utils/alipayScreenshotOcr';
 import { parseAlipayActual } from '../utils/alipayActual';
 import { getAccountStorage } from '../utils/accountCache';
 import AlipayImportDialog from './AlipayImportDialog';
 
 const numeric = (value: string) => value.trim() === '' ? undefined : Number(value);
+const money = (value: number) => `¥${value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 
 export default function AlipayScreenshotImport({ yearMonth, items, snapshots, onPreview }: {
@@ -29,7 +30,17 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
   const close = () => { job.current++; controller.current?.abort(); setOpen(false); setProgress(''); setSources([]); setDraft(null); trigger.current?.focus(); };
   useEffect(() => () => { job.current++; controller.current?.abort(); }, []);
   useEffect(() => () => { sources.forEach((source) => URL.revokeObjectURL(source.url)); }, [sources]);
-  const patchFund = (id: string, patch: Partial<AlipayFundDraft>) => setDraft((value) => value && ({ ...value, funds: value.funds.map((row) => row.id === id ? { ...row, ...patch } : row) }));
+  const patchFund = (id: string, patch: Partial<AlipayFundDraft>) => {
+    setError('');
+    setDraft((value) => value && ({ ...value, funds: value.funds.map((row) => {
+      if (row.id !== id) return row;
+      const next = { ...row, ...patch };
+      if (next.amountMatch && (next.totalAmount !== next.amountMatch.totalAmount || next.amountKind !== next.amountMatch.amountKind)) {
+        next.code = ''; next.amountMatch = undefined;
+      }
+      return next;
+    }) }));
+  };
   const patchOrder = (id: string, patch: Partial<AlipayOrderDraft>) => setDraft((value) => value && ({ ...value, orders: value.orders.map((row) => row.id === id ? { ...row, ...patch } : row) }));
   const fundInput = (row: { id: string; code: string }, change: (code: string) => void) => <div className="alipay-import-fund-choice">
     <label>匹配基金<select aria-label={`${row.id}匹配基金`} value={choices.some((choice) => choice.code === row.code) ? row.code : ''} onChange={(event) => change(event.target.value)}>
@@ -86,9 +97,23 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
       {draft && <>
         <b>识别到 {draft.funds.length} 项持仓 · {draft.orders.length} 条交易</b>
         {draft.notes.map((note, index) => <div className="alipay-pending" key={index}>{note}</div>)}
-        {draft.funds.map((row, index) => <fieldset className="alipay-import-row" key={row.id}>
+        {draft.funds.map((row, index) => {
+          const suggestions = suggestAlipayFundByAmount(row, choices, snapshots, date);
+          const suggested = suggestions[0];
+          const tied = suggested && suggestions[1]?.difference === suggested.difference;
+          return <fieldset className="alipay-import-row" key={row.id}>
           <legend><label><input type="checkbox" checked={row.selected} onChange={(event) => patchFund(row.id, { selected: event.target.checked })} />持仓 {index + 1} · {choices.find((choice) => choice.code === row.code)?.name || row.name}</label></legend>
-          <div className="alipay-import-fields">{fundInput(row, (code) => patchFund(row.id, { code }))}
+          {row.selected && suggested && <div className="alipay-import-suggestion" role="status">
+            <b>{tied ? 'A/C 金额接近，请选择基金' : `推测为 ${suggested.name} · ${suggested.code}`}</b>
+            <span>本次 {money(row.totalAmount!)}</span>
+            {(tied ? suggestions.filter((candidate) => candidate.difference === suggested.difference) : [suggested]).map((candidate) => <div className="alipay-detail-line" key={candidate.code}>
+              <span>{tied ? `${candidate.name} · ` : ''}上次 {money(candidate.previousAmount)}（{candidate.previousDate}）</span>
+              <button type="button" className="alipay-text-button" onClick={() => patchFund(row.id, { code: candidate.code,
+                amountMatch: { code: candidate.code, totalAmount: row.totalAmount!, amountKind: row.amountKind } })}>确认{tied ? `为 ${candidate.name}` : '此基金'}</button>
+            </div>)}
+          </div>}
+          {row.selected && row.amountMatch && <span role="status">已确认基金匹配</span>}
+          <div className="alipay-import-fields">{fundInput(row, (code) => patchFund(row.id, { code, amountMatch: undefined }))}
             <label>金额<input aria-label={`${row.id}金额`} type="number" step="0.01" min="0" value={row.totalAmount ?? ''} onChange={(event) => patchFund(row.id, { totalAmount: numeric(event.target.value) })} /></label>
             <label>持有收益<input aria-label={`${row.id}持有收益`} type="number" step="0.01" value={row.holdingProfit ?? ''} onChange={(event) => patchFund(row.id, { holdingProfit: numeric(event.target.value) })} /></label>
           </div>
@@ -98,7 +123,7 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
             <label>净值日期<input type="date" max={date} value={row.navDate ?? ''} onChange={(event) => patchFund(row.id, { navDate: event.target.value || undefined })} /></label>
             <label>金额类型<select value={row.amountKind} onChange={(event) => patchFund(row.id, { amountKind: event.target.value as AlipayFundDraft['amountKind'] })}><option value="total">包含在途的总金额</option><option value="confirmed">已确认的持有金额</option></select></label>
           </div></details>
-        </fieldset>)}
+        </fieldset>; })}
         {draft.orders.map((row, index) => <fieldset className="alipay-import-row" key={row.id}>
           <legend><label><input type="checkbox" checked={row.selected} onChange={(event) => patchOrder(row.id, { selected: event.target.checked })} />交易 {index + 1} · {choices.find((choice) => choice.code === row.code)?.name || row.name || '基金待匹配'}</label></legend>
           <div className="alipay-import-fields">{fundInput(row, (code) => patchOrder(row.id, { code }))}

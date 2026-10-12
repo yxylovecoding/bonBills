@@ -1722,6 +1722,7 @@ input[type='number'] { -moz-appearance: textfield; }
 .alipay-import-fund-choice { display: grid; gap: 8px; min-width: 0; grid-column: 1 / -1; }
 .alipay-import-dialog summary { cursor: pointer; }
 .alipay-import-warning { color: #b06000; }
+.alipay-import-suggestion { display: grid; gap: 5px; padding: 8px; border-radius: 7px; background: #e8f0fe; color: #3c4043; overflow-wrap: anywhere; }
 .alipay-import-images { display: flex; flex-wrap: wrap; gap: 8px; }
 .alipay-import-images img { width: 70px; height: 110px; object-fit: cover; object-position: top; border: 1px solid #e8eaed; }
 
