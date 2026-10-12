@@ -5,7 +5,7 @@ const formatMoney = (value: number | null, currency: string, signed = false) => 
 export default function AlipayAmountProfit({ amount, holdingProfit, currency = 'CNY', profitCurrency = currency }: {
   amount: number | null; holdingProfit: number | null; currency?: string; profitCurrency?: string;
 }) {
-  return <span className="alipay-amount-profit">
+  return <span className="alipay-amount-profit" data-profit-tone={holdingProfit === null || holdingProfit === 0 ? 'neutral' : holdingProfit > 0 ? 'positive' : 'negative'}>
     <span><span className="alipay-metric-label">金额</span><b>{formatMoney(amount, currency)}</b></span>
     <span><span className="alipay-metric-label">持有收益</span><b style={{ color: holdingProfit === null || holdingProfit === 0 ? '#5f6368' : holdingProfit > 0 ? '#ea4335' : '#0d9488' }}>{formatMoney(holdingProfit, profitCurrency, true)}</b></span>
   </span>;

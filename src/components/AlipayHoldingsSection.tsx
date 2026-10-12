@@ -129,7 +129,11 @@ export default function AlipayHoldingsSection({ items, previousItems, records, y
           return <div className="alipay-holdings-group" key={key}>
             <button type="button" className="invest-position-group-toggle alipay-group-button" aria-expanded={expanded.has(groupId)} aria-label={`${expanded.has(groupId) ? '收起' : '展开'}${groupLabel}`} onClick={() => toggle(groupId)}>
               <div className="invest-position-group-heading">
-                <span className="invest-position-group-title">{expanded.has(groupId) ? '▾' : '▸'} {groupLabel}</span>
+                <span className="invest-position-group-title alipay-estimated-group-label">
+                  <span className="alipay-group-arrow" aria-hidden="true">{expanded.has(groupId) ? '▼' : '▶'}</span>
+                  <span className="alipay-group-dot" aria-hidden="true" style={{ backgroundColor: key === 'account' || key === 'aggregate' ? C.sub : investMeta[key].color }} />
+                  {groupLabel}
+                </span>
                 <span className="invest-position-group-market">{money(value)}</span>
                 {key !== 'account' && key !== 'aggregate' && <MonthlyReturn profit={monthly.byCategory[key] ?? null} value={summary.marketValueByCategory[key]} />}
               </div>

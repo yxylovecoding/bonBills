@@ -9,6 +9,7 @@ import type { AlipayActualNav } from '../utils/alipayActualNav';
 import { getAccountStorage } from '../utils/accountCache';
 import AlipayCorrectionButton from './AlipayCorrectionButton';
 import AlipayScreenshotImport from './AlipayScreenshotImport';
+import { investMeta } from '../data/mockData';
 
 const money = (value: number) => `¥${value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const statusLabel = { pending: '交易进行中', confirmed: '已确认', cancelled: '已撤销', unknown: '状态待核对' };
@@ -103,7 +104,10 @@ function SnapshotDetails({ snapshot, items, estimate, onFundChange }: { snapshot
       </div>
       {section.groups.map((group) => <details className="alipay-holdings-group alipay-actual-group" key={`${snapshot.date}:${group.key}`}>
         <summary>
-          <span className="alipay-actual-group-label">{group.label}</span>
+          <span className="invest-position-group-title alipay-actual-group-label">
+            <span className="alipay-group-dot" aria-hidden="true" style={{ backgroundColor: group.key === 'unclassified' ? '#5f6368' : investMeta[group.key === 'japan' ? 'asia' : group.key].color }} />
+            {group.label}
+          </span>
           <AlipayAmountProfit amount={group.totals.totalAmount} holdingProfit={group.totals.holdingProfit} />
         </summary>
         {group.funds.map((fund) => <ActualFundDetails key={fund.code} fund={fund} rule={rules?.[fundConfirmationKey(fund.code)]} orders={snapshot.orders.filter((order) => order.code === fund.code)} estimate={estimate?.asOf === snapshot.date ? estimate : undefined} date={snapshot.date} nav={navs.results[fund.code]?.quote} navLoading={fund.shares === undefined && fund.nav === undefined && !navs.results[fund.code]} onChange={onFundChange} />)}
