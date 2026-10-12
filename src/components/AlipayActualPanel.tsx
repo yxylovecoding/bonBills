@@ -10,6 +10,7 @@ import { getAccountStorage } from '../utils/accountCache';
 import AlipayCorrectionButton from './AlipayCorrectionButton';
 import AlipayScreenshotImport from './AlipayScreenshotImport';
 import { investMeta } from '../data/mockData';
+import AlipayImportDialog from './AlipayImportDialog';
 
 const money = (value: number) => `¥${value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const statusLabel = { pending: '交易进行中', confirmed: '已确认', cancelled: '已撤销', unknown: '状态待核对' };
@@ -138,23 +139,25 @@ export default function AlipayActualPanel({ yearMonth, items, estimate, fallback
           previewOwner.current = getAccountStorage(); setPreview(next); setPreviewBaseline(baseline); setMessage('');
         }} />
       </div>
-      {message && <div role="status">{message}</div>}
-      {preview ? <div className="alipay-actual-preview">
-        <b>待保存 · {preview.date}{snapshots?.[preview.date] ? ' · 替换当日实录' : ''}</b>
-        <SnapshotDetails snapshot={preview} items={items} estimate={estimate} onFundChange={(fund) => setPreview({ ...preview, funds: preview.funds.map((row) => row.code === fund.code ? fund : row) })} />
-        <div className="alipay-detail-line">
-          <button type="button" className="alipay-text-button" onClick={() => {
+      {!preview && message && <div role="status">{message}</div>}
+      {preview && <AlipayImportDialog title={`持仓预览 · ${preview.date}`} onClose={() => { setPreview(null); setMessage(''); }} footer={<>
+          {message && <div role="alert" className="alipay-pending">{message}</div>}
+          <button type="button" className="alipay-import-confirm" onClick={() => {
             if (getAccountStorage() !== previewOwner.current || !preview.date.startsWith(`${yearMonth}-`)) { setPreview(null); setMessage('账号或月份已切换，请重新导入'); return; }
             const { config, setConfig } = useConfigStore.getState();
             if (JSON.stringify(config.alipayActualSnapshots?.[preview.date] ?? null) !== previewBaseline) {
               setMessage('当日持仓已更新，请重新导入'); return;
             }
             setConfig({ alipayActualSnapshots: { ...config.alipayActualSnapshots, [preview.date]: preview } });
-            setSelected(preview.date); setPreview(null); setMessage('实录已保存');
+            setSelected(preview.date); setPreview(null); setMessage(`实录已保存 · ${preview.date}`);
           }}>保存实录</button>
-          <button type="button" className="alipay-text-button" onClick={() => setPreview(null)}>取消</button>
+        </>}>
+        <div className="alipay-actual alipay-actual-preview">
+          <b>待保存 · {preview.date}{snapshots?.[preview.date] ? ' · 替换当日实录' : ''}</b>
+          <SnapshotDetails snapshot={preview} items={items} estimate={estimate} onFundChange={(fund) => setPreview({ ...preview, funds: preview.funds.map((row) => row.code === fund.code ? fund : row) })} />
         </div>
-      </div> : snapshot ? <SnapshotDetails snapshot={snapshot} items={items} estimate={estimate} onFundChange={(fund) => {
+      </AlipayImportDialog>}
+      {snapshot ? <SnapshotDetails snapshot={snapshot} items={items} estimate={estimate} onFundChange={(fund) => {
         const { config, setConfig } = useConfigStore.getState();
         const latest = config.alipayActualSnapshots?.[snapshot.date];
         if (!latest) throw new Error('实录已变化，请刷新后校对');

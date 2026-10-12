@@ -4,6 +4,7 @@ import { alipayFundChoices, combineAlipayScreenshotDrafts, materializeAlipayScre
 import { readAlipayScreenshots } from '../utils/alipayScreenshotOcr';
 import { parseAlipayActual } from '../utils/alipayActual';
 import { getAccountStorage } from '../utils/accountCache';
+import AlipayImportDialog from './AlipayImportDialog';
 
 const numeric = (value: string) => value.trim() === '' ? undefined : Number(value);
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -23,33 +24,38 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
   const input = useRef<HTMLInputElement>(null);
   const job = useRef(0);
   const controller = useRef<AbortController>();
-  const dialog = useRef<HTMLElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const owner = useRef(getAccountStorage());
   const close = () => { job.current++; controller.current?.abort(); setOpen(false); setProgress(''); setSources([]); setDraft(null); trigger.current?.focus(); };
   useEffect(() => () => { job.current++; controller.current?.abort(); }, []);
-  useEffect(() => {
-    if (!open) return;
-    dialog.current?.querySelector<HTMLButtonElement>('button')?.focus();
-    const keys = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); close(); }
-      if (event.key !== 'Tab') return;
-      const elements = Array.from(dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled):not([hidden]), select:not(:disabled), summary, a[href]') ?? []).filter((element) => element.getClientRects().length);
-      const first = elements[0]; const last = elements[elements.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
-    };
-    document.addEventListener('keydown', keys);
-    return () => document.removeEventListener('keydown', keys);
-  }, [open]);
   useEffect(() => () => { sources.forEach((source) => URL.revokeObjectURL(source.url)); }, [sources]);
   const patchFund = (id: string, patch: Partial<AlipayFundDraft>) => setDraft((value) => value && ({ ...value, funds: value.funds.map((row) => row.id === id ? { ...row, ...patch } : row) }));
   const patchOrder = (id: string, patch: Partial<AlipayOrderDraft>) => setDraft((value) => value && ({ ...value, orders: value.orders.map((row) => row.id === id ? { ...row, ...patch } : row) }));
-  const fundInput = (row: { id: string; code: string }, change: (code: string) => void) => <label>基金代码<input aria-label={`${row.id}基金代码`} inputMode="numeric" pattern="[0-9]{6}" list="alipay-import-funds" value={row.code} placeholder="选择或填写六位代码" onChange={(event) => change(event.target.value.trim())} /></label>;
+  const fundInput = (row: { id: string; code: string }, change: (code: string) => void) => <div className="alipay-import-fund-choice">
+    <label>匹配基金<select aria-label={`${row.id}匹配基金`} value={choices.some((choice) => choice.code === row.code) ? row.code : ''} onChange={(event) => change(event.target.value)}>
+      <option value="">请选择对应基金</option>
+      {choices.map((choice) => <option key={choice.code} value={choice.code}>{choice.name} · {choice.code}</option>)}
+    </select></label>
+    <label>基金代码<input aria-label={`${row.id}基金代码`} inputMode="numeric" pattern="[0-9]{6}" value={row.code} placeholder="六位代码" onChange={(event) => change(event.target.value.trim())} /></label>
+  </div>;
   return <>
-    <button ref={trigger} type="button" className="alipay-text-button" onClick={() => { setOpen(true); setError(''); }}>导入截图</button>
-    {open && <div className="alipay-import-backdrop" onClick={(event) => event.stopPropagation()}><section ref={dialog} className="alipay-import-dialog" role="dialog" aria-modal="true" aria-label="支付宝截图导入">
-      <header className="alipay-detail-line"><b>支付宝截图导入</b><button type="button" className="alipay-text-button" onClick={close}>关闭</button></header>
+    <button ref={trigger} type="button" className="alipay-text-button" onClick={() => {
+      const currentDate = today();
+      setDate(currentDate.startsWith(`${yearMonth}-`) ? currentDate : `${yearMonth}-01`);
+      setOpen(true); setError('');
+    }}>导入截图</button>
+    {open && <AlipayImportDialog title="支付宝截图导入" onClose={close} footer={<>
+      {progress && <div role="status">{progress}</div>}
+      {error && <div role="alert" className="alipay-pending">{error}</div>}
+      {draft && <button type="button" className="alipay-import-confirm" disabled={!!progress} onClick={() => {
+        try {
+          if (getAccountStorage() !== owner.current) throw new Error('账号已切换，请重新导入');
+          if (JSON.stringify(snapshots[date] ?? null) !== baseline) throw new Error('当日持仓已更新，请重新选择截图');
+          const snapshot = materializeAlipayScreenshots(draft, date, choices, snapshots[date]);
+          onPreview(snapshot, baseline); close(); setError('');
+        } catch (cause) { setError(cause instanceof Error ? cause.message : '请核对识别结果'); }
+      }}>生成持仓预览</button>}
+    </>}>
       <div className="alipay-detail-line"><label>持仓日期 <input aria-label="截图持仓日期" type="date" value={date} max={today()} disabled={!!progress} onChange={(event) => { setDate(event.target.value); setDraft(null); }} /></label>
         <button type="button" className="alipay-text-button" disabled={!!progress} onClick={() => input.current?.click()}>{draft ? '重新选择截图' : '选择截图'}</button></div>
       <span>交易记录 · 基金持有页 · 黄金持有页（可多选，也支持 JSON）</span>
@@ -76,9 +82,6 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
         } catch (cause) { if (token === job.current) setError(cause instanceof Error ? cause.message : '截图识别失败'); }
         finally { if (token === job.current) setProgress(''); }
       }} />
-      {progress && <div role="status">{progress}</div>}
-      {error && <div role="alert" className="alipay-pending">{error}</div>}
-      <datalist id="alipay-import-funds">{choices.map((choice) => <option key={choice.code} value={choice.code}>{choice.name}</option>)}</datalist>
       {sources.length > 0 && <details><summary>查看原图（{sources.length}）</summary><div className="alipay-import-images">{sources.map((source, index) => <a href={source.url} target="_blank" rel="noreferrer" key={`${source.name}:${index}`}><img src={source.url} alt={source.name} loading="lazy" /></a>)}</div></details>}
       {draft && <>
         <b>识别到 {draft.funds.length} 项持仓 · {draft.orders.length} 条交易</b>
@@ -113,15 +116,7 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
           {row.notes.filter((note) => /重复|冲突/.test(note)).map((note) => <span className="alipay-import-warning" key={note}>{note}</span>)}
           {row.selected && (!/^\d{6}$/.test(row.code) || !row.operationAt || row.quantity === undefined || row.status === 'unknown') && <span className="alipay-import-warning">需核对基金、时间、数量或状态</span>}
         </fieldset>)}
-        <button type="button" className="alipay-text-button" onClick={() => {
-          try {
-            if (getAccountStorage() !== owner.current) throw new Error('账号已切换，请重新导入');
-            if (JSON.stringify(snapshots[date] ?? null) !== baseline) throw new Error('当日持仓已更新，请重新选择截图');
-            const snapshot = materializeAlipayScreenshots(draft, date, choices, snapshots[date]);
-            onPreview(snapshot, baseline); close(); setError('');
-          } catch (cause) { setError(cause instanceof Error ? cause.message : '请核对识别结果'); }
-        }}>生成持仓预览</button>
       </>}
-    </section></div>}
+    </AlipayImportDialog>}
   </>;
 }

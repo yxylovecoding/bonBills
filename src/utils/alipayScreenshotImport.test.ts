@@ -8,6 +8,12 @@ const choices = [
   { code: '123457', name: '摩根示例欧洲股票(QDII)C', aliases: ['摩根示例欧洲股票(QDII)C'] },
   { code: '123458', name: '博时示例黄金联接C', aliases: ['博时示例黄金联接C'] },
 ];
+const indexChoices = [
+  { code: '800001', name: '华泰柏瑞沪深300ETF联接C', aliases: ['华泰柏瑞沪深300ETF联接C'] },
+  { code: '800002', name: '华泰柏瑞沪深300ETF联接A', aliases: ['华泰柏瑞沪深300ETF联接A'] },
+  { code: '800003', name: '华安三菱日联日经225ETF(QDII)C', aliases: ['华安三菱日联日经225ETF(QDII)C'] },
+  { code: '800004', name: '华安三菱日联日经225ETF(QDII)A', aliases: ['华安三菱日联日经225ETF(QDII)A'] },
+];
 const fund = (patch: Partial<AlipayFundDraft> = {}): AlipayFundDraft => ({ id: 'fund', source: 'a.png', code: '123456', name: choices[0].name, selected: true, notes: [], totalAmount: 110, holdingProfit: -10, amountKind: 'total', ...patch });
 const order = (patch: Partial<AlipayOrderDraft> = {}): AlipayOrderDraft => ({ id: 'order', source: 'b.png', code: '123456', name: choices[0].name, selected: true, notes: [], operationAt: '2026-10-08T10:00:00', side: 'buy', quantity: 20, unit: 'CNY', status: 'pending', ...patch });
 const draft = (funds = [fund()], orders: AlipayOrderDraft[] = []): AlipayScreenshotDraft => ({ funds, orders, notes: [] });
@@ -23,6 +29,37 @@ describe('支付宝基金匹配与截图布局', () => {
     expect(matchAlipayFund('摩根 示例欧洲股票 (QDII) C', choices)).toBe('123457');
     expect(matchAlipayFund('无法识别名称', choices, '987654')).toBe('987654');
     expect(matchAlipayFund('未知股票基金', choices)).toBe('');
+  });
+  it('识别指数名的 OCR 字母混淆并保留 A/C 份额区别', () => {
+    expect(matchAlipayFund('华泰柏瑞沪深3OOETF链接基金C', indexChoices)).toBe('800001');
+    expect(matchAlipayFund('华安三鞭日联日经22SETF(QD1I)A', indexChoices)).toBe('800004');
+    expect(matchAlipayFund('华泰柏瑞沪深300ETF联接', indexChoices)).toBe('');
+    expect(matchAlipayFund('华泰柏瑞沪深500ETF联接C', indexChoices)).toBe('');
+    expect(matchAlipayFund('易方达沪深300ETF联接C', indexChoices)).toBe('');
+  });
+  it('省略产品中段时只在前缀和份额类别共同唯一时匹配', () => {
+    expect(matchAlipayFund('华安三菱日联日经225…C', indexChoices)).toBe('800003');
+    expect(matchAlipayFund('华安三菱日联日经225...', indexChoices)).toBe('');
+    const ambiguous = [...indexChoices, { code: '800005', name: '华安三菱日联日经225其他产品C', aliases: ['华安三菱日联日经225其他产品C'] }];
+    expect(matchAlipayFund('华安三菱日联日经225…C', ambiguous)).toBe('');
+  });
+  it('沪深300持有行保留基金名、金额和持有收益', () => {
+    const parsed = parseAlipayScreenshot(screen([
+      [100, [['华泰柏瑞沪深3OO', 30, 410], ['120.00', 600, 730], ['+10.00', 820, 930]]],
+      [135, [['ETF联接C', 30, 210], ['+1.00', 630, 730], ['+9.09%', 820, 930]]],
+    ]), indexChoices, date);
+    expect(parsed.funds).toHaveLength(1);
+    expect(parsed.funds[0]).toMatchObject({ code: '800001', totalAmount: 120, holdingProfit: 10 });
+    expect(materializeAlipayScreenshots(parsed, date, indexChoices).funds[0]).toMatchObject({ name: indexChoices[0].name, totalAmount: 120, holdingProfit: 10 });
+  });
+  it('日经名称分三行时保留以 225ETF 开头的续行及末行份额类别', () => {
+    const parsed = parseAlipayScreenshot(screen([
+      [100, [['华安三菱日联日经', 30, 410], ['150.00', 600, 730], ['-5.00', 820, 930]]],
+      [135, [['225ETF(QDII)', 30, 300], ['+2.00', 630, 730], ['-3.23%', 820, 930]]],
+      [170, [['C', 30, 60]]],
+    ]), indexChoices, date);
+    expect(parsed.funds).toHaveLength(1);
+    expect(parsed.funds[0]).toMatchObject({ code: '800003', totalAmount: 150, holdingProfit: -5 });
   });
   it('汇总账号已有别名，排除同代码股票且不修改原始持仓', () => {
     const items = { eu: [{ id: 'x', symbol: 'OF123456', name: '简称', quoteSource: 'eastmoney-fund' as const, status: 'active' as const, historicalProfitCny: 0 }], us: [{ id: 'y', symbol: '654321', name: '股票', quoteSource: 'yahoo' as const, status: 'active' as const, historicalProfitCny: 0 }] };

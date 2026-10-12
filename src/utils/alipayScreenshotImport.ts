@@ -21,9 +21,11 @@ export interface AlipayOrderDraft {
 export interface AlipayScreenshotDraft { funds: AlipayFundDraft[]; orders: AlipayOrderDraft[]; notes: string[] }
 interface Line { text: string; words: OcrWord[]; y: number; bottom: number; height: number }
 const compact = (text: string) => text.normalize('NFKC').replace(/[\s·•|]/g, '').replace(/[−–—一](?=\d)/g, '-');
-const brands = /华安|摩根|南方|天弘|易方达|博时|工银|嘉实|华夏|富国|广发|招商|汇添富|鹏华|中欧|银华|景顺|国泰/;
+const brands = /华安|摩根|南方|天弘|易方达|博时|工银|嘉实|华夏|华泰柏瑞|富国|广发|招商|汇添富|鹏华|中欧|银华|景顺|国泰/;
 const fundName = (text: string) => {
   const clean = compact(text).toUpperCase().replace(/三鞭/g, '三菱').replace(/[^\u4e00-\u9fffA-Z0-9()\-]/g, '')
+    .replace(/沪深3[O0]{2}/g, '沪深300').replace(/日经22[5S]/g, '日经225')
+    .replace(/ETF[链连]接/g, 'ETF联接').replace(/ETF联接基金/g, 'ETF联接')
     .replace(/\(?QD[A-Z0-9]*?\)?([ACE])$/, '$1').replace(/\(?QD[A-Z0-9]*\)?$/, '').replace(/[()\-]$/g, '');
   const start = clean.search(brands);
   return start >= 0 ? clean.slice(start) : clean.replace(/^基金/, '');
@@ -53,10 +55,13 @@ export function matchAlipayFund(name: string, choices: AlipayFundChoice[], code 
   const target = fundName(name);
   if (target.length < 5) return '';
   const shareClass = target.match(/([ACE])$/)?.[1];
+  const truncated = /…|\.{2,}/.test(name);
   const matches = choices.filter((choice) => choice.aliases.some((alias) => {
     const candidate = fundName(alias);
     if (shareClass && candidate.match(/([ACE])$/)?.[1] !== shareClass) return false;
-    return candidate === target || (target.length >= 9 && candidate.startsWith(target));
+    if (candidate === target || (target.length >= 9 && candidate.startsWith(target))) return true;
+    // A list can truncate the product name but keep its A/C/E class on the next line.
+    return truncated && !!shareClass && target.length >= 10 && candidate.slice(0, -1).startsWith(target.slice(0, -1));
   }));
   return matches.length === 1 ? matches[0].code : '';
 }
@@ -175,7 +180,7 @@ export function parseAlipayScreenshot(image: AlipayOcrImage, choices: AlipayFund
     });
     for (let i = 0; i < anchors.length; i++) {
       const block = lines.filter((line) => line.y >= anchors[i].y && line.y < (anchors[i + 1]?.y ?? image.height));
-      const name = block.slice(0, gold ? 1 : 2).map(leftText).filter((text) => /[\u4e00-\u9fff]|^\(?QD[A-Z0-9)]+$|^[ACE]$/.test(text)
+      const name = block.slice(0, gold ? 1 : 3).map(leftText).filter((text) => /[\u4e00-\u9fff]|^(?:\d*ETF|\(?QD)[A-Z0-9()]*$|^[ACE]$/i.test(text)
         && !/持有|金额|昨日|收益|基金财富|反馈|定投|精选|限额/.test(text)).join('');
       const numberLines = block.filter((line) => (gold || line.y <= anchors[i].bottom)
         && line.words.some((word) => word.bbox.x0 > image.width * 0.45 && word.bbox.x0 < image.width * 0.78 && numbers(word.text).length));
