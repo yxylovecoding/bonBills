@@ -4,13 +4,14 @@ import { nextSkinPlan } from '../utils/lifeSkinProgress';
 import { symptomColor } from './symptomColor';
 import { SYMPTOM_STATES, type SymptomState } from '../utils/lifeSymptoms';
 import { DEFAULT_SKIN_SETTINGS, SKIN_FIELDS, SKIN_SEASONS, SKIN_STATES, matchingSkinProducts, skinLocalPlanValues, skinPlanValues, skinSeason,
-  type SkinField, type SkinRecord, type SkinSeason, type SkinSettings, type SkinState } from '../utils/lifeSkin';
+  type SkinRecord, type SkinSeason, type SkinSettings, type SkinState } from '../utils/lifeSkin';
 
+const RECORD_FIELDS = ['morningMedication', 'morningProducts', 'eveningMedication', 'eveningProducts'] as const;
 const productNames = (value: string) => [...new Set(value.split(/[、,，\n]/).map((name) => name.trim()).filter(Boolean))];
 
-function SkinProductChoices({ label, kind, value, products, fullWidth, busy, onChange }: {
+function SkinProductChoices({ label, kind, value, products, busy, onChange }: {
   label: string; kind: 'medication' | 'skincare'; value: string; products: { name: string }[];
-  fullWidth: boolean; busy: boolean; onChange: (value: string) => void;
+  busy: boolean; onChange: (value: string) => void;
 }) {
   const selected = productNames(value);
   const [remembered, setRemembered] = useState(selected);
@@ -20,7 +21,7 @@ function SkinProductChoices({ label, kind, value, products, fullWidth, busy, onC
   const kindLabel = kind === 'medication' ? '药品' : '护肤品';
   function remember(names: string[]) { setRemembered((previous) => [...new Set([...previous, ...names])]); }
   function finishEditing() { remember(selected); setEditing(false); }
-  return <fieldset className={`life-skin-choices life-skin-product-choices${fullWidth ? ' life-skin-full-field' : ''}`} disabled={busy}><legend>{label}</legend>
+  return <fieldset className="life-skin-choices life-skin-product-choices" disabled={busy}><legend>{label}</legend>
     {editing ? <div className="life-skin-product-input">
       <input autoFocus aria-label={`${label}名称`} maxLength={500} value={value} placeholder={`填写${kindLabel}名称`}
         onChange={(event) => onChange(event.target.value)}
@@ -53,9 +54,9 @@ export default function LifeSkinFields({ value = {}, date, entries, settings = D
   const day = value.planDay;
   const selectedDay = day ? plan?.days[day - 1] : undefined;
   const local = skinLocalPlanValues(settings, value);
-  const suggested = { ...(status && day && selectedDay ? skinPlanValues(settings, status, day, season) : {}), ...local };
+  const suggested = status && day && selectedDay ? skinPlanValues(settings, status, day, season) : {};
   const care = status ? matchingSkinProducts(settings, status, season, 'skincare') : [];
-  const hasSuggestion = Object.values(suggested).some(Boolean);
+  const hasSuggestion = RECORD_FIELDS.some((field) => Boolean(suggested[field]));
   function change(next: Partial<SkinRecord>) { onChange({ ...value, ...next }); }
   function followHistory(state: SkinState) {
     const next = { ...value, status: state };
@@ -96,19 +97,17 @@ export default function LifeSkinFields({ value = {}, date, entries, settings = D
       {value.acneMarks && <dl><div><dt>局部用药</dt><dd>{local.localMedication || '未设置'}</dd></div></dl>}
       <button className="life-skin-fill" type="button" disabled={busy || !hasSuggestion} onClick={() => {
         const next = { ...value, season };
-        for (const [field, content] of Object.entries(suggested)) if (!next[field as SkinField]?.trim()) next[field as SkinField] = content;
+        for (const field of RECORD_FIELDS) if (!next[field]?.trim() && suggested[field]) next[field] = suggested[field];
         onChange(next);
       }}>填入空白项</button>
     </section>}
-    <div className="life-fields">{(Object.entries(SKIN_FIELDS) as [SkinField, string][]).map(([field, label]) => {
-      if (field === 'localMedication' && !value.acneMarks && !value.localMedication) return null;
+    <div className="life-fields">{RECORD_FIELDS.map((field) => {
       const kind = field.endsWith('Products') ? 'skincare' : 'medication';
-      const time = field.startsWith('morning') ? 'morning' : field.startsWith('evening') ? 'evening' : undefined;
-      const products = field === 'localMedication' ? (local.localMedication ? [{ id: 'acne-marks', name: local.localMedication, tags: ['痘印'] }] : [])
-        : matchingSkinProducts(settings, status, season, kind, time);
+      const time = field.startsWith('morning') ? 'morning' : 'evening';
+      const products = matchingSkinProducts(settings, status, season, kind, time);
       const available = settings.products.filter((item) => item.active && item.kind === kind);
-      return <SkinProductChoices key={field} label={label} kind={kind} value={value[field] ?? ''} products={[...products, ...available]}
-        fullWidth={field === 'medication' || field === 'localMedication'} busy={busy} onChange={(next) => change({ [field]: next })} />;
+      return <SkinProductChoices key={field} label={SKIN_FIELDS[field]} kind={kind} value={value[field] ?? ''} products={[...products, ...available]}
+        busy={busy} onChange={(next) => change({ [field]: next })} />;
     })}</div>
   </div>;
 }

@@ -282,7 +282,6 @@
 .life-skin-plan dt small { display: block; font-size: 10px; }
 .life-skin-plan dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .life-skin-fill { color: var(--life-accent); font-size: 12px; padding: 6px 0; }
-.life-skin-full-field { grid-column: 1 / -1; }
 .life-skin-section-tabs { display: flex; gap: 22px; border-bottom: 1px solid var(--life-line); margin-bottom: 20px; }
 .life-skin-section-tabs button { padding: 0 0 12px; border-radius: 0; font-size: 13px; color: var(--life-muted); }
 .life-skin-section-tabs button[aria-pressed="true"] { color: var(--life-accent); box-shadow: 0 1px var(--life-accent); }
