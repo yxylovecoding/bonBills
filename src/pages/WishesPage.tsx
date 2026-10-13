@@ -133,6 +133,7 @@ export default function WishesPage() {
   const [activeWishId, setActiveWishId] = useState<string | null>(null);
   const [visiblePlanningMonth, setVisiblePlanningMonth] = useState('');
   const [pendingWishNameFocusId, setPendingWishNameFocusId] = useState<string | null>(null);
+  const [wishSearch, setWishSearch] = useState('');
   const [selectedSegmentDays, setSelectedSegmentDays] = useState<Record<string, number>>({});
   const [deadlineSettingsOpen, setDeadlineSettingsOpen] = useState(false);
   const [planningDetail, setPlanningDetail] = useState<PlanningDetailKind | null>(null);
@@ -448,6 +449,14 @@ export default function WishesPage() {
     () => sortWishesForDisplay(plan.items, allTripSegments, todayKey),
     [plan.items, allTripSegments, todayKey],
   );
+  const normalizedWishSearch = wishSearch.trim().toLocaleLowerCase('zh-CN');
+  const visiblePlanItems = useMemo(
+    () => normalizedWishSearch
+      ? orderedPlanItems.filter((item) => [item.name, ...(item.billSpending?.tags ?? [])]
+        .some((value) => value.toLocaleLowerCase('zh-CN').includes(normalizedWishSearch)))
+      : orderedPlanItems,
+    [orderedPlanItems, normalizedWishSearch],
+  );
   const selectableWishIds = useMemo(
     () => new Set(planningWishes.map((wish) => wish.id)),
     [planningWishes],
@@ -479,6 +488,7 @@ export default function WishesPage() {
   );
   const addWish = () => {
     const id = `wish_${Date.now()}`;
+    setWishSearch('');
     setSelectedSegmentDays({});
     setPendingWishNameFocusId(id);
     syncWishes([
@@ -1070,7 +1080,20 @@ export default function WishesPage() {
         className="wish-list-scroll"
       >
       <WishDebtSummary wishes={wishes} total={config.wishDebtTotal} onChange={updateDebtTotal} />
-      <Card className="wish-list-card" title="心愿清单" subtitle={`${wishes.length} 个心愿`}>
+      <Card className="wish-list-card" title="心愿清单" subtitle={normalizedWishSearch ? `${visiblePlanItems.length} / ${wishes.length} 个心愿` : `${wishes.length} 个心愿`}>
+        <div className="wish-search" role="search" aria-label="心愿搜索">
+          <input
+            type="search"
+            aria-label="搜索心愿或标签"
+            placeholder="搜索心愿或标签"
+            value={wishSearch}
+            onChange={(event) => setWishSearch(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setWishSearch('');
+            }}
+          />
+          {wishSearch && <button type="button" aria-label="清空心愿搜索" onClick={() => setWishSearch('')}>清空</button>}
+        </div>
         {wishes.length === 0 && (
           <div style={{ textAlign: 'center', padding: '26px 12px 20px', color: C.sub }}>
             <div style={{ fontSize: 30, marginBottom: 8 }}>♡</div>
@@ -1078,13 +1101,16 @@ export default function WishesPage() {
             <div style={{ fontSize: 11, marginTop: 4 }}>先写下一个想实现的目标吧</div>
           </div>
         )}
+        {wishes.length > 0 && visiblePlanItems.length === 0 && (
+          <div role="status" style={{ textAlign: 'center', padding: '26px 12px 20px', color: C.sub, fontSize: 12 }}>没有匹配的心愿</div>
+        )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {selectedPlanningWish ? (
+          {selectedPlanningWish && visiblePlanItems.length > 0 ? (
             <section ref={mobileSummaryRef} className="wish-mobile-financial-summary" aria-label={`${selectedPlanningWish.name} 收支规划`}>
               {planningFinancialSummary}
             </section>
           ) : null}
-          {orderedPlanItems.map((item) => {
+          {visiblePlanItems.map((item) => {
             const daysRemaining = item.deadline ? daysUntilDate(item.deadline, today) : null;
             const targetKey = `${item.id}:targetAmount`;
             const savedKey = `${item.id}:savedAmount`;

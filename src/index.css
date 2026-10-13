@@ -863,6 +863,12 @@ input[type='number'] { -moz-appearance: textfield; }
   overflow: clip !important;
 }
 
+.wish-search { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 8px 10px; border: 1px solid #ddd6fe; border-radius: 9px; background: #faf8ff; }
+.wish-search:focus-within { border-color: #a78bfa; box-shadow: 0 0 0 2px #ede9fe; }
+.wish-search input { flex: 1; width: 100%; min-width: 0; padding: 0; border: 0; outline: none; background: transparent; color: #202124; font-size: 12px; }
+.wish-search input::-webkit-search-cancel-button { display: none; }
+.wish-search button { flex-shrink: 0; padding: 0; border: 0; background: transparent; color: #7c3aed; font-size: 11px; cursor: pointer; }
+
 .wish-timeline {
   position: fixed;
   z-index: 30;
