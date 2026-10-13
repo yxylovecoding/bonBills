@@ -1,11 +1,10 @@
-import { useId, useMemo, useState } from 'react';
+import { useId, useState } from 'react';
 import type { WishItem } from '../models/types';
-import { useBillDetailStore } from '../stores/billDetailStore';
-import { flattenExpenseItems } from '../utils/trips';
-import { calculateWishFunding, classifyWishBill } from '../utils/wishes';
+import { useBillStatisticItems } from '../hooks/useBillStatisticItems';
+import { calculateWishFunding } from '../utils/wishes';
+import TagLogicStats from './TagLogicStats';
 import { formatCurrency } from './CurrencyDisplay';
 
-const BILL_KIND_LABELS = { consumption: '消费', life: '生活', unclassified: '待分类' };
 const signedCurrency = (amount: number) => `${amount < 0 ? '−' : ''}¥${formatCurrency(amount)}`;
 
 export default function WishSpendingSummary({ wish }: { wish: WishItem }) {
@@ -13,15 +12,6 @@ export default function WishSpendingSummary({ wish }: { wish: WishItem }) {
   const spending = wish.billSpending;
   const [expanded, setExpanded] = useState(false);
   const detailsId = useId();
-  const expenseItems = useBillDetailStore((state) => state.expenseItems);
-  const items = useMemo(() => {
-    if (!expanded || !spending?.tags.length) return [];
-    const tags = new Set(spending.tags);
-    // 从所有月份取命中账单；一笔账单即使命中多个标签也只展示一次。
-    return flattenExpenseItems(expenseItems)
-      .filter((item) => (item.tags || '').split(',').some((tag) => tags.has(tag.trim())))
-      .sort((a, b) => b.date.localeCompare(a.date));
-  }, [expanded, spending?.tags, expenseItems]);
   return (
     <div className="wish-spending-summary">
       <div className="wish-money-summary">
@@ -53,23 +43,24 @@ export default function WishSpendingSummary({ wish }: { wish: WishItem }) {
         </div>
       ) : <div className="wish-spending-footer">暂无账单</div>}
       {spending && spending.count > 0 && expanded ? (
-        <ul id={detailsId} className="wish-bill-list" aria-label={`${wish.name}账单明细`}>
-          {items.map((item, index) => (
-            <li key={index} className="wish-bill-row">
-              <div className="wish-bill-description">
-                <div>{item.note || item.subcategory || item.category || '账单'}</div>
-                <div className="wish-bill-meta">
-                  <span className={`wish-bill-kind wish-bill-kind--${classifyWishBill(item)}`}>{BILL_KIND_LABELS[classifyWishBill(item)]}</span>
-                  {' · '}
-                  <time dateTime={item.date}>{item.date}</time>
-                  {item.account ? ` · ${item.account}` : ''}
-                </div>
-              </div>
-              <span className="wish-bill-amount">{item.amount < 0 ? '退款 ' : ''}¥{formatCurrency(item.amount)}</span>
-            </li>
-          ))}
-        </ul>
+        <section
+          id={detailsId}
+          aria-label={`${wish.name}账单统计`}
+          style={{ marginTop: 10 }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 6, marginBottom: 8 }}>
+            <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#202124' }}>标签逻辑统计</h3>
+            <span style={{ fontSize: 11, color: '#5f6368', overflowWrap: 'anywhere' }}>已同步 {spending.tags.join('、')}</span>
+          </div>
+          <WishBillStats key={JSON.stringify(spending.tags)} tags={spending.tags} />
+        </section>
       ) : null}
     </div>
   );
+}
+
+function WishBillStats({ tags }: { tags: string[] }) {
+  const items = useBillStatisticItems();
+  return <TagLogicStats items={items} initialTags={tags} />;
 }

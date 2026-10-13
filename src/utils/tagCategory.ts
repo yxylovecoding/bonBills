@@ -41,3 +41,9 @@ export function classifyTag(tag: string, manual: Record<string, ManualTagCategor
   if (isQuantityTag(tag)) return 'quantity';
   return manual[tag] ?? 'unclassified';
 }
+
+// 仅 name / brand / unclassified 三类标签参与代表性支出维度。
+export function isMajorExcludedTag(tag: string, tagCategory: Record<string, ManualTagCategory>): boolean {
+  const c = classifyTag(tag, tagCategory);
+  return c !== 'name' && c !== 'brand' && c !== 'unclassified';
+}
