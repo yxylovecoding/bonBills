@@ -231,7 +231,7 @@ export async function readOutlookSnapshot(input: OutlookConnectionInput, startDa
       const text = await fetchCalendar(url);
       return { name, days: parseOutlookCalendar(text, kind, startDate, endDate, false, false, { timezone }), timed: availabilityRange
         ? parseOutlookCalendar(text, kind, availabilityRange.startDate, availabilityRange.endDate, false, true,
-          { timezone, includeFree: true }).filter((event) => !event.allDay) : [] };
+          { timezone, includeFree: true, includeTaskLink: true }).filter((event) => !event.allDay) : [] };
     } catch {
       // Never forward upstream errors: they can contain the private subscription URL.
       throw new Error(`「${name}」日历读取失败，请检查订阅链接与共享范围`);
@@ -241,6 +241,7 @@ export async function readOutlookSnapshot(input: OutlookConnectionInput, startDa
     .filter((source) => source.name === '玩' || source.name === '课')
     .flatMap((source) => source.days), startDate, endDate, input.rules);
   if (availabilityRange) snapshot.availability = { ...availabilityRange, events: events.flatMap((source) => source.timed)
-    .map((event) => ({ title: event.title, start: event.startDate, end: event.endDate })) };
+    .map((event) => ({ title: event.title, start: event.startDate, end: event.endDate,
+      ...(event.taskLink ? { taskLink: event.taskLink } : {}) })) };
   return snapshot;
 }

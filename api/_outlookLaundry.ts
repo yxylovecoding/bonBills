@@ -7,7 +7,7 @@ import { wallTimeInstant } from './_calendarTimezone.js';
 import { OUTLOOK_WRITE_KEY, OutlookWriteError, outlookGraphClient, withOutlookWriteLock, type GraphClient, type WriteConnection } from './_outlookWrite.js';
 
 export const LAUNDRY_EVENT_PROPERTY = 'String {d9d1e730-7742-4a9c-91af-bab2a9a45f69} Name BonBillsLaundry';
-interface Entry { eventId?: string; transactionId: string; deleted?: boolean; adoptTaskUrl?: string; verifiedPlan?: string }
+interface Entry { eventId?: string; transactionId: string; deleted?: boolean; replacement?: number; adoptTaskUrl?: string; verifiedPlan?: string; verifiedOn?: string }
 interface EventsState { entries: Record<string, Entry> }
 interface EventTime { dateTime: string; timeZone: string }
 interface CalendarEvent {
@@ -56,29 +56,37 @@ async function syncEvents(request: GraphClient, connection: WriteConnection, api
     if (!plan) continue;
     const key = digest(`${options.ticktickConnectionId}:${task.projectId}:${task.id}:${anchor.completion ?? anchor.target}`);
     const entry = state.entries[key] ??= { transactionId: key };
-    if (entry.deleted) continue;
     const fingerprint = digest(JSON.stringify(plan));
     // Hosted relay calls cost credits. Only skip after an actual successful Graph readback.
-    if (connection.provider === 'make' && entry.eventId && !entry.adoptTaskUrl && entry.verifiedPlan === fingerprint) continue;
+    if (connection.provider === 'make' && entry.eventId && !entry.deleted && !entry.adoptTaskUrl
+      && entry.verifiedPlan === fingerprint && entry.verifiedOn === options.today) continue;
     if (entry.verifiedPlan) { delete entry.verifiedPlan; await kv.set(stateKey, state); }
     let event: CalendarEvent | undefined;
     if (entry.eventId) {
       try { event = await request<CalendarEvent>(`${calendarPath}/${encodeURIComponent(entry.eventId)}?${expand}&${select}`); }
       catch (error) {
         if (!(error instanceof OutlookWriteError) || error.status !== 404) throw error;
-        entry.deleted = true; await kv.set(stateKey, state); continue; // Respect a user's deletion of this cycle.
+        // A stale/missing ID is not a permanent opt-out. Recover by ownership
+        // first, then recreate the pending appointment if it is truly absent.
       }
-    } else {
+    }
+    if (!event) {
       // Recover a successful POST even if its response or the local save was lost.
       const query = new URLSearchParams({ '$filter': `singleValueExtendedProperties/Any(ep: ep/id eq '${LAUNDRY_EVENT_PROPERTY}' and ep/value eq '${key}')`, '$top': '2' });
       const found = await request<{ value: CalendarEvent[]; '@odata.nextLink'?: string }>(`${calendarPath}?${query}&${expand}&${select}`);
       if (found.value.length > 1 || found['@odata.nextLink']) throw new OutlookWriteError('发现重复洗衣日程，请先核对');
       event = found.value[0];
+      if (!event && (entry.eventId || entry.deleted)) {
+        entry.replacement = (entry.replacement ?? 0) + 1;
+        entry.transactionId = digest(`${key}:replacement:${entry.replacement}`);
+        delete entry.eventId; delete entry.deleted; delete entry.verifiedOn;
+        await kv.set(stateKey, state);
+      }
     }
     const adopt = Boolean(event && entry.adoptTaskUrl && event.body?.content?.includes(entry.adoptTaskUrl));
     if (event && ((!owned(event, key) && !adopt) || event.subject !== '洗衣服' || (event.type && event.type !== 'singleInstance') || event.attendees?.length))
       throw new OutlookWriteError('洗衣日程已被修改或添加参与人，请先核对');
-    if (event?.isCancelled) { entry.deleted = true; await kv.set(stateKey, state); continue; }
+    if (event?.isCancelled) throw new OutlookWriteError('洗衣日程已取消，请先核对');
     // Recheck task completion/date/content immediately before calendar writes.
     const fresh = await api.getTask(task.projectId, task.id);
     if (JSON.stringify(laundryEventPlan(fresh, options.today, laundryLocation(options.configState)?.name)) !== JSON.stringify(plan)) continue;
@@ -100,11 +108,11 @@ async function syncEvents(request: GraphClient, connection: WriteConnection, api
       });
       updated++;
     }
-    entry.eventId = event.id; delete entry.adoptTaskUrl; await kv.set(stateKey, state);
+    entry.eventId = event.id; delete entry.adoptTaskUrl; delete entry.deleted; await kv.set(stateKey, state);
     const verified = await request<CalendarEvent>(`${calendarPath}/${encodeURIComponent(event.id)}?${expand}&${select}`);
     if (!owned(verified, key) || instant(verified.start) !== instant(plan.start) || instant(verified.end) !== instant(plan.end))
       throw new OutlookWriteError('Outlook 洗衣日程回读不一致，请稍后重试');
-    entry.verifiedPlan = fingerprint; await kv.set(stateKey, state); verifiedCount++;
+    entry.verifiedPlan = fingerprint; entry.verifiedOn = options.today; await kv.set(stateKey, state); verifiedCount++;
   }
   return { created, updated, verifiedCount };
 }

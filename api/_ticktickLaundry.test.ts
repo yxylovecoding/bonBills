@@ -16,7 +16,7 @@ const history = [task({ id: 'history', status: 2, completedTime: '2026-10-05T03:
 const state = (): LaundryState => ({ connectionId: 'connection', anchors: {} });
 const sunny: LaundryWeather = { rain: 0, probability: 5, sunshine: 7 * 3600, code: 0 };
 const wet: LaundryWeather = { rain: 3, probability: 80, sunshine: 3600, code: 61 };
-const dates = Array.from({ length: 16 }, (_, i) => `2026-10-${String(i + 5).padStart(2, '0')}`);
+const dates = Array.from({ length: 20 }, (_, i) => `2026-10-${String(i + 5).padStart(2, '0')}`);
 const forecast = (weather = wet): LaundryForecast => ({ fetchedAt: now.toISOString(), days: Object.fromEntries(dates.map(date => [date, { ...weather }])) });
 const city = { name: '北京', latitude: 40, longitude: 116.3 };
 const options = (fields: Record<string, any> = {}) => ({ tasks: [task()], history,
@@ -39,6 +39,28 @@ beforeEach(() => { data.clear(); upstream.mockReset(); mockWeather(); });
 afterEach(() => vi.restoreAllMocks());
 
 describe('洗衣周期和地点', () => {
+  it('Outlook 手动洗衣记录开启下一周期，历史滚出窗口后仍保留该完成锚点', () => {
+    const saved = state(), current = task(), later = new Date('2026-10-13T09:00:00+08:00');
+    const records = [{ title: '洗衣服', start: '2026-10-09T02:58:56Z', end: '2026-10-09T03:48:56Z' }];
+    expect(laundryAnchor(current, [current], history, saved, later, records)).toMatchObject({
+      completion: '2026-10-09T03:48:56Z', target: '2026-10-14',
+    });
+    expect(laundryAnchor(current, [current], history, saved, later, [])?.target).toBe('2026-10-14');
+    expect(laundryAnchor(current, [current], [...history, task({ id: 'new-done', status: 2,
+      completedTime: '2026-10-12T01:00:00Z' })], saved, later, records)?.target).toBe('2026-10-17');
+  });
+  it('自动预约、未结束日程、无效时段和同名任务歧义都不能冒充实际洗衣完成', () => {
+    const current = task(), later = new Date('2026-10-13T09:00:00+08:00');
+    const record = { title: '洗衣服', start: '2026-10-09T02:58:56Z', end: '2026-10-09T03:48:56Z' };
+    for (const records of [
+      [{ ...record, taskLink: { taskId: current.id, projectId: current.projectId } }],
+      [{ ...record, end: '2026-10-14T00:00:00Z' }],
+      [{ ...record, start: record.end }],
+      [{ ...record, title: '买洗衣服用的洗衣液' }],
+    ]) expect(laundryAnchor(current, [current], history, state(), later, records)?.target).toBe('2026-10-10');
+    expect(laundryAnchor(current, [current, task({ id: 'another', projectId: 'other' })], history, state(), later, [record])?.target)
+      .toBe('2026-10-10');
+  });
   it('完成后五天为目标，反复提前/推后不会移动窗口；新完成记录才开启下一周期', () => {
     const saved = state(), first = task();
     expect(laundryAnchor(first, [first], history, saved, now)?.target).toBe('2026-10-10');
@@ -70,6 +92,25 @@ describe('洗衣周期和地点', () => {
 });
 
 describe('天气与日程选日', () => {
+  it('当前待办的 Outlook 预约不占用自身空档，手动同名和其他任务仍避开', () => {
+    const current = task(), f = forecast(sunny);
+    const event = { title: '洗衣服', start: '2026-10-10T00:00:00Z', end: '2026-10-10T01:00:00Z',
+      taskLink: { taskId: current.id, projectId: current.projectId } };
+    const o = options({ availability: { startDate: '2026-10-05', endDate: '2026-11-01', events: [event] } });
+    expect(chooseLaundryDay(current, '2026-10-10', o, () => f)).toBe('2026-10-10');
+    for (const conflict of [{ ...event, taskLink: undefined },
+      { ...event, taskLink: { taskId: 'other', projectId: 'life' } },
+      { ...event, taskLink: { taskId: 'wash', projectId: 'other' } }]) {
+      expect(chooseLaundryDay(current, '2026-10-10', { ...o, availability: { ...o.availability, events: [event, conflict] } }, () => f))
+        .toBe('2026-10-09');
+    }
+  });
+  it('全天洗衣待办仍核对将写入 Outlook 的08点时段，不能占用会议时间', () => {
+    const current = task({ isAllDay: true });
+    const o = options({ tasks: [current], availability: { startDate: '2026-10-05', endDate: '2026-11-01',
+      events: [{ title: '会议', start: '2026-10-10T00:00:00Z', end: '2026-10-10T01:00:00Z' }] } });
+    expect(chooseLaundryDay(current, '2026-10-10', o, () => forecast(sunny))).toBe('2026-10-09');
+  });
   it('最早提前一天、最晚推后两天；即使提前两天天气更好也不入选', () => {
     const f = forecast();
     for (const date of ['2026-10-07', '2026-10-08', '2026-10-09']) f.days[date] = sunny;
@@ -124,6 +165,27 @@ describe('天气与日程选日', () => {
 });
 
 describe('洗衣同步与天气故障', () => {
+  it('次日重新读取天气并改期，新日程冲突再次改期，但完成周期始终不漂移', async () => {
+    const c = client(); mockWeather(forecast(sunny));
+    expect((await syncLaundrySchedule(c.api, { ...options(), connectionId: 'connection' })).decisions[0].date).toBe('2026-10-10');
+    const tomorrow = new Date('2026-10-06T05:00:00+08:00'), f = { ...forecast(), fetchedAt: tomorrow.toISOString() };
+    for (const day of ['2026-10-11', '2026-10-12', '2026-10-13']) f.days[day] = sunny;
+    mockWeather(f);
+    const o = options({ tasks: [c.current()], today: '2026-10-06', now: tomorrow });
+    expect((await syncLaundrySchedule(c.api, { ...o, connectionId: 'connection' })).decisions[0])
+      .toMatchObject({ target: '2026-10-10', date: '2026-10-12' });
+    expect(upstream).toHaveBeenCalledTimes(2);
+    o.availability.events.push({ title: '会议', start: '2026-10-12T00:00:00Z', end: '2026-10-12T01:00:00Z' });
+    const changed = await syncLaundrySchedule(c.api, { ...o, tasks: [c.current()], connectionId: 'connection' });
+    expect(changed.decisions[0]).toMatchObject({ target: '2026-10-10', date: '2026-10-11' });
+    expect(c.current().dueDate).toBe('2026-10-11T00:00:00Z');
+  });
+  it('完整同步用 Outlook 新完成记录重排待办并保存新周期', async () => {
+    const c = client(), o = options();
+    o.availability.events.push({ title: '洗衣服', start: '2026-10-05T04:00:00Z', end: '2026-10-05T04:50:00Z' });
+    await syncLaundrySchedule(c.api, { ...o, connectionId: 'connection' });
+    expect(data.get(LAUNDRY_STATE_KEY).anchors.wash.completion).toBe('2026-10-05T04:50:00Z');
+  });
   it('四天固定周期始终从实际完成日计算，并纠正 TickTick 按旧到期日生成的日期', async () => {
     const original = task({
       startDate: '2026-10-12T00:00:00Z', dueDate: '2026-10-12T00:00:00Z',

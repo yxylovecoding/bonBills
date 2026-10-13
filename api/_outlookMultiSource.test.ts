@@ -11,6 +11,22 @@ describe('Outlook 多源订阅扩展', () => {
   const workUrl = 'https://outlook.office365.com/owa/calendar/private-work/published/calendar.ics';
   const calUrl = 'https://outlook.live.com/owa/calendar/private-cal/published/calendar.ics';
 
+  it('空档快照保留待办关联，区分自动洗衣预约和手动完成记录', async () => {
+    const input = parseOutlookInput({ playUrl: '', classUrl: '', sources: [{ name: '日历', url: calUrl, kind: 'calendar' }],
+      policy: 'manual', rules: DEFAULT_OUTLOOK_RULES });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(calendar([
+      'BEGIN:VEVENT', 'UID:planned', 'DTSTART:20261014T000000Z', 'DTEND:20261014T005000Z', 'SUMMARY:洗衣服',
+      'DESCRIPTION:https://ticktick.com/webapp/#p/life/tasks/wash', 'END:VEVENT',
+      'BEGIN:VEVENT', 'UID:recorded', 'DTSTART:20261009T025856Z', 'DTEND:20261009T034856Z', 'SUMMARY:洗衣服', 'END:VEVENT',
+    ].join('\r\n')))));
+    const snapshot = await readOutlookSnapshot(input, '2026-10-01', '2026-11-01', { startDate: '2026-10-01', endDate: '2026-11-01' });
+    expect(snapshot.availability?.events).toEqual([
+      { title: '洗衣服', start: '2026-10-14T00:00:00.000Z', end: '2026-10-14T00:50:00.000Z', taskLink: { projectId: 'life', taskId: 'wash' } },
+      { title: '洗衣服', start: '2026-10-09T02:58:56.000Z', end: '2026-10-09T03:48:56.000Z' },
+    ]);
+    vi.unstubAllGlobals();
+  });
+
   it('支持向后兼容解析：旧连接能解密并自动补齐 sources', () => {
     const oldInput = { playUrl, classUrl, policy: 'manual' as const, rules: DEFAULT_OUTLOOK_RULES };
     const parsed = parseOutlookInput(oldInput);

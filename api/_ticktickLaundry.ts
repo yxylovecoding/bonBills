@@ -63,11 +63,22 @@ function lastCompletion(task: TickTickTask, tasks: TickTickTask[], history: Tick
     .map(record => record.completedTime!).sort((a, b) => Date.parse(b) - Date.parse(a))[0];
 }
 
-export function laundryAnchor(task: TickTickTask, tasks: TickTickTask[], history: TickTickTask[], state: LaundryState, now: Date): Anchor | null {
+export function laundryAnchor(task: TickTickTask, tasks: TickTickTask[], history: TickTickTask[], state: LaundryState, now: Date,
+  outlookEvents: OutlookAvailability['events'] = []): Anchor | null {
   // Do not change finite rules or reinterpret an unknown cadence as five days.
   if (!routineTaskDate(task) || !task.repeatFlag || /(?:COUNT|UNTIL|BYHOUR|BYMINUTE|BYSECOND)=/i.test(task.repeatFlag)) return null;
-  const completion = lastCompletion(task, tasks, history, now), lastDay = calendarDateInTimeZone(completion, task.timeZone);
   const saved = state.anchors[task.id];
+  // DoneList treats ended personal calendar records as completed activity. A linked
+  // automatic appointment is only a plan: its end time must not start a new cycle.
+  // Without an explicit task link, only match a single active laundry task.
+  const outlook = tasks.filter(candidate => pending(candidate) && isLaundryTask(candidate)).length === 1
+    ? outlookEvents.filter(event => normalize(event.title) === '洗衣服' && !event.taskLink
+      && Date.parse(event.start) < Date.parse(event.end) && Date.parse(event.end) <= now.getTime()).map(event => event.end) : [];
+  const completion = [lastCompletion(task, tasks, history, now),
+    ...(saved?.projectId === task.projectId && saved.repeatFlag === task.repeatFlag ? [saved.completion] : []), ...outlook]
+    .filter((value): value is string => Boolean(value) && Number.isFinite(Date.parse(value!)) && Date.parse(value!) <= now.getTime())
+    .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+  const lastDay = calendarDateInTimeZone(completion, task.timeZone);
   const fromCompletion = lastDay ? cycleEnd(task, lastDay) : null;
   if (!cycleEnd(task, lastDay ?? routineTaskDate(task) ?? '')) return null;
   const target = fromCompletion ?? (saved?.projectId === task.projectId && saved.repeatFlag === task.repeatFlag
@@ -94,24 +105,29 @@ export function laundryBeforeTrip(target: string, trips: TickTickTripSource[], c
 function hasTime(task: TickTickTask, date: string, options: PlanOptions) {
   const { availability, today, now, profile } = options;
   if (!availability || date < availability.startDate || date >= availability.endDate) return false;
+  // Only exclude this task's own appointment. Another same-name/manual event
+  // must continue to block its time slot.
+  const calendar = { ...availability, events: availability.events.filter(event => !(event.taskLink?.taskId === task.id
+    && event.taskLink.projectId === task.projectId && normalize(event.title) === '洗衣服')) };
   const others = options.tasks.filter(other => other.id !== task.id && pending(other));
   const minutes = estimateTaskMinutes(task);
-  const free = dayAvailability({ calendar: availability, day: date, today, now, profile,
+  const free = dayAvailability({ calendar, day: date, today, now, profile,
     tasks: others,
     fixed: others.filter(other => routineTaskDate(other) === date && (other.priority ?? 0) < 5
       && !(other.tags ?? []).some(tag => ['routine', 'bon-hidden', '不关我事'].includes(normalize(tag)))),
     completed: options.history.filter(record => calendarDateInTimeZone(record.completedTime) === date), estimate: estimateTaskMinutes });
   if (free.remainingMinutes < minutes || !free.slots.some(([start, end]) => end - start >= minutes * 60_000)) return false;
-  if (task.isAllDay !== false) return true;
   // Preserve the existing time (including a morning 08:00 reminder), and reject
   // days when that time conflicts instead of silently moving an appointment.
-  const start = Date.parse(shiftTickTickDate(task.startDate ?? task.dueDate, routineTaskDate(task)!, date) ?? '');
+  const start = task.isAllDay === false
+    ? Date.parse(shiftTickTickDate(task.startDate ?? task.dueDate, routineTaskDate(task)!, date) ?? '')
+    : Date.parse(`${date}T08:00:00+08:00`);
   const end = start + minutes * 60_000;
   const midnight = Date.parse(`${date}T00:00:00+08:00`);
   if (!Number.isFinite(start) || start < now.getTime() || start < midnight + 8 * 3600_000 || end > midnight + 22 * 3600_000
     || (profile === 'evening' && start < midnight + 20 * 3600_000)) return false;
   if ([[11, 14], [18, 20]].some(([from, to]) => start < midnight + to * 3600_000 && end > midnight + from * 3600_000)) return false;
-  const intervals = [...availability.events.map(event => [Date.parse(event.start), Date.parse(event.end)]),
+  const intervals = [...calendar.events.map(event => [Date.parse(event.start), Date.parse(event.end)]),
     ...others.filter(other => other.isAllDay === false).map(other => {
       const from = Date.parse(other.startDate ?? other.dueDate ?? '');
       return [from, Math.max(Date.parse(other.dueDate ?? '') || from, from + estimateTaskMinutes(other) * 60_000)];
@@ -200,7 +216,7 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
   const forecasts = new Map<string, Promise<LaundryForecast>>();
   let updated = 0;
   for (const task of tasks) {
-    const anchor = laundryAnchor(task, options.tasks, options.history, state, options.now);
+    const anchor = laundryAnchor(task, tasks, options.history, state, options.now, options.availability?.events);
     if (!anchor) { decisions.push({ id: task.id, reason: '周期或日期不可用，保留原排期' }); continue; }
     // Persist the original cycle before any write; failed/partial retries cannot drift the window.
     await kv.set(LAUNDRY_STATE_KEY, state);

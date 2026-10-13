@@ -69,11 +69,31 @@ it('创建请求响应丢失后通过稳定标识找回，下一实际完成周�
   cycle('2026-10-08T03:00:00Z'); task.startDate = task.dueDate = '2026-10-13T00:00:00Z';
   expect(await syncLaundryOutlook(api, options())).toMatchObject({ created: 1 }); expect(events.size).toBe(2);
 });
-it('普通同名日程不被认领，已删除的自动日程本周期不再新建', async () => {
+it('普通同名日程不被认领，缺失的自动日程恢复一次且使用新的幂等标识', async () => {
   events.set('manual', { id: 'manual', subject: '洗衣服', start: {}, end: {} });
   await syncLaundryOutlook(api, options()); expect(events.has('manual')).toBe(true); expect(events.size).toBe(2);
   events.delete('event-2');
-  await syncLaundryOutlook(api, options()); await syncLaundryOutlook(api, options()); expect(writes).toHaveLength(1);
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ created: 1 });
+  await syncLaundryOutlook(api, options()); expect(writes).toHaveLength(2);
+  expect(writes[1].body.transactionId).not.toBe(writes[0].body.transactionId);
+  expect(events.size).toBe(2); expect(events.get('manual').start).toEqual({});
+});
+it('旧的已删除标记也可恢复；恢复响应丢失后找回，避免重复创建', async () => {
+  await syncLaundryOutlook(api, options());
+  const state = [...data.entries()].find(([key]) => key.startsWith('outlook:laundry-events:v1:'))![1];
+  Object.values<any>(state.entries)[0].deleted = true;
+  events.clear(); loseCreateResponse = true;
+  expect(await syncLaundryOutlook(api, options())).toHaveProperty('error');
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ created: 0 });
+  expect(events.size).toBe(1); expect(writes).toHaveLength(2);
+});
+it('旧ID失效但通过归属找到日程时更新原日程，不额外创建', async () => {
+  await syncLaundryOutlook(api, options());
+  const existing = events.get('event-1'); events.delete('event-1');
+  events.set('moved', { ...existing, id: 'moved' });
+  task.startDate = task.dueDate = '2026-10-09T00:00:00Z';
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ created: 0, updated: 1 });
+  expect(events.size).toBe(1); expect(events.get('moved').start.dateTime).toBe('2026-10-09T08:00:00');
 });
 it('接管明确关联的已有洗衣事件，保留正文并转换为稳定归属，不重复创建', async () => {
   const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -117,7 +137,7 @@ it('只同步管理范围内未完成的洗衣；默认50分钟并拒绝历史�
   expect(laundryEventPlan({ ...task, title: '除螨喷雾' }, '2026-10-05')).toBeNull();
   expect(laundryEventPlan({ ...task, tags: ['不关我事'] }, '2026-10-05')).toBeNull();
 });
-it('Make 只在排期变化时调用，变更仍核对归属并更新同一事件', async () => {
+it('Make 同日同排期复用验证，次日仍回读；变更核对归属并更新同一事件', async () => {
   const upstream = globalThis.fetch;
   const relay = vi.fn(async (_url: string, init: RequestInit) => {
     const input = JSON.parse(init.body as string);
@@ -133,9 +153,12 @@ it('Make 只在排期变化时调用，变更仍核对归属并更新同一事�
   expect(count).toBe(3);
   await syncLaundryOutlook(api, options());
   expect(relay).toHaveBeenCalledTimes(count); expect(data.get(OUTLOOK_WRITE_KEY).lastSyncAt).toBe(syncedAt);
+  events.get('event-1').start.dateTime = '2026-10-08T09:00:00';
+  expect(await syncLaundryOutlook(api, { ...options(), today: '2026-10-06' })).toMatchObject({ updated: 1 });
+  expect(events.get('event-1').start.dateTime).toBe('2026-10-08T08:00:00');
   task.startDate = task.dueDate = '2026-10-09T00:00:00Z';
   expect(await syncLaundryOutlook(api, options())).toMatchObject({ updated: 1 });
   expect(events.size).toBe(1); expect(writes[1].headers['If-Match']).toBe('v1');
   events.get('event-1').attendees = [{}]; task.startDate = task.dueDate = '2026-10-10T00:00:00Z';
-  expect((await syncLaundryOutlook(api, options())).error).toContain('参与人'); expect(writes).toHaveLength(2);
+  expect((await syncLaundryOutlook(api, options())).error).toContain('参与人'); expect(writes).toHaveLength(3);
 });

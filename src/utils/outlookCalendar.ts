@@ -42,7 +42,7 @@ export interface OutlookSnapshot {
 export interface OutlookAvailability {
   startDate: string;
   endDate: string;
-  events: { title: string; start: string; end: string }[];
+  events: { title: string; start: string; end: string; taskLink?: { taskId: string; projectId: string } }[];
 }
 
 export interface OutlookAppliedDay {
