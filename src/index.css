@@ -1353,6 +1353,11 @@ input[type='number'] { -moz-appearance: textfield; }
 .wish-debt-breakdown { margin-top: 12px; flex-wrap: wrap; }
 .wish-debt-breakdown strong { color: #202124; font-weight: 600; }
 .wish-spending-summary { margin-top: 10px; padding: 10px 0; border-top: 1px solid #ede9fe; border-bottom: 1px solid #ede9fe; }
+.wish-spending-summary--compact { margin-top: 12px; padding: 0; border: 0; }
+.wish-spending-overview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 12px; align-items: start; }
+.wish-spending-summary--compact .wish-spending-breakdown { margin-top: 0; gap: 4px 10px; }
+.wish-spending-summary--compact .wish-spending-breakdown > span { white-space: nowrap; }
+.wish-spending-summary--compact .wish-money-summary { flex-wrap: wrap; gap: 4px 8px; }
 .wish-money-summary strong { color: #202124; }
 .wish-money-summary .wish-repaid-amount { color: #0d9488; }
 .wish-spending-breakdown { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 7px; font-size: 11px; color: #5f6368; }

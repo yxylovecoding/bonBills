@@ -129,6 +129,7 @@ export default function WishesPage() {
   const [amountDrafts, setAmountDrafts] = useState<Record<string, string>>({});
   const [lodgingAmountModes, setLodgingAmountModes] = useState<Record<string, LodgingAmountMode>>({});
   const [budgetEstimateWishId, setBudgetEstimateWishId] = useState<string | null>(null);
+  const [tripDetailsWishId, setTripDetailsWishId] = useState<string | null>(null);
   const [planningDeadline, setPlanningDeadline] = useState('');
   const [activeWishId, setActiveWishId] = useState<string | null>(null);
   const [visiblePlanningMonth, setVisiblePlanningMonth] = useState('');
@@ -508,6 +509,7 @@ export default function WishesPage() {
     setSelectedSegmentDays({});
     setActiveWishId((currentId) => currentId === id ? null : currentId);
     setBudgetEstimateWishId((currentId) => currentId === id ? null : currentId);
+    setTripDetailsWishId((currentId) => currentId === id ? null : currentId);
     syncWishes(storedWishes.filter((item) => item.id !== id));
   };
   const updateWish = <K extends keyof WishItem>(id: string, field: K, value: WishItem[K]) => {
@@ -673,18 +675,18 @@ export default function WishesPage() {
   }, [handleWishListScroll]);
 
   useEffect(() => {
-    if (!budgetEstimateWishId) return undefined;
-    const closeBudgetEstimateOnOutsidePointer = (event: PointerEvent) => {
+    if (!budgetEstimateWishId && !tripDetailsWishId) return undefined;
+    const closeDetailsOnOutsidePointer = (event: PointerEvent) => {
       if (!(event.target instanceof Node)) return;
-      const expandedCard = Array.from(
-        wishListScrollRef.current?.querySelectorAll<HTMLElement>('[data-wish-id]') ?? [],
-      ).find((element) => element.dataset.wishId === budgetEstimateWishId);
-      if (expandedCard?.contains(event.target)) return;
-      setBudgetEstimateWishId(null);
+      const target = event.target;
+      const cards = Array.from(wishListScrollRef.current?.querySelectorAll<HTMLElement>('[data-wish-id]') ?? []);
+      const isInside = (id: string | null) => cards.some((card) => card.dataset.wishId === id && card.contains(target));
+      if (!isInside(budgetEstimateWishId)) setBudgetEstimateWishId(null);
+      if (!isInside(tripDetailsWishId)) setTripDetailsWishId(null);
     };
-    document.addEventListener('pointerdown', closeBudgetEstimateOnOutsidePointer);
-    return () => document.removeEventListener('pointerdown', closeBudgetEstimateOnOutsidePointer);
-  }, [budgetEstimateWishId]);
+    document.addEventListener('pointerdown', closeDetailsOnOutsidePointer);
+    return () => document.removeEventListener('pointerdown', closeDetailsOnOutsidePointer);
+  }, [budgetEstimateWishId, tripDetailsWishId]);
 
   useEffect(() => {
     const deadlineMonth = effectivePlanningDeadline.slice(0, 7);
@@ -1170,6 +1172,28 @@ export default function WishesPage() {
             const actualWishSavingCompleted = (item.targetAmount > 0 || funding.consumptionSpentAmount > 0 || hasActualTarget)
               && remainingActualWishSavingAmount <= 0;
             const budgetEstimateVisible = !hasActualTarget && budgetEstimateWishId === item.id;
+            const tripDetailsVisible = tripDetailsWishId === item.id;
+            const amountField = (
+              <div style={{ minWidth: 0 }}>
+                <span style={{ display: 'block', fontSize: 10, color: C.sub, marginBottom: 4 }}>{hasActualTarget ? '实际花销' : '目标金额'}</span>
+                {hasActualTarget ? (
+                  <WishActualAmount label={`${item.name} 实际花销`} original={item.billSpending!.estimatedTargetAmount} actual={item.targetAmount} showSpentLabel={!actualWishSavingCompleted} />
+                ) : <div style={{ display: 'flex', alignItems: 'center', gap: 4, border: `1px solid ${budgetEstimateWishId === item.id ? '#c4b5fd' : '#e5e7eb'}`, borderRadius: 9, backgroundColor: '#fff', padding: '6px 8px', boxShadow: budgetEstimateWishId === item.id ? '0 0 0 2px #ede9fe' : 'none' }}>
+                  <span style={{ fontSize: 11, color: C.sub }}>¥</span>
+                  <AmountInput
+                    aria-label="目标金额"
+                    aria-expanded={budgetEstimateVisible}
+                    aria-controls={`budget-estimate-${item.id}`}
+                    value={amountDrafts[targetKey] ?? (item.targetAmount ? String(item.targetAmount) : '')}
+                    onChange={(raw) => updateAmount(item.id, 'targetAmount', raw)}
+                    onFocus={() => setBudgetEstimateWishId(item.id)}
+                    onBlur={() => finishAmountEdit(item.id, 'targetAmount')}
+                    placeholder="0"
+                    style={{ width: '100%', minWidth: 0, border: 'none', outline: 'none', background: 'transparent', textAlign: 'right', fontSize: 12, fontWeight: 700, color: C.purple }}
+                  />
+                </div>}
+              </div>
+            );
             const isSelectedPlanningWish = selectedPlanningWish?.id === item.id;
             const itemShortfallWorkDays = milestonePlan.segmentByWishId[item.id]?.cumulativePlan.shortfallWorkDays;
             return (
@@ -1195,32 +1219,25 @@ export default function WishesPage() {
                   <input
                     aria-label="心愿名称"
                     value={item.name}
+                    aria-expanded={tripDetailsVisible}
+                    aria-controls={`wish-trip-details-${item.id}`}
+                    onFocus={() => setTripDetailsWishId(item.id)}
+                    onClick={() => setTripDetailsWishId(item.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') setTripDetailsWishId(null);
+                      if (event.key === 'Enter') setTripDetailsWishId((current) => current === item.id ? null : item.id);
+                    }}
                     onChange={(event) => updateWish(item.id, 'name', event.target.value)}
                     style={{ flex: 1, minWidth: 0, border: 'none', borderBottom: '1px solid transparent', outline: 'none', background: 'transparent', fontSize: 14, fontWeight: 700, color: item.isActive ? '#202124' : '#9aa0a6' }}
                   />
                   <button type="button" aria-label="删除心愿" onClick={() => removeWish(item.id)} style={{ border: 'none', background: 'transparent', color: '#9aa0a6', fontSize: 18, padding: '0 2px', cursor: 'pointer', lineHeight: 1 }}>×</button>
                 </div>
 
+                {actualWishSavingCompleted ? (
+                  <WishSpendingSummary wish={item} completedAmount={amountField} />
+                ) : <>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9, marginTop: 12 }}>
-                  <div style={{ display: 'block' }}>
-                    <span style={{ display: 'block', fontSize: 10, color: C.sub, marginBottom: 4 }}>{hasActualTarget ? '实际花销' : '目标金额'}</span>
-                    {hasActualTarget ? (
-                      <WishActualAmount label={`${item.name} 实际花销`} original={item.billSpending!.estimatedTargetAmount} actual={item.targetAmount} />
-                    ) : <div style={{ display: 'flex', alignItems: 'center', gap: 4, border: `1px solid ${budgetEstimateWishId === item.id ? '#c4b5fd' : '#e5e7eb'}`, borderRadius: 9, backgroundColor: '#fff', padding: '6px 8px', boxShadow: budgetEstimateWishId === item.id ? '0 0 0 2px #ede9fe' : 'none' }}>
-                      <span style={{ fontSize: 11, color: C.sub }}>¥</span>
-                      <AmountInput
-                        aria-label="目标金额"
-                        aria-expanded={budgetEstimateVisible}
-                        aria-controls={`budget-estimate-${item.id}`}
-                        value={amountDrafts[targetKey] ?? (item.targetAmount ? String(item.targetAmount) : '')}
-                        onChange={(raw) => updateAmount(item.id, 'targetAmount', raw)}
-                        onFocus={() => setBudgetEstimateWishId(item.id)}
-                        onBlur={() => finishAmountEdit(item.id, 'targetAmount')}
-                        placeholder="0"
-                        style={{ width: '100%', minWidth: 0, border: 'none', outline: 'none', background: 'transparent', textAlign: 'right', fontSize: 12, fontWeight: 700, color: C.purple }}
-                      />
-                    </div>}
-                  </div>
+                  {amountField}
                   <div style={{ display: 'block' }}>
                     <span style={{ display: 'block', fontSize: 10, color: C.sub, marginBottom: 4 }}>已经攒下</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, border: '1px solid #e5e7eb', borderRadius: 9, backgroundColor: '#fff', padding: '6px 8px' }}>
@@ -1238,6 +1255,7 @@ export default function WishesPage() {
                 </div>
 
                 <WishSpendingSummary wish={item} />
+                </>}
 
                 {linkedTripDefaultDeadline ? null : (
                   <div style={{ display: 'block', marginTop: 9 }}>
@@ -1273,7 +1291,10 @@ export default function WishesPage() {
                   </div>
                 )}
 
+                {(tripDetailsVisible || budgetEstimateVisible) && (
                 <div style={{ marginTop: 9, borderRadius: 10, border: '1px solid #ede9fe', backgroundColor: '#faf7ff', padding: '8px 9px' }}>
+                  {tripDetailsVisible && (
+                  <div id={`wish-trip-details-${item.id}`}>
                   <label style={{ display: 'block' }}>
                     <span style={{ display: 'block', fontSize: 10, color: C.sub, marginBottom: 4 }}>关联出游（可选）</span>
                     <select
@@ -1324,6 +1345,8 @@ export default function WishesPage() {
                         天
                       </span>
                     </label>
+                  )}
+                  </div>
                   )}
                   {budgetEstimateVisible && itemTravelDays <= 0 && (
                     <div id={`budget-estimate-${item.id}`} style={{ marginTop: 8, borderTop: '1px dashed #ddd6fe', paddingTop: 8, fontSize: 10, color: C.purple, lineHeight: 1.5 }}>
@@ -1498,6 +1521,10 @@ export default function WishesPage() {
                   )}
                 </div>
 
+                )}
+
+                {!actualWishSavingCompleted && (
+                <>
                 <div style={{ height: 6, borderRadius: 999, backgroundColor: '#ede9fe', overflow: 'hidden', marginTop: 12 }}>
                   <div style={{ width: `${progress * 100}%`, height: '100%', borderRadius: 999, backgroundColor: progress >= 1 ? C.green : C.purple, transition: 'width 0.2s' }} />
                 </div>
@@ -1515,18 +1542,19 @@ export default function WishesPage() {
                   )}
                 </div>
 
-                <div style={{ marginTop: 10, borderRadius: 10, padding: '8px 9px', backgroundColor: isOngoingTrip ? '#f5f3ff' : item.deadlineState === 'overdue' && !actualWishSavingCompleted ? '#fef2f2' : actualWishSavingCompleted ? '#ecfdf5' : '#f5f3ff', color: isOngoingTrip ? C.purple : item.deadlineState === 'overdue' && !actualWishSavingCompleted ? C.red : actualWishSavingCompleted ? C.green : C.purple, fontSize: 11, fontWeight: 700, lineHeight: 1.5 }}>
+                <div style={{ marginTop: 10, borderRadius: 10, padding: '8px 9px', backgroundColor: isOngoingTrip ? '#f5f3ff' : item.deadlineState === 'overdue' ? '#fef2f2' : '#f5f3ff', color: isOngoingTrip ? C.purple : item.deadlineState === 'overdue' ? C.red : C.purple, fontSize: 11, fontWeight: 700, lineHeight: 1.5 }}>
                   {isOngoingTrip ? `进行中 · ${Number(linkedTrip.endDate.slice(5, 7))}/${Number(linkedTrip.endDate.slice(8, 10))} 结束` : <>
                     {!item.isActive && '已暂停，不计入最少实习规划'}
-                    {item.isActive && actualWishSavingCompleted && (funding.debtAmount > 0 ? '已攒足 · 待还自己' : '✓ 心愿已经攒满')}
-                    {item.isActive && !actualWishSavingCompleted && item.deadlineState === 'none' && (remainingActualWishSavingAmount > 0 ? '无 DDL，按自己的节奏慢慢攒' : '填入目标金额后开始计算')}
-                    {item.isActive && !actualWishSavingCompleted && item.deadlineState === 'overdue' && `已超期 · 还需补 ¥${formatCurrency(remainingActualWishSavingAmount)}`}
-                    {item.isActive && !actualWishSavingCompleted && item.deadlineState === 'scheduled' && daysRemaining !== null && remainingActualWishSavingAmount > 0 && (
+                    {item.isActive && item.deadlineState === 'none' && (remainingActualWishSavingAmount > 0 ? '无 DDL，按自己的节奏慢慢攒' : '填入目标金额后开始计算')}
+                    {item.isActive && item.deadlineState === 'overdue' && `已超期 · 还需补 ¥${formatCurrency(remainingActualWishSavingAmount)}`}
+                    {item.isActive && item.deadlineState === 'scheduled' && daysRemaining !== null && remainingActualWishSavingAmount > 0 && (
                       `${daysRemaining === 0 ? '今天截止' : `还剩 ${daysRemaining.toLocaleString('zh-CN')} 天`} · 截止前还需攒 ¥${formatCurrency(remainingActualWishSavingAmount)}`
                     )}
                     {item.isActive && item.deadlineState === 'scheduled' && item.targetAmount <= 0 && (itemTravelDays > 0 ? '填写机酒价格并采用估算后开始计算' : '填入目标金额后开始计算')}
                   </>}
                 </div>
+                </>
+                )}
               </div>
             );
           })}
