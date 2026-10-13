@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AlipayScreenshotValidationError, alipayFundChoices, alipayFundNeedsReview, alipayOrderNeedsReview, matchAlipayFund, parseAlipayScreenshot, combineAlipayScreenshotDrafts, materializeAlipayScreenshots, suggestAlipayFundByAmount, type AlipayFundDraft, type AlipayOrderDraft, type AlipayScreenshotDraft } from './alipayScreenshotImport';
+import { AlipayScreenshotValidationError, alipayFundChoices, alipayFundNeedsReview, alipayOrderNeedsReview, matchAlipayFund, parseAlipayScreenshot, combineAlipayScreenshotDrafts, inferAlipayFundClassesByAmount, materializeAlipayScreenshots, suggestAlipayFundByAmount, type AlipayFundDraft, type AlipayOrderDraft, type AlipayScreenshotDraft } from './alipayScreenshotImport';
 import type { AlipayOcrImage } from './alipayScreenshotOcr';
 import type { AlipayActualSnapshot } from '../models/types';
 
@@ -300,6 +300,69 @@ describe('日经 A/C 历史金额推测与确认', () => {
       expect(() => materializeAlipayScreenshots(draft([{ ...confirmed, ...patch }]), date, indexChoices)).toThrow('请先确认日经');
     }
     expect(materializeAlipayScreenshots(draft([truncated({ code: '800004' })]), date, indexChoices).funds[0].code).toBe('800004');
+  });
+  it('同一对按大额 A、小额 C 自动填入，可直接预览且不改变原始数值', () => {
+    const input = draft([truncated({ id: 'small', totalAmount: 100, shares: 80, notes: ['基金待匹配'] }), truncated({ id: 'large', totalAmount: 1200 })]);
+    const before = structuredClone(input);
+    const inferred = inferAlipayFundClassesByAmount(input, indexChoices, {}, date);
+    expect(input).toEqual(before);
+    expect(inferred.funds.map((row) => [row.code, row.amountMatch?.inferred, alipayFundNeedsReview(row)])).toEqual([
+      ['800003', true, false], ['800004', true, false],
+    ]);
+    expect(inferred.funds[0].notes).toEqual([]);
+    const result = materializeAlipayScreenshots(inferred, date, indexChoices);
+    expect(result.funds.map(({ code, totalAmount, holdingProfit, shares }) => ({ code, totalAmount, holdingProfit, shares }))).toEqual([
+      { code: '800003', totalAmount: 100, holdingProfit: -10, shares: 80 },
+      { code: '800004', totalAmount: 1200, holdingProfit: -10, shares: undefined },
+    ]);
+    expect(inferAlipayFundClassesByAmount(inferred, indexChoices, {}, date)).toEqual(inferred);
+  });
+  it('成对金额优先于逐笔历史距离，倒序和重复截图仍得到同一类别', () => {
+    const input = draft([truncated({ totalAmount: 1300 }), truncated({ totalAmount: 1100 }), truncated({ totalAmount: 1300, selected: false })]);
+    expect(inferAlipayFundClassesByAmount(input, indexChoices, { old: history() }, date).funds.map((row) => row.code)).toEqual(['800004', '800003', '800004']);
+  });
+  it('修改金额重新推测，清空金额或改变金额类型不保留旧推测', () => {
+    const inferred = inferAlipayFundClassesByAmount(draft([truncated({ totalAmount: 100 }), truncated({ totalAmount: 1200 })]), indexChoices, {}, date);
+    inferred.funds[0].totalAmount = 1500;
+    const swapped = inferAlipayFundClassesByAmount(inferred, indexChoices, {}, date);
+    expect(swapped.funds.map((row) => row.code)).toEqual(['800004', '800003']);
+    for (const patch of [{ totalAmount: undefined }, { amountKind: 'confirmed' as const }]) {
+      const changed = { ...swapped, funds: swapped.funds.map((row, i) => i === 0 ? { ...row, ...patch } : row) };
+      expect(inferAlipayFundClassesByAmount(changed, indexChoices, {}, date).funds.map((row) => row.code)).toEqual(['', '']);
+    }
+  });
+  it('明确识别和人工选择优先，另一笔采用互补类别，人工清空也不覆盖', () => {
+    const input = draft([truncated({ totalAmount: 1200, code: '800003', manualCode: true }), truncated({ totalAmount: 100 })]);
+    expect(inferAlipayFundClassesByAmount(input, indexChoices, {}, date).funds.map((row) => row.code)).toEqual(['800003', '800004']);
+    input.funds[0] = truncated({ totalAmount: 1200, name: indexChoices[2].name, code: '800003' });
+    expect(inferAlipayFundClassesByAmount(input, indexChoices, {}, date).funds.map((row) => row.code)).toEqual(['800003', '800004']);
+    input.funds[0] = truncated({ totalAmount: 1200, manualCode: true });
+    expect(inferAlipayFundClassesByAmount(input, indexChoices, {}, date).funds.map((row) => row.code)).toEqual(['', '800003']);
+  });
+  it('等额、三种金额或已知类别互相冲突时保留待核对', () => {
+    for (const amounts of [[100, 100], [100, 200, 300]]) {
+      expect(inferAlipayFundClassesByAmount(draft(amounts.map((totalAmount) => truncated({ totalAmount }))), indexChoices, { old: history() }, date)
+        .funds.every((row) => !row.code)).toBe(true);
+    }
+    const conflict = draft([truncated({ totalAmount: 100, code: '800003' }), truncated({ totalAmount: 1200, code: '800003' }), truncated({ totalAmount: 1200 })]);
+    expect(inferAlipayFundClassesByAmount(conflict, indexChoices, {}, date).funds[2].code).toBe('');
+  });
+  it('基金系列或 A/C 候选不唯一时不按金额分配', () => {
+    const input = draft([truncated({ totalAmount: 100 }), truncated({ totalAmount: 1200 })]);
+    const extra = { code: '800005', name: '华安三菱日联日经225其他产品C', aliases: ['华安三菱日联日经225其他产品C'] };
+    for (const candidates of [[indexChoices[2]], [...indexChoices, extra]]) {
+      expect(inferAlipayFundClassesByAmount(input, candidates, {}, date).funds.every((row) => !row.code)).toBe(true);
+    }
+  });
+  it('单行可采用唯一最近的历史金额，无历史或同距离时保留待核对', () => {
+    const input = draft([truncated()]);
+    const inferred = inferAlipayFundClassesByAmount(input, indexChoices, { old: history() }, date);
+    expect(inferred.funds[0]).toMatchObject({ code: '800003', amountMatch: { inferred: true } });
+    expect(materializeAlipayScreenshots(inferred, date, indexChoices).funds[0].code).toBe('800003');
+    const ambiguous: Record<string, AlipayActualSnapshot>[] = [{}, { old: history('2026-10-09', 150, 152) }, { future: history('2026-10-11') }];
+    for (const snapshots of ambiguous) {
+      expect(inferAlipayFundClassesByAmount(input, indexChoices, snapshots, date).funds[0].code).toBe('');
+    }
   });
 });
 

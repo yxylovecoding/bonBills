@@ -10,7 +10,8 @@ export interface AlipayFundDraft {
   totalAmount?: number; holdingProfit?: number; shares?: number; costPrice?: number;
   nav?: number; navDate?: string; confirmedAmount?: number; pendingBuyAmount?: number;
   amountKind: 'total' | 'confirmed';
-  amountMatch?: { code: string; totalAmount: number; amountKind: 'total' | 'confirmed' };
+  amountMatch?: { code: string; totalAmount: number; amountKind: 'total' | 'confirmed'; inferred?: boolean };
+  manualCode?: boolean;
 }
 export interface AlipayOrderDraft {
   id: string; source: string; name: string; code: string; selected: boolean; notes: string[];
@@ -80,8 +81,7 @@ export function matchAlipayFund(name: string, choices: AlipayFundChoice[], code 
   return matches.length === 1 ? matches[0].code : '';
 }
 
-/** Amounts suggest a share class; they never assign a code without confirmation. */
-export function suggestAlipayFundByAmount(row: AlipayFundDraft, choices: AlipayFundChoice[], snapshots: Record<string, AlipayActualSnapshot>, date: string) {
+function nikkeiFundCandidates(row: AlipayFundDraft, choices: AlipayFundChoice[]) {
   const target = fundName(row.name);
   if (row.code || !target.includes('日经') || /[ACE]$/.test(target) || target.length < 9
     || row.totalAmount === undefined || !Number.isFinite(row.totalAmount) || row.totalAmount < 0) return [];
@@ -91,9 +91,15 @@ export function suggestAlipayFundByAmount(row: AlipayFundDraft, choices: AlipayF
   });
   // A similar balance must not turn two different products into an A/C pair.
   if (new Set(candidates.flatMap(({ families }) => families)).size !== 1) return [];
+  return candidates.map(({ choice }) => choice);
+}
+
+/** Historical candidates remain available for manual changes and single-row imports. */
+export function suggestAlipayFundByAmount(row: AlipayFundDraft, choices: AlipayFundChoice[], snapshots: Record<string, AlipayActualSnapshot>, date: string) {
+  const candidates = nikkeiFundCandidates(row, choices);
   const history = Object.values(snapshots).filter((snapshot) => snapshot.date <= date).sort((a, b) => b.date.localeCompare(a.date));
-  const amount = row.totalAmount;
-  return candidates.flatMap(({ choice }) => {
+  const amount = row.totalAmount!;
+  return candidates.flatMap((choice) => {
     const previous = history.find((snapshot) => snapshot.funds.some((fund) => fund.code === choice.code));
     const fund = previous?.funds.find((fund) => fund.code === choice.code);
     if (!fund || !previous) return [];
@@ -103,6 +109,40 @@ export function suggestAlipayFundByAmount(row: AlipayFundDraft, choices: AlipayF
     return [{ code: choice.code, name: choice.name, previousDate: previous.date, previousAmount,
       difference: Math.abs(Math.round(amount * 100) - Math.round(previousAmount * 100)) }];
   }).sort((a, b) => a.difference - b.difference || a.code.localeCompare(b.code));
+}
+
+/** Bon's default for an unlabeled Nikkei pair: the larger balance is A, the smaller C. */
+export function inferAlipayFundClassesByAmount(draft: AlipayScreenshotDraft, choices: AlipayFundChoice[], snapshots: Record<string, AlipayActualSnapshot>, date: string): AlipayScreenshotDraft {
+  const funds = draft.funds.map((row) => row.amountMatch?.inferred ? { ...row, code: '', amountMatch: undefined } : row);
+  return { ...draft, funds: funds.map((row) => {
+    if (row.manualCode || row.code) return row;
+    const candidates = nikkeiFundCandidates(row, choices);
+    const a = candidates.filter((choice) => choice.aliases.some((alias) => /A$/.test(fundName(alias))));
+    const c = candidates.filter((choice) => choice.aliases.some((alias) => /C$/.test(fundName(alias))));
+    if (candidates.length !== 2 || a.length !== 1 || c.length !== 1 || a[0].code === c[0].code) return row;
+    const pair = candidates.map((choice) => choice.code).sort().join(':');
+    const peers = funds.filter((other) => other.amountKind === row.amountKind && other.totalAmount !== undefined
+      && Number.isFinite(other.totalAmount) && other.totalAmount >= 0
+      && (candidates.some((choice) => choice.code === other.code)
+        || nikkeiFundCandidates(other, choices).map((choice) => choice.code).sort().join(':') === pair));
+    const cents = (value: AlipayFundDraft) => Math.round(value.totalAmount! * 100);
+    const balances = [...new Set(peers.map(cents))].sort((x, y) => x - y);
+    let code = '';
+    if (balances.length === 2) {
+      let highCode = a[0].code;
+      // Explicit OCR/manual labels take precedence over the default ranking.
+      const known = peers.filter((other) => other.code);
+      if (known.length) highCode = cents(known[0]) === balances[1] ? known[0].code : candidates.find((choice) => choice.code !== known[0].code)!.code;
+      const lowCode = candidates.find((choice) => choice.code !== highCode)!.code;
+      if (known.some((other) => other.code !== (cents(other) === balances[1] ? highCode : lowCode))) return row;
+      code = cents(row) === balances[1] ? highCode : lowCode;
+    } else if (peers.length === 1) {
+      const suggestions = suggestAlipayFundByAmount(row, choices, snapshots, date);
+      if (suggestions.length === 2 && suggestions[0].difference < suggestions[1].difference) code = suggestions[0].code;
+    }
+    return code ? { ...row, code, amountMatch: { code, totalAmount: row.totalAmount!, amountKind: row.amountKind, inferred: true },
+      notes: row.notes.filter((note) => note !== '基金待匹配') } : row;
+  }) };
 }
 
 function visualLines(words: OcrWord[]): Line[] {
