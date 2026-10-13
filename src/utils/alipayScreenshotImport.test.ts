@@ -143,7 +143,7 @@ describe('支付宝基金匹配与截图布局', () => {
     ]), choices, '2027-01-02');
     expect(result.orders[0]).toMatchObject({ code: '123456', quantity: 20, operationAt: '2026-12-31T10:00:00', orderId: '202612310000000000001', status: 'pending', navDate: '2026-12-31', expectedConfirmationDate: '2027-01-04' });
   });
-  it('交易记录保留未知状态、卖出份额与被截掉时间的尾行', () => {
+  it('交易记录空白状态视为已确认，保留撤销卖出和未截全尾行', () => {
     const result = parseAlipayScreenshot(screen([
       [10, [['交易记录', 40, 300]]], [50, [['明细', 40, 100]]],
       [100, [['买入', 40, 100], [choices[0].name, 170, 690], ['20.00元', 790, 950]]],
@@ -153,13 +153,15 @@ describe('支付宝基金匹配与截图布局', () => {
       [350, [['定投', 40, 100], [choices[0].name, 170, 690], ['10.00元', 790, 950]]],
     ]), choices, date);
     expect(result.orders).toHaveLength(3);
-    expect(result.orders[0].status).toBe('unknown');
+    expect(result.orders[0].status).toBe('confirmed');
+    expect(alipayOrderNeedsReview(result.orders[0])).toBe(false);
     expect(result.orders[1]).toMatchObject({ side: 'sell', unit: 'shares', quantity: 30, status: 'cancelled' });
     expect(result.orders[2].operationAt).toBe('');
     expect(result.orders[2].selected).toBe(false);
+    expect(result.orders[2].status).toBe('unknown');
     expect(result.orders[2].notes).toContain('交易未截全，默认不计入');
   });
-  it('交易名称去掉字段引号和抬头，未显示状态的订单仍需核对', () => {
+  it('交易名称去掉字段引号和抬头，未显示状态的完整订单直接确认', () => {
     const parsed = parseAlipayScreenshot(screen([
       [10, [['交易记录', 40, 300]]], [50, [['明细', 40, 100]]],
       [100, [['定投', 40, 100], ['”基金华安三萎日联日经225ETF(QDID)', 170, 690], ['20.00元', 790, 950]]],
@@ -168,10 +170,10 @@ describe('支付宝基金匹配与截图布局', () => {
       [1990, [['乱码尾行', 170, 630]]],
     ]), indexChoices, date);
     expect(parsed.orders).toHaveLength(1);
-    expect(parsed.orders[0]).toMatchObject({ name: '华安三菱日联日经225ETF(QDID)A', code: '800004', status: 'unknown' });
+    expect(parsed.orders[0]).toMatchObject({ name: '华安三菱日联日经225ETF(QDID)A', code: '800004', status: 'confirmed' });
     expect(parsed.notes).toEqual(['synthetic.png：底部交易不完整，未计入']);
   });
-  it('双模式只补全同时间同数量的交易名称，不借用状态或其他订单', () => {
+  it('双模式只补全同时间同数量的交易名称，不借用其他订单', () => {
     const transaction = (name: string, quantity = '20.00元', time = '2026-10-08 10:00:00', status = '') => screen([
       [10, [['交易记录', 40, 300]]], [50, [['明细', 40, 100]]],
       [100, [['买入', 40, 100], [name, 170, 690], [quantity, 790, 950]]],
@@ -180,13 +182,45 @@ describe('支付宝基金匹配与截图布局', () => {
     const primary = transaction('乱码');
     const fallback = transaction(choices[0].name, '20.00元', '2026-10-08 10:00:00', '交易成功');
     expect(parseAlipayScreenshot({ ...primary, fallback }, choices, date).orders[0])
-      .toMatchObject({ code: '123456', quantity: 20, status: 'unknown', notes: [] });
+      .toMatchObject({ code: '123456', quantity: 20, status: 'confirmed', notes: [] });
     for (const other of [transaction(choices[0].name, '30.00元'), transaction(choices[0].name, '20.00元', '2026-10-08 11:00:00')]) {
       expect(parseAlipayScreenshot({ ...primary, fallback: other }, choices, date).orders[0].code).toBe('');
     }
     const conflict = parseAlipayScreenshot({ ...transaction(choices[1].name), fallback }, choices, date).orders[0];
     expect(conflict.code).toBe('');
     expect(conflict.notes).toContain('基金识别不一致，请核对');
+  });
+  it.each([['', 'confirmed'], ['已撤销', 'cancelled'], ['交易进行中', 'pending'], ['无法辨认的状态', 'unknown']] as const)
+  ('交易状态 %s 识别为 %s，并保留到持仓预览', (label, status) => {
+    const parsed = parseAlipayScreenshot(screen([
+      [10, [['交易记录', 40, 300]]], [50, [['明细', 40, 100]]],
+      [100, [['定投', 40, 100], [choices[0].name, 170, 690], ['20.00元', 790, 950]]],
+      [135, [[label, 790, 950]]], [170, [['2026-10-08 10:00:00', 170, 630]]],
+    ]), choices, date);
+    expect(parsed.orders[0]).toMatchObject({ status, side: 'buy', quantity: 20 });
+    if (status === 'unknown') expect(alipayOrderNeedsReview(parsed.orders[0])).toBe(true);
+    else {
+      const snapshot = materializeAlipayScreenshots({ ...parsed, funds: [fund()] }, date, choices);
+      expect(snapshot.orders[0].status).toBe(status);
+      expect(snapshot.orders[0]).not.toHaveProperty('statusFromBlank');
+    }
+  });
+  it('双模式漏读状态时采用同一行的明确状态，不把确认中或撤销误判为已确认', () => {
+    const transaction = (label: string, time = '2026-10-08 10:00:00', y = 100) => screen([
+      [10, [['交易记录', 40, 300]]], [50, [['明细', 40, 100]]],
+      [y, [['买入', 40, 100], [choices[0].name, 170, 690], ['20.00元', 790, 950]]],
+      [y + 35, [[label, 790, 950]]], [y + 70, [[time, 170, 630]]],
+    ]);
+    for (const [label, status] of [['交易进行中', 'pending'], ['已撤销', 'cancelled']] as const) {
+      expect(parseAlipayScreenshot({ ...transaction(''), fallback: transaction(label) }, choices, date).orders[0].status).toBe(status);
+      expect(parseAlipayScreenshot({ ...transaction(label), fallback: transaction('') }, choices, date).orders[0].status).toBe(status);
+      for (const other of [transaction(label, '2026-10-08 11:00:00'), transaction(label, undefined, 400)]) {
+        expect(parseAlipayScreenshot({ ...transaction(''), fallback: other }, choices, date).orders[0].status).toBe('confirmed');
+      }
+    }
+    const conflict = parseAlipayScreenshot({ ...transaction('交易成功'), fallback: transaction('已撤销') }, choices, date).orders[0];
+    expect(conflict.status).toBe('unknown');
+    expect(conflict.notes).toContain('交易状态识别冲突，请核对');
   });
   it('双模式只补全同一持仓行名称，不从邻行借名字或替换数值', () => {
     const holding = (name: string, y = 100, amount = '120.00') => screen([

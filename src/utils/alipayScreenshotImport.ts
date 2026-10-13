@@ -17,6 +17,7 @@ export interface AlipayOrderDraft {
   id: string; source: string; name: string; code: string; selected: boolean; notes: string[];
   orderId?: string; operationAt: string; side: 'buy' | 'sell'; quantity?: number;
   unit: 'CNY' | 'shares'; status: AlipayActualOrder['status'];
+  statusFromBlank?: boolean;
   navDate?: string; confirmationDate?: string; expectedConfirmationDate?: string;
   confirmedShares?: number; nav?: number; fee?: number;
 }
@@ -252,8 +253,11 @@ export function parseAlipayScreenshot(image: AlipayOcrImage, choices: AlipayFund
       const unit = /份/.test(right) ? 'shares' : 'CNY';
       const quantity = amount !== undefined && (unit === 'shares' || Math.abs(amount * 100 - Math.round(amount * 100)) < 0.00001) ? amount : undefined;
       const operationAt = normalizeTime(stamp.text);
+      // Alipay omits the status label after confirmation. A clipped row or unreadable
+      // label is not evidence of a blank status.
+      const statusFromBlank = !!operationAt && quantity !== undefined && /^[¥￥]?[+\-]?\d[\d,]*\.\d+(?:元|份)?$/.test(right);
       result.orders.push({ id: `${source}:${stamp.y}`, source, name, code, quantity, operationAt, selected: !!operationAt,
-        side: /卖出|赎回/.test(text) ? 'sell' : 'buy', unit, status: statusOf(right),
+        side: /卖出|赎回/.test(text) ? 'sell' : 'buy', unit, status: statusFromBlank ? 'confirmed' : statusOf(right), statusFromBlank,
         notes: [...notesFor(code, [quantity]), ...(!operationAt ? ['交易未截全，默认不计入'] : [])] });
       top = stamp.bottom;
     }
@@ -306,14 +310,23 @@ export function parseAlipayScreenshot(image: AlipayOcrImage, choices: AlipayFund
       const matched = !row.code && codes.size === 1 ? candidates.find((candidate) => candidate.code) : undefined;
       return matched ? { ...row, code: matched.code, name: matched.name, notes: row.notes.filter((note) => note !== '基金待匹配') } : row;
     };
-    const y = (row: AlipayFundDraft) => Number(row.id.slice(row.id.lastIndexOf(':') + 1));
-    // Only repair a name in the same visual row or exact transaction. Never copy balances or statuses.
+    const y = (row: { id: string }) => Number(row.id.slice(row.id.lastIndexOf(':') + 1));
+    // Only repair a name in the same visual row or exact transaction. Never copy balances.
     result.funds = result.funds.map((row) => resolveName(row, alternate.funds.filter((candidate) =>
       Math.abs(y(row) - y(candidate)) < image.height * 0.02 && row.totalAmount !== undefined
       && candidate.totalAmount === row.totalAmount && candidate.holdingProfit === row.holdingProfit)));
-    result.orders = result.orders.map((row) => resolveName(row, alternate.orders.filter((candidate) =>
-      row.operationAt && candidate.operationAt === row.operationAt && row.quantity !== undefined && candidate.quantity === row.quantity
-      && candidate.unit === row.unit && candidate.side === row.side)));
+    result.orders = result.orders.map((row) => {
+      const candidates = alternate.orders.filter((candidate) => row.operationAt && candidate.operationAt === row.operationAt
+        && row.quantity !== undefined && candidate.quantity === row.quantity && candidate.unit === row.unit && candidate.side === row.side);
+      const resolved = resolveName(row, candidates);
+      // A visible pending/cancelled label in the other OCR pass takes precedence over
+      // an omitted label, but only for one matching row in this same screenshot.
+      const candidate = candidates.length === 1 ? candidates[0] : undefined;
+      if (!candidate || !(Math.abs(y(row) - y(candidate)) < image.height * 0.02)
+        || !resolved.code || (candidate.code && candidate.code !== resolved.code) || candidate.statusFromBlank || candidate.status === 'unknown') return resolved;
+      if (row.statusFromBlank || row.status === 'unknown') return { ...resolved, status: candidate.status, statusFromBlank: false };
+      return row.status === candidate.status ? resolved : { ...resolved, status: 'unknown', notes: [...resolved.notes, '交易状态识别冲突，请核对'] };
+    });
   }
   if (!result.funds.length && !result.orders.length) result.notes.push(`${source}：未识别到基金或交易，请核对图片`);
   return result;
