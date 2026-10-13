@@ -105,6 +105,38 @@ describe('理财月际继承', () => {
     expect(shares(august)).toBe(10);
   });
 
+  it('历史流水重放不把父月或本月的 past 持仓移回 now', () => {
+    for (const pausedAt of ['parent', 'child']) {
+      const parent = investmentRecord('2026-08', 10);
+      const child = createInvestmentRolloverRecord(parent, '2026-09');
+      (pausedAt === 'parent' ? parent : child).investPositionItems!.us![0].status = 'paused';
+      if (pausedAt === 'child') child.investmentEditedAt = '2026-09-02T10:00:00.000Z';
+      child.investmentTransactions = [buy('imported', '2026-09-01', 2)];
+      const result = replayInvestmentRecord(parent, child);
+      expect(result.investPositionItems!.us![0]).toMatchObject({ status: 'paused', shares: 12 });
+    }
+  });
+
+  it('未手动设为 past 的自动清仓持仓，再次买入后正常回到 now', () => {
+    const parent = investmentRecord('2026-08', 0);
+    parent.investmentEditedAt = undefined;
+    parent.investPositionItems!.us![0].status = 'paused';
+    const child = { ...createInvestmentRolloverRecord(parent, '2026-09'), investmentTransactions: [buy('rebuy', '2026-09-01', 2)] };
+    const result = replayInvestmentRecord(parent, child);
+    expect(result.investPositionItems!.us![0]).toMatchObject({ status: 'active', shares: 2 });
+  });
+
+  it('自动建立的待确认占位在买入确认后仍能正常进入 now', () => {
+    const parent = investmentRecord('2026-08', 0);
+    parent.investPositionItems!.us![0] = { ...position(0), id: 'pending-position:test', status: 'paused', pendingBuys: [
+      { id: 'pending', matchKey: 'pending', baseMatchKey: 'pending', operationAt: '2026-08-31T10:00:00', name: '标普', symbol: 'SPY', groupKey: 'us', amount: 10, currency: 'CNY' },
+    ] };
+    const child = { ...createInvestmentRolloverRecord(parent, '2026-09'), investmentTransactions: [{ ...buy('confirmed', '2026-09-01', 1), pendingMatchKey: 'pending' }] };
+    const result = replayInvestmentRecord(parent, child);
+    expect(result.investPositionItems!.us![0]).toMatchObject({ status: 'active', shares: 1 });
+    expect(result.investPositionItems!.us![0].pendingBuys).toBeUndefined();
+  });
+
   it('父月变化后重放本月导入交易，并按月份过滤和按 ID 防重', () => {
     const august = investmentRecord('2026-08', 10);
     const septemberBase = createInvestmentRolloverRecord(august, '2026-09');

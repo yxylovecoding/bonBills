@@ -11,7 +11,7 @@ import type {
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { syncInvestPositionItems } from './investPositionItems';
 import { normalizeBillDate } from './importBill';
-import { canonicalInvestmentSymbol } from './investmentInstrument';
+import { canonicalInvestmentName, canonicalInvestmentSymbol } from './investmentInstrument';
 import { investmentImportCutoff } from './importCutoffs';
 import {
   applyInvestmentTransaction,
@@ -23,6 +23,7 @@ import {
   investmentPositionItemsForRecord,
   nextInvestmentApplicationOrder,
   replayInvestmentRecord,
+  retainPastInvestmentStatuses,
 } from './investmentRollover';
 import { triggerUpload } from './syncEngine';
 import { matchesInvestmentOrder, reconcileAutoFundBuy } from './autoFundBuys';
@@ -348,11 +349,12 @@ function samePendingInstrument(item: InvestPositionItem, pending: PendingInvestm
   return item.name.trim().toLowerCase() === pending.name.trim().toLowerCase();
 }
 
-function matchedPositionGroup(items: InvestPositionItems, symbol: string): InvestKey | undefined {
+function matchedPositionGroup(items: InvestPositionItems, symbol: string, name: string): InvestKey | undefined {
   const canonicalSymbol = canonicalInvestmentSymbol(symbol);
-  if (!canonicalSymbol) return undefined;
   for (const groupKey of ['us', 'eu', 'asia', 'a', 'longBond', 'usBond', 'gold'] as const) {
-    if ((items[groupKey] ?? []).some((item) => canonicalInvestmentSymbol(item.symbol) === canonicalSymbol)) {
+    if ((items[groupKey] ?? []).some((item) => canonicalSymbol
+      ? canonicalInvestmentSymbol(item.symbol) === canonicalSymbol
+      : !item.symbol && canonicalInvestmentName(item.name) === canonicalInvestmentName(name))) {
       return groupKey;
     }
   }
@@ -363,7 +365,7 @@ function useMatchedPositionGroup<T extends PendingInvestmentBuy | InvestmentTran
   items: InvestPositionItems,
   entry: T,
 ): T {
-  const groupKey = matchedPositionGroup(items, entry.symbol);
+  const groupKey = matchedPositionGroup(items, entry.symbol, entry.name);
   return groupKey && groupKey !== entry.groupKey ? { ...entry, groupKey } : entry;
 }
 
@@ -531,7 +533,7 @@ function unapplyInvestmentTransaction(items: InvestPositionItems, transaction: I
   const group = [...(items[transaction.groupKey] ?? [])];
   const existingIndex = group.findIndex((item) =>
     (transaction.symbol && canonicalInvestmentSymbol(item.symbol) === canonicalInvestmentSymbol(transaction.symbol))
-      || (!transaction.symbol && item.name.trim().toLowerCase() === transaction.name.trim().toLowerCase()),
+      || (!transaction.symbol && canonicalInvestmentName(item.name) === canonicalInvestmentName(transaction.name)),
   );
   if (existingIndex < 0) return;
   const existing = group[existingIndex];
@@ -760,6 +762,13 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
   }
 
   const months = [...changedMonths].sort();
+  for (const month of months) {
+    const record = workingRecords.get(month)!;
+    const previous = currentRecords.find((candidate) => candidate.yearMonth === month);
+    const items = cloneInvestPositionItems(record.investPositionItems);
+    if (previous?.investmentEditedAt) retainPastInvestmentStatuses(items, previous.investPositionItems);
+    workingRecords.set(month, syncInvestPositionItems(record, items));
+  }
   useMonthlyStore.getState().upsertMany(
     months.map((month) => workingRecords.get(month)!).filter(Boolean),
     { investmentSource: 'import', replaceInvestmentState: true },

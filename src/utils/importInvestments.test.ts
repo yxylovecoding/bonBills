@@ -153,6 +153,47 @@ describe('理财导出表导入', () => {
     expect(tlt?.costPrice).toBeCloseTo(93.7237, 4);
   });
 
+  it('全量导入更新交易但保留已设为 past 的持仓，重复导入也不移回 now', async () => {
+    const record = septemberRecord();
+    record.investPositionItems!.usBond![0].status = 'paused';
+    useMonthlyStore.setState({ records: [record] });
+    for (let i = 0; i < 2; i++) {
+      await importInvestmentFileIntoStores(moneyWizInvestmentFile(), { deferUpload: true });
+      expect(useMonthlyStore.getState().records[0].investPositionItems!.usBond![0]).toMatchObject({ status: 'paused', shares: 1.4925 });
+    }
+  });
+
+  it('没有代码的历史账户只保存流水，不重复建为 now，保留原账户收益', async () => {
+    const record = septemberRecord();
+    record.investPositionItems = { account: [{ id: 'history-account', name: '历史账户', symbol: '', status: 'closed', historicalProfitCny: 123 }] };
+    useMonthlyStore.setState({ records: [record] });
+    const file = pendingFundFile({ rows: [
+      ['HISTORY-1', '2026-09-01 10:00', '2026-09-01 10:00', '买入', '🔵历史账户', '', 1, 20, 20, '银行', '交易成功'],
+    ] });
+    for (let i = 0; i < 2; i++) {
+      await importInvestmentFileIntoStores(file, { deferUpload: true });
+      const result = useMonthlyStore.getState().records[0];
+      expect(result.investmentTransactions).toHaveLength(1);
+      expect(Object.values(result.investPositionItems ?? {}).flat()).toEqual(record.investPositionItems.account);
+    }
+  });
+
+  it('恢复旧导入错误生成的账户副本，只清理可重建的导入项，流水与手动项不变', () => {
+    const record = septemberRecord();
+    record.investmentCategoryRepairVersion = 2;
+    const history = { id: 'past', name: '历史账户', symbol: '', status: 'closed' as const, historicalProfitCny: 123 };
+    const duplicate = { ...history, id: 'mail-position:duplicate', name: '🔵历史账户', status: 'active' as const, shares: 20, costPrice: 1, marketValueCny: 20, historicalProfitCny: 0 };
+    const manual = { ...duplicate, id: 'manual' };
+    const fund = { ...duplicate, id: 'mail-position:fund', symbol: '123456' };
+    record.investPositionItems = { account: [history], us: [duplicate, manual, fund] };
+    record.investmentTransactions = [{ id: 'mail-invest:original', name: duplicate.name, symbol: '', side: 'buy', date: '2026-09-01', groupKey: 'us', shares: 20, price: 1, fee: 0, currency: 'CNY' }];
+    const repaired = normalizeMonthlyRecords([record])[0];
+    expect(repaired.investPositionItems).toEqual({ account: [history], us: [manual, fund] });
+    expect(repaired.investmentTransactions).toEqual(record.investmentTransactions);
+    expect(record.investPositionItems.us).toHaveLength(3);
+    expect(normalizeMonthlyRecords([repaired])).toEqual([repaired]);
+  });
+
   it('把 OF/0F 基金代码识别为同一个人民币基金', async () => {
     const transactions = await parseInvestmentFile(fundInvestmentFile());
 

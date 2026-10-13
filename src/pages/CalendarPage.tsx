@@ -2532,7 +2532,8 @@ function YimuHoldingsSection({ state }: { state: MonthFormState }) {
                               }} style={{ width: 26, height: 26, border: 'none', borderRadius: 6, backgroundColor: '#e8f0fe', color: C.blue, fontSize: 15, fontWeight: 800, cursor: 'pointer' }}>
                                 ｜
                               </button>
-                            ) : canChangeStatus ? (
+                            ) : null}
+                            {canChangeStatus && (
                               <select aria-label={`${item.name}移至其他状态`} title="切换状态" value="" onChange={(event) => {
                                 setExpandedItemKey(null);
                                 updatePositionDraft(groupKey, item.id, { status: event.target.value as InvestPositionStatus });
@@ -2543,7 +2544,7 @@ function YimuHoldingsSection({ state }: { state: MonthFormState }) {
                                   return <option value={targetStatus}>{INVEST_POSITION_STATUS_META[targetStatus].label}</option>;
                                 })()}
                               </select>
-                            ) : null}
+                            )}
                             <button type="button" onClick={() => { if (window.confirm(`删除“${item.name}”？`)) { removePositionDraft(groupKey, item.id); setExpandedItemKey(null); } }} aria-label={`删除${item.name}`} style={{ width: 24, height: 24, border: 'none', borderRadius: 6, backgroundColor: '#fce8e6', color: C.red, cursor: 'pointer', fontWeight: 800 }}>×</button>
                           </div>
                         </div>

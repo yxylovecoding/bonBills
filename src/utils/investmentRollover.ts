@@ -10,7 +10,7 @@ import {
   migrateLegacyInvestPositionItems,
   syncInvestPositionItems,
 } from './investPositionItems';
-import { canonicalInvestmentSymbol, isPrefixedFundSymbol } from './investmentInstrument';
+import { canonicalInvestmentName, canonicalInvestmentSymbol, isPrefixedFundSymbol } from './investmentInstrument';
 import { coveredByAlipayCorrection } from './investmentCorrectionBoundary';
 
 const INVESTMENT_LABELS: Record<InvestKey, string> = {
@@ -87,7 +87,21 @@ export function pendingInvestmentAmounts(
 
 function sameInstrument(item: InvestPositionItem, transaction: InvestmentTransactionRecord) {
   if (transaction.symbol) return canonicalInvestmentSymbol(item.symbol) === canonicalInvestmentSymbol(transaction.symbol);
-  return item.name.trim().toLowerCase() === transaction.name.trim().toLowerCase();
+  return canonicalInvestmentName(item.name) === canonicalInvestmentName(transaction.name);
+}
+
+/** Import/replay may update balances, but a user's past classification remains authoritative. */
+export function retainPastInvestmentStatuses(items: InvestPositionItems, previous: InvestPositionItems | undefined) {
+  const past = Object.values(previous ?? {}).flatMap((group) => group ?? []).filter((item) => item.status !== 'active'
+    && !(item.id.startsWith('pending-position:') && !item.shares && item.pendingBuys?.length));
+  for (const group of Object.values(items)) {
+    for (const item of group ?? []) {
+      const original = past.find((candidate) => item.symbol
+        ? canonicalInvestmentSymbol(candidate.symbol) === canonicalInvestmentSymbol(item.symbol)
+        : !candidate.symbol && canonicalInvestmentName(candidate.name) === canonicalInvestmentName(item.name));
+      if (original) item.status = original.status;
+    }
+  }
 }
 
 function positionQuality(item: InvestPositionItem) {
@@ -142,6 +156,23 @@ function inferFundUnderlyingGroup(text: string): InvestKey | undefined {
 }
 
 export function normalizeInvestmentRecordInstruments(record: MonthlyRecord): MonthlyRecord {
+  // Earlier imports recreated closed summary accounts as active positions. The ledger remains
+  // intact; remove only generated duplicates of an existing historical account.
+  const historicalNames = new Set(record.investPositionItems?.account?.filter((item) => item.status !== 'active' && !item.symbol)
+    .map((item) => canonicalInvestmentName(item.name)));
+  if (historicalNames.size) {
+    let changed = false;
+    const items = cloneInvestPositionItems(record.investPositionItems);
+    for (const groupKey of INVEST_POSITION_GROUP_KEYS) {
+      if (groupKey === 'account' || !items[groupKey]) continue;
+      items[groupKey] = items[groupKey]!.filter((item) => {
+        const duplicate = item.id.startsWith('mail-position:') && !item.symbol && historicalNames.has(canonicalInvestmentName(item.name));
+        if (duplicate) changed = true;
+        return !duplicate;
+      });
+    }
+    if (changed) record = syncInvestPositionItems(record, items);
+  }
   if (!record.investPositionItems && !record.investmentTransactions) return record;
   const categoryRepairVersion = record.investmentCategoryRepairVersion ?? 0;
   if (categoryRepairVersion >= INVESTMENT_CATEGORY_REPAIR_VERSION) return record;
@@ -224,6 +255,9 @@ export function applyInvestmentTransaction(
   items: InvestPositionItems,
   transaction: InvestmentTransactionRecord,
 ) {
+  // Historical account totals are maintained separately; keep the imported ledger without
+  // creating another active account from a code-less historical transaction.
+  if (!transaction.symbol && items.account?.some((item) => item.status !== 'active' && sameInstrument(item, transaction))) return;
   const group = [...(items[transaction.groupKey] ?? [])];
   const existingIndex = group.findIndex((item) => sameInstrument(item, transaction));
   const existing = existingIndex >= 0 ? group[existingIndex] : undefined;
@@ -438,6 +472,8 @@ export function replayInvestmentRecord(parent: MonthlyRecord, child: MonthlyReco
     replayedLedger.set(transaction.id, transaction);
     appliedIds.push(transaction.id);
   }
+  if (parent.investmentEditedAt) retainPastInvestmentStatuses(items, parent.investPositionItems);
+  if (child.investmentEditedAt) retainPastInvestmentStatuses(items, child.investPositionItems);
   const replayed = syncInvestPositionItems(copied, items);
   const candidate: MonthlyRecord = {
     ...replayed,
