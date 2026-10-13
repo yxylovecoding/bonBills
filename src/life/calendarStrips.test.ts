@@ -21,6 +21,37 @@ describe('各日历 tab 条带提取', () => {
       new Map([['swim', '游泳']]))).toEqual([{ key: 'training:swim', label: '游泳' }]);
     expect(lifeCalendarStripItems('mood', { ...base, text: '#开心' })).toEqual([]);
   });
+
+  it('痤疮消失保留当天文字，痘印条带继续，复发后重新起头', () => {
+    const entries = new Map(['ongoing', 'resolved', 'appeared'].map((status, index) => [`2026-10-0${index + 1}`,
+      lifeCalendarStripItems('skin', { ...base, skin: {
+        status: 'acne', acneProgress: status as 'ongoing' | 'resolved' | 'appeared', acneMarks: true,
+      } })]));
+    expect(entries.get('2026-10-02')).toContainEqual({ key: 'skin:acne', label: '痤疮 · 消失', resolved: true });
+    const result = calendarStripSegments(cells(), entries);
+    expect(result.get('2026-10-01')?.find((item) => item.key === 'skin:acne')).toMatchObject({ starts: true, ends: true });
+    expect(result.get('2026-10-02')?.map((item) => item.key)).toEqual(['skin:acneMarks']);
+    expect(result.get('2026-10-02')?.[0]).toMatchObject({ starts: false, ends: false });
+    expect(result.get('2026-10-03')?.find((item) => item.key === 'skin:acne')).toMatchObject({ starts: true, ends: true });
+  });
+
+  it.each(['eyes', 'discomfort'] as const)('%s 症状消失后断开条带，其他症状不受影响', (kind) => {
+    const area = kind === 'eyes' ? 'eye' : 'body';
+    const key = `${area}:疼痛`;
+    const entries = new Map((['ongoing', 'resolved', 'resolved', 'appeared'] as const).map((status, index) => [`2026-10-0${index + 1}`,
+      lifeCalendarStripItems(kind, { ...base, [kind]: { symptoms: {
+        [key]: { area, name: '疼痛', status, note: '' },
+        [`${area}:发痒`]: { area, name: '发痒', status: 'ongoing', note: '' },
+      } } })]));
+    expect(entries.get('2026-10-02')?.find((item) => item.key === key)).toMatchObject({ resolved: true, label: expect.stringContaining('消失') });
+    const result = calendarStripSegments(cells(), entries);
+    expect(result.get('2026-10-01')?.find((item) => item.key === key)).toMatchObject({ starts: true, ends: true });
+    for (const date of ['2026-10-02', '2026-10-03']) {
+      expect(result.get(date)?.map((item) => item.key)).toEqual([`${area}:发痒`]);
+      expect(result.get(date)?.[0]).toMatchObject({ starts: false, ends: false });
+    }
+    expect(result.get('2026-10-04')?.find((item) => item.key === key)).toMatchObject({ starts: true, ends: true });
+  });
 });
 
 describe('日历连续条带', () => {

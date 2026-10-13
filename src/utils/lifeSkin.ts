@@ -147,6 +147,17 @@ export function matchingSkinProducts(settings: SkinSettings, state: SkinState | 
     && (!careState || !item.states.length || item.states.includes(careState))
     && (!item.seasons.length || item.seasons.includes(season)) && (!time || !item.times.length || item.times.includes(time)));
 }
+// Picker order favors the selected state, then inherited care, then unrestricted
+// products. Season and time break ties without hiding other active choices.
+export function rankedSkinProducts(settings: SkinSettings, state: SkinState | undefined, season: SkinSeason, kind: SkinProduct['kind'], time?: SkinTime): SkinProduct[] {
+  const careState = state && kind === 'skincare' ? settings.plans[state].careFrom : undefined;
+  const stateRank = (item: SkinProduct) => !state || item.states.includes(state) ? 0
+    : careState && item.states.includes(careState) ? 1 : !item.states.length ? 2 : 3;
+  const contextRank = (item: SkinProduct) => Number(Boolean(item.seasons.length && !item.seasons.includes(season)))
+    + Number(Boolean(time && item.times.length && !item.times.includes(time)));
+  return settings.products.filter((item) => item.active && item.kind === kind)
+    .sort((a, b) => stateRank(a) - stateRank(b) || contextRank(a) - contextRank(b));
+}
 // Products marked as suitable for the current skin state directly (ignoring the
 // state's careFrom chain) and not already in `matchingSkinProducts`, so they can
 // be surfaced as "可选加用" extras next to the固定方案.

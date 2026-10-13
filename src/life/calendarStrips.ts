@@ -2,7 +2,7 @@ import { SKIN_STATES } from '../utils/lifeSkin';
 import { SYMPTOM_AREAS, SYMPTOM_STATES, symptomObservations } from '../utils/lifeSymptoms';
 import type { LifeEntry, LifeKind, TrainingRecord } from '../utils/bonLife';
 
-export interface CalendarStripItem { key: string; label: string }
+export interface CalendarStripItem { key: string; label: string; resolved?: boolean }
 export interface CalendarStripSegment extends CalendarStripItem {
   lane: number;
   starts: boolean;
@@ -11,11 +11,13 @@ export interface CalendarStripSegment extends CalendarStripItem {
 
 export function lifeCalendarStripItems(kind: LifeKind, entry?: LifeEntry, training?: TrainingRecord, trainingNames = new Map<string, string>()): CalendarStripItem[] {
   if (kind === 'skin') return [
-    ...(entry?.skin?.status ? [{ key: `skin:${entry.skin.status}`, label: SKIN_STATES[entry.skin.status] }] : []),
+    ...(entry?.skin?.status ? [{ key: `skin:${entry.skin.status}`, label: SKIN_STATES[entry.skin.status],
+      ...(entry.skin.status === 'acne' && entry.skin.acneProgress === 'resolved' ? { resolved: true, label: '痤疮 · 消失' } : {}) }] : []),
     ...(entry?.skin?.acneMarks ? [{ key: 'skin:acneMarks', label: '痘印' }] : []),
   ];
   if (kind === 'eyes' || kind === 'discomfort') return Object.entries(symptomObservations(kind, entry?.[kind])).map(([key, item]) => ({
     key, label: `${kind === 'discomfort' ? `${SYMPTOM_AREAS[item.area]} · ` : ''}${item.name} · ${SYMPTOM_STATES[item.status]}`,
+    ...(item.status === 'resolved' ? { resolved: true } : {}),
   }));
   if (kind === 'training') return (training?.projects ?? []).map((key) => ({ key: `training:${key}`, label: trainingNames.get(key) ?? key }));
   return [];
@@ -34,6 +36,7 @@ export function calendarStripSegments(cells: (string | null)[], itemsByDate: Map
     week.forEach((date, day) => {
       if (!date) return;
       for (const item of itemsByDate.get(date) ?? []) {
+        if (item.resolved) continue;
         const run = byKey.get(item.key) ?? { item, days: [] };
         if (!run.days.includes(day)) run.days.push(day);
         byKey.set(item.key, run);

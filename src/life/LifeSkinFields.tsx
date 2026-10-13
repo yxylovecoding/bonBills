@@ -3,7 +3,7 @@ import type { LifeEntries } from '../utils/bonLife';
 import { nextSkinPlan } from '../utils/lifeSkinProgress';
 import { symptomColor } from './symptomColor';
 import { SYMPTOM_STATES, type SymptomState } from '../utils/lifeSymptoms';
-import { DEFAULT_SKIN_SETTINGS, SKIN_FIELDS, SKIN_SEASONS, SKIN_STATES, matchingSkinProducts, skinLocalPlanValues, skinPlanValues, skinSeason,
+import { DEFAULT_SKIN_SETTINGS, SKIN_FIELDS, SKIN_SEASONS, SKIN_STATES, matchingSkinProducts, rankedSkinProducts, skinLocalPlanValues, skinPlanValues, skinSeason,
   type SkinRecord, type SkinSeason, type SkinSettings, type SkinState } from '../utils/lifeSkin';
 
 const RECORD_FIELDS = ['morningMedication', 'morningProducts', 'eveningMedication', 'eveningProducts'] as const;
@@ -104,9 +104,8 @@ export default function LifeSkinFields({ value = {}, date, entries, settings = D
     <div className="life-fields">{RECORD_FIELDS.map((field) => {
       const kind = field.endsWith('Products') ? 'skincare' : 'medication';
       const time = field.startsWith('morning') ? 'morning' : 'evening';
-      const products = matchingSkinProducts(settings, status, season, kind, time);
-      const available = settings.products.filter((item) => item.active && item.kind === kind);
-      return <SkinProductChoices key={field} label={SKIN_FIELDS[field]} kind={kind} value={value[field] ?? ''} products={[...products, ...available]}
+      const products = rankedSkinProducts(settings, status, season, kind, time);
+      return <SkinProductChoices key={field} label={SKIN_FIELDS[field]} kind={kind} value={value[field] ?? ''} products={products}
         busy={busy} onChange={(next) => change({ [field]: next })} />;
     })}</div>
   </div>;

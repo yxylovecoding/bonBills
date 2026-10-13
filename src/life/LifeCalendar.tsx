@@ -260,6 +260,8 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
           </span> : kind === 'eyes' || kind === 'discomfort' ? <span className="life-day-content">
             {entry?.text && <span className="life-day-text">{entry.text}</span>}
           </span> : <span className="life-day-text">{summary}</span>}
+          {stripItems.get(date)?.filter((item) => item.resolved).map((item) =>
+            <span key={item.key} className="life-day-text">{item.label}</span>)}
           {planStatus && <span className="life-plan-status">{planStatus}</span>}
           {(strips.get(date)?.length ?? 0) > 0 && <span className="life-calendar-strips" aria-hidden="true">
             {strips.get(date)!.map((strip) => {
