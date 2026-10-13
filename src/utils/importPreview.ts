@@ -56,7 +56,7 @@ export type FinanceImportPreviewDraft = {
 };
 
 export type InvestmentOperationPreviewChange =
-  | { kind: 'transaction'; change: 'added' | 'updated'; item: InvestmentTransactionRecord }
+  | { kind: 'transaction'; change: 'added' | 'updated' | 'removed'; item: InvestmentTransactionRecord }
   | { kind: 'pending'; change: 'added' | 'updated' | 'removed'; item: PendingInvestmentBuy };
 
 function collectInvestmentTransactions(records: MonthlyRecord[]) {
@@ -108,6 +108,9 @@ export function diffInvestmentOperations(
     const before = beforePending.get(id);
     if (!before) changes.push({ kind: 'pending', change: 'added', item });
     else if (changed(before, item)) changes.push({ kind: 'pending', change: 'updated', item });
+  }
+  for (const [id, item] of beforeTransactions) {
+    if (!afterTransactions.has(id)) changes.push({ kind: 'transaction', change: 'removed', item });
   }
   for (const [id, item] of beforePending) {
     if (!afterPending.has(id)) changes.push({ kind: 'pending', change: 'removed', item });
@@ -276,6 +279,7 @@ export function hasFinanceImportRemainder(draft: FinanceImportPreviewDraft) {
     records: state.records.map((record) => ({
       ...record,
       importedInvestmentTransactionIds: record.importedInvestmentTransactionIds ?? [],
+      investmentInheritanceRevision: undefined,
     })),
   });
   return !sameSyncValue(comparable(committed), comparable(preservingAccounts(draft.after, committed.snapshot.current)));

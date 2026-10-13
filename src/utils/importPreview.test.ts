@@ -3,7 +3,7 @@ import type { MonthlyRecord } from '../models/types';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
 import { DEFAULT_SNAPSHOT, useSnapshotStore } from '../stores/snapshotStore';
-import { confirmFinanceImport, prepareFinanceImport } from './importPreview';
+import { confirmFinanceImport, diffInvestmentOperations, hasFinanceImportRemainder, prepareFinanceImport } from './importPreview';
 
 function monthlyRecord(): MonthlyRecord {
   return {
@@ -48,6 +48,30 @@ describe('财务导入预览', () => {
       history: [],
     });
     useSnapshotStore.getState().updateAccounts({ livingBank: 100 });
+  });
+
+  it('只有正式交易被移除时也显示变动，确认前保留原账本', async () => {
+    const draft = await prepareFinanceImport(async () => {
+      useMonthlyStore.setState({ records: [{ ...monthlyRecord(), investmentTransactions: [] }] });
+      return { title: '全量预览', lines: [], investmentMonths: ['2026-09'], billMonths: [], successMessage: '', changesOnly: true };
+    });
+    expect(diffInvestmentOperations(draft.before.records, draft.after.records)).toEqual([
+      { kind: 'transaction', change: 'removed', item: monthlyRecord().investmentTransactions![0] },
+    ]);
+    expect(hasFinanceImportRemainder(draft)).toBe(true);
+    expect(useMonthlyStore.getState().records[0].investmentTransactions).toHaveLength(1);
+    await confirmFinanceImport(draft);
+    expect(useMonthlyStore.getState().records[0].investmentTransactions).toEqual([]);
+  });
+
+  it('仅重放版本号变化不要求确认，但真实持仓变动仍需确认', async () => {
+    const draft = await prepareFinanceImport(async () => {
+      useMonthlyStore.setState({ records: [{ ...monthlyRecord(), investmentInheritanceRevision: 20 }] });
+      return { title: '重复导入', lines: [], investmentMonths: ['2026-09'], billMonths: [], successMessage: '' };
+    });
+    expect(hasFinanceImportRemainder(draft)).toBe(false);
+    draft.after.records[0].investTotal += 1;
+    expect(hasFinanceImportRemainder(draft)).toBe(true);
   });
 
   it('生成预览时已保留全量账单，确认前不改账户和理财', async () => {

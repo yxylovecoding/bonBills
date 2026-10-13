@@ -34,7 +34,7 @@ function operationDetails(change: InvestmentOperationPreviewChange) {
     const amount = item.amount ?? item.shares * item.price;
     return {
       title: item.name,
-      meta: `${(item.operationAt || item.occurredAt || item.date).slice(0, 16).replace('T', ' ')} · ${change.change === 'updated' ? '已更新' : '已确认'}`,
+      meta: `${(item.operationAt || item.occurredAt || item.date).slice(0, 16).replace('T', ' ')} · ${change.change === 'removed' ? '已移除' : change.change === 'updated' ? '已更新' : '已确认'}`,
       action: item.side === 'buy' ? '买入' : '卖出',
       amount: `${item.currency} ${number(amount)}`,
     };
@@ -212,7 +212,7 @@ export default function FinanceImportPreviewDialog({
 
         {changesOnly && accountChanges.length === 0 && investmentOperationChanges.length === 0 && (
           <div style={{ marginBottom: 12, borderRadius: 10, backgroundColor: '#f8f9fa', color: '#5f6368', padding: '12px', textAlign: 'center', fontSize: 12, fontWeight: 700 }}>
-            账户和理财操作无变动
+            {hasRemainder ? '理财持仓已更新，请确认' : '账户和理财操作无变动'}
           </div>
         )}
 

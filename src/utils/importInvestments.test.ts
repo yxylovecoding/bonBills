@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import * as XLSX from 'xlsx';
 import type { InvestPositionItem, MonthlyRecord } from '../models/types';
 import { normalizeMonthlyRecords, useMonthlyStore } from '../stores/monthlyStore';
-import { confirmFinanceImport, diffInvestmentOperations, prepareFinanceImport } from './importPreview';
+import { confirmFinanceImport, diffInvestmentOperations, hasFinanceImportRemainder, prepareFinanceImport } from './importPreview';
 import { importInvestmentFileIntoStores, parseInvestmentFile, parseInvestmentFileDetails } from './importInvestments';
 
 describe('待确认买入手续费', () => {
@@ -491,5 +491,55 @@ describe('理财导出表导入', () => {
 
     expect(result.formalImportedTransactions).toBe(0);
     expect(useMonthlyStore.getState().records[0].investPositionItems?.a?.[0].shares).toBe(110);
+  });
+
+  it('全量导出按最后一次文件替换，新增、删除和待确认变化都进入预览', async () => {
+    useMonthlyStore.setState({ records: [] });
+    const oldRows = [
+      ['BUY-1', '2026-08-01 10:00', '2026-08-03 10:00', '买入', '示例指数A', '008163', 1, 100, 100, '银行', '交易成功'],
+      ['PENDING-1', '2026-08-31 10:00', '', '买入', '示例指数A', '008163', '', '', 10, '银行', '确认中'],
+    ];
+    const oldFile = pendingFundFile({ rows: oldRows });
+    const newFile = pendingFundFile({ rows: [...oldRows,
+      ['BUY-2', '2026-09-01 10:00', '2026-09-02 10:00', '买入', '示例指数A', '008163', 2, 20, 40, '银行', '交易成功'],
+      ['PENDING-2', '2026-09-03 10:00', '', '买入', '另一指数C', '019305', '', '', 20, '银行', '确认中'],
+      ['PENDING-3', '2026-09-04 10:00', '', '买入', '另一指数C', '019305', '', '', 30, '银行', '确认中'],
+    ] });
+    const prepare = (file: File) => prepareFinanceImport(async () => {
+      const result = await importInvestmentFileIntoStores(file, { deferUpload: true });
+      return { title: '全量预览', lines: [], investmentMonths: result.months, billMonths: [], successMessage: '', changesOnly: true };
+    });
+    await importInvestmentFileIntoStores(oldFile, { deferUpload: true });
+    const added = await prepare(newFile);
+    expect(diffInvestmentOperations(added.before.records, added.after.records).map((change) => `${change.kind}:${change.change}`).sort())
+      .toEqual(['pending:added', 'pending:added', 'transaction:added']);
+    expect(added.after.records[0].investPositionItems?.a?.find((item) => item.symbol === '008163')?.shares).toBe(120);
+    const currentPending = Object.values(added.after.records[0].investPositionItems ?? {}).flatMap((items) => items ?? []).flatMap((item) => item.pendingBuys ?? []);
+    expect(currentPending.map((pending) => pending.orderId).sort()).toEqual(['PENDING-1', 'PENDING-2', 'PENDING-3']);
+    await confirmFinanceImport(added);
+    const same = await prepare(newFile);
+    expect(diffInvestmentOperations(same.before.records, same.after.records)).toEqual([]);
+    expect(hasFinanceImportRemainder(same)).toBe(false);
+    const removed = await prepare(oldFile);
+    expect(diffInvestmentOperations(removed.before.records, removed.after.records).map((change) => `${change.kind}:${change.change}`).sort())
+      .toEqual(['pending:removed', 'pending:removed', 'transaction:removed']);
+    expect(hasFinanceImportRemainder(removed)).toBe(true);
+    // Preview restores the current store until the user confirms the full replacement.
+    expect(useMonthlyStore.getState().records[0].investmentTransactions).toHaveLength(1);
+    await confirmFinanceImport(removed);
+    expect(useMonthlyStore.getState().records[0].investmentTransactions ?? []).toHaveLength(0);
+    expect(useMonthlyStore.getState().records[0].investPositionItems?.a?.[0].shares).toBe(100);
+  });
+
+  it('无流水号的相同金额同行逐行保留，重复全量导入不重复累计', async () => {
+    useMonthlyStore.setState({ records: [] });
+    const row = ['', '2026-08-01 10:00', '2026-08-03 10:00', '买入', '示例指数A', '008163', 1, 10, 10, '银行一', '交易成功'];
+    const file = pendingFundFile({ rows: [row, [...row], row.map((value, index) => index === 9 ? '银行二' : value)] });
+    const first = await importInvestmentFileIntoStores(file, { deferUpload: true });
+    expect(first.formalImportedTransactions).toBe(3);
+    const second = await importInvestmentFileIntoStores(file, { deferUpload: true });
+    expect(second.formalImportedTransactions).toBe(0);
+    expect(useMonthlyStore.getState().records[0].investmentTransactions).toHaveLength(3);
+    expect(useMonthlyStore.getState().records[0].investPositionItems?.a?.[0].shares).toBe(30);
   });
 });

@@ -653,27 +653,6 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
     return record;
   };
 
-  for (const parsedPending of parsed.pendingBuys) {
-    if ([...workingRecords.values()].some((record) => Object.values(record.investPositionItems ?? {}).flat().some((item) => item
-      && canonicalInvestmentSymbol(item.symbol) === canonicalInvestmentSymbol(parsedPending.symbol)
-      && coveredByAlipayCorrection(item, parsedPending)))) continue;
-    // A pending export must not resurrect an already booked or confirmed order.
-    if ([...workingRecords.values()].some((record) => record.investmentTransactions?.some((transaction) =>
-      matchesInvestmentOrder(transaction, parsedPending)))) continue;
-    const yearMonth = parsedPending.operationAt.slice(0, 7);
-    let record = ensureWorkingRecord(yearMonth);
-    const items = cloneInvestPositionItems(investmentPositionItemsForRecord(record));
-    const pending = useMatchedPositionGroup(items, parsedPending);
-    // Restore booking metadata (e.g. auto-fund estimates) that was wiped during the strip pass.
-    const prior = priorImportedPendingAll.get(pending.id);
-    const pendingToAttach = prior?.booking ? { ...pending, booking: prior.booking } : pending;
-    const wasNew = !priorImportedPendingAll.has(pending.id);
-    if (attachPendingBuy(items, pendingToAttach) && wasNew) newPendingBuys += 1;
-    record = syncInvestPositionItems(record, items);
-    workingRecords.set(yearMonth, record);
-    changedMonths.add(yearMonth);
-  }
-
   for (const parsedTransaction of ordinaryTransactions) {
     if (parsedTransaction.side === 'buy') {
       const reconciliation = reconcileAutoFundBuy([...workingRecords.values()], parsedTransaction);
@@ -691,18 +670,23 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
     const items = cloneInvestPositionItems(investmentPositionItemsForRecord(record));
     const transaction = useMatchedPositionGroup(items, parsedTransaction);
     const matches = transaction.side === 'buy' ? findPendingMatches(items, transaction) : [];
-    const isUniquePendingResolution = matches.length === 1
+    const pendingMatchCount = matches.length || (transaction.side === 'buy'
+      ? parsed.pendingBuys.filter((pending) => matchesInvestmentOrder(transaction, pending)).length : 0);
+    const isUniquePendingResolution = pendingMatchCount === 1
       && transaction.shares > 0
       && (transaction.amount ?? 0) > 0;
-    if (!transaction.orderId && matches.length > 1) continue;
+    if (!transaction.orderId && pendingMatchCount > 1) continue;
 
     const importedIds = new Set(record.importedInvestmentTransactionIds ?? []);
     const transactionLedger = new Map(
       (record.investmentTransactions ?? []).map((ledgerItem) => [ledgerItem.id, ledgerItem]),
     );
-    const transactionFingerprints = new Set([...transactionLedger.values()].map(transactionFingerprint));
+    // Distinct rows in this export already have distinct identities. Fingerprints only
+    // reconcile retained manual/legacy entries, not other rows from the same full export.
+    const retainedLedger = [...transactionLedger.values()].filter((item) => !isImportedTransactionId(item.id));
+    const transactionFingerprints = new Set(retainedLedger.map(transactionFingerprint));
     const legacyTransactionFingerprints = new Set(
-      [...transactionLedger.values()]
+      retainedLedger
         .filter((ledgerItem) => !ledgerItem.orderId)
         .map(legacyTransactionFingerprint),
     );
@@ -710,7 +694,7 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
     const legacyFingerprint = legacyTransactionFingerprint(transaction);
 
     if (isUniquePendingResolution) {
-      removePendingMatch(items, matches[0]);
+      if (matches.length === 1) removePendingMatch(items, matches[0]);
       resolvedPendingBuys += 1;
     }
     if (!importedIds.has(transaction.id)
@@ -738,6 +722,28 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
     record.investmentTransactions = [...transactionLedger.values()]
       .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
     record.importedInvestmentTransactionIds = [...importedIds];
+    workingRecords.set(yearMonth, record);
+    changedMonths.add(yearMonth);
+  }
+
+  // Build chronological confirmed history first, then attach this export's pending orders.
+  for (const parsedPending of parsed.pendingBuys) {
+    if ([...workingRecords.values()].some((record) => Object.values(record.investPositionItems ?? {}).flat().some((item) => item
+      && canonicalInvestmentSymbol(item.symbol) === canonicalInvestmentSymbol(parsedPending.symbol)
+      && coveredByAlipayCorrection(item, parsedPending)))) continue;
+    // A pending export must not resurrect an already booked or confirmed order.
+    if ([...workingRecords.values()].some((record) => record.investmentTransactions?.some((transaction) =>
+      matchesInvestmentOrder(transaction, parsedPending)))) continue;
+    const yearMonth = parsedPending.operationAt.slice(0, 7);
+    let record = ensureWorkingRecord(yearMonth);
+    const items = cloneInvestPositionItems(investmentPositionItemsForRecord(record));
+    const pending = useMatchedPositionGroup(items, parsedPending);
+    // Restore booking metadata (e.g. auto-fund estimates) that was wiped during the strip pass.
+    const prior = priorImportedPendingAll.get(pending.id);
+    const pendingToAttach = prior?.booking ? { ...pending, booking: prior.booking } : pending;
+    const wasNew = !priorImportedPendingAll.has(pending.id);
+    if (attachPendingBuy(items, pendingToAttach) && wasNew) newPendingBuys += 1;
+    record = syncInvestPositionItems(record, items);
     workingRecords.set(yearMonth, record);
     changedMonths.add(yearMonth);
   }

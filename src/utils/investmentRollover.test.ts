@@ -139,6 +139,23 @@ describe('理财月际继承', () => {
     expect(shares(september)).toBe(15);
   });
 
+  it('重放保留本月待确认，移除已从父月消失的继承待确认，并处理本月转正', () => {
+    const august = investmentRecord('2026-08', 10);
+    const pending = (id: string, operationAt: string) => ({ id, matchKey: id, baseMatchKey: id,
+      operationAt, name: '标普', symbol: 'SPY', groupKey: 'us' as const, amount: 10, currency: 'CNY' });
+    august.investPositionItems!.us![0].pendingBuys = [pending('old', '2026-08-31T10:00:00')];
+    const september = createInvestmentRolloverRecord(august, '2026-09');
+    september.investPositionItems!.us![0].pendingBuys!.push(
+      pending('own', '2026-09-01T10:00:00'), pending('confirmed', '2026-09-02T10:00:00'));
+    september.investmentTransactions = [{ ...buy('formal', '2026-09-03', 1), pendingMatchKey: 'confirmed' }];
+    const changedAugust = investmentRecord('2026-08', 20);
+    const replayed = replayInvestmentRecord(changedAugust, september);
+    expect(replayed.investPositionItems!.us![0].pendingBuys?.map((item) => item.id)).toEqual(['own']);
+    expect(shares(replayed)).toBe(21);
+    expect(replayInvestmentRecord(changedAugust, replayed)).toEqual(replayed);
+    expect(september.investPositionItems!.us![0].pendingBuys).toHaveLength(3);
+  });
+
   it('多月继承链递归更新，并保留中间月份的交易', () => {
     const august = investmentRecord('2026-08', 10);
     const septemberBase = createInvestmentRolloverRecord(august, '2026-09');

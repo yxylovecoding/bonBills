@@ -397,6 +397,25 @@ export function nextInvestmentApplicationOrder(transactions: InvestmentTransacti
 export function replayInvestmentRecord(parent: MonthlyRecord, child: MonthlyRecord): MonthlyRecord {
   const copied = copyInvestmentEnding(parent, child);
   const items = cloneInvestPositionItems(copied.investPositionItems);
+  // A rollover inherits earlier pending orders, but must retain orders created in this month.
+  for (const groupKey of INVEST_POSITION_GROUP_KEYS) {
+    for (const item of child.investPositionItems?.[groupKey] ?? []) {
+      const ownPending = item.pendingBuys?.filter((pending) => pending.operationAt.slice(0, 7) === child.yearMonth);
+      if (!ownPending?.length) continue;
+      const group = items[groupKey] ?? (items[groupKey] = []);
+      let target = group.find((candidate) => item.symbol
+        ? canonicalInvestmentSymbol(candidate.symbol) === canonicalInvestmentSymbol(item.symbol)
+        : candidate.name.trim().toLowerCase() === item.name.trim().toLowerCase());
+      if (!target) {
+        target = { id: item.id, name: item.name, symbol: item.symbol, quoteSource: item.quoteSource,
+          quoteCurrency: item.quoteCurrency, status: 'paused', shares: 0, costPrice: 0,
+          historicalProfitCny: 0, historicalProfitCurrency: item.historicalProfitCurrency, profitInputMode: 'historical' };
+        group.push(target);
+      }
+      target.pendingBuys = [...new Map([...(target.pendingBuys ?? []), ...ownPending]
+        .map((pending) => [pending.id, { ...pending }])).values()];
+    }
+  }
   const transactions = [...new Map(
     (child.investmentTransactions ?? [])
       .filter((transaction) => transaction.date.slice(0, 7) === child.yearMonth)
