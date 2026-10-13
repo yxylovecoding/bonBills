@@ -23,8 +23,13 @@ export interface AlipayScreenshotDraft { funds: AlipayFundDraft[]; orders: Alipa
 interface Line { text: string; words: OcrWord[]; y: number; bottom: number; height: number }
 const compact = (text: string) => text.normalize('NFKC').replace(/[\s·•|]/g, '').replace(/[−–—一](?=\d)/g, '-');
 const brands = /华安|摩根|南方|天弘|易方达|博时|工银|嘉实|华夏|华泰柏瑞|富国|广发|招商|汇添富|鹏华|中欧|银华|景顺|国泰/;
+const productText = (text: string) => {
+  const clean = compact(text).replace(/三[鞭萎]/g, '三菱');
+  const start = clean.search(brands);
+  return start >= 0 ? clean.slice(start) : clean.replace(/^[“”"']*基金/, '');
+};
 const fundName = (text: string) => {
-  const clean = compact(text).toUpperCase().replace(/三鞭/g, '三菱').replace(/[^\u4e00-\u9fffA-Z0-9()\-]/g, '')
+  const clean = compact(text).toUpperCase().replace(/三[鞭萎]/g, '三菱').replace(/[^\u4e00-\u9fffA-Z0-9()\-]/g, '')
     .replace(/沪深3[O0]{2}/g, '沪深300').replace(/日经22[5S]/g, '日经225')
     .replace(/ETF[链连]接/g, 'ETF联接').replace(/ETF联接基金/g, 'ETF联接')
     .replace(/\(?QD[A-Z0-9]*?\)?([ACE])$/, '$1').replace(/\(?QD[A-Z0-9]*\)?$/, '').replace(/[()\-]$/g, '');
@@ -134,6 +139,27 @@ const statusOf = (text: string): AlipayActualOrder['status'] => /已撤[销消]|
   : /交易进行中|份额待确认|确认中|到账中|待到账/.test(text) ? 'pending'
     : /买入成功|卖出成功|交易成功|已确认|已到账/.test(text) ? 'confirmed' : 'unknown';
 
+/** Stop at the product's share class or ellipsis, before badges and promotions. */
+function holdingName(block: Line[], leftText: (line: Line) => string, gold: boolean): string {
+  let name = productText(leftText(block[0]));
+  if (gold) return name;
+  for (const line of block.slice(1, 3)) {
+    if (/[ACE]$/.test(fundName(name)) || /…|\.{2,}/.test(name)) break;
+    const text = leftText(line);
+    if (!text || /持有|金额|昨日|收益|财富|反馈|定投|精选|金选|指数基金|限额/.test(text)
+      || !/股票|债券|指数|ETF|QD|联接|^[ACE]$/i.test(text)) break;
+    name += text;
+  }
+  return name;
+}
+
+export const alipayFundNeedsReview = (row: AlipayFundDraft) => !/^\d{6}$/.test(row.code)
+  || row.totalAmount === undefined || !Number.isFinite(row.totalAmount) || row.totalAmount < 0
+  || row.holdingProfit === undefined || !Number.isFinite(row.holdingProfit);
+export const alipayOrderNeedsReview = (row: AlipayOrderDraft) => !/^\d{6}$/.test(row.code)
+  || !row.operationAt || row.quantity === undefined || !Number.isFinite(row.quantity) || row.quantity <= 0 || row.status === 'unknown'
+  || row.notes.some((note) => /冲突/.test(note));
+
 /** Parse layout coordinates so yesterday's profit and percentage never become holding profit. */
 export function parseAlipayScreenshot(image: AlipayOcrImage, choices: AlipayFundChoice[], date: string): AlipayScreenshotDraft {
   const lines = visualLines(image.words);
@@ -168,18 +194,21 @@ export function parseAlipayScreenshot(image: AlipayOcrImage, choices: AlipayFund
     const tail = lines.filter((line) => line.y > stamps[stamps.length - 1].bottom);
     // Keep a clipped last order as an unresolved row instead of silently dropping it.
     if (tail.some((line) => /基金|定投|买入|卖出/.test(line.text))) stamps.push({ text: '', words: [], y: image.height, bottom: image.height, height: 1 });
+    else if (tail.some((line) => line.bottom >= image.height - 3)) result.notes.push(`${source}：底部交易不完整，未计入`);
     for (const stamp of stamps) {
       const block = lines.filter((line) => line.y >= top && line.y <= stamp.y);
       const words = block.filter((line) => line !== stamp).flatMap((line) => line.words);
-      const name = compact(words.filter((word) => word.bbox.x0 > image.width * 0.13 && word.bbox.x0 < image.width * 0.70).map((word) => word.text).join('')).replace(/^基金/, '');
+      const name = productText(words.filter((word) => word.bbox.x0 > image.width * 0.13 && word.bbox.x0 < image.width * 0.70).map((word) => word.text).join(''));
       const right = compact(words.filter((word) => word.bbox.x0 >= image.width * 0.7).map((word) => word.text).join(''));
       const text = compact(block.map((line) => line.text).join(''));
       const code = matchAlipayFund(name, choices);
       const amount = numbers(right)[0];
       const unit = /份/.test(right) ? 'shares' : 'CNY';
       const quantity = amount !== undefined && (unit === 'shares' || Math.abs(amount * 100 - Math.round(amount * 100)) < 0.00001) ? amount : undefined;
-      result.orders.push({ id: `${source}:${stamp.y}`, source, name, code, quantity, operationAt: normalizeTime(stamp.text), selected: true,
-        side: /卖出|赎回/.test(text) ? 'sell' : 'buy', unit, status: statusOf(right), notes: notesFor(code, [quantity]) });
+      const operationAt = normalizeTime(stamp.text);
+      result.orders.push({ id: `${source}:${stamp.y}`, source, name, code, quantity, operationAt, selected: !!operationAt,
+        side: /卖出|赎回/.test(text) ? 'sell' : 'buy', unit, status: statusOf(right),
+        notes: [...notesFor(code, [quantity]), ...(!operationAt ? ['交易未截全，默认不计入'] : [])] });
       top = stamp.bottom;
     }
   } else if (/资产详情/.test(all) && /持有份额|持仓成本价/.test(all)) {
@@ -208,8 +237,7 @@ export function parseAlipayScreenshot(image: AlipayOcrImage, choices: AlipayFund
     });
     for (let i = 0; i < anchors.length; i++) {
       const block = lines.filter((line) => line.y >= anchors[i].y && line.y < (anchors[i + 1]?.y ?? image.height));
-      const name = block.slice(0, gold ? 1 : 3).map(leftText).filter((text) => /[\u4e00-\u9fff]|^(?:\d*ETF|\(?QD)[A-Z0-9()]*$|^[ACE]$/i.test(text)
-        && !/持有|金额|昨日|收益|基金财富|反馈|定投|精选|限额/.test(text)).join('');
+      const name = holdingName(block, leftText, gold);
       const numberLines = block.filter((line) => (gold || line.y <= anchors[i].bottom)
         && line.words.some((word) => word.bbox.x0 > image.width * 0.45 && word.bbox.x0 < image.width * 0.78 && numbers(word.text).length));
       const main = numberLines[0];
@@ -223,6 +251,23 @@ export function parseAlipayScreenshot(image: AlipayOcrImage, choices: AlipayFund
         ...(gold && main ? { shares: numbers(main.words.filter((word) => word.bbox.x0 < image.width * 0.35).map((word) => word.text).join(''))[0] } : {}),
       });
     }
+  }
+  if (image.fallback) {
+    const alternate = parseAlipayScreenshot({ ...image, ...image.fallback, fallback: undefined }, choices, date);
+    const resolveName = <T extends { name: string; code: string; notes: string[] }>(row: T, candidates: T[]): T => {
+      const codes = new Set([row.code, ...candidates.map((candidate) => candidate.code)].filter(Boolean));
+      if (codes.size > 1) return { ...row, code: '', notes: [...row.notes, '基金识别不一致，请核对'] };
+      const matched = !row.code && codes.size === 1 ? candidates.find((candidate) => candidate.code) : undefined;
+      return matched ? { ...row, code: matched.code, name: matched.name, notes: row.notes.filter((note) => note !== '基金待匹配') } : row;
+    };
+    const y = (row: AlipayFundDraft) => Number(row.id.slice(row.id.lastIndexOf(':') + 1));
+    // Only repair a name in the same visual row or exact transaction. Never copy balances or statuses.
+    result.funds = result.funds.map((row) => resolveName(row, alternate.funds.filter((candidate) =>
+      Math.abs(y(row) - y(candidate)) < image.height * 0.02 && row.totalAmount !== undefined
+      && candidate.totalAmount === row.totalAmount && candidate.holdingProfit === row.holdingProfit)));
+    result.orders = result.orders.map((row) => resolveName(row, alternate.orders.filter((candidate) =>
+      row.operationAt && candidate.operationAt === row.operationAt && row.quantity !== undefined && candidate.quantity === row.quantity
+      && candidate.unit === row.unit && candidate.side === row.side)));
   }
   if (!result.funds.length && !result.orders.length) result.notes.push(`${source}：未识别到基金或交易，请核对图片`);
   return result;

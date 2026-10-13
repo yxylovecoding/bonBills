@@ -123,6 +123,8 @@ BILL_IMAGE_ATTACHMENT_PATTERN=\.(png|jpe?g|webp|gif|bmp|tiff?)$
 
 导入文件为 JSON，结构为 `AlipayActualSnapshot`（`src/models/types.ts`）：`date` 使用 `YYYY-MM-DD`；`funds` 提供六位 `code`、`name`、`totalAmount`、`holdingProfit`、`amountKind`（`total` 或 `confirmed`）及可选 `shares`；`orders` 提供唯一 `id`、基金 `code`、北京时间 `operationAt`（`YYYY-MM-DDTHH:mm:ss`）、`side`（`buy`/`sell`）、`quantity`、`unit`（`CNY`/`shares`）及 `status`（`pending`/`confirmed`/`cancelled`/`unknown`）。先预览后保存，同日期替换完整实录；重复订单仅按唯一编号去重，冲突记录拒绝导入。真实账单、截图及导入文件不进入代码仓库。
 
+「导入截图」支持基金持有页、黄金持有页和交易记录多选。列表按行识别，并用第二种版面结果补全同一持仓行或同时间、同数量交易的基金名称；金额、收益和状态不从其他行补值，金选标签不并入名称。预览默认显示名称、金额和状态，编辑字段折叠，支持仅显示待核对项。被截断的 A/C 类别、未显示的交易状态保留待核对，未截全的尾行默认不计入。图片只在浏览器本地识别，确认后沿用实录预览和保存流程。
+
 ## 待确认基金买入
 
 进入 Web 后会自动查询当前月份待确认基金的历史单位净值。对应净值公布后，自动把预估份额和买入成本计入持仓，并隐藏原待确认行，页面只展示更新后的持仓。按北京时间 15 点截单，周末及净值记录中暂停申购的日期顺延。净值未公布时继续等待，同一基金同月份复用查询，缓存 15 分钟；查询失败一分钟后重试，切回页面也会检查更新。

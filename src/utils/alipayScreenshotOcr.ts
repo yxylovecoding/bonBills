@@ -1,6 +1,12 @@
-import { loadTesseract, type OcrWord } from './financeScreenshotOcr';
+import { loadTesseract, type OcrPage, type OcrWord } from './financeScreenshotOcr';
 
-export interface AlipayOcrImage { name: string; width: number; height: number; words: OcrWord[]; text: string }
+export interface AlipayOcrImage {
+  name: string; width: number; height: number; words: OcrWord[]; text: string;
+  fallback?: { words: OcrWord[]; text: string };
+}
+const pageWords = (data: OcrPage) =>
+  (data.words ?? data.blocks?.flatMap((block) => block.paragraphs.flatMap((paragraph) => paragraph.lines.flatMap((line) => line.words))) ?? [])
+    .map(({ text, confidence, bbox }) => ({ text, confidence, bbox }));
 
 export async function readAlipayScreenshots(files: File[], progress: (message: string) => void, signal?: AbortSignal): Promise<AlipayOcrImage[]> {
   if (!files.length || files.length > 20) throw new Error('每次请选择 1–20 张截图');
@@ -23,7 +29,8 @@ export async function readAlipayScreenshots(files: File[], progress: (message: s
   });
   const worker = await wait(creating).catch((error) => { expired = true; throw error; });
   try {
-    await wait(worker.setParameters({ tessedit_pageseg_mode: '11', preserve_interword_spaces: '1' }));
+    // List screenshots have aligned rows; sparse-text mode can discard whole names.
+    await wait(worker.setParameters({ tessedit_pageseg_mode: '6', preserve_interword_spaces: '1' }));
     const result: AlipayOcrImage[] = [];
     for (let i = 0; i < files.length; i++) {
       if (signal?.aborted) throw interrupted();
@@ -38,10 +45,22 @@ export async function readAlipayScreenshots(files: File[], progress: (message: s
         if (!context) throw new Error('无法读取图片');
         context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height);
         context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-        const { data } = await wait(worker.recognize(canvas, {}, { text: true, blocks: true }));
-        const words = data.words ?? data.blocks?.flatMap((block) => block.paragraphs.flatMap((paragraph) => paragraph.lines.flatMap((line) => line.words))) ?? [];
-        result.push({ name: `${files[i].name}（${i + 1}）`, width: canvas.width, height: canvas.height,
-          words: words.map(({ text, confidence, bbox }) => ({ text, confidence, bbox })), text: data.text });
+        let { data } = await wait(worker.recognize(canvas, {}, { text: true, blocks: true }));
+        const text = data.text.replace(/\s/g, '');
+        const detail = /资产详情|买入产品|卖出产品/.test(text);
+        let fallback: AlipayOcrImage['fallback'];
+        // Sparse layout still helps on detail pages and names misread in an aligned list.
+        if (detail || /交易记录|我的持有|我的黄金基金|持有收益/.test(text)) {
+          await wait(worker.setParameters({ tessedit_pageseg_mode: '11' }));
+          try {
+            const alternate = (await wait(worker.recognize(canvas, {}, { text: true, blocks: true }))).data;
+            if (detail) data = alternate;
+            else fallback = { text: alternate.text, words: pageWords(alternate) };
+          }
+          finally { await wait(worker.setParameters({ tessedit_pageseg_mode: '6' })); }
+        }
+        result.push({ name: `截图 ${i + 1}`, width: canvas.width, height: canvas.height,
+          words: pageWords(data), text: data.text, ...(fallback ? { fallback } : {}) });
         canvas.width = canvas.height = 0;
       } finally { bitmap.close(); }
     }

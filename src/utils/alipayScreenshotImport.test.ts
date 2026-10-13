@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alipayFundChoices, matchAlipayFund, parseAlipayScreenshot, combineAlipayScreenshotDrafts, materializeAlipayScreenshots, suggestAlipayFundByAmount, type AlipayFundDraft, type AlipayOrderDraft, type AlipayScreenshotDraft } from './alipayScreenshotImport';
+import { alipayFundChoices, alipayFundNeedsReview, alipayOrderNeedsReview, matchAlipayFund, parseAlipayScreenshot, combineAlipayScreenshotDrafts, materializeAlipayScreenshots, suggestAlipayFundByAmount, type AlipayFundDraft, type AlipayOrderDraft, type AlipayScreenshotDraft } from './alipayScreenshotImport';
 import type { AlipayOcrImage } from './alipayScreenshotOcr';
 import type { AlipayActualSnapshot } from '../models/types';
 
@@ -61,6 +61,31 @@ describe('支付宝基金匹配与截图布局', () => {
     ]), indexChoices, date);
     expect(parsed.funds).toHaveLength(1);
     expect(parsed.funds[0]).toMatchObject({ code: '800003', totalAmount: 150, holdingProfit: -5 });
+  });
+  it.each(['全到指数基金鲍', '金先上', 'GE到指数基鲍'])('基金末尾不拼入 OCR 误读的金选标签 %s', (badge) => {
+    const parsed = parseAlipayScreenshot(screen([
+      [100, [['华泰柏瑞沪深', 30, 410], ['120.00', 600, 730], ['+10.00', 820, 930]]],
+      [135, [['300ETF联接C', 30, 300], ['+1.00', 630, 730], ['+9.09%', 820, 930]]],
+      [170, [[badge, 30, 300]]],
+    ]), indexChoices, date);
+    expect(parsed.funds[0]).toMatchObject({ name: '华泰柏瑞沪深300ETF联接C', code: '800001', totalAmount: 120, holdingProfit: 10 });
+  });
+  it('QDII 的字母误识别不影响份额类别终点，不拼入标签', () => {
+    const parsed = parseAlipayScreenshot(screen([
+      [100, [['摩根示例欧洲股票', 30, 410], ['120.00', 600, 730], ['+10.00', 820, 930]]],
+      [135, [['(QDIDA', 30, 300], ['+1.00', 630, 730], ['+9.09%', 820, 930]]],
+      [170, [['全到指数基金', 30, 300]]],
+    ]), choices, date);
+    expect(parsed.funds[0]).toMatchObject({ name: '摩根示例欧洲股票(QDIDA', code: '123456' });
+  });
+  it('被截断的日经名称保留省略号，不从后面的标签推断 A/C', () => {
+    const parsed = parseAlipayScreenshot(screen([
+      [100, [['华安三萎日联日经', 30, 410], ['150.00', 600, 730], ['-5.00', 820, 930]]],
+      [135, [['225ETF…', 30, 300], ['+2.00', 630, 730], ['-3.23%', 820, 930]]],
+      [170, [['C', 30, 60]]],
+    ]), indexChoices, date);
+    expect(parsed.funds[0]).toMatchObject({ name: '华安三菱日联日经225ETF...', code: '', totalAmount: 150 });
+    expect(matchAlipayFund('华安三萎日联日经225ETF(QDIDA', indexChoices)).toBe('800004');
   });
   it('汇总账号已有别名，排除同代码股票且不修改原始持仓', () => {
     const items = { eu: [{ id: 'x', symbol: 'OF123456', name: '简称', quoteSource: 'eastmoney-fund' as const, status: 'active' as const, historicalProfitCny: 0 }], us: [{ id: 'y', symbol: '654321', name: '股票', quoteSource: 'yahoo' as const, status: 'active' as const, historicalProfitCny: 0 }] };
@@ -131,6 +156,48 @@ describe('支付宝基金匹配与截图布局', () => {
     expect(result.orders[0].status).toBe('unknown');
     expect(result.orders[1]).toMatchObject({ side: 'sell', unit: 'shares', quantity: 30, status: 'cancelled' });
     expect(result.orders[2].operationAt).toBe('');
+    expect(result.orders[2].selected).toBe(false);
+    expect(result.orders[2].notes).toContain('交易未截全，默认不计入');
+  });
+  it('交易名称去掉字段引号和抬头，未显示状态的订单仍需核对', () => {
+    const parsed = parseAlipayScreenshot(screen([
+      [10, [['交易记录', 40, 300]]], [50, [['明细', 40, 100]]],
+      [100, [['定投', 40, 100], ['”基金华安三萎日联日经225ETF(QDID)', 170, 690], ['20.00元', 790, 950]]],
+      [135, [['A', 170, 200]]],
+      [170, [['2026-10-08 10:00:00', 170, 630]]],
+      [1990, [['乱码尾行', 170, 630]]],
+    ]), indexChoices, date);
+    expect(parsed.orders).toHaveLength(1);
+    expect(parsed.orders[0]).toMatchObject({ name: '华安三菱日联日经225ETF(QDID)A', code: '800004', status: 'unknown' });
+    expect(parsed.notes).toEqual(['synthetic.png：底部交易不完整，未计入']);
+  });
+  it('双模式只补全同时间同数量的交易名称，不借用状态或其他订单', () => {
+    const transaction = (name: string, quantity = '20.00元', time = '2026-10-08 10:00:00', status = '') => screen([
+      [10, [['交易记录', 40, 300]]], [50, [['明细', 40, 100]]],
+      [100, [['买入', 40, 100], [name, 170, 690], [quantity, 790, 950]]],
+      [135, [[status, 790, 950]]], [170, [[time, 170, 630]]],
+    ]);
+    const primary = transaction('乱码');
+    const fallback = transaction(choices[0].name, '20.00元', '2026-10-08 10:00:00', '交易成功');
+    expect(parseAlipayScreenshot({ ...primary, fallback }, choices, date).orders[0])
+      .toMatchObject({ code: '123456', quantity: 20, status: 'unknown', notes: [] });
+    for (const other of [transaction(choices[0].name, '30.00元'), transaction(choices[0].name, '20.00元', '2026-10-08 11:00:00')]) {
+      expect(parseAlipayScreenshot({ ...primary, fallback: other }, choices, date).orders[0].code).toBe('');
+    }
+    const conflict = parseAlipayScreenshot({ ...transaction(choices[1].name), fallback }, choices, date).orders[0];
+    expect(conflict.code).toBe('');
+    expect(conflict.notes).toContain('基金识别不一致，请核对');
+  });
+  it('双模式只补全同一持仓行名称，不从邻行借名字或替换数值', () => {
+    const holding = (name: string, y = 100, amount = '120.00') => screen([
+      [y, [[name, 30, 410], [amount, 600, 730], ['-10.00', 820, 930]]],
+    ]);
+    const primary = holding('摩根示例欧洲股票...');
+    expect(parseAlipayScreenshot({ ...primary, fallback: holding(choices[0].name) }, choices, date).funds[0])
+      .toMatchObject({ code: '123456', totalAmount: 120, holdingProfit: -10 });
+    for (const fallback of [holding(choices[0].name, 400), holding(choices[0].name, 100, '121.00')]) {
+      expect(parseAlipayScreenshot({ ...primary, fallback }, choices, date).funds[0].code).toBe('');
+    }
   });
   it('订单成功状态不被底部另一笔赎回确认中的提示覆盖', () => {
     const result = parseAlipayScreenshot(screen([
@@ -147,6 +214,19 @@ describe('支付宝基金匹配与截图布局', () => {
   it('无法识别的图片保留提示，不生成空的准确持仓', () => {
     expect(parseAlipayScreenshot(screen([[10, [['广告', 40, 300]]]]), choices, date)).toMatchObject({ funds: [], orders: [] });
     expect(parseAlipayScreenshot(screen([]), choices, date).notes).toHaveLength(1);
+  });
+});
+
+describe('截图待核对筛选', () => {
+  it('保留真实缺项和冲突，明确撤销不算待核对', () => {
+    expect(alipayFundNeedsReview(fund())).toBe(false);
+    expect(alipayFundNeedsReview(fund({ code: '' }))).toBe(true);
+    expect(alipayFundNeedsReview(fund({ totalAmount: NaN }))).toBe(true);
+    expect(alipayFundNeedsReview(fund({ holdingProfit: undefined }))).toBe(true);
+    expect(alipayOrderNeedsReview(order({ status: 'cancelled' }))).toBe(false);
+    expect(alipayOrderNeedsReview(order({ status: 'unknown' }))).toBe(true);
+    expect(alipayOrderNeedsReview(order({ operationAt: '' }))).toBe(true);
+    expect(alipayOrderNeedsReview(order({ notes: ['同一订单内容冲突，请核对'] }))).toBe(true);
   });
 });
 
