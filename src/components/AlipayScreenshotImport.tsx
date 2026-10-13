@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { AlipayActualSnapshot, InvestPositionItems } from '../models/types';
-import { alipayFundChoices, alipayFundNeedsReview, alipayOrderNeedsReview, combineAlipayScreenshotDrafts, materializeAlipayScreenshots, parseAlipayScreenshot, suggestAlipayFundByAmount, type AlipayScreenshotDraft, type AlipayFundDraft, type AlipayOrderDraft } from '../utils/alipayScreenshotImport';
+import { AlipayScreenshotValidationError, alipayFundChoices, alipayFundNeedsReview, alipayOrderNeedsReview, combineAlipayScreenshotDrafts, materializeAlipayScreenshots, parseAlipayScreenshot, suggestAlipayFundByAmount, type AlipayScreenshotDraft, type AlipayFundDraft, type AlipayOrderDraft } from '../utils/alipayScreenshotImport';
 import { readAlipayScreenshots } from '../utils/alipayScreenshotOcr';
 import { parseAlipayActual } from '../utils/alipayActual';
 import { getAccountStorage } from '../utils/accountCache';
@@ -22,6 +22,9 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
   const [sources, setSources] = useState<{ name: string; url: string }[]>([]);
   const [progress, setProgress] = useState('');
   const [error, setError] = useState('');
+  const [attention, setAttention] = useState<AlipayScreenshotValidationError | null>(null);
+  const attentionId = useId();
+  const rowElements = useRef(new Map<string, HTMLFieldSetElement>());
   const [reviewOnly, setReviewOnly] = useState(false);
   const reviewCount = draft ? draft.funds.filter((row) => row.selected && alipayFundNeedsReview(row)).length
     + draft.orders.filter((row) => row.selected && alipayOrderNeedsReview(row)).length : 0;
@@ -31,11 +34,37 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
   const controller = useRef<AbortController>();
   const trigger = useRef<HTMLButtonElement>(null);
   const owner = useRef(getAccountStorage());
-  const close = () => { job.current++; controller.current?.abort(); setOpen(false); setProgress(''); setSources([]); setDraft(null); trigger.current?.focus(); };
+  const close = () => { job.current++; controller.current?.abort(); setOpen(false); setProgress(''); setSources([]); setDraft(null); setAttention(null); trigger.current?.focus(); };
   useEffect(() => () => { job.current++; controller.current?.abort(); }, []);
   useEffect(() => () => { sources.forEach((source) => URL.revokeObjectURL(source.url)); }, [sources]);
+  useEffect(() => {
+    if (!attention) return;
+    const row = rowElements.current.get(attention.rowId);
+    if (!row) return;
+    const field = Array.from(row.querySelectorAll<HTMLElement>('[data-field]')).find((element) => element.dataset.field === attention.field);
+    const target = field ?? row;
+    const editor = row.querySelector<HTMLDetailsElement>('.alipay-import-edit');
+    if (editor && attention.field !== 'selected') editor.open = true;
+    let parent = target.parentElement;
+    while (parent && parent !== row) {
+      if (parent instanceof HTMLDetailsElement) parent.open = true;
+      parent = parent.parentElement;
+    }
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  }, [attention]);
+  const fieldProps = (rowId: string, field: string) => ({
+    'data-field': field,
+    'aria-invalid': attention?.rowId === rowId && attention.field === field ? true : undefined,
+    'aria-describedby': attention?.rowId === rowId && attention.field === field ? attentionId : undefined,
+  });
+  const rowProps = (rowId: string) => ({
+    ref: (element: HTMLFieldSetElement | null) => { if (element) rowElements.current.set(rowId, element); else rowElements.current.delete(rowId); },
+    tabIndex: -1,
+    'data-attention': attention?.rowId === rowId || undefined,
+  });
   const patchFund = (id: string, patch: Partial<AlipayFundDraft>) => {
-    setError('');
+    setError(''); setAttention(null);
     setDraft((value) => value && ({ ...value, funds: value.funds.map((row) => {
       if (row.id !== id) return row;
       const next = { ...row, ...patch };
@@ -45,19 +74,22 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
       return next;
     }) }));
   };
-  const patchOrder = (id: string, patch: Partial<AlipayOrderDraft>) => setDraft((value) => value && ({ ...value, orders: value.orders.map((row) => row.id === id ? { ...row, ...patch } : row) }));
+  const patchOrder = (id: string, patch: Partial<AlipayOrderDraft>) => {
+    setError(''); setAttention(null);
+    setDraft((value) => value && ({ ...value, orders: value.orders.map((row) => row.id === id ? { ...row, ...patch } : row) }));
+  };
   const fundInput = (row: { id: string; code: string }, change: (code: string) => void) => <div className="alipay-import-fund-choice">
-    <label>匹配基金<select aria-label={`${row.id}匹配基金`} value={choices.some((choice) => choice.code === row.code) ? row.code : ''} onChange={(event) => change(event.target.value)}>
+    <label>匹配基金<select {...fieldProps(row.id, 'code')} aria-label={`${row.id}匹配基金`} value={choices.some((choice) => choice.code === row.code) ? row.code : ''} onChange={(event) => change(event.target.value)}>
       <option value="">请选择对应基金</option>
       {choices.map((choice) => <option key={choice.code} value={choice.code}>{choice.name} · {choice.code}</option>)}
     </select></label>
-    <label>基金代码<input aria-label={`${row.id}基金代码`} inputMode="numeric" pattern="[0-9]{6}" value={row.code} placeholder="六位代码" onChange={(event) => change(event.target.value.trim())} /></label>
+    <label>基金代码<input {...fieldProps(row.id, 'code')} aria-label={`${row.id}基金代码`} inputMode="numeric" pattern="[0-9]{6}" value={row.code} placeholder="六位代码" onChange={(event) => change(event.target.value.trim())} /></label>
   </div>;
   return <>
     <button ref={trigger} type="button" className="alipay-text-button" onClick={() => {
       const currentDate = today();
       setDate(currentDate.startsWith(`${yearMonth}-`) ? currentDate : `${yearMonth}-01`);
-      setOpen(true); setError(''); setReviewOnly(false);
+      setOpen(true); setError(''); setAttention(null); setReviewOnly(false);
     }}>导入截图</button>
     {open && <AlipayImportDialog title="支付宝截图导入" onClose={close} footer={<>
       {progress && <div role="status">{progress}</div>}
@@ -68,7 +100,11 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
           if (JSON.stringify(snapshots[date] ?? null) !== baseline) throw new Error('当日持仓已更新，请重新选择截图');
           const snapshot = materializeAlipayScreenshots(draft, date, choices, snapshots[date]);
           onPreview(snapshot, baseline); close(); setError('');
-        } catch (cause) { setError(cause instanceof Error ? cause.message : '请核对识别结果'); }
+        } catch (cause) {
+          setError(cause instanceof Error ? cause.message : '请核对识别结果');
+          setAttention(cause instanceof AlipayScreenshotValidationError ? cause : null);
+          if (cause instanceof AlipayScreenshotValidationError) setReviewOnly(false);
+        }
       }}>生成持仓预览</button>}
     </>}>
       <div className="alipay-detail-line"><label>持仓日期 <input aria-label="截图持仓日期" type="date" value={date} max={today()} disabled={!!progress} onChange={(event) => { setDate(event.target.value); setDraft(null); }} /></label>
@@ -79,7 +115,7 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
         if (!files.length) return;
         controller.current?.abort(); controller.current = new AbortController();
         const token = ++job.current; const account = getAccountStorage(); owner.current = account;
-        setError(''); setDraft(null); setReviewOnly(false); setBaseline(JSON.stringify(snapshots[date] ?? null));
+        setError(''); setAttention(null); setDraft(null); setReviewOnly(false); setBaseline(JSON.stringify(snapshots[date] ?? null));
         try {
           if (!date || !date.startsWith(`${yearMonth}-`)) throw new Error(`请选 ${yearMonth} 的持仓日期`);
           if (files.some((file) => /\.json$/i.test(file.name))) {
@@ -109,8 +145,9 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
           const suggestions = suggestAlipayFundByAmount(row, choices, snapshots, date);
           const suggested = suggestions[0];
           const tied = suggested && suggestions[1]?.difference === suggested.difference;
-          return <fieldset className="alipay-import-row" key={row.id}>
-          <legend><label><input type="checkbox" checked={row.selected} onChange={(event) => patchFund(row.id, { selected: event.target.checked })} />持仓 {index + 1} · {choices.find((choice) => choice.code === row.code)?.name || row.name}</label></legend>
+          return <fieldset {...rowProps(row.id)} className="alipay-import-row" key={row.id}>
+          <legend><label><input {...fieldProps(row.id, 'selected')} type="checkbox" checked={row.selected} onChange={(event) => patchFund(row.id, { selected: event.target.checked })} />持仓 {index + 1} · {choices.find((choice) => choice.code === row.code)?.name || row.name}</label></legend>
+          {attention?.rowId === row.id && <div id={attentionId} className="alipay-import-warning">{attention.message}</div>}
           <div className="alipay-import-summary"><span>金额 {row.totalAmount === undefined ? '待核对' : money(row.totalAmount)}</span>
             <span>持有收益 {row.holdingProfit === undefined ? '待核对' : money(row.holdingProfit)}</span></div>
           {row.selected && needsReview && <span className="alipay-import-warning">{!row.code && /日经/.test(row.name) ? 'A/C 类别待确认' : '需核对代码或数值'}</span>}
@@ -126,21 +163,22 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
           </div>}
           {row.selected && row.amountMatch && <span role="status">已确认基金匹配</span>}
           <div className="alipay-import-fields">{fundInput(row, (code) => patchFund(row.id, { code, amountMatch: undefined }))}
-            <label>金额<input aria-label={`${row.id}金额`} type="number" step="0.01" min="0" value={row.totalAmount ?? ''} onChange={(event) => patchFund(row.id, { totalAmount: numeric(event.target.value) })} /></label>
-            <label>持有收益<input aria-label={`${row.id}持有收益`} type="number" step="0.01" value={row.holdingProfit ?? ''} onChange={(event) => patchFund(row.id, { holdingProfit: numeric(event.target.value) })} /></label>
+            <label>金额<input {...fieldProps(row.id, 'totalAmount')} aria-label={`${row.id}金额`} type="number" step="0.01" min="0" value={row.totalAmount ?? ''} onChange={(event) => patchFund(row.id, { totalAmount: numeric(event.target.value) })} /></label>
+            <label>持有收益<input {...fieldProps(row.id, 'holdingProfit')} aria-label={`${row.id}持有收益`} type="number" step="0.01" value={row.holdingProfit ?? ''} onChange={(event) => patchFund(row.id, { holdingProfit: numeric(event.target.value) })} /></label>
           </div>
           <details><summary>份额、成本与净值</summary><div className="alipay-import-fields">
-            {(['shares','costPrice','confirmedAmount','pendingBuyAmount','nav'] as const).map((key) => <label key={key}>{{ shares:'真实份额', costPrice:'真实成本价', confirmedAmount:'持有金额', pendingBuyAmount:'待确认金额', nav:'对应净值' }[key]}<input type="number" step="any" min="0" value={row[key] ?? ''} onChange={(event) => patchFund(row.id, { [key]: numeric(event.target.value) })} /></label>)}
-            <label>净值日期<input type="date" max={date} value={row.navDate ?? ''} onChange={(event) => patchFund(row.id, { navDate: event.target.value || undefined })} /></label>
-            <label>金额类型<select value={row.amountKind} onChange={(event) => patchFund(row.id, { amountKind: event.target.value as AlipayFundDraft['amountKind'] })}><option value="total">包含在途的总金额</option><option value="confirmed">已确认的持有金额</option></select></label>
+            {(['shares','costPrice','confirmedAmount','pendingBuyAmount','nav'] as const).map((key) => <label key={key}>{{ shares:'真实份额', costPrice:'真实成本价', confirmedAmount:'持有金额', pendingBuyAmount:'待确认金额', nav:'对应净值' }[key]}<input {...fieldProps(row.id, key)} type="number" step="any" min="0" value={row[key] ?? ''} onChange={(event) => patchFund(row.id, { [key]: numeric(event.target.value) })} /></label>)}
+            <label>净值日期<input {...fieldProps(row.id, 'navDate')} type="date" max={date} value={row.navDate ?? ''} onChange={(event) => patchFund(row.id, { navDate: event.target.value || undefined })} /></label>
+            <label>金额类型<select {...fieldProps(row.id, 'amountKind')} value={row.amountKind} onChange={(event) => patchFund(row.id, { amountKind: event.target.value as AlipayFundDraft['amountKind'] })}><option value="total">包含在途的总金额</option><option value="confirmed">已确认的持有金额</option></select></label>
           </div></details>
           </details>
         </fieldset>; })}
         {draft.orders.map((row, index) => {
           const needsReview = alipayOrderNeedsReview(row);
           if (reviewOnly && (!row.selected || !needsReview)) return null;
-          return <fieldset className="alipay-import-row" key={row.id}>
-          <legend><label><input type="checkbox" checked={row.selected} onChange={(event) => patchOrder(row.id, { selected: event.target.checked })} />交易 {index + 1} · {choices.find((choice) => choice.code === row.code)?.name || row.name || '基金待匹配'}</label></legend>
+          return <fieldset {...rowProps(row.id)} className="alipay-import-row" key={row.id}>
+          <legend><label><input {...fieldProps(row.id, 'selected')} type="checkbox" checked={row.selected} onChange={(event) => patchOrder(row.id, { selected: event.target.checked })} />交易 {index + 1} · {choices.find((choice) => choice.code === row.code)?.name || row.name || '基金待匹配'}</label></legend>
+          {attention?.rowId === row.id && <div id={attentionId} className="alipay-import-warning">{attention.message}</div>}
           <div className="alipay-import-summary"><span>{row.operationAt ? row.operationAt.replace('T', ' ') : '时间待核对'}</span>
             <span>{row.side === 'sell' ? '卖出' : '买入'} {row.quantity === undefined ? '数量待核对' : row.unit === 'CNY' ? money(row.quantity) : `${row.quantity.toLocaleString('zh-CN')} 份`}</span>
             <span>{orderStatus[row.status]}</span></div>
@@ -148,16 +186,16 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
           {row.selected && needsReview && <span className="alipay-import-warning">需核对基金、时间、数量或状态</span>}
           <details className="alipay-import-edit"><summary>{needsReview ? '核对字段' : '编辑字段'}</summary>
           <div className="alipay-import-fields">{fundInput(row, (code) => patchOrder(row.id, { code }))}
-            <label>操作时间<input aria-label={`${row.id}操作时间`} type="datetime-local" step="1" value={row.operationAt} onChange={(event) => patchOrder(row.id, { operationAt: event.target.value.length === 16 ? `${event.target.value}:00` : event.target.value })} /></label>
-            <label>买卖<select value={row.side} onChange={(event) => patchOrder(row.id, { side: event.target.value as 'buy' | 'sell' })}><option value="buy">买入</option><option value="sell">卖出</option></select></label>
-            <label>金额／份额<input aria-label={`${row.id}交易数量`} type="number" min="0" step="any" value={row.quantity ?? ''} onChange={(event) => patchOrder(row.id, { quantity: numeric(event.target.value) })} /></label>
-            <label>单位<select value={row.unit} onChange={(event) => patchOrder(row.id, { unit: event.target.value as 'CNY' | 'shares' })}><option value="CNY">元</option><option value="shares">份</option></select></label>
-            <label>状态<select aria-label={`${row.id}交易状态`} value={row.status} onChange={(event) => patchOrder(row.id, { status: event.target.value as AlipayOrderDraft['status'] })}><option value="unknown">待核对</option><option value="pending">交易进行中</option><option value="confirmed">已确认</option><option value="cancelled">已撤销</option></select></label>
+            <label>操作时间<input {...fieldProps(row.id, 'operationAt')} aria-label={`${row.id}操作时间`} type="datetime-local" step="1" value={row.operationAt} onChange={(event) => patchOrder(row.id, { operationAt: event.target.value.length === 16 ? `${event.target.value}:00` : event.target.value })} /></label>
+            <label>买卖<select {...fieldProps(row.id, 'side')} value={row.side} onChange={(event) => patchOrder(row.id, { side: event.target.value as 'buy' | 'sell' })}><option value="buy">买入</option><option value="sell">卖出</option></select></label>
+            <label>金额／份额<input {...fieldProps(row.id, 'quantity')} aria-label={`${row.id}交易数量`} type="number" min="0" step="any" value={row.quantity ?? ''} onChange={(event) => patchOrder(row.id, { quantity: numeric(event.target.value) })} /></label>
+            <label>单位<select {...fieldProps(row.id, 'unit')} value={row.unit} onChange={(event) => patchOrder(row.id, { unit: event.target.value as 'CNY' | 'shares' })}><option value="CNY">元</option><option value="shares">份</option></select></label>
+            <label>状态<select {...fieldProps(row.id, 'status')} aria-label={`${row.id}交易状态`} value={row.status} onChange={(event) => patchOrder(row.id, { status: event.target.value as AlipayOrderDraft['status'] })}><option value="unknown">待核对</option><option value="pending">交易进行中</option><option value="confirmed">已确认</option><option value="cancelled">已撤销</option></select></label>
           </div>
           <details><summary>订单与确认信息</summary><div className="alipay-import-fields">
-            <label>订单号<input value={row.orderId ?? ''} onChange={(event) => patchOrder(row.id, { orderId: event.target.value.trim() || undefined })} /></label>
-            {(['navDate', 'confirmationDate', 'expectedConfirmationDate'] as const).map((key) => <label key={key}>{{navDate:'成交净值日', confirmationDate:'实际确认日期', expectedConfirmationDate:'预计确认日期'}[key]}<input type="date" value={row[key] ?? ''} onChange={(event) => patchOrder(row.id, { [key]: event.target.value || undefined })} /></label>)}
-            {(['confirmedShares', 'nav', 'fee'] as const).map((key) => <label key={key}>{{confirmedShares:'确认份额', nav:'成交净值', fee:'手续费'}[key]}<input type="number" min="0" step="any" value={row[key] ?? ''} onChange={(event) => patchOrder(row.id, { [key]: numeric(event.target.value) })} /></label>)}
+            <label>订单号<input {...fieldProps(row.id, 'orderId')} value={row.orderId ?? ''} onChange={(event) => patchOrder(row.id, { orderId: event.target.value.trim() || undefined })} /></label>
+            {(['navDate', 'confirmationDate', 'expectedConfirmationDate'] as const).map((key) => <label key={key}>{{navDate:'成交净值日', confirmationDate:'实际确认日期', expectedConfirmationDate:'预计确认日期'}[key]}<input {...fieldProps(row.id, key)} type="date" value={row[key] ?? ''} onChange={(event) => patchOrder(row.id, { [key]: event.target.value || undefined })} /></label>)}
+            {(['confirmedShares', 'nav', 'fee'] as const).map((key) => <label key={key}>{{confirmedShares:'确认份额', nav:'成交净值', fee:'手续费'}[key]}<input {...fieldProps(row.id, key)} type="number" min="0" step="any" value={row[key] ?? ''} onChange={(event) => patchOrder(row.id, { [key]: numeric(event.target.value) })} /></label>)}
           </div></details>
           </details>
         </fieldset>; })}

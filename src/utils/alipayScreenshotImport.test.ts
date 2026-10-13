@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alipayFundChoices, alipayFundNeedsReview, alipayOrderNeedsReview, matchAlipayFund, parseAlipayScreenshot, combineAlipayScreenshotDrafts, materializeAlipayScreenshots, suggestAlipayFundByAmount, type AlipayFundDraft, type AlipayOrderDraft, type AlipayScreenshotDraft } from './alipayScreenshotImport';
+import { AlipayScreenshotValidationError, alipayFundChoices, alipayFundNeedsReview, alipayOrderNeedsReview, matchAlipayFund, parseAlipayScreenshot, combineAlipayScreenshotDrafts, materializeAlipayScreenshots, suggestAlipayFundByAmount, type AlipayFundDraft, type AlipayOrderDraft, type AlipayScreenshotDraft } from './alipayScreenshotImport';
 import type { AlipayOcrImage } from './alipayScreenshotOcr';
 import type { AlipayActualSnapshot } from '../models/types';
 
@@ -372,5 +372,56 @@ describe('截图合并和实录生成', () => {
     const next = materializeAlipayScreenshots(draft([], [order({ side: 'sell', status: 'cancelled' })]), date, choices, old);
     expect(next.orders).toHaveLength(1);
     expect(next.orders[0].status).toBe('cancelled'); expect(next.orders[0].confirmationDate).toBeUndefined();
+  });
+});
+
+
+describe('预览校验定位到原始记录和字段', () => {
+  const issue = (input: AlipayScreenshotDraft) => {
+    try { materializeAlipayScreenshots(input, date, choices); }
+    catch (error) { expect(error).toBeInstanceOf(AlipayScreenshotValidationError); return error; }
+    throw new Error('Expected validation failure');
+  };
+  it.each([
+    [{ code: '' }, 'code'],
+    [{ totalAmount: undefined }, 'totalAmount'],
+    [{ holdingProfit: undefined }, 'holdingProfit'],
+    [{ totalAmount: -1 }, 'totalAmount'],
+    [{ shares: -1 }, 'shares'],
+    [{ nav: 2 }, 'navDate'],
+    [{ navDate: '2026-10-08' }, 'nav'],
+    [{ nav: 2, navDate: '2026-10-12' }, 'navDate'],
+    [{ confirmedAmount: 999 }, 'confirmedAmount'],
+    [{ pendingBuyAmount: 999 }, 'pendingBuyAmount'],
+  ] as [Partial<AlipayFundDraft>, string][])('持仓缺项或折叠字段错误 %j', (patch, field) => {
+    expect(issue(draft([fund({ id: 'target-fund', ...patch })])))
+      .toMatchObject({ rowId: 'target-fund', field });
+  });
+  it.each([
+    [{ code: '' }, 'code'],
+    [{ operationAt: '' }, 'operationAt'],
+    [{ operationAt: '2026-10-12T10:00:00' }, 'operationAt'],
+    [{ quantity: undefined }, 'quantity'],
+    [{ quantity: -1 }, 'quantity'],
+    [{ status: 'unknown' }, 'status'],
+    [{ confirmationDate: '2026-10-07' }, 'confirmationDate'],
+    [{ fee: -1 }, 'fee'],
+  ] as [Partial<AlipayOrderDraft>, string][])('同基金多笔交易只定位到出错的一笔 %j', (patch, field) => {
+    expect(issue(draft([fund()], [order(), order({ id: 'target-order', operationAt: '2026-10-09T10:00:00', ...patch })])))
+      .toMatchObject({ rowId: 'target-order', field });
+  });
+  it('冲突、未勾选记录也有明确定位目标', () => {
+    expect(issue(draft([fund(), fund({ id: 'duplicate', totalAmount: 999 })])))
+      .toMatchObject({ rowId: 'fund', field: 'totalAmount' });
+    expect(issue(draft([fund()], [order({ orderId: '123456789012345' }), order({ id: 'duplicate-order', orderId: '123456789012345', quantity: 30 })])))
+      .toMatchObject({ rowId: 'duplicate-order', field: 'orderId' });
+    expect(issue(draft([fund({ selected: false })])))
+      .toMatchObject({ rowId: 'fund', field: 'selected' });
+  });
+  it('合并持仓后定位到提供无效字段的原始行，完整互补字段仍可导入', () => {
+    expect(issue(draft([fund(), fund({ id: 'detail-row', shares: -1 })])))
+      .toMatchObject({ rowId: 'detail-row', field: 'shares' });
+    const result = materializeAlipayScreenshots(draft([fund({ nav: 2 }), fund({ id: 'detail-row', navDate: date })]), date, choices);
+    expect(result.funds[0]).toMatchObject({ nav: 2, navDate: date });
   });
 });

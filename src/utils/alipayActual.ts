@@ -54,6 +54,21 @@ function code(value: unknown): string {
   return value;
 }
 
+export class AlipayActualValidationError extends Error {
+  constructor(message: string, readonly collection: 'funds' | 'orders', readonly index: number, readonly field: string) {
+    super(message);
+    this.name = 'AlipayActualValidationError';
+  }
+}
+
+function rowValidation(collection: 'funds' | 'orders', index: number) {
+  const fail = (message: string, field: string): never => { throw new AlipayActualValidationError(message, collection, index, field); };
+  const read = <T,>(field: string, action: () => T): T => {
+    try { return action(); } catch (cause) { return fail(cause instanceof Error ? cause.message : '数据不正确', field); }
+  };
+  return { fail, read };
+}
+
 /** Import observations only: never turn screenshot money into position shares or ledger entries. */
 export function parseAlipayActual(text: string): AlipayActualSnapshot {
   if (text.length > 1_000_000) throw new Error('实录文件过大');
@@ -61,55 +76,58 @@ export function parseAlipayActual(text: string): AlipayActualSnapshot {
   if (typeof source.date !== 'string' || !validConfirmationDate(source.date)) throw new Error('实录日期不正确');
   const date = source.date;
   if (!Array.isArray(source.funds) || !source.funds.length || source.funds.length > 500 || !Array.isArray(source.orders) || source.orders.length > 5000) throw new Error('持仓或交易记录不正确');
-  const funds = source.funds.map((raw): AlipayActualFund => {
+  const funds = source.funds.map((raw, index): AlipayActualFund => {
     const fund = object(raw);
-    if (typeof fund.name !== 'string' || !fund.name.trim() || fund.name.length > 100) throw new Error('基金名称不正确');
-    if (fund.amountKind !== 'total' && fund.amountKind !== 'confirmed') throw new Error('金额类型不正确');
-    if (fund.pendingOrdersComplete !== undefined && typeof fund.pendingOrdersComplete !== 'boolean') throw new Error('在途核对状态不正确');
+    const { fail, read } = rowValidation('funds', index);
+    const numeric = (field: string, label: string, signed = false) => read(field, () => number(fund[field], label, signed));
+    if (typeof fund.name !== 'string' || !fund.name.trim() || fund.name.length > 100) return fail('基金名称不正确', 'name');
+    if (fund.amountKind !== 'total' && fund.amountKind !== 'confirmed') return fail('金额类型不正确', 'amountKind');
+    if (fund.pendingOrdersComplete !== undefined && typeof fund.pendingOrdersComplete !== 'boolean') return fail('在途核对状态不正确', 'pendingOrdersComplete');
     if ((fund.nav === undefined) !== (fund.navDate === undefined)
-      || (fund.navDate !== undefined && (typeof fund.navDate !== 'string' || !validConfirmationDate(fund.navDate) || fund.navDate > date))) throw new Error('实录净值日期不正确');
-    if (fund.nav !== undefined && number(fund.nav, '实录净值') <= 0) throw new Error('实录净值不正确');
-    const totalAmount = number(fund.totalAmount, '金额');
-    const held = fund.confirmedAmount === undefined ? undefined : number(fund.confirmedAmount, '持有金额');
-    const pendingBuy = fund.pendingBuyAmount === undefined ? undefined : number(fund.pendingBuyAmount, '待确认金额');
+      || (fund.navDate !== undefined && (typeof fund.navDate !== 'string' || !validConfirmationDate(fund.navDate) || fund.navDate > date))) return fail('实录净值日期不正确', fund.nav === undefined ? 'nav' : 'navDate');
+    if (fund.nav !== undefined && numeric('nav', '实录净值') <= 0) return fail('实录净值不正确', 'nav');
+    const totalAmount = numeric('totalAmount', '金额');
+    const held = fund.confirmedAmount === undefined ? undefined : numeric('confirmedAmount', '持有金额');
+    const pendingBuy = fund.pendingBuyAmount === undefined ? undefined : numeric('pendingBuyAmount', '待确认金额');
     if ((held !== undefined && held > totalAmount + 0.01) || (fund.amountKind === 'total' && pendingBuy !== undefined && pendingBuy > totalAmount + 0.01)
-      || (fund.amountKind === 'total' && held !== undefined && pendingBuy !== undefined && held + pendingBuy > totalAmount + 0.01)) throw new Error('持有金额或待确认金额超过总金额');
+      || (fund.amountKind === 'total' && held !== undefined && pendingBuy !== undefined && held + pendingBuy > totalAmount + 0.01)) return fail('持有金额或待确认金额超过总金额', held !== undefined && held > totalAmount + 0.01 ? 'confirmedAmount' : 'pendingBuyAmount');
     return {
-      code: code(fund.code), name: fund.name.trim(), amountKind: fund.amountKind,
-      totalAmount: number(fund.totalAmount, '金额'), holdingProfit: number(fund.holdingProfit, '持有收益', true),
-      ...(fund.shares === undefined ? {} : { shares: number(fund.shares, '份额') }),
-      ...(fund.costPrice === undefined ? {} : { costPrice: number(fund.costPrice, '成本价') }),
+      code: read('code', () => code(fund.code)), name: fund.name.trim(), amountKind: fund.amountKind,
+      totalAmount, holdingProfit: numeric('holdingProfit', '持有收益', true),
+      ...(fund.shares === undefined ? {} : { shares: numeric('shares', '份额') }),
+      ...(fund.costPrice === undefined ? {} : { costPrice: numeric('costPrice', '成本价') }),
       ...(fund.nav === undefined ? {} : { nav: fund.nav as number, navDate: fund.navDate as string }),
       ...(fund.pendingOrdersComplete === undefined ? {} : { pendingOrdersComplete: fund.pendingOrdersComplete as boolean }),
-      ...(fund.confirmedAmount === undefined ? {} : { confirmedAmount: number(fund.confirmedAmount, '持有金额') }),
-      ...(fund.pendingBuyAmount === undefined ? {} : { pendingBuyAmount: number(fund.pendingBuyAmount, '待确认金额') }),
+      ...(fund.confirmedAmount === undefined ? {} : { confirmedAmount: held! }),
+      ...(fund.pendingBuyAmount === undefined ? {} : { pendingBuyAmount: pendingBuy! }),
     };
   });
   const codes = new Set(funds.map((fund) => fund.code));
   if (codes.size !== funds.length) throw new Error('同一基金重复，请先核对');
-  const orders = source.orders.map((raw): AlipayActualOrder => {
+  const orders = source.orders.map((raw, index): AlipayActualOrder => {
     const order = object(raw);
-    const symbol = code(order.code);
-    if (!codes.has(symbol)) throw new Error('交易记录缺少对应基金');
-    if (typeof order.id !== 'string' || !order.id.trim() || order.id.length > 200) throw new Error('交易记录缺少唯一编号');
+    const { fail, read } = rowValidation('orders', index);
+    const symbol = read('code', () => code(order.code));
+    if (!codes.has(symbol)) return fail('交易记录缺少对应基金', 'code');
+    if (typeof order.id !== 'string' || !order.id.trim() || order.id.length > 200) return fail('交易记录缺少唯一编号', 'orderId');
     if (typeof order.operationAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d$/.test(order.operationAt)
-      || !validConfirmationDate(order.operationAt.slice(0, 10)) || order.operationAt.slice(0, 10) > date) throw new Error('交易时间不正确');
-    if (order.side !== 'buy' && order.side !== 'sell') throw new Error('交易方向不正确');
-    if (order.unit !== 'CNY' && order.unit !== 'shares') throw new Error('交易单位不正确');
-    if (order.status !== 'pending' && order.status !== 'confirmed' && order.status !== 'cancelled' && order.status !== 'unknown') throw new Error('交易状态不正确');
+      || !validConfirmationDate(order.operationAt.slice(0, 10)) || order.operationAt.slice(0, 10) > date) return fail('交易时间不正确', 'operationAt');
+    if (order.side !== 'buy' && order.side !== 'sell') return fail('交易方向不正确', 'side');
+    if (order.unit !== 'CNY' && order.unit !== 'shares') return fail('交易单位不正确', 'unit');
+    if (order.status !== 'pending' && order.status !== 'confirmed' && order.status !== 'cancelled' && order.status !== 'unknown') return fail('交易状态不正确', 'status');
     const details: Partial<AlipayActualOrder> = {};
     for (const field of ['navDate', 'confirmationDate', 'expectedConfirmationDate'] as const) {
       const value = order[field];
       if (value === undefined) continue;
       if (typeof value !== 'string' || !validConfirmationDate(value) || value < order.operationAt.slice(0, 10)
-        || (field !== 'expectedConfirmationDate' && value > date)) throw new Error('净值或确认日期不正确');
+        || (field !== 'expectedConfirmationDate' && value > date)) return fail('净值或确认日期不正确', field);
       details[field] = value;
     }
     for (const field of ['confirmedShares', 'nav', 'fee'] as const) {
-      if (order[field] !== undefined) details[field] = number(order[field], '确认数据');
+      if (order[field] !== undefined) details[field] = read(field, () => number(order[field], '确认数据'));
     }
     return { id: order.id.trim(), code: symbol, operationAt: order.operationAt, side: order.side,
-      quantity: number(order.quantity, '交易数量'), unit: order.unit, status: order.status, ...details };
+      quantity: read('quantity', () => number(order.quantity, '交易数量')), unit: order.unit, status: order.status, ...details };
   });
   const unique = new Map<string, AlipayActualOrder>();
   for (const order of orders) {

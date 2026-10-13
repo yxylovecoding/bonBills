@@ -1722,6 +1722,8 @@ input[type='number'] { -moz-appearance: textfield; }
 .alipay-import-fund-choice { display: grid; gap: 8px; min-width: 0; grid-column: 1 / -1; }
 .alipay-import-dialog summary { cursor: pointer; }
 .alipay-import-warning { color: #b06000; }
+.alipay-import-row[data-attention] { border-color: #b06000; box-shadow: 0 0 0 1px #b06000; }
+.alipay-import-dialog input[aria-invalid="true"], .alipay-import-dialog select[aria-invalid="true"] { border-color: #b06000; }
 .alipay-import-summary { display: flex; flex-wrap: wrap; gap: 4px 16px; font-variant-numeric: tabular-nums; }
 .alipay-import-edit[open] { display: grid; gap: 10px; }
 .alipay-import-suggestion { display: grid; gap: 5px; padding: 8px; border-radius: 7px; background: #e8f0fe; color: #3c4043; overflow-wrap: anywhere; }

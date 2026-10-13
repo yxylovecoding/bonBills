@@ -2,7 +2,7 @@ import type { AlipayActualFund, AlipayActualOrder, AlipayActualSnapshot, InvestP
 import type { AlipayOcrImage } from './alipayScreenshotOcr';
 import type { OcrWord } from './financeScreenshotOcr';
 import { canonicalInvestmentSymbol } from './investmentInstrument';
-import { parseAlipayActual } from './alipayActual';
+import { AlipayActualValidationError, parseAlipayActual } from './alipayActual';
 
 export interface AlipayFundChoice { code: string; name: string; aliases: string[] }
 export interface AlipayFundDraft {
@@ -20,6 +20,12 @@ export interface AlipayOrderDraft {
   confirmedShares?: number; nav?: number; fee?: number;
 }
 export interface AlipayScreenshotDraft { funds: AlipayFundDraft[]; orders: AlipayOrderDraft[]; notes: string[] }
+export class AlipayScreenshotValidationError extends Error {
+  constructor(message: string, readonly rowId: string, readonly field: string) {
+    super(message);
+    this.name = 'AlipayScreenshotValidationError';
+  }
+}
 interface Line { text: string; words: OcrWord[]; y: number; bottom: number; height: number }
 const compact = (text: string) => text.normalize('NFKC').replace(/[\s·•|]/g, '').replace(/[−–—一](?=\d)/g, '-');
 const brands = /华安|摩根|南方|天弘|易方达|博时|工银|嘉实|华夏|华泰柏瑞|富国|广发|招商|汇添富|鹏华|中欧|银华|景顺|国泰/;
@@ -311,8 +317,9 @@ export function materializeAlipayScreenshots(draft: AlipayScreenshotDraft, date:
   const selected = draft.funds.filter((row) => row.selected);
   for (const row of selected) {
     if ((!row.code && fundName(row.name).includes('日经')) || (row.amountMatch && (row.code !== row.amountMatch.code
-      || row.totalAmount !== row.amountMatch.totalAmount || row.amountKind !== row.amountMatch.amountKind))) throw new Error('请先确认日经基金的 A/C 类别和代码');
-    if (!/^\d{6}$/.test(row.code) || row.totalAmount === undefined || row.holdingProfit === undefined) throw new Error('请补全勾选基金的代码、金额和持有收益');
+      || row.totalAmount !== row.amountMatch.totalAmount || row.amountKind !== row.amountMatch.amountKind))) throw new AlipayScreenshotValidationError('请先确认日经基金的 A/C 类别和代码', row.id, 'code');
+    if (!/^\d{6}$/.test(row.code) || row.totalAmount === undefined || row.holdingProfit === undefined) throw new AlipayScreenshotValidationError('请补全勾选基金的代码、金额和持有收益', row.id,
+      !/^\d{6}$/.test(row.code) ? 'code' : row.totalAmount === undefined ? 'totalAmount' : 'holdingProfit');
     const value: AlipayActualFund = { code: row.code, name: choices.find((choice) => choice.code === row.code)?.name ?? row.name,
       totalAmount: row.totalAmount, holdingProfit: row.holdingProfit, amountKind: row.amountKind };
     for (const key of ['shares', 'costPrice', 'nav', 'navDate', 'confirmedAmount', 'pendingBuyAmount'] as const) {
@@ -321,7 +328,8 @@ export function materializeAlipayScreenshots(draft: AlipayScreenshotDraft, date:
     const fields = ['totalAmount', 'holdingProfit', 'amountKind', 'shares', 'costPrice', 'nav', 'navDate', 'confirmedAmount', 'pendingBuyAmount'] as const;
     const duplicate = selected.find((other) => other !== row && other.code === row.code
       && fields.some((key) => other[key] !== undefined && row[key] !== undefined && other[key] !== row[key]));
-    if (duplicate) throw new Error(`${value.name}：截图数据冲突，请仅保留同一时点的数据`);
+    if (duplicate) throw new AlipayScreenshotValidationError(`${value.name}：截图数据冲突，请仅保留同一时点的数据`, row.id,
+      fields.find((key) => duplicate[key] !== undefined && row[key] !== undefined && duplicate[key] !== row[key]) ?? 'code');
     // New balances must not inherit stale shares, NAV or pending cash from an earlier screenshot.
     const sameBatch = selected.slice(0, selected.indexOf(row)).some((other) => other.code === row.code);
     funds.set(row.code, sameBatch ? { ...funds.get(row.code)!, ...value } : value);
@@ -329,10 +337,12 @@ export function materializeAlipayScreenshots(draft: AlipayScreenshotDraft, date:
   const orders = new Map<string, AlipayActualOrder>((old?.orders ?? []).map((order) => [order.id, { ...order }]));
   const occurrences = new Map<string, number>();
   const imported = new Map<string, AlipayActualOrder>();
+  const orderRows = new Map<string, AlipayOrderDraft>();
   const usedPrior = new Set<string>();
   for (const row of draft.orders.filter((entry) => entry.selected)) {
-    if (!funds.has(row.code)) throw new Error(`${row.name || '交易'}：请匹配基金并补充对应持有页`);
-    if (!row.operationAt || row.quantity === undefined || row.status === 'unknown') throw new Error(`${row.name}：请核对交易时间、金额和状态`);
+    if (!funds.has(row.code)) throw new AlipayScreenshotValidationError(`${row.name || '交易'}：请匹配基金并补充对应持有页`, row.id, 'code');
+    if (!row.operationAt || row.quantity === undefined || row.status === 'unknown') throw new AlipayScreenshotValidationError(`${row.name}：请核对交易时间、金额和状态`, row.id,
+      !row.operationAt ? 'operationAt' : row.quantity === undefined ? 'quantity' : 'status');
     const matches = (old?.orders ?? []).filter((order) => order.code === row.code && order.operationAt === row.operationAt && order.side === row.side && order.unit === row.unit && order.quantity === row.quantity);
     const key = `${row.code}:${row.operationAt}:${row.side}:${row.unit}:${row.quantity}`;
     const occurrence = (occurrences.get(key) ?? 0) + 1; occurrences.set(key, occurrence);
@@ -342,12 +352,24 @@ export function materializeAlipayScreenshots(draft: AlipayScreenshotDraft, date:
     const value: AlipayActualOrder = { id, code: row.code, operationAt: row.operationAt, side: row.side, quantity: row.quantity, unit: row.unit, status: row.status };
     for (const key of ['navDate', 'confirmationDate', 'expectedConfirmationDate', 'confirmedShares', 'nav', 'fee'] as const) if (row[key] !== undefined) Object.assign(value, { [key]: row[key] });
     const sameImport = imported.get(id);
-    if (sameImport && JSON.stringify(sameImport) !== JSON.stringify(value)) throw new Error('同一订单内容冲突，请仅保留最新状态');
+    if (sameImport && JSON.stringify(sameImport) !== JSON.stringify(value)) throw new AlipayScreenshotValidationError('同一订单内容冲突，请仅保留最新状态', row.id, 'orderId');
     imported.set(id, value);
+    orderRows.set(id, row);
     if (row.orderId && matches.length === 1 && matches[0].id !== id && !/^\d{15,40}$/.test(matches[0].id)) orders.delete(matches[0].id);
     const prior = orders.get(id);
     orders.set(id, prior?.status === value.status ? { ...prior, ...value } : value);
   }
-  if (!selected.length && !draft.orders.some((order) => order.selected)) throw new Error('请至少选择一项识别结果');
-  return parseAlipayActual(JSON.stringify({ date, funds: [...funds.values()], orders: [...orders.values()] }));
+  if (!selected.length && !draft.orders.some((order) => order.selected)) throw new AlipayScreenshotValidationError('请至少选择一项识别结果', draft.funds[0]?.id ?? draft.orders[0]?.id ?? '', 'selected');
+  const snapshot = { date, funds: [...funds.values()], orders: [...orders.values()] };
+  try { return parseAlipayActual(JSON.stringify(snapshot)); }
+  catch (cause) {
+    if (cause instanceof AlipayActualValidationError) {
+      const fund = snapshot.funds[cause.index];
+      const row = cause.collection === 'orders' ? orderRows.get(snapshot.orders[cause.index]?.id)
+        : selected.find((row) => row.code === fund?.code && row[cause.field as keyof AlipayFundDraft] !== undefined)
+          ?? selected.find((row) => row.code === fund?.code);
+      if (row) throw new AlipayScreenshotValidationError(cause.message, row.id, cause.field);
+    }
+    throw cause;
+  }
 }
