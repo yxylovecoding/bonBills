@@ -249,7 +249,10 @@ describe('BonLife 接口', () => {
     const result = await call('GET', undefined, '2020');
     expect(result.body.year).toBe(2020); expect(Object.keys(result.body.entries)).toHaveLength(2);
     expect(getHash).toHaveBeenCalledWith(entriesKey(2020));
-    expect(result.headers['Cache-Control']).toBe('private, no-store');
+    expect(result.headers['Cache-Control']).toBe('private, max-age=30, must-revalidate');
+    expect(result.headers['Vary']).toContain('Cookie');
+    expect(result.headers['Vary']).toContain('X-BonBills-Account');
+    expect(result.headers['Vary']).toContain('X-BonBills-Cache');
   });
   it('正确处理 Redis SDK 已解码的写入结果，逐日提交不覆盖整年', async () => {
     const entry = { text: '今天很好', revision: 'mutation-123456789' };

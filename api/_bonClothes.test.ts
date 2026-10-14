@@ -41,10 +41,10 @@ function webpPhoto(width = 960, height = 800, kind = 'VP8X') {
   const data = Buffer.concat([Buffer.from('RIFF0000WEBP'), ...chunks]); data.writeUInt32LE(data.length - 8, 4);
   return `data:image/webp;base64,${data.toString('base64')}`;
 }
-async function call(method: string, query: Record<string, string> = {}, body?: unknown) {
+async function call(method: string, query: Record<string, string> = {}, body?: unknown, headers: Record<string, string> = {}) {
   const result = { status: 200, body: {} as any, headers: {} as Record<string, string> };
-  const response = { status(code: number) { result.status = code; return this; }, setHeader(key: string, value: string) { result.headers[key] = value; }, json(value: unknown) { result.body = value; return this; }, send(value: unknown) { result.body = value; return this; } };
-  await handler({ method, query, body, headers: {} } as VercelRequest, response as unknown as VercelResponse);
+  const response = { status(code: number) { result.status = code; return this; }, setHeader(key: string, value: string) { result.headers[key] = value; }, json(value: unknown) { result.body = value; return this; }, send(value: unknown) { result.body = value; return this; }, end() { result.body = undefined; return this; } };
+  await handler({ method, query, body, headers } as VercelRequest, response as unknown as VercelResponse);
   return result;
 }
 beforeEach(() => {
@@ -61,6 +61,30 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('衣柜与实际穿搭接口', () => {
+  it('成功照片使用浏览器私有长期缓存，条件请求仍先鉴权，缺失照片不缓存', async () => {
+    data.set(photoKey(item.photoId), jpeg());
+    const query = { view: 'photo', id: item.photoId };
+    const first = await call('GET', query);
+    expect(first.headers['Cache-Control']).toBe('private, max-age=2592000, immutable');
+    expect(first.headers['Vary']).toContain('Cookie');
+    expect(first.headers['Vary']).toContain('Authorization');
+    const headers = { 'if-none-match': `W/${first.headers.ETag}` };
+    const cached = await call('GET', query, undefined, headers);
+    expect(cached.status).toBe(304); expect(cached.body).toBeUndefined();
+    auth.mockResolvedValue(false);
+    const denied = await call('GET', query, undefined, headers);
+    expect(denied.status).toBe(401); expect(denied.headers['Cache-Control']).toContain('no-store');
+    auth.mockResolvedValue(true); data.delete(photoKey(item.photoId));
+    const missing = await call('GET', query, undefined, headers);
+    expect(missing.status).toBe(404); expect(missing.headers['Cache-Control']).toContain('no-store');
+  });
+  it('衣柜数据仅短时私有缓存，保存响应不缓存', async () => {
+    const read = await call('GET', { date: context.date });
+    expect(read.headers['Cache-Control']).toBe('private, max-age=30, must-revalidate');
+    expect(read.headers['Vary']).toContain('X-BonBills-Cache');
+    const saved = await call('POST', {}, { action: 'save-context', context, mutationId: uid('cache-save') });
+    expect(saved.status).toBe(200); expect(saved.headers['Cache-Control']).toContain('no-store');
+  });
   it('生产使用现有 Outlook 函数分派到独立衣柜接口', async () => {
     let payload: any;
     const response = { status() { return this; }, setHeader() {}, json(value: unknown) { payload = value; return this; } };

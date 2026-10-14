@@ -1,3 +1,4 @@
+import { privateJson } from './_privateCache.js';
 import { withAccountScope } from './_accountRoute.js';
 import { randomUUID } from 'node:crypto';
 import { kv } from './_accountKv.js';
@@ -23,9 +24,9 @@ async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (req.method === 'GET') {
       const connection = await kv.get<Connection>(CONNECTION_KEY);
-      if (!connection) return res.status(200).json({ connected: false });
+      if (!connection) return privateJson(req, res, { connected: false });
       const input = decryptOutlookConnection(connection.encrypted, secret);
-      return res.status(200).json({ connected: true, connectionId: connection.id, policy: input.policy, rules: input.rules,
+      return privateJson(req, res, { connected: true, connectionId: connection.id, policy: input.policy, rules: input.rules,
         calendars: { play: Boolean(input.playUrl), class: Boolean(input.classUrl) },
         sources: input.sources.map((s) => ({ name: s.name, kind: s.kind, hasUrl: true })) });
     }

@@ -26,7 +26,7 @@ function isProfile(value: unknown): value is BonCvFireProfile {
 export async function fetchBonCvFireProfile(etag?: string) {
   const headers: Record<string, string> = {};
   if (etag) headers['If-None-Match'] = etag;
-  const response = await apiFetch('/api/boncv-profile', { headers, cache: 'no-store' });
+  const response = await apiFetch('/api/boncv-profile', { headers });
   if (response.status === 304) return { status: 'not-modified' as const, etag };
   if (response.status === 503) throw new Error('BONCV_NOT_CONFIGURED');
   if (!response.ok) throw new Error(`BONCV_HTTP_${response.status}`);

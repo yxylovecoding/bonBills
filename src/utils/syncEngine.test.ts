@@ -58,6 +58,11 @@ afterEach(() => {
 });
 
 describe('cached startup synchronization', () => {
+  it('合并和上传前读取最新云端账本，不使用旧的 HTTP 缓存基准', async () => {
+    await engine.initSync('bon');
+    const read = mocks.apiFetch.mock.calls.find(([, init]) => init.method === 'GET');
+    expect(read?.[1].cache).toBe('reload');
+  });
   it('支付宝偏好和校正可同步并在刷新后恢复，原始月度账本不受影响', async () => {
     await engine.initSync('bon');
     const { usePrefsStore } = await import('../stores/prefsStore');

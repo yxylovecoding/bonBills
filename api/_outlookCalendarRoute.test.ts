@@ -59,7 +59,7 @@ describe('Outlook 连接接口', () => {
     const status = await call('GET');
     expect(status.body.connected).toBe(true);
     expect(JSON.stringify(status)).not.toContain(input.playUrl);
-    expect(status.headers['Cache-Control']).toContain('no-store');
+    expect(status.headers['Cache-Control']).toBe('private, max-age=30, must-revalidate');
     const calendar = data.get('calendar-tags');
     expect((await call('DELETE')).body.connected).toBe(false);
     expect(data.size).toBe(1);

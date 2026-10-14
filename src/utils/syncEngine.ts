@@ -175,7 +175,9 @@ const stores: StoreEntry[] = [
 
 async function fetchServer(): Promise<Record<string, unknown> | null> {
   return requestWithRetry(async (signal) => {
-    const res = await apiFetch('/api/sync', { method: 'GET', signal });
+    // This read is the baseline for merging and uploading local edits. Always
+    // obtain the latest cloud state, while allowing the browser to store it.
+    const res = await apiFetch('/api/sync', { method: 'GET', cache: 'reload', signal });
     if (res.status === 204) return null;
     if (res.status === 401) throw new Error('UNAUTHORIZED');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);

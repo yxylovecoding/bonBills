@@ -1,3 +1,4 @@
+import { privateJson } from './_privateCache.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { authOk } from './_auth.js';
 
@@ -171,7 +172,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const db = (req.query.databaseId as string) || (await findReadingListDb(token));
     if (!db) return res.status(404).json({ error: 'Reading List database not found. Share it with the integration.' });
     const dbObj = typeof db === 'string' ? (await notionFetch(`/v1/databases/${db}`, token)).json : db;
-    return res.status(200).json({
+    return privateJson(req, res, {
       id: dbObj.id,
       title: (dbObj.title || []).map((t: any) => t.plain_text).join(''),
       url: dbObj.url,

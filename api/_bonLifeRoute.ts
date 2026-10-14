@@ -1,3 +1,4 @@
+import { privateJson } from './_privateCache.js';
 import { withAccountScope } from './_accountRoute.js';
 import { hydrateMakeupEntries } from '../src/utils/lifeMakeup.js';
 import { DEFAULT_SKIN_SETTINGS, currentSkinSettings, parseSkinSettings, type SkinSettings } from '../src/utils/lifeSkin.js';
@@ -33,11 +34,11 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       year = lifeYear(req.method === 'GET' ? req.query.year : body?.year ?? String(body?.date).slice(0, 4));
     } catch { return res.status(400).json({ error: '请求内容或年份无效' }); }
     if (req.method === 'GET') {
-      if (req.query.view === 'training') return res.status(200).json(await readTrainingSource(year));
+      if (req.query.view === 'training') return privateJson(req, res, await readTrainingSource(year));
       if (req.query.view === 'done') {
         let month: string;
         try { month = doneMonth(year, req.query.month); } catch { return res.status(400).json({ error: '月份无效' }); }
-        return res.status(200).json(await readDoneMonth(month));
+        return privateJson(req, res, await readDoneMonth(month));
       }
       const [entries, periods, connection, days, settings, previousEntries, symptoms] = await Promise.all([
         kv.hgetall<LifeEntries>(entriesKey(year)), kv.get<PeriodSnapshot>(periodsKey(year)), kv.get<LifeConnection>(LIFE_CONNECTION_KEY),
@@ -45,7 +46,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
         year > 1900 ? kv.hgetall<LifeEntries>(entriesKey(year - 1)) : null,
         kv.hgetall<LifeEntries>(LIFE_SYMPTOM_ENTRIES_KEY),
       ]);
-      return res.status(200).json({ year, entries: hydrateMakeupEntries(entries ?? {}), periodDays: days, cycle: settings?.cycle ?? DEFAULT_CYCLE,
+      return privateJson(req, res, { year, entries: hydrateMakeupEntries(entries ?? {}), periodDays: days, cycle: settings?.cycle ?? DEFAULT_CYCLE,
         skinSettings: currentSkinSettings(settings?.skin ?? DEFAULT_SKIN_SETTINGS),
         symptomHistory: Object.fromEntries(Object.entries({ ...symptoms, ...previousEntries, ...entries })
           .filter(([key]) => key.startsWith('eyes:') || key.startsWith('discomfort:'))),

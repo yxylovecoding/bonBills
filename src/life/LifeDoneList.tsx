@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { DoneItem, DoneMonth } from '../utils/bonLife';
 import type { TickTickPlanDetails } from '../utils/tickTickPlanDetails';
 import { requestWithRetry } from '../utils/requestWithRetry';
-import { accountRequestHeaders } from '../utils/authClient';
+import { accountFetch } from '../utils/authClient';
 import { doneCategory, doneWeekDates, doneWeekMonths, doneWeekNumber, earlierDoneWeeks, computeDoneDurations, groupDoneWeek, shiftDoneDate } from '../utils/lifeDone';
 import { squarifiedTreemap } from '../utils/squarifiedTreemap';
 import { LifeError, lifeRequest } from './client';
@@ -137,9 +137,8 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
     const timer = window.setTimeout(() => request.abort(), 20_000);
     setReplanning(true); setReplanError(''); setReplanMessage('');
     try {
-      const response = await fetch('/api/ticktick-trips?action=trigger-replan', {
-        method: 'POST', credentials: 'same-origin', cache: 'no-store', signal: request.signal,
-        headers: accountRequestHeaders(),
+      const response = await accountFetch('/api/ticktick-trips?action=trigger-replan', {
+        method: 'POST', credentials: 'same-origin', signal: request.signal,
       });
       if (response.status === 401) { onExpired(); return; }
       const result = await response.json() as { triggered?: boolean; error?: string };
@@ -165,9 +164,8 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
     const timer = window.setTimeout(() => controller.abort(), 20_000);
     void (async () => {
       try {
-        await fetch('/api/ticktick-trips?action=trigger-replan', {
-          method: 'POST', credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
-          headers: accountRequestHeaders(),
+        await accountFetch('/api/ticktick-trips?action=trigger-replan', {
+          method: 'POST', credentials: 'same-origin', signal: controller.signal,
         });
       } catch { /* 静默忽略触发失败，用户仍可手动点击「重排任务」。*/ }
       finally { clearTimeout(timer); }
@@ -178,7 +176,7 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
     const request = new AbortController(); detailsController.current = request;
     setDetailsError('');
     void requestWithRetry(async signal => {
-      const response = await fetch('/api/ticktick-trips?action=plan-details', { credentials: 'same-origin', headers: accountRequestHeaders(), cache: 'no-store', signal });
+      const response = await accountFetch('/api/ticktick-trips?action=plan-details', { credentials: 'same-origin', signal });
       if (response.status === 401) { onExpired(); return null; }
       const data = await response.json() as { details?: TickTickPlanDetails | null; error?: string };
       if (!response.ok) throw new Error(data.error || '排期详情读取失败');

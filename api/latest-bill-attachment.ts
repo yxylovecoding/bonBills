@@ -1,3 +1,4 @@
+import { privateJson } from './_privateCache.js';
 import { authOk } from './_auth.js';
 import tls from 'node:tls';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
@@ -437,8 +438,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       Number.isInteger(parsedSinceUid) && parsedSinceUid > 0 ? parsedSinceUid : undefined,
     );
     const primary = attachments.find((item) => item.kind === 'bill') ?? attachments[0];
-    res.setHeader('Cache-Control', 'no-store');
-    return res.status(200).json({
+    return privateJson(req, res, {
       fileName: primary.attachment.fileName,
       contentType: primary.attachment.contentType,
       base64: primary.attachment.data.toString('base64'),

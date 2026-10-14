@@ -1,3 +1,4 @@
+import { privateJson } from './_privateCache.js';
 import { withAccountScope } from './_accountRoute.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { authOk, sameOrigin } from './_auth.js';
@@ -20,7 +21,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       if (body?.action === 'select') { await selectOutlookWriteCalendar(body.calendarId); return outlookWriteStatus(); }
       throw new OutlookWriteError('请求内容无效', 400);
     });
-    return res.status(200).json(result);
+    return privateJson(req, res, result);
   } catch (error) {
     // A Microsoft token failure must not be confused with a BonBills login expiry.
     return res.status(error instanceof OutlookWriteError ? error.status === 401 ? 424 : error.status : 502)

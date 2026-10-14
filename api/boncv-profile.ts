@@ -1,3 +1,4 @@
+import { privateCache } from './_privateCache.js';
 import { authOk } from './_auth.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
@@ -15,9 +16,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const upstream = await fetch(`${baseUrl}/api/v1/fire-profile`, { headers, signal: AbortSignal.timeout(10_000) });
     const etag = upstream.headers.get('etag');
     if (etag) res.setHeader('ETag', etag);
-    res.setHeader('Cache-Control', 'private, no-store');
-    if (upstream.status === 304) return res.status(304).end();
+    if (upstream.status === 304) { privateCache(res); return res.status(304).end(); }
     const body = await upstream.text();
+    if (upstream.ok) privateCache(res);
     res.status(upstream.status);
     res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json');
     return res.send(body);

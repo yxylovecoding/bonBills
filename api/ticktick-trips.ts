@@ -1,3 +1,4 @@
+import { privateCache, privateJson } from './_privateCache.js';
 import { withAccountScope } from './_accountRoute.js';
 import { authorizeAccountScope } from './_accountScope.js';
 import { createHash } from 'node:crypto';
@@ -306,7 +307,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.query?.action === 'plan-details') {
       if (req.method !== 'GET') return res.status(405).json({ error: 'method not allowed' });
       const { readTickTickPlanDetails } = await import('./_ticktickPlanDetails.js');
-      return res.status(200).json({ details: await readTickTickPlanDetails() });
+      return privateJson(req, res, { details: await readTickTickPlanDetails() });
     }
     if (req.query?.action === 'trigger-replan') {
       if (req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
@@ -340,10 +341,12 @@ async function handler(req: VercelRequest, res: VercelResponse) {
         if (req.query.format !== 'json') return res.redirect(303, '/api/ticktick-trips?action=briefing');
       }
       const { readDailyBriefing, renderDailyBriefing } = await import('./_dailyBriefing.js');
-      if (req.query.format === 'json') return res.status(200).json(await readDailyBriefing());
+      if (req.query.format === 'json') return privateJson(req, res, await readDailyBriefing());
+      const html = renderDailyBriefing(await readDailyBriefing());
+      if (req.method === 'GET') privateCache(res);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'");
-      return res.status(200).send(renderDailyBriefing(await readDailyBriefing()));
+      return res.status(200).send(html);
     }
     if (req.query?.action === 'life-periods') {
       if (!isCron && req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
@@ -371,7 +374,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       if (doneError) return res.status(502).json({ ...result, error: 'TickTick 完成记录同步失败，已保留历史' });
       return res.status(result.busy ? 202 : 200).json({ ok: true, ...result });
     }
-    if (req.method === 'GET') return res.status(200).json(await status());
+    if (req.method === 'GET') return privateJson(req, res, await status());
     if (req.method === 'PATCH') {
       let body;
       try { body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body; }

@@ -1,4 +1,5 @@
 import { requestWithRetry } from './requestWithRetry';
+import { invalidateRequestCache, requestCacheVersion } from './requestCache';
 
 export interface SessionStatus {
   authenticated: boolean;
@@ -12,7 +13,29 @@ export class SessionError extends Error {
 
 let activeAccountId: string | undefined;
 export function accountRequestHeaders(): Record<string, string> {
-  return activeAccountId ? { 'X-BonBills-Account': activeAccountId } : {};
+  return activeAccountId ? {
+    'X-BonBills-Account': activeAccountId,
+    'X-BonBills-Cache': requestCacheVersion(activeAccountId),
+  } : {};
+}
+
+export function invalidateAccountRequests() {
+  if (activeAccountId) invalidateRequestCache(activeAccountId);
+}
+
+export async function accountFetch(url: string, init: RequestInit = {}) {
+  const account = activeAccountId;
+  const writing = !['GET', 'HEAD'].includes((init.method || 'GET').toUpperCase());
+  if (writing && account) invalidateRequestCache(account);
+  const headers = new Headers(init.headers);
+  for (const [key, value] of Object.entries(accountRequestHeaders())) headers.set(key, value);
+  try {
+    return await fetch(url, { ...init, headers, credentials: 'same-origin', cache: init.cache ?? 'default' });
+  } finally {
+    // Invalidate even on a timeout: the server may already have saved the edit.
+    // A second generation also excludes reads started while saving was in flight.
+    if (writing && account) invalidateRequestCache(account);
+  }
 }
 
 export async function requestSession(init: RequestInit = {}): Promise<SessionStatus> {
@@ -51,9 +74,7 @@ export function register(credentials: { username: string; password: string; conf
 }
 
 export async function apiFetch(url: string, init: RequestInit = {}) {
-  const headers = new Headers(init.headers);
-  for (const [key, value] of Object.entries(accountRequestHeaders())) headers.set(key, value);
-  const response = await fetch(url, { ...init, headers, credentials: 'same-origin', cache: 'no-store' });
+  const response = await accountFetch(url, init);
   if (response.status === 401) {
     // 个人外部服务尚未配置时，不把已登录的新账号带进重复刷新。
     const session = await requestSession();

@@ -1,3 +1,4 @@
+import { privateCache, privateJson } from './_privateCache.js';
 import { withAccountScope } from './_accountRoute.js';
 import { isOwnerScope } from './_accountScope.js';
 import { authOk } from './_auth.js';
@@ -86,9 +87,10 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       result['monthly-records'] = await mergeAugustInvestmentFromPreRestoreState(result['monthly-records']);
     }
     if (!hasAny) {
+      privateCache(res);
       return res.status(204).end();
     }
-    return res.status(200).json(result);
+    return privateJson(req, res, result);
   }
 
   if (req.method === 'PUT') {

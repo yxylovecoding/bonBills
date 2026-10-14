@@ -1,3 +1,4 @@
+import { privateJson, privateCache } from './_privateCache.js';
 import { withAccountScope } from './_accountRoute.js';
 import { kv } from './_accountKv.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
@@ -23,26 +24,30 @@ async function handler(req: VercelRequest, res: VercelResponse) {
         const photo = await kv.get<string>(photoKey(id(req.query.id)));
         if (!photo) return res.status(404).json({ error: '照片不存在' });
         const { mime, data } = photoData(photo);
+        privateCache(res, 30 * 24 * 60 * 60, true);
+        const etag = `"${signature(photo)}"`;
+        res.setHeader('ETag', etag);
+        if (req.headers['if-none-match']?.split(',').some((tag) => tag.trim().replace(/^W\//, '') === etag)) return res.status(304).end();
         res.setHeader('Content-Type', mime);
         return res.status(200).send(data);
       }
       if (req.query.view === 'cities') {
         requireInput(typeof req.query.q === 'string' && req.query.q.trim().length >= 2 && req.query.q.length <= 120, '请输入城市名');
-        return res.status(200).json({ cities: await searchCities(req.query.q.trim()) });
+        return privateJson(req, res, { cities: await searchCities(req.query.q.trim()) });
       }
       const date = dateInput(req.query.date);
-      if (req.query.view === 'trips') return res.status(200).json(await readClothesTrips(date, timezoneInput(req.query.timezone)));
+      if (req.query.view === 'trips') return privateJson(req, res, await readClothesTrips(date, timezoneInput(req.query.timezone)));
       if (req.query.view === 'forecast') {
         const location = locationInput({ name: '行程目的地', latitude: Number(req.query.latitude), longitude: Number(req.query.longitude), source: 'manual' });
-        return res.status(200).json(await readTripForecast(location!, date, dateInput(req.query.endDate), timezoneInput(req.query.timezone)));
+        return privateJson(req, res, await readTripForecast(location!, date, dateInput(req.query.endDate), timezoneInput(req.query.timezone)));
       }
-      if (req.query.view === 'calendar') return res.status(200).json(await readClothesCalendar(date, timezoneInput(req.query.timezone)));
+      if (req.query.view === 'calendar') return privateJson(req, res, await readClothesCalendar(date, timezoneInput(req.query.timezone)));
       if (req.query.view === 'weather') {
         const location = locationInput({ name: '天气地点', latitude: Number(req.query.latitude), longitude: Number(req.query.longitude), source: 'manual' });
         const timezone = timezoneInput(req.query.timezone);
         if (date > deviceDate(new Date(), timezone)) {
           const forecast = await readTripForecast(location!, date, date, timezone);
-          return res.status(200).json({ weather: forecast.days[date] ?? null, stale: forecast.stale, ...(forecast.error ? { error: forecast.error } : {}) });
+          return privateJson(req, res, { weather: forecast.days[date] ?? null, stale: forecast.stale, ...(forecast.error ? { error: forecast.error } : {}) });
         }
         const result = await readWeather(location!, date, timezone);
         if (date < deviceDate(new Date(), timezone) && !result.weather) {
@@ -51,7 +56,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
             && Math.abs(record.weather.latitude - location!.latitude) < .1 && Math.abs(record.weather.longitude - location!.longitude) < .1)
             .sort((a, b) => b.confirmedAt.localeCompare(a.confirmedAt))[0]?.weather ?? null;
         }
-        return res.status(200).json(result);
+        return privateJson(req, res, result);
       }
       const allRecords = Object.values(await kv.hgetall<Record<string, WearRecord>>(WEAR_KEY) ?? {})
         .sort((a, b) => b.date.localeCompare(a.date) || b.confirmedAt.localeCompare(a.confirmedAt));
@@ -60,10 +65,10 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       // Paginate whole dates so a busy day is never split or silently skipped.
       const dates = [...new Set(worn.map((record) => record.date))].slice(0, 30);
       const records = worn.filter((record) => dates.includes(record.date));
-      if (req.query.view === 'history') return res.status(200).json({ records });
+      if (req.query.view === 'history') return privateJson(req, res, { records });
       const [items, context] = await Promise.all([kv.hgetall<Record<string, ClothesItem>>(ITEMS_KEY), kv.hget<ClothesDayContext>(CONTEXTS_KEY, date)]);
       const learningTimezone = timezoneInput(req.query.timezone ?? context?.timezone ?? 'Asia/Shanghai');
-      return res.status(200).json({ items: calibratedItems(Object.values(items ?? {}).filter((item) => !item.deleted).map(normalizeItem), allRecords, deviceDate(new Date(), learningTimezone)), context: context ?? allRecords.find((record) => record.date === date)?.context ?? null, records, outfits, wearCounts: totalWearCounts(worn), pairCounts: outfitPairCounts(allRecords) });
+      return privateJson(req, res, { items: calibratedItems(Object.values(items ?? {}).filter((item) => !item.deleted).map(normalizeItem), allRecords, deviceDate(new Date(), learningTimezone)), context: context ?? allRecords.find((record) => record.date === date)?.context ?? null, records, outfits, wearCounts: totalWearCounts(worn), pairCounts: outfitPairCounts(allRecords) });
     }
     if (req.method !== 'POST') return res.status(405).json({ error: '请求方式无效' });
     let body: Record<string, any>;

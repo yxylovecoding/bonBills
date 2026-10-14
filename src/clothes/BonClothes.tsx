@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import LoginPage from '../pages/LoginPage';
-import { requestSession, restoreSession } from '../utils/authClient';
+import { invalidateAccountRequests, requestSession, restoreSession } from '../utils/authClient';
 import type { ClothesData, ClothesDayContext, ClothesItem, ClothesLocation, WearRecord } from './types';
 import { CATEGORIES, wearId } from './types';
 import { deviceDate, emptyContext, totalWearCounts } from './rules';
@@ -56,6 +56,7 @@ function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void
   const [category, setCategory] = useState('全部'), [status, setStatus] = useState('全部状态');
   const [data, setData] = useState<ClothesData | null>(null), [error, setError] = useState(''), [loading, setLoading] = useState(false);
   const [refresh, setRefresh] = useState(0), [editor, setEditor] = useState<ItemDraft | null>(null);
+  const refreshData = () => { invalidateAccountRequests(); setRefresh((value) => value + 1); };
   const [hasDraft, setHasDraft] = useState(() => Boolean(readItemDraft(owner)));
   const [wearEditor, setWearEditor] = useState<{ draft: WearDraft; storageKey: string } | null>(null);
   const [hasWearDraft, setHasWearDraft] = useState(() => Boolean(readWearDraft(owner, date)));
@@ -100,7 +101,7 @@ function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void
   }), []);
   function saved(item: ClothesItem) {
     setData((current) => current && ({ ...current, items: [...current.items.filter((old) => old.id !== item.id), ...(!item.deleted ? [item] : [])] }));
-    setEditor(null); setHasDraft(false); setRefresh((value) => value + 1);
+    setEditor(null); setHasDraft(false); refreshData();
   }
   const items = (data?.items ?? []).filter((item) => (category === '全部' || (category === '睡衣' ? item.sleepwear : itemCategories(item).some((role) => role === category))) && (status === '全部状态' || item.status === status));
   return <main className="life-shell clothes-shell">
@@ -109,10 +110,10 @@ function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void
       catch { setError('退出失败，请重试'); }
     }}>退出</button></div></header>
     <div className="life-toolbar"><nav className="life-tabs" aria-label="BonClothes"><button aria-pressed={tab === 'today'} onClick={() => setTab('today')}>今日</button><button aria-pressed={tab === 'wardrobe'} onClick={() => setTab('wardrobe')}>衣柜</button><button aria-pressed={tab === 'outfits'} onClick={() => setTab('outfits')}>搭配</button></nav><input className="clothes-date clothes-date-picker" type="date" aria-label="穿搭日期" min="2000-01-01" max="2100-12-31" value={date} onChange={(e) => { if (e.target.value && e.target.validity.valid) setSelectedDate(e.target.value === today ? null : e.target.value); }} /></div>
-    {error && <div className="life-error-banner" role="alert">{error}<button onClick={() => setRefresh((v) => v + 1)}>重试</button></div>}
+    {error && <div className="life-error-banner" role="alert">{error}<button onClick={() => refreshData()}>重试</button></div>}
     {!data ? <div className="clothes-empty" role="status">{loading ? '加载中…' : '暂无数据'}</div>
       : tab === 'today' ? <Today key={`${date}:${timezone}`} owner={owner} items={data.items} initial={context} records={data.records} outfits={data.outfits ?? []} wearCounts={data.wearCounts} pairCounts={data.pairCounts}
-        tomorrow={tomorrow} past={past} onReviewDay={setSelectedDate} onToggleDay={(location) => { setDayLocation(location); setSelectedDate(date === today ? addTripDays(today, 1) : null); }} onContext={onContext} onOpenWear={openWear} hasWearDraft={hasWearDraft} onExpired={onExpired} onRefresh={() => setRefresh((v) => v + 1)} onWardrobe={() => { setTab('wardrobe'); setEditor(readItemDraft(owner) ?? { item: newItem(), photo: '', mutationId: crypto.randomUUID() }); }} />
+        tomorrow={tomorrow} past={past} onReviewDay={setSelectedDate} onToggleDay={(location) => { setDayLocation(location); setSelectedDate(date === today ? addTripDays(today, 1) : null); }} onContext={onContext} onOpenWear={openWear} hasWearDraft={hasWearDraft} onExpired={onExpired} onRefresh={() => refreshData()} onWardrobe={() => { setTab('wardrobe'); setEditor(readItemDraft(owner) ?? { item: newItem(), photo: '', mutationId: crypto.randomUUID() }); }} />
         : tab === 'outfits' ? <SavedOutfits outfits={data.outfits ?? []} items={data.items} context={context.date === today ? context : { ...emptyContext(today, timezone), location: context.location }} onOpenWear={openWear} hasWearDraft={hasWearDraft} />
         : <section aria-label="衣柜"><div className="clothes-wardrobe-toolbar"><div><select aria-label="衣物分类" value={category} onChange={(e) => setCategory(e.target.value)}>{['全部', ...CATEGORIES, '睡衣'].map((value) => <option key={value}>{value}</option>)}</select><select aria-label="衣物状态" value={status} onChange={(e) => setStatus(e.target.value)}>{['全部状态', '可穿', '收起'].map((value) => <option key={value}>{value}</option>)}</select></div><button className="life-primary" onClick={() => {
           const draft = readItemDraft(owner); setEditor(draft ?? { item: newItem(), photo: '', mutationId: crypto.randomUUID() });
@@ -123,11 +124,11 @@ function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void
           }}><img loading="lazy" src={photoUrl(item.photoId)} alt={item.name} /><div className="clothes-card-caption"><strong>{item.name}</strong><span>{itemWarmth(item)}°C{item.sleepwear ? ' · 睡衣' : ''}{item.status === '收起' ? ' · 收起' : ''}</span></div></button>)}</div>
           {!items.length && <div className="clothes-empty">{data.items.length ? '暂无符合条件的衣物' : '添加第一件衣物'}</div>}
         </section>}
-    <footer className="clothes-footer"><a href={APP_LINKS.bills.url}>BonBills</a><button disabled={loading} onClick={() => setRefresh((v) => v + 1)}>{loading ? '刷新中…' : '刷新'}</button></footer>
+    <footer className="clothes-footer"><a href={APP_LINKS.bills.url}>BonBills</a><button disabled={loading} onClick={() => refreshData()}>{loading ? '刷新中…' : '刷新'}</button></footer>
     {editor && <ItemEditor initial={editor} owner={owner} onClose={() => { setEditor(null); setHasDraft(Boolean(readItemDraft(owner))); }} onSaved={saved} onExpired={onExpired} />}
     {wearEditor && data && <WearEditor initial={wearEditor.draft} storageKey={wearEditor.storageKey} items={data.items} pairCounts={data.pairCounts ?? outfitPairCounts([...data.records, ...(data.outfits ?? [])])} onSaved={(record) => {
-      onRecord(record); setRefresh((v) => v + 1); setWearEditor(null); setHasWearDraft(Boolean(readWearDraft(owner, date))); setTab(record.kind === 'styled' ? 'outfits' : 'today');
+      onRecord(record); refreshData(); setWearEditor(null); setHasWearDraft(Boolean(readWearDraft(owner, date))); setTab(record.kind === 'styled' ? 'outfits' : 'today');
       if (record.kind !== 'styled') setSelectedDate(record.date === today ? null : record.date);
-    }} onClose={() => { setWearEditor(null); setHasWearDraft(Boolean(readWearDraft(owner, date))); }} onExpired={onExpired} onRefresh={() => setRefresh((v) => v + 1)} />}
+    }} onClose={() => { setWearEditor(null); setHasWearDraft(Boolean(readWearDraft(owner, date))); }} onExpired={onExpired} onRefresh={() => refreshData()} />}
   </main>;
 }
