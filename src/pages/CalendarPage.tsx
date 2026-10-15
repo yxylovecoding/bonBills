@@ -65,6 +65,7 @@ import {
   getCategoryProfit,
   getInvestTotalForRate,
   getManualAccumulatedProfit,
+  getYearInvestmentReturn,
   isInvestAccumulatedProfitAuto,
 } from '../utils/investRecords';
 import {
@@ -2985,6 +2986,7 @@ type YearProfitMode = 'rate' | 'amount';
 // ── YearSection ───────────────────────────────────────────────────
 function YearSection({
   year,
+  asOfDate,
   recs,
   allRecords,
   yearProfitMode,
@@ -2993,6 +2995,7 @@ function YearSection({
   expenseItemsByMonth,
 }: {
   year: string;
+  asOfDate: string;
   recs: MonthlyRecord[];
   allRecords: MonthlyRecord[];
   yearProfitMode: YearProfitMode;
@@ -3000,7 +3003,7 @@ function YearSection({
   onJumpToMonth?: (ym: string) => void;
   expenseItemsByMonth?: Record<string, BillExpenseMonth>;
 }) {
-  const currentYear = String(_NOW.getFullYear());
+  const currentYear = asOfDate.slice(0, 4);
   const [expanded, setExpanded] = useState(year === currentYear);
   const totalIncome  = recs.reduce((s, r) => s + r.income, 0);
   const totalExpense = recs.reduce((s, r) => s + r.totalExpense, 0);
@@ -3014,19 +3017,15 @@ function YearSection({
     ? monthlySavedAmounts.reduce((sum, value) => sum + value, 0)
     : null;
 
-  // 年度收益率：每月收益率（=本月收益/本月理财额）之和
-  const monthlyProfits = recs.map(r => {
+  // 年度行与首页复用加权投入额及按实际天数折算的年化；往年截至年末。
+  const yearReturn = year <= currentYear
+    ? getYearInvestmentReturn(allRecords, year === currentYear ? asOfDate : `${year}-12-31`)
+    : null;
+  const monthlyProfits = recs.filter(r => r.yearMonth <= asOfDate.slice(0, 7)).map(r => {
     const prev = allRecords.find(x => x.yearMonth === prevYearMonth(r.yearMonth));
     return getRecordInvestMonthlyProfit(r, prev);
   }).filter((x): x is number => x !== null);
-  const monthlyRates = recs.map(r => {
-    const prev = allRecords.find(x => x.yearMonth === prevYearMonth(r.yearMonth));
-    const investTotalForRate = getInvestTotalForRate(r.yearMonth, r.investTotal, allRecords);
-    const monthlyProfit = getRecordInvestMonthlyProfit(r, prev);
-    if (monthlyProfit === null || investTotalForRate === null) return null;
-    return monthlyProfit / investTotalForRate.value;
-  }).filter((x): x is number => x !== null);
-  const yearRate = monthlyRates.length > 0 ? monthlyRates.reduce((a, b) => a + b, 0) : null;
+  const yearRate = yearReturn?.annualizedRate ?? null;
   const yearProfitAmount = monthlyProfits.length > 0 ? monthlyProfits.reduce((a, b) => a + b, 0) : null;
   const yearProfitValue = yearProfitMode === 'rate' ? yearRate : yearProfitAmount;
 
@@ -3056,6 +3055,7 @@ function YearSection({
         <span
           role="button"
           tabIndex={0}
+          aria-label={yearProfitMode === 'rate' ? `${year}年年化收益率` : `${year}年收益金额`}
           title={yearProfitMode === 'rate' ? '点击切换为收益金额' : '点击切换为收益率'}
           onClick={(e) => {
             e.stopPropagation();
@@ -3070,7 +3070,7 @@ function YearSection({
           style={{ fontSize: 12, fontWeight: 600, color: yearProfitValue !== null ? (yearProfitValue >= 0 ? C.red : C.green) : C.sub, fontVariantNumeric: 'tabular-nums', textAlign: 'right', cursor: 'pointer' }}
         >
           {yearProfitMode === 'rate'
-            ? (yearRate !== null ? `${(yearRate * 100).toFixed(1)}%` : '—')
+            ? (yearRate !== null ? `${(yearRate * 100).toFixed(2)}%` : '—')
             : (yearProfitAmount !== null ? formatSignedCompactCurrency(yearProfitAmount) : '—')}
         </span>
       </button>
@@ -4392,6 +4392,7 @@ export default function CalendarPage() {
               <YearSection
                 key={yr}
                 year={yr}
+                asOfDate={today}
                 recs={recs}
                 allRecords={records}
                 yearProfitMode={yearProfitMode}
