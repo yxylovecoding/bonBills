@@ -31,7 +31,7 @@ import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { dateLabel, daysUntilDate, resolveIncomeForMonth } from '../utils/payroll';
 import { calculateCreditRepaymentPlan, getPlanningLongBondTotal } from '../utils/creditRepayment';
-import { getAverageAnnualizedRate, getInvestTotalForRate } from '../utils/investRecords';
+import { getAverageAnnualizedRate, getInvestTotalForRate, getYearInvestmentReturn } from '../utils/investRecords';
 import {
   SP500_COMPARISON_REQUESTS,
   calculateSp500Comparison,
@@ -51,7 +51,7 @@ import {
 import { version as APP_VERSION } from '../../package.json';
 import { useSyncStatus } from '../utils/syncStatus';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '日期快捷筛选';
+const RELEASE_NOTE = '年化收益修正';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -736,13 +736,13 @@ export default function HomePage() {
       ? monthIncome / monthInvestTotal.value
       : null;
 
-    const yearRecords = records.filter((record) => record.yearMonth.startsWith(`${currentYear}-`));
+    const yearRecords = records.filter((record) => record.yearMonth.startsWith(`${currentYear}-`)
+      && record.yearMonth <= currentYearMonth);
     const yearIncomeParts = yearRecords.flatMap((record) => {
       const previous = recordsByMonth.get(prevYearMonth(record.yearMonth));
       return previous ? [record.accumulatedProfit - previous.accumulatedProfit] : [];
     });
-    const previousDecember = recordsByMonth.get(`${currentYear - 1}-12`);
-    const yearRateRecords = previousDecember ? [...yearRecords, previousDecember] : yearRecords;
+    const yearReturn = getYearInvestmentReturn(records, todayKey);
 
     return {
       monthIncome,
@@ -750,9 +750,9 @@ export default function HomePage() {
       yearIncome: yearIncomeParts.length > 0
         ? yearIncomeParts.reduce((sum, income) => sum + income, 0)
         : null,
-      yearAnnualizedRate: getAverageAnnualizedRate(yearRateRecords),
+      yearAnnualizedRate: yearReturn?.annualizedRate ?? null,
     };
-  }, [currentYear, currentYearMonth, records]);
+  }, [currentYear, currentYearMonth, records, todayKey]);
 
   // 同期每月定投标普500对比（数据源与「bill-资产配置比例-回测」一致）
   const [sp500Charts, setSp500Charts] = useState<Partial<Record<PortfolioBacktestSeriesId, MarketChartResponse>> | null>(null);

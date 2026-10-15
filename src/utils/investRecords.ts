@@ -83,6 +83,61 @@ function previousYearMonth(yearMonth: string): string {
   return `${previousYear}-${String(previousMonth).padStart(2, '0')}`;
 }
 
+export interface YearInvestmentReturn {
+  income: number;
+  weightedCapital: number;
+  rate: number;
+  annualizedRate: number;
+}
+
+// 修正 Dietz：净投入由月度市值变化扣除收益推算，发生时间估在该月观测区间中点。
+// asOfDate 当天计入已过天数；当前月只观察到当天，日期差按 UTC 日历计算以避开夏令时。
+export function getYearInvestmentReturn(
+  records: readonly MonthlyRecord[],
+  asOfDate: string,
+): YearInvestmentReturn | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(asOfDate)) return null;
+  const [year, month, day] = asOfDate.split('-').map(Number);
+  const asOfTime = Date.UTC(year, month - 1, day);
+  if (new Date(asOfTime).toISOString().slice(0, 10) !== asOfDate) return null;
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  const start = Date.UTC(year, 0, 1);
+  const end = asOfTime + dayMs;
+  const elapsedDays = (end - start) / dayMs;
+  const yearDays = (Date.UTC(year + 1, 0, 1) - start) / dayMs;
+  const byMonth = new Map(records.map((record) => [record.yearMonth, record]));
+  const isValid = (record: MonthlyRecord | undefined): record is MonthlyRecord => Boolean(record
+    && Number.isFinite(record.investTotal) && record.investTotal >= 0
+    && Number.isFinite(record.accumulatedProfit));
+  const baseline = byMonth.get(`${year - 1}-12`);
+  if (!isValid(baseline)) return null;
+
+  let previous = baseline;
+  let weightedCapital = baseline.investTotal;
+  for (let currentMonth = 1; currentMonth <= month; currentMonth += 1) {
+    const current = byMonth.get(`${year}-${String(currentMonth).padStart(2, '0')}`);
+    // 缺少月度资金数据时不插值或跳月，避免将未知资金进出当作零。
+    if (!isValid(current)) return null;
+    const income = current.accumulatedProfit - previous.accumulatedProfit;
+    const netContribution = current.investTotal - previous.investTotal - income;
+    const monthStart = Date.UTC(year, currentMonth - 1, 1);
+    const monthEnd = Math.min(Date.UTC(year, currentMonth, 1), end);
+    const estimatedFlowTime = (monthStart + monthEnd) / 2;
+    const weight = (end - estimatedFlowTime) / (end - start);
+    weightedCapital += netContribution * weight;
+    previous = current;
+  }
+  if (!Number.isFinite(weightedCapital) || weightedCapital <= 0) return null;
+
+  const income = previous.accumulatedProfit - baseline.accumulatedProfit;
+  const rate = income / weightedCapital;
+  const annualizedRate = rate / elapsedDays * yearDays;
+  return Number.isFinite(rate) && Number.isFinite(annualizedRate)
+    ? { income, weightedCapital, rate, annualizedRate }
+    : null;
+}
+
 export function getAverageAnnualizedRate(records: MonthlyRecord[]): number | null {
   const recordsByMonth = new Map(records.map((record) => [record.yearMonth, record]));
   const monthlyRates = records.map((record) => {
