@@ -11,6 +11,14 @@ const formatBillCurrency = (amount: number) => `${amount < 0 ? '−' : ''}¥${fo
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 
+function getRecentDateRange(months: 1 | 12, today: Date) {
+  const start = new Date(today.getFullYear(), today.getMonth() - months, 1);
+  const lastDay = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
+  start.setDate(Math.min(today.getDate(), lastDay));
+  const formatDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  return { startDate: formatDate(start), endDate: formatDate(today) };
+}
+
 function surplusHighlightStyle(value: number): React.CSSProperties {
   const positive = value >= 0;
   return {
@@ -84,6 +92,12 @@ export default function TagLogicStats({ items, initialTags = [] }: { items: Bill
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [accountsExpanded, setAccountsExpanded] = useState(false);
   const queryInputRef = useRef<HTMLInputElement>(null);
+  const today = new Date();
+  const rangePresets = [
+    { label: '近一年', ...getRecentDateRange(12, today) },
+    { label: '近一月', ...getRecentDateRange(1, today) },
+    { label: '全部时间', startDate: '', endDate: '' },
+  ];
 
   const availableRange = useMemo(() => {
     let earliest = '';
@@ -275,8 +289,7 @@ export default function TagLogicStats({ items, initialTags = [] }: { items: Bill
           <input
             type="date"
             value={startDate}
-            min={availableRange.earliest}
-            max={endDate || availableRange.latest}
+            max={endDate || undefined}
             onChange={(event) => {
               const next = event.target.value;
               setStartDate(next);
@@ -290,8 +303,7 @@ export default function TagLogicStats({ items, initialTags = [] }: { items: Bill
           <input
             type="date"
             value={endDate}
-            min={startDate || availableRange.earliest}
-            max={availableRange.latest}
+            min={startDate || undefined}
             onChange={(event) => {
               const next = event.target.value;
               setEndDate(next);
@@ -300,13 +312,22 @@ export default function TagLogicStats({ items, initialTags = [] }: { items: Bill
             style={{ width: '100%', minWidth: 0, border: '1px solid #d8d1ee', borderRadius: 8, padding: '6px 7px', backgroundColor: '#fff', fontSize: 11 }}
           />
         </label>
-        <button
-          type="button"
-          onClick={() => { setStartDate(''); setEndDate(''); }}
-          style={{ flexShrink: 0, border: `1px solid ${!startDate && !endDate ? '#c4b5fd' : '#e5e7eb'}`, backgroundColor: !startDate && !endDate ? '#ede9fe' : '#fff', color: !startDate && !endDate ? C.purple : C.sub, borderRadius: 8, padding: '7px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
-        >
-          全部时间
-        </button>
+        <div role="group" aria-label="快捷时间范围" style={{ flexBasis: '100%', display: 'flex', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 6 }}>
+          {rangePresets.map((preset) => {
+            const active = startDate === preset.startDate && endDate === preset.endDate;
+            return (
+              <button
+                key={preset.label}
+                type="button"
+                aria-pressed={active}
+                onClick={() => { setStartDate(preset.startDate); setEndDate(preset.endDate); }}
+                style={{ flexShrink: 0, border: `1px solid ${active ? '#c4b5fd' : '#e5e7eb'}`, backgroundColor: active ? '#ede9fe' : '#fff', color: active ? C.purple : C.sub, borderRadius: 8, padding: '7px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+              >
+                {preset.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 12, paddingTop: 10, borderTop: '1px solid #ede9fe', flexWrap: 'wrap' }}>
