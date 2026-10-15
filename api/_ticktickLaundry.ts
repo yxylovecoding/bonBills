@@ -9,6 +9,7 @@ import { calendarDateInTimeZone, routineOccurrenceKey, routineScenes, routineTas
   type TickTickApi, type TickTickTask, type TickTickTripSource } from './_ticktickTrips.js';
 
 export const LAUNDRY_STATE_KEY = 'ticktick:laundry-weather:v1';
+export const LAUNDRY_CALENDAR_MINUTES = 50;
 const DAY = 86_400_000;
 const WEATHER_DAY_OFFSETS = [-1, 0, 1, 2] as const;
 const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T12:00:00Z`) + n * DAY).toISOString().slice(0, 10);
@@ -110,7 +111,7 @@ function hasTime(task: TickTickTask, date: string, options: PlanOptions) {
   const calendar = { ...availability, events: availability.events.filter(event => !(event.taskLink?.taskId === task.id
     && event.taskLink.projectId === task.projectId && normalize(event.title) === '洗衣服')) };
   const others = options.tasks.filter(other => other.id !== task.id && pending(other));
-  const minutes = estimateTaskMinutes(task);
+  const minutes = LAUNDRY_CALENDAR_MINUTES;
   const free = dayAvailability({ calendar, day: date, today, now, profile,
     tasks: others,
     fixed: others.filter(other => routineTaskDate(other) === date && (other.priority ?? 0) < 5

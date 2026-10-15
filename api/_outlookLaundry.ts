@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { kv } from './_accountKv.js';
-import { estimateTaskMinutes } from './_ticktickDailyPlan.js';
-import { isLaundryTask, laundryLocation, LAUNDRY_STATE_KEY, type LaundryState } from './_ticktickLaundry.js';
+import { isLaundryTask, laundryLocation, LAUNDRY_CALENDAR_MINUTES, LAUNDRY_STATE_KEY, type LaundryState } from './_ticktickLaundry.js';
 import { routineTaskDate, type TickTickApi, type TickTickTask } from './_ticktickTrips.js';
 import { wallTimeInstant } from './_calendarTimezone.js';
 import { OUTLOOK_WRITE_KEY, OutlookWriteError, outlookGraphClient, withOutlookWriteLock, type GraphClient, type WriteConnection } from './_outlookWrite.js';
@@ -24,8 +23,8 @@ export function laundryEventPlan(task: TickTickTask, today: string, location?: s
   if (!isLaundryTask(task) || (task.status ?? 0) !== 0 || task.completedTime || !day || day < today) return null;
   const start = task.isAllDay === false ? Date.parse(task.startDate ?? task.dueDate ?? '') : Date.parse(`${day}T08:00:00+08:00`);
   if (!Number.isFinite(start)) return null;
-  // Match the daily plan: explicit duration first, otherwise laundry defaults to 50 minutes.
-  const end = start + estimateTaskMinutes(task) * 60_000;
+  // Calendar occupancy includes the full wash, independently of the task's effort estimate.
+  const end = start + LAUNDRY_CALENDAR_MINUTES * 60_000;
   const local = (time: number): EventTime => ({ dateTime: new Date(time + 8 * 3600_000).toISOString().slice(0, 19), timeZone: 'Asia/Shanghai' });
   return { subject: '洗衣服', start: local(start), end: local(end), ...(location ? { location: { displayName: location } } : {}) };
 }

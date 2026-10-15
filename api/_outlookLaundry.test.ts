@@ -52,8 +52,8 @@ beforeEach(() => {
   }));
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
-it('采用 TickTick 具体时刻和描述时长；首轮创建、重复同步无重复、改期更新同一条', async () => {
-  expect(laundryEventPlan(task, '2026-10-05', '北京')).toMatchObject({ start: { dateTime: '2026-10-08T08:00:00' }, end: { dateTime: '2026-10-08T09:01:00' } });
+it('采用 TickTick 具体时刻和固定50分钟；首轮创建、重复同步无重复、改期更新同一条', async () => {
+  expect(laundryEventPlan(task, '2026-10-05', '北京')).toMatchObject({ start: { dateTime: '2026-10-08T08:00:00' }, end: { dateTime: '2026-10-08T08:50:00' } });
   expect(await syncLaundryOutlook(api, options())).toMatchObject({ created: 1, updated: 0 });
   expect(writes[0].body).toMatchObject({ subject: '洗衣服', attendees: [], isReminderOn: false, location: { displayName: '北京' } });
   expect(writes[0].body).not.toHaveProperty('recurrence');
@@ -131,11 +131,48 @@ it('写入前任务已完成或已改期则不写；未连接和无周期数据�
   data.delete(LAUNDRY_STATE_KEY); await syncLaundryOutlook(api, options()); expect(writes).toHaveLength(0);
   data.delete(OUTLOOK_WRITE_KEY); expect(await syncLaundryOutlook(api, options())).toMatchObject({ enabled: false });
 });
-it('只同步管理范围内未完成的洗衣；默认50分钟并拒绝历史日期', () => {
+it('只同步管理范围内未完成的洗衣；固定50分钟并拒绝历史日期', () => {
   expect(laundryEventPlan({ ...task, content: undefined }, '2026-10-05')?.end.dateTime).toBe('2026-10-08T08:50:00');
   expect(laundryEventPlan(task, '2026-10-09')).toBeNull();
   expect(laundryEventPlan({ ...task, title: '除螨喷雾' }, '2026-10-05')).toBeNull();
   expect(laundryEventPlan({ ...task, tags: ['不关我事'] }, '2026-10-05')).toBeNull();
+});
+it.each([
+  { content: '(15m)' },
+  { content: '(1h1m)' },
+  { content: undefined, desc: '(15m)' },
+  { content: undefined, tags: ['(15m)'] },
+  { content: undefined, dueDate: '2026-10-08T00:15:00Z' },
+  { content: '(15m)', isAllDay: true },
+])('待办估时或起止区间不改变 Outlook 的50分钟：%j', fields => {
+  expect(laundryEventPlan({ ...task, ...fields }, '2026-10-05')).toMatchObject({
+    start: { dateTime: '2026-10-08T08:00:00' }, end: { dateTime: '2026-10-08T08:50:00' },
+  });
+});
+it('Make 已验证的旧15分钟预约在同日修正为50分钟，保留原日程和待办估时', async () => {
+  task.content = '(15m)';
+  await syncLaundryOutlook(api, options());
+  const existing = events.get('event-1');
+  existing.end.dateTime = '2026-10-08T08:15:00';
+  const state = [...data.entries()].find(([key]) => key.startsWith('outlook:laundry-events:v1:'))![1];
+  const oldPlan = { ...laundryEventPlan(task, '2026-10-05', '北京'), end: existing.end };
+  Object.values<any>(state.entries)[0].verifiedPlan = createHash('sha256').update(JSON.stringify(oldPlan)).digest('hex');
+  const connection = data.get(OUTLOOK_WRITE_KEY);
+  data.set(OUTLOOK_WRITE_KEY, { ...connection, provider: 'make',
+    encrypted: sealOutlookWrite({ webhookUrl: 'https://hook.eu1.make.com/0123456789abcdef0123456789abcdef' }) });
+  const upstream = globalThis.fetch;
+  vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+    const input = JSON.parse(init.body as string);
+    const response = await upstream(`https://graph.microsoft.com${input.path}`, { method: input.method, body: input.body || undefined,
+      headers: Object.fromEntries(input.headers.map((header: { key: string; value: string }) => [header.key, header.value])) });
+    return json({ protocol: 'bonbills-outlook-v1', status: response.status, body: await response.json() });
+  });
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ created: 0, updated: 1 });
+  expect(events.size).toBe(1);
+  expect(events.get('event-1')).toMatchObject({ start: existing.start, end: { dateTime: '2026-10-08T08:50:00' }, body: existing.body });
+  expect(task.content).toBe('(15m)');
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ created: 0, updated: 0 });
+  expect(writes).toHaveLength(2);
 });
 it('Make 同日同排期复用验证，次日仍回读；变更核对归属并更新同一事件', async () => {
   const upstream = globalThis.fetch;

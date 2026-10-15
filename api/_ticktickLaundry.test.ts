@@ -92,6 +92,14 @@ describe('洗衣周期和地点', () => {
 });
 
 describe('天气与日程选日', () => {
+  it('待办标注15分钟时仍按50分钟避让后半段会议，恰好08:50开始则不冲突', () => {
+    const current = task({ content: '(15m)' });
+    const event = { title: '会议', start: '2026-10-10T08:30:00+08:00', end: '2026-10-10T09:00:00+08:00' };
+    const o = options({ tasks: [current], availability: { startDate: '2026-10-05', endDate: '2026-11-01', events: [event] } });
+    expect(chooseLaundryDay(current, '2026-10-10', o, () => forecast(sunny))).toBe('2026-10-09');
+    event.start = '2026-10-10T08:50:00+08:00';
+    expect(chooseLaundryDay(current, '2026-10-10', o, () => forecast(sunny))).toBe('2026-10-10');
+  });
   it('当前待办的 Outlook 预约不占用自身空档，手动同名和其他任务仍避开', () => {
     const current = task(), f = forecast(sunny);
     const event = { title: '洗衣服', start: '2026-10-10T00:00:00Z', end: '2026-10-10T01:00:00Z',
