@@ -18,6 +18,7 @@ import { syncExerciseSchedule } from './_ticktickExercise.js';
 import { syncLaundrySchedule } from './_ticktickLaundry.js';
 import { syncLaundryOutlook } from './_outlookLaundry.js';
 import { syncPeriodPredictionTask } from './_ticktickPeriodPrediction.js';
+import { schedulingFailure, schedulingStage } from './_schedulingFailure.js';
 
 const CONNECTION_KEY = 'ticktick:connection:v1';
 const SYNC_STATE_KEY = 'ticktick:trip-sync:v1';
@@ -43,6 +44,10 @@ function shanghaiDate() {
 }
 
 async function runSync(allowDisconnected = false) {
+  return schedulingStage('planning', false, () => runSyncInner(allowDisconnected));
+}
+
+async function runSyncInner(allowDisconnected: boolean) {
   const lockId = await acquireTickTickLock();
   if (!lockId) return { busy: true as const };
   let scheduleStarted = false;
@@ -62,7 +67,7 @@ async function runSync(allowDisconnected = false) {
     scheduleStarted = true;
     // Manual and scheduled runs must use the same fresh calendar window, including future trips.
     let availability: OutlookAvailability | undefined;
-    try { availability = (await syncOutlookCalendar(today, secret))?.availability; }
+    try { availability = (await schedulingStage('outlook-refresh', true, () => syncOutlookCalendar(today, secret)))?.availability; }
     catch (error) {
       const state = await kv.get<TickTickTripSyncState>(SYNC_STATE_KEY);
       await kv.set(SYNC_STATE_KEY, { ...state, instances: state?.instances ?? {}, lastError: error instanceof Error ? error.message : String(error) });
@@ -95,17 +100,17 @@ async function runSync(allowDisconnected = false) {
       const [savedPlan, settings, sourceTasks] = await Promise.all([
         kv.get<DailyPlanState>(DAILY_PLAN_KEY),
         kv.get<{ budgetMinutes?: number | null; availabilityProfile?: string }>(DAILY_PLAN_SETTINGS_KEY),
-        readAllTickTickTasks(api, [0]),
+        schedulingStage('tasks-read', true, () => readAllTickTickTasks(api, [0])),
       ]);
       const timedTasks = await syncTimedTaskVisibility(api, { tasks: sourceTasks, timeZone: connection.timeZone, projectId: connection.projectId });
       const dailyPlan: DailyPlanState = savedPlan?.connectionId === connectionId
         ? { ...savedPlan, history: [...savedPlan.history], deadlines: { ...savedPlan.deadlines } }
         : { connectionId, history: [], deadlines: {} };
       // Read history before any scene/date writes; a failed read is never "never done".
-      await refreshDailyHistory(api, sourceTasks, dailyPlan);
+      await schedulingStage('completion-history', true, () => refreshDailyHistory(api, sourceTasks, dailyPlan));
       await kv.set(DAILY_PLAN_KEY, dailyPlan);
       if (!availability && dailyBudget(settings?.budgetMinutes) === null) { dailyPlan.summary = undefined; dailyPlan.briefing = undefined; }
-      const template = await readConnectedTickTickTemplate(api, connection);
+      const template = await schedulingStage('template-read', true, () => readConnectedTickTickTemplate(api, connection));
       const trips = buildTripSourcesFromSyncState(calendarState, tripState);
       const result = await reconcileTickTickTrips({
         api,
@@ -130,7 +135,7 @@ async function runSync(allowDisconnected = false) {
       const excludedTaskIds = getTickTickRoutineExcludedTaskIds(template, state);
       const exercise = await syncExerciseSchedule(api, { connectionId, calendarState, excludedTaskIds, rolling: true });
       for (const id of exercise.managedTaskIds) excludedTaskIds.add(id);
-      const laundryTasks = await readAllTickTickTasks(api, [0]);
+      const laundryTasks = await schedulingStage('tasks-read', true, () => readAllTickTickTasks(api, [0]));
       const laundry = await syncLaundrySchedule(api, { connectionId, tasks: laundryTasks, history: dailyPlan.history,
         calendarState, configState, trips, availability, profile: availabilityProfile(settings?.availabilityProfile),
         today, now: new Date(), excludedTaskIds });
@@ -175,11 +180,13 @@ async function runSync(allowDisconnected = false) {
     // Share the write lock so routines cannot put swimming back into a period.
     try {
       if (scheduleStarted) {
-        await syncSwimmingSchedule({ lockHeld: true, refreshPeriods: true });
-        // Routines may have moved the completion-based hair-wash anchor. Publish
-        // the final dates so the Web calendar and email match the actual todos.
-        const { syncTrainingSource } = await import('./_lifeTraining.js');
-        await syncTrainingSource(Number(shanghaiDate().slice(0, 4)), { lockHeld: true });
+        await schedulingStage('finalize', false, async () => {
+          await syncSwimmingSchedule({ lockHeld: true, refreshPeriods: true });
+          // Routines may have moved the completion-based hair-wash anchor. Publish
+          // the final dates so the Web calendar and email match the actual todos.
+          const { syncTrainingSource } = await import('./_lifeTraining.js');
+          await syncTrainingSource(Number(shanghaiDate().slice(0, 4)), { lockHeld: true });
+        });
       }
     }
     finally { await releaseTickTickLock(lockId); }
@@ -371,7 +378,11 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       let doneError = false;
       try { await syncRecentLifeDone(); } catch { doneError = true; }
       const result = await runSync(true);
-      if (doneError) return res.status(502).json({ ...result, error: 'TickTick 完成记录同步失败，已保留历史' });
+      if (doneError) {
+        const failure = { stage: 'completion-archive', retryable: true };
+        console.error('[ticktick-sync-failure]', JSON.stringify(failure));
+        return res.status(502).json({ ...result, error: 'TickTick 完成记录同步失败，已保留历史', failure });
+      }
       return res.status(result.busy ? 202 : 200).json({ ok: true, ...result });
     }
     if (req.method === 'GET') return privateJson(req, res, await status());
@@ -410,7 +421,9 @@ async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const statusCode = req.method === 'PUT' && !/^TickTick 5\d\d/.test(message) ? 400 : 502;
-    return res.status(statusCode).json({ error: message });
+    const failure = schedulingFailure(error);
+    if (isCron) console.error('[ticktick-sync-failure]', JSON.stringify(failure));
+    return res.status(statusCode).json({ error: message, ...(isCron ? { failure } : {}) });
   }
 }
 

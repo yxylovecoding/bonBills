@@ -7,6 +7,10 @@ import * as laundryModule from './_ticktickLaundry';
 const { replan, planDetails } = vi.hoisted(() => ({ replan: vi.fn(), planDetails: vi.fn() }));
 const { sourceTasks, taskWrite } = vi.hoisted(() => ({ sourceTasks: { value: [] as TickTickTask[] }, taskWrite: vi.fn() }));
 const { completedTasks, periodPrediction } = vi.hoisted(() => ({ completedTasks: { value: [] as TickTickTask[] }, periodPrediction: vi.fn() }));
+const { archiveDone, outlookSync } = vi.hoisted(() => ({ archiveDone: vi.fn(), outlookSync: vi.fn() }));
+vi.mock('./_lifeDone.js', async original => ({
+  ...await original<typeof import('./_lifeDone')>(), syncRecentLifeDone: archiveDone,
+}));
 vi.mock('./_ticktickReplan.js', () => ({ replanRemainingToday: replan }));
 vi.mock('./_ticktickPlanDetails.js', () => ({ readTickTickPlanDetails: planDetails }));
 const { data, auth, failHistory, failWrite, sleepTags, briefing, syncTraining, sendEmail, routineOptions } = vi.hoisted(() => ({ data: new Map<string, any>(), auth: { ok: true }, failHistory: { value: false }, failWrite: { value: false }, sleepTags: vi.fn(), briefing: vi.fn(), syncTraining: vi.fn(), sendEmail: vi.fn(), routineOptions: { value: null as any } }));
@@ -14,8 +18,7 @@ vi.mock('./_dailyEmail.js', () => ({ sendDailyEmail: sendEmail }));
 vi.mock('./_dailyBriefing.js', () => ({ readDailyBriefing: briefing, renderDailyBriefing: () => '<html>每日简报</html>' }));
 vi.mock('./_lifeTraining.js', () => ({ syncTrainingSource: syncTraining }));
 vi.mock('./_auth.js', () => ({ authOk: async () => auth.ok }));
-vi.mock('./_outlookSync.js', () => ({ syncOutlookCalendar: async () => ({ connected: true,
-  availability: { startDate: '2020-01-01', endDate: '2030-01-01', events: [] } }) }));
+vi.mock('./_outlookSync.js', () => ({ syncOutlookCalendar: outlookSync }));
 vi.mock('./_ticktickSleepTags.js', () => ({ syncSleepRoutineTags: sleepTags }));
 vi.mock('./_lifeSwimming.js', () => ({ syncSwimmingSchedule: async () => undefined }));
 vi.mock('./_ticktickPeriodPrediction.js', () => ({ syncPeriodPredictionTask: periodPrediction }));
@@ -48,6 +51,9 @@ async function request(method: string, body?: unknown, action?: string, format?:
   return result;
 }
 beforeEach(() => { data.clear(); auth.ok = true; failHistory.value = false; failWrite.value = false;
+  archiveDone.mockReset().mockResolvedValue(undefined);
+  outlookSync.mockReset().mockResolvedValue({ connected: true,
+    availability: { startDate: '2020-01-01', endDate: '2030-01-01', events: [] } });
   completedTasks.value = []; periodPrediction.mockReset().mockResolvedValue({ updated: 0, created: 0 });
   sourceTasks.value = []; taskWrite.mockReset().mockImplementation(async (id, payload) => {
     const task = sourceTasks.value.find(task => task.id === id)!;
@@ -59,6 +65,53 @@ beforeEach(() => { data.clear(); auth.ok = true; failHistory.value = false; fail
   data.set('ticktick:connection:v1', { encryptedToken: {} }); });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 describe('每日安排接口', () => {
+  it('后台历史读取失败可重试，保留旧计划并只记录脱敏阶段', async () => {
+    vi.stubEnv('CRON_SECRET', 'cron-secret');
+    await request('POST');
+    const previous = structuredClone(data.get(DAILY_PLAN_KEY));
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    failHistory.value = true;
+    expect(await request('GET', undefined, undefined, undefined, 'Bearer cron-secret')).toMatchObject({
+      status: 502, body: { failure: { stage: 'completion-history', retryable: true } },
+    });
+    expect(data.get(DAILY_PLAN_KEY)).toEqual(previous);
+    expect(log.mock.calls).toEqual([['[ticktick-sync-failure]', '{"stage":"completion-history","retryable":true}']]);
+    failHistory.value = false;
+    expect((await request('GET', undefined, undefined, undefined, 'Bearer cron-secret')).status).toBe(200);
+  });
+  it('Outlook 读取失败返回可重试阶段，日志不泄露订阅信息', async () => {
+    vi.stubEnv('CRON_SECRET', 'cron-secret');
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    outlookSync.mockRejectedValueOnce(new Error('private subscription URL'));
+    expect(await request('GET', undefined, undefined, undefined, 'Bearer cron-secret')).toMatchObject({
+      status: 502, body: { failure: { stage: 'outlook-refresh', retryable: true } },
+    });
+    expect(JSON.stringify(log.mock.calls)).not.toContain('private subscription');
+    expect(data.has(DAILY_PLAN_KEY)).toBe(false);
+  });
+  it('完成归档失败即使排程已成功仍报失败，并可安全重试归档', async () => {
+    vi.stubEnv('CRON_SECRET', 'cron-secret');
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    archiveDone.mockRejectedValueOnce(new Error('private archive failure'));
+    expect(await request('GET', undefined, undefined, undefined, 'Bearer cron-secret')).toMatchObject({
+      status: 502, body: { dailyPlan: expect.any(Object), failure: { stage: 'completion-archive', retryable: true } },
+    });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+  it('写入与收尾失败不允许自动重放，收尾失败优先阻止读取失败重试', async () => {
+    vi.stubEnv('CRON_SECRET', 'cron-secret');
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    failWrite.value = true;
+    expect(await request('GET', undefined, undefined, undefined, 'Bearer cron-secret')).toMatchObject({
+      status: 502, body: { failure: { stage: 'planning', retryable: false } },
+    });
+    failWrite.value = false; failHistory.value = true;
+    syncTraining.mockRejectedValueOnce(new Error('write result unknown'));
+    expect(await request('GET', undefined, undefined, undefined, 'Bearer cron-secret')).toMatchObject({
+      status: 502, body: { failure: { stage: 'finalize', retryable: false } },
+    });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
   it('完整同步把本轮读取的完成历史传入月经提醒去重', async () => {
     completedTasks.value = [{ id: 'done', projectId: 'life', title: '月经提醒', status: 2,
       completedTime: new Date(Date.now() - 60_000).toISOString(), dueDate: '2026-10-11T00:00:00+0800' }];

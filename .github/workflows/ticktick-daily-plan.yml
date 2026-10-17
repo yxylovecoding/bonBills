@@ -101,6 +101,9 @@ jobs:
           const secret = process.env.CRON_SECRET?.trim();
           if (!secret) throw new Error('Missing BONBILLS_CRON_SECRET');
           let busyAttempts = 0;
+          let retryAttempts = 0;
+          const retryStages = new Set(['completion-archive', 'outlook-refresh', 'tasks-read', 'completion-history', 'template-read']);
+          const failureStages = new Set([...retryStages, 'planning', 'finalize']);
           for (let batch = 0; batch < 40; batch++) {
             let response;
             try {
@@ -111,6 +114,7 @@ jobs:
               });
             } catch {
               // Never log the secret, provider error body or private task data.
+              // Without a response, an upstream task creation may already have succeeded.
               throw new Error('Scheduling request failed or timed out');
             }
             const result = await response.json().catch(() => null);
@@ -120,8 +124,18 @@ jobs:
               await new Promise(resolve => setTimeout(resolve, 30_000));
               continue;
             }
+            const stage = failureStages.has(result?.failure?.stage) ? result.failure.stage : 'unknown';
+            // The API marks only read/archive failures as safe to replay. Do not
+            // blindly retry gateway errors or ambiguous task/calendar writes.
+            if (response.status === 502 && result?.failure?.retryable === true
+                && retryStages.has(stage) && retryAttempts < 2) {
+              const delay = 30_000 * ++retryAttempts;
+              console.log(`Scheduling retry ${retryAttempts}/2: HTTP 502, stage=${stage}.`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+              continue;
+            }
             if (response.status !== 200 || result?.ok !== true || result.busy || result.error || !result.dailyPlan) {
-              throw new Error(`Scheduling did not complete (HTTP ${response.status})`);
+              throw new Error(`Scheduling did not complete (HTTP ${response.status}, stage=${stage})`);
             }
             if (result.laundry?.outlook?.error) throw new Error('Laundry calendar sync did not complete; check Outlook connection.');
             if (result.periodPrediction) {
