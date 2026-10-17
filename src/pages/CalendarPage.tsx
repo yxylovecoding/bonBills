@@ -79,12 +79,15 @@ import {
   type InvestMarketSnapshot,
 } from '../utils/investPositionItems';
 import {
+  canSplitInvestPositionAccount,
   defaultInvestQuoteCurrency,
   investPositionDraftGroupsFromItems,
   investPositionItemsFromDraftGroups,
   moveInvestPositionDraft,
+  splitInvestPositionDraft,
   type InvestPositionDraft,
   type InvestPositionDraftGroups,
+  type PositionSplitInput,
 } from '../utils/investPositionDrafts';
 import { getMonthlyAssetChange, getMonthlySavedAmount, getMonthlySavingsRate } from '../utils/monthlyMetrics';
 import { createManualBackup, triggerUpload } from '../utils/syncEngine';
@@ -228,21 +231,6 @@ const INVEST_POSITION_STATUS_META: Record<InvestPositionStatus, { label: string;
 };
 const INVEST_POSITION_TAB_STATUSES: InvestPositionStatus[] = ['active', 'paused'];
 
-type PositionSplitInput = {
-  sourceGroupKey: InvestPositionGroupKey;
-  sourceId: string;
-  name: string;
-  symbol: string;
-  quoteSource?: InvestQuoteSource;
-  quoteCurrency?: string;
-  shares?: number;
-  costPrice?: number;
-  splitMarketValueCny: number;
-  splitTotalProfitOriginal: number;
-  holdingProfitAtSplitCny: number;
-  profitCurrency: string;
-  profitFxRateToCny: number;
-};
 type InvestmentQuoteResponse = {
   symbol?: string;
   currency?: string;
@@ -1228,52 +1216,8 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
     setPositionDraftGroups((previous) => moveInvestPositionDraft(previous, sourceGroupKey, id, targetGroupKey, targetStatus));
   };
   const splitPositionAccount = (input: PositionSplitInput) => {
-    if (!input.name.trim() || !Number.isFinite(input.splitMarketValueCny) || input.splitMarketValueCny < 0) return;
-    if (input.splitMarketValueCny === 0 && input.splitTotalProfitOriginal === 0) return;
-    setPositionDraftGroups((previous) => {
-      const source = previous[input.sourceGroupKey].find((item) => item.id === input.sourceId);
-      if (!source) return previous;
-      const sourceMarketValue = source.status === 'closed' ? 0 : numberOrUndefined(source.marketValueCny) ?? 0;
-      if (input.splitMarketValueCny > sourceMarketValue + 0.01) return previous;
-      const sourceProfitCurrency = isInvestPositionSummaryItem(source)
-        ? 'CNY'
-        : (source.historicalProfitCurrency || defaultInvestQuoteCurrency(input.sourceGroupKey) || 'CNY').toUpperCase();
-      const sourceProfitFxRateToCny = ['CNY', 'CNH'].includes(sourceProfitCurrency)
-        ? 1
-        : source.lastFxRateToCny || input.profitFxRateToCny;
-      const splitHistoricalProfitOriginal = roundCny(
-        input.splitTotalProfitOriginal - input.holdingProfitAtSplitCny / input.profitFxRateToCny,
-      );
-      const historicalProfitFromSource = roundCny(
-        splitHistoricalProfitOriginal * input.profitFxRateToCny / sourceProfitFxRateToCny,
-      );
-      const target: InvestPositionDraft = {
-        id: makeInvestPositionId(),
-        name: input.name.trim(),
-        symbol: input.symbol.trim().toUpperCase(),
-        quoteSource: input.quoteSource,
-        quoteCurrency: input.quoteCurrency,
-        status: source.status,
-        shares: input.shares !== undefined ? String(input.shares) : '',
-        costPrice: input.costPrice !== undefined ? String(input.costPrice) : '',
-        historicalProfitCny: String(splitHistoricalProfitOriginal),
-        historicalProfitCurrency: input.profitCurrency,
-        profitInputMode: 'historical',
-        marketValueCny: String(roundCny(input.splitMarketValueCny)),
-        holdingProfitCny: String(roundCny(input.holdingProfitAtSplitCny)),
-        lastPrice: '',
-      };
-      const sourceItems = previous[input.sourceGroupKey].map((item) => item.id === input.sourceId ? {
-        ...item,
-        marketValueCny: String(roundCny(sourceMarketValue - input.splitMarketValueCny)),
-        holdingProfitCny: String(roundCny((numberOrUndefined(item.holdingProfitCny) ?? 0) - input.holdingProfitAtSplitCny)),
-        historicalProfitCny: String(roundCny((numberOrUndefined(item.historicalProfitCny) ?? 0) - historicalProfitFromSource)),
-      } : item);
-      return {
-        ...previous,
-        [input.sourceGroupKey]: [...sourceItems, target],
-      };
-    });
+    const targetId = makeInvestPositionId();
+    setPositionDraftGroups((previous) => splitInvestPositionDraft(previous, input, targetId));
   };
 
   const suggestedMajorExpenses = useMemo<MajorExpense[]>(() => {
@@ -1853,7 +1797,7 @@ function YimuHoldingsSection({ state }: { state: MonthFormState }) {
                     const nativeMarketValue = (metric?.marketValueCny ?? 0) / (metric?.fxRateToCny || nativeFxRate);
                     const nativeHoldingProfit = (metric?.holdingProfitCny ?? 0) / nativeFxRate;
                     const nativeTotalProfit = (metric?.totalProfitCny ?? 0) / nativeFxRate;
-                    const isAggregateAccount = symbol.length === 0;
+                    const canSplitAccount = canSplitInvestPositionAccount(item);
                     const splitOpen = splitSource?.id === item.id && splitSource.groupKey === groupKey;
                     const itemKey = `${groupKey}:${item.id}`;
                     const isExpanded = expandedItemKey === itemKey;
@@ -1914,7 +1858,7 @@ function YimuHoldingsSection({ state }: { state: MonthFormState }) {
                             </div>
                           )}
                           <div className="invest-position-actions">
-                            {isAggregateAccount ? (
+                            {canSplitAccount ? (
                               <button type="button" aria-label={splitOpen ? '收起分出个股' : '分出个股'} title={splitOpen ? '收起' : '分出个股'} aria-pressed={splitOpen} onClick={() => {
                                 setExpandedItemKey(null);
                                 setSplitSource(splitOpen ? null : { groupKey, id: item.id });
@@ -2045,7 +1989,7 @@ function YimuHoldingsSection({ state }: { state: MonthFormState }) {
                             </div>
                           </div>
                         )}
-                        {splitOpen && isAggregateAccount && (
+                        {splitOpen && canSplitAccount && (
                           <PositionSplitPanel
                             key={`${groupKey}:${item.id}`}
                             sourceGroupKey={groupKey}

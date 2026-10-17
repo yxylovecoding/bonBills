@@ -1,4 +1,5 @@
-import type { InvestKey, InvestPositionGroupKey, InvestPositionItem, InvestPositionItems } from '../models/types';
+import type { InvestKey, InvestPositionGroupKey, InvestPositionItem, InvestPositionItems, InvestQuoteSource } from '../models/types';
+import { canonicalInvestmentName } from './investmentInstrument';
 import { INVEST_POSITION_GROUP_KEYS, calculateInvestPositionMetric, isInvestPositionSummaryItem } from './investPositionItems';
 
 export type InvestPositionDraft = Omit<InvestPositionItem, 'shares' | 'costPrice' | 'historicalProfitCny' | 'marketValueCny' | 'holdingProfitCny' | 'lastPrice'> & {
@@ -112,5 +113,80 @@ export function moveInvestPositionDraft(
     ...groups,
     [sourceGroupKey]: groups[sourceGroupKey].filter((position) => position.id !== id),
     [targetGroupKey]: [...groups[targetGroupKey], movedItem],
+  };
+}
+
+export type PositionSplitInput = {
+  sourceGroupKey: InvestPositionGroupKey;
+  sourceId: string;
+  name: string;
+  symbol: string;
+  quoteSource?: InvestQuoteSource;
+  quoteCurrency?: string;
+  shares?: number;
+  costPrice?: number;
+  splitMarketValueCny: number;
+  splitTotalProfitOriginal: number;
+  holdingProfitAtSplitCny: number;
+  profitCurrency: string;
+  profitFxRateToCny: number;
+};
+export function canSplitInvestPositionAccount(item: Pick<InvestPositionItem, 'name' | 'symbol'>) {
+  // This legacy aggregate may carry a code, but still represents an account.
+  return isInvestPositionSummaryItem(item)
+    || canonicalInvestmentName(item.name).replace(/\s+/g, '') === '支付宝past';
+}
+
+export function splitInvestPositionDraft(
+  groups: InvestPositionDraftGroups,
+  input: PositionSplitInput,
+  targetId: string,
+): InvestPositionDraftGroups {
+  if (!input.name.trim() || !Number.isFinite(input.splitMarketValueCny) || input.splitMarketValueCny < 0
+    || !Number.isFinite(input.splitTotalProfitOriginal) || !Number.isFinite(input.holdingProfitAtSplitCny)
+    || !Number.isFinite(input.profitFxRateToCny) || input.profitFxRateToCny <= 0) return groups;
+  if (input.splitMarketValueCny === 0 && input.splitTotalProfitOriginal === 0) return groups;
+  const source = groups[input.sourceGroupKey].find((item) => item.id === input.sourceId);
+  if (!source || !canSplitInvestPositionAccount(source)) return groups;
+  const sourceMarketValue = source.status === 'closed' ? 0 : numberOrUndefined(source.marketValueCny) ?? 0;
+  if (input.splitMarketValueCny > sourceMarketValue + 0.01) return groups;
+  const sourceProfitCurrency = isInvestPositionSummaryItem(source)
+    ? 'CNY'
+    : (source.historicalProfitCurrency || defaultInvestQuoteCurrency(input.sourceGroupKey) || 'CNY').toUpperCase();
+  const sourceProfitFxRateToCny = ['CNY', 'CNH'].includes(sourceProfitCurrency)
+    ? 1
+    : source.lastFxRateToCny || input.profitFxRateToCny;
+  const splitHistoricalProfitOriginal = roundCny(
+    input.splitTotalProfitOriginal - input.holdingProfitAtSplitCny / input.profitFxRateToCny,
+  );
+  const historicalProfitFromSource = roundCny(
+    splitHistoricalProfitOriginal * input.profitFxRateToCny / sourceProfitFxRateToCny,
+  );
+  const target: InvestPositionDraft = {
+    id: targetId,
+    name: input.name.trim(),
+    symbol: input.symbol.trim().toUpperCase(),
+    quoteSource: input.quoteSource,
+    quoteCurrency: input.quoteCurrency,
+    status: source.status,
+    shares: input.shares !== undefined ? String(input.shares) : '',
+    costPrice: input.costPrice !== undefined ? String(input.costPrice) : '',
+    historicalProfitCny: String(splitHistoricalProfitOriginal),
+    historicalProfitCurrency: input.profitCurrency,
+    profitInputMode: 'historical',
+    marketValueCny: String(roundCny(input.splitMarketValueCny)),
+    holdingProfitCny: String(roundCny(input.holdingProfitAtSplitCny)),
+    lastPrice: '',
+    lastFxRateToCny: input.profitFxRateToCny,
+  };
+  const sourceItems = groups[input.sourceGroupKey].map((item) => item.id === input.sourceId ? {
+    ...item,
+    marketValueCny: String(roundCny(sourceMarketValue - input.splitMarketValueCny)),
+    holdingProfitCny: String(roundCny((numberOrUndefined(item.holdingProfitCny) ?? 0) - input.holdingProfitAtSplitCny)),
+    historicalProfitCny: String(roundCny((numberOrUndefined(item.historicalProfitCny) ?? 0) - historicalProfitFromSource)),
+  } : item);
+  return {
+    ...groups,
+    [input.sourceGroupKey]: [...sourceItems, target],
   };
 }
