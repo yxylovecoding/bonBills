@@ -1919,6 +1919,8 @@ function YimuHoldingsSection({ state }: { state: MonthFormState }) {
 
                   {groupExpanded && items.map((item) => {
                     const metric = positionSummary.metricsById[item.id];
+                    const isEmptyPastHolding = activeStatus !== 'active' && metric?.marketValueCny === 0;
+                    const summaryBackground = isEmptyPastHolding ? '#e8eaed' : '#f8f9fa';
                     const symbol = item.symbol.trim().toUpperCase();
                     const quoteKey = investPositionQuoteKey(item);
                     const quote = symbol ? positionQuotes[quoteKey] : undefined;
@@ -1961,7 +1963,7 @@ function YimuHoldingsSection({ state }: { state: MonthFormState }) {
                         ? C.green
                         : C.sub;
                     return (
-                      <div key={item.id} data-invest-position-key={itemKey} data-invest-position-expanded={isExpanded ? 'true' : undefined} style={{ borderTop: '1px solid #f1f3f4', padding: '8px 0 2px' }}>
+                      <div key={item.id} data-invest-position-key={itemKey} data-invest-position-expanded={isExpanded ? 'true' : undefined} style={{ borderTop: '1px solid #f1f3f4', padding: '8px 0 2px', backgroundColor: isEmptyPastHolding ? '#f1f3f4' : undefined, borderRadius: isEmptyPastHolding ? 8 : undefined }}>
                         <div className={`invest-position-header${!isExpanded ? ' invest-position-header--collapsed' : groupKey !== 'account' ? ' invest-position-header--with-code' : ''}`}>
                           <input
                             className="invest-position-name"
@@ -1997,7 +1999,7 @@ function YimuHoldingsSection({ state }: { state: MonthFormState }) {
                             </div>
                           )}
                           {!isExpanded && (
-                            <div className="invest-position-summary" style={{ gridTemplateColumns: showMonthlyProfit ? 'repeat(3, minmax(0, 1fr))' : 'repeat(2, minmax(0, 1fr))', backgroundColor: '#f8f9fa', color: C.sub }}>
+                            <div className="invest-position-summary" style={{ gridTemplateColumns: showMonthlyProfit ? 'repeat(3, minmax(0, 1fr))' : 'repeat(2, minmax(0, 1fr))', backgroundColor: summaryBackground, color: C.sub }}>
                               <span>持有金额<br /><b style={{ color: '#202124' }}>{formatNativeCurrency(nativeMarketValue, positionCurrency || 'CNY')}</b></span>
                               <span>累计收益<br /><b style={{ color: nativeTotalProfit >= 0 ? C.red : C.green }}>{formatNativeCurrency(nativeTotalProfit, profitCurrency, true)}</b></span>
                               {showMonthlyProfit && <span>本月收益<br /><b style={{ color: monthlyProfit === null ? C.sub : monthlyProfit.value >= 0 ? C.red : C.green }}>{monthlyProfit === null ? '—' : formatNativeCurrency(monthlyProfit.value, monthlyProfit.currency, true)}</b></span>}
@@ -2111,7 +2113,7 @@ function YimuHoldingsSection({ state }: { state: MonthFormState }) {
                                     <AmountInput decimalPlaces={4} value={item.lastPrice} onChange={(value) => updatePositionDraft(groupKey, item.id, { lastPrice: value })} style={{ width: '100%', border: 'none', borderBottom: `1px solid ${C.orange}`, outline: 'none', textAlign: 'right', color: C.orange, fontSize: 11, fontWeight: 700, backgroundColor: 'transparent' }} />
                                   </label>
                                 )}
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 4, marginTop: 8, padding: '6px', borderRadius: 7, backgroundColor: '#f8f9fa', fontSize: 9, color: C.sub }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 4, marginTop: 8, padding: '6px', borderRadius: 7, backgroundColor: summaryBackground, fontSize: 9, color: C.sub }}>
                                   <span>{item.quoteSource === 'eastmoney-fund' ? '净值' : '现价'}<br /><b style={{ color: metric?.live ? C.blue : C.sub }}>{priceDisplay ?? (needsSelection ? '请选择' : quoteFailed ? '失败' : symbol && isCurrentRecordMonth ? '获取中' : '—')}</b></span>
                                   <span>市值<br /><b style={{ color: '#202124' }}>{formatNativeCurrency(nativeMarketValue, positionCurrency || 'CNY')}</b></span>
                                   <span>持有收益<br /><b style={{ color: nativeHoldingProfit >= 0 ? C.red : C.green }}>{formatNativeCurrency(nativeHoldingProfit, profitCurrency, true)}</b></span>
