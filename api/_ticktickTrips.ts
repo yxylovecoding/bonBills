@@ -1074,6 +1074,13 @@ function followParentSchedule(payload: Record<string, unknown>, parent: TickTick
   };
 }
 
+function generatedTaskTags(templateTask: TickTickTask, template: TickTickTemplate, source = templateTask): string[] {
+  const tags = source.tags ?? [];
+  // Wish preparation roots are also children of the original travel template.
+  const isTemplateChild = templateTask.id !== template.rootTask.id || isSevenMonthPreparationTask(templateTask);
+  return isTemplateChild ? tags.filter((tag) => tag.normalize('NFKC').trim() !== '不关我事') : tags;
+}
+
 function baseTaskPayload(
   templateTask: TickTickTask,
   trip: TickTickTripSource,
@@ -1106,7 +1113,7 @@ function baseTaskPayload(
     ...(dueDate ? { dueDate } : {}),
     timeZone: legacySchedule ? templateTask.timeZone || 'Asia/Shanghai' : 'Asia/Shanghai',
     reminders: templateTask.reminders ?? [],
-    tags: templateTask.tags ?? [],
+    tags: generatedTaskTags(templateTask, template),
     ...(templateTask.repeatFlag ? { repeatFlag: templateTask.repeatFlag } : {}),
     priority: templateTask.priority ?? 0,
     sortOrder: templateTask.sortOrder ?? 0,
@@ -1424,6 +1431,7 @@ async function syncTripInstance(
       // Omit task dates entirely for manual overrides; a metadata-only update
       // cannot reintroduce a date that the user cleared or moved again meanwhile.
       ...(manualTask ? withoutDateFields(automaticPayload) : automaticPayload),
+      tags: generatedTaskTags(templateTask, template, generatedTask),
     };
     const updated = await api.updateTask(generatedTask.id, payload);
     let resolved = { ...generatedTask, ...payload, ...updated } as TickTickTask;

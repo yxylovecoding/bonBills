@@ -1038,6 +1038,71 @@ describe('出行模板改名', () => {
   });
 });
 
+describe('TickTick 出门模板子任务标签', () => {
+  const setup = async (kind: string) => {
+    const api = new FakeTickTickApi();
+    addWishPreparationTemplate(api);
+    api.tasks.get('template-root')!.tags = ['不关我事', '玩'];
+    api.tasks.get('template-seven-months')!.tags = ['不关我事', 'routine', '旅', '不关我事说明'];
+    api.tasks.get('template-visa')!.tags = ['　不关我事　', '证件'];
+    api.tasks.get('template-photo')!.tags = ['不关我事'];
+    const sourceTasks = structuredClone([...api.tasks.values()]);
+    const template = await discoverTickTickTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    const options = { api, template, state, today: '2026-09-04', saveState: async () => undefined };
+    const sync = () => kind === '出游'
+      ? reconcileTickTickTrips({ ...options, trips: [futureTrip] })
+      : reconcileTickTickWishPreparations({ ...options, configState: { config: { wishes: [futureWish] } } });
+    await sync();
+    const instance = kind === '出游' ? state.instances[futureTrip.key] : state.wishInstances![futureWish.id];
+    return { api, sourceTasks, instance, sync };
+  };
+
+  it.each(['出游', '心愿'])('%s 新副本的阶段及各级后代去掉不关我事，保留其他标签和原模板', async (kind) => {
+    const { api, sourceTasks, instance } = await setup(kind);
+    expect(api.tasks.get(instance.taskIdsByTemplateId['template-seven-months'])?.tags)
+      .toEqual(['routine', '旅', '不关我事说明']);
+    expect(api.tasks.get(instance.taskIdsByTemplateId['template-visa'])?.tags).toEqual(['证件']);
+    expect(api.tasks.get(instance.taskIdsByTemplateId['template-photo'])?.tags).toEqual([]);
+    if (kind === '出游') {
+      expect(api.tasks.get(instance.rootTaskId!)?.tags).toEqual(['不关我事', '玩']);
+      expect(api.tasks.get(instance.taskIdsByTemplateId['template-day'])?.tags).toEqual([]);
+    }
+    for (const task of sourceTasks) expect(api.tasks.get(task.id)).toEqual(task);
+  });
+
+  it.each(['出游', '心愿'])('%s 旧副本同步清理标签，保留手动标签、日期、进度和任务 ID', async (kind) => {
+    const { api, sourceTasks, instance, sync } = await setup(kind);
+    const ids = { ...instance.taskIdsByTemplateId };
+    const stage = api.tasks.get(ids['template-seven-months'])!;
+    // Removing routine from an instance must not copy it back from the template.
+    stage.tags = ['不关我事', '手动标签', 'bon-hidden'];
+    const visa = api.tasks.get(ids['template-visa'])!;
+    Object.assign(visa, {
+      tags: ['routine', '　不关我事　', '自己的标签'], status: 2,
+      completedTime: '2026-09-05T01:00:00Z',
+      startDate: '2026-09-05T09:00:00+0800', dueDate: '2026-09-05T10:00:00+0800', isAllDay: false,
+    });
+    api.tasks.get(ids['template-photo'])!.tags = ['不关我事'];
+    const before = structuredClone(visa);
+    const unrelated: TickTickTask = { id: 'manual-child', projectId: 'play', parentId: stage.id, title: '手动子任务', tags: ['不关我事'] };
+    api.tasks.set(unrelated.id, structuredClone(unrelated));
+    const created = api.createCalls;
+
+    for (let run = 0; run < 2; run++) {
+      await sync();
+      expect(api.tasks.get(stage.id)?.tags).toEqual(['手动标签', 'bon-hidden']);
+      expect(api.tasks.get(visa.id)).toEqual({ ...before, tags: ['routine', '自己的标签'] });
+      expect(api.tasks.get(ids['template-photo'])?.tags).toEqual([]);
+      expect(api.tasks.get(unrelated.id)).toEqual(unrelated);
+      expect(instance.taskIdsByTemplateId).toEqual(ids);
+      expect(api.createCalls).toBe(created);
+      expect(api.deleteCalls).toBe(0);
+      for (const task of sourceTasks) expect(api.tasks.get(task.id)).toEqual(task);
+    }
+  });
+});
+
 describe('TickTick 心愿七个月准备', () => {
   it('只接收有日期、名称且启用的未关联心愿，按七个自然月回退并钳制月末', () => {
     const sources = buildWishPreparationSourcesFromSyncState({ config: { wishes: [
