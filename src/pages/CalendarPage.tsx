@@ -50,7 +50,6 @@ import type {
   InvestQuoteSource,
   InvestmentProfitBaseline,
   InvestPositionGroupKey,
-  InvestPositionItem,
   InvestPositionItems,
   InvestPositionStatus,
 } from '../models/types';
@@ -71,7 +70,6 @@ import {
 import {
   INVEST_POSITION_GROUP_KEYS,
   INVEST_POSITION_KEYS,
-  calculateInvestPositionMetric,
   calculateInvestPositionMonthlyProfit,
   inferInvestPositionFxRateToCny,
   isInvestPositionSummaryItem,
@@ -80,6 +78,14 @@ import {
   summarizeInvestPositionItems,
   type InvestMarketSnapshot,
 } from '../utils/investPositionItems';
+import {
+  defaultInvestQuoteCurrency,
+  investPositionDraftGroupsFromItems,
+  investPositionItemsFromDraftGroups,
+  moveInvestPositionDraft,
+  type InvestPositionDraft,
+  type InvestPositionDraftGroups,
+} from '../utils/investPositionDrafts';
 import { getMonthlyAssetChange, getMonthlySavedAmount, getMonthlySavingsRate } from '../utils/monthlyMetrics';
 import { createManualBackup, triggerUpload } from '../utils/syncEngine';
 import {
@@ -222,15 +228,6 @@ const INVEST_POSITION_STATUS_META: Record<InvestPositionStatus, { label: string;
 };
 const INVEST_POSITION_TAB_STATUSES: InvestPositionStatus[] = ['active', 'paused'];
 
-type InvestPositionDraft = Omit<InvestPositionItem, 'shares' | 'costPrice' | 'historicalProfitCny' | 'marketValueCny' | 'holdingProfitCny' | 'lastPrice'> & {
-  shares: string;
-  costPrice: string;
-  historicalProfitCny: string;
-  marketValueCny: string;
-  holdingProfitCny: string;
-  lastPrice: string;
-};
-type InvestPositionDraftGroups = Record<InvestPositionGroupKey, InvestPositionDraft[]>;
 type PositionSplitInput = {
   sourceGroupKey: InvestPositionGroupKey;
   sourceId: string;
@@ -254,49 +251,6 @@ type InvestmentQuoteResponse = {
   bars?: Array<{ date: string; close?: number | null; adjClose?: number | null }>;
 };
 type InvestQuoteTarget = { key: string; symbol: string; source: InvestQuoteSource; currency?: string; fallbackPrice?: number };
-function defaultInvestQuoteCurrency(groupKey: InvestPositionGroupKey) {
-  return groupKey === 'us' || groupKey === 'usBond' ? 'USD' : undefined;
-}
-
-function emptyInvestPositionDraftGroups(): InvestPositionDraftGroups {
-  return INVEST_POSITION_GROUP_KEYS.reduce<InvestPositionDraftGroups>((groups, key) => {
-    groups[key] = [];
-    return groups;
-  }, {} as InvestPositionDraftGroups);
-}
-
-function investPositionDraftGroupsFromItems(items: InvestPositionItems): InvestPositionDraftGroups {
-  const groups = emptyInvestPositionDraftGroups();
-  for (const key of INVEST_POSITION_GROUP_KEYS) {
-    groups[key] = (items[key] ?? []).map((item) => {
-      const metric = calculateInvestPositionMetric(item);
-      return {
-        ...item,
-        status: key === 'account'
-          ? 'closed'
-          : key === 'aggregate' || item.status === 'closed'
-            ? 'paused'
-            : item.status,
-        shares: item.shares !== undefined
-          ? String(item.shares)
-          : item.status === 'closed' && key !== 'account'
-            ? '0'
-            : '',
-        costPrice: item.costPrice !== undefined ? String(item.costPrice) : '',
-        historicalProfitCny: String(roundCny(metric.historicalProfitCny / metric.profitFxRateToCny)),
-        historicalProfitCurrency: isInvestPositionSummaryItem(item)
-          ? 'CNY'
-          : item.historicalProfitCurrency || item.quoteCurrency || defaultInvestQuoteCurrency(key) || 'CNY',
-        profitInputMode: 'historical' as const,
-        marketValueCny: item.marketValueCny !== undefined ? String(item.marketValueCny) : '',
-        holdingProfitCny: item.holdingProfitCny !== undefined ? String(item.holdingProfitCny) : '',
-        lastPrice: item.lastPrice !== undefined ? String(item.lastPrice) : '',
-      };
-    });
-  }
-  return groups;
-}
-
 function numberOrUndefined(value: string) {
   if (!value.trim()) return undefined;
   const parsed = Number(value);
@@ -308,29 +262,6 @@ const roundCny = (value: number) => Math.round(value * 100) / 100;
 function makeInvestPositionId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
   return `invest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function investPositionItemsFromDraftGroups(groups: InvestPositionDraftGroups): InvestPositionItems {
-  const items: InvestPositionItems = {};
-  for (const key of INVEST_POSITION_GROUP_KEYS) {
-    if (groups[key].length === 0) continue;
-    items[key] = groups[key].map((draft) => ({
-      ...draft,
-      symbol: draft.symbol.trim().toUpperCase(),
-      shares: numberOrUndefined(draft.shares),
-      costPrice: numberOrUndefined(draft.costPrice),
-      historicalProfitCny: numberOrUndefined(draft.historicalProfitCny) ?? 0,
-      historicalProfitCurrency: isInvestPositionSummaryItem(draft)
-        ? 'CNY'
-        : draft.historicalProfitCurrency || draft.quoteCurrency || defaultInvestQuoteCurrency(key) || 'CNY',
-      profitInputMode: 'historical',
-      marketValueCny: numberOrUndefined(draft.marketValueCny),
-      holdingProfitCny: numberOrUndefined(draft.holdingProfitCny),
-      lastPrice: numberOrUndefined(draft.lastPrice),
-      status: key === 'account' ? 'closed' : key === 'aggregate' || draft.status === 'closed' ? 'paused' : draft.status,
-    }));
-  }
-  return items;
 }
 
 function latestQuotePrice(quote: InvestmentQuoteResponse | undefined) {
@@ -1293,30 +1224,8 @@ function useMonthForm({ yearMonth, existing, prevRecord, allRecords, tagCounts, 
       [groupKey]: previous[groupKey].filter((item) => item.id !== id),
     }));
   };
-  const movePositionDraft = (sourceGroupKey: InvestPositionGroupKey, id: string, targetGroupKey: InvestKey) => {
-    if (sourceGroupKey === targetGroupKey) return;
-    setPositionDraftGroups((previous) => {
-      const item = previous[sourceGroupKey].find((position) => position.id === id);
-      if (!item) return previous;
-      const quoteCurrency = isInvestPositionSummaryItem(item)
-        ? 'CNY'
-        : item.quoteCurrency || item.lastCurrency || defaultInvestQuoteCurrency(sourceGroupKey) || item.historicalProfitCurrency || 'CNY';
-      const movedItem: InvestPositionDraft = {
-        ...item,
-        quoteCurrency,
-        ...(sourceGroupKey === 'account' ? {
-          status: 'paused' as const,
-          shares: '0',
-          marketValueCny: '0',
-          holdingProfitCny: '0',
-        } : {}),
-      };
-      return {
-        ...previous,
-        [sourceGroupKey]: previous[sourceGroupKey].filter((position) => position.id !== id),
-        [targetGroupKey]: [...previous[targetGroupKey], movedItem],
-      };
-    });
+  const movePositionDraft = (sourceGroupKey: InvestPositionGroupKey, id: string, targetGroupKey: InvestKey, targetStatus?: 'active' | 'paused') => {
+    setPositionDraftGroups((previous) => moveInvestPositionDraft(previous, sourceGroupKey, id, targetGroupKey, targetStatus));
   };
   const splitPositionAccount = (input: PositionSplitInput) => {
     if (!input.name.trim() || !Number.isFinite(input.splitMarketValueCny) || input.splitMarketValueCny < 0) return;
@@ -1946,7 +1855,6 @@ function YimuHoldingsSection({ state }: { state: MonthFormState }) {
                     const nativeTotalProfit = (metric?.totalProfitCny ?? 0) / nativeFxRate;
                     const isAggregateAccount = symbol.length === 0;
                     const splitOpen = splitSource?.id === item.id && splitSource.groupKey === groupKey;
-                    const canChangeStatus = groupKey !== 'account' && groupKey !== 'aggregate';
                     const itemKey = `${groupKey}:${item.id}`;
                     const isExpanded = expandedItemKey === itemKey;
                     const cumulativeProfitInput = cumulativeProfitInputs[itemKey] ?? String(roundCny(nativeTotalProfit));
@@ -2014,18 +1922,28 @@ function YimuHoldingsSection({ state }: { state: MonthFormState }) {
                                 ｜
                               </button>
                             ) : null}
-                            {canChangeStatus && (
-                              <select aria-label={`${item.name}移至其他状态`} title="切换状态" value="" onChange={(event) => {
-                                setExpandedItemKey(null);
-                                updatePositionDraft(groupKey, item.id, { status: event.target.value as InvestPositionStatus });
-                              }} style={{ width: 34, height: 26, border: '1px solid #dadce0', borderRadius: 6, padding: '2px', appearance: 'none', WebkitAppearance: 'none', textAlign: 'center', fontSize: 11, color: C.sub, backgroundColor: '#fff', cursor: 'pointer' }}>
-                                <option value="" disabled>→</option>
-                                {(() => {
-                                  const targetStatus: InvestPositionStatus = item.status === 'active' ? 'paused' : 'active';
-                                  return <option value={targetStatus}>{INVEST_POSITION_STATUS_META[targetStatus].label}</option>;
-                                })()}
-                              </select>
-                            )}
+                            <select aria-label={`${item.name}移动到分类或状态`} title="移动到分类或状态" value="" onChange={(event) => {
+                              const [status, category] = event.target.value.split(':');
+                              if ((status !== 'active' && status !== 'paused') || !INVEST_POSITION_KEYS.includes(category as InvestKey)) return;
+                              const targetGroupKey = category as InvestKey;
+                              const targetTab = status === 'active' || (item.pendingBuys?.length ?? 0) > 0 ? 'active' : 'paused';
+                              movePositionDraft(groupKey, item.id, targetGroupKey, status);
+                              setActiveStatus(targetTab);
+                              setExpandedGroupKeys((current) => new Set(current).add(`${targetTab}:${targetGroupKey}`));
+                              setExpandedItemKey(`${targetGroupKey}:${item.id}`);
+                              setSplitSource(null);
+                            }} style={{ width: 34, height: 26, border: '1px solid #dadce0', borderRadius: 6, padding: '2px', appearance: 'none', WebkitAppearance: 'none', textAlign: 'center', fontSize: 11, color: C.sub, backgroundColor: '#fff', cursor: 'pointer' }}>
+                              <option value="" disabled>→</option>
+                              {(['active', 'paused'] as const).map((status) => (
+                                <optgroup key={status} label={INVEST_POSITION_STATUS_META[status].label}>
+                                  {INVEST_POSITION_KEYS.map((key) => (
+                                    <option key={key} value={`${status}:${key}`} disabled={key === groupKey && (item.status === 'active' ? 'active' : 'paused') === status}>
+                                      {investMeta[key].label} · {INVEST_POSITION_STATUS_META[status].label}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              ))}
+                            </select>
                             <button type="button" onClick={() => { if (window.confirm(`删除“${item.name}”？`)) { removePositionDraft(groupKey, item.id); setExpandedItemKey(null); } }} aria-label={`删除${item.name}`} style={{ width: 24, height: 24, border: 'none', borderRadius: 6, backgroundColor: '#fce8e6', color: C.red, cursor: 'pointer', fontWeight: 800 }}>×</button>
                           </div>
                         </div>
