@@ -18,6 +18,7 @@ let rejectPatch: boolean;
 const api = { getTask: vi.fn(async () => structuredClone(task)) } as unknown as TickTickApi;
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 const options = () => ({ tasks: [task], managedTaskIds: new Set(['wash']), ticktickConnectionId: 'tick', today: '2026-10-05',
+  now: new Date('2026-10-05T04:00:00Z'),
   configState: { config: { schoolCity: { name: '北京', latitude: 39.9, longitude: 116.4 } } }, plannedDates: { wash: task.startDate!.slice(0, 10) } });
 function cycle(completion = '2026-10-05T03:56:00Z') {
   data.set(LAUNDRY_STATE_KEY, { connectionId: 'tick', anchors: { wash: { projectId: 'life', repeatFlag: task.repeatFlag, completion, target: '2026-10-10' } } });
@@ -39,14 +40,18 @@ beforeEach(() => {
       return json(event, 201);
     }
     const id = url.pathname.split('/').at(-1)!;
+    if (method === 'DELETE') {
+      writes.push({ method, body: { id }, headers: init.headers });
+      if (rejectPatch) return json({}, 412);
+      events.delete(id); return new Response(null, { status: 204 });
+    }
     if (method === 'PATCH') {
       writes.push({ method, body: JSON.parse(init.body as string), headers: init.headers });
       if (rejectPatch) return json({}, 412);
       const event = { ...events.get(id), ...JSON.parse(init.body as string), '@odata.etag': 'v2' }; events.set(id, event); return json(event);
     }
     if (id === 'events') {
-      const key = url.searchParams.get('$filter')?.match(/ep\/value eq '([^']+)'/)?.[1];
-      return json({ value: [...events.values()].filter(event => event.singleValueExtendedProperties?.some((p: any) => p.value === key)) });
+      return json({ value: [...events.values()].filter(event => event.subject === '洗衣服') });
     }
     return events.has(id) ? json(events.get(id)) : json({}, 404);
   }));
@@ -67,7 +72,8 @@ it('创建请求响应丢失后通过稳定标识找回，下一实际完成周�
   expect(await syncLaundryOutlook(api, options())).toHaveProperty('error'); expect(events.size).toBe(1);
   expect(await syncLaundryOutlook(api, options())).toMatchObject({ created: 0, updated: 0 }); expect(writes).toHaveLength(1);
   cycle('2026-10-08T03:00:00Z'); task.startDate = task.dueDate = '2026-10-13T00:00:00Z';
-  expect(await syncLaundryOutlook(api, options())).toMatchObject({ created: 1 }); expect(events.size).toBe(2);
+  expect(await syncLaundryOutlook(api, { ...options(), today: '2026-10-08', now: new Date('2026-10-08T04:00:00Z') }))
+    .toMatchObject({ created: 1 }); expect(events.size).toBe(2);
 });
 it('普通同名日程不被认领，缺失的自动日程恢复一次且使用新的幂等标识', async () => {
   events.set('manual', { id: 'manual', subject: '洗衣服', start: {}, end: {} });
@@ -114,13 +120,13 @@ it('接管明确关联的已有洗衣事件，保留正文并转换为稳定归�
 it('参与人、错误归属及日程并发改动时不覆盖或发出邀请', async () => {
   await syncLaundryOutlook(api, options()); const event = events.get('event-1');
   event.attendees = [{ emailAddress: { address: 'someone@example.com' } }]; task.startDate = task.dueDate = '2026-10-09T00:00:00Z';
-  expect((await syncLaundryOutlook(api, options())).error).toContain('参与人'); expect(writes).toHaveLength(1);
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ error: expect.stringContaining('参与人') }); expect(writes).toHaveLength(1);
   event.attendees = []; event.singleValueExtendedProperties = [{ id: LAUNDRY_EVENT_PROPERTY, value: 'someone-else' }];
-  expect((await syncLaundryOutlook(api, options())).error).toContain('修改'); expect(writes).toHaveLength(1);
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ error: expect.stringContaining('修改') }); expect(writes).toHaveLength(1);
 });
 it('乐观锁失败保留事件，不自动重放写入', async () => {
   await syncLaundryOutlook(api, options()); rejectPatch = true; task.startDate = task.dueDate = '2026-10-09T00:00:00Z';
-  expect((await syncLaundryOutlook(api, options())).error).toContain('412');
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ error: expect.stringContaining('412') });
   expect(writes).toHaveLength(2); expect(events.get('event-1').start.dateTime).toBe('2026-10-08T08:00:00');
 });
 it('写入前任务已完成或已改期则不写；未连接和无周期数据不写', async () => {
@@ -197,5 +203,149 @@ it('Make 同日同排期复用验证，次日仍回读；变更核对归属并�
   expect(await syncLaundryOutlook(api, options())).toMatchObject({ updated: 1 });
   expect(events.size).toBe(1); expect(writes[1].headers['If-Match']).toBe('v1');
   events.get('event-1').attendees = [{}]; task.startDate = task.dueDate = '2026-10-10T00:00:00Z';
-  expect((await syncLaundryOutlook(api, options())).error).toContain('参与人'); expect(writes).toHaveLength(3);
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ error: expect.stringContaining('参与人') }); expect(writes).toHaveLength(3);
+});
+
+function linkedAppointment(id: string, day = '2026-10-09', fields: Record<string, unknown> = {}) {
+  return { id, subject: '洗衣服', type: 'singleInstance', '@odata.etag': 'v1', attendees: [],
+    body: { content: '<https://ticktick.com/webapp/#p/life/tasks/wash>\n\n' },
+    start: { dateTime: `${day}T08:00:00`, timeZone: 'Asia/Shanghai' },
+    end: { dateTime: `${day}T08:50:00`, timeZone: 'Asia/Shanghai' }, ...fields };
+}
+it('旧周期未来预约和连接器副本合并为当前待办的一条预约，保留已结束记录', async () => {
+  await syncLaundryOutlook(api, options());
+  events.set('connector-copy', linkedAppointment('connector-copy', '2026-10-10'));
+  events.set('history', linkedAppointment('history', '2026-10-05'));
+  cycle('2026-10-05T04:00:00Z');
+  task.startDate = task.dueDate = '2026-10-10T00:00:00Z';
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ created: 0, updated: 1, deleted: 1 });
+  expect([...events.keys()].sort()).toEqual(['connector-copy', 'history']);
+  expect(events.get('connector-copy').start.dateTime).toBe('2026-10-10T08:00:00');
+  expect(writes.filter(write => write.method === 'POST')).toHaveLength(1);
+  expect(writes.at(-1)).toMatchObject({ method: 'DELETE', body: { id: 'event-1' }, headers: { 'If-Match': 'v1' } });
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ created: 0, updated: 0, deleted: 0 });
+});
+it('当前周期重复副本超过两条也能找回并清理，响应丢失不再新建', async () => {
+  loseCreateResponse = true;
+  await syncLaundryOutlook(api, options());
+  const original = events.get('event-1');
+  for (const id of ['copy-2', 'copy-3']) events.set(id, { ...structuredClone(original), id });
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ created: 0, updated: 0, deleted: 2 });
+  expect([...events.keys()]).toEqual(['event-1']);
+});
+it.each([
+  { body: { content: '手动记录' } },
+  { body: { content: 'https://ticktick.com/webapp/#p/life/tasks/wash-other' } },
+  { body: { content: 'https://ticktick.com/webapp/#p/other/tasks/wash' } },
+  { attendees: [{ emailAddress: { address: 'guest@example.com' } }] },
+  { type: 'seriesMaster' },
+  { isCancelled: true },
+  { subject: '洗衣服和其他安排' },
+  { singleValueExtendedProperties: [{ id: LAUNDRY_EVENT_PROPERTY, value: 'unknown-owner' }] },
+])('不删除手动记录、其他待办或已改变用途的未来日程：%j', async fields => {
+  await syncLaundryOutlook(api, options());
+  const protectedEvent = linkedAppointment('protected', '2026-10-09', fields);
+  events.set('protected', protectedEvent);
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ deleted: 0 });
+  expect(events.get('protected')).toEqual(protectedEvent);
+  expect(writes).toHaveLength(1);
+});
+it('新排期更新失败时保留旧副本；成功回读后才删除', async () => {
+  await syncLaundryOutlook(api, options());
+  events.set('old-copy', linkedAppointment('old-copy'));
+  task.startDate = task.dueDate = '2026-10-10T00:00:00Z'; rejectPatch = true;
+  expect(await syncLaundryOutlook(api, options())).toHaveProperty('error');
+  expect(events.has('old-copy')).toBe(true);
+  expect(writes.some(write => write.method === 'DELETE')).toBe(false);
+  rejectPatch = false;
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ updated: 1, deleted: 1 });
+  expect([...events.keys()]).toEqual(['event-1']);
+});
+it('删除遇到并发变更不缓存为成功，下次核对后继续清理', async () => {
+  await syncLaundryOutlook(api, options());
+  events.set('old-copy', linkedAppointment('old-copy')); rejectPatch = true;
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ error: expect.stringContaining('412') });
+  expect(events.size).toBe(2);
+  const state = [...data.entries()].find(([key]) => key.startsWith('outlook:laundry-events:v1:'))![1];
+  expect(Object.values<any>(state.entries)[0].verifiedPlan).toBeUndefined();
+  rejectPatch = false;
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ created: 0, deleted: 1 });
+  expect(events.size).toBe(1);
+});
+it('删除前再次读取，副本新增参与人或任务完成时保留日程', async () => {
+  await syncLaundryOutlook(api, options());
+  events.set('old-copy', linkedAppointment('old-copy'));
+  const upstream = globalThis.fetch;
+  vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
+    if (new URL(input).pathname.endsWith('/old-copy')) events.get('old-copy').attendees = [{}];
+    return upstream(input, init);
+  });
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ deleted: 0 });
+  events.get('old-copy').attendees = [];
+  vi.stubGlobal('fetch', upstream);
+  vi.mocked(api.getTask).mockResolvedValueOnce(structuredClone(task)).mockResolvedValueOnce(structuredClone(task))
+    .mockResolvedValueOnce({ ...task, status: 2 });
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ error: expect.stringContaining('待办已变化') });
+  expect(writes.some(write => write.method === 'DELETE')).toBe(false);
+  expect(events.size).toBe(2);
+});
+it('删除成功响应仍需确认日程确实不存在，保留失败供下次重试', async () => {
+  await syncLaundryOutlook(api, options());
+  events.set('old-copy', linkedAppointment('old-copy'));
+  const upstream = globalThis.fetch;
+  vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => init?.method === 'DELETE'
+    ? new Response(null, { status: 204 }) : upstream(input, init));
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ error: expect.stringContaining('删除未确认') });
+  expect(events.size).toBe(2);
+});
+it('分页读取完整后才开始写入，不能跳过第二页的旧副本', async () => {
+  await syncLaundryOutlook(api, options());
+  events.set('old-copy', linkedAppointment('old-copy'));
+  const upstream = globalThis.fetch;
+  vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
+    const url = new URL(input);
+    if (url.pathname.endsWith('/events') && (!init?.method || init.method === 'GET')) return url.searchParams.has('$skiptoken')
+      ? json({ value: [events.get('old-copy')] })
+      : json({ value: [events.get('event-1')], '@odata.nextLink': 'https://graph.microsoft.com/v1.0/me/calendars/calendar/events?$skiptoken=next' });
+    return upstream(input, init);
+  });
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ deleted: 1 });
+  expect([...events.keys()]).toEqual(['event-1']);
+});
+it('最新预约回读失败或分页不完整时不删除旧副本', async () => {
+  await syncLaundryOutlook(api, options());
+  events.set('old-copy', linkedAppointment('old-copy'));
+  const upstream = globalThis.fetch;
+  let reads = 0;
+  vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
+    if (new URL(input).pathname.endsWith('/event-1') && ++reads === 2) return json({}, 503);
+    return upstream(input, init);
+  });
+  expect(await syncLaundryOutlook(api, options())).toHaveProperty('error');
+  expect(writes).toHaveLength(1);
+  vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => new URL(input).pathname.endsWith('/events')
+    ? json({ value: [...events.values()], '@odata.nextLink': 'https://example.com/me/calendars/calendar/events' }) : upstream(input, init));
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ error: expect.stringContaining('分页地址无效') });
+  expect(events.size).toBe(2); expect(writes).toHaveLength(1);
+});
+it('Make 旧缓存升级后同日查重并删除旧预约，成功后才复用缓存', async () => {
+  await syncLaundryOutlook(api, options());
+  const state = [...data.entries()].find(([key]) => key.startsWith('outlook:laundry-events:v1:'))![1];
+  delete Object.values<any>(state.entries)[0].duplicatesChecked;
+  events.set('old-copy', linkedAppointment('old-copy'));
+  const upstream = globalThis.fetch;
+  const relay = vi.fn(async (_url: string, init: RequestInit) => {
+    const input = JSON.parse(init.body as string);
+    const response = await upstream(`https://graph.microsoft.com${input.path}`, { method: input.method,
+      body: input.body || undefined, headers: Object.fromEntries(input.headers.map((h: { key: string; value: string }) => [h.key, h.value])) });
+    return json({ protocol: 'bonbills-outlook-v1', status: response.status, body: response.status === 204 ? undefined : await response.json() });
+  });
+  vi.stubGlobal('fetch', relay);
+  data.set(OUTLOOK_WRITE_KEY, { ...data.get(OUTLOOK_WRITE_KEY), provider: 'make',
+    encrypted: sealOutlookWrite({ webhookUrl: 'https://hook.eu1.make.com/0123456789abcdef0123456789abcdef' }) });
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ deleted: 1 });
+  expect([...events.keys()]).toEqual(['event-1']);
+  const calls = relay.mock.calls.length;
+  await syncLaundryOutlook(api, options());
+  expect(relay).toHaveBeenCalledTimes(calls);
 });

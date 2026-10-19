@@ -48,3 +48,14 @@ it('只读验证成功后才存加密地址，状态不泄露，连接本身不�
   expect(JSON.stringify(await outlookWriteStatus())).not.toContain(url);
   await expect(connectOutlookMake(url)).rejects.toThrow('先断开');
 });
+it('仅允许携带版本条件删除单条日程，正确处理无响应正文的204', async () => {
+  const fetch = vi.fn().mockResolvedValue(result(undefined, 204)); vi.stubGlobal('fetch', fetch);
+  const client = await outlookGraphClient(connection());
+  const init = { method: 'DELETE', headers: { 'If-Match': 'v1' } };
+  for (const path of ['/me/calendars/c', '/me/calendars/c/events', '/me/calendars/c/events/e?all=true'])
+    await expect(client(path, init)).rejects.toThrow('无效');
+  expect(fetch).not.toHaveBeenCalled();
+  await expect(client('/me/calendars/c/events/e', init)).resolves.toBeUndefined();
+  expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ method: 'DELETE', path: '/v1.0/me/calendars/c/events/e',
+    headers: expect.arrayContaining([{ key: 'If-Match', value: 'v1' }]) });
+});

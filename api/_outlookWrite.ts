@@ -140,7 +140,9 @@ export async function outlookGraphClient(connection: WriteConnection): Promise<G
     const method = init.method ?? 'GET';
     const allowedPath = /^\/me\/calendars(?:\?|$)/.test(path)
       ? method === 'GET'
-      : /^\/me\/calendars\/[^/?#]+\/events(?:\/[^/?#]+)?(?:\?|$)/.test(path) && ['GET', 'POST', 'PATCH'].includes(method);
+      : /^\/me\/calendars\/[^/?#]+\/events(?:\/[^/?#]+)?(?:\?|$)/.test(path) && ['GET', 'POST', 'PATCH'].includes(method)
+        || (method === 'DELETE' && /^\/me\/calendars\/[^/?#]+\/events\/[^/?#]+$/.test(path)
+          && Boolean(new Headers(init.headers).get('if-match')) && !init.body);
     if (!allowedPath || path.includes('#') || path.includes('..')) throw new OutlookWriteError('日历请求无效', 400);
     const headers = new Headers(init.headers);
     for (const name of headers.keys()) if (name !== 'if-match') throw new OutlookWriteError('日历请求头无效', 400);
