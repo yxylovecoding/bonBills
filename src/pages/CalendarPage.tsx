@@ -1712,6 +1712,11 @@ function YimuHoldingsSection({ state }: { state: MonthFormState }) {
               const items = positionDraftGroups[groupKey].filter((item) => activeStatus === 'active'
                 ? item.status === 'active' || (item.pendingBuys?.length ?? 0) > 0
                 : item.status !== 'active' && (item.pendingBuys?.length ?? 0) === 0);
+              if (activeStatus !== 'active') {
+                items.sort((left, right) =>
+                  Number(positionSummary.metricsById[left.id]?.marketValueCny === 0)
+                  - Number(positionSummary.metricsById[right.id]?.marketValueCny === 0));
+              }
               const groupStateKey = `${activeStatus}:${groupKey}`;
               const groupExpanded = expandedGroupKeys.has(groupStateKey);
               const groupLabel = groupKey === 'account' ? '历史账户' : groupKey === 'aggregate' ? '待归类账户' : investMeta[groupKey].label;
