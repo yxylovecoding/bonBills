@@ -1,5 +1,5 @@
 export type SchedulingStage = 'completion-archive' | 'outlook-refresh' | 'tasks-read'
-  | 'completion-history' | 'template-read' | 'planning' | 'finalize';
+  | 'completion-history' | 'template-read' | 'timed-visibility' | 'planning' | 'finalize';
 
 class SchedulingError extends Error {
   constructor(message: string, readonly stage: SchedulingStage, readonly retryable: boolean) {

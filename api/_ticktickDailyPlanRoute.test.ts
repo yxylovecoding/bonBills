@@ -4,6 +4,7 @@ import handler from './ticktick-trips';
 import type { TickTickTask } from './_ticktickTrips';
 import { DAILY_PLAN_KEY, DAILY_PLAN_SETTINGS_KEY } from './_ticktickDailyPlan';
 import * as laundryModule from './_ticktickLaundry';
+import { schedulingStage } from './_schedulingFailure';
 const { replan, planDetails } = vi.hoisted(() => ({ replan: vi.fn(), planDetails: vi.fn() }));
 const { sourceTasks, taskWrite } = vi.hoisted(() => ({ sourceTasks: { value: [] as TickTickTask[] }, taskWrite: vi.fn() }));
 const { completedTasks, periodPrediction } = vi.hoisted(() => ({ completedTasks: { value: [] as TickTickTask[] }, periodPrediction: vi.fn() }));
@@ -185,6 +186,20 @@ describe('每日安排接口', () => {
     });
     expect(sleepTags).not.toHaveBeenCalled(); expect(syncTraining).not.toHaveBeenCalled(); expect(sendEmail).not.toHaveBeenCalled();
   });
+  it.each([['outlook-refresh', true], ['timed-visibility', false], ['planning', false]] as const)(
+    '小时重排透传 %s 失败阶段，公共日志不输出原始错误', async (stage, retryable) => {
+      vi.stubEnv('CRON_SECRET', 'cron-secret');
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+      replan.mockReset().mockImplementation(() => schedulingStage(stage, retryable, async () => {
+        throw new Error('private provider response');
+      }));
+      expect(await request('GET', undefined, 'hourly-replan', undefined, 'Bearer cron-secret')).toMatchObject({
+        status: 502, body: { failure: { stage, retryable } },
+      });
+      expect(log.mock.calls).toEqual([['[ticktick-sync-failure]', JSON.stringify({ stage, retryable })]]);
+      expect(sendEmail).not.toHaveBeenCalled();
+    },
+  );
   it('发信入口仅接受后台密钥；普通访问不发邮件，繁忙可以稍后重试', async () => {
     vi.stubEnv('CRON_SECRET', 'cron-secret');
     expect((await request('GET', undefined, 'daily-email')).status).toBe(403);

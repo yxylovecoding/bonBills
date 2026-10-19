@@ -10,6 +10,7 @@ import { isLaundryTask } from './_ticktickLaundry.js';
 import { acquireTickTickLock, releaseTickTickLock } from './_ticktickLock.js';
 import { sleepTagStateKey, sleepWindow, type SleepTagJournal } from './_ticktickSleepTags.js';
 import { syncTimedTaskVisibility } from './_ticktickNightRoutine.js';
+import { schedulingStage } from './_schedulingFailure.js';
 import { calendarDateInTimeZone, decryptTickTickToken, getTickTickRoutineExcludedTaskIds, readAllTickTickTasks,
   readConnectedTickTickTemplate, routineRecurrence, routineTaskDate, shiftTickTickDate, TickTickOpenApiClient,
   type TickTickTask, type TickTickConnection, type TickTickTripSyncState } from './_ticktickTrips.js';
@@ -33,8 +34,13 @@ function eligible(task: TickTickTask, horizon: string) {
 // Deliberately separate from runSync: this operation can only change dates of
 // today's open ordinary tasks and selected tasks from the 明日事 smart filter.
 // Outlook is read through existing subscriptions;
-// no tags, trips, training, laundry, or calendar events are synchronized here.
+// only timed-task visibility tags are synchronized; trips, training, laundry,
+// and calendar events stay outside this operation.
 export async function replanRemainingToday(options: { scheduled?: boolean } = {}) {
+  return schedulingStage('planning', false, () => replanRemainingTodayInner(options));
+}
+
+async function replanRemainingTodayInner(options: { scheduled?: boolean }) {
   if (options.scheduled && sleepWindow().hidden) return { busy: false as const, skipped: 'sleep-window' as const };
   const lock = await acquireTickTickLock();
   if (!lock) return { busy: true as const };
@@ -53,13 +59,17 @@ export async function replanRemainingToday(options: { scheduled?: boolean } = {}
     const connectionId = createHash('sha256').update(token).digest('hex');
     const api = new TickTickOpenApiClient(token, (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
     const [sourceTasks, saved, settings, calendar, outlook, trips, template] = await Promise.all([
-      readAllTickTickTasks(api, [0]), kv.get<DailyPlanState>(DAILY_PLAN_KEY),
+      schedulingStage('tasks-read', true, () => readAllTickTickTasks(api, [0])), kv.get<DailyPlanState>(DAILY_PLAN_KEY),
       kv.get<{ budgetMinutes?: number | null; availabilityProfile?: string }>(DAILY_PLAN_SETTINGS_KEY),
       kv.get<Record<string, unknown>>('calendar-tags'), kv.get<OutlookConnection>(OUTLOOK_CONNECTION_KEY),
-      kv.get<TickTickTripSyncState>('ticktick:trip-sync:v1'), readConnectedTickTickTemplate(api, connection),
+      kv.get<TickTickTripSyncState>('ticktick:trip-sync:v1'),
+      schedulingStage('template-read', true, () => readConnectedTickTickTemplate(api, connection)),
     ]);
-    const timedTasks = await syncTimedTaskVisibility(api, { tasks: sourceTasks, timeZone: connection.timeZone });
-    const tasks = await readAllTickTickTasks(api, [0]);
+    const timedTasks = await schedulingStage('timed-visibility', false,
+      () => syncTimedTaskVisibility(api, { tasks: sourceTasks, timeZone: connection.timeZone }));
+    // Visibility updates have finished and been verified before any retryable
+    // reads below. A retry re-reads tasks and recalculates visibility from now.
+    const tasks = await schedulingStage('tasks-read', true, () => readAllTickTickTasks(api, [0]));
     const state: DailyPlanState = saved?.connectionId === connectionId
       ? structuredClone(saved) : { connectionId, history: [], deadlines: {} };
     const today = calendarDateInTimeZone(new Date().toISOString())!;
@@ -67,8 +77,9 @@ export async function replanRemainingToday(options: { scheduled?: boolean } = {}
     const end = new Date(Date.parse(`${today}T00:00:00Z`) + 31 * 86_400_000).toISOString().slice(0, 10);
     const input = outlook ? decryptOutlookConnection(outlook.encrypted, secret) : null;
     const [snapshot] = await Promise.all([
-      input ? readOutlookSnapshot(input, today, end, { startDate: today, endDate: end }, connection.timeZone) : undefined,
-      refreshDailyHistory(api, tasks, state),
+      input ? schedulingStage('outlook-refresh', true,
+        () => readOutlookSnapshot(input, today, end, { startDate: today, endDate: end }, connection.timeZone)) : undefined,
+      schedulingStage('completion-history', true, () => refreshDailyHistory(api, tasks, state)),
     ]);
     const now = new Date();
     if (calendarDateInTimeZone(now.toISOString()) !== today) throw new Error('日期已变化，请重新重排');

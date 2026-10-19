@@ -25,20 +25,33 @@ jobs:
           node --input-type=module <<'NODE'
           const secret = process.env.CRON_SECRET?.trim();
           if (!secret) throw new Error('Missing BONBILLS_CRON_SECRET');
-          for (let attempt = 0; attempt < 3; attempt++) {
+          let busyAttempts = 0;
+          let retryAttempts = 0;
+          const retryStages = new Set(['outlook-refresh', 'tasks-read', 'completion-history', 'template-read']);
+          const failureStages = new Set([...retryStages, 'timed-visibility', 'planning']);
+          for (;;) {
             const response = await fetch('https://www.bonbills.cn/api/ticktick-trips?action=hourly-replan', {
               headers: { Authorization: `Bearer ${secret}` }, redirect: 'error', signal: AbortSignal.timeout(320_000),
             }).catch(() => { throw new Error('Hourly replanning request failed or timed out'); });
-            if (response.status === 202 && attempt < 2) {
-              await response.body?.cancel();
+            const result = await response.json().catch(() => null);
+            if (response.status === 202 && busyAttempts++ < 2) {
               await new Promise(resolve => setTimeout(resolve, 30_000));
               continue;
             }
-            const result = await response.json().catch(() => null);
+            const stage = failureStages.has(result?.failure?.stage) ? result.failure.stage : 'unknown';
+            // Retry only confirmed read failures. A timeout or failed write may
+            // have already changed tasks upstream, so do not replay it blindly.
+            if (response.status === 502 && result?.failure?.retryable === true
+                && retryStages.has(stage) && retryAttempts < 2) {
+              const delay = 30_000 * ++retryAttempts;
+              console.log(`Hourly replanning retry ${retryAttempts}/2: HTTP 502, stage=${stage}.`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+              continue;
+            }
             const skipped = ['sleep-window', 'restore-pending', 'disconnected'].includes(result?.skipped);
             if (response.status !== 200 || result?.ok !== true || result.busy || result.error
                 || (!skipped && !result.dailyPlan)) {
-              throw new Error(`Hourly replanning did not complete (HTTP ${response.status})`);
+              throw new Error(`Hourly replanning did not complete (HTTP ${response.status}, stage=${stage})`);
             }
             // No task titles, dates, credentials or provider responses in public logs.
             console.log(skipped ? 'Hourly replanning deferred by current connection/visibility state.'

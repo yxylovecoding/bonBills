@@ -4,10 +4,11 @@ import type { TickTickTask } from './_ticktickTrips';
 import { replanRemainingToday } from './_ticktickReplan';
 import { DAILY_PLAN_KEY, DAILY_PLAN_SETTINGS_KEY } from './_ticktickDailyPlan';
 import { sleepTagStateKey } from './_ticktickSleepTags';
+import { schedulingFailure } from './_schedulingFailure';
 
 const mocks = vi.hoisted(() => ({ data: new Map<string, any>(), tasks: [] as TickTickTask[], history: [] as TickTickTask[],
   getTask: vi.fn(), update: vi.fn(), historyRead: vi.fn(), snapshot: vi.fn(), set: vi.fn(),
-  acquire: vi.fn(), release: vi.fn(), broadSync: vi.fn() }));
+  acquire: vi.fn(), release: vi.fn(), broadSync: vi.fn(), tasksRead: vi.fn(), templateRead: vi.fn() }));
 vi.mock('@vercel/kv', () => ({ kv: { get: async (key: string) => structuredClone(mocks.data.get(key) ?? null),
   set: mocks.set } }));
 vi.mock('./_ticktickLock.js', () => ({ acquireTickTickLock: mocks.acquire, releaseTickTickLock: mocks.release }));
@@ -15,8 +16,8 @@ vi.mock('./_outlookSync.js', () => ({ OUTLOOK_CONNECTION_KEY: 'outlook:calendar-
 vi.mock('./_outlookCalendar.js', () => ({ decryptOutlookConnection: () => ({ policy: 'outlook' }), readOutlookSnapshot: mocks.snapshot }));
 vi.mock('./_ticktickTrips.js', async original => ({ ...await original<typeof import('./_ticktickTrips')>(),
   decryptTickTickToken: () => 'test-token',
-  readAllTickTickTasks: async () => structuredClone(mocks.tasks),
-  readConnectedTickTickTemplate: async () => ({ rootTask: { id: 'template' }, tasks: [] }),
+  readAllTickTickTasks: mocks.tasksRead,
+  readConnectedTickTickTemplate: mocks.templateRead,
   TickTickOpenApiClient: class {
     getTask = mocks.getTask;
     updateTask = mocks.update;
@@ -33,6 +34,8 @@ beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(new Date(`${day}T21:45:00+08:00`));
   vi.clearAllMocks(); mocks.data.clear(); mocks.tasks = []; mocks.history = [];
   mocks.acquire.mockResolvedValue('lock'); mocks.release.mockResolvedValue(undefined);
+  mocks.tasksRead.mockImplementation(async () => structuredClone(mocks.tasks));
+  mocks.templateRead.mockResolvedValue({ rootTask: { id: 'template' }, tasks: [] });
   mocks.data.set('ticktick:connection:v1', { encryptedToken: {}, templateRootId: 'template', projectId: 'life' });
   mocks.data.set(DAILY_PLAN_SETTINGS_KEY, { budgetMinutes: 240 });
   mocks.getTask.mockImplementation(async (_project, id) => structuredClone(mocks.tasks.find(t => t.id === id)));
@@ -48,6 +51,48 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('重排剩余今日事并从明日补入', () => {
+  it.each([
+    ['tasks-read', mocks.tasksRead], ['template-read', mocks.templateRead],
+    ['outlook-refresh', mocks.snapshot], ['completion-history', mocks.historyRead],
+  ] as const)('%s 读取失败标记可重试、保留旧安排，恢复后才发布新计划', async (stage, read) => {
+    mocks.data.set('outlook:calendar-connection:v1', { encrypted: 'encrypted' });
+    const saved = { connectionId, history: [], deadlines: {}, summary: { date: '2026-10-04' }, briefing: { selected: [] } };
+    mocks.data.set(DAILY_PLAN_KEY, structuredClone(saved));
+    mocks.tasks = [task('ordinary', { content: '(1h)' })];
+    read.mockRejectedValueOnce(new Error('private provider response'));
+    const error = await replanRemainingToday({ scheduled: true }).catch(error => error);
+    expect(schedulingFailure(error)).toEqual({ stage, retryable: true });
+    expect(mocks.update).not.toHaveBeenCalled(); expect(mocks.set).not.toHaveBeenCalled();
+    expect(mocks.data.get(DAILY_PLAN_KEY)).toEqual(saved);
+    expect(mocks.release).toHaveBeenCalledWith('lock');
+    await expect(replanRemainingToday({ scheduled: true })).resolves.toMatchObject({ busy: false, updated: 1 });
+    expect(mocks.data.get(DAILY_PLAN_KEY).summary.date).toBe(day);
+  });
+  it('显隐写入成功后的任务重读失败可重试，重试时不重复写已确认标签', async () => {
+    mocks.tasks = [task('timed', { isAllDay: false, dueDate: '2026-10-06T22:00:00+0800' })];
+    mocks.tasksRead.mockImplementationOnce(async () => structuredClone(mocks.tasks))
+      .mockRejectedValueOnce(new Error('read unavailable'));
+    const error = await replanRemainingToday({ scheduled: true }).catch(error => error);
+    expect(schedulingFailure(error)).toEqual({ stage: 'tasks-read', retryable: true });
+    expect(mocks.tasks[0].tags).toEqual(['bon-hidden']);
+    await replanRemainingToday({ scheduled: true });
+    expect(mocks.update).toHaveBeenCalledTimes(1);
+  });
+  it.each(['visibility', 'dates', 'verification', 'save', 'lock-release'])('%s 写入或确认失败不得自动重试', async kind => {
+    mocks.tasks = [kind === 'visibility'
+      ? task('timed', { isAllDay: false, dueDate: '2026-10-06T22:00:00+0800' })
+      : task('ordinary', { content: '(1h)' })];
+    if (kind === 'save') mocks.set.mockRejectedValueOnce(new Error('storage unavailable'));
+    else if (kind === 'lock-release') {
+      mocks.historyRead.mockRejectedValueOnce(new Error('read unavailable'));
+      mocks.release.mockRejectedValueOnce(new Error('release unavailable'));
+    } else if (kind === 'verification') mocks.update.mockResolvedValueOnce({});
+    else mocks.update.mockRejectedValueOnce(new Error('write result unknown'));
+    const error = await replanRemainingToday({ scheduled: true }).catch(error => error);
+    expect(schedulingFailure(error)).toEqual({ stage: kind === 'visibility' ? 'timed-visibility' : 'planning', retryable: false });
+    expect(mocks.release).toHaveBeenCalledWith('lock');
+    expect(mocks.data.get(DAILY_PLAN_KEY)?.summary).toBeUndefined();
+  });
   it.each(['00:07', '04:59'])('每小时排期在凌晨 %s 跳过，不覆盖已有计划或改标签', async time => {
     vi.setSystemTime(new Date(`${day}T${time}:00+08:00`));
     await expect(replanRemainingToday({ scheduled: true })).resolves.toEqual({ busy: false, skipped: 'sleep-window' });
