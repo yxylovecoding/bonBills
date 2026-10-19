@@ -47,7 +47,9 @@ function futureAppointment(event: CalendarEvent, since: number) {
   return event.subject === '洗衣服' && event.type === 'singleInstance' && !event.isCancelled && !event.attendees?.length
     && instant(event.start) >= since && instant(event.end) > instant(event.start);
 }
-async function laundryAppointments(request: GraphClient, calendarPath: string, keepLease: () => Promise<void>) {
+async function laundryAppointments(request: GraphClient, connection: WriteConnection, keepLease: () => Promise<void>) {
+  const calendarId = connection.calendarId!;
+  const calendarPath = `/me/calendars/${encodeURIComponent(calendarId)}/events`;
   const query = new URLSearchParams({ '$filter': "subject eq '洗衣服'", '$top': '100' });
   let path = `${calendarPath}?${query}&${expand}&${select}`;
   const events = new Map<string, CalendarEvent>();
@@ -56,10 +58,19 @@ async function laundryAppointments(request: GraphClient, calendarPath: string, k
     const data = await request<{ value: CalendarEvent[]; '@odata.nextLink'?: string }>(path);
     for (const event of data.value) events.set(event.id, event);
     if (!data['@odata.nextLink']) return [...events.values()];
-    const next = new URL(data['@odata.nextLink']);
-    if (next.origin !== 'https://graph.microsoft.com' || next.pathname !== `/v1.0${calendarPath}` || next.hash)
-      throw new OutlookWriteError('洗衣日程分页地址无效');
-    path = next.pathname.slice('/v1.0'.length) + next.search;
+    let next: URL;
+    try {
+      next = new URL(data['@odata.nextLink']);
+      // Graph can return the same calendar using OData key syntax on page two.
+      // Compare decoded IDs before following either spelling of the same resource.
+      const pathname = decodeURIComponent(next.pathname);
+      const sameCalendar = pathname === `/v1.0/me/calendars/${calendarId}/events`
+        || pathname === `/v1.0/me/calendars('${calendarId.replace(/'/g, "''")}')/events`;
+      if (next.origin !== 'https://graph.microsoft.com' || next.username || next.password || next.hash || !sameCalendar) throw new Error();
+    } catch { throw new OutlookWriteError('洗衣日程分页地址无效'); }
+    // The existing Make scenario only accepts slash paths. Use the equivalent
+    // validated calendar path there, preserving Graph's entire opaque query.
+    path = (connection.provider === 'make' ? calendarPath : next.pathname.slice('/v1.0'.length)) + next.search;
   }
   throw new OutlookWriteError('洗衣日程查重未完成，请稍后重试');
 }
@@ -90,7 +101,7 @@ async function syncEvents(request: GraphClient, connection: WriteConnection, api
     if (entry.verifiedPlan) { delete entry.verifiedPlan; await kv.set(stateKey, state); }
     // Include linked appointments from older cycles and connector-created copies,
     // which cannot be found by the current cycle's extended property alone.
-    const appointments = await laundryAppointments(request, calendarPath, keepLease);
+    const appointments = await laundryAppointments(request, connection, keepLease);
     const belongsToTask = (candidate: CalendarEvent) => owned(candidate, key) || (linked(candidate, task)
       && (candidate.singleValueExtendedProperties ?? []).filter(property => property.id === LAUNDRY_EVENT_PROPERTY)
         .every(property => state.entries[property.value]?.eventId === candidate.id));

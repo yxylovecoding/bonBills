@@ -312,6 +312,55 @@ it('分页读取完整后才开始写入，不能跳过第二页的旧副本', a
   expect(await syncLaundryOutlook(api, options())).toMatchObject({ deleted: 1 });
   expect([...events.keys()]).toEqual(['event-1']);
 });
+it.each(['microsoft', 'make'] as const)('兼容 %s 返回的 OData 括号分页，保留完整游标并复用第二页预约', async provider => {
+  const calendarId = 'calendar+id==';
+  data.set(OUTLOOK_WRITE_KEY, { ...data.get(OUTLOOK_WRITE_KEY), calendarId, provider,
+    ...(provider === 'make' ? { encrypted: sealOutlookWrite({ webhookUrl: 'https://hook.eu1.make.com/0123456789abcdef0123456789abcdef' }) } : {}) });
+  events.set('existing', linkedAppointment('existing', '2026-10-08'));
+  const history = Array.from({ length: 100 }, (_, index) => linkedAppointment(`history-${index}`, '2026-10-01', { body: { content: '手动记录' } }));
+  const nextPath = `/v1.0/me/calendars('${calendarId}')/events?$filter=subject%20eq%20%27%E6%B4%97%E8%A1%A3%E6%9C%8D%27&$top=100&$skip=100&$skiptoken=a%2Bb%2F%3D`;
+  const upstream = globalThis.fetch;
+  const reads: string[] = [];
+  const graph = async (input: string, init?: RequestInit) => {
+    const url = new URL(input);
+    if (url.pathname.endsWith('/events') && (!init?.method || init.method === 'GET')) {
+      reads.push(url.pathname + url.search);
+      expect(writes).toHaveLength(0);
+      return json(url.searchParams.has('$skip') ? { value: [events.get('existing')] }
+        : { value: history, '@odata.nextLink': `https://graph.microsoft.com${nextPath}` });
+    }
+    return upstream(input, init);
+  };
+  vi.stubGlobal('fetch', provider === 'microsoft' ? graph : async (_url: string, init: RequestInit) => {
+    const input = JSON.parse(init.body as string);
+    // The deployed Make scenario accepts slash paths, not OData key syntax.
+    expect(input.path).toMatch(/^\/v1\.0\/me\/calendars\/[^/]+\/events/);
+    const response = await graph(`https://graph.microsoft.com${input.path}`, { method: input.method, body: input.body || undefined,
+      headers: Object.fromEntries(input.headers.map((h: { key: string; value: string }) => [h.key, h.value])) });
+    return json({ protocol: 'bonbills-outlook-v1', status: response.status, body: await response.json() });
+  });
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ created: 0, updated: 1, verifiedCount: 1 });
+  expect(reads).toHaveLength(2);
+  expect(reads[1]).toBe(provider === 'make'
+    ? `/v1.0/me/calendars/${encodeURIComponent(calendarId)}/events${new URL(`https://graph.microsoft.com${nextPath}`).search}` : nextPath);
+  expect([...events.keys()]).toEqual(['existing']);
+  expect(writes.map(write => write.method)).toEqual(['PATCH']);
+});
+it.each([
+  "https://graph.microsoft.com/v1.0/me/calendars('other')/events?$skip=100",
+  "https://evil.test/v1.0/me/calendars('calendar')/events?$skip=100",
+  "https://graph.microsoft.com/v1.0/me/calendars('calendar')/events/another?$skip=100",
+  "https://graph.microsoft.com/v1.0/me/calendars('calendar')/events?$skip=100#fragment",
+  "https://user:password@graph.microsoft.com/v1.0/me/calendars('calendar')/events?$skip=100",
+  'not-a-url',
+  "https://graph.microsoft.com/v1.0/me/calendars('%invalid')/events?$skip=100",
+])('拒绝不属于当前日历的分页地址，查重未完成前不写入：%s', async nextLink => {
+  const fetcher = vi.fn(async () => json({ value: [], '@odata.nextLink': nextLink }));
+  vi.stubGlobal('fetch', fetcher);
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ error: expect.stringContaining('分页地址无效') });
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(writes).toHaveLength(0);
+});
 it('最新预约回读失败或分页不完整时不删除旧副本', async () => {
   await syncLaundryOutlook(api, options());
   events.set('old-copy', linkedAppointment('old-copy'));
