@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { inferFundQuoteCurrency } from '../src/utils/fundCurrency.js';
 
 type MarketSearchResult = {
   symbol: string;
@@ -69,7 +70,7 @@ async function searchEastmoneyFunds(query: string): Promise<MarketSearchResult[]
     const symbol = fund.CODE?.trim();
     const name = fund.NAME?.trim();
     if (!symbol || !name || !/^\d{6}$/.test(symbol)) return [];
-    const currency = /美元|美钞|美汇/.test(name) ? 'USD' : /港币/.test(name) ? 'HKD' : 'CNY';
+    const currency = inferFundQuoteCurrency(symbol, name);
     return [{
       symbol,
       name,

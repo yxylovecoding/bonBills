@@ -8,6 +8,7 @@ import type {
 import {
   INVEST_POSITION_GROUP_KEYS,
   migrateLegacyInvestPositionItems,
+  normalizeFundPositionCurrencies,
   syncInvestPositionItems,
 } from './investPositionItems';
 import { canonicalInvestmentName, canonicalInvestmentSymbol, isPrefixedFundSymbol } from './investmentInstrument';
@@ -156,6 +157,10 @@ function inferFundUnderlyingGroup(text: string): InvestKey | undefined {
 }
 
 export function normalizeInvestmentRecordInstruments(record: MonthlyRecord): MonthlyRecord {
+  if (record.investPositionItems) {
+    const items = normalizeFundPositionCurrencies(record.investPositionItems);
+    if (items !== record.investPositionItems) record = syncInvestPositionItems(record, items);
+  }
   // Earlier imports recreated closed summary accounts as active positions. The ledger remains
   // intact; remove only generated duplicates of an existing historical account.
   const historicalNames = new Set(record.investPositionItems?.account?.filter((item) => item.status !== 'active' && !item.symbol)

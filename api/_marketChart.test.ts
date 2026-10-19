@@ -59,6 +59,18 @@ describe('申购月份的历史净值', () => {
 });
 
 describe('市场历史序列', () => {
+  it.each([
+    ['003387', 'USD', 'CNY'],
+    ['003385', 'USD', 'CNY'],
+    ['003386', 'CNY', 'USD'],
+  ])('基金 %s 的净值使用份额币种，纠正旧客户端传入的 %s', async (symbol, currency, expected) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ErrCode: 0,
+      Data: { LSJZList: [{ FSRQ: '2026-10-15', DWJZ: '0.9630' }] } }) }));
+    const response = await requestNav({ symbol, currency });
+    expect(response.status).toHaveBeenCalledWith(200);
+    expect(response.json).toHaveBeenCalledWith(expect.objectContaining({ symbol, currency: expected, regularMarketPrice: 0.963 }));
+  });
+
   it('基金使用官方每日回报拼接总收益，避免分红除权造成虚假亏损', () => {
     const bars = fundTotalReturnBars([
       { x: Date.UTC(2024, 0, 1), y: 1, equityReturn: 0 },

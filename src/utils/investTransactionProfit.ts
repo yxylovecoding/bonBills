@@ -8,6 +8,7 @@ import type { InvestPositionSummary } from './investPositionItems';
 import {
   INVEST_POSITION_KEYS,
   isInvestPositionSummaryItem,
+  normalizeFundPositionCurrencies,
   summarizeInvestPositionItems,
 } from './investPositionItems';
 
@@ -60,7 +61,8 @@ export function inferInvestmentProfitFromBaseline(
   throughDate: string,
   fallbackFxRates: Record<string, number> = {},
 ): BaselineInferredInvestmentProfit {
-  const baselineSummary = summarizeInvestPositionItems(baseline.positionItems);
+  const baselineItems = normalizeFundPositionCurrencies(baseline.positionItems);
+  const baselineSummary = summarizeInvestPositionItems(baselineItems);
   const states = new Map<string, {
     name: string;
     shares: number;
@@ -70,7 +72,7 @@ export function inferInvestmentProfitFromBaseline(
   const mismatchedItems: string[] = [];
 
   for (const groupKey of INVEST_POSITION_KEYS) {
-    for (const item of baseline.positionItems[groupKey] ?? []) {
+    for (const item of baselineItems[groupKey] ?? []) {
       const metric = baselineSummary.metricsById[item.id];
       const currency = quoteCurrency(item, metric);
       const fxRateToCny = quoteFxRate(item, metric, currency, fallbackFxRates);

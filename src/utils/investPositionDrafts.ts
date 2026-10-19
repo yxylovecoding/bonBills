@@ -1,6 +1,6 @@
 import type { InvestKey, InvestPositionGroupKey, InvestPositionItem, InvestPositionItems, InvestQuoteSource } from '../models/types';
 import { canonicalInvestmentName } from './investmentInstrument';
-import { INVEST_POSITION_GROUP_KEYS, calculateInvestPositionMetric, isInvestPositionSummaryItem } from './investPositionItems';
+import { INVEST_POSITION_GROUP_KEYS, calculateInvestPositionMetric, isInvestPositionSummaryItem, normalizeFundPositionCurrencies } from './investPositionItems';
 
 export type InvestPositionDraft = Omit<InvestPositionItem, 'shares' | 'costPrice' | 'historicalProfitCny' | 'marketValueCny' | 'holdingProfitCny' | 'lastPrice'> & {
   shares: string;
@@ -24,6 +24,7 @@ function emptyInvestPositionDraftGroups(): InvestPositionDraftGroups {
 }
 
 export function investPositionDraftGroupsFromItems(items: InvestPositionItems): InvestPositionDraftGroups {
+  items = normalizeFundPositionCurrencies(items);
   const groups = emptyInvestPositionDraftGroups();
   for (const key of INVEST_POSITION_GROUP_KEYS) {
     groups[key] = (items[key] ?? []).map((item) => {

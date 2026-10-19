@@ -6,6 +6,8 @@ import type {
   InvestPositionItems,
   MonthlyRecord,
 } from '../models/types';
+import { knownFundQuoteCurrency } from './fundCurrency';
+import { isPrefixedFundSymbol } from './investmentInstrument';
 
 export const INVEST_POSITION_KEYS: InvestKey[] = ['us', 'eu', 'asia', 'a', 'longBond', 'usBond', 'gold'];
 export const INVEST_POSITION_GROUP_KEYS: InvestPositionGroupKey[] = [...INVEST_POSITION_KEYS, 'account', 'aggregate'];
@@ -185,6 +187,33 @@ export function calculateInvestPositionMetric(
     fxRateToCny: effectiveMarket?.fxRateToCny,
     quoteAt: effectiveMarket?.quoteAt,
   };
+}
+
+export function normalizeFundPositionCurrencies(items: InvestPositionItems): InvestPositionItems {
+  let changed = false;
+  const normalized: InvestPositionItems = {};
+  for (const key of INVEST_POSITION_GROUP_KEYS) {
+    if (!items[key]) continue;
+    normalized[key] = items[key]!.map((item) => {
+      // Repair only verified RMB share classes affected by the old name heuristic.
+      if ((item.quoteSource !== 'eastmoney-fund' && !isPrefixedFundSymbol(item.symbol))
+        || knownFundQuoteCurrency(item.symbol) !== 'CNY') return item;
+      if (item.quoteCurrency === 'CNY' && item.historicalProfitCurrency === 'CNY'
+        && item.lastCurrency === 'CNY' && item.lastFxRateToCny === 1) return item;
+      changed = true;
+      const corrected: InvestPositionItem = {
+        ...item,
+        quoteCurrency: 'CNY',
+        historicalProfitCurrency: 'CNY',
+        lastCurrency: 'CNY',
+        lastFxRateToCny: 1,
+      };
+      // Keep the entered native profit and NAV; rebuild derived CNY values without FX.
+      const metric = calculateInvestPositionMetric(corrected);
+      return { ...corrected, marketValueCny: metric.marketValueCny, holdingProfitCny: metric.holdingProfitCny };
+    });
+  }
+  return changed ? normalized : items;
 }
 
 export function summarizeInvestPositionItems(

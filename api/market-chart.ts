@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { knownFundQuoteCurrency } from '../src/utils/fundCurrency.js';
 
 type YahooChartResponse = {
   chart?: {
@@ -155,8 +156,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (source === 'eastmoney-fund') {
     if (!/^\d{6}$/.test(symbol)) return res.status(400).json({ error: 'invalid fund code' });
     if (req.query.navMonth !== undefined) return respondFundNavMonth(symbol, String(req.query.navMonth), res);
-    const fundCurrency = String(req.query.currency ?? 'CNY').trim().toUpperCase();
-    if (!['CNY', 'USD', 'HKD'].includes(fundCurrency)) return res.status(400).json({ error: 'invalid currency' });
+    const requestedCurrency = String(req.query.currency ?? 'CNY').trim().toUpperCase();
+    if (!['CNY', 'USD', 'HKD'].includes(requestedCurrency)) return res.status(400).json({ error: 'invalid currency' });
+    const fundCurrency = knownFundQuoteCurrency(symbol) ?? requestedCurrency;
     if (range === 'max') {
       try {
         const trend = await fetchEastmoneyTrend(symbol);
