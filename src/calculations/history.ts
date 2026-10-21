@@ -1,4 +1,4 @@
-import { cityKey, resolveDailyContext, resolvedTagMap, type InternshipContext } from '../utils/internship';
+import { cityKey, sameCity, resolveDailyContext, resolvedTagMap, type InternshipContext } from '../utils/internship';
 import type { MonthlyRecord, CurrentStats, SceneCity, SceneCityStat, SharedLifeBreakdownItem, TagKind } from '../models/types';
 import type { BillExpenseMonth } from '../utils/importBill';
 import { assignExpenseIds } from '../utils/importBill';
@@ -548,7 +548,8 @@ function calcLegacyHistoryStats(
       const cities = new Map<string, CityBucket>();
       const addDays = (city: SceneCity | null, days: number, sample?: MonthConfirmed['sceneDays'][string]) => {
         if (!city || days <= 0) return;
-        const key = cityKey(city);
+        // Search results and presets may use different coordinates for one city.
+        const key = [...cities].find(([, bucket]) => sameCity(bucket.city, city))?.[0] ?? cityKey(city);
         const bucket = cities.get(key) ?? { city, days: 0, localLife: 0, localCons: 0, resolvedLife: 0, resolvedCons: 0, breakdown: [] };
         bucket.days += days;
         if (sample) {
@@ -626,7 +627,8 @@ export function calcHistoryStats(
   for (const [date, amount] of Object.entries(daily)) {
     const day = resolveDailyContext(date, historicalTags[date], context);
     if (!day.city || day.livingKind === 'travel' || day.livingKind === 'home') continue;
-    const key = `${cityKey(day.city)}:${day.livingKind}`;
+    const key = Object.entries(cityLivingStats).find(([, row]) => row.kind === day.livingKind && sameCity(row.city, day.city))?.[0]
+      ?? `${cityKey(day.city)}:${day.livingKind}`;
     const row = cityLivingStats[key] ??= { city: day.city, kind: day.livingKind, days: 0, localAmount: 0, dailyAverage: 0 };
     row.days++; row.localAmount += amount;
   }
