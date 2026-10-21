@@ -9,7 +9,7 @@ import { calcHistoryStats } from './history';
 
 afterEach(() => vi.useRealTimers());
 
-function fixture() {
+function fixture(unassignedLife = 0) {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-26T04:00:00Z'));
   const period: InternshipPeriod = { id: 'bj', profileId: 'company', profileName: '公司', revision: 1,
     startDate: '2026-10-19', endDate: '2026-10-20', city: BEIJING, schoolCity: BEIJING,
@@ -34,17 +34,17 @@ function fixture() {
     return [date, { reviewed: true, localIds: entries.filter(e => e.item.category !== '订阅').map(e => e.id),
       sharedIds: entries.filter(e => e.item.category === '订阅').map(e => e.id) }];
   }));
-  const records = [{ ...monthlyRecords[0], yearMonth: '2026-10', periodicLife: 21, volatileLife: 222, consumption: 130 }];
+  const records = [{ ...monthlyRecords[0], yearMonth: '2026-10', periodicLife: 21, volatileLife: 222 + unassignedLife, consumption: 130 }];
   return { context, stats: calcHistoryStats(records, tags, confirmed, { '2026-10': items }, undefined, {}, context) };
 }
 
-it('校班按城市筛选，班将工作和休息样本按天数合并，零支出日也计入', () => {
+it('校班按完整场景天数筛选，未逐日确认和零支出日也计入', () => {
   const { stats } = fixture();
   const cities = sceneCitySummaries(stats, 'intern');
   expect(cities).toHaveLength(2);
   const bj = cities.find(row => row.city.name === '北京')!, gz = cities.find(row => row.city.name === '广州')!;
   expect(bj.days).toBe(2); expect(bj.lifeVal).toBeCloseTo(30 + stats.sharedLifeDailyBase); expect(bj.consumptionVal).toBe(20);
-  expect(gz.days).toBe(3); expect(gz.lifeVal).toBeCloseTo(50 + stats.sharedLifeDailyBase); expect(gz.consumptionVal).toBe(30);
+  expect(gz.days).toBe(5); expect(gz.lifeVal).toBeCloseTo(30 + stats.sharedLifeDailyBase); expect(gz.consumptionVal).toBe(18);
   const school = sceneCitySummaries(stats, 'school');
   expect(school).toHaveLength(1); expect(school[0].days).toBe(1);
   expect(school[0].lifeVal).toBeCloseTo(12 + stats.sharedLifeDailyBase);
@@ -70,4 +70,58 @@ it('城市分类、消费和共享均摊与筛选后金额一致，不混入其�
 it('没有城市样本时不提供虚构的城市统计', () => {
   expect(sceneCitySummaries(calcHistoryStats([]), 'school')).toEqual([]);
   expect(sceneCitySummaries(calcHistoryStats([]), 'intern')).toEqual([]);
+});
+
+it('六个月北京实习只有17天确认账单时，北京仍等于综合且显示120个历史场景日', () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-21T04:00:00Z'));
+  const records = Array.from({ length: 6 }, (_, i) => ({ ...monthlyRecords[0], yearMonth: `2026-${String(i + 4).padStart(2, '0')}`,
+    internDays: 20, schoolDays: 10, homeDays: 0, travelDays: 0, periodicLife: 300, volatileLife: 1500, consumption: 900 }));
+  const dates = Array.from({ length: 30 }, (_, i) => `2026-09-${String(i + 1).padStart(2, '0')}`);
+  const tagMap: Record<string, TagKind> = Object.fromEntries(dates.map((date, i) => [date, i < 20 ? 'intern' : 'school']));
+  const items: BillExpenseItem[] = dates.slice(0, 17).map(date => ({ date, amount: 20, category: '餐饮', subcategory: '午餐', tags: '波动生活', note: '', account: '' }));
+  const confirmed = Object.fromEntries(items.map(item => [item.date, { reviewed: true, localIds: [assignExpenseIds([item])[0].id], sharedIds: [] }]));
+  const context = { config: { schoolCity: BEIJING, internshipLegacyCity: BEIJING, internshipPeriods: [{
+    id: 'future', profileId: 'company', profileName: '广州公司', revision: 1, startDate: '2026-11-01', endDate: '2026-11-30',
+    city: GUANGZHOU, schoolCity: BEIJING, rules: { ...DEFAULT_INTERNSHIP_RULES, salary: 100 },
+  }] } };
+  const stats = calcHistoryStats(records, tagMap, confirmed, { '2026-09': items }, undefined, {}, context);
+  expect(Object.values(stats.cityLivingStats!).reduce((sum, row) => sum + row.days, 0)).toBe(17);
+  const cities = sceneCitySummaries(stats, 'intern');
+  expect(cities).toHaveLength(1);
+  expect(cities[0].city).toEqual(BEIJING);
+  expect(cities[0].days).toBe(120);
+  expect(cities[0].days).toBe(stats.stateDailyConfidence.intern);
+  expect(cities[0].lifeVal).toBe(stats.stateDailyAvg.intern);
+  expect(cities[0].consumptionVal).toBe(stats.stateConsumptionDailyAvg.intern);
+  expect(cities[0].localLifeBreakdown).toEqual(stats.localLifeBreakdown.intern);
+  expect(cities[0].lifeVal - stats.sharedLifeDailyBase - cities[0].localLifeBreakdown.reduce((sum, row) => sum + row.dailyBase, 0)).toBeGreaterThan(0);
+  const school = sceneCitySummaries(stats, 'school')[0];
+  expect(school.days).toBe(60);
+  expect(school.lifeVal).toBe(stats.stateDailyAvg.school);
+});
+
+it('北京广州的金额、消费、分类和天数按天数加权后严格还原综合，保留未拆分估算', () => {
+  const { stats } = fixture(300);
+  const rows = sceneCitySummaries(stats, 'intern');
+  const days = rows.reduce((sum, row) => sum + row.days, 0);
+  expect(days).toBe(stats.stateDailyConfidence.intern);
+  expect(rows.reduce((sum, row) => sum + row.lifeVal * row.days, 0) / days).toBeCloseTo(stats.stateDailyAvg.intern);
+  expect(rows.reduce((sum, row) => sum + row.consumptionVal * row.days, 0) / days).toBeCloseTo(stats.stateConsumptionDailyAvg.intern);
+  for (const category of stats.localLifeBreakdown.intern) {
+    const total = rows.reduce((sum, row) => sum + (row.localLifeBreakdown.find(r => r.category === category.category)?.dailyBase ?? 0) * row.days, 0);
+    expect(total / days).toBeCloseTo(category.dailyBase);
+  }
+  const bj = rows.find(row => row.city.name === '北京')!, gz = rows.find(row => row.city.name === '广州')!;
+  expect(bj.lifeVal).toBeCloseTo(30 + stats.sharedLifeDailyBase);
+  expect(gz.lifeVal).toBeCloseTo(90 + stats.sharedLifeDailyBase);
+});
+
+it('不把同月预测日期或今天加入历史场景天数，即使尚未配置实习段', () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-21T04:00:00Z'));
+  const tags: Record<string, TagKind> = { '2026-10-19': 'intern', '2026-10-20': 'intern', '2026-10-21': 'intern', '2026-10-22': 'intern' };
+  const stats = calcHistoryStats([{ ...monthlyRecords[0], yearMonth: '2026-10' }], tags, {}, {}, undefined, {}, { config: { schoolCity: BEIJING } });
+  const row = sceneCitySummaries(stats, 'intern')[0];
+  expect(row.days).toBe(2);
+  expect(row.days).toBe(stats.stateDailyConfidence.intern);
+  expect(row.lifeVal).toBe(stats.stateDailyAvg.intern);
 });

@@ -346,8 +346,14 @@ export interface CityLivingStat {
   days: number;
   localAmount: number;
   dailyAverage: number;
-  consumptionAmount?: number;
-  localLifeBreakdown?: LocalLifeBreakdownRow[];
+}
+export interface SceneCityStat {
+  key: string;
+  city: SceneCity;
+  days: number;
+  lifeVal: number;
+  consumptionVal: number;
+  localLifeBreakdown: LocalLifeBreakdownRow[];
 }
 
 export interface AppConfig {
@@ -504,6 +510,7 @@ export interface DailyTag {
 // ── CurrentStats (历史均值) ───────────────────────────────────────
 export interface CurrentStats {
   cityLivingStats?: Record<string, CityLivingStat>;
+  sceneCityStats?: Partial<Record<TagKind, SceneCityStat[]>>;
   periodicLifeAvg: number;
   volatileLifeAvg: number;
   consumptionAvg: number;

@@ -58,7 +58,7 @@ import {
 import { version as APP_VERSION } from '../../package.json';
 import { useSyncStatus } from '../utils/syncStatus';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '场景合并';
+const RELEASE_NOTE = '日均修正';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -1129,12 +1129,12 @@ export default function HomePage() {
                           {sceneDailyMode === 'all' && r.consumptionVal > 0.005 && (
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: '#3c4043' }}>
                               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
-                                {selectedCity ? '消费' : '消费估算'} <span style={{ color: '#9aa0a6' }}>· {(r.val > 0 ? (r.consumptionVal / r.val) * 100 : 0).toFixed(1)}%</span>
+                                消费估算 <span style={{ color: '#9aa0a6' }}>· {(r.val > 0 ? (r.consumptionVal / r.val) * 100 : 0).toFixed(1)}%</span>
                               </span>
                               <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.purple }}>{formatSceneAmount(r.consumptionVal)}</span>
                             </div>
                           )}
-                          {r.tagKind === 'school' && !selectedCity && campusDailyAvgYear > 0 && (
+                          {r.tagKind === 'school' && (!selectedCity || selectedCity.days === stats.stateDailyConfidence.school) && campusDailyAvgYear > 0 && (
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: '#3c4043' }}>
                               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
                                 🍜 校园卡{scenePeriodConfig.label}均 <span style={{ color: '#9aa0a6' }}>(近一年 · 已含)</span>
