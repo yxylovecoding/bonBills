@@ -8,6 +8,7 @@ import { MONTHLY_BACKUP_INDEX_KEY, type MonthlyBackupIndexEntry } from './_month
 import { mergeRecoveredMonthlyInvestmentState, restoreMonthlyInvestmentState } from './_restoreMonthlyInvestment.js';
 import { SYNC_STORE_KEYS, type SyncPayload } from './_syncKeys.js';
 import { saveUploadedCalendarState } from './_outlookSync.js';
+import { migrateOwnerSchoolPeriods } from './_schoolPeriodsMigration.js';
 
 const AUGUST_INVESTMENT_RECOVERY_MARKER = 'sync-recovery:2026-08-investment:2026-09-03-v1';
 const AUGUST_INVESTMENT_MERGE_MARKER = 'sync-recovery:2026-08-investment:2026-09-03-v2';
@@ -82,6 +83,9 @@ async function handler(req: VercelRequest, res: VercelResponse) {
         hasAny = true;
       }
     });
+    if (isOwnerScope() && result['app-config']) {
+      result['app-config'] = await migrateOwnerSchoolPeriods(result['app-config']);
+    }
     if (isOwnerScope() && result['monthly-records']) {
       result['monthly-records'] = await restoreAugustInvestmentFromLatestBackup(result['monthly-records']);
       result['monthly-records'] = await mergeAugustInvestmentFromPreRestoreState(result['monthly-records']);

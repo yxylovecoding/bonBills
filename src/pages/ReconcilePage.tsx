@@ -10,6 +10,7 @@ import AmountInput from '../components/AmountInput';
 import FinanceImportPreviewDialog from '../components/FinanceImportPreviewDialog';
 import ImportCutoffHint from '../components/ImportCutoffHint';
 import SceneCityFields, { type SceneCitySettings } from '../components/SceneCityFields';
+import SchoolPeriods from '../components/SchoolPeriods';
 
 const fmtInt = (v: number) => Math.round(v).toLocaleString('zh-CN');
 import { useSnapshotStore } from '../stores/snapshotStore';
@@ -256,6 +257,7 @@ function RebalanceSettingsModal({
 }) {
   const [cityDraft, setCityDraft] = useState(cities);
   const [internshipDraft, setInternshipDraft] = useState<Partial<import('../models/types').AppConfig>>({});
+  const [editingSchoolPeriod, setEditingSchoolPeriod] = useState(false);
   const [baselineDraft, setBaselineDraft] = useState(String(resolveRecurringIncomeBaseline(recurringIncomeBaseline)));
   const baselineValue = baselineDraft.trim() ? Number(tryEvalFormula(baselineDraft) ?? baselineDraft) : NaN;
   const baselineValid = Number.isFinite(baselineValue) && baselineValue >= 0;
@@ -330,7 +332,9 @@ function RebalanceSettingsModal({
               /月
             </span>
           </label>
-          <SceneCityFields value={cityDraft} onChange={setCityDraft} />
+          <SceneCityFields value={cityDraft} onChange={setCityDraft} schoolLabel="默认上学城市" />
+          <SchoolPeriods periods={internshipDraft.schoolPeriods ?? internshipConfig.schoolPeriods ?? []}
+            onChange={schoolPeriods => setInternshipDraft(previous => ({ ...previous, schoolPeriods }))} onEditingChange={setEditingSchoolPeriod} />
           <InternshipPeriods config={{ ...internshipConfig, ...cityDraft, ...internshipDraft }} onChange={changes => setInternshipDraft(previous => ({ ...previous, ...changes }))} />
           <div style={{ border: '1px solid #f1f3f4', borderRadius: 10, padding: '9px 10px', backgroundColor: '#fafafa', marginBottom: 12 }}>
             <div className="reconcile-settings-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
@@ -449,15 +453,15 @@ function RebalanceSettingsModal({
             取消
           </button>
           <button onClick={() => {
-            if (!baselineValid) return;
+            if (!baselineValid || editingSchoolPeriod) return;
             const cityChanges: SceneCitySettings = {};
             for (const key of ['homeCity', 'schoolCity'] as const) {
               if (JSON.stringify(cityDraft[key]) !== JSON.stringify(initialSettings.current.cities[key])) cityChanges[key] = cityDraft[key];
             }
             onSave({ ...cityChanges, ...internshipDraft }, JSON.stringify(groupedTargetInputs) !== initialSettings.current.allocation, roundMoney(baselineValue));
           }}
-            disabled={!baselineValid}
-            style={{ padding: '8px 16px', borderRadius: 8, border: 'none', backgroundColor: baselineValid ? C.blue : '#dadce0', color: '#fff', fontSize: 13, fontWeight: 600, cursor: baselineValid ? 'pointer' : 'default' }}>
+            disabled={!baselineValid || editingSchoolPeriod}
+            style={{ padding: '8px 16px', borderRadius: 8, border: 'none', backgroundColor: baselineValid && !editingSchoolPeriod ? C.blue : '#dadce0', color: '#fff', fontSize: 13, fontWeight: 600, cursor: baselineValid && !editingSchoolPeriod ? 'pointer' : 'default' }}>
             保存
           </button>
         </div>

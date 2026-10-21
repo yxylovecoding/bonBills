@@ -58,6 +58,26 @@ afterEach(() => {
 });
 
 describe('cached startup synchronization', () => {
+  it('上学阶段完整同步、备份并在刷新后恢复', async () => {
+    const { BEIJING } = await import('./internship');
+    const { NANJING } = await import('./schoolPeriods');
+    const schoolPeriods = [
+      { id: 'nj', city: NANJING, startMonth: '2021-09', endMonth: '2025-06' },
+      { id: 'bj', city: BEIJING, startMonth: '2025-09', endMonth: '2028-06' },
+    ];
+    state.cloud['app-config'].config.schoolPeriods = schoolPeriods;
+    await engine.initSync('bon');
+    expect(state.config.getState().config.schoolPeriods).toEqual(schoolPeriods);
+    const updated = [schoolPeriods[0], { ...schoolPeriods[1], endMonth: '2028-07' }];
+    state.config.getState().setConfig({ schoolPeriods: updated });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(JSON.parse(uploads().at(-1)![1].body)['app-config'].config.schoolPeriods).toEqual(updated);
+    await engine.createManualBackup();
+    const backup = JSON.parse(mocks.apiFetch.mock.calls.find(([url]) => url === '/api/sync-monthly-backup')![1].body);
+    expect(backup['app-config'].config.schoolPeriods).toEqual(updated);
+    vi.resetModules();
+    expect((await import('../stores/configStore')).useConfigStore.getState().config.schoolPeriods).toEqual(updated);
+  });
   it('实习段规则快照、BonCV 来源和单日工休城市完整上传，并在刷新后恢复', async () => {
     const { BEIJING, GUANGZHOU, DEFAULT_INTERNSHIP_RULES } = await import('./internship');
     await engine.initSync('bon');
