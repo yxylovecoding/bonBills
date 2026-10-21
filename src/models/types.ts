@@ -346,6 +346,8 @@ export interface CityLivingStat {
   days: number;
   localAmount: number;
   dailyAverage: number;
+  consumptionAmount?: number;
+  localLifeBreakdown?: LocalLifeBreakdownRow[];
 }
 
 export interface AppConfig {
