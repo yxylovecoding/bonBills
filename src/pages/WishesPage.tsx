@@ -1,4 +1,4 @@
-import { internshipStart, resolveDailyContext } from '../utils/internship';
+import { resolveDailyContext } from '../utils/internship';
 import { useLifeCalendar } from '../hooks/useLifeCalendar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -261,6 +261,7 @@ export default function WishesPage() {
   );
   const plan = useMemo(
     () => calculateWishPlan(wishes, {
+      recurringIncomeBaseline: config.recurringIncomeBaseline,
       today,
       tagMap,
       stateDailyAvg: stats.stateDailyAvg,
@@ -269,13 +270,13 @@ export default function WishesPage() {
     }),
     // todayKey 每日变化一次，避免 Date 实例导致无意义的重复计算。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [wishes, tagMap, stats.stateDailyAvg, repaymentsByMonth, todayKey, tripDatesByStart],
+    [config.recurringIncomeBaseline, wishes, tagMap, stats.stateDailyAvg, repaymentsByMonth, todayKey, tripDatesByStart],
   );
   const milestonePlan = useMemo(
     () => calculateWishMilestonePlan({
       today,
       wishes,
-      incomeItems: config.incomeItems,
+      incomeItems: config.incomeItems, recurringIncomeBaseline: config.recurringIncomeBaseline,
       internship, cityLivingStats: stats.cityLivingStats,
       tagMap,
       stateDailyAvg: stats.stateDailyAvg,
@@ -285,7 +286,7 @@ export default function WishesPage() {
     }),
     // todayKey 每日变化一次，避免 Date 实例导致无意义的重复计算。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [internship, stats.cityLivingStats, config.incomeItems, holidayDataByYear, wishes, repaymentDues, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart],
+    [internship, stats.cityLivingStats, config.incomeItems, config.recurringIncomeBaseline, holidayDataByYear, wishes, repaymentDues, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart],
   );
   const activeSegment = selectedPlanningWish
     ? milestonePlan.segmentByWishId[selectedPlanningWish.id]
@@ -300,16 +301,10 @@ export default function WishesPage() {
       Math.max(Math.round(requested), minimum),
       activeSegment.availableInternDateKeys.length,
     );
-    if (internshipStart(config)) return calculateWishInternPlan({ today, deadline: activeSegment.deadline, wishes,
-      incomeItems: config.incomeItems, tagMap, stateDailyAvg: stats.stateDailyAvg, cityLivingStats: stats.cityLivingStats,
+    return calculateWishInternPlan({ today, deadline: activeSegment.deadline, wishes,
+      incomeItems: config.incomeItems, recurringIncomeBaseline: config.recurringIncomeBaseline, tagMap, stateDailyAvg: stats.stateDailyAvg, cityLivingStats: stats.cityLivingStats,
       internship, holidayDataByYear, tripDatesByStart, repaymentsByMonth: repaymentsThroughDeadline(repaymentDues, todayKey, activeSegment.deadline),
       requiredDates: earlierRequiredDates, selectedInternDays: desired }).recommendedDates;
-    const selectedDates = new Set(activeSegment.minimumInternDateKeys);
-    for (const date of activeSegment.availableInternDateKeys) {
-      if (selectedDates.size >= desired) break;
-      selectedDates.add(date);
-    }
-    return [...selectedDates].sort();
   }, [activeSegment, milestonePlan.recommendedDates, selectedSegmentDays, config, internship, stats, tagMap, holidayDataByYear, tripDatesByStart, repaymentDues, todayKey, earlierRequiredDates, wishes]);
   const selectedCumulativeInternDays = activeSegment
     ? scheduledPlanDates.length
@@ -319,7 +314,7 @@ export default function WishesPage() {
       today,
       deadline: effectivePlanningDeadline,
       wishes,
-      incomeItems: config.incomeItems,
+      incomeItems: config.incomeItems, recurringIncomeBaseline: config.recurringIncomeBaseline,
       internship, cityLivingStats: stats.cityLivingStats,
       tagMap,
       stateDailyAvg: stats.stateDailyAvg,
@@ -330,7 +325,7 @@ export default function WishesPage() {
     }),
     // todayKey 每日变化一次，避免 Date 实例导致无意义的重复计算。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [earlierRequiredDates, internship, stats.cityLivingStats, config.incomeItems, effectivePlanningDeadline, holidayDataByYear, planningRepaymentsByMonth, wishes, selectedCumulativeInternDays, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart],
+    [earlierRequiredDates, internship, stats.cityLivingStats, config.incomeItems, config.recurringIncomeBaseline, effectivePlanningDeadline, holidayDataByYear, planningRepaymentsByMonth, wishes, selectedCumulativeInternDays, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart],
   );
   const lifeExpenseTooltip = LIFE_EXPENSE_TOOLTIP_ORDER.map(({ kind, label }) => {
     const item = internPlan.lifeExpenseBreakdown[kind];
@@ -811,6 +806,10 @@ export default function WishesPage() {
             信用卡 ¥{formatCurrency(internPlan.repayment)}
           </button>
           {planningLongBondRepay > 0.005 && <> · 长债已抵 ¥{formatCurrency(planningLongBondRepay)}</>}
+        </div>
+        <div style={{ opacity: 0.78 }}>涨薪存半</div>
+        <div style={{ textAlign: 'right', fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
+          −¥{formatCurrency(internPlan.projectedRaiseSavings)}
         </div>
         <div style={{ opacity: 0.78 }}>结余</div>
         <div style={{ textAlign: 'right', fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: internPlan.projectedSurplus >= 0 ? '#dcfce7' : '#fde68a' }}>

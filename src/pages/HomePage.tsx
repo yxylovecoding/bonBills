@@ -57,7 +57,7 @@ import {
 import { version as APP_VERSION } from '../../package.json';
 import { useSyncStatus } from '../utils/syncStatus';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '城市精简';
+const RELEASE_NOTE = '心愿存半';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -357,7 +357,7 @@ export default function HomePage() {
     () => calculateWishMilestonePlan({
       today,
       wishes,
-      incomeItems: config.incomeItems,
+      incomeItems: config.incomeItems, recurringIncomeBaseline: config.recurringIncomeBaseline,
       internship, cityLivingStats: stats.cityLivingStats,
       tagMap,
       stateDailyAvg: stats.stateDailyAvg,
@@ -367,7 +367,7 @@ export default function HomePage() {
     }),
     // todayKey 每日变化一次，避免 Date 实例导致无意义的重复计算。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [internship, stats.cityLivingStats, config.incomeItems, holidayDataByYear, wishes, repaymentDues, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart],
+    [internship, stats.cityLivingStats, config.incomeItems, config.recurringIncomeBaseline, holidayDataByYear, wishes, repaymentDues, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart],
   );
   const maximumWishCalendarMonth = latestWishDeadline.slice(0, 7);
   const visibleWishCalendarMonth = wishCalendarMonth < currentYearMonth

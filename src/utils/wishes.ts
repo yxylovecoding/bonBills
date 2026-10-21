@@ -1,3 +1,4 @@
+import { wishRequiredIncome } from './wishRaiseSavings';
 import type { TagKind, WishExtraExpenseItem, WishItem } from '../models/types';
 import { roundToSitePrecision } from './numberInput';
 import type { BillExpenseItem, BillExpenseMonth } from './importBill';
@@ -423,6 +424,7 @@ export interface WishPlan {
 }
 
 export interface WishPlanOptions {
+  recurringIncomeBaseline?: number;
   today?: Date;
   tagMap?: Record<string, TagKind>;
   stateDailyAvg?: Record<TagKind, number>;
@@ -568,7 +570,7 @@ export function calculateWishPlan(wishes: WishItem[], options: WishPlanOptions =
       lifeExpense,
       repayment,
       wishAmount,
-      requiredNetIncome: lifeExpense + repayment + wishAmount / POST_LIFE_WISH_SHARE,
+      requiredNetIncome: wishRequiredIncome(lifeExpense + repayment + wishAmount / POST_LIFE_WISH_SHARE, options.recurringIncomeBaseline),
     };
   });
 
