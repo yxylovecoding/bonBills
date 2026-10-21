@@ -15,6 +15,7 @@ vi.mock('./_ticktickExercise.js', () => ({ syncExerciseSchedule: exercise }));
 vi.mock('./_outlookSync.js', () => ({ syncOutlookCalendar: outlook }));
 vi.mock('./_lifeDone.js', () => ({ syncRecentLifeDone: archive }));
 vi.mock('./_ticktickTrips.js', async (original) => ({ ...await original<typeof import('./_ticktickTrips')>(),
+  syncTickTickAlwaysToday: vi.fn(async () => ({ matched: 1, updated: 1 })),
   decryptTickTickToken: () => 'token', TickTickOpenApiClient: class {} }));
 
 async function request(method = 'GET', authorization?: string, action = 'night-routine') {
@@ -68,7 +69,7 @@ describe('夜间显隐轻量入口', () => {
     expect(daily).not.toHaveBeenCalled(); expect(sync).not.toHaveBeenCalled(); expect(exercise).not.toHaveBeenCalled();
   });
   it('零点入口只切换日常任务；五点入口在同一把锁内处理两种 routine 和运动', async () => {
-    expect(await request('GET', 'Bearer cron-secret', 'daily-routine')).toMatchObject({ status: 200, body: { sleepTags: { updated: 1, complete: true } } });
+    expect(await request('GET', 'Bearer cron-secret', 'daily-routine')).toMatchObject({ status: 200, body: { sleepTags: { updated: 1, complete: true }, alwaysToday: { matched: 1, updated: 1 } } });
     expect(sync).not.toHaveBeenCalled(); expect(exercise).not.toHaveBeenCalled();
     expect(outlook).not.toHaveBeenCalled(); expect(archive).not.toHaveBeenCalled();
     expect(await request('GET', 'Bearer cron-secret', 'routine-visibility')).toMatchObject({ status: 200,

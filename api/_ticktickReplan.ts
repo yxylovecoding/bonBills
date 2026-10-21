@@ -11,7 +11,7 @@ import { acquireTickTickLock, releaseTickTickLock } from './_ticktickLock.js';
 import { sleepTagStateKey, sleepWindow, type SleepTagJournal } from './_ticktickSleepTags.js';
 import { syncTimedTaskVisibility } from './_ticktickNightRoutine.js';
 import { schedulingStage } from './_schedulingFailure.js';
-import { calendarDateInTimeZone, decryptTickTickToken, getTickTickRoutineExcludedTaskIds, readAllTickTickTasks,
+import { calendarDateInTimeZone, decryptTickTickToken, getTickTickRoutineExcludedTaskIds, isAlwaysTodayTask, readAllTickTickTasks, syncTickTickAlwaysToday,
   readConnectedTickTickTemplate, routineRecurrence, routineTaskDate, shiftTickTickDate, TickTickOpenApiClient,
   type TickTickTask, type TickTickConnection, type TickTickTripSyncState } from './_ticktickTrips.js';
 
@@ -25,14 +25,15 @@ const fingerprint = (task: TickTickTask) => JSON.stringify([task.id, task.projec
 function eligible(task: TickTickTask, horizon: string) {
   const date = routineTaskDate(task);
   const tags = (task.tags ?? []).map(tag => tag.normalize('NFKC').trim().toLowerCase());
-  return pending(task) && (!date || date <= horizon) && (task.priority ?? 0) < 5 && task.isAllDay !== false
+  return pending(task) && !isAlwaysTodayTask(task) && (!date || date <= horizon) && (task.priority ?? 0) < 5 && task.isAllDay !== false
     && !tags.some(tag => ['routine', 'bon-hidden', '不关我事', '洗头'].includes(tag))
     && task.title.normalize('NFKC').trim() !== '洗头' && routineRecurrence(task.repeatFlag) !== 'unknown'
     && !isExerciseTask(task) && !isLaundryTask(task);
 }
 
 // Deliberately separate from runSync: this operation can only change dates of
-// today's open ordinary tasks and selected tasks from the 明日事 smart filter.
+// today's open ordinary tasks and selected tasks from the 明日事 smart filter,
+// plus the explicit always-today deadline rule (including during sleep).
 // Outlook is read through existing subscriptions;
 // only timed-task visibility tags are synchronized; trips, training, laundry,
 // and calendar events stay outside this operation.
@@ -41,7 +42,6 @@ export async function replanRemainingToday(options: { scheduled?: boolean } = {}
 }
 
 async function replanRemainingTodayInner(options: { scheduled?: boolean }) {
-  if (options.scheduled && sleepWindow().hidden) return { busy: false as const, skipped: 'sleep-window' as const };
   const lock = await acquireTickTickLock();
   if (!lock) return { busy: true as const };
   try {
@@ -49,15 +49,19 @@ async function replanRemainingTodayInner(options: { scheduled?: boolean }) {
     const connection = await kv.get<TickTickConnection>(CONNECTION_KEY);
     if (!connection && options.scheduled) return { busy: false as const, skipped: 'disconnected' as const };
     if (!connection) throw new Error('TickTick 未连接');
-    if (options.scheduled) {
-      const journal = await kv.get<SleepTagJournal>(sleepTagStateKey(connection.projectId));
-      // Morning restoration belongs to the existing visibility/full-sync jobs.
-      // Do not publish a partial plan while temporary tags still hide tasks.
-      if (journal && Object.keys(journal).length) return { busy: false as const, skipped: 'restore-pending' as const };
-    }
     const token = decryptTickTickToken(connection.encryptedToken, secret);
     const connectionId = createHash('sha256').update(token).digest('hex');
     const api = new TickTickOpenApiClient(token, (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
+    if (options.scheduled) {
+      const journal = await kv.get<SleepTagJournal>(sleepTagStateKey(connection.projectId));
+      const skipped = sleepWindow().hidden ? 'sleep-window' as const
+        : journal && Object.keys(journal).length ? 'restore-pending' as const : null;
+      if (skipped) {
+        const tasks = await schedulingStage('tasks-read', true, () => readAllTickTickTasks(api, [0]));
+        const alwaysToday = await syncTickTickAlwaysToday(api, { tasks });
+        return { busy: false as const, skipped, alwaysToday };
+      }
+    }
     const [sourceTasks, saved, settings, calendar, outlook, trips, template] = await Promise.all([
       schedulingStage('tasks-read', true, () => readAllTickTickTasks(api, [0])), kv.get<DailyPlanState>(DAILY_PLAN_KEY),
       kv.get<{ budgetMinutes?: number | null; availabilityProfile?: string }>(DAILY_PLAN_SETTINGS_KEY),
@@ -65,6 +69,7 @@ async function replanRemainingTodayInner(options: { scheduled?: boolean }) {
       kv.get<TickTickTripSyncState>('ticktick:trip-sync:v1'),
       schedulingStage('template-read', true, () => readConnectedTickTickTemplate(api, connection)),
     ]);
+    const alwaysToday = await syncTickTickAlwaysToday(api, { tasks: sourceTasks });
     const timedTasks = await schedulingStage('timed-visibility', false,
       () => syncTimedTaskVisibility(api, { tasks: sourceTasks, timeZone: connection.timeZone }));
     // Visibility updates have finished and been verified before any retryable
@@ -140,7 +145,7 @@ async function replanRemainingTodayInner(options: { scheduled?: boolean }) {
       }
     }
     await kv.set(DAILY_PLAN_KEY, state);
-    return { busy: false as const, dailyPlan: plan.summary, details: state.briefing, updated: changes.length, timedTasks };
+    return { busy: false as const, dailyPlan: plan.summary, details: state.briefing, updated: changes.length, timedTasks, alwaysToday };
   } finally {
     await releaseTickTickLock(lock);
   }

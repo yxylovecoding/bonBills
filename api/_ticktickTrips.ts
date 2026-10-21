@@ -653,6 +653,10 @@ export function routineTaskDate(task: TickTickTask): string | null {
   return calendarDateInTimeZone(task.dueDate || task.startDate, task.timeZone);
 }
 
+export function isAlwaysTodayTask(task: TickTickTask): boolean {
+  return (task.tags ?? []).some(tag => tag.normalize('NFKC').trim().toLowerCase() === 'always-today');
+}
+
 export function routineOccurrenceKey(task: TickTickTask): string {
   // Completing a repeating task creates a history record with a new ID.
   // Keep the parent boundary so unrelated same-named tasks cannot postpone it.
@@ -705,12 +709,12 @@ export function separateTickTickSprays(options: {
   }
   // A scoped replan treats other tasks as reservations, never as write targets.
   for (const task of open) {
-    if (!options.movableTaskIds || options.movableTaskIds.has(task.id)) continue;
+    if (!isAlwaysTodayTask(task) && (!options.movableTaskIds || options.movableTaskIds.has(task.id))) continue;
     const day = dates.get(task.id) ?? routineTaskDate(task);
     if (day) reserve(day < today ? today : day, sprayKind(task)!);
   }
   for (const task of open) {
-    if (options.movableTaskIds && !options.movableTaskIds.has(task.id)) continue;
+    if (isAlwaysTodayTask(task) || (options.movableTaskIds && !options.movableTaskIds.has(task.id))) continue;
     const original = dates.get(task.id) ?? routineTaskDate(task);
     if (!original) continue;
     const kind = sprayKind(task)!, effective = original < today ? today : original;
@@ -758,15 +762,16 @@ function routineTaskIsAligned(task: TickTickTask, targetDate: string): boolean {
   );
 }
 
-function routineTaskPayload(task: TickTickTask, targetDate: string): Record<string, unknown> {
+function routineTaskPayload(task: TickTickTask, targetDate: string, requireDueDate = false): Record<string, unknown> {
   const scheduledDate = routineTaskDate(task);
   const newDate = `${targetDate}T00:00:00+0800`;
   const shiftedStartDate = scheduledDate
     ? shiftTickTickDate(task.startDate, scheduledDate, targetDate)
     : newDate;
-  const shiftedDueDate = scheduledDate
+  let shiftedDueDate = scheduledDate
     ? shiftTickTickDate(task.dueDate, scheduledDate, targetDate)
     : newDate;
+  if (requireDueDate && !shiftedDueDate) shiftedDueDate = shiftedStartDate || newDate;
   return {
     id: task.id,
     projectId: task.projectId,
@@ -790,10 +795,10 @@ function routineTaskPayload(task: TickTickTask, targetDate: string): Record<stri
 }
 
 export async function updateRoutineTaskDate(
-  api: TickTickApi, task: TickTickTask, targetDate: string, preserveRepeat: boolean,
+  api: TickTickApi, task: TickTickTask, targetDate: string, preserveRepeat: boolean, requireDueDate = false,
 ): Promise<TickTickTask | null> {
-  if (routineTaskIsAligned(task, targetDate)) return null;
-  const payload = routineTaskPayload(task, targetDate);
+  if (routineTaskIsAligned(task, targetDate) && (!requireDueDate || task.dueDate)) return null;
+  const payload = routineTaskPayload(task, targetDate, requireDueDate);
   await api.updateTask(task.id, payload);
   const updated = await api.getTask(task.projectId, task.id);
   if (updated?.id !== task.id) throw new Error(`TickTick 未正确更新“${task.title}”的日期`);
@@ -815,6 +820,32 @@ export async function updateRoutineTaskDate(
     throw new Error(`TickTick 未正确更新“${task.title}”的日期`);
   }
   return updated;
+}
+
+// Callers hold the shared write lock. Re-read each matching task to retain edits
+// made since the list snapshot, and never revive a completed occurrence.
+export async function syncTickTickAlwaysToday(api: TickTickApi, options: { tasks?: TickTickTask[]; today?: string } = {}) {
+  const tasks = options.tasks ?? await readAllTickTickTasks(api, [0]);
+  let matched = 0, updated = 0;
+  for (const candidate of tasks) {
+    if (!isAlwaysTodayTask(candidate) || (candidate.status ?? 0) !== 0 || candidate.completedTime) continue;
+    const task = await api.getTask(candidate.projectId, candidate.id);
+    if (!task || task.id !== candidate.id || task.projectId !== candidate.projectId) throw new Error('always-today 待办读取失败');
+    Object.assign(candidate, task);
+    if (!isAlwaysTodayTask(task) || (task.status ?? 0) !== 0 || task.completedTime) continue;
+    matched++;
+    const today = options.today ?? calendarDateInTimeZone(new Date().toISOString())!;
+    const saved = await updateRoutineTaskDate(api, task, today, true, true);
+    if (!saved) continue;
+    if ((saved.status ?? 0) !== 0 || saved.completedTime || saved.projectId !== task.projectId
+      || (['title', 'content', 'desc', 'priority', 'tags', 'reminders', 'parentId', 'sortOrder', 'kind'] as const)
+        .some(key => JSON.stringify(saved[key] ?? null) !== JSON.stringify(task[key] ?? null))) {
+      throw new Error('always-today 待办更新结果未确认');
+    }
+    Object.assign(candidate, saved);
+    updated++;
+  }
+  return { matched, updated };
 }
 
 function isHairWashAnchor(task: TickTickTask): boolean {
@@ -840,9 +871,10 @@ export async function syncTickTickRoutines(options: {
   const currentScene = routineCalendarScene(tagMap[today]);
   const routineTargets = getTickTickRoutineTargetDates(calendarState, today);
   const allTasks = await readAllTickTickTasks(api, [0]);
+  const alwaysToday = await syncTickTickAlwaysToday(api, { tasks: allTasks, today });
   const tasksById = new Map(allTasks.map((task) => [task.id, task]));
   const pendingTasks = allTasks.filter((task) => (task.status ?? 0) === 0);
-  const hairWashFollowers = pendingTasks.filter(followsHairWash);
+  const hairWashFollowers = pendingTasks.filter(task => followsHairWash(task) && !isAlwaysTodayTask(task));
   const hairWashAnchors = pendingTasks.filter(isHairWashAnchor);
   if (hairWashFollowers.length > 0 && hairWashAnchors.length > 1) {
     throw new Error(`找到 ${hairWashAnchors.length} 个未完成的“洗头”待办，请保留一个同名待办作为日期来源`);
@@ -859,7 +891,7 @@ export async function syncTickTickRoutines(options: {
     return false;
   };
   const candidates = allTasks
-    .filter((task) => (task.status ?? 0) === 0 && !isExcluded(task))
+    .filter((task) => (task.status ?? 0) === 0 && !isExcluded(task) && !isAlwaysTodayTask(task))
     .map((task) => {
       const scenes = routineScenes(task);
       const recurrence = scenes.includes('school') || scenes.includes('travel')
@@ -867,7 +899,7 @@ export async function syncTickTickRoutines(options: {
       return { task, scenes, recurrence };
     })
     .filter(({ scenes }) => scenes.length > 0);
-  let updatedRoutineTasks = 0;
+  let updatedRoutineTasks = alwaysToday.updated;
   const routineTaskCounts = { home: 0, school: 0, travel: 0 };
   for (const { scenes } of candidates) {
     for (const scene of scenes) routineTaskCounts[scene] += 1;
@@ -940,7 +972,9 @@ export async function syncTickTickRoutines(options: {
   if (options.planDay) {
     const sceneTasks = allTasks.map((task) => targetDates.has(task.id)
       ? { ...task, ...routineTaskPayload(task, targetDates.get(task.id)!) } as TickTickTask : task);
-    for (const [id, date] of await options.planDay(sceneTasks)) targetDates.set(id, date);
+    for (const [id, date] of await options.planDay(sceneTasks)) {
+      if (!isAlwaysTodayTask(tasksById.get(id)!)) targetDates.set(id, date);
+    }
   }
   sprayDates = separateTickTickSprays({ tasks: allTasks, dates: targetDates,
     history: [...options.completedTasks ?? [], ...completedToday], calendarState, today, excludedTaskIds });

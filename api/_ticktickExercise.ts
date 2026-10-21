@@ -6,7 +6,7 @@ import { swimmingHairWashDates, type HairWashSchedule } from '../src/utils/lifeS
 import { isTrainingTitle, recordedTrainingProjects, rollingTrainingPlan, trainingIdentity, trainingLibrary,
   trainingName, trainingProjectKey, type TrainingSource } from '../src/utils/lifeTraining.js';
 import { readHairWashSchedule, readSwimmingCycle } from './_lifeSwimming.js';
-import { calendarDateInTimeZone, getTickTickRoutineTargetDates, readAllTickTickTasks, routineRecurrence,
+import { calendarDateInTimeZone, getTickTickRoutineTargetDates, isAlwaysTodayTask, readAllTickTickTasks, routineRecurrence,
   routineScenes, shiftTickTickDate, TICKTICK_SYNC_STATE_KEY,
   type TickTickApi, type TickTickTask, type TickTickTripSyncState } from './_ticktickTrips.js';
 
@@ -43,7 +43,7 @@ interface TargetOptions {
 }
 
 export function exerciseTarget(task: TickTickTask, options: TargetOptions): string | null {
-  if (!isExerciseTask(task) || (task.status ?? 0) !== 0 || task.completedTime) return null;
+  if (!isExerciseTask(task) || isAlwaysTodayTask(task) || (task.status ?? 0) !== 0 || task.completedTime) return null;
   const scheduled = taskDay(task);
   if (!scheduled) return null; // In particular, leave the undated training parent alone.
   let current: ReturnType<typeof localDay>;
@@ -169,7 +169,7 @@ export async function syncExerciseSchedule(api: TickTickApi, options: {
   }
   const byId = new Map(tasks.map(task => [task.id, task]));
   const eligible = (task: TickTickTask) => {
-    if (!isExerciseTask(task)) return false;
+    if (!isExerciseTask(task) || isAlwaysTodayTask(task)) return false;
     const visited = new Set<string>();
     let current: TickTickTask | undefined = task;
     while (current && !visited.has(current.id)) {

@@ -4,7 +4,7 @@ import type { TickTickPlanDetails } from '../src/utils/tickTickPlanDetails.js';
 import { dayAvailability, occupySlots, type AvailabilityProfile } from './_dailyAvailability.js';
 import { collectCompleted } from './_lifeDone.js';
 import { annotatedMinutes, describedMinutes } from './_taskDuration.js';
-import { calendarDateInTimeZone, getTickTickRoutineTargetDates, routineOccurrenceKey, routineRecurrence, separateTickTickSprays, sprayKind,
+import { calendarDateInTimeZone, getTickTickRoutineTargetDates, isAlwaysTodayTask, routineOccurrenceKey, routineRecurrence, separateTickTickSprays, sprayKind,
   routineScenes, routineTaskDate, type TickTickApi, type TickTickTask } from './_ticktickTrips.js';
 
 export const DAILY_PLAN_KEY = 'ticktick:daily-plan:v1';
@@ -174,6 +174,7 @@ export function planTickTickDay(options: {
     return false;
   };
   const protectedTask = (task: TickTickTask) => excluded(task)
+    || isAlwaysTodayTask(task)
     || Boolean(options.movableTaskIds && !options.movableTaskIds.has(task.id))
     || !ordinary(task) || task.isAllDay === false || routineRecurrence(task.repeatFlag) === 'unknown'
     || tags(task).includes('洗头') || task.title.normalize('NFKC').trim() === '洗头';
