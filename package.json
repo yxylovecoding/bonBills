@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node scripts/check-api-functions.mjs",
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "preview": "vite preview",
