@@ -1,5 +1,7 @@
-import { internshipStart, resolveDailyContext } from '../utils/internship';
+import { resolveDailyContext } from '../utils/internship';
 import InternshipSettings from '../components/InternshipSettings';
+import InternshipIncomeCard from '../components/InternshipIncomeCard';
+import IncomeItemEditor from '../components/IncomeItemEditor';
 import { useLifeCalendar } from '../hooks/useLifeCalendar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -32,7 +34,7 @@ import { tagMeta } from '../data/mockData';
 import type { FutureFireExpense, IncomeItem, MajorFireWish, TagKind, LocalLifeBreakdownRow, MonthlyRecord, SharedLifeBreakdownItem, SharedLifeBreakdownRow } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
-import { dateLabel, daysUntilDate, resolveAllIncomeForMonth } from '../utils/payroll';
+import { dateLabel, daysUntilDate, resolveAllIncomeForMonth, type ResolvedIncomeItem } from '../utils/payroll';
 import { calculateCreditRepaymentPlan, getPlanningLongBondTotal } from '../utils/creditRepayment';
 import { getAverageAnnualizedRate, getInvestTotalForRate, getYearInvestmentReturn } from '../utils/investRecords';
 import {
@@ -54,7 +56,7 @@ import {
 import { version as APP_VERSION } from '../../package.json';
 import { useSyncStatus } from '../utils/syncStatus';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '实习导入';
+const RELEASE_NOTE = '收入精简';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -295,7 +297,7 @@ export default function HomePage() {
     ),
     [currentYear, wishPlanningEndYear],
   );
-  const { holidayDataByYear, holidayWarning } = useHolidayYears(holidayYears);
+  const { holidayDataByYear, holidayWarning, unavailableYears } = useHolidayYears(holidayYears);
   const [wishCalendarMonth, setWishCalendarMonth] = useState(currentYearMonth);
 
   const wishSummaryLabelsById = useMemo(() => Object.fromEntries(wishes.map((wish) => {
@@ -725,6 +727,13 @@ export default function HomePage() {
     () => resolveAllIncomeForMonth(localIncome, currentYear, currentMonth, tagMap, holidayDataByYear, internship),
     [localIncome, currentYear, currentMonth, tagMap, holidayDataByYear, internship],
   );
+
+  const renderIncomeEditor = (item: ResolvedIncomeItem) => <IncomeItemEditor key={item.id} item={item} today={today}
+    onChange={(field, value) => updateIncomeField(item.id, field, value)}
+    onToggleActive={() => syncIncome(localIncome.map(x => x.id === item.id ? { ...x, isActive: !x.isActive } : x))}
+    onToggleDailyRate={() => toggleDailyRate(item.id)} onToggleTaxRule={() => toggleTaxRule(item.id)}
+    onSetTaxRule={text => setTaxRuleText(item.id, text)} onRemove={() => removeIncomeItem(item.id)}
+  />;
 
   // 月度快照
   const investmentProfitSummary = useMemo(() => {
@@ -1545,127 +1554,20 @@ export default function HomePage() {
 
       {/* 收入管理 */}
       <Card title="收入管理" collapsible defaultCollapsed>
-        <InternshipSettings />
-        {holidayWarning && (
-          <div style={{ marginBottom: 10, fontSize: 12, color: C.orange, backgroundColor: '#fff4e8', border: '1px solid #fed7aa', borderRadius: 10, padding: '8px 10px' }}>
-            {holidayWarning}
-          </div>
-        )}
+        <InternshipIncomeCard config={config} incomes={resolvedIncomeItems.filter(item => item.isInternPayroll)} today={today}
+          holidayWarning={holidayWarning} unavailableYears={unavailableYears}
+          settings={<>
+            <InternshipSettings />
+            {resolvedIncomeItems.some(item => item.isInternPayroll && !item.internshipPayroll) && <details style={{ fontSize: 12 }}>
+              <summary style={{ cursor: 'pointer', color: C.sub, padding: '4px 0' }}>收入金额与扣税</summary>
+              <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>{resolvedIncomeItems.filter(item => item.isInternPayroll && !item.internshipPayroll).map(renderIncomeEditor)}</div>
+            </details>}
+          </>}
+        />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {resolvedIncomeItems.filter(item => !item.internshipPayroll && !(internshipStart(config) && item.isInternPayroll)).map((item) => {
-            const isDailyMode = item.dailyRate !== undefined;
-            const hasTaxRule = Boolean(item.taxRuleText?.trim());
-            const daysToNext = daysUntilDate(item.resolvedPayDate, today);
-            const isPending = daysToNext >= 0 && daysToNext <= 3;
-            const payrollCycle = item.payrollCycle;
-            return (
-              <div key={item.id} style={{ backgroundColor: isPending ? '#e6f4ea' : '#f8f9fa', borderRadius: 12, padding: '10px 12px', border: `1.5px solid ${isPending ? '#81c995' : '#e0e0e0'}` }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                  <button onClick={() => syncIncome(localIncome.map((x) => x.id === item.id ? { ...x, isActive: !x.isActive } : x))} style={{ flexShrink: 0, width: 18, height: 18, borderRadius: '50%', border: `2px solid ${item.isActive ? C.green : '#dadce0'}`, backgroundColor: item.isActive ? C.green : '#fff', cursor: 'pointer' }} />
-                  <input value={item.name} onChange={(e) => updateIncomeField(item.id, 'name', e.target.value)} style={{ flex: 1, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, color: item.isActive ? '#202124' : '#9aa0a6', minWidth: 0 }} />
-                  <button onClick={() => toggleDailyRate(item.id)} style={{ flexShrink: 0, fontSize: 11, padding: '2px 8px', borderRadius: 6, border: `1px solid ${isDailyMode ? C.orange : '#dadce0'}`, backgroundColor: isDailyMode ? '#fff4e8' : '#f1f3f4', color: isDailyMode ? C.orange : C.sub, cursor: 'pointer', fontWeight: 600 }}>
-                    {isDailyMode ? '日薪' : '固定'}
-                  </button>
-                  <button onClick={() => toggleTaxRule(item.id)} style={{ flexShrink: 0, fontSize: 11, padding: '2px 8px', borderRadius: 6, border: `1px solid ${hasTaxRule ? C.red : '#dadce0'}`, backgroundColor: hasTaxRule ? '#fce8e6' : '#f1f3f4', color: hasTaxRule ? C.red : C.sub, cursor: 'pointer', fontWeight: 600 }}>
-                    扣税
-                  </button>
-                  <button onClick={() => removeIncomeItem(item.id)} style={{ flexShrink: 0, background: 'none', border: 'none', color: '#dadce0', fontSize: 16, cursor: 'pointer', padding: '0 2px', lineHeight: 1 }}>×</button>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                  {item.isInternPayroll && payrollCycle ? (
-                    <>
-                      <span style={{ fontSize: 11, color: C.sub }}>最后一个工作日发薪</span>
-                      <span style={{ fontSize: 11, color: C.blue, fontWeight: 600 }}>{dateLabel(payrollCycle.payDate)}</span>
-                      <span style={{ fontSize: 11, color: C.sub }}>截止</span>
-                      <span style={{ fontSize: 11, color: C.orange, fontWeight: 600 }}>{dateLabel(payrollCycle.cutoffDate)}</span>
-                      <span style={{ fontSize: 11, color: C.sub }}>
-                        区间 {dateLabel(payrollCycle.periodStartExclusive)} 后至 {dateLabel(payrollCycle.periodEndInclusive)}
-                      </span>
-                      <span style={{ flex: 1 }} />
-                    </>
-                  ) : (
-                    <>
-                      <span style={{ fontSize: 11, color: C.sub }}>每月</span>
-                      <input type="number" inputMode="numeric" value={item.payDay === 0 ? '' : item.payDay} placeholder={item.payDay === 0 ? '末' : ''}
-                        onChange={(e) => updateIncomeField(item.id, 'payDay', e.target.value || '0')}
-                        onFocus={(e) => e.target.select()}
-                        style={{ width: 36, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, color: C.blue, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}
-                      />
-                      <span style={{ fontSize: 11, color: C.sub }}>{item.payDay === 0 ? '月底发薪' : '号发薪'}</span>
-                      <button onClick={() => updateIncomeField(item.id, 'payDay', item.payDay === 0 ? '1' : '0')} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 6, border: `1px solid ${item.payDay === 0 ? C.blue : '#dadce0'}`, backgroundColor: item.payDay === 0 ? '#e8f0fe' : '#f1f3f4', color: item.payDay === 0 ? C.blue : C.sub, cursor: 'pointer' }}>
-                        月底
-                      </button>
-                      <span style={{ flex: 1 }} />
-                    </>
-                  )}
-                  {isDailyMode ? (
-                    <>
-                      <span style={{ fontSize: 11, color: C.sub }}>¥</span>
-                      <AmountInput value={String(item.dailyRate ?? 0)} onFocus={(e) => e.target.select()}
-                        onChange={(v) => updateIncomeField(item.id, 'dailyRate', /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v)}
-                        style={{ width: 60, border: 'none', borderBottom: '1px solid #dadce0', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, color: C.orange, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
-                      />
-                      <span style={{ fontSize: 11, color: C.sub }}>/天 × {item.resolvedDayCount ?? 0}天</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: C.green, fontVariantNumeric: 'tabular-nums' }}>= ¥{formatCurrency(item.grossAmount)}</span>
-                    </>
-                  ) : (
-                    <>
-                      <span style={{ fontSize: 11, color: C.sub }}>¥</span>
-                      <AmountInput value={String(item.amount ?? '')} onFocus={(e) => e.target.select()}
-                        onChange={(v) => updateIncomeField(item.id, 'amount', /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v)}
-                        style={{ width: 80, border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.green, textAlign: 'right' }}
-                      />
-                    </>
-                  )}
-                </div>
-                {hasTaxRule && (
-                  <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {TAX_RULE_PRESETS.map((preset) => {
-                        const active = item.taxRuleText === preset.text;
-                        return (
-                          <button
-                            key={preset.key}
-                            onClick={() => setTaxRuleText(item.id, preset.text)}
-                            style={{ fontSize: 11, padding: '3px 8px', borderRadius: 999, border: `1px solid ${active ? C.red : '#dadce0'}`, backgroundColor: active ? '#fce8e6' : '#fff', color: active ? C.red : C.sub, cursor: 'pointer', fontWeight: 600 }}
-                          >
-                            {preset.label}
-                          </button>
-                        );
-                      })}
-                      <button
-                        onClick={() => setTaxRuleText(item.id, item.taxRuleText?.trim() ? item.taxRuleText : '税=')}
-                        style={{ fontSize: 11, padding: '3px 8px', borderRadius: 999, border: `1px solid ${TAX_RULE_PRESETS.some((preset) => preset.text === item.taxRuleText) ? '#dadce0' : C.blue}`, backgroundColor: TAX_RULE_PRESETS.some((preset) => preset.text === item.taxRuleText) ? '#fff' : '#e8f0fe', color: TAX_RULE_PRESETS.some((preset) => preset.text === item.taxRuleText) ? C.sub : C.blue, cursor: 'pointer', fontWeight: 600 }}
-                      >
-                        自定义
-                      </button>
-                    </div>
-                    <input
-                      value={item.taxRuleText ?? ''}
-                      onChange={(e) => updateIncomeField(item.id, 'taxRuleText', e.target.value)}
-                      placeholder="例：税=(0.8x-5000)*20%；税=(0.8*收入-5000)*0.2"
-                      style={{ width: '100%', boxSizing: 'border-box', border: '1px solid #fad2cf', borderRadius: 8, outline: 'none', backgroundColor: '#fff', fontSize: 12, color: '#202124', padding: '6px 8px' }}
-                    />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 11 }}>
-                      <span style={{ color: item.taxRuleError ? C.red : C.sub }}>
-                        {item.taxRuleError ?? item.taxRuleSummary ?? '已启用扣税'}
-                      </span>
-                      <span style={{ color: C.sub, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                        税前 ¥{formatCurrency(item.grossAmount)} - 税 ¥{formatCurrency(item.taxAmount)} = 到手 ¥{formatCurrency(item.resolvedAmount)}
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {resolvedIncomeItems.filter(item => !item.isInternPayroll).map(renderIncomeEditor)}
         </div>
-        {resolvedIncomeItems.filter(item => item.internshipPayroll || (internshipStart(config) && item.isInternPayroll && item.grossAmount > 0)).map(item => <div key={item.id} style={{ padding: '10px 12px', borderRadius: 10, background: '#f8f9fa', marginTop: 8, fontSize: 12 }}>
-          <strong>{item.name} · {dateLabel(item.resolvedPayDate)}发薪</strong>
-          <div style={{ marginTop: 6 }}>出勤 {item.resolvedDayCount} 天 · 工资 ¥{formatCurrency((item.internshipPayroll?.salaryAmount ?? item.grossAmount))} · 房补 ¥{formatCurrency((item.internshipPayroll?.housingAmount ?? 0))}</div>
-          <div style={{ marginTop: 4 }}>扣税 ¥{formatCurrency(item.taxAmount)} · 到手 ¥{formatCurrency(item.resolvedAmount)}</div>
-        </div>)}
-        {resolvedIncomeItems.filter((i) => i.isActive).map((item) => {
+        {resolvedIncomeItems.filter((i) => i.isActive && !i.isInternPayroll).map((item) => {
           const daysToNext = daysUntilDate(item.resolvedPayDate, today);
           if (daysToNext < 0 || daysToNext > 3) return null;
           const payInfo = item.isInternPayroll && item.payrollCycle
