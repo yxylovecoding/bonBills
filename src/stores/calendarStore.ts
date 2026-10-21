@@ -1,7 +1,9 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { getAccountStorage } from '../utils/accountCache';
-import type { TagKind } from '../models/types';
+import { useConfigStore } from './configStore';
+import { normalizeDayOverrides, resolveDailyContext } from '../utils/internship';
+import type { DayOverride, DayOverrides, TagKind } from '../models/types';
 import { applyOutlookSnapshotToState, normalizeOutlookCalendarState, normalizeOutlookTravelTitles, type OutlookAppliedDays, type OutlookConflictPolicy, type OutlookSnapshot } from '../utils/outlookCalendar';
 
 // tagMap: { "2026-04-11": "school", ... }
@@ -61,6 +63,8 @@ export function normalizeConfirmedExpenses(input: unknown): Record<string, Confi
 
 interface CalendarStore {
   tagMap: TagMap;
+  dayOverrides: DayOverrides;
+  setDayOverride: (date: string, value: DayOverride) => void;
   outlookApplied: OutlookAppliedDays;
   outlookTravelTitles: Record<string, string>;
   manualTagDates: Record<string, true>;
@@ -88,6 +92,8 @@ export const useCalendarStore = create<CalendarStore>()(
   persist(
     (set, get) => ({
       tagMap: {},
+      dayOverrides: {},
+      setDayOverride: (date, value) => set(s => ({ dayOverrides: normalizeDayOverrides({ ...s.dayOverrides, [date]: value }) })),
       outlookApplied: {},
       outlookTravelTitles: {},
       manualTagDates: {},
@@ -105,16 +111,25 @@ export const useCalendarStore = create<CalendarStore>()(
         set((s) => {
           const next = { ...s.tagMap };
           const manualTagDates = { ...s.manualTagDates };
+          const dayOverrides = { ...s.dayOverrides };
           const outlookApplied = { ...s.outlookApplied };
           let changed = false;
           for (const date of dates) {
+            const context = resolveDailyContext(date, next[date], { config: useConfigStore.getState().config });
+            if (context.period && (tag === 'intern' || tag === 'school')) {
+              const attendance = tag === 'intern' ? 'work' : 'rest';
+              if (dayOverrides[date]?.attendance !== attendance) {
+                dayOverrides[date] = { ...dayOverrides[date], attendance };
+                changed = true;
+              }
+            }
             if (next[date] === tag && manualTagDates[date] && !outlookApplied[date]) continue;
             next[date] = tag;
             manualTagDates[date] = true;
             if (outlookApplied[date]?.tag !== 'travel') delete outlookApplied[date];
             changed = true;
           }
-          return changed ? { tagMap: next, manualTagDates, outlookApplied } : s;
+          return changed ? { tagMap: next, manualTagDates, outlookApplied, dayOverrides } : s;
         }),
 
       removeTag: (date) =>
@@ -122,8 +137,11 @@ export const useCalendarStore = create<CalendarStore>()(
           const next = { ...s.tagMap };
           const outlookApplied = { ...s.outlookApplied };
           delete next[date];
+          const dayOverrides = { ...s.dayOverrides };
+          const { attendance: _a, attendanceLocked: _l, ...rest } = dayOverrides[date] ?? {};
+          dayOverrides[date] = rest;
           if (outlookApplied[date]?.tag !== 'travel') delete outlookApplied[date];
-          return { tagMap: next, outlookApplied, manualTagDates: { ...s.manualTagDates, [date]: true } };
+          return { tagMap: next, outlookApplied, dayOverrides: normalizeDayOverrides(dayOverrides), manualTagDates: { ...s.manualTagDates, [date]: true } };
         }),
 
       toggleTag: (date, tag) => {
@@ -247,6 +265,7 @@ export const useCalendarStore = create<CalendarStore>()(
           ...currentState,
           ...persisted,
           ...normalizeOutlookCalendarState(persisted),
+          dayOverrides: normalizeDayOverrides((persisted as Record<string, unknown>).dayOverrides),
           outlookTravelTitles: normalizeOutlookTravelTitles((persisted as Record<string, unknown>).outlookTravelTitles),
           confirmedExpenses: normalizeConfirmedExpenses(persisted.confirmedExpenses),
         };

@@ -349,3 +349,18 @@ describe('出行前洗衣', () => {
     expect(c.api.updateTask).not.toHaveBeenCalled(); expect(upstream).not.toHaveBeenCalled();
   });
 });
+
+describe('异地实习按候选日期取天气', () => {
+  it('跨城窗口分别查询北京与广州，地点跟随最终日期', async () => {
+    const { BEIJING, GUANGZHOU, DEFAULT_INTERNSHIP_RULES } = await import('../src/utils/internship');
+    const c = client();
+    const configState = { config: { schoolCity: BEIJING, internshipPeriods: [{ id: 'gz', profileId: 'company', profileName: '公司', revision: 1,
+      rules: { ...DEFAULT_INTERNSHIP_RULES, salary: 100 }, startDate: '2026-10-10', endDate: '2026-10-30', city: GUANGZHOU, schoolCity: BEIJING }] } };
+    const result = await syncLaundrySchedule(c.api, { ...options({ configState }), connectionId: 'connection' });
+    const latitudes = upstream.mock.calls.map(([url]) => new URL(String(url)).searchParams.get('latitude'));
+    expect(new Set(latitudes)).toEqual(new Set(['39.904', '23.129']));
+    expect(result.decisions[0].location).toBe('广州');
+    expect(laundryLocation(configState, '2026-10-11', options().calendarState)?.name).toBe('广州');
+    expect(laundryLocation(configState, '2026-10-11', { tagMap: {}, dayOverrides: { '2026-10-11': { city: BEIJING } } })?.name).toBe('北京');
+  });
+});

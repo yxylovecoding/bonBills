@@ -1,3 +1,4 @@
+import { resolveCalendarState } from '../src/utils/internship.js';
 import { createHash } from 'node:crypto';
 import { kv } from './_accountKv.js';
 import { applyOutlookSnapshotToState } from '../src/utils/outlookCalendar.js';
@@ -62,12 +63,12 @@ async function replanRemainingTodayInner(options: { scheduled?: boolean }) {
         return { busy: false as const, skipped, alwaysToday };
       }
     }
-    const [sourceTasks, saved, settings, calendar, outlook, trips, template] = await Promise.all([
+    const [sourceTasks, saved, settings, calendar, outlook, trips, template, configState] = await Promise.all([
       schedulingStage('tasks-read', true, () => readAllTickTickTasks(api, [0])), kv.get<DailyPlanState>(DAILY_PLAN_KEY),
       kv.get<{ budgetMinutes?: number | null; availabilityProfile?: string }>(DAILY_PLAN_SETTINGS_KEY),
       kv.get<Record<string, unknown>>('calendar-tags'), kv.get<OutlookConnection>(OUTLOOK_CONNECTION_KEY),
       kv.get<TickTickTripSyncState>('ticktick:trip-sync:v1'),
-      schedulingStage('template-read', true, () => readConnectedTickTickTemplate(api, connection)),
+      schedulingStage('template-read', true, () => readConnectedTickTickTemplate(api, connection)), kv.get('app-config'),
     ]);
     const alwaysToday = await syncTickTickAlwaysToday(api, { tasks: sourceTasks });
     const timedTasks = await schedulingStage('timed-visibility', false,
@@ -89,7 +90,7 @@ async function replanRemainingTodayInner(options: { scheduled?: boolean }) {
     const now = new Date();
     if (calendarDateInTimeZone(now.toISOString()) !== today) throw new Error('日期已变化，请重新重排');
     if (options.scheduled && sleepWindow(now).hidden) return { busy: false as const, skipped: 'sleep-window' as const };
-    const calendarState = snapshot && input ? applyOutlookSnapshotToState(calendar ?? {}, snapshot, input.policy, today) : calendar;
+    const calendarState = resolveCalendarState(configState, snapshot && input ? applyOutlookSnapshotToState(calendar ?? {}, snapshot, input.policy, today) : calendar);
     const excluded = getTickTickRoutineExcludedTaskIds(template, { ...trips, instances: trips?.instances ?? {} });
     // Preserve protected ancestors as well as individually managed tasks.
     const byId = new Map(tasks.map(task => [task.id, task]));

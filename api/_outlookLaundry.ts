@@ -15,12 +15,12 @@ export function laundryEventPlan(task: TickTickTask, today: string, location?: s
   return { subject: '洗衣服', start: local(start), end: local(end), ...(location ? { location: { displayName: location } } : {}) };
 }
 
-export async function syncLaundryOutlook(api: TickTickApi, options: TaskEventOptions & { configState: unknown }) {
+export async function syncLaundryOutlook(api: TickTickApi, options: TaskEventOptions & { configState: unknown; calendarState?: unknown }) {
   if (!options.managedTaskIds.size) return { enabled: false, created: 0, updated: 0 };
   const laundry = await kv.get<LaundryState>(LAUNDRY_STATE_KEY);
   return syncTaskOutlook(api, options, {
     subject: '洗衣服', propertyId: LAUNDRY_EVENT_PROPERTY, statePrefix: 'outlook:laundry-events:v1',
-    plan: task => laundryEventPlan(task, options.today, laundryLocation(options.configState)?.name),
+    plan: task => laundryEventPlan(task, options.today, laundryLocation(options.configState, routineTaskDate(task) ?? undefined, options.calendarState)?.name),
     cycle: task => {
       const anchor = laundry?.connectionId === options.ticktickConnectionId ? laundry.anchors[task.id] : undefined;
       return anchor?.projectId === task.projectId && anchor.repeatFlag === task.repeatFlag ? anchor.completion ?? anchor.target : null;

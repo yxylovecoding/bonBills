@@ -2,6 +2,8 @@ import { resolvePayDay } from '../calculations/budget';
 import type { IncomeItem, TagKind } from '../models/types';
 import type { HolidayDataByYear } from './holidays';
 import { calculateIncomeTax } from './tax';
+import { internshipStart, type InternshipContext } from './internship';
+import { internshipPayrollsPaidInMonth, type InternshipPayroll } from './internshipPayroll';
 
 export interface InternPayrollCycle {
   payDate: string;
@@ -22,6 +24,7 @@ export interface ResolvedIncomeItem extends IncomeItem {
   isInternPayroll: boolean;
   resolvedDayCount?: number;
   payrollCycle?: InternPayrollCycle;
+  internshipPayroll?: InternshipPayroll;
 }
 
 function pad(n: number) {
@@ -164,4 +167,22 @@ export function daysUntilDate(targetDate: string, fromDate: Date) {
   const end = parseDateKey(targetDate);
   const diff = end.getTime() - start.getTime();
   return Math.round(diff / 86400000);
+}
+
+export function resolveAllIncomeForMonth(
+  items: IncomeItem[], year: number, month0: number, tagMap: Record<string, TagKind>,
+  holidays: HolidayDataByYear, context?: InternshipContext,
+): ResolvedIncomeItem[] {
+  const start = context ? internshipStart(context.config) : undefined;
+  const legacyTags = start ? Object.fromEntries(Object.entries(tagMap).filter(([date]) => date < start)) : tagMap;
+  const legacy = items.map(item => resolveIncomeForMonth(item, year, month0,
+    item.tagKind === 'intern' && item.dailyRate !== undefined ? legacyTags : tagMap, holidays));
+  if (!context || !start) return legacy;
+  const payrolls = internshipPayrollsPaidInMonth({ ...context, holidayDataByYear: { ...context.holidayDataByYear, ...holidays } }, tagMap, year, month0);
+  return [...legacy, ...payrolls.map(p => ({
+    id: `internship:${p.id}`, name: p.name, amount: p.grossAmount, payDay: Number(p.payDate.slice(8, 10)),
+    isActive: true, resolvedAmount: p.netAmount, grossAmount: p.grossAmount, taxAmount: p.taxAmount,
+    resolvedPayDate: p.payDate, isInternPayroll: true, resolvedDayCount: p.workDates.length,
+    taxRuleError: p.taxRuleError, internshipPayroll: p,
+  }))];
 }

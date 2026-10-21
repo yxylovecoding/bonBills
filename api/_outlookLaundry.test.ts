@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
+import { BEIJING, GUANGZHOU, DEFAULT_INTERNSHIP_RULES } from '../src/utils/internship';
 import { laundryEventPlan, LAUNDRY_EVENT_PROPERTY, syncLaundryOutlook } from './_outlookLaundry';
 import { chargingEventPlan, syncChargingOutlook } from './_outlookCharging';
 import { OUTLOOK_WRITE_KEY, sealOutlookWrite } from './_outlookWrite';
@@ -474,4 +475,15 @@ it('Make 旧缓存升级后同日查重并删除旧预约，成功后才复用�
   const calls = relay.mock.calls.length;
   await syncLaundryOutlook(api, options());
   expect(relay).toHaveBeenCalledTimes(calls);
+});
+
+it('跨实习城市改期时更新同一 Outlook 洗衣事件的地点，保留50分钟', async () => {
+  const configState = { config: { schoolCity: BEIJING, internshipPeriods: [{ id: 'gz', profileId: 'company', profileName: '公司', revision: 1,
+    city: GUANGZHOU, schoolCity: BEIJING, startDate: '2026-10-09', endDate: '2026-10-30', rules: { ...DEFAULT_INTERNSHIP_RULES, salary: 300 } }] } };
+  expect(await syncLaundryOutlook(api, { ...options(), configState })).toMatchObject({ created: 1 });
+  expect(writes[0].body.location).toEqual({ displayName: '北京' });
+  task.startDate = task.dueDate = '2026-10-09T00:00:00Z';
+  expect(await syncLaundryOutlook(api, { ...options(), configState })).toMatchObject({ created: 0, updated: 1 });
+  expect(events.size).toBe(1);
+  expect(writes[1].body).toMatchObject({ location: { displayName: '广州' }, end: { dateTime: '2026-10-09T08:50:00' } });
 });

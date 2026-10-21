@@ -296,9 +296,64 @@ export interface SceneCity {
   timezone?: string;
 }
 
+export interface InternshipRules {
+  workweek: 'statutory' | 'weekdays';
+  salaryKind: 'daily' | 'monthly';
+  salary: number | null;
+  monthlyDivisor?: number;
+  cycle: 'calendar' | 'cutoff' | 'beforePay';
+  cutoffDay: number;
+  cutoffOffset: number;
+  payMonthOffset: 0 | 1;
+  payKind: 'fixed' | 'monthEnd' | 'lastWorkingDay';
+  payDay: number;
+  payAdjustment: 'none' | 'previous' | 'next';
+  housingKind: 'none' | 'monthly' | 'residence' | 'attendance';
+  housingAmount: number;
+  housingProrated: boolean;
+  housingTaxable: boolean;
+  taxRuleText?: string;
+}
+export interface InternshipProfile {
+  id: string;
+  name: string;
+  revision: number;
+  rules: InternshipRules;
+  legacyIncomeId?: string;
+}
+export interface InternshipPeriod {
+  id: string;
+  profileId: string;
+  profileName: string;
+  revision: number;
+  rules: InternshipRules;
+  startDate: string;
+  endDate: string;
+  city: SceneCity | null;
+  schoolCity: SceneCity | null;
+}
+export interface DayOverride {
+  city?: SceneCity;
+  attendance?: 'work' | 'rest';
+  attendanceLocked?: boolean;
+}
+export type DayOverrides = Record<string, DayOverride>;
+export type LivingKind = 'school' | 'work' | 'rest' | 'home' | 'travel';
+export interface CityLivingStat {
+  city: SceneCity;
+  kind: LivingKind;
+  days: number;
+  localAmount: number;
+  dailyAverage: number;
+}
+
 export interface AppConfig {
   homeCity?: SceneCity | null; // 寄
-  schoolCity?: SceneCity | null; // 居（含实习）
+  schoolCity?: SceneCity | null; // 上学城市
+  internshipLegacyCity?: SceneCity | null;
+  internshipEnabledFrom?: string;
+  internshipProfiles?: InternshipProfile[];
+  internshipPeriods?: InternshipPeriod[];
   birthDate: string;          // "2002-12-29"
   retireAge: number;          // 55
   fireTargetYears?: number;   // FIRE 攒钱目标年数，默认到退休年龄
@@ -445,6 +500,7 @@ export interface DailyTag {
 
 // ── CurrentStats (历史均值) ───────────────────────────────────────
 export interface CurrentStats {
+  cityLivingStats?: Record<string, CityLivingStat>;
   periodicLifeAvg: number;
   volatileLifeAvg: number;
   consumptionAvg: number;

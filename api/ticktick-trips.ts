@@ -1,3 +1,4 @@
+import { resolveCalendarState } from '../src/utils/internship.js';
 import { privateCache, privateJson } from './_privateCache.js';
 import { withAccountScope } from './_accountRoute.js';
 import { authorizeAccountScope } from './_accountScope.js';
@@ -88,12 +89,13 @@ async function runSyncInner(allowDisconnected: boolean) {
       syncTickTickRoutines,
       routineTaskDate,
     } = await import('./_ticktickTrips.js');
-    const [calendarState, tripState, configState, savedState] = await Promise.all([
+    const [storedCalendarState, tripState, configState, savedState] = await Promise.all([
       kv.get('calendar-tags'),
       kv.get('trip-tags'),
       kv.get('app-config'),
       kv.get<TickTickTripSyncState>(SYNC_STATE_KEY),
     ]);
+    const calendarState = resolveCalendarState(configState, storedCalendarState);
     const state: TickTickTripSyncState = savedState && typeof savedState === 'object'
       ? { ...savedState, instances: savedState.instances ?? {} }
       : { instances: {} };
@@ -161,7 +163,7 @@ async function runSyncInner(allowDisconnected: boolean) {
       });
       await kv.set(DAILY_PLAN_KEY, dailyPlan);
       const laundryOutlook = await syncLaundryOutlook(api, { tasks: laundryTasks, managedTaskIds: laundry.managedTaskIds,
-        ticktickConnectionId: connectionId, configState, today,
+        ticktickConnectionId: connectionId, configState, calendarState, today,
         plannedDates: Object.fromEntries(laundryTasks.filter(task => laundry.managedTaskIds.has(task.id))
           .map(task => [task.id, laundry.decisions.find(decision => decision.id === task.id)?.date ?? routineTaskDate(task)])),
       }).catch(() => ({ error: 'Outlook 日程同步暂不可用，请重试' }));

@@ -1,3 +1,6 @@
+import { resolveDailyContext, type InternshipContext } from './internship';
+import { dailyLivingAmount } from './cityLiving';
+import type { CurrentStats } from '../models/types';
 import { tagMeta } from '../data/mockData';
 import type { TagKind, WishItem } from '../models/types';
 import type { TripSegment } from './trips';
@@ -11,6 +14,8 @@ export interface WishTimelineEntry {
 }
 
 export interface WishTimelineOptions {
+  internship?: InternshipContext;
+  cityLivingStats?: CurrentStats['cityLivingStats'];
   startDate: string;
   endDate: string;
   tagMap: Record<string, TagKind>;
@@ -94,18 +99,22 @@ export function buildWishTimelineEntries(options: WishTimelineOptions): WishTime
   return enumerateDateKeys(options.startDate, options.endDate).map((date) => {
     const existingTag = options.tagMap[date];
     const trip = tripByDate.get(date);
-    const tag: TagKind = trip || existingTag === 'travel'
+    let tag: TagKind = trip || existingTag === 'travel'
       ? 'travel'
       : existingTag === 'home'
         ? 'home'
         : recommendedInternDates.has(date)
           ? 'intern'
           : 'school';
-    const lifeAmount = normalizedAmount(options.stateDailyAvg[tag]);
+    const context = options.internship ? { ...options.internship, dayOverrides: { ...options.internship.dayOverrides,
+      [date]: { ...options.internship.dayOverrides?.[date], attendance: recommendedInternDates.has(date) ? 'work' as const : 'rest' as const } } } : undefined;
+    const day = context ? resolveDailyContext(date, tag, context) : null;
+    tag = day?.tag ?? tag;
+    const lifeAmount = normalizedAmount(dailyLivingAmount(date, tag, options, context));
     return {
       date,
       tag,
-      itinerary: trip?.label ?? ITINERARY_LABELS[tag],
+      itinerary: trip?.label ?? (day?.period ? day.label : ITINERARY_LABELS[tag]),
       amount: Math.max(lifeAmount, trip?.dailyWishBudget ?? 0),
       color: tagMeta[tag].color,
     };
