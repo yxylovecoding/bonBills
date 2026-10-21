@@ -83,6 +83,16 @@ describe('洗衣周期和地点', () => {
     expect(isLaundryTask(task({ title: '买洗衣凝珠' }))).toBe(false);
     expect(isLaundryTask(task({ tags: ['不关我事'] }))).toBe(false);
   });
+  it('洗衣按上学阶段解析候选日期城市，不混用南京和北京天气所在地', async () => {
+    const { NANJING } = await import('../src/utils/schoolPeriods');
+    const config = { schoolCity: city, schoolPeriods: [
+      { id: 'nj', city: NANJING, startMonth: '2021-09', endMonth: '2025-06' },
+      { id: 'bj', city, startMonth: '2025-09', endMonth: '2028-06' },
+    ] };
+    expect(laundryLocation({ config }, '2025-06-30', { tagMap: { '2025-06-30': 'school' } })).toEqual(NANJING);
+    expect(laundryLocation({ config }, '2025-09-01', { tagMap: { '2025-09-01': 'school' } })).toEqual(city);
+    expect(laundryLocation({ config }, '2025-06-30', { tagMap: { '2025-06-30': 'travel' } })).toBeNull();
+  });
   it('固定读取设置中的居城市，缺失或非法坐标时不猜寄城市或定位', () => {
     expect(laundryLocation({ config: { schoolCity: city, homeCity: { ...city, name: '杭州' } } })).toEqual(city);
     expect(laundryLocation({ config: { homeCity: city } })).toBeNull();

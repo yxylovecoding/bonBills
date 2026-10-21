@@ -1,6 +1,7 @@
 import type { AppConfig, DayOverrides, InternshipPeriod, InternshipProfile, InternshipRules, LivingKind, SceneCity, TagKind } from '../models/types.js';
 import type { HolidayDataByYear } from './holidays.js';
 import { cityLabel, readSceneCity } from './sceneCities.js';
+import { schoolPeriodAt } from './schoolPeriods.js';
 
 export const BEIJING: SceneCity = { name: '北京', latitude: 39.9042, longitude: 116.4074, timezone: 'Asia/Shanghai' };
 export const GUANGZHOU: SceneCity = { name: '广州', latitude: 23.1291, longitude: 113.2644, timezone: 'Asia/Shanghai' };
@@ -90,13 +91,18 @@ export function resolveDailyContext(date: string, rawTag: TagKind | undefined, i
   const period = periods.length === 1 ? periods[0] : undefined;
   const away = rawTag === 'home' || rawTag === 'travel';
   const override = dayOverrides[date];
-  const school = readSceneCity((start && date < start ? config.internshipLegacyCity : null) ?? config.schoolCity);
+  const schoolPeriod = schoolPeriodAt(date, config);
+  const school = readSceneCity(schoolPeriod?.city)
+    ?? readSceneCity((start && date < start ? config.internshipLegacyCity : null) ?? config.schoolCity);
+  // School history must not move legacy internships to a former school city.
+  const residence = !planned && rawTag === 'intern'
+    ? readSceneCity(config.internshipLegacyCity ?? config.schoolCity) ?? school : school;
   const city = readSceneCity(override?.city) ?? (rawTag === 'home' ? readSceneCity(config.homeCity)
-    : rawTag === 'travel' ? null : period?.city ?? school);
+    : rawTag === 'travel' ? null : period?.city ?? residence);
   const working = !away && (period
     ? override?.attendance ? override.attendance === 'work' : companyWorkingDate(date, period.rules, holidayDataByYear)
     : !planned && rawTag === 'intern');
-  const local = period && sameCity(period.city, period.schoolCity ?? school);
+  const local = period && sameCity(period.city, schoolPeriod?.city ?? period.schoolCity ?? school);
   const tag: TagKind = away ? rawTag : period ? working || !local ? 'intern' : 'school' : planned ? 'school' : rawTag ?? 'school';
   const livingKind: LivingKind = away ? rawTag : working ? 'work' : period && !local ? 'rest' : 'school';
   const suffix = livingKind === 'work' ? '班' : livingKind === 'rest' ? '休' : livingKind === 'school' ? '校' : livingKind === 'home' ? '寄' : '游';

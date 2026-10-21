@@ -356,9 +356,17 @@ export interface SceneCityStat {
   localLifeBreakdown: LocalLifeBreakdownRow[];
 }
 
+export interface SchoolPeriod {
+  id: string;
+  startMonth: string; // YYYY-MM，包含首月
+  endMonth: string; // YYYY-MM，包含末月
+  city: SceneCity | null;
+}
+
 export interface AppConfig {
   homeCity?: SceneCity | null; // 寄
   schoolCity?: SceneCity | null; // 上学城市
+  schoolPeriods?: SchoolPeriod[];
   internshipLegacyCity?: SceneCity | null;
   internshipEnabledFrom?: string;
   internshipProfiles?: InternshipProfile[];

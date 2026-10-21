@@ -6,8 +6,53 @@ import { BEIJING, GUANGZHOU, DEFAULT_INTERNSHIP_RULES } from '../utils/internshi
 import { sceneCitySummaries } from '../utils/sceneDaily';
 import { dailyLivingAmount } from '../utils/cityLiving';
 import { calcHistoryStats } from './history';
+import { NANJING } from '../utils/schoolPeriods';
 
 afterEach(() => vi.useRealTimers());
+
+it('南京北京上学按月份划分旧记录，城市天数加总与学的综合一致', () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-21T04:00:00Z'));
+  const records = ['2021-09', '2025-06', '2025-09', '2026-09'].map(yearMonth => ({ ...monthlyRecords[0], yearMonth,
+    schoolDays: 20, internDays: 5, homeDays: 5, travelDays: 0, periodicLife: 300, volatileLife: 900, consumption: 600 }));
+  const context = { config: { schoolCity: BEIJING, internshipLegacyCity: BEIJING, schoolPeriods: [
+    { id: 'nj', city: NANJING, startMonth: '2021-09', endMonth: '2025-06' },
+    { id: 'bj', city: BEIJING, startMonth: '2025-09', endMonth: '2028-06' },
+  ] } };
+  const stats = calcHistoryStats(records, {}, {}, {}, undefined, {}, context);
+  const cities = sceneCitySummaries(stats, 'school');
+  expect(cities.map(row => [row.city.name, row.days])).toEqual([['南京', 40], ['北京', 40]]);
+  expect(cities.reduce((sum, row) => sum + row.days, 0)).toBe(stats.stateDailyConfidence.school);
+  expect(cities.reduce((sum, row) => sum + row.lifeVal * row.days, 0) / 80).toBeCloseTo(stats.stateDailyAvg.school);
+  expect(sceneCitySummaries(stats, 'intern').map(row => [row.city.name, row.days])).toEqual([['北京', 20]]);
+});
+
+it('学的南京和北京账单明细与预测样本按日期隔离，共享仍均摊', () => {
+  const context = { config: { schoolCity: BEIJING, schoolPeriods: [
+    { id: 'nj', city: NANJING, startMonth: '2021-09', endMonth: '2025-06' },
+    { id: 'bj', city: BEIJING, startMonth: '2025-09', endMonth: '2028-06' },
+  ] } };
+  const items: BillExpenseItem[] = ['2025-06-03', '2025-09-03'].flatMap((date, i) => [
+    { date, amount: i ? 90 : 30, category: i ? '交通' : '餐饮', subcategory: '', tags: '波动生活', note: '', account: '' },
+    { date, amount: 20, category: '订阅', subcategory: '', tags: '周期生活', note: '', account: '' },
+  ]);
+  const months = ['2025-06', '2025-09'];
+  const dates = ['2025-06-03', '2025-09-03'];
+  const confirmed = Object.fromEntries(dates.map(date => {
+    const rows = assignExpenseIds(items.filter(i => i.date === date));
+    return [date, { reviewed: true, localIds: [rows[0].id], sharedIds: [rows[1].id] }];
+  }));
+  const records = months.map((yearMonth, i) => ({ ...monthlyRecords[0], yearMonth, schoolDays: 1, internDays: 0, homeDays: 0, travelDays: 0,
+    periodicLife: 20, volatileLife: i ? 90 : 30, consumption: 0 }));
+  const stats = calcHistoryStats(records, Object.fromEntries(dates.map(d => [d, 'school'])), confirmed,
+    Object.fromEntries(months.map(m => [m, items.filter(i => i.date.startsWith(m))])), undefined, {}, context);
+  const cities = sceneCitySummaries(stats, 'school');
+  expect(cities.map(c => c.localLifeBreakdown.map(r => r.category))).toEqual([['餐饮'], ['交通']]);
+  expect(cities[0].lifeVal).toBeCloseTo(30 + stats.sharedLifeDailyBase);
+  expect(cities[1].lifeVal).toBeCloseTo(90 + stats.sharedLifeDailyBase);
+  expect((cities[0].lifeVal + cities[1].lifeVal) / 2).toBeCloseTo(stats.stateDailyAvg.school);
+  expect(dailyLivingAmount('2025-06-20', 'school', stats, context)).toBe(cities[0].lifeVal);
+  expect(dailyLivingAmount('2026-10-21', 'school', stats, context)).toBe(cities[1].lifeVal);
+});
 
 function fixture(unassignedLife = 0) {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-26T04:00:00Z'));
