@@ -1,4 +1,3 @@
-import { internshipStart } from './internship';
 import type { WishInternPlanOptions } from './wishInternPlan';
 import type { IncomeItem, TagKind, WishItem } from '../models/types';
 import type { HolidayDataByYear } from './holidays';
@@ -42,6 +41,7 @@ export interface WishMilestonePlanOptions {
   today: Date;
   wishes: WishItem[];
   incomeItems: IncomeItem[];
+  recurringIncomeBaseline?: number;
   tagMap: Record<string, TagKind>;
   stateDailyAvg: Record<TagKind, number>;
   repaymentDues: WishRepaymentDue[];
@@ -51,91 +51,6 @@ export interface WishMilestonePlanOptions {
 
 function formatDateKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
-interface InternMonthBucket {
-  yearMonth: string;
-  capacity: number;
-  preferredDates: string[];
-  fallbackDates: string[];
-}
-
-function monthIndex(yearMonth: string): number {
-  const [year, month] = yearMonth.split('-').map(Number);
-  return year * 12 + month - 1;
-}
-
-function assignBalancedInternDates(
-  cumulativePlan: WishInternPlan,
-  assignedDateSet: Set<string>,
-  requestedDays: number,
-): string[] {
-  if (requestedDays <= 0) return [];
-  const preferredDateSet = new Set(cumulativePlan.recommendedDates);
-  const bucketByMonth = new Map<string, InternMonthBucket>();
-  for (const date of cumulativePlan.availableInternDateKeys) {
-    const yearMonth = date.slice(0, 7);
-    const bucket = bucketByMonth.get(yearMonth) ?? {
-      yearMonth,
-      capacity: 0,
-      preferredDates: [],
-      fallbackDates: [],
-    };
-    bucket.capacity += 1;
-    if (!assignedDateSet.has(date)) {
-      if (preferredDateSet.has(date)) bucket.preferredDates.push(date);
-      else bucket.fallbackDates.push(date);
-    }
-    bucketByMonth.set(yearMonth, bucket);
-  }
-
-  const buckets = [...bucketByMonth.values()].sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
-  const assignedCountByMonth = new Map<string, number>();
-  for (const date of assignedDateSet) {
-    const yearMonth = date.slice(0, 7);
-    if (!bucketByMonth.has(yearMonth)) continue;
-    assignedCountByMonth.set(yearMonth, (assignedCountByMonth.get(yearMonth) ?? 0) + 1);
-  }
-
-  const result: string[] = [];
-  while (result.length < requestedDays) {
-    const occupiedMonthIndexes = buckets
-      .filter((bucket) => (assignedCountByMonth.get(bucket.yearMonth) ?? 0) > 0)
-      .map((bucket) => monthIndex(bucket.yearMonth));
-    let bestBucket: InternMonthBucket | null = null;
-    let bestProjectedPressure = Number.POSITIVE_INFINITY;
-    let bestDistance = Number.NEGATIVE_INFINITY;
-    for (const bucket of buckets) {
-      if (bucket.preferredDates.length === 0 && bucket.fallbackDates.length === 0) continue;
-      const assignedCount = assignedCountByMonth.get(bucket.yearMonth) ?? 0;
-      const projectedPressure = (assignedCount + 1) / bucket.capacity;
-      const index = monthIndex(bucket.yearMonth);
-      const distance = occupiedMonthIndexes.length === 0
-        ? Number.POSITIVE_INFINITY
-        : Math.min(...occupiedMonthIndexes.map((occupiedIndex) => Math.abs(index - occupiedIndex)));
-      const hasLowerPressure = projectedPressure < bestProjectedPressure - 1e-9;
-      const hasEqualPressure = Math.abs(projectedPressure - bestProjectedPressure) <= 1e-9;
-      const isMoreSpreadOut = distance > bestDistance;
-      const isLaterTie = distance === bestDistance
-        && bestBucket !== null
-        && bucket.yearMonth > bestBucket.yearMonth;
-      if (hasLowerPressure || (hasEqualPressure && (isMoreSpreadOut || isLaterTie))) {
-        bestBucket = bucket;
-        bestProjectedPressure = projectedPressure;
-        bestDistance = distance;
-      }
-    }
-    if (!bestBucket) break;
-    const date = bestBucket.preferredDates.shift() ?? bestBucket.fallbackDates.shift();
-    if (!date) break;
-    assignedDateSet.add(date);
-    result.push(date);
-    assignedCountByMonth.set(
-      bestBucket.yearMonth,
-      (assignedCountByMonth.get(bestBucket.yearMonth) ?? 0) + 1,
-    );
-  }
-  return result.sort();
 }
 
 export function repaymentsThroughDeadline(
@@ -164,35 +79,16 @@ export function calculateWishMilestonePlan(options: WishMilestonePlanOptions): W
   }
 
   const deadlines = [...wishesByDeadline.keys()].sort();
-  const cumulativePlans = deadlines.map((deadline) => calculateWishInternPlan({
-    internship: options.internship, cityLivingStats: options.cityLivingStats,
-    today: options.today,
-    deadline,
-    wishes: options.wishes,
-    incomeItems: options.incomeItems,
-    tagMap: options.tagMap,
-    stateDailyAvg: options.stateDailyAvg,
-    repaymentsByMonth: repaymentsThroughDeadline(options.repaymentDues, todayKey, deadline),
-    holidayDataByYear: options.holidayDataByYear,
-    tripDatesByStart: options.tripDatesByStart,
-  }));
-
   const segments: WishMilestoneSegment[] = [];
   const assignments: WishMilestoneAssignment[] = [];
   const assignedDateSet = new Set<string>();
   for (let index = 0; index < deadlines.length; index += 1) {
     const deadline = deadlines[index];
-    const dated = options.internship && internshipStart(options.internship.config);
-    const cumulativePlan = dated ? calculateWishInternPlan({ ...options, deadline, requiredDates: [...assignedDateSet],
-      repaymentsByMonth: repaymentsThroughDeadline(options.repaymentDues, todayKey, deadline) }) : cumulativePlans[index];
+    const cumulativePlan = calculateWishInternPlan({ ...options, deadline, requiredDates: [...assignedDateSet],
+      repaymentsByMonth: repaymentsThroughDeadline(options.repaymentDues, todayKey, deadline) });
     const wishes = wishesByDeadline.get(deadline) ?? [];
-    const requiredCumulativeDays = cumulativePlan.recommendedDates.length;
-    const additionalRequiredDays = Math.max(requiredCumulativeDays - assignedDateSet.size, 0);
-    const assignedInternDateKeys = dated ? cumulativePlan.recommendedDates.filter(date => !assignedDateSet.has(date)) : assignBalancedInternDates(
-      cumulativePlan,
-      assignedDateSet,
-      additionalRequiredDays,
-    );
+    // Keep the dates used by the financial plan: moving work between months changes its reserve.
+    const assignedInternDateKeys = cumulativePlan.recommendedDates.filter(date => !assignedDateSet.has(date));
     assignedInternDateKeys.forEach(date => assignedDateSet.add(date));
     const cumulativeRecommendedDates = [...assignedDateSet].sort();
     const wishIds = wishes.map((wish) => wish.id);
