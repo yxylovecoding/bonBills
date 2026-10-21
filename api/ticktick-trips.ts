@@ -19,8 +19,8 @@ import { syncLaundrySchedule } from './_ticktickLaundry.js';
 import { syncLaundryOutlook } from './_outlookLaundry.js';
 import { syncPeriodPredictionTask } from './_ticktickPeriodPrediction.js';
 import { schedulingFailure, schedulingStage } from './_schedulingFailure.js';
-
 import { syncTickTickAlwaysToday } from './_ticktickTrips.js';
+
 const CONNECTION_KEY = 'ticktick:connection:v1';
 const SYNC_STATE_KEY = 'ticktick:trip-sync:v1';
 
@@ -103,8 +103,8 @@ async function runSyncInner(allowDisconnected: boolean) {
         kv.get<{ budgetMinutes?: number | null; availabilityProfile?: string }>(DAILY_PLAN_SETTINGS_KEY),
         schedulingStage('tasks-read', true, () => readAllTickTickTasks(api, [0])),
       ]);
-      const timedTasks = await syncTimedTaskVisibility(api, { tasks: sourceTasks, timeZone: connection.timeZone, projectId: connection.projectId });
       const alwaysToday = await syncTickTickAlwaysToday(api, { tasks: sourceTasks, today });
+      const timedTasks = await syncTimedTaskVisibility(api, { tasks: sourceTasks, timeZone: connection.timeZone, projectId: connection.projectId });
       const dailyPlan: DailyPlanState = savedPlan?.connectionId === connectionId
         ? { ...savedPlan, history: [...savedPlan.history], deadlines: { ...savedPlan.deadlines } }
         : { connectionId, history: [], deadlines: {} };
@@ -209,6 +209,7 @@ async function runRoutineVisibilitySync(kind: 'night' | 'daily' | 'all' | 'hair'
     if (kind === 'timed') return { busy: false as const, connected: true as const, timedTasks: await syncTimedTaskVisibility(api, { timeZone: connection.timeZone, projectId: connection.projectId }) };
     if (kind === 'hair') return { busy: false as const, connected: true as const,
       hairWash: await syncHairWashVisibility(api, { projectId: connection.projectId }), reading: await syncReadingVisibility(api, { projectId: connection.projectId }) };
+    const alwaysToday = await syncTickTickAlwaysToday(api);
     const sleepTags = kind !== 'night' ? await syncSleepRoutineTags(api, { projectId: connection.projectId }) : undefined;
     if (kind === 'daily' || sleepTags?.complete === false) return { busy: false as const, connected: true as const, sleepTags, alwaysToday };
     const nightRoutine = await syncNightRoutineVisibility(api, { timeZone: connection.timeZone, projectId: connection.projectId });
@@ -216,7 +217,6 @@ async function runRoutineVisibilitySync(kind: 'night' | 'daily' | 'all' | 'hair'
     const exercise = await syncExerciseSchedule(api, { connectionId: createHash('sha256').update(token).digest('hex'),
       templateRootId: connection.templateRootId, rolling: true });
     return { busy: false as const, connected: true as const, nightRoutine, timedTasks, alwaysToday, exercise: { updated: exercise.updated },
-    const alwaysToday = await syncTickTickAlwaysToday(api);
       ...(sleepTags ? { sleepTags } : {}) };
   } finally {
     await releaseTickTickLock(lockId);
