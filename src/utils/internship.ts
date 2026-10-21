@@ -46,7 +46,9 @@ export function periodReady(p: InternshipPeriod): boolean {
     && Date.parse(p.endDate) - Date.parse(p.startDate) <= 3660 * 86400000 && readSceneCity(p.city) && !rulesError(p.rules));
 }
 export function periodOverlap(period: InternshipPeriod, periods: InternshipPeriod[]) {
-  return periods.some(p => p.id !== period.id && periodReady(p) && period.startDate <= p.endDate && p.startDate <= period.endDate);
+  if (!validDate(period.startDate) || !validDate(period.endDate) || period.startDate > period.endDate) return false;
+  return periods.some(p => p.id !== period.id && validDate(p.startDate) && validDate(p.endDate)
+    && p.startDate <= p.endDate && period.startDate <= p.endDate && p.startDate <= period.endDate);
 }
 export function internshipStart(config: Partial<AppConfig>): string | undefined {
   return [config.internshipEnabledFrom, ...(config.internshipPeriods ?? []).filter(periodReady).map(p => p.startDate)]

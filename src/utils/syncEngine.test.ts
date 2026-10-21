@@ -58,11 +58,12 @@ afterEach(() => {
 });
 
 describe('cached startup synchronization', () => {
-  it('实习段规则快照和单日工休城市完整上传，并在刷新后恢复', async () => {
+  it('实习段规则快照、BonCV 来源和单日工休城市完整上传，并在刷新后恢复', async () => {
     const { BEIJING, GUANGZHOU, DEFAULT_INTERNSHIP_RULES } = await import('./internship');
     await engine.initSync('bon');
     const period = { id: 'period', profileId: 'company', profileName: '公司', revision: 1,
       startDate: '2026-10-19', endDate: '2026-11-30', city: GUANGZHOU, schoolCity: BEIJING,
+      bonCvSource: { entryId: 'cv-entry', company: '公司', startDate: '2026.10', endDate: '至今' },
       rules: { ...DEFAULT_INTERNSHIP_RULES, salary: 300 } };
     state.config.getState().setConfig({ internshipPeriods: [period], internshipEnabledFrom: period.startDate, internshipLegacyCity: BEIJING });
     state.calendar.getState().setDayOverride('2026-10-24', { attendance: 'rest', attendanceLocked: true, city: GUANGZHOU });

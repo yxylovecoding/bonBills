@@ -38,3 +38,29 @@ export async function fetchBonCvFireProfile(etag?: string) {
     profile,
   };
 }
+
+export interface BonCvInternship {
+  id: string;
+  company: string;
+  startDate: string;
+  endDate: string;
+}
+
+export async function fetchBonCvInternships(signal?: AbortSignal): Promise<BonCvInternship[]> {
+  const response = await apiFetch('/api/boncv-profile?view=internships', { signal, cache: 'no-store' });
+  if (response.status === 503) throw new Error('BonCV 连接未配置');
+  if (!response.ok) throw new Error('BonCV 暂时无法连接，请重试');
+  const data = await response.json();
+  if (data?.schemaVersion !== 1 || !Array.isArray(data.internships)) throw new Error('BonCV 实习接口尚未就绪');
+  const seen = new Set<string>();
+  return data.internships.map((entry: unknown) => {
+    if (!entry || typeof entry !== 'object') throw new Error('BonCV 实习数据无效');
+    const item = entry as Partial<BonCvInternship>;
+    if (typeof item.id !== 'string' || !item.id.trim() || seen.has(item.id)
+      || typeof item.company !== 'string' || typeof item.startDate !== 'string' || typeof item.endDate !== 'string') {
+      throw new Error('BonCV 实习数据无效');
+    }
+    seen.add(item.id);
+    return { id: item.id, company: item.company.trim(), startDate: item.startDate.trim(), endDate: item.endDate.trim() };
+  });
+}

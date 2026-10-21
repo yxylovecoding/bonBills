@@ -331,6 +331,7 @@ export interface InternshipPeriod {
   endDate: string;
   city: SceneCity | null;
   schoolCity: SceneCity | null;
+  bonCvSource?: { entryId: string; company: string; startDate: string; endDate: string };
 }
 export interface DayOverride {
   city?: SceneCity;
