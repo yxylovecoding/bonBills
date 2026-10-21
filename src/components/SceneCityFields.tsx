@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { AppConfig, SceneCity } from '../models/types';
 import { clothesRequest } from '../clothes/client';
-import { readSceneCity } from '../utils/sceneCities';
+import { cityLabel, readSceneCity } from '../utils/sceneCities';
 import { sameCity } from '../utils/internship';
 
 export type SceneCitySettings = Pick<AppConfig, 'homeCity' | 'schoolCity'>;
@@ -44,17 +44,17 @@ export default function SceneCityFields({ value, onChange, schoolLabel, onlyScho
         {presets ? <div role="group" aria-label={label} style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 6, minWidth: 0 }}>
           {presets.map(city => <button type="button" key={city.name} aria-pressed={sameCity(city, value[key])}
             style={{ ...buttonStyle, ...(sameCity(city, value[key]) ? selectedStyle : { color: '#5f6368' }) }}
-            onClick={() => { resetSearch(); setEditing(null); onChange({ ...value, [key]: city }); }}>{city.name}</button>)}
+            onClick={() => { resetSearch(); setEditing(null); onChange({ ...value, [key]: city }); }}>{cityLabel(city)}</button>)}
           <button type="button" aria-expanded={editing === key}
             aria-pressed={Boolean(value[key] && !presets.some(city => sameCity(city, value[key])))}
             style={{ ...buttonStyle, overflowWrap: 'anywhere', ...(value[key] && !presets.some(city => sameCity(city, value[key])) ? selectedStyle : { color: '#5f6368' }) }}
             onClick={() => { resetSearch(); setQuery(''); setEditing(editing === key ? null : key); }}>
-            {value[key] && !presets.some(city => sameCity(city, value[key])) ? `${value[key]?.name} · 自定义` : '自定义'}
+            {value[key] && !presets.some(city => sameCity(city, value[key])) ? `${cityLabel(value[key])} · 自定义` : '自定义'}
           </button>
-        </div> : <button type="button" aria-label={`${label}：${value[key]?.name ?? '未设置'}`} aria-expanded={editing === key}
+        </div> : <button type="button" aria-label={`${label}：${cityLabel(value[key]) || '未设置'}`} aria-expanded={editing === key}
           style={{ ...buttonStyle, overflowWrap: 'anywhere', textAlign: 'right' }}
           onClick={() => { resetSearch(); setQuery(''); setEditing(editing === key ? null : key); }}>
-          {value[key]?.name ?? '未设置'}
+          {cityLabel(value[key]) || '未设置'}
         </button>}
       </div>
       {editing === key && <div style={{ marginTop: 8 }}>
@@ -71,7 +71,7 @@ export default function SceneCityFields({ value, onChange, schoolLabel, onlyScho
           {cities.map(city => <button type="button" key={`${city.name}:${city.latitude}:${city.longitude}`}
             style={{ ...buttonStyle, textAlign: 'left' }} onClick={() => {
               onChange({ ...value, [key]: city }); resetSearch(); setEditing(null);
-            }}>{city.name}</button>)}
+            }}>{cityLabel(city)}</button>)}
         </div>
         {value[key] && <button type="button" style={{ ...buttonStyle, marginTop: 8, color: '#5f6368' }}
           onClick={() => { onChange({ ...value, [key]: null }); resetSearch(); setEditing(null); }}>清除</button>}

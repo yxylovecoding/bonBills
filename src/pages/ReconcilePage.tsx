@@ -566,7 +566,7 @@ const reconcileUndoFingerprint = (state: ReconcileUndoState) => {
   });
 };
 
-interface BudgetDetailItem { icon: string; label: string; amount: number; note?: string; isIncome?: boolean }
+interface BudgetDetailItem { icon?: string; label: string; amount: number; note?: string; isIncome?: boolean }
 
 const RECONCILE_MODES: { key: ReconcileMode; label: string; hint: string }[] = [
   { key: 'monthStart', label: '月初', hint: '1-13号' },
@@ -1626,7 +1626,7 @@ export default function ReconcilePage() {
       const label = `${context.label}·生活`, item = grouped.get(label) ?? { amount: 0, days: 0 };
       item.amount += dailyLivingAmount(date, tag, stats, internship); item.days++; grouped.set(label, item);
     }
-    return [...grouped].map(([label, value]) => ({ icon: '🏠', label, amount: Math.round(value.amount), note: `${value.days}天` }));
+    return [...grouped].map(([label, value]) => ({ label, amount: Math.round(value.amount), note: `${value.days}天` }));
   };
   const budgetDetails: Record<BudgetKey, { income: BudgetDetailItem[]; expense: BudgetDetailItem[] }> = {
     weekly: {
@@ -2568,7 +2568,7 @@ export default function ReconcilePage() {
                       <div style={{ fontSize: 11, fontWeight: 600, color: C.red, marginBottom: 6 }}>收入来源</div>
                       {detail.income.map((item) => (
                         <div key={item.label} className="reconcile-detail-row" style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
-                          <div><span style={{ fontSize: 13 }}>{item.icon} {item.label}</span>
+                          <div><span style={{ fontSize: 13 }}>{item.icon && `${item.icon} `}{item.label}</span>
                             {item.note && <span className="reconcile-detail-note" style={{ fontSize: 11, color: C.sub }}>{item.note}</span>}
                           </div>
                           <span style={{ fontSize: 13, fontWeight: 500, color: C.red, fontVariantNumeric: 'tabular-nums' }}>+¥{formatCurrency(item.amount)}</span>
@@ -2592,7 +2592,7 @@ export default function ReconcilePage() {
                           marginTop: itemIndex === livingExpenseStartIndex && itemIndex > 0 ? 5 : 0,
                           borderTop: itemIndex === livingExpenseStartIndex && itemIndex > 0 ? '1px solid #dbe8fb' : 'none',
                         }}>
-                          <div><span style={{ fontSize: 13 }}>{item.icon} {item.label}</span>
+                          <div><span style={{ fontSize: 13 }}>{item.icon && `${item.icon} `}{item.label}</span>
                             {item.note && <span className="reconcile-detail-note" style={{ fontSize: 11, color: C.sub }}>{item.note}</span>}
                           </div>
                           <span style={{ fontSize: 13, fontWeight: 500, color: C.green, fontVariantNumeric: 'tabular-nums' }}>-¥{formatCurrency(item.amount)}</span>

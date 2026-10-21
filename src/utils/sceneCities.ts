@@ -1,5 +1,11 @@
 import type { SceneCity } from '../models/types.js';
 
+// Older city searches saved "city · province · country" as the name.
+// Shorten display labels without changing saved locations or their coordinates.
+export function cityLabel(city: Pick<SceneCity, 'name'> | null | undefined): string {
+  return city?.name.split('·')[0].trim() ?? '';
+}
+
 export function readSceneCity(value: unknown): SceneCity | null {
   if (!value || typeof value !== 'object') return null;
   const city = value as Partial<SceneCity>;

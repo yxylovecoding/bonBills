@@ -6,6 +6,7 @@ import { TAX_RULE_PRESETS, calculateIncomeTax } from '../utils/tax';
 import SceneCityFields from './SceneCityFields';
 import { fetchBonCvInternships, type BonCvInternship } from '../utils/bonCv';
 import { importedBonCvPeriod, prepareBonCvInternship } from '../utils/bonCvInternships';
+import { cityLabel } from '../utils/sceneCities';
 
 const input: CSSProperties = { width: '100%', minWidth: 0, boxSizing: 'border-box', padding: '6px 8px', border: '1px solid #dadce0', borderRadius: 7, fontSize: 12, background: '#fff' };
 const button: CSSProperties = { border: 'none', borderRadius: 7, background: '#f1f3f4', color: '#1a73e8', padding: '6px 10px', fontSize: 12, cursor: 'pointer' };
@@ -109,7 +110,7 @@ export function InternshipPeriods({ config, onChange }: { config: AppConfig; onC
         }}>{entry.company || '公司未填写'}{imported ? ' · 已导入' : ''}<br /><span style={{ color: '#5f6368', fontSize: 11 }}>{entry.startDate || '开始日期未填写'} — {entry.endDate || '结束日期未填写'}</span></button>;
       })}
     </div>}
-    {periods.map(p => <button type="button" key={p.id} style={{ ...button, display: 'block', width: '100%', textAlign: 'left', marginTop: 6 }} onClick={() => begin(p)}>{p.city?.name ?? '城市未设置'} · {p.profileName || '公司未设置'}<br /><span style={{ fontSize: 11, color: '#5f6368' }}>{p.startDate || '开始日期'} — {p.endDate || '结束日期'}{!periodReady(p) ? ' · 草稿' : ''}</span></button>)}
+    {periods.map(p => <button type="button" key={p.id} style={{ ...button, display: 'block', width: '100%', textAlign: 'left', marginTop: 6 }} onClick={() => begin(p)}>{cityLabel(p.city) || '城市未设置'} · {p.profileName || '公司未设置'}<br /><span style={{ fontSize: 11, color: '#5f6368' }}>{p.startDate || '开始日期'} — {p.endDate || '结束日期'}{!periodReady(p) ? ' · 草稿' : ''}</span></button>)}
     {editing && <div style={{ marginTop: 8, border: '1px solid #dadce0', borderRadius: 10, padding: 10 }}>
       <div style={{ fontSize: 11, color: '#5f6368', marginBottom: 6 }}>{editing.profileName} · v{editing.revision}</div>
       {editing.bonCvSource && <div style={{ fontSize: 11, color: '#5f6368', marginBottom: 6 }}>BonCV · {editing.bonCvSource.startDate || '开始日期未填写'} — {editing.bonCvSource.endDate || '结束日期未填写'}</div>}
