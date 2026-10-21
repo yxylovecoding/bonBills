@@ -9,13 +9,13 @@ const input: CSSProperties = { width: '100%', minWidth: 0, boxSizing: 'border-bo
 const button: CSSProperties = { border: 'none', borderRadius: 7, background: '#f1f3f4', color: '#1a73e8', padding: '6px 10px', fontSize: 12, cursor: 'pointer' };
 const row: CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 };
 const uid = () => crypto.randomUUID();
+const cityPresets = [BEIJING, GUANGZHOU];
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <label style={{ display: 'grid', gap: 4, fontSize: 11, color: '#5f6368' }}>{label}{children}</label>;
 }
 export function CityPicker({ city, onChange, label = '居住城市' }: { city?: SceneCity | null; onChange: (city: SceneCity | null) => void; label?: string }) {
   return <div style={{ marginTop: 8 }}>
-    <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>{[BEIJING, GUANGZHOU].map(value => <button type="button" key={value.name} style={button} onClick={() => onChange(value)}>{value.name}</button>)}</div>
-    <SceneCityFields value={{ schoolCity: city }} onChange={value => onChange(value.schoolCity ?? null)} schoolLabel={label} onlySchool />
+    <SceneCityFields value={{ schoolCity: city }} onChange={value => onChange(value.schoolCity ?? null)} schoolLabel={label} onlySchool presets={cityPresets} />
   </div>;
 }
 function RuleFields({ value: r, onChange }: { value: InternshipRules; onChange: (r: InternshipRules) => void }) {
