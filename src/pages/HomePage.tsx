@@ -1,5 +1,6 @@
 import { resolveDailyContext } from '../utils/internship';
 import { cityLabel } from '../utils/sceneCities';
+import { sceneCitySummaries } from '../utils/sceneDaily';
 import InternshipSettings from '../components/InternshipSettings';
 import InternshipIncomeCard from '../components/InternshipIncomeCard';
 import IncomeItemEditor from '../components/IncomeItemEditor';
@@ -57,7 +58,7 @@ import {
 import { version as APP_VERSION } from '../../package.json';
 import { useSyncStatus } from '../utils/syncStatus';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '城市自动';
+const RELEASE_NOTE = '场景合并';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -466,6 +467,12 @@ export default function HomePage() {
   const [fireExpectedWageDraft, setFireExpectedWageDraft] = useState<string | null>(null);
   const [bonCvStatus, setBonCvStatus] = useState<'idle' | 'loading' | 'connected' | 'stale' | 'unconfigured'>('idle');
   const [sceneExpanded, setSceneExpanded] = useState<Set<TagKind>>(new Set());
+  const [sceneCityFilters, setSceneCityFilters] = useState<Partial<Record<TagKind, string>>>({});
+  const sceneCities = useMemo(() => ({
+    school: sceneCitySummaries(stats, 'school'),
+    intern: sceneCitySummaries(stats, 'intern'),
+    home: [], travel: [],
+  }), [stats]);
   const [sceneLocalOpenCategories, setSceneLocalOpenCategories] = useState<Set<string>>(new Set());
   const [sceneSharedOpenCategories, setSceneSharedOpenCategories] = useState<Set<string>>(new Set());
   const futureFireExpenses = config.futureFireExpenses ?? [];
@@ -955,10 +962,6 @@ export default function HomePage() {
         <StatRow label="消费"     indent value={<CurrencyDisplay value={stats.consumptionAvg}  color={C.purple} kFormat />} />
         <Divider />
         <StatRow label="月均结余" value={<CurrencyDisplay value={monthlySurplus} color={monthlySurplus >= 0 ? C.red : C.green} kFormat />} />
-        {Object.values(stats.cityLivingStats ?? {}).length > 0 && <details style={{ marginTop: 10, fontSize: 12 }}>
-          <summary style={{ cursor: 'pointer', color: C.sub }}>城市生活费日均</summary>
-          {Object.entries(stats.cityLivingStats ?? {}).map(([key, row]) => <StatRow key={key} label={`${cityLabel(row.city)}·${row.kind === 'work' ? '班' : row.kind === 'rest' ? '休' : '校'}`} value={<span>¥{formatCurrency(row.dailyAverage)} <span style={{ color: C.sub }}>· {row.days}天</span></span>} />)}
-        </details>}
         {hasSceneDaily && (
           <>
             <Divider />
@@ -1001,23 +1004,29 @@ export default function HomePage() {
             </div>
             {sceneBlocks.map((block) => (
               <div key={block.key} style={{ backgroundColor: block.bg, border: `1px solid ${block.border}`, borderRadius: 8, marginTop: 6, overflow: 'hidden' }}>
-                {block.rows.map((r, idx) => {
-                  const m = tagMeta[r.tagKind];
-                  const expanded = sceneExpanded.has(r.tagKind);
+                {block.rows.map((overall, idx) => {
+                  const m = tagMeta[overall.tagKind];
+                  const expanded = sceneExpanded.has(overall.tagKind);
+                  const cityOptions = sceneCities[overall.tagKind];
+                  const selectedCity = expanded ? cityOptions.find(city => city.key === sceneCityFilters[overall.tagKind]) : undefined;
+                  const r = selectedCity ? { ...overall, lifeVal: selectedCity.lifeVal, consumptionVal: selectedCity.consumptionVal,
+                    val: selectedCity.lifeVal + (sceneDailyMode === 'all' ? selectedCity.consumptionVal : 0) } : overall;
                   const sharedPct = r.val > 0 ? (stats.sharedLifeDailyBase / r.val) * 100 : 0;
-                  const combinedBreakdown = mergeSceneLifeBreakdown(stats.localLifeBreakdown[r.tagKind] ?? [], stats.sharedLifeBreakdown);
+                  const combinedBreakdown = mergeSceneLifeBreakdown(selectedCity?.localLifeBreakdown ?? stats.localLifeBreakdown[r.tagKind] ?? [], stats.sharedLifeBreakdown);
                   const combinedBreakdownDaily = combinedBreakdown.reduce((sum, row) => sum + row.dailyBase, 0);
                   const unclassifiedLifeDaily = Math.max(r.lifeVal - combinedBreakdownDaily, 0);
                   return (
                     <div key={r.tagKind} style={{ borderTop: idx > 0 ? `1px solid ${block.border}` : 'none' }}>
                       <button
                         type="button"
+                        aria-expanded={expanded}
                         onClick={() => toggleScene(r.tagKind)}
                         style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, padding: '7px 10px', color: 'inherit', background: 'none', border: 'none', cursor: 'pointer' }}
                       >
                         <span style={{ color: C.sub, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
                           <span style={{ marginRight: 4, fontSize: 10, color: '#9aa0a6' }}>{expanded ? '▼' : '▶'}</span>
                           {m.icon} {m.label}
+                          {selectedCity && <span> · {cityLabel(selectedCity.city)}</span>}
                           {stats.sharedLifeDailyBase > 0 && r.lifeVal > 0 && (
                             <span style={{ fontSize: 11, color: '#9aa0a6' }}>（共享均摊 {sharedPct.toFixed(1)}%）</span>
                           )}
@@ -1026,6 +1035,15 @@ export default function HomePage() {
                       </button>
                       {expanded && (
                         <div style={{ padding: '4px 10px 8px', borderTop: '1px dashed #dadce0' }}>
+                          {cityOptions.length > 0 && <div role="group" aria-label={`${m.label}城市`} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 5, padding: '3px 0 6px' }}>
+                            {[{ key: '', label: '综合' }, ...cityOptions.map(city => ({ key: city.key, label: cityLabel(city.city) }))].map(city => {
+                              const active = (selectedCity?.key ?? '') === city.key;
+                              return <button key={city.key} type="button" aria-pressed={active}
+                                onClick={() => setSceneCityFilters(previous => ({ ...previous, [r.tagKind]: active ? '' : city.key }))}
+                                style={{ border: 0, borderRadius: 999, padding: '3px 8px', fontSize: 11, cursor: 'pointer', background: active ? C.blue : '#f1f3f4', color: active ? '#fff' : C.sub }}>{city.label}</button>;
+                            })}
+                            {selectedCity && <span style={{ color: C.sub, fontSize: 10, marginLeft: 'auto' }}>{selectedCity.days}天</span>}
+                          </div>}
                           {combinedBreakdown.map((row) => {
                             const pct = r.val > 0 ? (row.dailyBase / r.val) * 100 : 0;
                             const categoryKey = `${r.tagKind}|${row.category}`;
@@ -1103,7 +1121,7 @@ export default function HomePage() {
                           {unclassifiedLifeDaily > 0.005 && (
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: '#3c4043' }}>
                               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
-                                {sceneDailyMode === 'all' ? '活未拆分估算' : '未拆分估算'} <span style={{ color: '#9aa0a6' }}>· {((unclassifiedLifeDaily / r.val) * 100).toFixed(1)}%</span>
+                                {sceneDailyMode === 'all' ? '活未拆分估算' : '未拆分估算'} <span style={{ color: '#9aa0a6' }}>· {(r.val > 0 ? (unclassifiedLifeDaily / r.val) * 100 : 0).toFixed(1)}%</span>
                               </span>
                               <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.sub }}>{formatSceneAmount(unclassifiedLifeDaily)}</span>
                             </div>
@@ -1111,12 +1129,12 @@ export default function HomePage() {
                           {sceneDailyMode === 'all' && r.consumptionVal > 0.005 && (
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: '#3c4043' }}>
                               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
-                                消费估算 <span style={{ color: '#9aa0a6' }}>· {((r.consumptionVal / r.val) * 100).toFixed(1)}%</span>
+                                {selectedCity ? '消费' : '消费估算'} <span style={{ color: '#9aa0a6' }}>· {(r.val > 0 ? (r.consumptionVal / r.val) * 100 : 0).toFixed(1)}%</span>
                               </span>
                               <span style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0, color: C.purple }}>{formatSceneAmount(r.consumptionVal)}</span>
                             </div>
                           )}
-                          {r.tagKind === 'school' && campusDailyAvgYear > 0 && (
+                          {r.tagKind === 'school' && !selectedCity && campusDailyAvgYear > 0 && (
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '3px 0', color: '#3c4043' }}>
                               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, marginRight: 8 }}>
                                 🍜 校园卡{scenePeriodConfig.label}均 <span style={{ color: '#9aa0a6' }}>(近一年 · 已含)</span>

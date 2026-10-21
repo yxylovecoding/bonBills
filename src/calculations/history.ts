@@ -72,7 +72,7 @@ const zeroSubcategoryByTag = (): Record<TagKind, Record<string, Record<string, n
 //   resolvedLifeDays：该天所有 isLife 账单都已被显式归属（不论归到 local 还是 shared）的天数
 //   localCons + localConsDays：消费部分仅由 reviewed+勾选 决定，无 override
 type MonthConfirmed = {
-  dailyLocalLife: Record<string, number>;
+  dailyLocalLife: Record<string, { amount: number; consumptionAmount: number; items: BillExpenseMonth }>;
   localLife: ByTag;
   localCons: ByTag;
   resolvedLifeDays: ByTag;
@@ -121,6 +121,8 @@ function buildConfirmedAggregatesByMonth(
       if (!state) continue; // 无 tag 的天暂不归任何 state（也不进入 local/shared 桶；金额仍在 y 里）
 
       const amountBefore = out.localLife[state];
+      const consumptionBefore = out.localCons[state];
+      const cityLifeItems: BillExpenseMonth = [];
       const sel = normalizeConfirmedSelection(confirmedExpenses[date]);
       const reviewed = sel.reviewed;
       const localSet = new Set(sel.localIds);
@@ -144,6 +146,7 @@ function buildConfirmedAggregatesByMonth(
           const ov = resolveExpenseScope(item, overrides);
           const addLocal = () => {
             out.localLife[localState] += item.amount;
+            if (localState === state) cityLifeItems.push(item);
             if (localState !== state) dayHadReroutedLocalLife = true;
             const cat = item.category || '(未分类)';
             const sub = item.subcategory || '未细分';
@@ -197,7 +200,11 @@ function buildConfirmedAggregatesByMonth(
       // 出游标签把金额转到 travel 时不搬交易日，原场景当天仍留在残差回归中。
       if (lifeAllResolved && !dayHadReroutedLocalLife) {
         out.resolvedLifeDays[state] += 1;
-        if (reviewed) out.dailyLocalLife[date] = out.localLife[state] - amountBefore;
+        if (reviewed) out.dailyLocalLife[date] = {
+          amount: out.localLife[state] - amountBefore,
+          consumptionAmount: out.localCons[state] - consumptionBefore,
+          items: cityLifeItems,
+        };
       }
       if (dayHadLocalCons) out.localConsDays[state] += 1;
     }
@@ -543,19 +550,35 @@ export function calcHistoryStats(
   const stats = calcLegacyHistoryStats(historicalRecords, internshipStart(context.config) ? historicalTags : tagMap, confirmedExpenses, expenseItems, overrides, tripTags);
   const confirmed = buildConfirmedAggregatesByMonth(historicalRecords, historicalTags, confirmedExpenses, expenseItems, overrides,
     new Set(Object.values(tripTags).filter(Boolean)));
-  const daily = Object.assign({}, ...confirmed.map(c => c.dailyLocalLife)) as Record<string, number>;
+  const daily = Object.assign({}, ...confirmed.map(c => c.dailyLocalLife)) as MonthConfirmed['dailyLocalLife'];
   for (const [date, raw] of Object.entries(confirmedExpenses)) {
     if (date >= today || !historicalTags[date] || !historicalRecords.some(r => r.yearMonth === date.slice(0, 7))) continue;
-    if (normalizeConfirmedSelection(raw).reviewed && !(expenseItems[date.slice(0, 7)] ?? []).some(i => i.date === date)) daily[date] = 0;
+    if (normalizeConfirmedSelection(raw).reviewed && !(expenseItems[date.slice(0, 7)] ?? []).some(i => i.date === date)) daily[date] = { amount: 0, consumptionAmount: 0, items: [] };
   }
   const cityLivingStats: NonNullable<CurrentStats['cityLivingStats']> = {};
-  for (const [date, amount] of Object.entries(daily)) {
+  for (const [date, sample] of Object.entries(daily)) {
     const day = resolveDailyContext(date, historicalTags[date], context);
     if (!day.city || day.livingKind === 'travel' || day.livingKind === 'home') continue;
     const key = `${cityKey(day.city)}:${day.livingKind}`;
-    const row = cityLivingStats[key] ??= { city: day.city, kind: day.livingKind, days: 0, localAmount: 0, dailyAverage: 0 };
-    row.days++; row.localAmount += amount;
+    const row = cityLivingStats[key] ??= { city: day.city, kind: day.livingKind, days: 0, localAmount: 0, dailyAverage: 0, consumptionAmount: 0, localLifeBreakdown: [] };
+    row.days++; row.localAmount += sample.amount;
+    row.consumptionAmount! += sample.consumptionAmount;
+    for (const item of sample.items) {
+      const category = item.category || '(未分类)', subcategory = item.subcategory || '未细分';
+      let categoryRow = row.localLifeBreakdown!.find(r => r.category === category);
+      if (!categoryRow) row.localLifeBreakdown!.push(categoryRow = { category, amountTotal: 0, dailyBase: 0, subcategories: [] });
+      categoryRow.amountTotal += item.amount;
+      let sub = categoryRow.subcategories.find(r => r.subcategory === subcategory);
+      if (!sub) categoryRow.subcategories.push(sub = { subcategory, amountTotal: 0, dailyBase: 0 });
+      sub.amountTotal += item.amount;
+    }
   }
-  for (const row of Object.values(cityLivingStats)) row.dailyAverage = row.localAmount / row.days + stats.sharedLifeDailyBase;
+  for (const row of Object.values(cityLivingStats)) {
+    row.dailyAverage = row.localAmount / row.days + stats.sharedLifeDailyBase;
+    for (const category of row.localLifeBreakdown ?? []) {
+      category.dailyBase = category.amountTotal / row.days;
+      for (const sub of category.subcategories) sub.dailyBase = sub.amountTotal / row.days;
+    }
+  }
   return { ...stats, cityLivingStats };
 }
