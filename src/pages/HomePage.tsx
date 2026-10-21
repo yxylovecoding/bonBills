@@ -1,4 +1,5 @@
 import { resolveDailyContext } from '../utils/internship';
+import { cityLabel } from '../utils/sceneCities';
 import InternshipSettings from '../components/InternshipSettings';
 import InternshipIncomeCard from '../components/InternshipIncomeCard';
 import IncomeItemEditor from '../components/IncomeItemEditor';
@@ -56,7 +57,7 @@ import {
 import { version as APP_VERSION } from '../../package.json';
 import { useSyncStatus } from '../utils/syncStatus';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '部署修复';
+const RELEASE_NOTE = '城市精简';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -956,7 +957,7 @@ export default function HomePage() {
         <StatRow label="月均结余" value={<CurrencyDisplay value={monthlySurplus} color={monthlySurplus >= 0 ? C.red : C.green} kFormat />} />
         {Object.values(stats.cityLivingStats ?? {}).length > 0 && <details style={{ marginTop: 10, fontSize: 12 }}>
           <summary style={{ cursor: 'pointer', color: C.sub }}>城市生活费日均</summary>
-          {Object.entries(stats.cityLivingStats ?? {}).map(([key, row]) => <StatRow key={key} label={`${row.city.name}·${row.kind === 'work' ? '班' : row.kind === 'rest' ? '休' : '校'}`} value={<span>¥{formatCurrency(row.dailyAverage)} <span style={{ color: C.sub }}>· {row.days}天</span></span>} />)}
+          {Object.entries(stats.cityLivingStats ?? {}).map(([key, row]) => <StatRow key={key} label={`${cityLabel(row.city)}·${row.kind === 'work' ? '班' : row.kind === 'rest' ? '休' : '校'}`} value={<span>¥{formatCurrency(row.dailyAverage)} <span style={{ color: C.sub }}>· {row.days}天</span></span>} />)}
         </details>}
         {hasSceneDaily && (
           <>

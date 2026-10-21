@@ -1,6 +1,7 @@
 import { useId, useState, type ReactNode } from 'react';
 import type { AppConfig } from '../models/types';
 import { internshipStart, migratedProfiles, periodReady } from '../utils/internship';
+import { cityLabel } from '../utils/sceneCities';
 import { dateLabel, daysUntilDate, type ResolvedIncomeItem } from '../utils/payroll';
 import { formatCurrency } from './CurrencyDisplay';
 
@@ -28,7 +29,7 @@ export default function InternshipIncomeCard({ config, incomes, today, holidayWa
     </div>
     {!expanded && <>
       {periods.length > 0 ? periods.map(period => <button key={period.id} type="button" onClick={() => setExpanded(true)} aria-label={`编辑实习：${period.profileName || '公司未设置'}`} style={{ display: 'block', width: '100%', textAlign: 'left', border: 0, padding: '6px 0', background: 'transparent', cursor: 'pointer', color: '#5f6368', fontSize: 11, lineHeight: 1.65 }}>
-        <span style={{ color: '#202124', fontSize: 12 }}>{period.profileName || '公司未设置'} · {period.city?.name || '城市未设置'}</span>
+        <span style={{ color: '#202124', fontSize: 12 }}>{period.profileName || '公司未设置'} · {cityLabel(period.city) || '城市未设置'}</span>
         <br />{period.startDate || '开始日期'} — {period.endDate || '结束日期'}{!periodReady(period) ? ' · 草稿' : ''}
       </button>) : companyNames ? <div style={{ color: '#5f6368', fontSize: 12, marginTop: 4 }}>{companyNames}</div> : null}
     </>}

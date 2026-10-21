@@ -1,6 +1,6 @@
 import type { AppConfig, DayOverrides, InternshipPeriod, InternshipProfile, InternshipRules, LivingKind, SceneCity, TagKind } from '../models/types.js';
 import type { HolidayDataByYear } from './holidays.js';
-import { readSceneCity } from './sceneCities.js';
+import { cityLabel, readSceneCity } from './sceneCities.js';
 
 export const BEIJING: SceneCity = { name: '北京', latitude: 39.9042, longitude: 116.4074, timezone: 'Asia/Shanghai' };
 export const GUANGZHOU: SceneCity = { name: '广州', latitude: 23.1291, longitude: 113.2644, timezone: 'Asia/Shanghai' };
@@ -100,7 +100,8 @@ export function resolveDailyContext(date: string, rawTag: TagKind | undefined, i
   const tag: TagKind = away ? rawTag : period ? working || !local ? 'intern' : 'school' : planned ? 'school' : rawTag ?? 'school';
   const livingKind: LivingKind = away ? rawTag : working ? 'work' : period && !local ? 'rest' : 'school';
   const suffix = livingKind === 'work' ? '班' : livingKind === 'rest' ? '休' : livingKind === 'school' ? '校' : livingKind === 'home' ? '寄' : '游';
-  return { date, city, period, planned, working, paid: working, tag, livingKind, label: `${city?.name ? `${city.name}·` : ''}${suffix}` };
+  const cityName = cityLabel(city);
+  return { date, city, period, planned, working, paid: working, tag, livingKind, label: `${cityName ? `${cityName}·` : ''}${suffix}` };
 }
 export function resolvedTagMap(raw: Record<string, TagKind>, input: InternshipContext) {
   const dates = new Set(Object.keys(raw));
