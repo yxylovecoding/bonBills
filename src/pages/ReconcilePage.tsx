@@ -22,7 +22,7 @@ import { useExpenseScopeOverrideStore } from '../stores/expenseScopeOverrideStor
 import { useTripStore } from '../stores/tripStore';
 import { usePrefsStore } from '../stores/prefsStore';
 import { budgetCalendarTags, calcBudget } from '../calculations/budget';
-import { calculateRaiseSavings, calculateTransferAllocation, resolveRecurringIncomeBaseline, TRANSFER_KEYS, type TransferKey } from '../calculations/reconcileTransfers';
+import { calculateRaiseSavings, calculateTransferAllocation, resolveRaiseSavingsSettings, resolveRecurringIncomeBaseline, TRANSFER_KEYS, type TransferKey } from '../calculations/reconcileTransfers';
 import { calcHistoryStats } from '../calculations/history';
 import { calcAllocationRatios, calcRebalance, calcTopUpRebalance } from '../calculations/rebalance';
 import { calcRemainingRecurringInvestments, deductRecurringInvestments } from '../calculations/recurringInvestment';
@@ -261,6 +261,11 @@ function RebalanceSettingsModal({
   const [baselineDraft, setBaselineDraft] = useState(String(resolveRecurringIncomeBaseline(recurringIncomeBaseline)));
   const baselineValue = baselineDraft.trim() ? Number(tryEvalFormula(baselineDraft) ?? baselineDraft) : NaN;
   const baselineValid = Number.isFinite(baselineValue) && baselineValue >= 0;
+  const [raiseSettingsDraft, setRaiseSettingsDraft] = useState(() => resolveRaiseSavingsSettings(internshipConfig.raiseSavings));
+  const [manualRaiseDraft, setManualRaiseDraft] = useState(() => String(resolveRaiseSavingsSettings(internshipConfig.raiseSavings).manualRaiseAmount));
+  const manualRaiseValue = manualRaiseDraft.trim() ? Number(tryEvalFormula(manualRaiseDraft) ?? manualRaiseDraft) : NaN;
+  const manualRaiseValid = Number.isFinite(manualRaiseValue) && manualRaiseValue >= 0;
+  const savingsSettingsValid = !raiseSettingsDraft.enabled || (raiseSettingsDraft.mode === 'manual' ? manualRaiseValid : baselineValid);
   const initialSettings = useRef({ cities, allocation: JSON.stringify(groupedTargetInputs) });
   const total = INVEST_GROUPS.reduce((sum, group) => sum + (parseFloat(groupedTargetInputs.groups[group.key]) || 0), 0);
   const totalOk = Math.abs(total - 100) < 0.01;
@@ -317,21 +322,39 @@ function RebalanceSettingsModal({
           <div style={{ fontSize: 16, fontWeight: 700 }}>设置</div>
         </div>
         <div style={{ padding: '0 20px 4px' }}>
-          <label className="reconcile-settings-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 12, fontSize: 13 }}>
-            <span style={{ fontWeight: 700 }}>周期收入基本线</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: C.sub }}>
-              ¥
-              <AmountInput
-                aria-label="周期收入基本线"
-                value={baselineDraft}
-                onChange={setBaselineDraft}
-                decimalPlaces={2}
-                aria-invalid={!baselineValid}
-                style={{ width: 110, border: `1px solid ${baselineValid ? '#dadce0' : C.red}`, borderRadius: 8, padding: '6px 8px', fontSize: 13, textAlign: 'right' }}
-              />
-              /月
-            </span>
+          <label className="reconcile-settings-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 12, fontSize: 13, fontWeight: 700 }}>
+            <span>涨薪的一半存起来</span>
+            <input type="checkbox" role="switch" aria-label="涨薪的一半存起来" checked={raiseSettingsDraft.enabled}
+              onChange={event => setRaiseSettingsDraft(previous => ({ ...previous, enabled: event.target.checked }))}
+              style={{ accentColor: C.blue }} />
           </label>
+          {raiseSettingsDraft.enabled && <>
+            <label className="reconcile-settings-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 12, fontSize: 13 }}>
+              <span>计算方式</span>
+              <select aria-label="涨薪存半计算方式" value={raiseSettingsDraft.mode}
+                onChange={event => setRaiseSettingsDraft(previous => ({ ...previous, mode: event.target.value === 'manual' ? 'manual' : 'automatic' }))}
+                style={{ border: '1px solid #dadce0', borderRadius: 8, padding: '6px 8px', fontSize: 13, backgroundColor: '#fff' }}>
+                <option value="automatic">自动计算</option>
+                <option value="manual">手动填写涨薪</option>
+              </select>
+            </label>
+            <label className="reconcile-settings-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 12, fontSize: 13 }}>
+              <span>{raiseSettingsDraft.mode === 'manual' ? '每月涨薪金额' : '周期收入基本线'}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: C.sub }}>
+                ¥
+                <AmountInput
+                  key={raiseSettingsDraft.mode}
+                  aria-label={raiseSettingsDraft.mode === 'manual' ? '每月涨薪金额' : '周期收入基本线'}
+                  value={raiseSettingsDraft.mode === 'manual' ? manualRaiseDraft : baselineDraft}
+                  onChange={raiseSettingsDraft.mode === 'manual' ? setManualRaiseDraft : setBaselineDraft}
+                  decimalPlaces={2}
+                  aria-invalid={!savingsSettingsValid}
+                  style={{ width: 110, border: `1px solid ${savingsSettingsValid ? '#dadce0' : C.red}`, borderRadius: 8, padding: '6px 8px', fontSize: 13, textAlign: 'right' }}
+                />
+                /月
+              </span>
+            </label>
+          </>}
           <SceneCityFields value={cityDraft} onChange={setCityDraft} schoolLabel="默认上学城市" />
           <SchoolPeriods periods={internshipDraft.schoolPeriods ?? internshipConfig.schoolPeriods ?? []}
             onChange={schoolPeriods => setInternshipDraft(previous => ({ ...previous, schoolPeriods }))} onEditingChange={setEditingSchoolPeriod} />
@@ -453,15 +476,18 @@ function RebalanceSettingsModal({
             取消
           </button>
           <button onClick={() => {
-            if (!baselineValid || editingSchoolPeriod) return;
+            if (!savingsSettingsValid || editingSchoolPeriod) return;
             const cityChanges: SceneCitySettings = {};
             for (const key of ['homeCity', 'schoolCity'] as const) {
               if (JSON.stringify(cityDraft[key]) !== JSON.stringify(initialSettings.current.cities[key])) cityChanges[key] = cityDraft[key];
             }
-            onSave({ ...cityChanges, ...internshipDraft }, JSON.stringify(groupedTargetInputs) !== initialSettings.current.allocation, roundMoney(baselineValue));
+            onSave({ ...cityChanges, ...internshipDraft, raiseSavings: { ...raiseSettingsDraft,
+              manualRaiseAmount: manualRaiseValid ? roundMoney(manualRaiseValue) : resolveRaiseSavingsSettings(internshipConfig.raiseSavings).manualRaiseAmount,
+            } }, JSON.stringify(groupedTargetInputs) !== initialSettings.current.allocation,
+              baselineValid ? roundMoney(baselineValue) : resolveRecurringIncomeBaseline(recurringIncomeBaseline));
           }}
-            disabled={!baselineValid || editingSchoolPeriod}
-            style={{ padding: '8px 16px', borderRadius: 8, border: 'none', backgroundColor: baselineValid && !editingSchoolPeriod ? C.blue : '#dadce0', color: '#fff', fontSize: 13, fontWeight: 600, cursor: baselineValid && !editingSchoolPeriod ? 'pointer' : 'default' }}>
+            disabled={!savingsSettingsValid || editingSchoolPeriod}
+            style={{ padding: '8px 16px', borderRadius: 8, border: 'none', backgroundColor: savingsSettingsValid && !editingSchoolPeriod ? C.blue : '#dadce0', color: '#fff', fontSize: 13, fontWeight: 600, cursor: savingsSettingsValid && !editingSchoolPeriod ? 'pointer' : 'default' }}>
             保存
           </button>
         </div>
@@ -486,7 +512,7 @@ type ReconcileMode = 'monthStart' | 'monthMiddle';
 
 type ReconcileUndoState = {
   current: AccountSnapshot;
-  config: Pick<AppConfig, 'investAllocTargets' | 'dramDecision' | 'recurringIncomeBaseline'>;
+  config: Pick<AppConfig, 'investAllocTargets' | 'dramDecision' | 'recurringIncomeBaseline' | 'raiseSavings'>;
   revealConsumptionWishUsd: boolean;
   localAccounts: Record<keyof AccountSnapshot['accounts'], string>;
   revealedUsdAccounts: UsdVirtualAccountKey[];
@@ -525,6 +551,7 @@ const cloneReconcileUndoState = (state: ReconcileUndoState): ReconcileUndoState 
   current: cloneAccountSnapshot(state.current),
   config: {
     recurringIncomeBaseline: state.config.recurringIncomeBaseline,
+    raiseSavings: state.config.raiseSavings ? { ...state.config.raiseSavings } : undefined,
     investAllocTargets: { ...state.config.investAllocTargets },
     dramDecision: state.config.dramDecision ? { ...state.config.dramDecision } : undefined,
   },
@@ -1511,7 +1538,7 @@ export default function ReconcilePage() {
   // 一键执行转账：把已转金额加到对应账户，收入账户相应减少，然后已转归零
   // 校园卡 例外：钱来自信用卡刷一笔，所以不扣 incomeBank，而是挂到信用卡总待还
   const handleExecuteAll = () => {
-    const amounts = Object.fromEntries(TRANSFER_KEYS.map((key) => [key, parseAmountPart(localTransferred[key])])) as Record<TransferKey, number>;
+    const amounts = Object.fromEntries(TRANSFER_KEYS.map((key) => [key, key === 'raiseSavings' && config.raiseSavings?.enabled === false ? 0 : parseAmountPart(localTransferred[key])])) as Record<TransferKey, number>;
     executeTransfers(amounts, curYM);
     const updatedAccounts = useSnapshotStore.getState().current.accounts;
     setLocalAccounts((previous) => {
@@ -1528,7 +1555,7 @@ export default function ReconcilePage() {
   };
 
   const hasTransferChanges = TRANSFER_KEYS.some((k) => (
-    k === 'raiseSavings' ? parseAmountPart(localTransferred[k]) > 0 : parseAmountPart(localTransferred[k]) !== 0
+    k === 'raiseSavings' ? config.raiseSavings?.enabled !== false && parseAmountPart(localTransferred[k]) > 0 : parseAmountPart(localTransferred[k]) !== 0
   ));
 
   // 赎回长债超过阈值的部分用于还款：长债↓ → 储蓄卡↑（储蓄卡再抵信用卡本期待还）
@@ -1700,10 +1727,12 @@ export default function ReconcilePage() {
   // 校园卡走信用卡，不占工资 → 不计入「收入要补齐」的必要账户
   const essentialTotalForTransfer = repaymentShortfallForTransfer + livingShortfallForTransfer;
   const incomeAvailableForTransfer = current.accounts.incomeBank ?? 0;
+  const raiseSavingsSettings = resolveRaiseSavingsSettings(config.raiseSavings);
   const raiseSavings = calculateRaiseSavings({
     incomeItems: actualIncomeItems[curYM] ?? [],
     today: formatDateKey(today),
     baseline: config.recurringIncomeBaseline,
+    settings: config.raiseSavings,
     saved: current.raiseSavingsByMonth?.[curYM],
   });
   const {
@@ -1755,6 +1784,7 @@ export default function ReconcilePage() {
     current: cloneAccountSnapshot(current),
     config: {
       recurringIncomeBaseline: config.recurringIncomeBaseline,
+      raiseSavings: config.raiseSavings ? { ...config.raiseSavings } : undefined,
       investAllocTargets: { ...config.investAllocTargets },
       dramDecision: config.dramDecision ? { ...config.dramDecision } : undefined,
     },
@@ -1777,7 +1807,7 @@ export default function ReconcilePage() {
     dramConfigInputs: { ...dramConfigInputs },
     localFundingLeg: { ...localFundingLeg },
   }), [
-    allowRebalanceSell, config.dramDecision, config.investAllocTargets, config.recurringIncomeBaseline, confirmed, consumptionWishOpen,
+    allowRebalanceSell, config.dramDecision, config.investAllocTargets, config.recurringIncomeBaseline, config.raiseSavings, confirmed, consumptionWishOpen,
     current, dramConfigInputs, groupedTargetInputs, investUsdCnyInput, investUsdInputMode,
     localAccounts, localFundingLeg, localHoldings, localTransferred, localUsStockItems,
     reconcileMode, revealConsumptionWishUsd, revealedUsdAccounts,
@@ -1834,6 +1864,7 @@ export default function ReconcilePage() {
     restoreCurrent(cloneAccountSnapshot(previous.state.current));
     setConfig({
       recurringIncomeBaseline: previous.state.config.recurringIncomeBaseline,
+      raiseSavings: previous.state.config.raiseSavings ? { ...previous.state.config.raiseSavings } : undefined,
       investAllocTargets: { ...previous.state.config.investAllocTargets },
       dramDecision: previous.state.config.dramDecision ? { ...previous.state.config.dramDecision } : undefined,
     });
@@ -2322,6 +2353,11 @@ export default function ReconcilePage() {
           }}
           onClose={() => setSettingsOpen(false)}
           onSave={(cities, allocationChanged, recurringIncomeBaseline) => {
+            if (JSON.stringify(resolveRaiseSavingsSettings(cities.raiseSavings)) !== JSON.stringify(raiseSavingsSettings)
+              || recurringIncomeBaseline !== resolveRecurringIncomeBaseline(config.recurringIncomeBaseline)) {
+              setLocalTransferred(previous => ({ ...previous, raiseSavings: '0' }));
+              setConfirmed(previous => ({ ...previous, raiseSavings: 0 }));
+            }
             setConfig({ ...cities, recurringIncomeBaseline, ...(allocationChanged ? { investAllocTargets: groupedTargetInputsToConfig(groupedTargetInputs) } : {}) });
             setSettingsOpen(false);
           }}
@@ -2645,7 +2681,9 @@ export default function ReconcilePage() {
             {
               key: 'raiseSavings',
               rec: raiseSavings.remaining,
-              calc: `（周期收入¥${formatCurrency(raiseSavings.recurringIncome)} − 基本线¥${formatCurrency(raiseSavings.baseline)} + 波动收入¥${formatCurrency(raiseSavings.volatileIncome)}）÷ 2；本月应存¥${formatCurrency(raiseSavings.target)}，已存¥${formatCurrency(raiseSavings.saved)} → 人民币理财现金`,
+              calc: raiseSavingsSettings.mode === 'manual'
+                ? `涨薪¥${formatCurrency(raiseSavingsSettings.manualRaiseAmount)} ÷ 2；本月应存¥${formatCurrency(raiseSavings.target)}，已存¥${formatCurrency(raiseSavings.saved)} → 人民币理财现金`
+                : `（周期收入¥${formatCurrency(raiseSavings.recurringIncome)} − 基本线¥${formatCurrency(raiseSavings.baseline)} + 波动收入¥${formatCurrency(raiseSavings.volatileIncome)}）÷ 2；本月应存¥${formatCurrency(raiseSavings.target)}，已存¥${formatCurrency(raiseSavings.saved)} → 人民币理财现金`,
             },
             {
               key: 'campusCard',
@@ -2680,7 +2718,7 @@ export default function ReconcilePage() {
               calc: `可分配¥${fmtInt(incomeAfterEssentialsForTransfer)}×50%`,
             },
           ];
-          return transferRows.map((row, i) => {
+          return transferRows.filter(row => row.key !== 'raiseSavings' || raiseSavingsSettings.enabled).map((row, i) => {
             const transferred = row.key === 'raiseSavings'
               ? Math.max(parseAmountPart(localTransferred[row.key]), 0)
               : parseAmountPart(localTransferred[row.key]);

@@ -363,6 +363,12 @@ export interface SchoolPeriod {
   city: SceneCity | null;
 }
 
+export interface RaiseSavingsSettings {
+  enabled?: boolean; // 缺省开启，兼容已启用涨薪存半的旧数据
+  mode?: 'automatic' | 'manual';
+  manualRaiseAmount?: number; // 手动填写的每月涨薪金额
+}
+
 export interface AppConfig {
   homeCity?: SceneCity | null; // 寄
   schoolCity?: SceneCity | null; // 上学城市
@@ -401,6 +407,7 @@ export interface AppConfig {
   creditPrepDays: number;     // 5
   reconcileDates: number[];   // [1, 11, 21]
   incomeItems: IncomeItem[];
+  raiseSavings?: RaiseSavingsSettings;
   recurringIncomeBaseline?: number; // 涨薪优先储蓄的周期收入基本线，默认 4060 元/月
   futureFireExpenses: FutureFireExpense[];
   majorFireWishes?: MajorFireWish[];

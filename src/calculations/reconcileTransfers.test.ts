@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BillIncomeItem } from '../utils/importBill';
 import { getAccountStorage } from '../utils/accountCache';
 import { mergeSyncValue } from '../utils/syncMerge';
+import { DEFAULT_CONFIG, useConfigStore } from '../stores/configStore';
 import { DEFAULT_SNAPSHOT, useSnapshotStore } from '../stores/snapshotStore';
-import { calculateRaiseSavings, calculateTransferAllocation, resolveRecurringIncomeBaseline } from './reconcileTransfers';
+import { calculateRaiseSavings, calculateTransferAllocation, resolveRaiseSavingsSettings, resolveRecurringIncomeBaseline } from './reconcileTransfers';
 
 const today = '2026-10-21';
 const month = '2026-10';
@@ -170,5 +171,59 @@ describe('涨薪储蓄执行与持久化', () => {
     const remote = { ...base, raiseSavingsByMonth: { '2026-09': 1000 } };
     const merged = mergeSyncValue(base, local, remote);
     expect(merged).toMatchObject({ accounts: { incomeBank: 6500, investCnyBank: 1500 }, raiseSavingsByMonth: { '2026-09': 1000, '2026-10': 1500 } });
+  });
+});
+
+
+describe('涨薪存半开关与手动方式', () => {
+  it('旧配置默认开启自动方式，手动零值与明确关闭保留', () => {
+    expect(resolveRaiseSavingsSettings()).toEqual({ enabled: true, mode: 'automatic', manualRaiseAmount: 0 });
+    expect(resolveRaiseSavingsSettings({ enabled: false, mode: 'manual', manualRaiseAmount: 0 }))
+      .toEqual({ enabled: false, mode: 'manual', manualRaiseAmount: 0 });
+  });
+
+  it.each([[2000, 1000], [0, 0], [0.01, 0.01], [2000.03, 1000.02], [-10, 0], [NaN, 0]])(
+    '手动涨薪 %s 时应存 %s，与账单和基本线无关', (manualRaiseAmount, target) => {
+      for (const incomeItems of [[], monthlyIncome, [income(50000, '周期收入'), income(90000, '波动收入')]]) {
+        expect(calculateRaiseSavings({ incomeItems, today, baseline: 0, settings: { mode: 'manual', manualRaiseAmount } }).target).toBe(target);
+      }
+    },
+  );
+
+  it('关闭后不预留，重开或切换方式共用原有已存金额', () => {
+    const input = { incomeItems: monthlyIncome, today, saved: 500 };
+    expect(calculateRaiseSavings({ ...input, settings: { enabled: false } })).toMatchObject({ target: 0, saved: 500, remaining: 0 });
+    expect(calculateRaiseSavings({ ...input, settings: { mode: 'manual', manualRaiseAmount: 2000 } })).toMatchObject({ target: 1000, remaining: 500 });
+    expect(calculateRaiseSavings({ ...input, settings: { mode: 'manual', manualRaiseAmount: 600 } }).remaining).toBe(0);
+    expect(calculateRaiseSavings({ ...input, settings: { enabled: true, mode: 'automatic' } }).remaining).toBe(1000);
+  });
+
+  it('手动模式部分执行、刷新和跨月不重复计入，普通理财独立', async () => {
+    useSnapshotStore.setState({ current: structuredClone(DEFAULT_SNAPSHOT), history: [] });
+    const settings = { mode: 'manual' as const, manualRaiseAmount: 2000 };
+    const result = (date = today) => calculateRaiseSavings({ incomeItems: [], today: date, settings,
+      saved: useSnapshotStore.getState().current.raiseSavingsByMonth?.[date.slice(0, 7)] });
+    useSnapshotStore.getState().executeTransfers({ raiseSavings: 300, invest: 700 }, month);
+    await useSnapshotStore.persist.rehydrate();
+    expect(result().remaining).toBe(700);
+    useSnapshotStore.getState().executeTransfers({ raiseSavings: result().remaining }, month);
+    expect(result().remaining).toBe(0);
+    expect(result('2026-11-01').remaining).toBe(1000);
+    expect(useSnapshotStore.getState().current.raiseSavingsByMonth).toEqual({ [month]: 1000 });
+  });
+
+  it('配置支持持久化及云端合并，开关不会丢失已填的手动金额', async () => {
+    const original = useConfigStore.getState().config;
+    try {
+      useConfigStore.getState().setConfig({ raiseSavings: { enabled: false, mode: 'manual', manualRaiseAmount: 2000 } });
+      await useConfigStore.persist.rehydrate();
+      expect(useConfigStore.getState().config.raiseSavings).toEqual({ enabled: false, mode: 'manual', manualRaiseAmount: 2000 });
+      const base = { raiseSavings: DEFAULT_CONFIG.raiseSavings };
+      const local = { raiseSavings: { ...DEFAULT_CONFIG.raiseSavings, enabled: false } };
+      const remote = { raiseSavings: { ...DEFAULT_CONFIG.raiseSavings, mode: 'manual', manualRaiseAmount: 2000 } };
+      expect(mergeSyncValue(base, local, remote)).toEqual({ raiseSavings: { enabled: false, mode: 'manual', manualRaiseAmount: 2000 } });
+    } finally {
+      useConfigStore.setState({ config: original });
+    }
   });
 });

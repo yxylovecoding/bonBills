@@ -19,6 +19,35 @@ const base: WishInternPlanOptions = { today: new Date(2026, 10, 2), deadline: wi
 for (const dated of [false, true]) {
   const options: WishInternPlanOptions = { ...base, ...(dated ? { internship: { config: { schoolCity: BEIJING, internshipPeriods: [period] } } } : {}) };
   describe(`${dated ? '实习期' : '旧日薪'}心愿涨薪存半`, () => {
+    it('关闭时不预留，推荐天数恢复只满足原有分配', () => {
+      const incomeItems = dated ? [] : [dailyIncome];
+      const result = calculateWishInternPlan({ ...options, incomeItems, wishes: [wish], raiseSavings: { enabled: false } });
+      expect(result).toMatchObject({ minimumInternDays: 6, projectedRaiseSavings: 0, projectedWishSaving: 2400, projectedInvestmentSaving: 3000 });
+    });
+    it('手动按每月金额预留，不随收入或基本线变化', () => {
+      const incomeItems = dated ? [] : [dailyIncome];
+      const result = calculateWishInternPlan({ ...options, incomeItems, wishes: [wish], recurringIncomeBaseline: 0,
+        raiseSavings: { mode: 'manual', manualRaiseAmount: 2000 } });
+      expect(result).toMatchObject({ minimumInternDays: 7, projectedRaiseSavings: 1000, projectedWishSaving: 2400, projectedInvestmentSaving: 4000 });
+      const increased = calculateWishInternPlan({ ...options, incomeItems, selectedInternDays: 10,
+        raiseSavings: { mode: 'manual', manualRaiseAmount: 2000 } });
+      expect(increased.projectedRaiseSavings).toBe(1000);
+    });
+    it('手动模式跨月各预留一次，无收入月份仍保留应存目标', () => {
+      const result = calculateWishInternPlan({ ...options, deadline: '2026-12-20', incomeItems: [fixedIncome(6060)],
+        raiseSavings: { mode: 'manual', manualRaiseAmount: 3000 } });
+      expect(result).toMatchObject({ projectedRaiseSavings: 3000, projectedSurplus: 9120 });
+      const noIncome = calculateWishInternPlan({ ...options, deadline: '2026-11-02', tagMap: { '2026-11-02': 'home' },
+        raiseSavings: { mode: 'manual', manualRaiseAmount: 2000 } });
+      expect(noIncome).toMatchObject({ recommendedIncome: 0, projectedRaiseSavings: 1000, projectedSurplus: -1000 });
+    });
+    it('首页截止日规划透传开关和手动金额', () => {
+      const incomeItems = dated ? [] : [dailyIncome];
+      const settings = { mode: 'manual' as const, manualRaiseAmount: 2000 };
+      const result = calculateWishMilestonePlan({ ...options, incomeItems, wishes: [wish], repaymentDues: [], raiseSavings: settings });
+      expect(result.segments[0].cumulativePlan).toMatchObject({ minimumInternDays: 7, projectedRaiseSavings: 1000 });
+    });
+
     it('先从周期收入存一半涨幅，再分配生活开支和余款；理财汇总包含预留', () => {
       const result = calculateWishInternPlan({ ...options, incomeItems: [fixedIncome(6060)], repaymentsByMonth: { '2026-11': 2000 } });
       expect(result).toMatchObject({ recommendedIncome: 6060, projectedRaiseSavings: 1000, projectedSurplus: 3060,
@@ -104,5 +133,21 @@ describe('按月预留与推荐日期', () => {
     expect(result.segments[0].cumulativePlan.minimumInternDays).toBe(4);
     expect(result.segments[1].cumulativePlan).toMatchObject({ selectedInternDays: 8, projectedRaiseSavings: 1970, projectedWishSaving: 2412, shortfall: 0 });
     for (const date of result.segments[0].minimumInternDateKeys) expect(result.segments[1].minimumInternDateKeys).toContain(date);
+  });
+});
+
+
+describe('月度预留方式', () => {
+  it('月度收入需求支持关闭、手动和零涨薪', () => {
+    expect(wishRequiredIncome(5060, 0, { enabled: false })).toBe(5060);
+    expect(wishRequiredIncome(5060, 0, { mode: 'manual', manualRaiseAmount: 2000 })).toBe(6060);
+    expect(wishRequiredIncome(5060, 0, { mode: 'manual', manualRaiseAmount: 0 })).toBe(5060);
+    expect(calculateWishPlan([{ ...wish, targetAmount: 2024 }], { today: base.today, raiseSavings: { enabled: false } }).months[0].requiredNetIncome).toBe(5060);
+  });
+  it('工资延后到账不多预留一个月，按规划覆盖月份计算手动应存', () => {
+    const result = calculateWishInternPlan({ ...base, wishes: [wish],
+      internship: { config: { schoolCity: BEIJING, internshipPeriods: [{ ...period, rules: { ...period.rules, payMonthOffset: 1 } }] } },
+      raiseSavings: { mode: 'manual', manualRaiseAmount: 2000 } });
+    expect(result).toMatchObject({ minimumInternDays: 7, projectedRaiseSavings: 1000, projectedWishSaving: 2400 });
   });
 });

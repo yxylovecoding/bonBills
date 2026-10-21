@@ -42,6 +42,7 @@ export interface WishMilestonePlanOptions {
   wishes: WishItem[];
   incomeItems: IncomeItem[];
   recurringIncomeBaseline?: number;
+  raiseSavings?: import('../models/types').RaiseSavingsSettings;
   tagMap: Record<string, TagKind>;
   stateDailyAvg: Record<TagKind, number>;
   repaymentDues: WishRepaymentDue[];

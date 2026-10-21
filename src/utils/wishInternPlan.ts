@@ -96,6 +96,7 @@ export interface WishInternPlanOptions {
   wishes: WishItem[];
   incomeItems: IncomeItem[];
   recurringIncomeBaseline?: number;
+  raiseSavings?: import('../models/types').RaiseSavingsSettings;
   tagMap: Record<string, TagKind>;
   stateDailyAvg: Record<TagKind, number>;
   repaymentsByMonth: Record<string, number>;
@@ -354,7 +355,7 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
     group.marginalIncome.forEach(amount => cumulative.push(cumulative[cumulative.length - 1] + amount));
     return { yearMonth: group.id, dates: group.dates, income: (count: number) => cumulative[count],
       gains: cumulative.map((amount, count) => amount - count * expenseDeltaPerInternDay) };
-  }), incomeInRangeResult.byMonth, options.recurringIncomeBaseline);
+  }), incomeInRangeResult.byMonth, options.recurringIncomeBaseline, options.raiseSavings, months.map(month => month.yearMonth));
   const baselineCoreSurplus = minimumIncome - savingsPlan.baseSavings - baselineLifeExpense - repayment;
   const chosen = chooseInternDays(savingsPlan.groups, requiredCoreSurplus - baselineCoreSurplus,
     options.selectedInternDays == null ? null : options.selectedInternDays - fixedWorkingDates.length);

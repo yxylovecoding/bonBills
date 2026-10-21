@@ -135,7 +135,7 @@ export function calculateDatedWishInternPlan(o: WishInternPlanOptions): WishInte
     .reduce((sum, [, amount]) => sum + Math.max(0, amount || 0), 0);
   const minimumIncome = baseDetails.reduce((sum, i) => sum + i.amount, 0);
   const requiredCore = wishAmount / POST_LIFE_WISH_SHARE;
-  const savingsPlan = reserveWishIncomeGroups(groups, baseIncomeByMonth, o.recurringIncomeBaseline);
+  const savingsPlan = reserveWishIncomeGroups(groups, baseIncomeByMonth, o.recurringIncomeBaseline, o.raiseSavings, [...new Set(dates.map(date => date.slice(0, 7)))]);
   const baselineCore = minimumIncome - savingsPlan.baseSavings - baselineLifeExpense - repayment;
   const chosen = chooseInternDays(savingsPlan.groups, requiredCore - baselineCore,
     o.selectedInternDays == null ? null : o.selectedInternDays - fixed.length);
