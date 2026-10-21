@@ -53,9 +53,13 @@ export function internshipStart(config: Partial<AppConfig>): string | undefined 
     .filter((date): date is string => Boolean(date && validDate(date))).sort()[0];
 }
 export function migratedProfiles(config: Partial<AppConfig>): InternshipProfile[] {
-  if (config.internshipProfiles) return config.internshipProfiles;
+  if (config.internshipProfiles) return config.internshipProfiles.map(profile => {
+    const legacy = (config.incomeItems ?? []).find(item => item.id === profile.legacyIncomeId);
+    return profile.legacyIncomeId && (profile.name === '当前公司' || profile.name === legacy?.name)
+      ? { ...profile, name: '字节模式' } : profile;
+  });
   return (config.incomeItems ?? []).filter(i => i.dailyRate !== undefined && i.tagKind === 'intern').map(i => ({
-    id: `company_${i.id}`, name: i.name || '当前公司', revision: 1, legacyIncomeId: i.id,
+    id: `company_${i.id}`, name: '字节模式', revision: 1, legacyIncomeId: i.id,
     rules: { ...DEFAULT_INTERNSHIP_RULES, salary: i.dailyRate!, taxRuleText: i.taxRuleText,
       cycle: 'beforePay', payMonthOffset: 0, payKind: 'lastWorkingDay' },
   }));
