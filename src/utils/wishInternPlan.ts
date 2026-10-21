@@ -1,3 +1,6 @@
+import { internshipStart, type InternshipContext } from './internship';
+import { calculateDatedWishInternPlan } from './datedWishInternPlan';
+import type { CurrentStats } from '../models/types';
 import type { IncomeItem, TagKind, WishItem } from '../models/types';
 import type { HolidayDataByYear } from './holidays';
 import {
@@ -83,6 +86,9 @@ export interface WishInternPlan {
 }
 
 export interface WishInternPlanOptions {
+  internship?: InternshipContext;
+  cityLivingStats?: CurrentStats['cityLivingStats'];
+  requiredDates?: string[];
   today: Date;
   deadline: string;
   wishes: WishItem[];
@@ -189,6 +195,7 @@ function normalizedDailyAverage(value: number): number {
 }
 
 export function calculateWishInternPlan(options: WishInternPlanOptions): WishInternPlan {
+  if (options.internship && internshipStart(options.internship.config)) return calculateDatedWishInternPlan(options);
   const today = startOfDay(options.today);
   const requestedDeadline = parseDateKey(options.deadline);
   const end = requestedDeadline && requestedDeadline >= today ? requestedDeadline : today;

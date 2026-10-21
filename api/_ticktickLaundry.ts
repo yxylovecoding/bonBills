@@ -2,6 +2,8 @@ import { kv } from './_accountKv.js';
 import { upstream } from './_bonClothes.js';
 import type { SceneCity } from '../src/models/types.js';
 import { readSceneCity } from '../src/utils/sceneCities.js';
+import { normalizeDayOverrides, resolveDailyContext, resolveCalendarState } from '../src/utils/internship.js';
+import type { AppConfig, TagKind } from '../src/models/types.js';
 import type { OutlookAvailability } from '../src/utils/outlookCalendar.js';
 import { dayAvailability, type AvailabilityProfile } from './_dailyAvailability.js';
 import { cycleEnd, estimateTaskMinutes } from './_ticktickDailyPlan.js';
@@ -26,9 +28,11 @@ interface Anchor { projectId: string; repeatFlag: string; completion?: string; t
 export interface LaundryState { connectionId: string; anchors: Record<string, Anchor> }
 export interface LaundryDecision { id: string; target?: string; date?: string; reason: string; location?: string }
 
-export function laundryLocation(configState: unknown): SceneCity | null {
-  const config = (configState as { config?: { schoolCity?: unknown } } | null)?.config;
-  return readSceneCity(config?.schoolCity);
+export function laundryLocation(configState: unknown, date?: string, calendarState?: unknown): SceneCity | null {
+  const config = (configState as { config?: AppConfig } | null)?.config;
+  if (!date) return readSceneCity(config?.schoolCity);
+  const calendar = calendarState as { tagMap?: Record<string, TagKind>; dayOverrides?: unknown } | null;
+  return resolveDailyContext(date, calendar?.tagMap?.[date], { config: config ?? {}, dayOverrides: normalizeDayOverrides(calendar?.dayOverrides) }).city;
 }
 
 export async function readLaundryForecast(location: SceneCity, today: string, now = new Date()): Promise<LaundryForecast> {
@@ -198,6 +202,7 @@ async function moveLaundry(api: TickTickApi, original: TickTickTask, date: strin
 }
 
 export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions & { connectionId: string; excludedTaskIds?: ReadonlySet<string> }) {
+  options = { ...options, calendarState: resolveCalendarState(options.configState, options.calendarState) };
   const byId = new Map(options.tasks.map(task => [task.id, task]));
   const excluded = (task: TickTickTask) => {
     const seen = new Set<string>();
@@ -213,7 +218,6 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
   if (!tasks.length) return { updated: 0, managedTaskIds, decisions };
   const saved = await kv.get<LaundryState>(LAUNDRY_STATE_KEY);
   const state: LaundryState = saved?.connectionId === options.connectionId ? saved : { connectionId: options.connectionId, anchors: {} };
-  const location = laundryLocation(options.configState);
   const forecasts = new Map<string, Promise<LaundryForecast>>();
   let updated = 0;
   for (const task of tasks) {
@@ -222,6 +226,7 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
     // Persist the original cycle before any write; failed/partial retries cannot drift the window.
     await kv.set(LAUNDRY_STATE_KEY, state);
     const day = routineTaskDate(task)!;
+    const location = laundryLocation(options.configState, day, options.calendarState);
     const defaultStart = task.isAllDay === false ? Date.parse(task.startDate ?? task.dueDate ?? '') : Date.parse(`${day}T08:00:00+08:00`);
     const defaultDay = Number.isFinite(defaultStart) ? calendarDateInTimeZone(new Date(defaultStart).toISOString()) : null;
     const appointments = (options.availability?.events ?? []).filter(event => event.taskLink?.taskId === task.id
@@ -246,7 +251,7 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
         continue;
       }
       if (changed) updated++;
-      decisions.push({ id: task.id, target: anchor.target, date: anchor.target, location: location?.name,
+      decisions.push({ id: task.id, target: anchor.target, date: anchor.target, location: laundryLocation(options.configState, anchor.target, options.calendarState)?.name,
         reason: '按最近一次实际完成日期和四天固定间隔排期' });
       continue;
     }
@@ -263,12 +268,16 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
         : { id: task.id, target: anchor.target, date: beforeTrip, reason: '周期目标日位于出行期间，固定到出行前一天' });
       continue;
     }
-    if (!location) { decisions.push({ id: task.id, target: anchor.target, reason: '尚未设置居的城市，保留原排期' }); continue; }
+    if (!WEATHER_DAY_OFFSETS.some(offset => laundryLocation(options.configState, addDays(anchor.target, offset), options.calendarState))) {
+      decisions.push({ id: task.id, target: anchor.target, reason: '尚未设置居的城市，保留原排期' }); continue;
+    }
     if (!options.availability) { decisions.push({ id: task.id, target: anchor.target, reason: '日程不可用，保留原排期' }); continue; }
     const weatherByDay = new Map<string, LaundryForecast>(), names = new Map<string, string>();
     for (const offset of WEATHER_DAY_OFFSETS) {
       const date = addDays(anchor.target, offset);
       if (date < options.today || date > addDays(options.today, 14)) continue;
+      const location = laundryLocation(options.configState, date, options.calendarState);
+      if (!location) continue;
       const key = `${location.latitude.toFixed(3)}:${location.longitude.toFixed(3)}`;
       if (!forecasts.has(key)) forecasts.set(key, readLaundryForecast(location, options.today, options.now));
       try { weatherByDay.set(date, await forecasts.get(key)!); names.set(date, location.name); }

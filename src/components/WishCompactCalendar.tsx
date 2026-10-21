@@ -1,3 +1,5 @@
+import { internshipCutoffDates } from '../utils/internshipPayroll';
+import { internshipStart, resolveDailyContext, type InternshipContext } from '../utils/internship';
 import { useMemo } from 'react';
 import { tagMeta } from '../data/mockData';
 import type { TagKind } from '../models/types';
@@ -18,6 +20,7 @@ interface WishCompactCalendarProps {
   scheduledInternDates: string[];
   confirmedExpenses: Record<string, ConfirmedExpenseSelection>;
   holidayDataByYear: HolidayDataByYear;
+  internship?: InternshipContext;
   showPayrollCutoffMarkers: boolean;
   onPreviousMonth: () => void;
   onNextMonth: () => void;
@@ -46,6 +49,7 @@ export default function WishCompactCalendar({
   scheduledInternDates,
   confirmedExpenses,
   holidayDataByYear,
+  internship,
   showPayrollCutoffMarkers,
   onPreviousMonth,
   onNextMonth,
@@ -55,6 +59,7 @@ export default function WishCompactCalendar({
   const daysInMonth = new Date(year, month, 0).getDate();
   const firstWeekdayIndex = (new Date(year, month0, 1).getDay() + 6) % 7;
   const scheduledInternSet = useMemo(() => new Set(scheduledInternDates), [scheduledInternDates]);
+  const internshipCutoffs = useMemo(() => internship ? internshipCutoffDates(internship, tagMap, year, month0) : [], [internship, tagMap, year, month0]);
   const payrollCutoffDate = useMemo(
     () => getPayrollScheduleForMonth(year, month0, holidayDataByYear).cutoffDate,
     [holidayDataByYear, month0, year],
@@ -125,7 +130,9 @@ export default function WishCompactCalendar({
           const displayTag: TagKind = scheduledInternSet.has(cell.key)
             ? 'intern'
             : tagMap[cell.key] ?? 'school';
-          const meta = tagMeta[displayTag];
+          const dayContext = internship ? resolveDailyContext(cell.key, displayTag, { ...internship, dayOverrides: { ...internship.dayOverrides, [cell.key]: { ...internship.dayOverrides?.[cell.key], attendance: scheduledInternSet.has(cell.key) ? 'work' : 'rest' } } }) : null;
+          const meta = tagMeta[dayContext?.tag ?? displayTag];
+          const sceneLabel = dayContext?.period ? dayContext.label : meta.label;
           const inInterval = cell.key >= intervalStartDate && cell.key <= intervalEndDate;
           const inHighlightedRange = cell.key >= highlightedStartDate && cell.key <= highlightedEndDate;
           const confirmed = confirmedExpenses[cell.key];
@@ -134,7 +141,7 @@ export default function WishCompactCalendar({
             && confirmed.localIds.length === 0
             && (confirmed.sharedIds?.length ?? 0) === 0;
           const isToday = cell.key === today;
-          const isPayrollCutoff = showPayrollCutoffMarkers && cell.key === payrollCutoffDate;
+          const isPayrollCutoff = showPayrollCutoffMarkers && (internshipCutoffs.includes(cell.key) || ((!internship || !internshipStart(internship.config) || cell.key < internshipStart(internship.config)!) && cell.key === payrollCutoffDate));
           const backgroundColor = `${meta.color}20`;
           const markerLabel = holidayMarker
             ? `，${holiday?.name ?? '法定节假日'}，${holidayMarker === '休' ? '休假' : '调休上班'}`
@@ -143,8 +150,8 @@ export default function WishCompactCalendar({
             <span
               key={cell.key}
               className="wish-compact-calendar-day"
-              aria-label={`${cell.key}，${meta.label}${markerLabel}`}
-              title={`${cell.key} · ${meta.label}${holidayMarker ? ` · ${holiday?.name ?? holidayMarker}` : ''}`}
+              aria-label={`${cell.key}，${sceneLabel}${markerLabel}`}
+              title={`${cell.key} · ${sceneLabel}${holidayMarker ? ` · ${holiday?.name ?? holidayMarker}` : ''}`}
               style={{
                 color: meta.color,
                 backgroundColor,
@@ -160,7 +167,7 @@ export default function WishCompactCalendar({
                 <i className={`wish-compact-calendar-confirmed${isZeroConfirmed ? ' wish-compact-calendar-confirmed--zero' : ''}`} />
               ) : null}
               <span>{cell.day}</span>
-              <small>{meta.icon}</small>
+              <small>{dayContext?.period ? sceneLabel : meta.icon}</small>
               {(isPayrollCutoff || holidayMarker) ? (
                 <em>
                   {isPayrollCutoff ? <b className="wish-payroll-cutoff">截</b> : null}

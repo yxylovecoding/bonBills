@@ -1,3 +1,5 @@
+import { internshipStart } from './internship';
+import type { WishInternPlanOptions } from './wishInternPlan';
 import type { IncomeItem, TagKind, WishItem } from '../models/types';
 import type { HolidayDataByYear } from './holidays';
 import { calculateWishInternPlan, type WishInternPlan } from './wishInternPlan';
@@ -35,6 +37,8 @@ export interface WishMilestonePlan {
 }
 
 export interface WishMilestonePlanOptions {
+  internship?: WishInternPlanOptions['internship'];
+  cityLivingStats?: WishInternPlanOptions['cityLivingStats'];
   today: Date;
   wishes: WishItem[];
   incomeItems: IncomeItem[];
@@ -161,6 +165,7 @@ export function calculateWishMilestonePlan(options: WishMilestonePlanOptions): W
 
   const deadlines = [...wishesByDeadline.keys()].sort();
   const cumulativePlans = deadlines.map((deadline) => calculateWishInternPlan({
+    internship: options.internship, cityLivingStats: options.cityLivingStats,
     today: options.today,
     deadline,
     wishes: options.wishes,
@@ -177,15 +182,18 @@ export function calculateWishMilestonePlan(options: WishMilestonePlanOptions): W
   const assignedDateSet = new Set<string>();
   for (let index = 0; index < deadlines.length; index += 1) {
     const deadline = deadlines[index];
-    const cumulativePlan = cumulativePlans[index];
+    const dated = options.internship && internshipStart(options.internship.config);
+    const cumulativePlan = dated ? calculateWishInternPlan({ ...options, deadline, requiredDates: [...assignedDateSet],
+      repaymentsByMonth: repaymentsThroughDeadline(options.repaymentDues, todayKey, deadline) }) : cumulativePlans[index];
     const wishes = wishesByDeadline.get(deadline) ?? [];
     const requiredCumulativeDays = cumulativePlan.recommendedDates.length;
     const additionalRequiredDays = Math.max(requiredCumulativeDays - assignedDateSet.size, 0);
-    const assignedInternDateKeys = assignBalancedInternDates(
+    const assignedInternDateKeys = dated ? cumulativePlan.recommendedDates.filter(date => !assignedDateSet.has(date)) : assignBalancedInternDates(
       cumulativePlan,
       assignedDateSet,
       additionalRequiredDays,
     );
+    assignedInternDateKeys.forEach(date => assignedDateSet.add(date));
     const cumulativeRecommendedDates = [...assignedDateSet].sort();
     const wishIds = wishes.map((wish) => wish.id);
     const wishNames = wishes.map((wish) => wish.name.trim()).filter(Boolean);

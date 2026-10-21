@@ -1,3 +1,6 @@
+import { internshipStart, resolveDailyContext } from '../utils/internship';
+import InternshipSettings from '../components/InternshipSettings';
+import { useLifeCalendar } from '../hooks/useLifeCalendar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -29,7 +32,7 @@ import { tagMeta } from '../data/mockData';
 import type { FutureFireExpense, IncomeItem, MajorFireWish, TagKind, LocalLifeBreakdownRow, MonthlyRecord, SharedLifeBreakdownItem, SharedLifeBreakdownRow } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
-import { dateLabel, daysUntilDate, resolveIncomeForMonth } from '../utils/payroll';
+import { dateLabel, daysUntilDate, resolveAllIncomeForMonth } from '../utils/payroll';
 import { calculateCreditRepaymentPlan, getPlanningLongBondTotal } from '../utils/creditRepayment';
 import { getAverageAnnualizedRate, getInvestTotalForRate, getYearInvestmentReturn } from '../utils/investRecords';
 import {
@@ -51,7 +54,7 @@ import {
 import { version as APP_VERSION } from '../../package.json';
 import { useSyncStatus } from '../utils/syncStatus';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '涨薪存半';
+const RELEASE_NOTE = '异地实习';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const EMPTY_DATE_KEYS: string[] = [];
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
@@ -245,7 +248,8 @@ export default function HomePage() {
   const { current } = useSnapshotStore();
   const { config, setConfig } = useConfigStore();
   const { records } = useMonthlyStore();
-  const { tagMap, confirmedExpenses, setTag, outlookTravelTitles } = useCalendarStore();
+  const { confirmedExpenses, setTag, outlookTravelTitles } = useCalendarStore();
+  const { tagMap, internship } = useLifeCalendar();
   const { expenseItems } = useBillDetailStore();
   const { overrides: expenseScopeOverrides } = useExpenseScopeOverrideStore();
   const { tripTags, tripNotes, tripSplits } = useTripStore();
@@ -273,8 +277,8 @@ export default function HomePage() {
     [records, twoYearsAgo],
   );
   const stats = useMemo(
-    () => calcHistoryStats(filteredRecords, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides, tripTags),
-    [filteredRecords, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides, tripTags],
+    () => calcHistoryStats(filteredRecords, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides, tripTags, internship),
+    [filteredRecords, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides, tripTags, internship],
   );
   const tripDatesByStart = useMemo(
     () => Object.fromEntries(allTripSegments.map((trip) => [trip.startDate, trip.dates])),
@@ -351,6 +355,7 @@ export default function HomePage() {
       today,
       wishes,
       incomeItems: config.incomeItems,
+      internship, cityLivingStats: stats.cityLivingStats,
       tagMap,
       stateDailyAvg: stats.stateDailyAvg,
       repaymentDues,
@@ -359,7 +364,7 @@ export default function HomePage() {
     }),
     // todayKey 每日变化一次，避免 Date 实例导致无意义的重复计算。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [config.incomeItems, holidayDataByYear, wishes, repaymentDues, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart],
+    [internship, stats.cityLivingStats, config.incomeItems, holidayDataByYear, wishes, repaymentDues, stats.stateDailyAvg, tagMap, todayKey, tripDatesByStart],
   );
   const maximumWishCalendarMonth = latestWishDeadline.slice(0, 7);
   const visibleWishCalendarMonth = wishCalendarMonth < currentYearMonth
@@ -370,8 +375,8 @@ export default function HomePage() {
   const toggleWishCalendarWorkingDate = useCallback((date: string) => {
     const currentTag = tagMap[date];
     if (currentTag === 'home' || currentTag === 'travel') return;
-    setTag(date, currentTag === 'intern' ? 'school' : 'intern');
-  }, [setTag, tagMap]);
+    setTag(date, resolveDailyContext(date, currentTag, internship).working ? 'school' : 'intern');
+  }, [setTag, tagMap, internship]);
 
   // 近一年校园卡日均
   const oneYearAgo = `${today.getFullYear() - 1}-${String(today.getMonth() + 1).padStart(2, '0')}`;
@@ -717,8 +722,8 @@ export default function HomePage() {
   const removeIncomeItem = (id: string) => syncIncome(localIncome.filter((i) => i.id !== id));
 
   const resolvedIncomeItems = useMemo(
-    () => localIncome.map((item) => resolveIncomeForMonth(item, currentYear, currentMonth, tagMap, holidayDataByYear)),
-    [localIncome, currentYear, currentMonth, tagMap, holidayDataByYear],
+    () => resolveAllIncomeForMonth(localIncome, currentYear, currentMonth, tagMap, holidayDataByYear, internship),
+    [localIncome, currentYear, currentMonth, tagMap, holidayDataByYear, internship],
   );
 
   // 月度快照
@@ -940,6 +945,10 @@ export default function HomePage() {
         <StatRow label="消费"     indent value={<CurrencyDisplay value={stats.consumptionAvg}  color={C.purple} kFormat />} />
         <Divider />
         <StatRow label="月均结余" value={<CurrencyDisplay value={monthlySurplus} color={monthlySurplus >= 0 ? C.red : C.green} kFormat />} />
+        {Object.values(stats.cityLivingStats ?? {}).length > 0 && <details style={{ marginTop: 10, fontSize: 12 }}>
+          <summary style={{ cursor: 'pointer', color: C.sub }}>城市生活费日均</summary>
+          {Object.entries(stats.cityLivingStats ?? {}).map(([key, row]) => <StatRow key={key} label={`${row.city.name}·${row.kind === 'work' ? '班' : row.kind === 'rest' ? '休' : '校'}`} value={<span>¥{formatCurrency(row.dailyAverage)} <span style={{ color: C.sub }}>· {row.days}天</span></span>} />)}
+        </details>}
         {hasSceneDaily && (
           <>
             <Divider />
@@ -1535,14 +1544,15 @@ export default function HomePage() {
       </section>
 
       {/* 收入管理 */}
-      <Card title="收入管理" subtitle="支持固定、日薪和扣税规则" collapsible defaultCollapsed>
+      <Card title="收入管理" collapsible defaultCollapsed>
+        <InternshipSettings />
         {holidayWarning && (
           <div style={{ marginBottom: 10, fontSize: 12, color: C.orange, backgroundColor: '#fff4e8', border: '1px solid #fed7aa', borderRadius: 10, padding: '8px 10px' }}>
             {holidayWarning}
           </div>
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {resolvedIncomeItems.map((item) => {
+          {resolvedIncomeItems.filter(item => !item.internshipPayroll && !(internshipStart(config) && item.isInternPayroll)).map((item) => {
             const isDailyMode = item.dailyRate !== undefined;
             const hasTaxRule = Boolean(item.taxRuleText?.trim());
             const daysToNext = daysUntilDate(item.resolvedPayDate, today);
@@ -1650,6 +1660,11 @@ export default function HomePage() {
             );
           })}
         </div>
+        {resolvedIncomeItems.filter(item => item.internshipPayroll || (internshipStart(config) && item.isInternPayroll && item.grossAmount > 0)).map(item => <div key={item.id} style={{ padding: '10px 12px', borderRadius: 10, background: '#f8f9fa', marginTop: 8, fontSize: 12 }}>
+          <strong>{item.name} · {dateLabel(item.resolvedPayDate)}发薪</strong>
+          <div style={{ marginTop: 6 }}>出勤 {item.resolvedDayCount} 天 · 工资 ¥{formatCurrency((item.internshipPayroll?.salaryAmount ?? item.grossAmount))} · 房补 ¥{formatCurrency((item.internshipPayroll?.housingAmount ?? 0))}</div>
+          <div style={{ marginTop: 4 }}>扣税 ¥{formatCurrency(item.taxAmount)} · 到手 ¥{formatCurrency(item.resolvedAmount)}</div>
+        </div>)}
         {resolvedIncomeItems.filter((i) => i.isActive).map((item) => {
           const daysToNext = daysUntilDate(item.resolvedPayDate, today);
           if (daysToNext < 0 || daysToNext > 3) return null;
@@ -1679,6 +1694,7 @@ export default function HomePage() {
         wishSummaryLabelsById={wishSummaryLabelsById}
         travelLabelsByDate={travelLabelsByDate}
         holidayDataByYear={holidayDataByYear}
+        internship={internship}
         onToggleWorkingDate={toggleWishCalendarWorkingDate}
         onOpenMonth={(yearMonth) => navigate(`/calendar?tab=month&month=${yearMonth}&focus=calendar`)}
         onPreviousMonth={() => {

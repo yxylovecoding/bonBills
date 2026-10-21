@@ -1,3 +1,7 @@
+import InternshipDayEditor from '../components/InternshipDayEditor';
+import { internshipStart, resolveDailyContext } from '../utils/internship';
+import { internshipCutoffDates } from '../utils/internshipPayroll';
+import { useLifeCalendar } from '../hooks/useLifeCalendar';
 ﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useSyncStatus } from '../utils/syncStatus';
@@ -3036,7 +3040,8 @@ export default function CalendarPage() {
   const toggleYearProfitMode = () => setYearProfitMode((m) => m === 'rate' ? 'amount' : 'rate');
 
   // ── Stores ──
-  const { tagMap, setTag, toggleTag, countByTag, bulkFillSchool, confirmedExpenses, setConfirmedExpenseScope, markConfirmedExpenseZero, clearConfirmedExpenseSelection } = useCalendarStore();
+  const { setTag, toggleTag, bulkFillSchool, confirmedExpenses, setConfirmedExpenseScope, markConfirmedExpenseZero, clearConfirmedExpenseSelection } = useCalendarStore();
+  const { tagMap, internship, countByTag } = useLifeCalendar();
   const { config, setConfig } = useConfigStore();
   const { records, upsert, updateDayCounts } = useMonthlyStore();
   const importSnapshot = useSnapshotStore((state) => state.current);
@@ -3112,8 +3117,8 @@ export default function CalendarPage() {
   // ── 历史回归均值（近两年，用作当月按比例拆分的权重）──
   const twoYearsAgo = `${_now.getFullYear() - 1}-01`;
   const historyStats = useMemo(
-    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, billExpenseItems, expenseScopeOverrides, tripTags),
-    [records, tagMap, confirmedExpenses, billExpenseItems, expenseScopeOverrides, tripTags],
+    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, billExpenseItems, expenseScopeOverrides, tripTags, internship),
+    [records, tagMap, confirmedExpenses, billExpenseItems, expenseScopeOverrides, tripTags, internship],
   );
 
   // ── Calendar computed ──
@@ -3138,6 +3143,7 @@ export default function CalendarPage() {
   }, [focusMonthCalendar, tab, yearMonth]);
   const daysInMonth  = getDaysInMonth(year, month);
   const firstDayWeekIdx = (new Date(year, month, 1).getDay() + 6) % 7;
+  const internshipCutoffs = useMemo(() => internshipCutoffDates(internship, tagMap, year, month), [internship, tagMap, year, month]);
   const payrollCutoffDate = useMemo(
     () => getPayrollScheduleForMonth(year, month, holidayDataByYear).cutoffDate,
     [year, month, holidayDataByYear],
@@ -4140,7 +4146,7 @@ export default function CalendarPage() {
                 // 接口也包含“小年”等普通工作日纪念日；只有周末被指定上班才属于调休。
                 const isAdjustedWorkday = holiday?.isOffDay === false && weekend;
                 const holidayMarker = isStatutoryHoliday ? '休' : isAdjustedWorkday ? '班' : null;
-                const isPayrollCutoff = showPayrollCutoffMarkers && cell.key === payrollCutoffDate;
+                const isPayrollCutoff = showPayrollCutoffMarkers && (internshipCutoffs.includes(cell.key) || ((!internshipStart(config) || cell.key < internshipStart(config)!) && cell.key === payrollCutoffDate));
                 const isRangeStart = cell.key === rangeStart;
                 const isSelectedDay = cell.key === selectedDay;
                 const inPreview  = previewRange.has(cell.key);
@@ -4191,6 +4197,7 @@ export default function CalendarPage() {
                       <span style={{ position: 'absolute', right: -5, top: 0, bottom: 0, width: 5, backgroundColor: `${travelColor}20`, pointerEvents: 'none', zIndex: 1 }} />
                     )}
                     {cell.day}
+                    {resolveDailyContext(cell.key, tagMap[cell.key], internship).period && <span style={{ fontSize: 8 }}>{resolveDailyContext(cell.key, tagMap[cell.key], internship).label}</span>}
                     {displayMeta && <span style={{ fontSize: 8, marginTop: 1 }}>{displayMeta.icon}</span>}
                     {(isPayrollCutoff || holidayMarker) && (
                       <span style={{ position: 'absolute', top: 2, right: 3, display: 'inline-flex', alignItems: 'center', gap: 1, pointerEvents: 'none', zIndex: 2 }}>
@@ -4247,6 +4254,8 @@ export default function CalendarPage() {
               return tagList.some((t) => allowedSet.has(t as ReviewableCategory));
             });
             return (
+              <>
+              <InternshipDayEditor date={selectedDay} />
               <DayDetailPanel
                 date={selectedDay}
                 items={dayItems}
@@ -4256,6 +4265,7 @@ export default function CalendarPage() {
                 onClear={() => clearConfirmedExpenseSelection(selectedDay)}
                 resolveOverride={(it) => resolveExpenseScope(it, expenseScopeOverrides)}
               />
+              </>
             );
           })()}
           </div>

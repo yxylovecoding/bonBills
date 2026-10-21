@@ -4,11 +4,12 @@ import { clothesRequest } from '../clothes/client';
 import { readSceneCity } from '../utils/sceneCities';
 
 export type SceneCitySettings = Pick<AppConfig, 'homeCity' | 'schoolCity'>;
-const fields = [{ key: 'homeCity', label: '寄的城市' }, { key: 'schoolCity', label: '居的城市' }] as const;
+const fields = [{ key: 'homeCity', label: '寄的城市' }, { key: 'schoolCity', label: '上学城市' }] as const;
 const buttonStyle: CSSProperties = { border: 'none', borderRadius: 8, padding: '7px 10px', background: '#f1f3f4',
   color: '#1a73e8', fontSize: 12, cursor: 'pointer' };
 
-export default function SceneCityFields({ value, onChange }: {
+export default function SceneCityFields({ value, onChange, schoolLabel, onlySchool }: {
+  schoolLabel?: string; onlySchool?: boolean;
   value: SceneCitySettings; onChange: (value: SceneCitySettings) => void;
 }) {
   const [editing, setEditing] = useState<keyof SceneCitySettings | null>(null);
@@ -34,7 +35,7 @@ export default function SceneCityFields({ value, onChange }: {
     } finally { if (!controller.signal.aborted) setBusy(false); }
   }
   return <div style={{ border: '1px solid #f1f3f4', borderRadius: 10, padding: '9px 10px', marginBottom: 12 }}>
-    {fields.map(({ key, label }, index) => <div key={key} style={{ marginTop: index ? 8 : 0 }}>
+    {fields.filter(field => !onlySchool || field.key === 'schoolCity').map(field => ({ ...field, label: field.key === 'schoolCity' && schoolLabel ? schoolLabel : field.label })).map(({ key, label }, index) => <div key={key} style={{ marginTop: index ? 8 : 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
         <span style={{ fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{label}</span>
         <button type="button" aria-label={`${label}：${value[key]?.name ?? '未设置'}`} aria-expanded={editing === key}

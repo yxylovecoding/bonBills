@@ -1,3 +1,6 @@
+import { dailyLivingAmount } from '../utils/cityLiving';
+import { dateRange, internshipStart, resolveDailyContext, type InternshipContext } from '../utils/internship';
+import type { ResolvedIncomeItem } from '../utils/payroll';
 import type { AppConfig, CurrentStats, DailyTag, BudgetResult, TagKind } from '../models/types';
 
 // payDay === 0 means last day of month
@@ -13,9 +16,21 @@ function getDaysInMonth(year: number, month: number) {
 function countFutureTagDays(tags: DailyTag[], tagKind: string, today: Date): number {
   const yearMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
   return tags.filter((t) => {
-    const d = new Date(t.date);
-    return t.tag === tagKind && d > today && t.date.startsWith(yearMonth);
+    return t.tag === tagKind && t.date > `${yearMonth}-${String(today.getDate()).padStart(2, '0')}` && t.date.startsWith(yearMonth);
   }).length;
+}
+
+/** Fill forecast days without persisting them as historical calendar observations. */
+export function budgetCalendarTags(tags: DailyTag[], today: Date, context?: InternshipContext): DailyTag[] {
+  const start = context && internshipStart(context.config);
+  if (!context || !start) return tags;
+  const year = today.getFullYear(), month = today.getMonth();
+  const from = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+  const end = new Date(year, month + 2, 0);
+  const to = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${end.getDate()}`;
+  const map = Object.fromEntries(tags.map(t => [t.date, t.tag]));
+  for (const date of dateRange(from, to)) if (date >= start) map[date] = resolveDailyContext(date, map[date], context).tag;
+  return Object.entries(map).map(([date, tag]) => ({ date, tag }));
 }
 
 export interface AccountBalances {
@@ -32,7 +47,10 @@ export function calcBudget(
   tags: DailyTag[],
   today: Date,
   accounts?: Partial<AccountBalances>,
+  internship?: InternshipContext,
+  nextIncome?: ResolvedIncomeItem[],
 ): BudgetResult {
+  tags = budgetCalendarTags(tags, today, internship);
   const year = today.getFullYear();
   const month = today.getMonth();
   const dayOfMonth = today.getDate();
@@ -64,13 +82,16 @@ export function calcBudget(
     );
 
   // === 月内预算（本月剩余各状态天数 × (生活+消费)日均）===
-  const monthlyExpense = stateTotal(stateDaysLeft);
+  const currentYM = `${year}-${String(month + 1).padStart(2, '0')}`;
+  const futureTags = tags.filter(t => t.date.startsWith(currentYM) && Number(t.date.slice(8)) > dayOfMonth);
+  const totalDates = (items: DailyTag[]) => items.reduce((sum, t) => sum + dailyLivingAmount(t.date, t.tag, stats, internship), 0);
+  const monthlyExpense = internship ? totalDates(futureTags) : stateTotal(stateDaysLeft);
 
   // === 周内预算（月内按比例缩短到7天）===
   const weekDays = Math.min(daysLeftInMonth, 7);
   const weekEnd = dayOfMonth + weekDays;
   const weekFraction = weekDays / Math.max(daysLeftInMonth, 1);
-  const weeklyExpense = monthlyExpense * weekFraction;
+  const weeklyExpense = internship ? totalDates(futureTags.filter(t => Number(t.date.slice(8)) <= weekEnd)) : monthlyExpense * weekFraction;
   const weeklyIncome = config.incomeItems
     .filter((i) => {
       if (!i.isActive) return false;
@@ -89,8 +110,8 @@ export function calcBudget(
     .reduce((s, i) => s + i.amount, 0);
 
   // === 月外预算（下月各状态天数 × (生活+消费)日均）===
-  const beyondIncome = config.incomeItems.filter((i) => i.isActive).reduce((s, i) => s + i.amount, 0);
-  const beyondExpense = stateTotal(stateDaysNextMonth);
+  const beyondIncome = nextIncome ? nextIncome.filter(i => i.isActive).reduce((sum, i) => sum + i.resolvedAmount, 0) : config.incomeItems.filter((i) => i.isActive).reduce((s, i) => s + i.amount, 0);
+  const beyondExpense = internship ? totalDates(tags.filter(t => t.date.startsWith(nextYM))) : stateTotal(stateDaysNextMonth);
 
   // === 各账户本月预计需求 ===
   const campusNeed = Math.ceil(stats.schoolDailyAvg * stateDaysLeft.school);

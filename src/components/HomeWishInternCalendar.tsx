@@ -1,3 +1,4 @@
+import { internshipStart, resolveDailyContext, type InternshipContext } from '../utils/internship';
 import { useMemo } from 'react';
 import { tagMeta } from '../data/mockData';
 import type { TagKind, WishInternSavingRecord } from '../models/types';
@@ -17,6 +18,7 @@ interface HomeWishInternCalendarProps {
   wishSummaryLabelsById: Record<string, string>;
   travelLabelsByDate: Record<string, string>;
   holidayDataByYear: HolidayDataByYear;
+  internship?: InternshipContext;
   onToggleWorkingDate: (date: string, assignment?: { wishId: string; theme: string }) => void;
   onOpenMonth: (yearMonth: string) => void;
   onPreviousMonth: () => void;
@@ -61,6 +63,7 @@ export default function HomeWishInternCalendar({
   wishSummaryLabelsById,
   travelLabelsByDate,
   holidayDataByYear,
+  internship,
   onToggleWorkingDate,
   onOpenMonth,
   onPreviousMonth,
@@ -106,7 +109,7 @@ export default function HomeWishInternCalendar({
       && tagMap[cell.key] !== 'home'
       && tagMap[cell.key] !== 'travel'
       && !assignmentByDate.has(cell.key)
-      && isWorkingDate(cell.key, holidayDataByYear),
+      && (internship && internshipStart(internship.config) ? availableInternDates.includes(cell.key) : isWorkingDate(cell.key, holidayDataByYear)),
   ).length;
   const monthAvailableInternDays = useMemo(
     () => availableInternDates.filter((date) => date.startsWith(`${visibleMonth}-`)).length,
@@ -189,14 +192,16 @@ export default function HomeWishInternCalendar({
           const holidayMarker = isStatutoryHoliday ? '休' : isAdjustedWorkday ? '班' : null;
           const assignment = assignmentByDate.get(cell.key);
           const displayTag: TagKind = tagMap[cell.key] ?? 'school';
+          const dayContext = internship ? resolveDailyContext(cell.key, displayTag, internship) : null;
           const meta = tagMeta[displayTag];
+          const sceneLabel = dayContext?.period ? dayContext.label : meta.label;
           const travelLabel = displayTag === 'travel' ? travelLabelsByDate[cell.key] : '';
           const savedInternTheme = displayTag === 'intern' ? internThemeByDate.get(cell.key) : '';
           const dateLabel = travelLabel || savedInternTheme || assignment?.label || '';
           const dateLabelPrefix = travelLabel ? '行程' : '为了';
           const canToggleWorkingDate = displayTag !== 'home'
             && displayTag !== 'travel'
-            && isWorkingDate(cell.key, holidayDataByYear);
+            && (internship && internshipStart(internship.config) ? availableInternDates.includes(cell.key) : isWorkingDate(cell.key, holidayDataByYear));
           const markerLabel = holidayMarker
             ? `，${holiday?.name ?? '法定节假日'}，${holidayMarker === '休' ? '休假' : '调休上班'}`
             : '';
@@ -205,8 +210,8 @@ export default function HomeWishInternCalendar({
               type="button"
               key={cell.key}
               className="home-wish-calendar-day"
-              aria-label={`${cell.key}，${meta.label}${dateLabel ? `，${dateLabelPrefix}${dateLabel}` : ''}${markerLabel}${canToggleWorkingDate ? `，点击切换为${displayTag === 'intern' ? tagMeta.school.label : tagMeta.intern.label}` : ''}`}
-              title={`${cell.key} · ${meta.label}${dateLabel ? ` · ${dateLabel}` : ''}${holidayMarker ? ` · ${holiday?.name ?? holidayMarker}` : ''}`}
+              aria-label={`${cell.key}，${sceneLabel}${dateLabel ? `，${dateLabelPrefix}${dateLabel}` : ''}${markerLabel}${canToggleWorkingDate ? `，点击切换为${dayContext ? dayContext.working ? '休息' : '出勤' : displayTag === 'intern' ? tagMeta.school.label : tagMeta.intern.label}` : ''}`}
+              title={`${cell.key} · ${sceneLabel}${dateLabel ? ` · ${dateLabel}` : ''}${holidayMarker ? ` · ${holiday?.name ?? holidayMarker}` : ''}`}
               disabled={!canToggleWorkingDate}
               onClick={() => onToggleWorkingDate(
                 cell.key,
@@ -223,7 +228,7 @@ export default function HomeWishInternCalendar({
               }}
             >
               <strong>{cell.day}</strong>
-              <small>{meta.icon}</small>
+              <small>{dayContext?.period ? sceneLabel : meta.icon}</small>
               {dateLabel ? <em style={{ color: travelLabel ? meta.color : assignment?.color ?? '#7c3aed' }}>{dateLabel}</em> : null}
               {holidayMarker ? (
                 <b className={holidayMarker === '休' ? 'wish-holiday-off' : 'wish-holiday-work'}>{holidayMarker}</b>

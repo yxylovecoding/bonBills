@@ -58,6 +58,29 @@ afterEach(() => {
 });
 
 describe('cached startup synchronization', () => {
+  it('实习段规则快照和单日工休城市完整上传，并在刷新后恢复', async () => {
+    const { BEIJING, GUANGZHOU, DEFAULT_INTERNSHIP_RULES } = await import('./internship');
+    await engine.initSync('bon');
+    const period = { id: 'period', profileId: 'company', profileName: '公司', revision: 1,
+      startDate: '2026-10-19', endDate: '2026-11-30', city: GUANGZHOU, schoolCity: BEIJING,
+      rules: { ...DEFAULT_INTERNSHIP_RULES, salary: 300 } };
+    state.config.getState().setConfig({ internshipPeriods: [period], internshipEnabledFrom: period.startDate, internshipLegacyCity: BEIJING });
+    state.calendar.getState().setDayOverride('2026-10-24', { attendance: 'rest', attendanceLocked: true, city: GUANGZHOU });
+    await vi.advanceTimersByTimeAsync(2000);
+    const payload = JSON.parse(uploads().at(-1)![1].body);
+    expect(payload['app-config'].config.internshipPeriods).toEqual([period]);
+    expect(payload['calendar-tags'].dayOverrides['2026-10-24']).toEqual({ attendance: 'rest', attendanceLocked: true, city: GUANGZHOU });
+    await engine.createManualBackup();
+    const backup = JSON.parse(mocks.apiFetch.mock.calls.find(([url]) => url === '/api/sync-monthly-backup')![1].body);
+    expect(backup['app-config'].config.internshipPeriods).toEqual([period]);
+    expect(backup['calendar-tags'].dayOverrides).toEqual(payload['calendar-tags'].dayOverrides);
+    vi.resetModules();
+    const calendar = (await import('../stores/calendarStore')).useCalendarStore;
+    const config = (await import('../stores/configStore')).useConfigStore;
+    expect(calendar.getState().dayOverrides).toEqual(payload['calendar-tags'].dayOverrides);
+    expect(config.getState().config.internshipPeriods).toEqual([period]);
+  });
+
   it('合并和上传前读取最新云端账本，不使用旧的 HTTP 缓存基准', async () => {
     await engine.initSync('bon');
     const read = mocks.apiFetch.mock.calls.find(([, init]) => init.method === 'GET');

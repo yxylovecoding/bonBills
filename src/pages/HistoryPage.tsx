@@ -1,3 +1,4 @@
+import { useLifeCalendar } from '../hooks/useLifeCalendar';
 import { useMemo, useState } from 'react';
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar,
@@ -529,15 +530,16 @@ function YearSection({ year, recs, allRecords }: { year: string; recs: MonthlyRe
 // ── 主组件 ────────────────────────────────────────────────────────
 export default function HistoryPage() {
   const { records, upsert } = useMonthlyStore();
-  const { countByTag, tagMap, confirmedExpenses } = useCalendarStore();
+  const { confirmedExpenses } = useCalendarStore();
+  const { tagMap, internship, countByTag } = useLifeCalendar();
   const { expenseItems } = useBillDetailStore();
   const { overrides: expenseScopeOverrides } = useExpenseScopeOverrideStore();
   const { tripTags } = useTripStore();
   const [formOpen, setFormOpen] = useState(false);
   const twoYearsAgo = `${new Date().getFullYear() - 1}-01`;
   const stats = useMemo(
-    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides, tripTags),
-    [records, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides, tripTags],
+    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides, tripTags, internship),
+    [records, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides, tripTags, internship],
   );
 
   const thisMonth = currentYearMonth();

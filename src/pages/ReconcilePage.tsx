@@ -1,3 +1,7 @@
+import { resolveDailyContext } from '../utils/internship';
+import { InternshipPeriods } from '../components/InternshipSettings';
+import { dailyLivingAmount } from '../utils/cityLiving';
+import { useLifeCalendar } from '../hooks/useLifeCalendar';
 import { Fragment, useEffect, useLayoutEffect, useState, useMemo, useRef, type PointerEvent } from 'react';
 import { useSyncStatus } from '../utils/syncStatus';
 import Card from '../components/Card';
@@ -16,7 +20,7 @@ import { useBillDetailStore } from '../stores/billDetailStore';
 import { useExpenseScopeOverrideStore } from '../stores/expenseScopeOverrideStore';
 import { useTripStore } from '../stores/tripStore';
 import { usePrefsStore } from '../stores/prefsStore';
-import { calcBudget } from '../calculations/budget';
+import { budgetCalendarTags, calcBudget } from '../calculations/budget';
 import { calculateRaiseSavings, calculateTransferAllocation, resolveRecurringIncomeBaseline, TRANSFER_KEYS, type TransferKey } from '../calculations/reconcileTransfers';
 import { calcHistoryStats } from '../calculations/history';
 import { calcAllocationRatios, calcRebalance, calcTopUpRebalance } from '../calculations/rebalance';
@@ -26,7 +30,7 @@ import type { AccountSnapshot, AppConfig, AutoAccountBalanceKey, DailyTag, Inves
 import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { tryEvalFormula } from '../utils/formula';
-import { dateLabel, formatDateKey, resolveIncomeForMonth, type ResolvedIncomeItem } from '../utils/payroll';
+import { dateLabel, formatDateKey, resolveAllIncomeForMonth, type ResolvedIncomeItem } from '../utils/payroll';
 import {
   migrateLegacyInvestPositionItems,
   summarizeInvestPositionItems,
@@ -231,6 +235,7 @@ const usStockInputsFromItems = (items: UsStockHoldingItem[]): UsStockItemInput[]
 
 function RebalanceSettingsModal({
   cities,
+  internshipConfig,
   recurringIncomeBaseline,
   groupedTargetInputs,
   setGroupedTargetInputs,
@@ -240,15 +245,17 @@ function RebalanceSettingsModal({
   onSave,
 }: {
   cities: SceneCitySettings;
+  internshipConfig: import('../models/types').AppConfig;
   recurringIncomeBaseline?: number;
   groupedTargetInputs: GroupedTargetInputs;
   setGroupedTargetInputs: (v: GroupedTargetInputs) => void;
   onRevealConsumptionWish: () => void;
   onHideConsumptionWish: () => void;
   onClose: () => void;
-  onSave: (cities: SceneCitySettings, allocationChanged: boolean, recurringIncomeBaseline: number) => void;
+  onSave: (cities: Partial<import('../models/types').AppConfig>, allocationChanged: boolean, recurringIncomeBaseline: number) => void;
 }) {
   const [cityDraft, setCityDraft] = useState(cities);
+  const [internshipDraft, setInternshipDraft] = useState<Partial<import('../models/types').AppConfig>>({});
   const [baselineDraft, setBaselineDraft] = useState(String(resolveRecurringIncomeBaseline(recurringIncomeBaseline)));
   const baselineValue = baselineDraft.trim() ? Number(tryEvalFormula(baselineDraft) ?? baselineDraft) : NaN;
   const baselineValid = Number.isFinite(baselineValue) && baselineValue >= 0;
@@ -324,6 +331,7 @@ function RebalanceSettingsModal({
             </span>
           </label>
           <SceneCityFields value={cityDraft} onChange={setCityDraft} />
+          <InternshipPeriods config={{ ...internshipConfig, ...cityDraft, ...internshipDraft }} onChange={changes => setInternshipDraft(previous => ({ ...previous, ...changes }))} />
           <div style={{ border: '1px solid #f1f3f4', borderRadius: 10, padding: '9px 10px', backgroundColor: '#fafafa', marginBottom: 12 }}>
             <div className="reconcile-settings-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
               <div>
@@ -446,7 +454,7 @@ function RebalanceSettingsModal({
             for (const key of ['homeCity', 'schoolCity'] as const) {
               if (JSON.stringify(cityDraft[key]) !== JSON.stringify(initialSettings.current.cities[key])) cityChanges[key] = cityDraft[key];
             }
-            onSave(cityChanges, JSON.stringify(groupedTargetInputs) !== initialSettings.current.allocation, roundMoney(baselineValue));
+            onSave({ ...cityChanges, ...internshipDraft }, JSON.stringify(groupedTargetInputs) !== initialSettings.current.allocation, roundMoney(baselineValue));
           }}
             disabled={!baselineValid}
             style={{ padding: '8px 16px', borderRadius: 8, border: 'none', backgroundColor: baselineValid ? C.blue : '#dadce0', color: '#fff', fontSize: 13, fontWeight: 600, cursor: baselineValid ? 'pointer' : 'default' }}>
@@ -571,7 +579,8 @@ export default function ReconcilePage() {
   const { current, updateAccounts, executeTransfers, updateReconcileHoldings, updateUsStockHoldings, restoreCurrent } = useSnapshotStore();
   const { config, setConfig } = useConfigStore();
   const { records } = useMonthlyStore();
-  const { tagMap, confirmedExpenses } = useCalendarStore();
+  const { confirmedExpenses } = useCalendarStore();
+  const { tagMap, internship } = useLifeCalendar();
   const { expenseItems, incomeItems: actualIncomeItems } = useBillDetailStore();
   const { overrides: expenseScopeOverrides } = useExpenseScopeOverrideStore();
   const { tripTags } = useTripStore();
@@ -954,23 +963,23 @@ export default function ReconcilePage() {
   // 历史均值（只取近两年）
   const twoYearsAgo = `${today.getFullYear() - 1}-01`;
   const stats = useMemo(
-    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides, tripTags),
-    [records, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides, tripTags],
+    () => calcHistoryStats(records.filter((r) => r.yearMonth >= twoYearsAgo), tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides, tripTags, internship),
+    [records, tagMap, confirmedExpenses, expenseItems, expenseScopeOverrides, tripTags, internship],
   );
 
   // 将 tagMap 转为 DailyTag[]
   const tags: DailyTag[] = useMemo(
-    () => Object.entries(tagMap).map(([date, tag]) => ({ date, tag })),
-    [tagMap],
+    () => budgetCalendarTags(Object.entries(tagMap).map(([date, tag]) => ({ date, tag })), today, internship),
+    [tagMap, internship, curYM],
   );
 
   const currentResolvedIncomeItems = useMemo(
-    () => config.incomeItems.map((item) => resolveIncomeForMonth(item, currentYear, currentMonth, tagMap, holidayDataByYear)),
-    [config.incomeItems, currentYear, currentMonth, tagMap, holidayDataByYear],
+    () => resolveAllIncomeForMonth(config.incomeItems, currentYear, currentMonth, tagMap, holidayDataByYear, internship),
+    [config.incomeItems, currentYear, currentMonth, tagMap, holidayDataByYear, internship],
   );
   const nextResolvedIncomeItems = useMemo(
-    () => config.incomeItems.map((item) => resolveIncomeForMonth(item, nextYear, nextMonth, tagMap, holidayDataByYear)),
-    [config.incomeItems, nextYear, nextMonth, tagMap, holidayDataByYear],
+    () => resolveAllIncomeForMonth(config.incomeItems, nextYear, nextMonth, tagMap, holidayDataByYear, internship),
+    [config.incomeItems, nextYear, nextMonth, tagMap, holidayDataByYear, internship],
   );
 
   const effectiveConfig = useMemo(() => ({
@@ -993,8 +1002,8 @@ export default function ReconcilePage() {
       campusCard:      current.accounts.campusCard      ?? 0,
       livingBank:      current.accounts.livingBank      ?? 0,
       consumptionBank: current.accounts.consumptionBank ?? 0,
-    }),
-    [effectiveConfig, stats, confirmed, tags, current.accounts],
+    }, internship, nextResolvedIncomeItems),
+    [effectiveConfig, stats, confirmed, tags, current.accounts, internship, nextResolvedIncomeItems],
   );
 
   const investKeys = INVEST_TARGET_KEYS;
@@ -1546,6 +1555,7 @@ export default function ReconcilePage() {
       : item.taxRuleError
         ? `；${item.taxRuleError}`
         : '';
+    if (item.internshipPayroll) return `${baseLabel} · 出勤${item.resolvedDayCount}天 · 房补¥${fmtInt(item.internshipPayroll.housingAmount)}${taxLabel}`;
     if (item.isInternPayroll && item.payrollCycle) {
       return `${baseLabel}（截止${dateLabel(item.payrollCycle.cutoffDate)}；${item.payrollCycle.internDays}天×¥${item.dailyRate ?? 0}/天${taxLabel}）`;
     }
@@ -1554,18 +1564,6 @@ export default function ReconcilePage() {
     }
     return taxLabel ? `${baseLabel}（${taxLabel.slice(1)}）` : baseLabel;
   };
-
-  // 周内（近7天）各状态实际天数（直接从 tagMap 计数，不用比例估算）
-  const tagCountWeek = useMemo(() => {
-    const counts: Record<TagKind, number> = { intern: 0, school: 0, home: 0, travel: 0 };
-    const weekEndDay = todayDate + Math.min(budget.daysLeftInMonth, 7);
-    for (const [date, tag] of Object.entries(tagMap)) {
-      if (!date.startsWith(curYM)) continue;
-      const day = parseInt(date.slice(8), 10);
-      if (day > todayDate && day <= weekEndDay) counts[tag as TagKind]++;
-    }
-    return counts;
-  }, [tagMap, curYM, todayDate, budget.daysLeftInMonth]);
 
   // 预算明细（收入按发薪日判断是否已发，日薪项显示计算方式）
 
@@ -1618,6 +1616,18 @@ export default function ReconcilePage() {
     note: `${configuredCreditPayDay}号已过 · 本月已还清`,
   };
 
+  const livingRows = (window: BudgetKey): BudgetDetailItem[] => {
+    const grouped = new Map<string, { amount: number; days: number }>();
+    for (const { date, tag } of tags) {
+      const day = Number(date.slice(8));
+      const include = window === 'beyond' ? date.startsWith(`${nextYear}-${String(nextMonth + 1).padStart(2, '0')}`) : date.startsWith(curYM) && day > todayDate && (window !== 'weekly' || day <= weekEnd);
+      if (!include) continue;
+      const context = resolveDailyContext(date, tag, internship);
+      const label = `${context.label}·生活`, item = grouped.get(label) ?? { amount: 0, days: 0 };
+      item.amount += dailyLivingAmount(date, tag, stats, internship); item.days++; grouped.set(label, item);
+    }
+    return [...grouped].map(([label, value]) => ({ icon: '🏠', label, amount: Math.round(value.amount), note: `${value.days}天` }));
+  };
   const budgetDetails: Record<BudgetKey, { income: BudgetDetailItem[]; expense: BudgetDetailItem[] }> = {
     weekly: {
       income: [
@@ -1627,12 +1637,7 @@ export default function ReconcilePage() {
         })),
       ],
       expense: [
-        ...(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => {
-          const days  = tagCountWeek[k];
-          const dLife = stats.stateDailyAvg[k];
-          if (dLife > 0 && days > 0) return [{ icon: tagMeta[k].icon, label: `${tagMeta[k].label}·生活`, amount: Math.round(days * dLife), note: `${days}天×¥${Math.round(dLife)}/天` }];
-          return [] as BudgetDetailItem[];
-        }).flat(),
+        ...livingRows('weekly'),
       ],
     },
     monthly: {
@@ -1651,12 +1656,7 @@ export default function ReconcilePage() {
       ],
       expense: [
         creditInThisMonth ? creditMonthlyItem : settledCreditItem,
-        ...(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => {
-          const days  = budget.stateDaysLeft[k];
-          const dLife = stats.stateDailyAvg[k];
-          if (dLife > 0 && days > 0) return [{ icon: tagMeta[k].icon, label: `${tagMeta[k].label}·生活`, amount: Math.round(days * dLife), note: `${days}天×¥${Math.round(dLife)}/天` }];
-          return [] as BudgetDetailItem[];
-        }).flat(),
+        ...livingRows('monthly'),
       ],
     },
     beyond: {
@@ -1669,12 +1669,7 @@ export default function ReconcilePage() {
       })),
       expense: [
         creditInThisMonth ? creditNextItem : creditMonthlyItem,
-        ...(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => {
-          const days  = budget.stateDaysNextMonth[k];
-          const dLife = stats.stateDailyAvg[k];
-          if (dLife > 0 && days > 0) return [{ icon: tagMeta[k].icon, label: `${tagMeta[k].label}·生活`, amount: Math.round(days * dLife), note: `${days}天×¥${Math.round(dLife)}/天` }];
-          return [] as BudgetDetailItem[];
-        }).flat(),
+        ...livingRows('beyond'),
       ],
     },
   };
@@ -2305,6 +2300,7 @@ export default function ReconcilePage() {
       </div>
       {settingsOpen && (
         <RebalanceSettingsModal
+          internshipConfig={config}
           cities={{ homeCity: config.homeCity, schoolCity: config.schoolCity }}
           recurringIncomeBaseline={config.recurringIncomeBaseline}
           groupedTargetInputs={groupedTargetInputs}

@@ -1,3 +1,4 @@
+import { normalizeDayOverrides } from './internship';
 import { getAccountStorage } from './accountCache';
 import { apiFetch } from './authClient';
 import { requestWithRetry } from './requestWithRetry';
@@ -59,11 +60,11 @@ const stores: StoreEntry[] = [
   {
     key: 'calendar-tags',
     getState: () => useCalendarStore.getState(),
-    setState: (p) => useCalendarStore.setState({ ...p, ...normalizeOutlookCalendarState(p), outlookTravelTitles: normalizeOutlookTravelTitles(p.outlookTravelTitles), confirmedExpenses: normalizeConfirmedExpenses(p.confirmedExpenses) }),
+    setState: (p) => useCalendarStore.setState({ ...p, ...normalizeOutlookCalendarState(p), dayOverrides: normalizeDayOverrides(p.dayOverrides), outlookTravelTitles: normalizeOutlookTravelTitles(p.outlookTravelTitles), confirmedExpenses: normalizeConfirmedExpenses(p.confirmedExpenses) }),
     subscribe: (l) => useCalendarStore.subscribe(l),
     serialize: () => {
       const s = useCalendarStore.getState();
-      return { tagMap: s.tagMap, initializedFromRecords: s.initializedFromRecords, confirmedExpenses: s.confirmedExpenses,
+      return { tagMap: s.tagMap, dayOverrides: s.dayOverrides, initializedFromRecords: s.initializedFromRecords, confirmedExpenses: s.confirmedExpenses,
         outlookApplied: s.outlookApplied, manualTagDates: s.manualTagDates, outlookTravelTitles: s.outlookTravelTitles };
     },
   },
