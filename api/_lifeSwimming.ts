@@ -6,7 +6,7 @@ import { isHairWashTitle, swimmingHairWashDates, type HairWashSchedule } from '.
 import { isTrainingTitle } from '../src/utils/lifeTraining.js';
 import { LIFE_CONNECTION_KEY, LIFE_SETTINGS_KEY, readPeriodDays, syncLifePeriods, type LifeConnection } from './_bonLife.js';
 import { acquireTickTickLock, releaseTickTickLock } from './_ticktickLock.js';
-import { decryptTickTickToken, readAllTickTickTasks, routineRecurrence, shiftTickTickDate, TICKTICK_CONNECTION_KEY,
+import { decryptTickTickToken, isAlwaysTodayTask, readAllTickTickTasks, routineRecurrence, shiftTickTickDate, TICKTICK_CONNECTION_KEY,
   TickTickOpenApiClient, type TickTickApi, type TickTickConnection, type TickTickTask } from './_ticktickTrips.js';
 
 const DAY = 86_400_000;
@@ -30,7 +30,7 @@ export async function readSwimmingCycle(years: number[]) {
 }
 
 function pendingSwim(task: TickTickTask) {
-  return task.title.includes('游泳') && (task.status ?? 0) === 0 && !task.completedTime;
+  return task.title.includes('游泳') && !isAlwaysTodayTask(task) && (task.status ?? 0) === 0 && !task.completedTime;
 }
 
 export function readHairWashSchedule(tasks: TickTickTask[]): HairWashSchedule | null {

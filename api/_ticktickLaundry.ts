@@ -5,7 +5,7 @@ import { readSceneCity } from '../src/utils/sceneCities.js';
 import type { OutlookAvailability } from '../src/utils/outlookCalendar.js';
 import { dayAvailability, type AvailabilityProfile } from './_dailyAvailability.js';
 import { cycleEnd, estimateTaskMinutes } from './_ticktickDailyPlan.js';
-import { calendarDateInTimeZone, routineOccurrenceKey, routineScenes, routineTaskDate, shiftTickTickDate,
+import { calendarDateInTimeZone, isAlwaysTodayTask, routineOccurrenceKey, routineScenes, routineTaskDate, shiftTickTickDate,
   type TickTickApi, type TickTickTask, type TickTickTripSource } from './_ticktickTrips.js';
 
 export const LAUNDRY_STATE_KEY = 'ticktick:laundry-weather:v1';
@@ -208,7 +208,7 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
     }
     return false;
   };
-  const tasks = options.tasks.filter(task => isLaundryTask(task) && pending(task) && !excluded(task));
+  const tasks = options.tasks.filter(task => isLaundryTask(task) && pending(task) && !excluded(task) && !isAlwaysTodayTask(task));
   const managedTaskIds = new Set(tasks.map(task => task.id)), decisions: LaundryDecision[] = [];
   if (!tasks.length) return { updated: 0, managedTaskIds, decisions };
   const saved = await kv.get<LaundryState>(LAUNDRY_STATE_KEY);
