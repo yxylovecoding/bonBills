@@ -14,6 +14,8 @@ npm run dev       # 开发模式 (http://localhost:5173)
 npm run build     # 生产构建
 ```
 
+构建前自动检查 `api/` 的 Node 云函数入口，确保不超过当前部署的 12 个函数上限，且测试文件不会被发布为接口。该目录中的测试与工具文件沿用 `_` 前缀（如 `_boncvProfile.test.ts`）；新增入口需通过 `npm run build` 检查。
+
 ## 安装为应用
 
 应用使用各自的独立域名：
