@@ -425,6 +425,7 @@ export interface WishPlan {
 
 export interface WishPlanOptions {
   recurringIncomeBaseline?: number;
+  raiseSavings?: import('../models/types').RaiseSavingsSettings;
   today?: Date;
   tagMap?: Record<string, TagKind>;
   stateDailyAvg?: Record<TagKind, number>;
@@ -570,7 +571,7 @@ export function calculateWishPlan(wishes: WishItem[], options: WishPlanOptions =
       lifeExpense,
       repayment,
       wishAmount,
-      requiredNetIncome: wishRequiredIncome(lifeExpense + repayment + wishAmount / POST_LIFE_WISH_SHARE, options.recurringIncomeBaseline),
+      requiredNetIncome: wishRequiredIncome(lifeExpense + repayment + wishAmount / POST_LIFE_WISH_SHARE, options.recurringIncomeBaseline, options.raiseSavings),
     };
   });
 

@@ -1,4 +1,4 @@
-import type { AccountSnapshot } from '../models/types';
+import type { AccountSnapshot, RaiseSavingsSettings } from '../models/types';
 import type { BillIncomeMonth } from '../utils/importBill';
 
 export const DEFAULT_RECURRING_INCOME_BASELINE = 4060;
@@ -13,10 +13,29 @@ export function resolveRecurringIncomeBaseline(value?: number): number {
     : DEFAULT_RECURRING_INCOME_BASELINE;
 }
 
-export function calculateRaiseSavings({ incomeItems, today, baseline, saved = 0 }: {
+export function resolveRaiseSavingsSettings(settings?: RaiseSavingsSettings): Required<RaiseSavingsSettings> {
+  return {
+    enabled: settings?.enabled !== false,
+    mode: settings?.mode === 'manual' ? 'manual' : 'automatic',
+    manualRaiseAmount: Number.isFinite(settings?.manualRaiseAmount)
+      ? Math.max(0, roundMoney(settings!.manualRaiseAmount!)) : 0,
+  };
+}
+
+export function calculateMonthlyRaiseSavings(recurringIncome: number, volatileIncome: number, baseline?: number, settings?: RaiseSavingsSettings): number {
+  const resolved = resolveRaiseSavingsSettings(settings);
+  if (!resolved.enabled) return 0;
+  const excessCents = resolved.mode === 'manual'
+    ? Math.round(resolved.manualRaiseAmount * 100)
+    : Math.round(recurringIncome * 100) - Math.round(resolveRecurringIncomeBaseline(baseline) * 100) + Math.round(volatileIncome * 100);
+  return Math.max(Math.round(excessCents / 2), 0) / 100;
+}
+
+export function calculateRaiseSavings({ incomeItems, today, baseline, settings, saved = 0 }: {
   incomeItems: BillIncomeMonth;
   today: string;
   baseline?: number;
+  settings?: RaiseSavingsSettings;
   saved?: number;
 }) {
   let recurringIncome = 0;
@@ -31,8 +50,7 @@ export function calculateRaiseSavings({ incomeItems, today, baseline, saved = 0 
   recurringIncome = roundMoney(recurringIncome);
   volatileIncome = roundMoney(volatileIncome);
   const effectiveBaseline = resolveRecurringIncomeBaseline(baseline);
-  const excessCents = Math.round(recurringIncome * 100) - Math.round(effectiveBaseline * 100) + Math.round(volatileIncome * 100);
-  const target = Math.max(Math.round(excessCents / 2), 0) / 100;
+  const target = calculateMonthlyRaiseSavings(recurringIncome, volatileIncome, effectiveBaseline, settings);
   const alreadySaved = Number.isFinite(saved) ? Math.max(0, roundMoney(saved)) : 0;
   return {
     recurringIncome,
