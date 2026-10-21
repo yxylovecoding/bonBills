@@ -329,6 +329,7 @@ export interface AppConfig {
   creditPrepDays: number;     // 5
   reconcileDates: number[];   // [1, 11, 21]
   incomeItems: IncomeItem[];
+  recurringIncomeBaseline?: number; // 涨薪优先储蓄的周期收入基本线，默认 4060 元/月
   futureFireExpenses: FutureFireExpense[];
   majorFireWishes?: MajorFireWish[];
   wishes?: WishItem[];
@@ -380,7 +381,9 @@ export interface AccountSnapshot {
   reconcileInvestHoldings?: InvestHoldings; // 对账独立 now 持仓
   reconcileInvestHoldingsVersion?: 2; // 缺省为旧版 now + past 合计
   usStockHoldings?: UsStockHoldingItem[]; // 美股内部明细，合计对应 investHoldings.us
+  raiseSavingsByMonth?: Record<string, number>; // 各月通过涨薪优先储蓄步骤实际存入的累计金额
   transfersDone: {
+    raiseSavings?: number;
     campusCard: number;
     repayment: number;
     living: number;

@@ -17,6 +17,7 @@ import { useExpenseScopeOverrideStore } from '../stores/expenseScopeOverrideStor
 import { useTripStore } from '../stores/tripStore';
 import { usePrefsStore } from '../stores/prefsStore';
 import { calcBudget } from '../calculations/budget';
+import { calculateRaiseSavings, calculateTransferAllocation, resolveRecurringIncomeBaseline, TRANSFER_KEYS, type TransferKey } from '../calculations/reconcileTransfers';
 import { calcHistoryStats } from '../calculations/history';
 import { calcAllocationRatios, calcRebalance, calcTopUpRebalance } from '../calculations/rebalance';
 import { calcRemainingRecurringInvestments, deductRecurringInvestments } from '../calculations/recurringInvestment';
@@ -25,7 +26,7 @@ import type { AccountSnapshot, AppConfig, AutoAccountBalanceKey, DailyTag, Inves
 import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { tryEvalFormula } from '../utils/formula';
-import { dateLabel, resolveIncomeForMonth, type ResolvedIncomeItem } from '../utils/payroll';
+import { dateLabel, formatDateKey, resolveIncomeForMonth, type ResolvedIncomeItem } from '../utils/payroll';
 import {
   migrateLegacyInvestPositionItems,
   summarizeInvestPositionItems,
@@ -230,6 +231,7 @@ const usStockInputsFromItems = (items: UsStockHoldingItem[]): UsStockItemInput[]
 
 function RebalanceSettingsModal({
   cities,
+  recurringIncomeBaseline,
   groupedTargetInputs,
   setGroupedTargetInputs,
   onRevealConsumptionWish,
@@ -238,14 +240,18 @@ function RebalanceSettingsModal({
   onSave,
 }: {
   cities: SceneCitySettings;
+  recurringIncomeBaseline?: number;
   groupedTargetInputs: GroupedTargetInputs;
   setGroupedTargetInputs: (v: GroupedTargetInputs) => void;
   onRevealConsumptionWish: () => void;
   onHideConsumptionWish: () => void;
   onClose: () => void;
-  onSave: (cities: SceneCitySettings, allocationChanged: boolean) => void;
+  onSave: (cities: SceneCitySettings, allocationChanged: boolean, recurringIncomeBaseline: number) => void;
 }) {
   const [cityDraft, setCityDraft] = useState(cities);
+  const [baselineDraft, setBaselineDraft] = useState(String(resolveRecurringIncomeBaseline(recurringIncomeBaseline)));
+  const baselineValue = baselineDraft.trim() ? Number(tryEvalFormula(baselineDraft) ?? baselineDraft) : NaN;
+  const baselineValid = Number.isFinite(baselineValue) && baselineValue >= 0;
   const initialSettings = useRef({ cities, allocation: JSON.stringify(groupedTargetInputs) });
   const total = INVEST_GROUPS.reduce((sum, group) => sum + (parseFloat(groupedTargetInputs.groups[group.key]) || 0), 0);
   const totalOk = Math.abs(total - 100) < 0.01;
@@ -302,6 +308,21 @@ function RebalanceSettingsModal({
           <div style={{ fontSize: 16, fontWeight: 700 }}>设置</div>
         </div>
         <div style={{ padding: '0 20px 4px' }}>
+          <label className="reconcile-settings-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 12, fontSize: 13 }}>
+            <span style={{ fontWeight: 700 }}>周期收入基本线</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: C.sub }}>
+              ¥
+              <AmountInput
+                aria-label="周期收入基本线"
+                value={baselineDraft}
+                onChange={setBaselineDraft}
+                decimalPlaces={2}
+                aria-invalid={!baselineValid}
+                style={{ width: 110, border: `1px solid ${baselineValid ? '#dadce0' : C.red}`, borderRadius: 8, padding: '6px 8px', fontSize: 13, textAlign: 'right' }}
+              />
+              /月
+            </span>
+          </label>
           <SceneCityFields value={cityDraft} onChange={setCityDraft} />
           <div style={{ border: '1px solid #f1f3f4', borderRadius: 10, padding: '9px 10px', backgroundColor: '#fafafa', marginBottom: 12 }}>
             <div className="reconcile-settings-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
@@ -420,13 +441,15 @@ function RebalanceSettingsModal({
             取消
           </button>
           <button onClick={() => {
+            if (!baselineValid) return;
             const cityChanges: SceneCitySettings = {};
             for (const key of ['homeCity', 'schoolCity'] as const) {
               if (JSON.stringify(cityDraft[key]) !== JSON.stringify(initialSettings.current.cities[key])) cityChanges[key] = cityDraft[key];
             }
-            onSave(cityChanges, JSON.stringify(groupedTargetInputs) !== initialSettings.current.allocation);
+            onSave(cityChanges, JSON.stringify(groupedTargetInputs) !== initialSettings.current.allocation, roundMoney(baselineValue));
           }}
-            style={{ padding: '8px 16px', borderRadius: 8, border: 'none', backgroundColor: C.blue, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            disabled={!baselineValid}
+            style={{ padding: '8px 16px', borderRadius: 8, border: 'none', backgroundColor: baselineValid ? C.blue : '#dadce0', color: '#fff', fontSize: 13, fontWeight: 600, cursor: baselineValid ? 'pointer' : 'default' }}>
             保存
           </button>
         </div>
@@ -436,15 +459,14 @@ function RebalanceSettingsModal({
 }
 
 
-const TRANSFER_KEYS = ['campusCard', 'repayment', 'living', 'consumption', 'wishJar', 'invest'] as const;
-type TransferKey = typeof TRANSFER_KEYS[number];
-const TRANSFER_META: Record<TransferKey, { label: string; accountKey?: string }> = {
-  campusCard:  { label: '🎓 校园卡',   accountKey: 'campusCard' },
-  repayment:   { label: '💳 还款',      accountKey: 'savingsCard' },
-  living:      { label: '🏦 生活',      accountKey: 'livingBank' },
-  consumption: { label: '💼 消费',      accountKey: 'consumptionBank' },
+const TRANSFER_META: Record<TransferKey, { label: string }> = {
+  raiseSavings: { label: '涨薪的一半存起来' },
+  campusCard:  { label: '🎓 校园卡' },
+  repayment:   { label: '💳 还款' },
+  living:      { label: '🏦 生活' },
+  consumption: { label: '💼 消费' },
   wishJar:     { label: '🏺 心愿罐' },
-  invest:      { label: '📈 理财',      accountKey: 'investCnyBank' },
+  invest:      { label: '📈 理财' },
 };
 
 type BudgetKey = 'weekly' | 'monthly' | 'beyond';
@@ -452,7 +474,7 @@ type ReconcileMode = 'monthStart' | 'monthMiddle';
 
 type ReconcileUndoState = {
   current: AccountSnapshot;
-  config: Pick<AppConfig, 'investAllocTargets' | 'dramDecision'>;
+  config: Pick<AppConfig, 'investAllocTargets' | 'dramDecision' | 'recurringIncomeBaseline'>;
   revealConsumptionWishUsd: boolean;
   localAccounts: Record<keyof AccountSnapshot['accounts'], string>;
   revealedUsdAccounts: UsdVirtualAccountKey[];
@@ -483,12 +505,14 @@ const cloneAccountSnapshot = (snapshot: AccountSnapshot): AccountSnapshot => ({
   reconcileInvestHoldings: snapshot.reconcileInvestHoldings ? { ...snapshot.reconcileInvestHoldings } : undefined,
   usStockHoldings: snapshot.usStockHoldings?.map((item) => ({ ...item })),
   transfersDone: { ...snapshot.transfersDone },
+  raiseSavingsByMonth: snapshot.raiseSavingsByMonth ? { ...snapshot.raiseSavingsByMonth } : undefined,
 });
 
 const cloneReconcileUndoState = (state: ReconcileUndoState): ReconcileUndoState => ({
   ...state,
   current: cloneAccountSnapshot(state.current),
   config: {
+    recurringIncomeBaseline: state.config.recurringIncomeBaseline,
     investAllocTargets: { ...state.config.investAllocTargets },
     dramDecision: state.config.dramDecision ? { ...state.config.dramDecision } : undefined,
   },
@@ -515,6 +539,7 @@ const reconcileUndoFingerprint = (state: ReconcileUndoState) => {
   };
   return JSON.stringify({
     config: state.config,
+    raiseSavingsByMonth: state.current.raiseSavingsByMonth,
     reconcileInvestHoldings: state.current.reconcileInvestHoldings,
     revealConsumptionWishUsd: state.revealConsumptionWishUsd,
     localAccounts: visibleAccounts,
@@ -543,11 +568,11 @@ const defaultReconcileMode = (date: Date): ReconcileMode => (date.getDate() >= 1
 
 export default function ReconcilePage() {
   const syncReady = useSyncStatus((state) => state.ready);
-  const { current, updateAccounts, updateTransfers, updateReconcileHoldings, updateUsStockHoldings, restoreCurrent } = useSnapshotStore();
+  const { current, updateAccounts, executeTransfers, updateReconcileHoldings, updateUsStockHoldings, restoreCurrent } = useSnapshotStore();
   const { config, setConfig } = useConfigStore();
   const { records } = useMonthlyStore();
   const { tagMap, confirmedExpenses } = useCalendarStore();
-  const { expenseItems } = useBillDetailStore();
+  const { expenseItems, incomeItems: actualIncomeItems } = useBillDetailStore();
   const { overrides: expenseScopeOverrides } = useExpenseScopeOverrideStore();
   const { tripTags } = useTripStore();
 
@@ -1473,50 +1498,25 @@ export default function ReconcilePage() {
   // 一键执行转账：把已转金额加到对应账户，收入账户相应减少，然后已转归零
   // 校园卡 例外：钱来自信用卡刷一笔，所以不扣 incomeBank，而是挂到信用卡总待还
   const handleExecuteAll = () => {
-    const accountDelta: Partial<typeof current.accounts> = {};
-    let totalOut = 0;
-
-    for (const key of TRANSFER_KEYS) {
-      const amount = parseFloat(localTransferred[key] || '0') || 0;
-      if (amount === 0) continue;
-      if (key === 'campusCard') {
-        const baseCampus = accountDelta.campusCard ?? (current.accounts.campusCard ?? 0);
-        accountDelta.campusCard = baseCampus + amount;
-        const baseCredit = accountDelta.credit ?? (current.accounts.credit ?? 0);
-        accountDelta.credit = baseCredit + amount;
-        continue;
+    const amounts = Object.fromEntries(TRANSFER_KEYS.map((key) => [key, parseAmountPart(localTransferred[key])])) as Record<TransferKey, number>;
+    executeTransfers(amounts, curYM);
+    const updatedAccounts = useSnapshotStore.getState().current.accounts;
+    setLocalAccounts((previous) => {
+      const next = { ...previous };
+      for (const key of Object.keys(updatedAccounts) as (keyof AccountSnapshot['accounts'])[]) {
+        if (updatedAccounts[key] !== current.accounts[key]) next[key] = String(updatedAccounts[key]);
       }
-      totalOut += amount;
-      const acctKey = TRANSFER_META[key].accountKey as keyof typeof current.accounts | undefined;
-      if (!acctKey) continue;
-      const base = accountDelta[acctKey] ?? (current.accounts[acctKey] ?? 0);
-      accountDelta[acctKey] = base + amount;
-    }
-
-    if (totalOut > 0) {
-      const incomeBase = accountDelta.incomeBank ?? (current.accounts.incomeBank ?? 0);
-      accountDelta.incomeBank = incomeBase - totalOut;
-    }
-
+      return next;
+    });
     const zeroed = Object.fromEntries(TRANSFER_KEYS.map((k) => [k, 0])) as Record<TransferKey, number>;
     const zeroedStr = Object.fromEntries(TRANSFER_KEYS.map((k) => [k, '0'])) as Record<TransferKey, string>;
-
-    if (Object.keys(accountDelta).length > 0) {
-      updateAccounts(accountDelta);
-      setLocalAccounts((prev) => {
-        const next = { ...prev };
-        for (const [k, v] of Object.entries(accountDelta)) {
-          if (k in next) (next as Record<string, string>)[k] = String(v);
-        }
-        return next;
-      });
-    }
-    updateTransfers(zeroed);
     setConfirmed(zeroed);
     setLocalTransferred(zeroedStr);
   };
 
-  const hasTransferChanges = TRANSFER_KEYS.some((k) => (parseFloat(localTransferred[k] || '0') || 0) !== 0);
+  const hasTransferChanges = TRANSFER_KEYS.some((k) => (
+    k === 'raiseSavings' ? parseAmountPart(localTransferred[k]) > 0 : parseAmountPart(localTransferred[k]) !== 0
+  ));
 
   // 赎回长债超过阈值的部分用于还款：长债↓ → 储蓄卡↑（储蓄卡再抵信用卡本期待还）
   const handleRedeemLongBond = () => {
@@ -1701,12 +1701,19 @@ export default function ReconcilePage() {
   // 校园卡走信用卡，不占工资 → 不计入「收入要补齐」的必要账户
   const essentialTotalForTransfer = repaymentShortfallForTransfer + livingShortfallForTransfer;
   const incomeAvailableForTransfer = current.accounts.incomeBank ?? 0;
-  const needsRedemptionForTransfer = Math.max(essentialTotalForTransfer - incomeAvailableForTransfer, 0);
-  const incomeAfterEssentialsForTransfer = Math.max(incomeAvailableForTransfer - essentialTotalForTransfer, 0);
-  const investForTransfer = Math.round(incomeAfterEssentialsForTransfer * 0.5);
-  const consumeTotalForTransfer = incomeAfterEssentialsForTransfer - investForTransfer;
-  const wishJarForTransfer = Math.round(consumeTotalForTransfer * 0.8);
-  const consumptionForTransfer = consumeTotalForTransfer - wishJarForTransfer;
+  const raiseSavings = calculateRaiseSavings({
+    incomeItems: actualIncomeItems[curYM] ?? [],
+    today: formatDateKey(today),
+    baseline: config.recurringIncomeBaseline,
+    saved: current.raiseSavingsByMonth?.[curYM],
+  });
+  const {
+    needsRedemption: needsRedemptionForTransfer,
+    afterEssentials: incomeAfterEssentialsForTransfer,
+    invest: investForTransfer,
+    wishJar: wishJarForTransfer,
+    consumption: consumptionForTransfer,
+  } = calculateTransferAllocation(incomeAvailableForTransfer, essentialTotalForTransfer, raiseSavings.remaining);
 
   // 月内结余结转：月外吸纳月内的本层结余（正→月外收入，负→月外支出）
   const monthlyBalance = sumDetailInc('monthly') - sumDetailExp('monthly');
@@ -1748,6 +1755,7 @@ export default function ReconcilePage() {
   const latestUndoState = useMemo<ReconcileUndoState>(() => ({
     current: cloneAccountSnapshot(current),
     config: {
+      recurringIncomeBaseline: config.recurringIncomeBaseline,
       investAllocTargets: { ...config.investAllocTargets },
       dramDecision: config.dramDecision ? { ...config.dramDecision } : undefined,
     },
@@ -1770,7 +1778,7 @@ export default function ReconcilePage() {
     dramConfigInputs: { ...dramConfigInputs },
     localFundingLeg: { ...localFundingLeg },
   }), [
-    allowRebalanceSell, config.dramDecision, config.investAllocTargets, confirmed, consumptionWishOpen,
+    allowRebalanceSell, config.dramDecision, config.investAllocTargets, config.recurringIncomeBaseline, confirmed, consumptionWishOpen,
     current, dramConfigInputs, groupedTargetInputs, investUsdCnyInput, investUsdInputMode,
     localAccounts, localFundingLeg, localHoldings, localTransferred, localUsStockItems,
     reconcileMode, revealConsumptionWishUsd, revealedUsdAccounts,
@@ -1826,6 +1834,7 @@ export default function ReconcilePage() {
     }
     restoreCurrent(cloneAccountSnapshot(previous.state.current));
     setConfig({
+      recurringIncomeBaseline: previous.state.config.recurringIncomeBaseline,
       investAllocTargets: { ...previous.state.config.investAllocTargets },
       dramDecision: previous.state.config.dramDecision ? { ...previous.state.config.dramDecision } : undefined,
     });
@@ -2297,6 +2306,7 @@ export default function ReconcilePage() {
       {settingsOpen && (
         <RebalanceSettingsModal
           cities={{ homeCity: config.homeCity, schoolCity: config.schoolCity }}
+          recurringIncomeBaseline={config.recurringIncomeBaseline}
           groupedTargetInputs={groupedTargetInputs}
           setGroupedTargetInputs={setGroupedTargetInputs}
           onRevealConsumptionWish={() => {
@@ -2311,8 +2321,8 @@ export default function ReconcilePage() {
             setSettingsOpen(false);
           }}
           onClose={() => setSettingsOpen(false)}
-          onSave={(cities, allocationChanged) => {
-            setConfig({ ...cities, ...(allocationChanged ? { investAllocTargets: groupedTargetInputsToConfig(groupedTargetInputs) } : {}) });
+          onSave={(cities, allocationChanged, recurringIncomeBaseline) => {
+            setConfig({ ...cities, recurringIncomeBaseline, ...(allocationChanged ? { investAllocTargets: groupedTargetInputsToConfig(groupedTargetInputs) } : {}) });
             setSettingsOpen(false);
           }}
         />
@@ -2616,12 +2626,12 @@ export default function ReconcilePage() {
 
       {/* Step 2: 建议转账 */}
       <div id="sec-transfer">
-      <Card className="reconcile-card" title="② 建议转账" subtitle="收入优先补齐必要账户，剩余转入人民币理财账户">
+      <Card className="reconcile-card" title="② 建议转账">
 
         {/* 收入资金流向概览 */}
         {needsRedemptionForTransfer > 0 ? (
           <div style={{ backgroundColor: '#fce8e6', border: '1px solid #f28b82', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>
-            ⚠️ 收入账户 <b>¥{fmtInt(current.accounts.incomeBank ?? 0)}</b> 不足以补齐必要账户，建议赎回理财 <b style={{ color: C.red }}>¥{fmtInt(needsRedemptionForTransfer)}</b>
+            ⚠️ 收入账户 <b>¥{fmtInt(current.accounts.incomeBank ?? 0)}</b>，优先存入后建议赎回理财 <b style={{ color: C.red }}>¥{fmtInt(needsRedemptionForTransfer)}</b> 补齐必要账户
           </div>
         ) : (
           <div style={{ backgroundColor: '#e6f4ea', border: '1px solid #81c995', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>
@@ -2632,6 +2642,11 @@ export default function ReconcilePage() {
         {/* 统一转账列表 */}
         {(() => {
           const transferRows: { key: TransferKey; rec: number; calc: string }[] = [
+            {
+              key: 'raiseSavings',
+              rec: raiseSavings.remaining,
+              calc: `（周期收入¥${formatCurrency(raiseSavings.recurringIncome)} − 基本线¥${formatCurrency(raiseSavings.baseline)} + 波动收入¥${formatCurrency(raiseSavings.volatileIncome)}）÷ 2；本月应存¥${formatCurrency(raiseSavings.target)}，已存¥${formatCurrency(raiseSavings.saved)} → 人民币理财现金`,
+            },
             {
               key: 'campusCard',
               rec: campusShortfallForTransfer,
@@ -2666,8 +2681,11 @@ export default function ReconcilePage() {
             },
           ];
           return transferRows.map((row, i) => {
-            const transferred = parseFloat(localTransferred[row.key] || '0') || 0;
-            const remain = Math.max(row.rec - transferred, 0);
+            const transferred = row.key === 'raiseSavings'
+              ? Math.max(parseAmountPart(localTransferred[row.key]), 0)
+              : parseAmountPart(localTransferred[row.key]);
+            const remain = roundMoney(Math.max(row.rec - transferred, 0));
+            const formatTransferAmount = row.key === 'raiseSavings' ? formatCurrency : fmtInt;
             const header = row.key === 'campusCard'
               ? { label: '补充必要', amount: essentialTotalForTransfer, color: C.blue }
               : row.key === 'consumption'
@@ -2692,16 +2710,21 @@ export default function ReconcilePage() {
                       aria-expanded={expandedTransfer === row.key}
                       onClick={() => setExpandedTransfer((prev) => (prev === row.key ? null : row.key))}
                       style={{ border: 'none', background: 'transparent', padding: 0, fontSize: 12, color: C.blue, fontWeight: 600, fontVariantNumeric: 'tabular-nums', cursor: 'pointer', userSelect: 'none', textAlign: 'right', whiteSpace: 'nowrap' }}
-                    >需¥{fmtInt(row.rec)} {expandedTransfer === row.key ? '▾' : '▸'}</button>
+                    >需¥{formatTransferAmount(row.rec)} {expandedTransfer === row.key ? '▾' : '▸'}</button>
                   </div>
                   <div className="reconcile-wrap-row">
-                    <span style={{ fontSize: 12, color: C.orange, fontWeight: 600, fontVariantNumeric: 'tabular-nums', textAlign: 'right', whiteSpace: 'nowrap' }}>还需¥{fmtInt(remain)}</span>
+                    <span style={{ fontSize: 12, color: C.orange, fontWeight: 600, fontVariantNumeric: 'tabular-nums', textAlign: 'right', whiteSpace: 'nowrap' }}>还需¥{formatTransferAmount(remain)}</span>
                     <label className="reconcile-transfer-input">
                       <span style={{ fontSize: 12, color: C.sub }}>已转</span>
                       <AmountInput
                         ref={(el) => { transferInputRefs.current[i] = el; }}
                         value={localTransferred[row.key]}
+                        decimalPlaces={row.key === 'raiseSavings' ? 2 : undefined}
                         onChange={(v) => setLocalTransferred((p) => ({ ...p, [row.key]: /^-?0\d/.test(v) ? (v.replace(/^(-?)0+/, '$1') || '0') : v }))}
+                        onBlur={row.key === 'raiseSavings' ? (event) => {
+                          const amount = String(roundMoney(Math.max(parseAmountPart(event.currentTarget.value), 0)));
+                          setLocalTransferred((p) => ({ ...p, raiseSavings: amount }));
+                        } : undefined}
                         onFocus={(e) => e.target.select()}
                         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); transferInputRefs.current[i + 1]?.focus(); } }}
                         aria-label={`${TRANSFER_META[row.key].label}已转`}

@@ -3,6 +3,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { getAccountStorage } from '../utils/accountCache';
 import type { AppConfig } from '../models/types';
 import { DEFAULT_FIRE_GRADUATION_DATE } from '../calculations/fireExpenses';
+import { DEFAULT_RECURRING_INCOME_BASELINE } from '../calculations/reconcileTransfers';
 
 export const DEFAULT_WISH_DEADLINE_MILESTONES = [
   { id: 'milestone_graduation', name: '毕业前', date: DEFAULT_FIRE_GRADUATION_DATE },
@@ -37,6 +38,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   creditPrepDays: 0,
   reconcileDates: [1, 11, 21],
   incomeItems: [],
+  recurringIncomeBaseline: DEFAULT_RECURRING_INCOME_BASELINE,
   futureFireExpenses: [],
   majorFireWishes: [],
   wishes: [],
