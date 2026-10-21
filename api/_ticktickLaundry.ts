@@ -221,6 +221,21 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
     if (!anchor) { decisions.push({ id: task.id, reason: '周期或日期不可用，保留原排期' }); continue; }
     // Persist the original cycle before any write; failed/partial retries cannot drift the window.
     await kv.set(LAUNDRY_STATE_KEY, state);
+    const day = routineTaskDate(task)!;
+    const defaultStart = task.isAllDay === false ? Date.parse(task.startDate ?? task.dueDate ?? '') : Date.parse(`${day}T08:00:00+08:00`);
+    const defaultDay = Number.isFinite(defaultStart) ? calendarDateInTimeZone(new Date(defaultStart).toISOString()) : null;
+    const appointments = (options.availability?.events ?? []).filter(event => event.taskLink?.taskId === task.id
+      && event.taskLink.projectId === task.projectId && normalize(event.title) === '洗衣服'
+      && defaultDay !== null && calendarDateInTimeZone(event.start) === defaultDay
+      && Date.parse(event.end) > Date.parse(event.start)
+      && (!anchor.completion || Date.parse(event.start) > Date.parse(anchor.completion)));
+    if (day >= options.today && appointments.length === 1 && Date.parse(appointments[0].start) !== defaultStart) {
+      // A same-day move is an explicit choice, even after the original slot has
+      // passed or become busy. Do not let weather planning undo it indirectly.
+      decisions.push({ id: task.id, target: anchor.target, date: day, location: location?.name,
+        reason: '保留 Outlook 当日调整后的洗衣时段' });
+      continue;
+    }
     // A four-day laundry cadence is a fixed interval. TickTick may create the next
     // occurrence from its previous due date (for example 10/08 + 4 = 10/12), so repair
     // it from the latest actual completion before applying any optional heuristics.

@@ -11,6 +11,7 @@ export interface WriteConnection {
   id: string; clientId: string; encrypted: string;
   provider?: 'microsoft' | 'make';
   calendarId?: string; calendarName?: string; lastSyncAt?: string; lastError?: string;
+  syncErrors?: Record<string, string>;
 }
 interface Tokens { access_token: string; refresh_token: string; expiresAt: number }
 interface Flow { id: string; clientId: string; encrypted: string; expiresAt: number; interval: number; nextPoll: number }

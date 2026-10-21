@@ -4,6 +4,7 @@ import handler from './ticktick-trips';
 import type { TickTickTask } from './_ticktickTrips';
 import { DAILY_PLAN_KEY, DAILY_PLAN_SETTINGS_KEY } from './_ticktickDailyPlan';
 import * as laundryModule from './_ticktickLaundry';
+import * as chargingModule from './_outlookCharging';
 import { schedulingStage } from './_schedulingFailure';
 const { replan, planDetails } = vi.hoisted(() => ({ replan: vi.fn(), planDetails: vi.fn() }));
 const { sourceTasks, taskWrite } = vi.hoisted(() => ({ sourceTasks: { value: [] as TickTickTask[] }, taskWrite: vi.fn() }));
@@ -66,6 +67,17 @@ beforeEach(() => { data.clear(); auth.ok = true; failHistory.value = false; fail
   data.set('ticktick:connection:v1', { encryptedToken: {} }); });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 describe('每日安排接口', () => {
+  it('完整同步在普通排期后把当前待办和完成记录交给充电日程同步', async () => {
+    const charging = vi.spyOn(chargingModule, 'syncChargingOutlook').mockResolvedValue({ enabled: true, created: 1, updated: 0 });
+    sourceTasks.value = [{ id: 'charge', projectId: 'life', title: '电动车充电', status: 0, priority: 5,
+      isAllDay: true, dueDate: '2026-10-21T00:00:00+0800' }];
+    expect(await request('POST')).toMatchObject({ status: 200, body: { charging: { outlook: { created: 1 } } } });
+    expect(charging).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      tasks: [expect.objectContaining({ id: 'charge', dueDate: '2026-10-21T00:00:00+0800' })],
+      excludedTaskIds: expect.any(Set), history: [],
+    }));
+    expect(routineOptions.value).toBeTruthy();
+  });
   it('后台历史读取失败可重试，保留旧计划并只记录脱敏阶段', async () => {
     vi.stubEnv('CRON_SECRET', 'cron-secret');
     await request('POST');

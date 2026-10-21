@@ -17,10 +17,11 @@ import { syncSleepRoutineTags } from './_ticktickSleepTags.js';
 import { syncExerciseSchedule } from './_ticktickExercise.js';
 import { syncLaundrySchedule } from './_ticktickLaundry.js';
 import { syncLaundryOutlook } from './_outlookLaundry.js';
+import { syncChargingOutlook } from './_outlookCharging.js';
 import { syncPeriodPredictionTask } from './_ticktickPeriodPrediction.js';
 import { schedulingFailure, schedulingStage } from './_schedulingFailure.js';
-
 import { syncTickTickAlwaysToday } from './_ticktickTrips.js';
+
 const CONNECTION_KEY = 'ticktick:connection:v1';
 const SYNC_STATE_KEY = 'ticktick:trip-sync:v1';
 
@@ -103,8 +104,8 @@ async function runSyncInner(allowDisconnected: boolean) {
         kv.get<{ budgetMinutes?: number | null; availabilityProfile?: string }>(DAILY_PLAN_SETTINGS_KEY),
         schedulingStage('tasks-read', true, () => readAllTickTickTasks(api, [0])),
       ]);
-      const timedTasks = await syncTimedTaskVisibility(api, { tasks: sourceTasks, timeZone: connection.timeZone, projectId: connection.projectId });
       const alwaysToday = await syncTickTickAlwaysToday(api, { tasks: sourceTasks, today });
+      const timedTasks = await syncTimedTaskVisibility(api, { tasks: sourceTasks, timeZone: connection.timeZone, projectId: connection.projectId });
       const dailyPlan: DailyPlanState = savedPlan?.connectionId === connectionId
         ? { ...savedPlan, history: [...savedPlan.history], deadlines: { ...savedPlan.deadlines } }
         : { connectionId, history: [], deadlines: {} };
@@ -164,11 +165,17 @@ async function runSyncInner(allowDisconnected: boolean) {
         plannedDates: Object.fromEntries(laundryTasks.filter(task => laundry.managedTaskIds.has(task.id))
           .map(task => [task.id, laundry.decisions.find(decision => decision.id === task.id)?.date ?? routineTaskDate(task)])),
       }).catch(() => ({ error: 'Outlook 日程同步暂不可用，请重试' }));
+      // Charge appointments follow the final pending dates after scene planning.
+      const chargingOutlook = await syncChargingOutlook(api, {
+        tasks: await schedulingStage('tasks-read', true, () => readAllTickTickTasks(api, [0])),
+        history: dailyPlan.history, excludedTaskIds, ticktickConnectionId: connectionId, today,
+      }).catch(() => ({ error: 'Outlook 充电日程同步暂不可用，请重试' }));
       console.info('[ticktick-routine-sync]', JSON.stringify(routineResult));
       console.info('[ticktick-trip-sync]', JSON.stringify({ ...result, ...wishResult }));
       return { busy: false as const, ...result, ...wishResult, ...routineResult, exercise: { updated: exercise.updated },
         timedTasks, alwaysToday,
         laundry: { updated: laundry.updated, decisions: laundry.decisions, outlook: laundryOutlook },
+        charging: { outlook: chargingOutlook },
         periodPrediction,
         dailyPlan: dailyPlan.summary, budgetMinutes: dailyBudget(settings?.budgetMinutes),
         availabilityProfile: availabilityProfile(settings?.availabilityProfile), lastSyncAt: state.lastSyncAt };
@@ -209,6 +216,7 @@ async function runRoutineVisibilitySync(kind: 'night' | 'daily' | 'all' | 'hair'
     if (kind === 'timed') return { busy: false as const, connected: true as const, timedTasks: await syncTimedTaskVisibility(api, { timeZone: connection.timeZone, projectId: connection.projectId }) };
     if (kind === 'hair') return { busy: false as const, connected: true as const,
       hairWash: await syncHairWashVisibility(api, { projectId: connection.projectId }), reading: await syncReadingVisibility(api, { projectId: connection.projectId }) };
+    const alwaysToday = await syncTickTickAlwaysToday(api);
     const sleepTags = kind !== 'night' ? await syncSleepRoutineTags(api, { projectId: connection.projectId }) : undefined;
     if (kind === 'daily' || sleepTags?.complete === false) return { busy: false as const, connected: true as const, sleepTags, alwaysToday };
     const nightRoutine = await syncNightRoutineVisibility(api, { timeZone: connection.timeZone, projectId: connection.projectId });
@@ -216,7 +224,6 @@ async function runRoutineVisibilitySync(kind: 'night' | 'daily' | 'all' | 'hair'
     const exercise = await syncExerciseSchedule(api, { connectionId: createHash('sha256').update(token).digest('hex'),
       templateRootId: connection.templateRootId, rolling: true });
     return { busy: false as const, connected: true as const, nightRoutine, timedTasks, alwaysToday, exercise: { updated: exercise.updated },
-    const alwaysToday = await syncTickTickAlwaysToday(api);
       ...(sleepTags ? { sleepTags } : {}) };
   } finally {
     await releaseTickTickLock(lockId);
