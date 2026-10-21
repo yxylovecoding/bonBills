@@ -1,9 +1,11 @@
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { AppConfig, InternshipPeriod, InternshipProfile, InternshipRules, SceneCity } from '../models/types';
 import { useConfigStore } from '../stores/configStore';
 import { BEIJING, GUANGZHOU, DEFAULT_INTERNSHIP_RULES, internshipStart, migratedProfiles, periodOverlap, periodReady, rulesError, shiftDay } from '../utils/internship';
 import { TAX_RULE_PRESETS, calculateIncomeTax } from '../utils/tax';
 import SceneCityFields from './SceneCityFields';
+import { fetchBonCvInternships, type BonCvInternship } from '../utils/bonCv';
+import { importedBonCvPeriod, prepareBonCvInternship } from '../utils/bonCvInternships';
 
 const input: CSSProperties = { width: '100%', minWidth: 0, boxSizing: 'border-box', padding: '6px 8px', border: '1px solid #dadce0', borderRadius: 7, fontSize: 12, background: '#fff' };
 const button: CSSProperties = { border: 'none', borderRadius: 7, background: '#f1f3f4', color: '#1a73e8', padding: '6px 10px', fontSize: 12, cursor: 'pointer' };
@@ -51,18 +53,39 @@ export function InternshipPeriods({ config, onChange }: { config: AppConfig; onC
   const profiles = migratedProfiles(config), periods = config.internshipPeriods ?? [];
   const [editing, setEditing] = useState<InternshipPeriod | null>(null), [error, setError] = useState('');
   const [switchDate, setSwitchDate] = useState(''), [switchProfile, setSwitchProfile] = useState('');
+  const [bonCvEntries, setBonCvEntries] = useState<BonCvInternship[] | null>(null);
+  const [importLoading, setImportLoading] = useState(false), [importError, setImportError] = useState('');
+  const [newProfile, setNewProfile] = useState<InternshipProfile | null>(null);
+  const importRequest = useRef<AbortController>();
+  useEffect(() => () => importRequest.current?.abort(), []);
+  const editorProfiles = newProfile ? [...profiles, newProfile] : profiles;
+  async function loadBonCv() {
+    importRequest.current?.abort();
+    const request = new AbortController();
+    importRequest.current = request;
+    setImportLoading(true); setImportError('');
+    try {
+      const entries = await fetchBonCvInternships(request.signal);
+      if (!request.signal.aborted) setBonCvEntries(entries);
+    } catch (error) {
+      if (!request.signal.aborted) setImportError(error instanceof Error ? error.message : 'BonCV 暂时无法连接，请重试');
+    } finally {
+      if (!request.signal.aborted) setImportLoading(false);
+    }
+  }
   function save(next: InternshipPeriod[]) {
     const starts = next.filter(periodReady).map(p => p.startDate);
     const enabled = [internshipStart(config), ...starts].filter((d): d is string => Boolean(d)).sort()[0];
-    onChange({ internshipPeriods: next, internshipProfiles: profiles, internshipEnabledFrom: enabled,
+    const nextProfiles = newProfile && next.some(p => p.profileId === newProfile.id) ? [...profiles, newProfile] : profiles;
+    onChange({ internshipPeriods: next, internshipProfiles: nextProfiles, internshipEnabledFrom: enabled,
       internshipLegacyCity: config.internshipLegacyCity ?? config.schoolCity ?? BEIJING });
-    setEditing(null); setError('');
+    setEditing(null); setNewProfile(null); setError('');
   }
   function begin(p?: InternshipPeriod) {
     const profile = profiles[0];
     setEditing(p ?? { id: uid(), profileId: profile?.id ?? '', profileName: profile?.name ?? '', revision: profile?.revision ?? 1,
       rules: structuredClone(profile?.rules ?? DEFAULT_INTERNSHIP_RULES), startDate: '', endDate: '', city: null, schoolCity: config.schoolCity ?? BEIJING });
-    setError(''); setSwitchDate(''); setSwitchProfile('');
+    setNewProfile(null); setError(''); setSwitchDate(''); setSwitchProfile('');
   }
   function applySwitch() {
     if (!editing) return;
@@ -73,13 +96,30 @@ export function InternshipPeriods({ config, onChange }: { config: AppConfig; onC
     save([...periods.filter(p => p.id !== editing.id), ...(switchDate > source.startDate ? [{ ...source, endDate: shiftDay(switchDate, -1) }] : []), next].sort((a, b) => a.startDate.localeCompare(b.startDate)));
   }
   return <div style={{ marginTop: 12 }}>
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, fontWeight: 700 }}>实习日期<button type="button" style={button} onClick={() => begin()}>＋实习段</button></div>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, fontSize: 13, fontWeight: 700 }}>实习日期<div style={{ display: 'flex', gap: 6 }}><button type="button" disabled={importLoading || Boolean(editing)} style={button} onClick={() => void loadBonCv()}>{importLoading ? '读取中' : '从 BonCV 导入'}</button><button type="button" style={button} onClick={() => begin()}>＋实习段</button></div></div>
+    {importError && <div role="alert" style={{ color: '#c5221f', fontSize: 12, marginTop: 6 }}>{importError}</div>}
+    {bonCvEntries && !editing && <div style={{ marginTop: 8, padding: 8, border: '1px solid #dadce0', borderRadius: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}><span>BonCV 经历</span><button type="button" style={button} onClick={() => setBonCvEntries(null)}>收起</button></div>
+      {bonCvEntries.length === 0 && <div role="status" style={{ fontSize: 12, color: '#5f6368', marginTop: 6 }}>暂无可导入经历</div>}
+      {bonCvEntries.map(entry => {
+        const imported = importedBonCvPeriod(entry, config);
+        return <button type="button" key={entry.id} disabled={Boolean(imported)} style={{ ...button, display: 'block', width: '100%', textAlign: 'left', marginTop: 6, opacity: imported ? 0.6 : 1 }} onClick={() => {
+          const result = prepareBonCvInternship(entry, config);
+          begin(result.period); setNewProfile(result.newProfile ?? null);
+        }}>{entry.company || '公司未填写'}{imported ? ' · 已导入' : ''}<br /><span style={{ color: '#5f6368', fontSize: 11 }}>{entry.startDate || '开始日期未填写'} — {entry.endDate || '结束日期未填写'}</span></button>;
+      })}
+    </div>}
     {periods.map(p => <button type="button" key={p.id} style={{ ...button, display: 'block', width: '100%', textAlign: 'left', marginTop: 6 }} onClick={() => begin(p)}>{p.city?.name ?? '城市未设置'} · {p.profileName || '公司未设置'}<br /><span style={{ fontSize: 11, color: '#5f6368' }}>{p.startDate || '开始日期'} — {p.endDate || '结束日期'}{!periodReady(p) ? ' · 草稿' : ''}</span></button>)}
     {editing && <div style={{ marginTop: 8, border: '1px solid #dadce0', borderRadius: 10, padding: 10 }}>
       <div style={{ fontSize: 11, color: '#5f6368', marginBottom: 6 }}>{editing.profileName} · v{editing.revision}</div>
-      <Field label="公司模式"><select aria-label="实习公司模式" disabled={periods.some(p => p.id === editing.id && periodReady(p))} style={input} value={`${editing.profileId}:${editing.revision}`} onChange={e => { const p = profiles.find(p => `${p.id}:${p.revision}` === e.target.value); if (p) setEditing({ ...editing, profileId: p.id, profileName: p.name, revision: p.revision, rules: structuredClone(p.rules) }); }}>
-        <option value="">选择公司</option>{editing.profileId && !profiles.some(p => p.id === editing.profileId && p.revision === editing.revision) && <option value={`${editing.profileId}:${editing.revision}`}>{editing.profileName} · v{editing.revision}</option>}{profiles.map(p => <option key={p.id} value={`${p.id}:${p.revision}`}>{p.name} · v{p.revision}</option>)}
+      {editing.bonCvSource && <div style={{ fontSize: 11, color: '#5f6368', marginBottom: 6 }}>BonCV · {editing.bonCvSource.startDate || '开始日期未填写'} — {editing.bonCvSource.endDate || '结束日期未填写'}</div>}
+      <Field label="公司模式"><select aria-label="实习公司模式" disabled={periods.some(p => p.id === editing.id && periodReady(p))} style={input} value={`${editing.profileId}:${editing.revision}`} onChange={e => { const p = editorProfiles.find(p => `${p.id}:${p.revision}` === e.target.value); if (p) setEditing({ ...editing, profileId: p.id, profileName: p.name, revision: p.revision, rules: structuredClone(p.rules) }); }}>
+        <option value="">选择公司</option>{editing.profileId && !editorProfiles.some(p => p.id === editing.profileId && p.revision === editing.revision) && <option value={`${editing.profileId}:${editing.revision}`}>{editing.profileName} · v{editing.revision}</option>}{editorProfiles.map(p => <option key={p.id} value={`${p.id}:${p.revision}`}>{p.name || '新公司'} · v{p.revision}</option>)}
       </select></Field>
+      {newProfile && editing.profileId === newProfile.id && <div style={{ marginTop: 8 }}>
+        <Field label="公司名称"><input aria-label="导入公司名称" style={input} value={newProfile.name} onChange={e => { setNewProfile({ ...newProfile, name: e.target.value }); setEditing({ ...editing, profileName: e.target.value }); }} /></Field>
+        <RuleFields value={editing.rules} onChange={rules => { setNewProfile({ ...newProfile, rules }); setEditing({ ...editing, rules }); }} />
+      </div>}
       <div style={row}>{(['startDate', 'endDate'] as const).map((key, i) => <Field key={key} label={i ? '结束日期' : '开始日期'}><input aria-label={i ? '实习结束日期' : '实习开始日期'} type="date" style={input} value={editing[key]} onChange={e => setEditing({ ...editing, [key]: e.target.value })} /></Field>)}</div>
       <CityPicker city={editing.city} onChange={city => setEditing({ ...editing, city })} />
       {periods.some(p => p.id === editing.id && periodReady(p)) && <details style={{ fontSize: 12, marginBottom: 8 }}><summary>从指定日期切换公司</summary><div style={row}><input aria-label="切换生效日期" type="date" style={input} value={switchDate} onChange={e => setSwitchDate(e.target.value)} /><select aria-label="切换到公司" style={input} value={switchProfile} onChange={e => setSwitchProfile(e.target.value)}><option value="">选择公司</option>{profiles.map(p => <option key={p.id} value={p.id}>{p.name} · v{p.revision}</option>)}</select></div><button type="button" style={{ ...button, marginTop: 8 }} onClick={applySwitch}>切换</button></details>}
@@ -88,8 +128,13 @@ export function InternshipPeriods({ config, onChange }: { config: AppConfig; onC
         if (editing.startDate && editing.endDate && editing.startDate > editing.endDate) { setError('结束日期不能早于开始日期'); return; }
         if (periodOverlap(editing, periods)) { setError('实习日期与已有实习段重叠'); return; }
         if (!editing.profileId) { setError('请先在收入管理添加公司模式'); return; }
+        if (newProfile && editing.profileId === newProfile.id) {
+          const taxError = calculateIncomeTax(10000, editing.rules.taxRuleText).ruleError;
+          if (!newProfile.name.trim()) { setError('请填写公司名称'); return; }
+          if ((editing.rules.salary !== null && rulesError(editing.rules)) || taxError) { setError(taxError ?? rulesError(editing.rules) ?? ''); return; }
+        }
         save([...periods.filter(p => p.id !== editing.id), editing].sort((a, b) => a.startDate.localeCompare(b.startDate)));
-      }}>{periodReady(editing) ? '保存实习段' : '保存草稿'}</button><button type="button" style={button} onClick={() => setEditing(null)}>取消</button><button type="button" style={{ ...button, color: '#c5221f' }} onClick={() => save(periods.filter(p => p.id !== editing.id))}>删除</button></div>
+      }}>{periodReady(editing) ? '保存实习段' : '保存草稿'}</button><button type="button" style={button} onClick={() => { setEditing(null); setNewProfile(null); }}>取消</button><button type="button" style={{ ...button, color: '#c5221f' }} onClick={() => save(periods.filter(p => p.id !== editing.id))}>删除</button></div>
     </div>}
   </div>;
 }

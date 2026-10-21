@@ -6,6 +6,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'private, no-store');
   if (!await authOk(req, { ownerOnly: true })) return res.status(401).json({ error: 'unauthorized' });
   if (req.method !== 'GET') return res.status(405).json({ error: 'method not allowed' });
+  const internships = req.query?.view === 'internships';
+  if (req.query?.view !== undefined && !internships) return res.status(400).json({ error: 'invalid view' });
   const baseUrl = (process.env.BONCV_API_BASE_URL || '').replace(/\/$/, '');
   const apiKey = (process.env.BONCV_API_KEY || '').trim();
   if (!baseUrl || !apiKey) return res.status(503).json({ error: 'BonCV connection is not configured' });
@@ -13,7 +15,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const headers: Record<string, string> = { Authorization: `Bearer ${apiKey}` };
   if (typeof req.headers['if-none-match'] === 'string') headers['If-None-Match'] = req.headers['if-none-match'];
   try {
-    const upstream = await fetch(`${baseUrl}/api/v1/fire-profile`, { headers, signal: AbortSignal.timeout(10_000) });
+    const upstream = await fetch(`${baseUrl}/api/v1/fire-profile${internships ? '?view=internships' : ''}`, { headers, signal: AbortSignal.timeout(10_000) });
     const etag = upstream.headers.get('etag');
     if (etag) res.setHeader('ETag', etag);
     if (upstream.status === 304) { privateCache(res); return res.status(304).end(); }
