@@ -82,6 +82,7 @@ describe('daily planning workflow recovery', () => {
     { ok: true }, { ok: false, dailyPlan: {} }, { ok: true, busy: true, dailyPlan: {} },
     { ok: true, error: 'PRIVATE', dailyPlan: {} },
     { ok: true, dailyPlan: {}, laundry: { outlook: { error: 'PRIVATE' } } },
+    { ok: true, dailyPlan: {}, charging: { outlook: { error: 'PRIVATE' } } },
   ])('rejects incomplete or partially failed HTTP 200 responses (%#)', async body => {
     const result = await run([Response.json(body)]);
     expect(result.calls).toBe(1);

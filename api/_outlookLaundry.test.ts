@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { laundryEventPlan, LAUNDRY_EVENT_PROPERTY, syncLaundryOutlook } from './_outlookLaundry';
+import { chargingEventPlan, syncChargingOutlook } from './_outlookCharging';
 import { OUTLOOK_WRITE_KEY, sealOutlookWrite } from './_outlookWrite';
 import { LAUNDRY_STATE_KEY } from './_ticktickLaundry';
 import type { TickTickApi, TickTickTask } from './_ticktickTrips';
@@ -51,7 +52,8 @@ beforeEach(() => {
       const event = { ...events.get(id), ...JSON.parse(init.body as string), '@odata.etag': 'v2' }; events.set(id, event); return json(event);
     }
     if (id === 'events') {
-      return json({ value: [...events.values()].filter(event => event.subject === '洗衣服') });
+      const subject = url.searchParams.get('$filter')?.match(/^subject eq '(.+)'$/)?.[1];
+      return json({ value: [...events.values()].filter(event => event.subject === subject) });
     }
     return events.has(id) ? json(events.get(id)) : json({}, 404);
   }));
@@ -197,13 +199,88 @@ it('Make 同日同排期复用验证，次日仍回读；变更核对归属并�
   await syncLaundryOutlook(api, options());
   expect(relay).toHaveBeenCalledTimes(count); expect(data.get(OUTLOOK_WRITE_KEY).lastSyncAt).toBe(syncedAt);
   events.get('event-1').start.dateTime = '2026-10-08T09:00:00';
-  expect(await syncLaundryOutlook(api, { ...options(), today: '2026-10-06' })).toMatchObject({ updated: 1 });
-  expect(events.get('event-1').start.dateTime).toBe('2026-10-08T08:00:00');
+  events.get('event-1').end.dateTime = '2026-10-08T09:50:00';
+  expect(await syncLaundryOutlook(api, { ...options(), today: '2026-10-06' })).toMatchObject({ updated: 0 });
+  expect(events.get('event-1').start.dateTime).toBe('2026-10-08T09:00:00');
   task.startDate = task.dueDate = '2026-10-09T00:00:00Z';
   expect(await syncLaundryOutlook(api, options())).toMatchObject({ updated: 1 });
   expect(events.size).toBe(1); expect(writes[1].headers['If-Match']).toBe('v1');
   events.get('event-1').attendees = [{}]; task.startDate = task.dueDate = '2026-10-10T00:00:00Z';
-  expect(await syncLaundryOutlook(api, options())).toMatchObject({ error: expect.stringContaining('参与人') }); expect(writes).toHaveLength(3);
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ error: expect.stringContaining('参与人') }); expect(writes).toHaveLength(2);
+});
+
+it.each(['洗衣服', '电动车充电'])('%s 保留北京时间同日移动，并继续跟随跨日改期', async title => {
+  task.title = title;
+  const sync = () => title === '洗衣服' ? syncLaundryOutlook(api, options()) : syncChargingOutlook(api, {
+    ...options(), history: [], excludedTaskIds: new Set(),
+  });
+  expect(await sync()).toMatchObject({ created: 1 });
+  const event = events.get('event-1');
+  // UTC date is the preceding day, but the Shanghai date is still October 8.
+  event.start = { dateTime: '2026-10-07T17:00:00.0000000', timeZone: 'UTC' };
+  event.end = { dateTime: title === '洗衣服' ? '2026-10-07T17:50:00' : '2026-10-07T18:00:00', timeZone: 'UTC' };
+  expect(await sync()).toMatchObject({ updated: 0 });
+  expect(await sync()).toMatchObject({ updated: 0 });
+  expect(events.get('event-1').start).toEqual(event.start);
+  expect(writes).toHaveLength(1);
+  task.startDate = task.dueDate = '2026-10-09T00:00:00Z';
+  expect(await sync()).toMatchObject({ updated: 1, created: 0 });
+  expect(events.get('event-1').start.dateTime).toBe('2026-10-09T08:00:00');
+  expect(events.size).toBe(1);
+});
+
+it('充电按当前待办创建，缺失可恢复，完成后的下一周期保留历史日程', async () => {
+  task.title = '电动车充电'; task.isAllDay = true;
+  const history: TickTickTask[] = [];
+  const sync = (overrides = {}) => syncChargingOutlook(api, { ...options(), history, excludedTaskIds: new Set(), ...overrides });
+  expect(chargingEventPlan(task, options().today)).toMatchObject({
+    start: { dateTime: '2026-10-08T20:00:00' }, end: { dateTime: '2026-10-08T21:00:00' },
+  });
+  const original = structuredClone(task);
+  loseCreateResponse = true;
+  expect(await sync()).toHaveProperty('error');
+  expect(await sync()).toMatchObject({ created: 0 });
+  expect(writes).toHaveLength(1);
+  events.clear();
+  expect(await sync()).toMatchObject({ created: 1 });
+  expect(writes[1].body.transactionId).not.toBe(writes[0].body.transactionId);
+  expect(task).toEqual(original);
+  history.push({ ...task, status: 2, completedTime: '2026-10-08T13:00:00Z' });
+  task.startDate = task.dueDate = '2026-10-13T00:00:00Z';
+  expect(await sync({ today: '2026-10-08', now: new Date('2026-10-08T14:00:00Z') })).toMatchObject({ created: 1 });
+  expect(events.size).toBe(2);
+  expect(events.get('event-1').start.dateTime).toBe('2026-10-08T20:00:00');
+  // History falling outside the read window must not roll the cycle back.
+  history.length = 0;
+  expect(await sync({ today: '2026-10-09', now: new Date('2026-10-09T00:00:00Z') })).toMatchObject({ created: 0 });
+  expect(events.size).toBe(2);
+});
+
+it('充电不处理模板后代、已完成、过去、无日期或不关我事的待办', async () => {
+  task.title = '电动车充电';
+  for (const fields of [{ status: 2 }, { completedTime: '2026-10-04T01:00:00Z' },
+    { startDate: undefined, dueDate: undefined }, { dueDate: '2026-10-04T00:00:00Z' },
+    { tags: ['不关我事'] }, { title: '买电动车充电器' }]) {
+    expect(chargingEventPlan({ ...task, ...fields }, options().today)).toBeNull();
+  }
+  task.parentId = 'child';
+  await syncChargingOutlook(api, { ...options(), tasks: [task, { ...task, id: 'child', parentId: 'template', title: '阶段' }],
+    history: [], excludedTaskIds: new Set(['template']) });
+  expect(writes).toHaveLength(0);
+});
+
+it('充电同步成功不能清除仍失败的洗衣状态，洗衣恢复后才清除', async () => {
+  await syncLaundryOutlook(api, options());
+  events.get('event-1').attendees = [{}];
+  expect(await syncLaundryOutlook(api, options())).toHaveProperty('error');
+  const original = structuredClone(task);
+  task = { ...task, id: 'charge', title: '电动车充电' };
+  expect(await syncChargingOutlook(api, { ...options(), history: [], excludedTaskIds: new Set() })).toMatchObject({ created: 1 });
+  expect(data.get(OUTLOOK_WRITE_KEY).lastError).toContain('参与人');
+  task = original;
+  events.get('event-1').attendees = [];
+  expect(await syncLaundryOutlook(api, options())).not.toHaveProperty('error');
+  expect(data.get(OUTLOOK_WRITE_KEY).lastError).toBeUndefined();
 });
 
 function linkedAppointment(id: string, day = '2026-10-09', fields: Record<string, unknown> = {}) {

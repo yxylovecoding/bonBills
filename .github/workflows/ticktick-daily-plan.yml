@@ -138,6 +138,11 @@ jobs:
               throw new Error(`Scheduling did not complete (HTTP ${response.status}, stage=${stage})`);
             }
             if (result.laundry?.outlook?.error) throw new Error('Laundry calendar sync did not complete; check Outlook connection.');
+            if (result.charging?.outlook?.error) throw new Error('Charging calendar sync did not complete; check Outlook connection.');
+            if (result.charging?.outlook?.enabled) {
+              const { created = 0, updated = 0 } = result.charging.outlook;
+              console.log(`Charging calendar sync completed: created=${created}, updated=${updated}.`);
+            }
             if (result.periodPrediction) {
               const { created = 0, updated = 0, deleted = 0 } = result.periodPrediction;
               console.log(`Reminder sync completed: created=${created}, updated=${updated}, duplicates removed=${deleted}.`);

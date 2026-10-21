@@ -173,6 +173,31 @@ describe('天气与日程选日', () => {
 });
 
 describe('洗衣同步与天气故障', () => {
+  it.each(['2026-10-05T16:00:00+08:00', '2026-10-10T17:00:00+08:00'])(
+    '同日手动改时保留日期，不被天气或原时段冲突重新排走（%s）', async currentTime => {
+      const c = client();
+      const moved = { title: '洗衣服', start: '2026-10-10T14:00:00+08:00', end: '2026-10-10T14:50:00+08:00',
+        taskLink: { projectId: 'life', taskId: 'wash' } };
+      const o = options({ now: new Date(currentTime), today: currentTime.slice(0, 10),
+        availability: { startDate: '2026-10-05', endDate: '2026-11-01', events: [moved,
+          { title: '会议', start: '2026-10-10T08:00:00+08:00', end: '2026-10-10T09:00:00+08:00' }] } });
+      expect(await syncLaundrySchedule(c.api, { ...o, connectionId: 'connection' })).toMatchObject({ updated: 0,
+        decisions: [{ date: '2026-10-10', reason: expect.stringContaining('当日调整') }] });
+      expect(c.api.updateTask).not.toHaveBeenCalled();
+      expect(upstream).not.toHaveBeenCalled();
+    },
+  );
+  it('手动改时的旧预约不能阻止实际完成后的下一周期', async () => {
+    const current = task({ repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=4' }), c = client(current);
+    const o = options({ tasks: [current], now: new Date('2026-10-10T17:00:00+08:00'), today: '2026-10-10',
+      history: [{ ...current, status: 2, completedTime: '2026-10-10T15:00:00+08:00' }],
+      availability: { startDate: '2026-10-05', endDate: '2026-11-01', events: [
+        { title: '洗衣服', start: '2026-10-10T14:00:00+08:00', end: '2026-10-10T14:50:00+08:00',
+          taskLink: { projectId: 'life', taskId: 'wash' } },
+      ] } });
+    expect(await syncLaundrySchedule(c.api, { ...o, connectionId: 'connection' })).toMatchObject({ updated: 1,
+      decisions: [{ date: '2026-10-14' }] });
+  });
   it('次日重新读取天气并改期，新日程冲突再次改期，但完成周期始终不漂移', async () => {
     const c = client(); mockWeather(forecast(sunny));
     expect((await syncLaundrySchedule(c.api, { ...options(), connectionId: 'connection' })).decisions[0].date).toBe('2026-10-10');
