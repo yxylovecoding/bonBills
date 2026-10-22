@@ -25,9 +25,10 @@ export function resolveRaiseSavingsSettings(settings?: RaiseSavingsSettings): Re
 export function calculateMonthlyRaiseSavings(recurringIncome: number, volatileIncome: number, baseline?: number, settings?: RaiseSavingsSettings): number {
   const resolved = resolveRaiseSavingsSettings(settings);
   if (!resolved.enabled) return 0;
-  const excessCents = resolved.mode === 'manual'
+  const raiseCents = resolved.mode === 'manual'
     ? Math.round(resolved.manualRaiseAmount * 100)
-    : Math.round(recurringIncome * 100) - Math.round(resolveRecurringIncomeBaseline(baseline) * 100) + Math.round(volatileIncome * 100);
+    : Math.round(recurringIncome * 100) - Math.round(resolveRecurringIncomeBaseline(baseline) * 100);
+  const excessCents = raiseCents + Math.round(volatileIncome * 100);
   return Math.max(Math.round(excessCents / 2), 0) / 100;
 }
 
