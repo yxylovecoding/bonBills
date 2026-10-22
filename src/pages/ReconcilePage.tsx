@@ -2682,7 +2682,7 @@ export default function ReconcilePage() {
               key: 'raiseSavings',
               rec: raiseSavings.remaining,
               calc: raiseSavingsSettings.mode === 'manual'
-                ? `涨薪¥${formatCurrency(raiseSavingsSettings.manualRaiseAmount)} ÷ 2；本月应存¥${formatCurrency(raiseSavings.target)}，已存¥${formatCurrency(raiseSavings.saved)} → 人民币理财现金`
+                ? `（涨薪¥${formatCurrency(raiseSavingsSettings.manualRaiseAmount)} + 波动收入¥${formatCurrency(raiseSavings.volatileIncome)}）÷ 2；本月应存¥${formatCurrency(raiseSavings.target)}，已存¥${formatCurrency(raiseSavings.saved)} → 人民币理财现金`
                 : `（周期收入¥${formatCurrency(raiseSavings.recurringIncome)} − 基本线¥${formatCurrency(raiseSavings.baseline)} + 波动收入¥${formatCurrency(raiseSavings.volatileIncome)}）÷ 2；本月应存¥${formatCurrency(raiseSavings.target)}，已存¥${formatCurrency(raiseSavings.saved)} → 人民币理财现金`,
             },
             {

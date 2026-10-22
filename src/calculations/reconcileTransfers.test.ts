@@ -183,8 +183,8 @@ describe('涨薪存半开关与手动方式', () => {
   });
 
   it.each([[2000, 1000], [0, 0], [0.01, 0.01], [2000.03, 1000.02], [-10, 0], [NaN, 0]])(
-    '手动涨薪 %s 时应存 %s，与账单和基本线无关', (manualRaiseAmount, target) => {
-      for (const incomeItems of [[], monthlyIncome, [income(50000, '周期收入'), income(90000, '波动收入')]]) {
+    '手动涨薪 %s 时应存 %s，不受周期收入和基本线影响', (manualRaiseAmount, target) => {
+      for (const incomeItems of [[], [income(6060, '周期收入')], [income(50000, '周期收入')]]) {
         expect(calculateRaiseSavings({ incomeItems, today, baseline: 0, settings: { mode: 'manual', manualRaiseAmount } }).target).toBe(target);
       }
     },
@@ -193,8 +193,9 @@ describe('涨薪存半开关与手动方式', () => {
   it('关闭后不预留，重开或切换方式共用原有已存金额', () => {
     const input = { incomeItems: monthlyIncome, today, saved: 500 };
     expect(calculateRaiseSavings({ ...input, settings: { enabled: false } })).toMatchObject({ target: 0, saved: 500, remaining: 0 });
-    expect(calculateRaiseSavings({ ...input, settings: { mode: 'manual', manualRaiseAmount: 2000 } })).toMatchObject({ target: 1000, remaining: 500 });
-    expect(calculateRaiseSavings({ ...input, settings: { mode: 'manual', manualRaiseAmount: 600 } }).remaining).toBe(0);
+    expect(calculateRaiseSavings({ ...input, settings: { mode: 'manual', manualRaiseAmount: 2000 } })).toMatchObject({ target: 1500, remaining: 1000 });
+    expect(calculateRaiseSavings({ ...input, settings: { mode: 'manual', manualRaiseAmount: 600 } }).remaining).toBe(300);
+    expect(calculateRaiseSavings({ ...input, saved: 1000, settings: { mode: 'manual', manualRaiseAmount: 600 } }).remaining).toBe(0);
     expect(calculateRaiseSavings({ ...input, settings: { enabled: true, mode: 'automatic' } }).remaining).toBe(1000);
   });
 
@@ -210,6 +211,56 @@ describe('涨薪存半开关与手动方式', () => {
     expect(result().remaining).toBe(0);
     expect(result('2026-11-01').remaining).toBe(1000);
     expect(useSnapshotStore.getState().current.raiseSavingsByMonth).toEqual({ [month]: 1000 });
+  });
+
+  it.each(['automatic', 'manual'] as const)('%s 方式均存波动收入的一半，关闭后不计入', (mode) => {
+    const settings = { mode, manualRaiseAmount: 2000 };
+    const input = { incomeItems: monthlyIncome, today, settings };
+    expect(calculateRaiseSavings(input)).toMatchObject({ target: 1500, remaining: 1500 });
+    expect(calculateRaiseSavings({ ...input, saved: 1000 }).remaining).toBe(500);
+    expect(calculateRaiseSavings({ ...input, settings: { ...settings, enabled: false }, saved: 1000 }))
+      .toMatchObject({ target: 0, saved: 1000, remaining: 0 });
+  });
+
+  it('手动涨薪为零时仍存波动收入的一半，合并金额后精确到分', () => {
+    expect(calculateRaiseSavings({ incomeItems: monthlyIncome, today, settings: { mode: 'manual', manualRaiseAmount: 0 } }).target).toBe(500);
+    expect(calculateRaiseSavings({ incomeItems: [income(0.01, '波动收入')], today,
+      settings: { mode: 'manual', manualRaiseAmount: 0.01 } }).target).toBe(0.01);
+  });
+
+  it.each(['automatic', 'manual'] as const)('%s 方式都优先排除出物＋消费，独立标签及完整分类匹配', (mode) => {
+    const incomeItems = [
+      income(6060, '周期收入'),
+      income(1000, '波动收入'),
+      income(90000, '周期收入,波动收入, 消费 ', { category: ' 出物 ' }),
+      income(90000, '波动收入,消费', { subcategory: '出物' }),
+      income(100, '波动收入', { category: '出物' }),
+      income(200, '波动收入,消费'),
+      income(300, '波动收入,消费', { category: '其他出物' }),
+      income(400, '波动收入,非消费', { category: '出物' }),
+      income(500, '周期收入,波动收入'),
+      income(90000, '波动收入', { date: '2026-10-22' }),
+      income(90000, '波动收入', { date: '2026-09-30' }),
+    ];
+    const before = structuredClone(incomeItems);
+    expect(calculateRaiseSavings({ incomeItems, today, settings: { mode, manualRaiseAmount: 2000 } }))
+      .toMatchObject({ recurringIncome: 6060, volatileIncome: 2500, target: 2250 });
+    expect(incomeItems).toEqual(before);
+  });
+
+  it('手动存完后新增波动收入只补差额，排除收入不增加目标', async () => {
+    useSnapshotStore.setState({ current: { ...structuredClone(DEFAULT_SNAPSHOT), accounts: { ...DEFAULT_SNAPSHOT.accounts, incomeBank: 8000 } }, history: [] });
+    const settings = { mode: 'manual' as const, manualRaiseAmount: 2000 };
+    const result = (incomeItems = monthlyIncome) => calculateRaiseSavings({ incomeItems, today, settings,
+      saved: useSnapshotStore.getState().current.raiseSavingsByMonth?.[month] });
+    useSnapshotStore.getState().executeTransfers({ raiseSavings: result().remaining }, month);
+    expect(result().remaining).toBe(0);
+    await useSnapshotStore.persist.rehydrate();
+    const updatedIncome = [...monthlyIncome, income(400, '波动收入'), income(90000, '波动收入,消费', { category: '出物' })];
+    expect(result(updatedIncome).remaining).toBe(200);
+    useSnapshotStore.getState().executeTransfers({ raiseSavings: result(updatedIncome).remaining }, month);
+    expect(result(updatedIncome).remaining).toBe(0);
+    expect(useSnapshotStore.getState().current).toMatchObject({ raiseSavingsByMonth: { [month]: 1700 }, accounts: { incomeBank: 6300, investCnyBank: 1700 } });
   });
 
   it('配置支持持久化及云端合并，开关不会丢失已填的手动金额', async () => {
