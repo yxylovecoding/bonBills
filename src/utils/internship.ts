@@ -67,6 +67,9 @@ export function migratedProfiles(config: Partial<AppConfig>): InternshipProfile[
       cycle: 'beforePay', payMonthOffset: 0, payKind: 'lastWorkingDay' },
   }));
 }
+export function showsCompanyPayrollCutoff(profile: InternshipProfile | undefined, legacyPreference = true): boolean {
+  return profile?.showPayrollCutoffMarkers ?? (profile?.legacyIncomeId ? legacyPreference : true);
+}
 export interface DailyContext {
   date: string;
   city: SceneCity | null;

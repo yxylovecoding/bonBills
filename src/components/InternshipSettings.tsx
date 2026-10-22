@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { AppConfig, InternshipPeriod, InternshipProfile, InternshipRules, SceneCity } from '../models/types';
 import { useConfigStore } from '../stores/configStore';
-import { BEIJING, GUANGZHOU, DEFAULT_INTERNSHIP_RULES, internshipStart, migratedProfiles, periodOverlap, periodReady, rulesError, shiftDay } from '../utils/internship';
+import { usePrefsStore } from '../stores/prefsStore';
+import { BEIJING, GUANGZHOU, DEFAULT_INTERNSHIP_RULES, internshipStart, migratedProfiles, periodOverlap, periodReady, rulesError, shiftDay, showsCompanyPayrollCutoff } from '../utils/internship';
 import { TAX_RULE_PRESETS, calculateIncomeTax } from '../utils/tax';
 import SceneCityFields from './SceneCityFields';
 import { fetchBonCvInternships, type BonCvInternship } from '../utils/bonCv';
@@ -141,20 +142,27 @@ export function InternshipPeriods({ config, onChange }: { config: AppConfig; onC
 }
 export default function InternshipSettings() {
   const { config, setConfig } = useConfigStore();
+  const legacyCutoffPreference = usePrefsStore(state => state.showPayrollCutoffMarkers);
   const profiles = migratedProfiles(config);
   const [draft, setDraft] = useState<InternshipProfile | null>(null), [error, setError] = useState('');
   return <div style={{ marginBottom: 12, borderBottom: '1px solid #e8eaed', paddingBottom: 12 }}>
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><strong style={{ fontSize: 13 }}>公司模式</strong><button style={button} type="button" onClick={() => { setDraft({ id: uid(), name: '', revision: 1, rules: { ...DEFAULT_INTERNSHIP_RULES } }); setError(''); }}>＋公司</button></div>
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>{profiles.map(p => <button key={p.id} type="button" style={button} onClick={() => { setDraft(structuredClone(p)); setError(''); }}>{p.name} · v{p.revision}{rulesError(p.rules) ? ' · 草稿' : ''}</button>)}</div>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>{profiles.map(p => <button key={p.id} type="button" style={button} onClick={() => { setDraft(structuredClone({ ...p, showPayrollCutoffMarkers: showsCompanyPayrollCutoff(p, legacyCutoffPreference) })); setError(''); }}>{p.name} · v{p.revision}{rulesError(p.rules) ? ' · 草稿' : ''}</button>)}</div>
     {draft && <div style={{ marginTop: 8 }}>
       <Field label="公司名称"><input aria-label="公司名称" style={input} value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} /></Field>
       <RuleFields value={draft.rules} onChange={rules => setDraft({ ...draft, rules })} />
+      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 10, fontSize: 12, cursor: 'pointer' }}>
+        显示发薪数据截止日标记
+        <input type="checkbox" checked={showsCompanyPayrollCutoff(draft, legacyCutoffPreference)} onChange={e => setDraft({ ...draft, showPayrollCutoffMarkers: e.target.checked })} style={{ width: 16, height: 16, accentColor: '#1a73e8' }} />
+      </label>
       {error && <p role="alert" style={{ fontSize: 12, color: '#c5221f' }}>{error}</p>}
       <div style={{ display: 'flex', gap: 6, marginTop: 8 }}><button style={button} type="button" onClick={() => {
         const ruleError = rulesError(draft.rules), taxError = calculateIncomeTax(10000, draft.rules.taxRuleText).ruleError;
         if (!draft.name.trim() || (draft.rules.salary !== null && ruleError) || taxError) { setError(!draft.name.trim() ? '请填写公司名称' : taxError ?? ruleError ?? ''); return; }
         const old = profiles.find(p => p.id === draft.id);
-        setConfig({ internshipProfiles: [...profiles.filter(p => p.id !== draft.id), { ...draft, name: draft.name.trim(), revision: old ? old.revision + 1 : 1 }], internshipLegacyCity: config.internshipLegacyCity ?? config.schoolCity ?? BEIJING });
+        const revision = old ? old.revision + Number(JSON.stringify(old.rules) !== JSON.stringify(draft.rules)) : 1;
+        const saved = { ...draft, name: draft.name.trim(), revision, showPayrollCutoffMarkers: showsCompanyPayrollCutoff(draft, legacyCutoffPreference) };
+        setConfig({ internshipProfiles: old ? profiles.map(p => p.id === saved.id ? saved : p) : [...profiles, saved], internshipLegacyCity: config.internshipLegacyCity ?? config.schoolCity ?? BEIJING });
         setDraft(null);
       }}>{draft.rules.salary === null ? '保存草稿' : '保存模式'}</button><button style={button} type="button" onClick={() => setDraft({ ...draft, id: uid(), name: `${draft.name} 副本`, revision: 1, legacyIncomeId: undefined })}>复制</button><button style={button} type="button" onClick={() => setDraft(null)}>取消</button></div>
     </div>}

@@ -1,6 +1,5 @@
 import InternshipDayEditor from '../components/InternshipDayEditor';
-import { internshipStart, resolveDailyContext } from '../utils/internship';
-import { internshipCutoffDates } from '../utils/internshipPayroll';
+import { resolveDailyContext } from '../utils/internship';
 import { useLifeCalendar } from '../hooks/useLifeCalendar';
 ﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -60,7 +59,7 @@ import type {
 import { useHolidayYears } from '../utils/holidays';
 import { sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { tryEvalFormula } from '../utils/formula';
-import { getPayrollScheduleForMonth } from '../utils/payroll';
+import { payrollCutoffMarkerDates } from '../utils/payroll';
 import {
   applyInvestAutoSumStartMonth,
   getAverageAnnualizedRate,
@@ -527,8 +526,6 @@ function SettingsModal({
   investmentProfitBaseline,
   onSetInvestmentProfitBaseline,
   onInferInvestmentProfit,
-  showPayrollCutoffMarkers,
-  setShowPayrollCutoffMarkers,
   reviewableCategories,
   setReviewableCategories,
   expenseScopeHelpText,
@@ -551,8 +548,6 @@ function SettingsModal({
   investmentProfitBaseline?: InvestmentProfitBaseline;
   onSetInvestmentProfitBaseline: (date: string) => string;
   onInferInvestmentProfit: () => string;
-  showPayrollCutoffMarkers: boolean;
-  setShowPayrollCutoffMarkers: (v: boolean) => void;
   reviewableCategories: ReviewableCategory[];
   setReviewableCategories: (cats: ReviewableCategory[]) => void;
   expenseScopeHelpText: string;
@@ -731,15 +726,6 @@ function SettingsModal({
               <div role="status" style={{ marginTop: 6, fontSize: 10, color: C.sub }}>{investmentInferenceMessage}</div>
             )}
           </div>
-          {/* 截标记开关 */}
-          <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16, cursor: 'pointer' }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#202124' }}>显示发薪数据截止日标记</div>
-              <div style={{ fontSize: 11, color: '#5f6368', marginTop: 2 }}>仅影响月历上的"截"标记显示，不影响实习工资计算</div>
-            </div>
-            <input type="checkbox" checked={showPayrollCutoffMarkers} onChange={(e) => setShowPayrollCutoffMarkers(e.target.checked)}
-              style={{ width: 16, height: 16, accentColor: '#1a73e8', flexShrink: 0 }} />
-          </label>
           {/* 明细模式：勾选时显示哪些类型 */}
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#202124', marginBottom: 4 }}>明细模式：勾选时显示</div>
@@ -3050,7 +3036,7 @@ export default function CalendarPage() {
   const { tripTags, tripNotes, tripSplits, setTripTag, setTripNote, clearTripTag, toggleTripSplit } = useTripStore();
   const {
     tagOrder, setTagOrder, weekdayTags, setWeekdayTags,
-    showPayrollCutoffMarkers, setShowPayrollCutoffMarkers,
+    showPayrollCutoffMarkers: legacyCutoffPreference,
     reviewableCategories, setReviewableCategories,
     expenseScopeHelpText, setExpenseScopeHelpText,
   } = usePrefsStore();
@@ -3143,10 +3129,9 @@ export default function CalendarPage() {
   }, [focusMonthCalendar, tab, yearMonth]);
   const daysInMonth  = getDaysInMonth(year, month);
   const firstDayWeekIdx = (new Date(year, month, 1).getDay() + 6) % 7;
-  const internshipCutoffs = useMemo(() => internshipCutoffDates(internship, tagMap, year, month), [internship, tagMap, year, month]);
-  const payrollCutoffDate = useMemo(
-    () => getPayrollScheduleForMonth(year, month, holidayDataByYear).cutoffDate,
-    [year, month, holidayDataByYear],
+  const payrollCutoffDates = useMemo(
+    () => payrollCutoffMarkerDates({ ...internship, holidayDataByYear: { ...internship.holidayDataByYear, ...holidayDataByYear } }, tagMap, year, month, legacyCutoffPreference),
+    [internship, tagMap, year, month, holidayDataByYear, legacyCutoffPreference],
   );
 
   const cells = useMemo(() => {
@@ -3703,8 +3688,6 @@ export default function CalendarPage() {
           investmentProfitBaseline={config.investmentProfitBaseline}
           onSetInvestmentProfitBaseline={setInvestmentProfitBaseline}
           onInferInvestmentProfit={inferSelectedMonthInvestmentProfit}
-          showPayrollCutoffMarkers={showPayrollCutoffMarkers}
-          setShowPayrollCutoffMarkers={setShowPayrollCutoffMarkers}
           reviewableCategories={reviewableCategories}
           setReviewableCategories={setReviewableCategories}
           expenseScopeHelpText={expenseScopeHelpText}
@@ -4146,7 +4129,7 @@ export default function CalendarPage() {
                 // 接口也包含“小年”等普通工作日纪念日；只有周末被指定上班才属于调休。
                 const isAdjustedWorkday = holiday?.isOffDay === false && weekend;
                 const holidayMarker = isStatutoryHoliday ? '休' : isAdjustedWorkday ? '班' : null;
-                const isPayrollCutoff = showPayrollCutoffMarkers && (internshipCutoffs.includes(cell.key) || ((!internshipStart(config) || cell.key < internshipStart(config)!) && cell.key === payrollCutoffDate));
+                const isPayrollCutoff = payrollCutoffDates.includes(cell.key);
                 const isRangeStart = cell.key === rangeStart;
                 const isSelectedDay = cell.key === selectedDay;
                 const inPreview  = previewRange.has(cell.key);

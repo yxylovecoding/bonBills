@@ -2,8 +2,8 @@ import { resolvePayDay } from '../calculations/budget';
 import type { IncomeItem, TagKind } from '../models/types';
 import type { HolidayDataByYear } from './holidays';
 import { calculateIncomeTax } from './tax';
-import { internshipStart, type InternshipContext } from './internship';
-import { internshipPayrollsPaidInMonth, type InternshipPayroll } from './internshipPayroll';
+import { internshipStart, migratedProfiles, showsCompanyPayrollCutoff, type InternshipContext } from './internship';
+import { internshipCutoffDates, internshipPayrollsPaidInMonth, type InternshipPayroll } from './internshipPayroll';
 
 export interface InternPayrollCycle {
   payDate: string;
@@ -71,6 +71,16 @@ export function getPayrollScheduleForMonth(year: number, month0: number, holiday
   const payDate = getLastWorkingDay(year, month0, holidayDataByYear);
   const cutoffDate = addDays(payDate, -6);
   return { payDate, cutoffDate };
+}
+
+/** Shared by the record and wish calendars; preferences never enter payroll calculations. */
+export function payrollCutoffMarkerDates(input: InternshipContext, tags: Record<string, TagKind>, year: number, month0: number, legacyPreference = true): string[] {
+  const dates = internshipCutoffDates(input, tags, year, month0, legacyPreference);
+  const start = internshipStart(input.config);
+  const { cutoffDate } = getPayrollScheduleForMonth(year, month0, input.holidayDataByYear ?? {});
+  const legacyVisible = migratedProfiles(input.config).some(profile => profile.legacyIncomeId && showsCompanyPayrollCutoff(profile, legacyPreference));
+  if (legacyVisible && (!start || cutoffDate < start)) dates.push(cutoffDate);
+  return [...new Set(dates)].sort();
 }
 
 function countMonthTags(tagMap: Record<string, TagKind>, year: number, month0: number, tagKind: TagKind) {

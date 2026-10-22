@@ -320,6 +320,8 @@ export interface InternshipProfile {
   revision: number;
   rules: InternshipRules;
   legacyIncomeId?: string;
+  /** Display preference, independent of the versioned payroll rules. */
+  showPayrollCutoffMarkers?: boolean;
 }
 export interface InternshipPeriod {
   id: string;

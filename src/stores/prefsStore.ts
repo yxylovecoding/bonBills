@@ -22,6 +22,7 @@ interface PrefsStore {
   tagOrder: TagKind[];
   accountOrder: AccountKey[];
   weekdayTags: WeekdayTags;
+  // Legacy ByteDance preference, used only until its company mode saves an explicit value.
   showPayrollCutoffMarkers: boolean;
   reviewableCategories: ReviewableCategory[];
   expenseScopeHelpText: string;

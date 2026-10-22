@@ -1,6 +1,6 @@
 import type { InternshipRules, TagKind } from '../models/types.js';
 import { calculateIncomeTax } from './tax.js';
-import { companyWorkingDate, dateRange, periodReady, resolveDailyContext, sameCity, shiftDay, type InternshipContext } from './internship.js';
+import { companyWorkingDate, dateRange, migratedProfiles, periodReady, resolveDailyContext, sameCity, shiftDay, showsCompanyPayrollCutoff, type InternshipContext } from './internship.js';
 import type { HolidayDataByYear } from './holidays.js';
 
 const money = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -93,8 +93,10 @@ export function internshipPayrollsPaidInMonth(input: InternshipContext, tags: Re
     .filter(p => p.payDate >= from && p.payDate <= to);
 }
 
-export function internshipCutoffDates(input: InternshipContext, tags: Record<string, TagKind>, year: number, month0: number) {
+export function internshipCutoffDates(input: InternshipContext, tags: Record<string, TagKind>, year: number, month0: number, legacyPreference = true) {
   const from = monthDate(year, month0), to = monthDate(year, month0, 31);
+  const profiles = new Map(migratedProfiles(input.config).map(profile => [profile.id, profile]));
   return internshipPayrolls(input, tags, monthDate(year, month0 - 2), monthDate(year, month0 + 2, 31))
+    .filter(p => showsCompanyPayrollCutoff(profiles.get(p.profileId), legacyPreference))
     .map(p => p.endDate).filter(date => date >= from && date <= to);
 }

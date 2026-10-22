@@ -128,7 +128,7 @@ export default function WishesPage() {
   const { expenseItems } = useBillDetailStore();
   const { overrides } = useExpenseScopeOverrideStore();
   const { tripTags, tripSplits } = useTripStore();
-  const showPayrollCutoffMarkers = usePrefsStore((state) => state.showPayrollCutoffMarkers);
+  const legacyCutoffPreference = usePrefsStore((state) => state.showPayrollCutoffMarkers);
   const [amountDrafts, setAmountDrafts] = useState<Record<string, string>>({});
   const [lodgingAmountModes, setLodgingAmountModes] = useState<Record<string, LodgingAmountMode>>({});
   const [budgetEstimateWishId, setBudgetEstimateWishId] = useState<string | null>(null);
@@ -1076,7 +1076,7 @@ export default function WishesPage() {
         confirmedExpenses={confirmedExpenses}
         holidayDataByYear={holidayDataByYear}
         internship={internship}
-        showPayrollCutoffMarkers={showPayrollCutoffMarkers}
+        legacyCutoffPreference={legacyCutoffPreference}
         onPreviousMonth={() => {
           if (planningCalendarMonth > minimumPlanningMonth) {
             setVisiblePlanningMonth(offsetMonthKey(planningCalendarMonth, -1));

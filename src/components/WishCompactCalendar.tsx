@@ -1,11 +1,10 @@
-import { internshipCutoffDates } from '../utils/internshipPayroll';
-import { internshipStart, resolveDailyContext, type InternshipContext } from '../utils/internship';
+import { resolveDailyContext, type InternshipContext } from '../utils/internship';
 import { useMemo } from 'react';
 import { tagMeta } from '../data/mockData';
 import type { TagKind } from '../models/types';
 import type { ConfirmedExpenseSelection } from '../stores/calendarStore';
 import type { HolidayDataByYear } from '../utils/holidays';
-import { getPayrollScheduleForMonth } from '../utils/payroll';
+import { payrollCutoffMarkerDates } from '../utils/payroll';
 
 interface WishCompactCalendarProps {
   visibleMonth: string;
@@ -21,7 +20,7 @@ interface WishCompactCalendarProps {
   confirmedExpenses: Record<string, ConfirmedExpenseSelection>;
   holidayDataByYear: HolidayDataByYear;
   internship?: InternshipContext;
-  showPayrollCutoffMarkers: boolean;
+  legacyCutoffPreference: boolean;
   onPreviousMonth: () => void;
   onNextMonth: () => void;
 }
@@ -50,7 +49,7 @@ export default function WishCompactCalendar({
   confirmedExpenses,
   holidayDataByYear,
   internship,
-  showPayrollCutoffMarkers,
+  legacyCutoffPreference,
   onPreviousMonth,
   onNextMonth,
 }: WishCompactCalendarProps) {
@@ -59,10 +58,9 @@ export default function WishCompactCalendar({
   const daysInMonth = new Date(year, month, 0).getDate();
   const firstWeekdayIndex = (new Date(year, month0, 1).getDay() + 6) % 7;
   const scheduledInternSet = useMemo(() => new Set(scheduledInternDates), [scheduledInternDates]);
-  const internshipCutoffs = useMemo(() => internship ? internshipCutoffDates(internship, tagMap, year, month0) : [], [internship, tagMap, year, month0]);
-  const payrollCutoffDate = useMemo(
-    () => getPayrollScheduleForMonth(year, month0, holidayDataByYear).cutoffDate,
-    [holidayDataByYear, month0, year],
+  const payrollCutoffDates = useMemo(
+    () => internship ? payrollCutoffMarkerDates({ ...internship, holidayDataByYear: { ...internship.holidayDataByYear, ...holidayDataByYear } }, tagMap, year, month0, legacyCutoffPreference) : [],
+    [internship, tagMap, year, month0, holidayDataByYear, legacyCutoffPreference],
   );
   const cells = useMemo(() => {
     const result: Array<{ key: string; day: number | null }> = [];
@@ -141,7 +139,7 @@ export default function WishCompactCalendar({
             && confirmed.localIds.length === 0
             && (confirmed.sharedIds?.length ?? 0) === 0;
           const isToday = cell.key === today;
-          const isPayrollCutoff = showPayrollCutoffMarkers && (internshipCutoffs.includes(cell.key) || ((!internship || !internshipStart(internship.config) || cell.key < internshipStart(internship.config)!) && cell.key === payrollCutoffDate));
+          const isPayrollCutoff = payrollCutoffDates.includes(cell.key);
           const backgroundColor = `${meta.color}20`;
           const markerLabel = holidayMarker
             ? `，${holiday?.name ?? '法定节假日'}，${holidayMarker === '休' ? '休假' : '调休上班'}`
