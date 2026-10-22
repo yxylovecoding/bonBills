@@ -177,9 +177,9 @@ describe('涨薪储蓄执行与持久化', () => {
 
 describe('涨薪存半开关与手动方式', () => {
   it('旧配置默认开启自动方式，手动零值与明确关闭保留', () => {
-    expect(resolveRaiseSavingsSettings()).toEqual({ enabled: true, mode: 'automatic', manualRaiseAmount: 0 });
-    expect(resolveRaiseSavingsSettings({ enabled: false, mode: 'manual', manualRaiseAmount: 0 }))
-      .toEqual({ enabled: false, mode: 'manual', manualRaiseAmount: 0 });
+    expect(resolveRaiseSavingsSettings()).toEqual({ enabled: true, includeVolatileIncome: true, mode: 'automatic', manualRaiseAmount: 0 });
+    expect(resolveRaiseSavingsSettings({ enabled: false, includeVolatileIncome: false, mode: 'manual', manualRaiseAmount: 0 }))
+      .toEqual({ enabled: false, includeVolatileIncome: false, mode: 'manual', manualRaiseAmount: 0 });
   });
 
   it.each([[2000, 1000], [0, 0], [0.01, 0.01], [2000.03, 1000.02], [-10, 0], [NaN, 0]])(
@@ -228,6 +228,41 @@ describe('涨薪存半开关与手动方式', () => {
       settings: { mode: 'manual', manualRaiseAmount: 0.01 } }).target).toBe(0.01);
   });
 
+  it.each(['automatic', 'manual'] as const)('%s 方式可单独关闭波动存半，双标签收入不会改算为周期收入', (mode) => {
+    const settings = { mode, manualRaiseAmount: 2000, includeVolatileIncome: false };
+    const incomeItems = [...monthlyIncome, income(500, '周期收入,波动收入')];
+    const result = calculateRaiseSavings({ incomeItems, today, settings });
+    expect(result).toMatchObject({ recurringIncome: 6060, volatileIncome: 1500, target: 1000, remaining: 1000 });
+    expect(calculateTransferAllocation(8000, 2000, result.remaining)).toEqual({
+      needsRedemption: 0, afterEssentials: 5000, invest: 2500, wishJar: 2000, consumption: 500,
+    });
+    expect(calculateRaiseSavings({ incomeItems, today, settings: { ...settings, includeVolatileIncome: true } }).target).toBe(1750);
+    expect(calculateRaiseSavings({ incomeItems, today, settings: { ...settings, enabled: false } }).target).toBe(0);
+    expect(calculateRaiseSavings({ incomeItems, today, settings: { ...settings, enabled: false, includeVolatileIncome: true } }).target).toBe(0);
+    expect(calculateRaiseSavings({ incomeItems: [income(3060, '周期收入'), income(1500, '波动收入')], today,
+      settings: { ...settings, manualRaiseAmount: 0 } }).target).toBe(0);
+  });
+
+  it.each(['automatic', 'manual'] as const)('%s 方式切换波动开关后保留已存，刷新和重开只补差额', async (mode) => {
+    useSnapshotStore.setState({ current: { ...structuredClone(DEFAULT_SNAPSHOT), accounts: { ...DEFAULT_SNAPSHOT.accounts, incomeBank: 8000 } }, history: [] });
+    const result = (includeVolatileIncome: boolean) => calculateRaiseSavings({ incomeItems: monthlyIncome, today,
+      settings: { mode, manualRaiseAmount: 2000, includeVolatileIncome }, saved: useSnapshotStore.getState().current.raiseSavingsByMonth?.[month] });
+    useSnapshotStore.getState().executeTransfers({ raiseSavings: 600 }, month);
+    expect(result(true).remaining).toBe(900);
+    expect(result(false)).toMatchObject({ target: 1000, saved: 600, remaining: 400 });
+    useSnapshotStore.getState().executeTransfers({ raiseSavings: result(false).remaining }, month);
+    await useSnapshotStore.persist.rehydrate();
+    expect(result(false).remaining).toBe(0);
+    expect(result(true).remaining).toBe(500);
+    useSnapshotStore.getState().executeTransfers({ raiseSavings: result(true).remaining }, month);
+    const completed = structuredClone(useSnapshotStore.getState().current);
+    useSnapshotStore.getState().executeTransfers({ raiseSavings: result(false).remaining }, month);
+    expect(result(false)).toMatchObject({ target: 1000, saved: 1500, remaining: 0 });
+    expect(result(true).remaining).toBe(0);
+    expect(useSnapshotStore.getState().current).toEqual(completed);
+    expect(completed).toMatchObject({ raiseSavingsByMonth: { [month]: 1500 }, accounts: { incomeBank: 6500, investCnyBank: 1500 } });
+  });
+
   it.each(['automatic', 'manual'] as const)('%s 方式都优先排除出物＋消费，独立标签及完整分类匹配', (mode) => {
     const incomeItems = [
       income(6060, '周期收入'),
@@ -266,13 +301,13 @@ describe('涨薪存半开关与手动方式', () => {
   it('配置支持持久化及云端合并，开关不会丢失已填的手动金额', async () => {
     const original = useConfigStore.getState().config;
     try {
-      useConfigStore.getState().setConfig({ raiseSavings: { enabled: false, mode: 'manual', manualRaiseAmount: 2000 } });
+      useConfigStore.getState().setConfig({ raiseSavings: { enabled: false, includeVolatileIncome: false, mode: 'manual', manualRaiseAmount: 2000 } });
       await useConfigStore.persist.rehydrate();
-      expect(useConfigStore.getState().config.raiseSavings).toEqual({ enabled: false, mode: 'manual', manualRaiseAmount: 2000 });
+      expect(useConfigStore.getState().config.raiseSavings).toEqual({ enabled: false, includeVolatileIncome: false, mode: 'manual', manualRaiseAmount: 2000 });
       const base = { raiseSavings: DEFAULT_CONFIG.raiseSavings };
-      const local = { raiseSavings: { ...DEFAULT_CONFIG.raiseSavings, enabled: false } };
+      const local = { raiseSavings: { ...DEFAULT_CONFIG.raiseSavings, enabled: false, includeVolatileIncome: false } };
       const remote = { raiseSavings: { ...DEFAULT_CONFIG.raiseSavings, mode: 'manual', manualRaiseAmount: 2000 } };
-      expect(mergeSyncValue(base, local, remote)).toEqual({ raiseSavings: { enabled: false, mode: 'manual', manualRaiseAmount: 2000 } });
+      expect(mergeSyncValue(base, local, remote)).toEqual({ raiseSavings: { enabled: false, includeVolatileIncome: false, mode: 'manual', manualRaiseAmount: 2000 } });
     } finally {
       useConfigStore.setState({ config: original });
     }

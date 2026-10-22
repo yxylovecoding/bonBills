@@ -354,6 +354,12 @@ function RebalanceSettingsModal({
                 /月
               </span>
             </label>
+            <label className="reconcile-settings-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 12, fontSize: 13 }}>
+              <span>波动收入存半</span>
+              <input type="checkbox" role="switch" aria-label="波动收入存半" checked={raiseSettingsDraft.includeVolatileIncome}
+                onChange={event => setRaiseSettingsDraft(previous => ({ ...previous, includeVolatileIncome: event.target.checked }))}
+                style={{ accentColor: C.blue }} />
+            </label>
           </>}
           <SceneCityFields value={cityDraft} onChange={setCityDraft} schoolLabel="默认上学城市" />
           <SchoolPeriods periods={internshipDraft.schoolPeriods ?? internshipConfig.schoolPeriods ?? []}
@@ -2677,13 +2683,15 @@ export default function ReconcilePage() {
 
         {/* 统一转账列表 */}
         {(() => {
+          const volatileIncomeFormula = raiseSavingsSettings.includeVolatileIncome
+            ? ` + 波动收入¥${formatCurrency(raiseSavings.volatileIncome)}` : '';
           const transferRows: { key: TransferKey; rec: number; calc: string }[] = [
             {
               key: 'raiseSavings',
               rec: raiseSavings.remaining,
               calc: raiseSavingsSettings.mode === 'manual'
-                ? `（涨薪¥${formatCurrency(raiseSavingsSettings.manualRaiseAmount)} + 波动收入¥${formatCurrency(raiseSavings.volatileIncome)}）÷ 2；本月应存¥${formatCurrency(raiseSavings.target)}，已存¥${formatCurrency(raiseSavings.saved)} → 人民币理财现金`
-                : `（周期收入¥${formatCurrency(raiseSavings.recurringIncome)} − 基本线¥${formatCurrency(raiseSavings.baseline)} + 波动收入¥${formatCurrency(raiseSavings.volatileIncome)}）÷ 2；本月应存¥${formatCurrency(raiseSavings.target)}，已存¥${formatCurrency(raiseSavings.saved)} → 人民币理财现金`,
+                ? `（涨薪¥${formatCurrency(raiseSavingsSettings.manualRaiseAmount)}${volatileIncomeFormula}）÷ 2；本月应存¥${formatCurrency(raiseSavings.target)}，已存¥${formatCurrency(raiseSavings.saved)} → 人民币理财现金`
+                : `（周期收入¥${formatCurrency(raiseSavings.recurringIncome)} − 基本线¥${formatCurrency(raiseSavings.baseline)}${volatileIncomeFormula}）÷ 2；本月应存¥${formatCurrency(raiseSavings.target)}，已存¥${formatCurrency(raiseSavings.saved)} → 人民币理财现金`,
             },
             {
               key: 'campusCard',

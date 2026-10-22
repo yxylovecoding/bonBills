@@ -138,6 +138,16 @@ describe('按月预留与推荐日期', () => {
 
 
 describe('月度预留方式', () => {
+  it.each(['automatic', 'manual'] as const)('波动开关不影响 %s 方式的心愿周期收入规划', (mode) => {
+    const settings = { mode, manualRaiseAmount: 2000 };
+    const options = { ...base, incomeItems: [fixedIncome(6060)], raiseSavings: settings };
+    const expected = calculateWishInternPlan(options);
+    expect(expected.projectedRaiseSavings).toBe(1000);
+    for (const includeVolatileIncome of [true, false]) {
+      expect(calculateWishInternPlan({ ...options, raiseSavings: { ...settings, includeVolatileIncome } })).toEqual(expected);
+      expect(wishRequiredIncome(5060, 4060, { ...settings, includeVolatileIncome })).toBe(6060);
+    }
+  });
   it('月度收入需求支持关闭、手动和零涨薪', () => {
     expect(wishRequiredIncome(5060, 0, { enabled: false })).toBe(5060);
     expect(wishRequiredIncome(5060, 0, { mode: 'manual', manualRaiseAmount: 2000 })).toBe(6060);

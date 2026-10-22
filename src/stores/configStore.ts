@@ -39,7 +39,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   reconcileDates: [1, 11, 21],
   incomeItems: [],
   recurringIncomeBaseline: DEFAULT_RECURRING_INCOME_BASELINE,
-  raiseSavings: { enabled: true, mode: 'automatic', manualRaiseAmount: 0 },
+  raiseSavings: { enabled: true, includeVolatileIncome: true, mode: 'automatic', manualRaiseAmount: 0 },
   futureFireExpenses: [],
   majorFireWishes: [],
   wishes: [],
