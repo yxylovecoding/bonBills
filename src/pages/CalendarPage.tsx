@@ -676,7 +676,7 @@ function SettingsModal({
             }}
               style={{ width: '100%', border: '1.5px solid #dadce0', borderRadius: 8, padding: '8px 10px', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
           </div>
-          <div style={{ marginBottom: 16 }}>
+          <div hidden style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 12, color: '#5f6368', marginBottom: 6 }}>累计盈利自动求和起始月</div>
             <input
               type="month"
@@ -685,7 +685,7 @@ function SettingsModal({
               style={{ width: '100%', border: '1.5px solid #dadce0', borderRadius: 8, padding: '8px 10px', fontSize: 14, outline: 'none', boxSizing: 'border-box', backgroundColor: '#fff' }}
             />
           </div>
-          <div style={{ borderTop: '1px solid #f1f3f4', paddingTop: 14, marginBottom: 16 }}>
+          <div hidden style={{ borderTop: '1px solid #f1f3f4', paddingTop: 14, marginBottom: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#202124' }}>收益推算</div>
               <div style={{ fontSize: 10, color: investmentProfitBaseline ? C.green : '#9aa0a6' }}>
