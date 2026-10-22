@@ -365,6 +365,7 @@ export interface SchoolPeriod {
 
 export interface RaiseSavingsSettings {
   enabled?: boolean; // 缺省开启，兼容已启用涨薪存半的旧数据
+  includeVolatileIncome?: boolean; // 缺省计入波动收入的一半
   mode?: 'automatic' | 'manual';
   manualRaiseAmount?: number; // 手动填写的每月涨薪金额
 }
