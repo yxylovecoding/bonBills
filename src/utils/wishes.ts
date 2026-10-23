@@ -171,11 +171,11 @@ export function resolveWishBillSpending(
   const summaries = new Map<string, ReturnType<typeof sumBillsByTag>>();
   return wishes.map((wish) => {
     const trip = wish.linkedTripStartDate ? tripsByStart.get(wish.linkedTripStartDate) : undefined;
-    const selectedTag = trip ? tripTags[trip.startDate] : undefined;
+    const selectedTag = wish.billTag !== undefined ? wish.billTag : trip ? tripTags[trip.startDate] : undefined;
     const tripMonths = new Set(trip?.dates.map((date) => `${date.slice(2, 4)}.${Number(date.slice(5, 7))}`));
     const name = wish.name.trim();
     const exactTag = allTags.find((tag) => tag === name && !SYSTEM_BILL_TAGS.has(tag));
-    const tags = selectedTag ? [selectedTag] : exactTag ? [exactTag] : allTags.filter((tag) => {
+    const tags = wish.billTag === null ? [] : selectedTag ? [selectedTag] : exactTag ? [exactTag] : allTags.filter((tag) => {
       if (!name || SYSTEM_BILL_TAGS.has(tag)) return false;
       const tagMonth = tagYearMonthPrefix(tag);
       return wishTagName(tag) === wishTagName(name)
@@ -245,7 +245,7 @@ export function reconcileWishTripLinks<T extends WishItem>(
     if (!trip) return wish;
     const deadline = new Date(`${trip.startDate}T00:00:00Z`);
     deadline.setUTCDate(deadline.getUTCDate() - 1);
-    return { ...wish, linkedTripStartDate: trip.startDate, deadline: deadline.toISOString().slice(0, 10) };
+    return { ...wish, linkedTripStartDate: trip.startDate, deadline: wish.deadlineMode === 'manual' ? wish.deadline : deadline.toISOString().slice(0, 10) };
   });
 }
 
@@ -267,11 +267,11 @@ export function reconcileTripWishes(
   const retainedWishes = wishes.filter((wish) => {
     const synthetic = /^wish_trip_\d{4}-\d{2}-\d{2}(?:_\d+)?$/.test(wish.id);
     const untouched = wish.targetAmount === 0 && wish.savedAmount === 0 && wish.plannedTravelDays === 0
-      && !wish.repaidAmount && !(wish.spentItems?.length);
+      && !wish.repaidAmount && !(wish.spentItems?.length) && wish.deadlineMode !== 'manual' && wish.billTag === undefined;
     return !(synthetic && untouched && wish.linkedTripStartDate && !eligibleStarts.has(wish.linkedTripStartDate));
   });
   let next = reconcileWishTripLinks(retainedWishes, eligibleTrips, tripTags, travelTitles).map((wish) => {
-    if (!wish.linkedTripStartDate) return wish;
+    if (!wish.linkedTripStartDate || wish.deadlineMode === 'manual') return wish;
     const deadline = beforeDeparture(wish.linkedTripStartDate);
     return wish.deadline === deadline ? wish : { ...wish, deadline };
   });
@@ -288,7 +288,7 @@ export function reconcileTripWishes(
       && wishTripMatchName(wish.name) === generatedName);
     if (manualCandidates.length !== 1) continue;
     const manual = manualCandidates[0];
-    const linked = { ...manual, linkedTripStartDate: trip.startDate, deadline: beforeDeparture(trip.startDate) };
+    const linked = { ...manual, linkedTripStartDate: trip.startDate, deadline: manual.deadlineMode === 'manual' ? manual.deadline : beforeDeparture(trip.startDate) };
     next = next.map((wish) => wish === manual ? linked : wish).filter((wish) => wish !== generated);
   }
   for (const trip of [...trips].sort((a, b) => a.startDate.localeCompare(b.startDate))) {
@@ -301,7 +301,7 @@ export function reconcileTripWishes(
     const deadline = beforeDeparture(trip.startDate);
     if (candidates.length === 1) {
       const existing = candidates[0];
-      next[next.indexOf(existing)] = { ...existing, linkedTripStartDate: trip.startDate, deadline };
+      next[next.indexOf(existing)] = { ...existing, linkedTripStartDate: trip.startDate, deadline: existing.deadlineMode === 'manual' ? existing.deadline : deadline };
     } else {
       // 固定 ID 让多个设备同时补建同一行程时仍能按 ID 合并。
       const baseId = `wish_trip_${trip.startDate}`;

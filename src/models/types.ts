@@ -221,6 +221,8 @@ export interface ShoppingItem {
 }
 
 export interface WishItem {
+  deadlineMode?: 'manual'; // Explicit dates survive automatic trip reconciliation.
+  billTag?: string | null; // undefined: automatic matching; null: no bill tag.
   id: string;
   name: string;
   targetAmount: number;
@@ -420,6 +422,7 @@ export interface AppConfig {
   wishDebtTotal?: number; // 外部债务账户的当前总欠款；缺省时仅汇总心愿欠款
   wishInternSavingRecords?: WishInternSavingRecord[];
   wishDeadlineMilestones?: WishDeadlineMilestone[];
+  defaultWishDeadlineMilestoneId?: string | null;
   majorExpenseThreshold: number; // 大额支出筛选门槛，默认 500
   investAutoSumStartMonth?: string; // 从该月起累计盈利由理财条目自动求和；此前保留手填值
   investmentProfitBaseline?: InvestmentProfitBaseline; // 从一次确认过的持仓与累计收益继续推算

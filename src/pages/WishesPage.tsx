@@ -1,3 +1,5 @@
+import { defaultWishDeadline, visibleWishMilestones } from '../utils/wishDeadlineMilestones';
+import WishScheduleEditor from '../components/WishScheduleEditor';
 import SavingsCalendar from '../components/SavingsCalendar';
 import { resolveDailyContext } from '../utils/internship';
 import { useLifeCalendar } from '../hooks/useLifeCalendar';
@@ -23,7 +25,7 @@ import { useTripStore } from '../stores/tripStore';
 import { usePrefsStore } from '../stores/prefsStore';
 import type { TagKind, WishDeadlineMilestone, WishExtraExpenseItem, WishItem } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
-import { detectAllTrips, type TripSegment } from '../utils/trips';
+import { detectAllTrips, flattenExpenseItems } from '../utils/trips';
 import { calculateWishInternPlan } from '../utils/wishInternPlan';
 import {
   calculateWishFunding,
@@ -74,12 +76,6 @@ function dateInMonth(value: string, requestedDay: number): string {
   const [year, month] = value.split('-').map(Number);
   const day = Math.min(requestedDay, new Date(year, month, 0).getDate());
   return `${value}-${String(day).padStart(2, '0')}`;
-}
-
-function tripOptionLabel(trip: TripSegment, tag?: string): string {
-  const start = `${Number(trip.startDate.slice(5, 7))}/${Number(trip.startDate.slice(8, 10))}`;
-  const end = `${Number(trip.endDate.slice(5, 7))}/${Number(trip.endDate.slice(8, 10))}`;
-  return `${start}${trip.startDate === trip.endDate ? '' : `–${end}`} · ${trip.dates.length}天${tag ? ` · ${tag}` : ''}`;
 }
 
 function offsetDateKey(value: string, days: number): string {
@@ -133,7 +129,7 @@ export default function WishesPage() {
   const [amountDrafts, setAmountDrafts] = useState<Record<string, string>>({});
   const [lodgingAmountModes, setLodgingAmountModes] = useState<Record<string, LodgingAmountMode>>({});
   const [budgetEstimateWishId, setBudgetEstimateWishId] = useState<string | null>(null);
-  const [tripDetailsWishId, setTripDetailsWishId] = useState<string | null>(null);
+  const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [planningDeadline, setPlanningDeadline] = useState('');
   const [activeWishId, setActiveWishId] = useState<string | null>(null);
   const [visiblePlanningMonth, setVisiblePlanningMonth] = useState('');
@@ -177,6 +173,7 @@ export default function WishesPage() {
     [storedWishes, allTripSegments, tripTags, expenseItems, todayKey, config.wishDebtTotal],
   );
   const deadlineMilestones = config.wishDeadlineMilestones ?? DEFAULT_WISH_DEADLINE_MILESTONES;
+  const visibleDeadlineMilestones = visibleWishMilestones(deadlineMilestones, todayKey);
   const selectableTripSegments = useMemo(
     () => allTripSegments.filter((trip) => trip.endDate >= todayKey),
     [allTripSegments, todayKey],
@@ -506,7 +503,8 @@ export default function WishesPage() {
         name: '新心愿',
         targetAmount: 0,
         savedAmount: 0,
-        deadline: null,
+        deadline: defaultWishDeadline(deadlineMilestones, config.defaultWishDeadlineMilestoneId, todayKey),
+        deadlineMode: 'manual',
         plannedTravelDays: 1,
         isActive: true,
       },
@@ -516,12 +514,12 @@ export default function WishesPage() {
     setSelectedSegmentDays({});
     setActiveWishId((currentId) => currentId === id ? null : currentId);
     setBudgetEstimateWishId((currentId) => currentId === id ? null : currentId);
-    setTripDetailsWishId((currentId) => currentId === id ? null : currentId);
+    setEditingScheduleId((currentId) => currentId === id ? null : currentId);
     syncWishes(storedWishes.filter((item) => item.id !== id));
   };
   const updateWish = <K extends keyof WishItem>(id: string, field: K, value: WishItem[K]) => {
     if (field !== 'name') setSelectedSegmentDays({});
-    syncWishes(storedWishes.map((item) => item.id === id ? { ...item, [field]: value } : item));
+    syncWishes(storedWishes.map((item) => item.id === id ? { ...item, [field]: value, ...(field === 'deadline' ? { deadlineMode: 'manual' as const } : {}) } : item));
   };
   const updateWishFields = (id: string, patch: Partial<WishItem>) => {
     setSelectedSegmentDays({});
@@ -682,18 +680,17 @@ export default function WishesPage() {
   }, [handleWishListScroll]);
 
   useEffect(() => {
-    if (!budgetEstimateWishId && !tripDetailsWishId) return undefined;
+    if (!budgetEstimateWishId) return undefined;
     const closeDetailsOnOutsidePointer = (event: PointerEvent) => {
       if (!(event.target instanceof Node)) return;
       const target = event.target;
       const cards = Array.from(wishListScrollRef.current?.querySelectorAll<HTMLElement>('[data-wish-id]') ?? []);
       const isInside = (id: string | null) => cards.some((card) => card.dataset.wishId === id && card.contains(target));
       if (!isInside(budgetEstimateWishId)) setBudgetEstimateWishId(null);
-      if (!isInside(tripDetailsWishId)) setTripDetailsWishId(null);
     };
     document.addEventListener('pointerdown', closeDetailsOnOutsidePointer);
     return () => document.removeEventListener('pointerdown', closeDetailsOnOutsidePointer);
-  }, [budgetEstimateWishId, tripDetailsWishId]);
+  }, [budgetEstimateWishId]);
 
   useEffect(() => {
     const deadlineMonth = effectivePlanningDeadline.slice(0, 7);
@@ -943,8 +940,8 @@ export default function WishesPage() {
             <button type="button" onClick={addDeadlineMilestone} style={{ border: 'none', background: 'transparent', color: C.purple, padding: '2px 4px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>+ 添加节点</button>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {deadlineMilestones.map((milestone) => (
-              <div key={milestone.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(90px, 1fr) minmax(138px, 1fr) auto', alignItems: 'center', gap: 6 }}>
+            {visibleDeadlineMilestones.map((milestone) => (
+              <div key={milestone.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.3fr) auto', alignItems: 'center', gap: 6 }}>
                 <input
                   aria-label="节点名称"
                   value={milestone.name}
@@ -959,6 +956,12 @@ export default function WishesPage() {
                   onChange={(event) => updateDeadlineMilestone(milestone.id, 'date', event.target.value)}
                   style={{ minWidth: 0, border: '1px solid #ddd6fe', borderRadius: 8, backgroundColor: '#fff', padding: '5px 8px', outline: 'none', color: milestone.date ? '#202124' : C.sub, fontSize: 12 }}
                 />
+                <label style={{ gridColumn: '1 / 3', gridRow: 2, display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.purple }}>
+                  <input type="radio" name="default-wish-deadline" aria-label={`${milestone.name || '时间节点'}设为默认`}
+                    checked={config.defaultWishDeadlineMilestoneId === milestone.id && !!defaultWishDeadline(deadlineMilestones, milestone.id, todayKey)}
+                    disabled={!defaultWishDeadline(deadlineMilestones, milestone.id, todayKey)}
+                    onChange={() => setConfig({ defaultWishDeadlineMilestoneId: milestone.id })} />默认
+                </label>
                 <button type="button" aria-label={`删除${milestone.name || '时间节点'}`} onClick={() => removeDeadlineMilestone(milestone.id)} style={{ border: 'none', background: 'transparent', color: '#9aa0a6', padding: '2px 4px', fontSize: 18, cursor: 'pointer', lineHeight: 1 }}>×</button>
               </div>
             ))}
@@ -1147,20 +1150,6 @@ export default function WishesPage() {
               : undefined;
             const isOngoingTrip = item.isActive && linkedTrip
               && linkedTrip.startDate <= todayKey && linkedTrip.endDate >= todayKey;
-            const linkedTripDefaultDeadline = item.linkedTripStartDate
-              ? offsetDateKey(item.linkedTripStartDate, -1)
-              : null;
-            const availableTripSegments = selectableTripSegments.filter((trip) => (
-              trip.startDate === item.linkedTripStartDate || !linkedTripStartDates.has(trip.startDate)
-            ));
-            const itemTripOptions = linkedTrip && !availableTripSegments.some((trip) => trip.startDate === linkedTrip.startDate)
-              ? [linkedTrip, ...availableTripSegments]
-              : availableTripSegments;
-            const travelSelection = linkedTrip
-              ? linkedTrip.startDate
-              : (item.plannedTravelDays ?? 0) > 0
-                ? '__manual__'
-                : '';
             const itemTravelDays = linkedTrip?.dates.length ?? Math.max(Math.round(item.plannedTravelDays ?? 0), 0);
             const lodgingNights = Math.max(itemTravelDays - 1, 0);
             const travelBudget = resolveWishTravelBudget(item, itemTravelDays, stats.stateDailyAvg.travel);
@@ -1195,7 +1184,6 @@ export default function WishesPage() {
             const actualWishSavingCompleted = (item.targetAmount > 0 || funding.consumptionSpentAmount > 0 || hasActualTarget)
               && remainingActualWishSavingAmount <= 0;
             const budgetEstimateVisible = !hasActualTarget && budgetEstimateWishId === item.id;
-            const tripDetailsVisible = tripDetailsWishId === item.id;
             const amountField = (
               <div style={{ minWidth: 0 }}>
                 <span style={{ display: 'block', fontSize: 10, color: C.sub, marginBottom: 4 }}>{hasActualTarget ? '实际花销' : '目标金额'}</span>
@@ -1242,17 +1230,14 @@ export default function WishesPage() {
                   <input
                     aria-label="心愿名称"
                     value={item.name}
-                    aria-expanded={tripDetailsVisible}
-                    aria-controls={`wish-trip-details-${item.id}`}
-                    onFocus={() => setTripDetailsWishId(item.id)}
-                    onClick={() => setTripDetailsWishId(item.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Escape') setTripDetailsWishId(null);
-                      if (event.key === 'Enter') setTripDetailsWishId((current) => current === item.id ? null : item.id);
-                    }}
                     onChange={(event) => updateWish(item.id, 'name', event.target.value)}
                     style={{ flex: 1, minWidth: 0, border: 'none', borderBottom: '1px solid transparent', outline: 'none', background: 'transparent', fontSize: 14, fontWeight: 700, color: item.isActive ? '#202124' : '#9aa0a6' }}
                   />
+                  {item.isActive && !item.billSpending?.ended && (!linkedTrip || linkedTrip.startDate > todayKey) && <button
+                    type="button" aria-label={`编辑${item.name}时间与绑定`} title="时间与绑定"
+                    onClick={() => setEditingScheduleId(item.id)}
+                    style={{ border: 0, background: 'transparent', color: C.purple, padding: 6, cursor: 'pointer', fontSize: 16 }}
+                  >◷</button>}
                   <button type="button" aria-label="删除心愿" onClick={() => removeWish(item.id)} style={{ border: 'none', background: 'transparent', color: '#9aa0a6', fontSize: 18, padding: '0 2px', cursor: 'pointer', lineHeight: 1 }}>×</button>
                 </div>
 
@@ -1280,97 +1265,17 @@ export default function WishesPage() {
                 <WishSpendingSummary wish={item} />
                 </>}
 
-                {linkedTripDefaultDeadline ? null : (
-                  <div style={{ display: 'block', marginTop: 9 }}>
-                    <span style={{ display: 'block', fontSize: 10, color: C.sub, marginBottom: 4 }}>截止日期（可选）</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      {deadlineMilestones.some((milestone) => milestone.name.trim() && milestone.date) ? (
-                        <select
-                          aria-label={`${item.name}截止时间节点`}
-                          value={deadlineMilestones.find((milestone) => milestone.date === item.deadline)?.id ?? ''}
-                          onChange={(event) => {
-                            const milestone = deadlineMilestones.find((candidate) => candidate.id === event.target.value);
-                            if (milestone?.date) updateWish(item.id, 'deadline', milestone.date);
-                          }}
-                          style={{ minWidth: 86, maxWidth: 116, border: '1px solid #ddd6fe', borderRadius: 9, backgroundColor: '#faf7ff', padding: '6px 7px', outline: 'none', fontSize: 11, color: C.purple }}
-                        >
-                          <option value="">时间节点</option>
-                          {deadlineMilestones.filter((milestone) => milestone.name.trim() && milestone.date).map((milestone) => (
-                            <option key={milestone.id} value={milestone.id}>{milestone.name}</option>
-                          ))}
-                        </select>
-                      ) : null}
-                      <input
-                        type="date"
-                        aria-label="心愿截止日期"
-                        value={item.deadline ?? ''}
-                        onChange={(event) => updateWish(item.id, 'deadline', event.target.value || null)}
-                        style={{ flex: 1, minWidth: 0, border: '1px solid #e5e7eb', borderRadius: 9, backgroundColor: '#fff', padding: '6px 8px', outline: 'none', fontSize: 12, color: item.deadline ? '#202124' : C.sub }}
-                      />
-                      {item.deadline && (
-                        <button type="button" onClick={() => updateWish(item.id, 'deadline', null)} style={{ border: 'none', borderRadius: 8, padding: '7px 9px', backgroundColor: '#f3f4f6', color: C.sub, fontSize: 11, cursor: 'pointer' }}>清除</button>
-                      )}
-                    </div>
-                  </div>
-                )}
+                {editingScheduleId === item.id && <WishScheduleEditor
+                  wish={storedWishes.find((wish) => wish.id === item.id)!}
+                  trips={selectableTripSegments.filter((trip) => trip.startDate === item.linkedTripStartDate || !linkedTripStartDates.has(trip.startDate))}
+                  tripLabels={tripTags}
+                  billTags={[...new Set(flattenExpenseItems(expenseItems).flatMap((bill) => (bill.tags || '').split(',').map((tag) => tag.trim()).filter(Boolean)))]}
+                  onCancel={() => setEditingScheduleId(null)}
+                  onSave={(patch) => { updateWishFields(item.id, patch); setEditingScheduleId(null); }}
+                />}
 
-                {(tripDetailsVisible || budgetEstimateVisible) && (
+                {budgetEstimateVisible && (
                 <div style={{ marginTop: 9, borderRadius: 10, border: '1px solid #ede9fe', backgroundColor: '#faf7ff', padding: '8px 9px' }}>
-                  {tripDetailsVisible && (
-                  <div id={`wish-trip-details-${item.id}`}>
-                  <label style={{ display: 'block' }}>
-                    <span style={{ display: 'block', fontSize: 10, color: C.sub, marginBottom: 4 }}>关联出游（可选）</span>
-                    <select
-                      aria-label={`${item.name} 关联出游`}
-                      value={travelSelection}
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        if (value === '__manual__') {
-                          updateWishFields(item.id, {
-                            linkedTripStartDate: null,
-                            plannedTravelDays: Math.max(Math.round(item.plannedTravelDays ?? 0), 1),
-                          });
-                        } else if (value) {
-                          updateWishFields(item.id, {
-                            linkedTripStartDate: value,
-                            plannedTravelDays: 0,
-                            deadline: offsetDateKey(value, -1),
-                          });
-                        } else {
-                          updateWishFields(item.id, { linkedTripStartDate: null, plannedTravelDays: 0 });
-                        }
-                      }}
-                      style={{ width: '100%', minWidth: 0, border: '1px solid #ddd6fe', borderRadius: 8, backgroundColor: '#fff', padding: '6px 8px', outline: 'none', fontSize: 11, color: '#202124' }}
-                    >
-                      <option value="">不关联出游</option>
-                      {itemTripOptions.map((trip) => (
-                        <option key={trip.startDate} value={trip.startDate}>
-                          {tripOptionLabel(trip, tripTags[trip.startDate])}
-                        </option>
-                      ))}
-                      <option value="__manual__">未排进日历，按天数计算</option>
-                    </select>
-                  </label>
-                  {travelSelection === '__manual__' && (
-                    <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 7, fontSize: 11, color: C.sub }}>
-                      <span>准备出去几天</span>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <input
-                          type="number"
-                          inputMode="numeric"
-                          min={1}
-                          max={365}
-                          aria-label={`${item.name} 出游天数`}
-                          value={Math.max(Math.round(item.plannedTravelDays ?? 1), 1)}
-                          onChange={(event) => updateWish(item.id, 'plannedTravelDays', Math.min(Math.max(Math.round(Number(event.target.value) || 1), 1), 365))}
-                          style={{ width: 52, border: 'none', borderBottom: '1px solid #c4b5fd', outline: 'none', backgroundColor: 'transparent', textAlign: 'right', color: C.purple, fontSize: 12, fontWeight: 700 }}
-                        />
-                        天
-                      </span>
-                    </label>
-                  )}
-                  </div>
-                  )}
                   {budgetEstimateVisible && itemTravelDays <= 0 && (
                     <div id={`budget-estimate-${item.id}`} style={{ marginTop: 8, borderTop: '1px dashed #ddd6fe', paddingTop: 8, fontSize: 10, color: C.purple, lineHeight: 1.5 }}>
                       请先关联出游或填写出游天数

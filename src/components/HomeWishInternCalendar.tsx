@@ -1,3 +1,4 @@
+import { savedWishCalendarLabels } from '../utils/wishCalendarLabels';
 import { internshipStart, resolveDailyContext, type InternshipContext } from '../utils/internship';
 import { useMemo } from 'react';
 import { tagMeta } from '../data/mockData';
@@ -16,6 +17,7 @@ interface HomeWishInternCalendarProps {
   internSavingRecords: WishInternSavingRecord[];
   availableInternDates: readonly string[];
   wishSummaryLabelsById: Record<string, string>;
+  wishNamesById: Record<string, string>;
   travelLabelsByDate: Record<string, string>;
   holidayDataByYear: HolidayDataByYear;
   internship?: InternshipContext;
@@ -61,6 +63,7 @@ export default function HomeWishInternCalendar({
   internSavingRecords,
   availableInternDates,
   wishSummaryLabelsById,
+  wishNamesById,
   travelLabelsByDate,
   holidayDataByYear,
   internship,
@@ -93,8 +96,8 @@ export default function HomeWishInternCalendar({
     return result;
   }, [assignments]);
   const internThemeByDate = useMemo(
-    () => new Map(internSavingRecords.map((record) => [record.date, record.theme])),
-    [internSavingRecords],
+    () => savedWishCalendarLabels(internSavingRecords, wishNamesById, today),
+    [internSavingRecords, wishNamesById, today],
   );
   const monthAssignments = useMemo(() => assignments.map((assignment, index) => ({
     deadline: assignment.deadline,

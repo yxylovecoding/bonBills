@@ -184,6 +184,7 @@ export default function SavingsCalendar({ onBack }: { onBack: () => void }) {
         internSavingRecords={wishInternSavingRecords}
         availableInternDates={wishMilestonePlan.segments[wishMilestonePlan.segments.length - 1]?.availableInternDateKeys ?? EMPTY_DATE_KEYS}
         wishSummaryLabelsById={wishSummaryLabelsById}
+        wishNamesById={Object.fromEntries(wishes.filter((wish) => wish.isActive).map((wish) => [wish.id, wish.name]))}
         travelLabelsByDate={travelLabelsByDate}
         holidayDataByYear={holidayDataByYear}
         internship={internship}
