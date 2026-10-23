@@ -13,7 +13,7 @@ const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai'
 
 export default function AlipayScreenshotImport({ yearMonth, items, snapshots, onImport }: {
   yearMonth: string; items: InvestPositionItems; snapshots: Record<string, AlipayActualSnapshot>;
-  onImport: (snapshot: AlipayActualSnapshot, baseline: string) => void;
+  onImport: (snapshot: AlipayActualSnapshot, baseline: string) => Promise<void>;
 }) {
   const choices = useMemo(() => alipayFundChoices(items, snapshots), [items, snapshots]);
   const [open, setOpen] = useState(false);
@@ -94,17 +94,18 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
     {open && <AlipayImportDialog title="支付宝截图导入" onClose={close} footer={<>
       {progress && <div role="status">{progress}</div>}
       {error && <div role="alert" className="alipay-pending">{error}</div>}
-      {draft && <button type="button" className="alipay-import-confirm" disabled={!!progress} onClick={() => {
+      {draft && <button type="button" className="alipay-import-confirm" disabled={!!progress} onClick={async () => {
+        setProgress('导入中');
         try {
           if (getAccountStorage() !== owner.current) throw new Error('账号已切换，请重新导入');
           if (JSON.stringify(snapshots[date] ?? null) !== baseline) throw new Error('当日持仓已更新，请重新选择截图');
           const snapshot = materializeAlipayScreenshots(draft, date, choices, snapshots[date]);
-          onImport(snapshot, baseline); close(); setError('');
+          await onImport(snapshot, baseline); close(); setError('');
         } catch (cause) {
           setError(cause instanceof Error ? cause.message : '请核对识别结果');
           setAttention(cause instanceof AlipayScreenshotValidationError ? cause : null);
           if (cause instanceof AlipayScreenshotValidationError) setReviewOnly(false);
-        }
+        } finally { setProgress(''); }
       }}>导入</button>}
     </>}>
       <div className="alipay-detail-line"><label>持仓日期 <input aria-label="截图持仓日期" type="date" value={date} max={today()} disabled={!!progress} onChange={(event) => { setDate(event.target.value); setDraft(null); }} /></label>
@@ -116,7 +117,7 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
         controller.current?.abort(); controller.current = new AbortController();
         const token = ++job.current; const account = getAccountStorage(); owner.current = account;
         const importBaseline = JSON.stringify(snapshots[date] ?? null);
-        setError(''); setAttention(null); setDraft(null); setReviewOnly(false); setBaseline(importBaseline);
+        setError(''); setAttention(null); setDraft(null); setReviewOnly(false); setBaseline(importBaseline); setProgress('导入中');
         try {
           if (!date || !date.startsWith(`${yearMonth}-`)) throw new Error(`请选 ${yearMonth} 的持仓日期`);
           if (files.some((file) => /\.json$/i.test(file.name))) {
@@ -124,7 +125,7 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
             const value = parseAlipayActual(await files[0].text());
             if (!value.date.startsWith(`${yearMonth}-`)) throw new Error(`请先切换到 ${value.date.slice(0, 7)}`);
             if (token !== job.current || account !== getAccountStorage()) return;
-            onImport(value, JSON.stringify(snapshots[value.date] ?? null)); close(); return;
+            await onImport(value, JSON.stringify(snapshots[value.date] ?? null)); close(); return;
           }
           if (files.reduce((sum, file) => sum + file.size, 0) > 60_000_000) throw new Error('每批截图请控制在 60 MB 以内');
           setSources(files.map((file) => ({ name: file.name, url: URL.createObjectURL(file) })));
@@ -132,7 +133,8 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
           if (token !== job.current || account !== getAccountStorage()) return;
           const nextDraft = inferAlipayFundClassesByAmount(combineAlipayScreenshotDrafts(images.map((image) => parseAlipayScreenshot(image, choices, date))), choices, snapshots, date);
           setDraft(nextDraft);
-          onImport(materializeAlipayScreenshots(nextDraft, date, choices, snapshots[date]), importBaseline);
+          setProgress('同步持仓中');
+          await onImport(materializeAlipayScreenshots(nextDraft, date, choices, snapshots[date]), importBaseline);
           close();
         } catch (cause) {
           if (token === job.current) {

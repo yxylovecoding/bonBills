@@ -44,7 +44,7 @@ function writeLocalCache(year: number, data: HolidayYearData) {
   }
 }
 
-async function fetchHolidayYear(year: number): Promise<HolidayFetchResult> {
+export async function fetchHolidayYear(year: number): Promise<HolidayFetchResult> {
   const memoized = memoryCache.get(year);
   if (memoized) return { data: memoized };
 

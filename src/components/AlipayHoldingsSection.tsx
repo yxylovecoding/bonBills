@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { FundConfirmationOverride, FundConfirmationRule, InvestPositionItems, MonthlyRecord } from '../models/types';
+import type { FundConfirmationOverride, FundConfirmationRule, InvestPositionGroupKey, InvestPositionItems, MonthlyRecord } from '../models/types';
 import { useConfigStore } from '../stores/configStore';
 import { useAlipayHoldings } from '../hooks/useAlipayHoldings';
 import { fundConfirmationKey, isConfirmationFund, resolveFundConfirmationRule, validConfirmationDate, type AlipayOrder } from '../utils/alipayHoldings';
@@ -7,6 +7,8 @@ import { calculateInvestPositionMonthlyProfit, summarizeInvestPositionItems, typ
 import { investMeta } from '../data/mockData';
 import AlipayActualPanel from './AlipayActualPanel';
 import AlipayAmountProfit from './AlipayAmountProfit';
+import AlipayHoldingEditor from './AlipayHoldingEditor';
+import type { InvestPositionDraft } from '../utils/investPositionDrafts';
 
 const C = { sub: '#5f6368', blue: '#1a73e8', red: '#ea4335', green: '#0d9488', orange: '#e8710a' };
 const color = (value: number | null) => value === null ? C.sub : value >= 0 ? C.red : C.green;
@@ -70,11 +72,12 @@ function ConfirmationOrders({ orders, asOf, name }: { orders: AlipayOrder[]; asO
   </details>;
 }
 
-export default function AlipayHoldingsSection({ items, previousItems, records, yearMonth, previousMonth, markets, previousMarkets }: {
+export default function AlipayHoldingsSection({ items, previousItems, records, yearMonth, previousMonth, markets, previousMarkets, onUpdate }: {
   items: InvestPositionItems; previousItems?: InvestPositionItems; records: MonthlyRecord[];
   yearMonth: string; previousMonth?: string;
   markets: Record<string, InvestMarketSnapshot | undefined>;
   previousMarkets: Record<string, InvestMarketSnapshot | undefined>;
+  onUpdate: (group: InvestPositionGroupKey, id: string, patch: Partial<InvestPositionDraft>) => void;
 }) {
   const view = useAlipayHoldings(items, previousItems, records, yearMonth, previousMonth);
   const rules = useConfigStore((state) => state.config.fundConfirmationRules);
@@ -175,6 +178,7 @@ export default function AlipayHoldingsSection({ items, previousItems, records, y
                     }}><option value="auto">自动{rule ? ` · T+${rule}` : ' · 待识别'}</option><option value="1">T+1</option><option value="2">T+2</option></select>
                   </label>}
                   <ConfirmationOrders orders={itemOrders} asOf={view.asOf} name={item.name} />
+                  <AlipayHoldingEditor item={(items[key] ?? []).find((source) => source.id === item.id)!} onSave={(patch) => onUpdate(key, item.id, patch)} />
                 </div>}
               </div>;
             })}

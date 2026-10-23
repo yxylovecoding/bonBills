@@ -128,6 +128,17 @@ function replay(position: ReplayPosition, transaction: InvestmentTransactionReco
   return { ...position, shares: round(position.shares + shares), costPrice: round((position.shares * position.costPrice + addedCost) / (position.shares + shares)) };
 }
 
+function reverseReplay(position: ReplayPosition, transaction: InvestmentTransactionRecord): ReplayPosition | null {
+  const { shares, price, fee } = transaction;
+  if (!(shares > 0 && price > 0) || !Number.isFinite(shares + price + fee) || fee < 0) return null;
+  if (transaction.side === 'sell') return { ...position, shares: round(position.shares + shares) };
+  const priorShares = round(position.shares - shares);
+  const addedCost = transaction.costFromAmount && transaction.amount !== undefined ? transaction.amount : shares * price + fee;
+  const priorCost = position.shares * position.costPrice - addedCost;
+  if (priorShares < 0 || priorCost < -0.02 || !Number.isFinite(priorCost) || (priorShares === 0 && Math.abs(priorCost) > 0.02)) return null;
+  return { ...position, shares: priorShares, costPrice: priorShares > 0 ? Math.max(0, priorCost) / priorShares : 0 };
+}
+
 /** Pure display projection. Every input snapshot and every ledger object remains untouched. */
 export function projectAlipayHoldings(source: InvestPositionItems, options: AlipayProjectionOptions) {
   const items = cloneInvestPositionItems(source);
@@ -172,11 +183,12 @@ export function projectAlipayHoldings(source: InvestPositionItems, options: Alip
     const pendingOrders = pending.map((entry) => orderStatus(entry, item, options));
     const itemOrders = [...transactionOrders, ...pendingOrders];
     orders.push(...itemOrders);
-    if (ambiguous || !itemOrders.length || itemOrders.some((order) => order.status === 'review')) {
+    if (ambiguous || itemOrders.some((order) => order.status === 'review')) {
       reviewItemIds.add(item.id);
       if (ambiguous) itemOrders.forEach((order) => { order.status = 'review'; order.ambiguous = true; });
-      if (ambiguous || !itemOrders.length) continue;
+      if (ambiguous) continue;
     }
+    if (!itemOrders.length) continue;
     const excluded = new Set(buys.filter((transaction, i) => transactionOrders[i].status === 'pending' || transaction.date > options.asOf).map((transaction) => transaction.id));
     const firstExcluded = transactions.findIndex((transaction) => excluded.has(transaction.id));
     let projected: ReplayPosition = { shares: item.shares ?? 0, costPrice: item.costPrice ?? 0, realized: 0 };
@@ -206,6 +218,20 @@ export function projectAlipayHoldings(source: InvestPositionItems, options: Alip
       for (const transaction of transactions.slice(start)) {
         if (canonical) canonical = replay(canonical, transaction);
         if (visible && !excluded.has(transaction.id)) visible = replay(visible, transaction);
+      }
+      // A manual edit changes the shared balance, not the orders. Rebase the
+      // known transaction sequence on that balance so the confirmation gap survives.
+      if (canonical && (Math.abs(canonical.shares - item.shares) > 0.0002 || Math.abs(canonical.costPrice - item.costPrice) > 0.0002)) {
+        let adjusted: ReplayPosition | null = { shares: item.shares, costPrice: item.costPrice, realized: 0 };
+        for (const transaction of transactions.slice(start).reverse()) {
+          if (adjusted) adjusted = reverseReplay(adjusted, transaction);
+        }
+        canonical = adjusted;
+        visible = adjusted;
+        for (const transaction of transactions.slice(start)) {
+          if (canonical) canonical = replay(canonical, transaction);
+          if (visible && !excluded.has(transaction.id)) visible = replay(visible, transaction);
+        }
       }
       if (!canonical || !visible || Math.abs(canonical.shares - item.shares) > 0.0002
         || Math.abs(canonical.costPrice - item.costPrice) > 0.0002

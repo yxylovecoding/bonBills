@@ -109,15 +109,33 @@ describe('支付宝持仓投影', () => {
     expect(result.items.us![0]).toMatchObject({ shares: 50, costPrice: 10, historicalProfitCny: 270 });
     expect(summarizeInvestPositionItems(result.items).totalProfitCny).toBe(370);
   });
-  it('卖出超过可见份额或持仓被手动更改时保留原值并标记', () => {
+  it('卖出超过可见份额时保留原值，手动编辑则继续按同一账本扣除待确认部分', () => {
     const record = booked([buy(), buy({ id: 'sell', side: 'sell', shares: 110 })]);
     const result = projectAlipayHoldings(record.investPositionItems!, options({ records: [record] }));
     expect(result.items).toEqual(record.investPositionItems);
     expect(result.reviewItemIds.has('fund')).toBe(true);
     const edited = booked(); edited.investPositionItems!.us![0].shares = 125;
     const mismatch = projectAlipayHoldings(edited.investPositionItems!, options({ records: [edited] }));
-    expect(mismatch.items).toEqual(edited.investPositionItems);
-    expect(mismatch.reviewItemIds.has('fund')).toBe(true);
+    expect(mismatch.items.us![0].shares).toBe(105);
+    expect(mismatch.reviewItemIds.has('fund')).toBe(false);
+    expect(edited.investPositionItems!.us![0].shares).toBe(125);
+  });
+  it('从任一模式修改共享成本后仍保留 T+2 差额，到确认日自动一致', () => {
+    const record = booked();
+    record.investPositionItems!.us![0].costPrice = 12;
+    const before = JSON.stringify(record);
+    const waiting = projectAlipayHoldings(record.investPositionItems!, options({ records: [record] }));
+    expect(waiting.items.us![0]).toMatchObject({ shares: 100, costPrice: 12.2 });
+    expect(waiting.reviewItemIds.size).toBe(0);
+    const confirmed = projectAlipayHoldings(record.investPositionItems!, options({ records: [record], asOf: '2026-09-16' }));
+    expect(confirmed.items).toEqual(record.investPositionItems);
+    expect(JSON.stringify(record)).toBe(before);
+  });
+  it('共享持仓少于待确认买入时不产生负份额', () => {
+    const record = booked(); record.investPositionItems!.us![0].shares = 5;
+    const result = projectAlipayHoldings(record.investPositionItems!, options({ records: [record] }));
+    expect(result.items).toEqual(record.investPositionItems);
+    expect(result.reviewItemIds.has('fund')).toBe(true);
   });
   it('重复交易ID不重复扣除，无法区分的订单不合并', () => {
     const record = booked();
@@ -129,11 +147,11 @@ describe('支付宝持仓投影', () => {
     expect(result.orders).toHaveLength(2);
     expect(result.orders.every((order) => order.ambiguous)).toBe(true);
   });
-  it('旧快照缺少交易依据或基金类型时不虚构持仓', () => {
+  it('无订单时两种模式一致，有待确认订单但缺少依据时保留原值', () => {
     const items = base();
     const old = projectAlipayHoldings(items, options());
     expect(old.items).toEqual(items);
-    expect(old.reviewItemIds.has('fund')).toBe(true);
+    expect(old.reviewItemIds.has('fund')).toBe(false);
     const record = booked(); record.investmentTransactions[0].positionBefore = undefined;
     const unanchored = projectAlipayHoldings(record.investPositionItems!, options({ records: [record] }));
     expect(unanchored.items).toEqual(record.investPositionItems);

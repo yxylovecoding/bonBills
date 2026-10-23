@@ -1599,7 +1599,8 @@ function HoldingsSection({ state }: { state: MonthFormState }) {
   return <>
     {view === 'alipay' ? <AlipayHoldingsSection items={state.positionItemsForSave} previousItems={state.previousPositionItems}
       records={state.allRecords} yearMonth={state.yearMonth} previousMonth={state.previousMonth}
-      markets={state.marketsBySymbol} previousMarkets={state.previousMarketsBySymbol} /> : <YimuHoldingsSection state={state} />}
+      markets={state.marketsBySymbol} previousMarkets={state.previousMarketsBySymbol}
+      onUpdate={state.updatePositionDraft} /> : <YimuHoldingsSection state={state} />}
   </>;
 }
 
