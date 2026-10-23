@@ -1,3 +1,6 @@
+import { kv as rawKv } from '@vercel/kv';
+import { createHash } from 'node:crypto';
+import { READ_PHOTO, READ_WEAR_PAGE } from './_clothesReads';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from './_bonClothesRoute';
@@ -15,7 +18,7 @@ const { data, hashes, auth, origin, evalMock } = vi.hoisted(() => ({ data: new M
 vi.mock('./_auth.js', () => ({ authOk: auth, sameOrigin: origin }));
 vi.mock('@vercel/kv', () => ({ kv: { get: async (key: string) => data.get(key) ?? null,
   set: async (key: string, value: unknown) => { data.set(key, value); }, hgetall: async (key: string) => hashes.get(key) ?? null,
-  hget: async (key: string, field: string) => hashes.get(key)?.[field] ?? null, eval: evalMock } }));
+  hget: vi.fn(async (key: string, field: string) => hashes.get(key)?.[field] ?? null), eval: evalMock } }));
 const uid = (v: string) => v.padEnd(20, '0');
 const context = { ...emptyContext('2026-10-05', 'Asia/Shanghai'), scene: '基本室内' as const, active: false };
 const item: ClothesItem = { id: uid('item'), revision: uid('revision'), name: '白色上装', photoId: uid('photo'), category: '上装', color: '白', thickness: 1, active: true, status: '可穿', windproof: false, waterproof: false };
@@ -49,8 +52,21 @@ async function call(method: string, query: Record<string, string> = {}, body?: u
 }
 beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-05T12:00:00Z'));
+  vi.mocked(rawKv.hget).mockClear();
   data.clear(); hashes.clear(); auth.mockResolvedValue(true); origin.mockReturnValue(true); evalMock.mockReset();
   evalMock.mockImplementation(async (_script, keys: string[], args: string[]) => {
+    if (_script === READ_PHOTO) {
+      const photo = data.get(keys[0]);
+      if (!photo) return ['', ''];
+      const etag = `"photo-v2-${createHash('sha1').update(photo).digest('hex')}"`;
+      return [etag.slice(1, -1), JSON.parse(args[0]).some((tag: string) => tag === etag || tag === '*') ? '' : photo];
+    }
+    if (_script === READ_WEAR_PAGE) {
+      const records = Object.values(hashes.get(keys[0]) ?? {}).filter((record) => args[1] === 'day'
+        ? record.date === args[0] : record.kind !== 'styled' && record.date <= args[0]);
+      const dates = [...new Set(records.map((record) => record.date))].sort().reverse().slice(0, 30);
+      return records.filter((record) => dates.includes(record.date)).map((record) => JSON.stringify(record));
+    }
     const hash = hashes.get(keys[0]) ?? {}, current = hash[args[0]];
     if ((current?.revision ?? '') !== args[1]) return [0, current ? JSON.stringify(current) : ''];
     const value = JSON.parse(args[3]); hash[args[0]] = value; hashes.set(keys[0], hash);
@@ -71,8 +87,10 @@ describe('衣柜与实际穿搭接口', () => {
     const headers = { 'if-none-match': `W/${first.headers.ETag}` };
     const cached = await call('GET', query, undefined, headers);
     expect(cached.status).toBe(304); expect(cached.body).toBeUndefined();
+    const reads = evalMock.mock.calls.length;
     auth.mockResolvedValue(false);
     const denied = await call('GET', query, undefined, headers);
+    expect(evalMock).toHaveBeenCalledTimes(reads);
     expect(denied.status).toBe(401); expect(denied.headers['Cache-Control']).toContain('no-store');
     auth.mockResolvedValue(true); data.delete(photoKey(item.photoId));
     const missing = await call('GET', query, undefined, headers);
@@ -115,7 +133,7 @@ describe('衣柜与实际穿搭接口', () => {
     }
     const saved = await call('POST', {}, { action: 'save-item', item: { ...item, revision: '' }, photo: pngPhoto, mutationId: uid('transparent') });
     expect(saved.status).toBe(200); expect(saved.body.value.photoId).toBe(uid('transparent'));
-    expect(evalMock.mock.calls[0][2][4]).toBe(pngPhoto);
+    expect(evalMock.mock.calls.find(([script]) => script === SAVE_CLOTHES)?.[2][4]).toBe(pngPhoto);
   });
   it('拒绝伪造 MIME、超尺寸、截断及动画容器', () => {
     expect(() => photoInput(pngPhoto.replace('image/png', 'image/jpeg'))).toThrow();
@@ -197,6 +215,8 @@ describe('衣柜与实际穿搭接口', () => {
     hashes.set(ITEMS_KEY, Object.fromEntries(layers.map((piece) => [piece.id, piece])));
     const body = { action: 'confirm', context, items: layers.map(({ id, revision }) => ({ id, revision })), revision: '', weather: null, mutationId: uid('layers-confirm') };
     const first = await call('POST', {}, body); expect(first.status).toBe(200); expect(first.body.value.items).toHaveLength(7);
+    expect(rawKv.hget).toHaveBeenCalledTimes(1); // previous record only: no seven duplicate item reads
+    expect(rawKv.hget).toHaveBeenCalledWith(WEAR_KEY, context.date);
     expect((await call('POST', {}, body)).body).toEqual(first.body);
     const plan = { tripId: 'trip:2026-10-05', revision: '', title: '出游', startDate: context.date, endDate: context.date, location: null,
       days: { [context.date]: { scene: context.scene, active: false, itemIds: layers.map((piece) => piece.id) } } };

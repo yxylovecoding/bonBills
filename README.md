@@ -47,6 +47,8 @@ BonBills、BonLog 和 BonClothes 均提供独立名称、图标和安装入口�
 
 验证：`npm test` 执行推荐规则、接口、天气、时区和已有功能回归；`npm run build` 执行类型检查及生产构建。浏览器验收可按「新增照片 → 调整当天条件 → 换装／单件替换 → 确认 → 刷新 → 历史」检查，并核对 `/clothes` 直接访问、未登录照片保护和手机布局。
 
+照片条件读取、历史分页及确认穿搭的 Redis 流量优化与离线测量见 [Upstash 读取流量优化](docs/upstash-bandwidth-optimization.md)。
+
 ## BonLog 状态日历
 
 `log.bonbills.cn` 使用同一 Vercel 项目提供独立的 BonLog 首页、图标和皮肤／情绪／运动等追踪；主站的 `/log` 与原 `/life` 均可访问。域名绑定到原 Vercel 项目，在 Cloudflare 配置对应 CNAME。内部 `/api/bonlife`、`bonlife:*` 数据键和旧图标文件名保持兼容，无需迁移数据。沿用已有账号密码，子域名登录状态单独保存，不加载账本及其同步任务。

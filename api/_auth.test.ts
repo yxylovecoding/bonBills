@@ -8,6 +8,7 @@ import mail from './latest-bill-attachment';
 import boncv from './boncv-profile';
 import ticktick from './ticktick-trips';
 import outlook from './outlook-calendar';
+import { READ_PHOTO } from './_clothesReads';
 import { authOk, readAccount, readSession } from './_auth';
 
 const { data, storage } = vi.hoisted(() => {
@@ -26,6 +27,7 @@ const { data, storage } = vi.hoisted(() => {
     }),
     hgetall: vi.fn(async (key: string) => data.get(key) ?? null),
     hget: vi.fn(async (key: string, field: string) => (data.get(key) as Record<string, unknown>)?.[field] ?? null),
+    eval: vi.fn(),
     del: vi.fn(async (key: string) => Number(data.delete(key))),
   };
   return { data, storage };
@@ -90,6 +92,13 @@ beforeEach(() => {
   vi.stubEnv('CRON_SECRET', 'test-cron-secret');
   data.clear();
   vi.clearAllMocks();
+  storage.eval.mockImplementation(async (script: string, keys: string[], args: string[]) => {
+    if (script !== READ_PHOTO) throw new Error('Unexpected script');
+    const photo = data.get(keys[0]) as string | undefined;
+    if (!photo) return ['', ''];
+    const etag = `"photo-v2-${createHash('sha1').update(photo).digest('hex')}"`;
+    return [etag.slice(1, -1), JSON.parse(args[0]).includes(etag) ? '' : photo];
+  });
 });
 
 afterEach(() => {
@@ -328,6 +337,14 @@ describe('账号密码与 Key 登录', () => {
     const ownerPhoto = await call(photoReq, outlook);
     expect(ownerPhoto.status).toBe(200);
     expect(ownerPhoto.body).toEqual(Buffer.from('hello'));
+    // Reusing the owner's validator with another account cannot reveal existence
+    // or produce a 304 for a photo that account does not own.
+    photoReq.headers['if-none-match'] = ownerPhoto.headers.ETag;
+    expect((await call(photoReq, outlook)).status).toBe(304);
+    photoReq.headers.cookie = cookie;
+    expect((await call(photoReq, outlook)).status).toBe(404);
+    expect(storage.eval.mock.calls.at(-1)?.[1][0]).toMatch(/^account:[a-f0-9]{32}:bonclothes:photo:/);
+    expect(storage.eval.mock.calls.at(-2)?.[1][0]).toBe(`bonclothes:photo:v1:${photoId}`);
     expect(data.get('bonclothes:items:v1')).toEqual(originalItems);
     expect(data.get('bonlife:entries:v1:2026')).toEqual(originalEntries);
   });

@@ -1,3 +1,4 @@
+import { READ_PHOTO, READ_WEAR_PAGE } from './_clothesReads.js';
 import { privateJson, privateCache } from './_privateCache.js';
 import { withAccountScope } from './_accountRoute.js';
 import { kv } from './_accountKv.js';
@@ -12,6 +13,12 @@ import { itemWarmth, normalizeItem, wearable } from '../src/clothes/warmth.js';
 import { TRIP_PLANS_KEY, readClothesTrips, readTripForecast, tripPlanInput } from './_clothesTrips.js';
 import { deviceDate, totalWearCounts } from '../src/clothes/rules.js';
 
+async function readWearPage(date: string, mode: 'history' | 'day'): Promise<WearRecord[]> {
+  const records = await kv.eval<string[], (string | WearRecord)[]>(READ_WEAR_PAGE, [WEAR_KEY], [date, mode]);
+  return records.map((record) => typeof record === 'string' ? JSON.parse(record) as WearRecord : record)
+    .sort((a, b) => b.date.localeCompare(a.date) || b.confirmedAt.localeCompare(a.confirmedAt));
+}
+
 async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Vary', 'Cookie');
@@ -21,13 +28,15 @@ async function handler(req: VercelRequest, res: VercelResponse) {
     if (!await authOk(req)) return res.status(401).json({ error: '请先登录' });
     if (req.method === 'GET') {
       if (req.query.view === 'photo') {
-        const photo = await kv.get<string>(photoKey(id(req.query.id)));
-        if (!photo) return res.status(404).json({ error: '照片不存在' });
-        const { mime, data } = photoData(photo);
+        const tags = (req.headers['if-none-match'] ?? '').split(',').map((tag) => tag.trim().replace(/^W\//, ''));
+        const [validator, photo] = await kv.eval<string[], [string, string]>(READ_PHOTO,
+          [photoKey(id(req.query.id))], [JSON.stringify(tags)]);
+        if (!validator) return res.status(404).json({ error: '照片不存在' });
+        const decoded = photo ? photoData(photo) : null;
         privateCache(res, 30 * 24 * 60 * 60, true);
-        const etag = `"${signature(photo)}"`;
-        res.setHeader('ETag', etag);
-        if (req.headers['if-none-match']?.split(',').some((tag) => tag.trim().replace(/^W\//, '') === etag)) return res.status(304).end();
+        res.setHeader('ETag', `"${validator}"`);
+        if (!decoded) return res.status(304).end();
+        const { mime, data } = decoded;
         res.setHeader('Content-Type', mime);
         return res.status(200).send(data);
       }
@@ -51,13 +60,14 @@ async function handler(req: VercelRequest, res: VercelResponse) {
         }
         const result = await readWeather(location!, date, timezone);
         if (date < deviceDate(new Date(), timezone) && !result.weather) {
-          const records = Object.values(await kv.hgetall<Record<string, WearRecord>>(WEAR_KEY) ?? {});
+          const records = await readWearPage(date, 'day');
           result.weather = records.filter((record) => record.date === date && record.weather
             && Math.abs(record.weather.latitude - location!.latitude) < .1 && Math.abs(record.weather.longitude - location!.longitude) < .1)
             .sort((a, b) => b.confirmedAt.localeCompare(a.confirmedAt))[0]?.weather ?? null;
         }
         return privateJson(req, res, result);
       }
+      if (req.query.view === 'history') return privateJson(req, res, { records: await readWearPage(date, 'history') });
       const allRecords = Object.values(await kv.hgetall<Record<string, WearRecord>>(WEAR_KEY) ?? {})
         .sort((a, b) => b.date.localeCompare(a.date) || b.confirmedAt.localeCompare(a.confirmedAt));
       const worn = allRecords.filter((record) => record.kind !== 'styled' && record.date <= date);
@@ -65,7 +75,6 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       // Paginate whole dates so a busy day is never split or silently skipped.
       const dates = [...new Set(worn.map((record) => record.date))].slice(0, 30);
       const records = worn.filter((record) => dates.includes(record.date));
-      if (req.query.view === 'history') return privateJson(req, res, { records });
       const [items, context] = await Promise.all([kv.hgetall<Record<string, ClothesItem>>(ITEMS_KEY), kv.hget<ClothesDayContext>(CONTEXTS_KEY, date)]);
       const learningTimezone = timezoneInput(req.query.timezone ?? context?.timezone ?? 'Asia/Shanghai');
       return privateJson(req, res, { items: calibratedItems(Object.values(items ?? {}).filter((item) => !item.deleted).map(normalizeItem), allRecords, deviceDate(new Date(), learningTimezone)), context: context ?? allRecords.find((record) => record.date === date)?.context ?? null, records, outfits, wearCounts: totalWearCounts(worn), pairCounts: outfitPairCounts(allRecords) });
@@ -134,8 +143,8 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       requireInput(Array.isArray(body.items) && body.items.length > 0 && body.items.length <= MAX_OUTFIT_ITEMS, '请选择穿搭');
       checks = body.items.map((item: { id: unknown; revision: unknown }) => ({ id: id(item.id), revision: id(item.revision) }));
       requireInput(new Set(checks.map((item) => item.id)).size === checks.length, '衣物重复');
-      const currentItems = await Promise.all(checks.map((check) => kv.hget<ClothesItem>(ITEMS_KEY, check.id)));
       const [learningRecords, learningItems] = await Promise.all([kv.hgetall<Record<string, WearRecord>>(WEAR_KEY), kv.hgetall<Record<string, ClothesItem>>(ITEMS_KEY)]);
+      const currentItems = checks.map((check) => learningItems?.[check.id] ?? null);
       const calibrated = new Map(calibratedItems(Object.values(learningItems ?? {}), Object.values(learningRecords ?? {}), deviceDate(new Date(), context.timezone)).map((item) => [item.id, item]));
       const retained = new Set<string>();
       const items = currentItems.map((item, i) => {
