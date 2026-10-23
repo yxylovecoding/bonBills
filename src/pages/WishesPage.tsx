@@ -186,6 +186,10 @@ export default function WishesPage() {
     () => new Set(wishes.flatMap(wishTripStarts)),
     [wishes],
   );
+  const linkedOutlookEventKeys = useMemo(
+    () => new Set(storedWishes.flatMap((wish) => wish.outlookEventKeys ?? [])),
+    [storedWishes],
+  );
   const tripDatesByStart = useMemo(
     () => Object.fromEntries(allTripSegments.map((trip) => [trip.startDate, trip.dates])),
     [allTripSegments],
@@ -1308,7 +1312,8 @@ export default function WishesPage() {
                   wish={storedWishes.find((wish) => wish.id === item.id)!}
                   trips={selectableTripSegments.filter((trip) => wishTripStarts(item).includes(trip.startDate) || !linkedTripStartDates.has(trip.startDate))}
                   tripLabels={tripTags}
-                  events={useCalendarStore.getState().outlookWishEvents.filter((event) => event.available !== false)}
+                  events={useCalendarStore.getState().outlookWishEvents.filter((event) => event.available !== false
+                    && (item.outlookEventKeys?.includes(event.key) || !linkedOutlookEventKeys.has(event.key)))}
                   billTags={[...new Set(flattenExpenseItems(expenseItems).flatMap((bill) => (bill.tags || '').split(',').map((tag) => tag.trim()).filter(Boolean)))]}
                   onCancel={() => setEditingScheduleId(null)}
                   onSave={(patch) => { updateWishFields(item.id, patch); setEditingScheduleId(null); }}

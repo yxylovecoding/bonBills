@@ -17,7 +17,7 @@ export default function WishScheduleEditor({ wish, trips, tripLabels, billTags, 
   const [trip, setTrip] = useState<string[]>(wishTripStarts(wish).length ? wishTripStarts(wish) : (wish.plannedTravelDays ?? 0) > 0 ? ['__manual__'] : []);
   const [eventKeys, setEventKeys] = useState(wish.outlookEventKeys ?? []);
   const [days, setDays] = useState(wish.plannedTravelDays ?? 1);
-  const [tagMode, setTagMode] = useState(wish.billTags !== undefined ? (wish.billTags.length ? 'selected' : 'none') : wish.billTag === undefined ? 'auto' : wish.billTag === null ? 'none' : 'selected');
+  const [tagMode, setTagMode] = useState(wish.billTags !== undefined ? (wish.billTags.length ? 'selected' : 'auto') : wish.billTag ? 'selected' : 'auto');
   const [tag, setTag] = useState(wish.billTags?.join('，') ?? wish.billTag ?? '');
   const tripOptions = [
     ...wishTripStarts(wish).filter((start) => !trips.some((item) => item.startDate === start)).map((start) => ({ value: start, label: `${start}（原关联）` })),
@@ -35,7 +35,7 @@ export default function WishScheduleEditor({ wish, trips, tripLabels, billTags, 
       event.preventDefault();
       const starts = trip.filter((value) => value !== '__manual__');
       const tags = uniqueStrings(tag.split(/[,，]/));
-      onSave({ deadline: deadline || null, deadlineMode: 'manual', linkedTripStartDate: starts[0] ?? null, linkedTripStartDates: starts, plannedTravelDays: trip.includes('__manual__') ? days : 0, outlookEventKeys: eventKeys, billTag: tagMode === 'auto' ? undefined : tagMode === 'none' ? null : tags[0], billTags: tagMode === 'auto' ? undefined : tagMode === 'none' ? [] : tags });
+      onSave({ deadline: deadline || null, deadlineMode: 'manual', linkedTripStartDate: starts[0] ?? null, linkedTripStartDates: starts, plannedTravelDays: trip.includes('__manual__') ? days : 0, outlookEventKeys: eventKeys, billTag: tagMode === 'auto' ? undefined : tags[0], billTags: tagMode === 'auto' ? undefined : tags });
     }}>
       <label className="wish-field"><span>截止日期</span><input className="wish-control" aria-label="心愿截止日期" type="date" value={deadline} onChange={(event) => setDeadline(event.target.value)} /></label>
       <fieldset className="wish-fieldset">
@@ -63,7 +63,7 @@ export default function WishScheduleEditor({ wish, trips, tripLabels, billTags, 
           </label>)}
         </div> : <p className="wish-field-hint">暂无可关联日程</p>}
       </fieldset>
-      <label className="wish-field"><span>绑定标签</span><select className="wish-control" aria-label="标签匹配方式" value={tagMode} onChange={(event) => setTagMode(event.target.value)}><option value="auto">自动匹配</option><option value="selected">指定标签</option><option value="none">不绑定标签</option></select></label>
+      <label className="wish-field"><span>绑定标签</span><select className="wish-control" aria-label="标签匹配方式" value={tagMode} onChange={(event) => setTagMode(event.target.value)}><option value="auto">自动匹配</option><option value="selected">指定标签</option></select></label>
       {tagMode === 'selected' && <label className="wish-field"><span>标签（多个用逗号分隔）</span><input className="wish-control" aria-label="绑定标签" list={tagsId} required pattern=".*\S.*" value={tag} onChange={(event) => setTag(event.target.value)} /><datalist id={tagsId}>{billTags.map((value) => <option key={value} value={value} />)}</datalist></label>}
     </form>
   </WishDialog>;
