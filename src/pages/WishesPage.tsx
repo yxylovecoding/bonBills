@@ -1270,7 +1270,7 @@ export default function WishesPage() {
                 </div>
 
                 {actualWishSavingCompleted ? (
-                  <WishSpendingSummary wish={item} completedAmount={amountField} />
+                  <WishSpendingSummary wish={item} completedAmount={amountField} travelDays={itemTravelDays} />
                 ) : <>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9, marginTop: 12 }}>
                   {amountField}
@@ -1290,7 +1290,7 @@ export default function WishesPage() {
                   </div>
                 </div>
 
-                <WishSpendingSummary wish={item} />
+                <WishSpendingSummary wish={item} travelDays={itemTravelDays} />
                 </>}
 
                 {editingScheduleId === item.id && <WishScheduleEditor

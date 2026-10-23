@@ -8,7 +8,7 @@ import { formatCurrency } from './CurrencyDisplay';
 
 const signedCurrency = (amount: number) => `${amount < 0 ? '−' : ''}¥${formatCurrency(amount)}`;
 
-export default function WishSpendingSummary({ wish, completedAmount }: { wish: WishItem; completedAmount?: ReactNode }) {
+export default function WishSpendingSummary({ wish, completedAmount, travelDays }: { wish: WishItem; completedAmount?: ReactNode; travelDays?: number }) {
   const compact = completedAmount !== undefined;
   const funding = calculateWishFunding(wish);
   const spending = wish.billSpending;
@@ -57,17 +57,17 @@ export default function WishSpendingSummary({ wish, completedAmount }: { wish: W
           onClick={(event) => event.stopPropagation()}
         >
           <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 6, marginBottom: 8 }}>
-            <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#202124' }}>标签逻辑统计</h3>
-            <span style={{ fontSize: 11, color: '#5f6368', overflowWrap: 'anywhere' }}>已同步 {spending.tags.join('、')}</span>
+            <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#202124' }}>账单统计</h3>
+            <span style={{ fontSize: 11, color: '#5f6368', overflowWrap: 'anywhere' }}>{spending.tags.join('、')}</span>
           </div>
-          <WishBillStats key={JSON.stringify(spending.tags)} tags={spending.tags} />
+          <WishBillStats key={JSON.stringify(spending.tags)} tags={spending.tags} travelDays={travelDays} />
         </section>
       ) : null}
     </div>
   );
 }
 
-function WishBillStats({ tags }: { tags: string[] }) {
+function WishBillStats({ tags, travelDays }: { tags: string[]; travelDays?: number }) {
   const items = useBillStatisticItems();
-  return <TagLogicStats items={items} initialTags={tags} />;
+  return <TagLogicStats items={items} initialTags={tags} compact dailyAverageDays={travelDays} />;
 }

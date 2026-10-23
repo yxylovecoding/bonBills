@@ -3152,6 +3152,7 @@ export default function CalendarPage() {
     ? activeTripStartDate
     : (selectedTripStartsThisMonth[0] ?? null);
   const activeTripFilterTag = effectiveActiveTripStartDate ? (tripTags[effectiveActiveTripStartDate] ?? '') : '';
+  const activeTripFilterDays = tripsThisMonth.find((trip) => trip.startDate === effectiveActiveTripStartDate)?.dates.length;
   const tripConnect = useMemo(() => {
     // 用每段 trip 的 dates 单独构造连接集合，跨 trip（即 split 点两侧）不连
     const datesByTripKey = tripsThisMonth.map((t) => new Set(t.dates));
@@ -4207,8 +4208,8 @@ export default function CalendarPage() {
           </div>
           {tripFilterLayoutOpen && allBillStatisticItems.length > 0 && (
             <aside className="trip-filter-sidecar" aria-label={`${activeTripFilterTag} 出游筛选统计`}>
-              <Card title="标签逻辑统计" subtitle={`已同步 ${activeTripFilterTag}`}>
-                <TagLogicStats key={activeTripFilterTag} items={allBillStatisticItems} initialTags={[activeTripFilterTag]} />
+              <Card title="账单统计" subtitle={activeTripFilterTag}>
+                <TagLogicStats key={activeTripFilterTag} items={allBillStatisticItems} initialTags={[activeTripFilterTag]} compact dailyAverageDays={activeTripFilterDays} />
               </Card>
             </aside>
           )}

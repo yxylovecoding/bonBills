@@ -77,7 +77,12 @@ function resolveTagLogicOperator(raw: string): TagLogicOperator | null {
   return null;
 }
 
-export default function TagLogicStats({ items, initialTags = [] }: { items: BillStatisticItem[]; initialTags?: readonly string[] }) {
+export default function TagLogicStats({ items, initialTags = [], compact = false, dailyAverageDays }: {
+  items: BillStatisticItem[];
+  initialTags?: readonly string[];
+  compact?: boolean;
+  dailyAverageDays?: number;
+}) {
   const [logicParts, setLogicParts] = useState<TagLogicPart[]>(() => (
     [...new Set(initialTags.map((tag) => tag.trim()).filter(Boolean))].flatMap<TagLogicPart>((tag, index) => (
       index === 0
@@ -173,6 +178,19 @@ export default function TagLogicStats({ items, initialTags = [] }: { items: Bill
       return compiledLogic.test?.(tags) ?? false;
     });
   }, [accountFilteredItems, compiledLogic, selectedAccounts.length]);
+  const matchedDayCount = useMemo(() => {
+    if (dailyAverageDays !== undefined && Number.isFinite(dailyAverageDays) && dailyAverageDays > 0) {
+      return Math.max(Math.round(dailyAverageDays), 1);
+    }
+    let earliest = '';
+    let latest = '';
+    for (const item of matchedItems) {
+      if (!earliest || item.date < earliest) earliest = item.date;
+      if (!latest || item.date > latest) latest = item.date;
+    }
+    const days = (Date.parse(latest) - Date.parse(earliest)) / 86_400_000 + 1;
+    return Number.isFinite(days) ? Math.max(days, 1) : 1;
+  }, [matchedItems, dailyAverageDays]);
   const matchedTransactionSections = useMemo(() => {
     return (['支出', '收入'] as const).map((transactionType) => {
       const sectionItems = matchedItems.filter((item) => item.transactionType === transactionType);
@@ -203,6 +221,7 @@ export default function TagLogicStats({ items, initialTags = [] }: { items: Bill
   const balanceAmount = incomeAmount - expenseAmount;
   const rangedAmount = accountFilteredItems.reduce((sum, item) => sum + item.amount, 0);
   const averageAmount = matchedItems.length > 0 ? totalAmount / matchedItems.length : 0;
+  const dailyAverageAmount = balanceAmount / matchedDayCount;
   const rangedShare = rangedAmount > 0 ? totalAmount / rangedAmount * 100 : 0;
   const rangeLabel = !startDate && !endDate
     ? `全部时间 · ${accountFilteredItems.length} 笔`
@@ -279,6 +298,7 @@ export default function TagLogicStats({ items, initialTags = [] }: { items: Bill
 
   return (
     <div style={{ padding: 12, borderRadius: 12, border: '1px solid #ddd6fe', backgroundColor: '#faf8ff' }}>
+      {!compact && <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
         <span style={{ fontSize: 12, fontWeight: 700, color: '#202124' }}>时间范围</span>
         <span style={{ fontSize: 10, color: C.purple }}>{rangeLabel}</span>
@@ -484,6 +504,7 @@ export default function TagLogicStats({ items, initialTags = [] }: { items: Bill
       <div style={{ marginTop: 5, fontSize: 10, color: compiledLogic.error ? C.red : C.sub }} role={compiledLogic.error ? 'alert' : undefined}>
         {compiledLogic.error ? `逻辑有误：${compiledLogic.error}` : '非逻辑符输入会匹配标签；优先级：NOT ＞ AND ＞ OR。'}
       </div>
+      </>}
 
       {!hasActiveFilter ? (
         <div style={{ marginTop: 9, fontSize: 11, color: C.sub }}>
@@ -492,7 +513,7 @@ export default function TagLogicStats({ items, initialTags = [] }: { items: Bill
       ) : compiledLogic.error ? (
         <div style={{ marginTop: 9, fontSize: 11, color: C.red }}>修正标签逻辑后即可查看统计结果。</div>
       ) : (
-        <div style={{ marginTop: 10, borderTop: '1px solid #ede9fe', paddingTop: 8 }}>
+        <div style={compact ? undefined : { marginTop: 10, borderTop: '1px solid #ede9fe', paddingTop: 8 }}>
           <button
             type="button"
             aria-expanded={expanded}
@@ -500,18 +521,18 @@ export default function TagLogicStats({ items, initialTags = [] }: { items: Bill
             style={{ width: '100%', border: 'none', background: 'none', padding: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, textAlign: 'left', cursor: 'pointer' }}
           >
             <span title={logicLabel} style={{ minWidth: 0, fontSize: 11, color: C.sub, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {expanded ? '▾' : '▸'} 按当前筛选匹配
+              {expanded ? '▾' : '▸'} {compact ? '账单明细' : '按当前筛选匹配'}
             </span>
             <span style={{ minWidth: 0, fontSize: 13, fontWeight: 700, color: C.purple, fontVariantNumeric: 'tabular-nums', textAlign: 'right', lineHeight: 1.45 }}>
-              {amountLeadLabel} ·{' '}
+              {!compact && <>{amountLeadLabel} ·{' '}</>}
               <span style={{ ...surplusHighlightStyle(balanceAmount), display: 'inline-block', margin: '0 2px' }}>
                 结余 {balanceAmount >= 0 ? '+' : '-'}¥{formatCurrency(Math.abs(balanceAmount))}
               </span>
-              {' '}· {matchedItems.length} 笔
+              {!compact && <>{' '}· {matchedItems.length} 笔</>}
             </span>
           </button>
           <div style={{ marginTop: 4, fontSize: 10, color: C.sub, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-            均 {formatBillCurrency(averageAmount)} · 占当前范围 {rangedShare.toFixed(1)}%
+            {compact ? <>日均 {formatBillCurrency(dailyAverageAmount)}</> : <>均 {formatBillCurrency(averageAmount)} · 占当前范围 {rangedShare.toFixed(1)}%</>}
           </div>
           {expanded && (
             <div style={{ marginTop: 6, maxHeight: 360, overflowY: 'auto' }}>
