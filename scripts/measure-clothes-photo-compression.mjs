@@ -8,7 +8,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout } from 'node:timers/promises';
 
-const source = readFileSync(new URL('../api/_clothesPhotoStorage.ts', import.meta.url), 'utf8');
+const source = readFileSync(new URL('../api/_clothesPhotoStorage.ts', import.meta.url), 'utf8')
+  + readFileSync(new URL('../api/_clothesReads.ts', import.meta.url), 'utf8');
 const script = (name) => source.match(new RegExp(`export const ${name} = \x60([\\s\\S]*?)\x60;`))[1];
 const dir = mkdtempSync(join(tmpdir(), 'bcp-'));
 const socket = join(dir, 'redis.sock');
@@ -69,7 +70,25 @@ try {
   assert.equal(command(['GET', 'account:fixture-b:bonclothes:photo:v1:photo-a']), old);
   assert.equal(command(['HGET', items, 'item']), storedItem);
   assert.equal(command(['HGET', wear, 'history']), storedWear);
-  console.log(JSON.stringify({ photos: 3, savedStorageBytes: saved, passed: ['reference discovery', 'deduplication', 'discarded and historical photos', 'legacy JSON storage', 'version conflicts', 'smaller-only writes', 'idempotent retries', 'expiry preservation', 'account isolation', 'unchanged item and history metadata'] }, null, 2));
+  const reference = JSON.stringify({ storage: 'r2', key: 'clothes/fixture/photo', mime: 'image/webp', bytes: 20 * 1024, validator: token(compact) });
+  const migrate = (id, validator) => command(['EVAL', script('MIGRATE_PHOTO'), '1', prefix + id, validator], reference);
+  assert.deepEqual(migrate('photo-a', token('stale')), [-2, 0]);
+  assert.equal(command(['GET', prefix + 'photo-a']), compact);
+  const beforeMigration = command(['STRLEN', prefix + 'photo-a']);
+  assert.deepEqual(migrate('photo-a', token(compact)), [1, beforeMigration - reference.length]);
+  assert.ok(command(['PTTL', prefix + 'photo-a']) > 0);
+  assert.deepEqual(migrate('photo-a', token(compact)), [0, 0]);
+  assert.deepEqual(compress('photo-a', token(compact), old), [-3, 0]);
+  assert.deepEqual(command(['EVAL', script('READ_PHOTO'), '1', prefix + 'photo-a', '[]']), [token(compact), reference]);
+  assert.deepEqual(command(['EVAL', script('READ_PHOTO'), '1', prefix + 'photo-a', JSON.stringify([`"${token(compact)}"`])]), [token(compact), '']);
+  const remaining = command(['EVAL', script('READ_PHOTO_SIZES'), '3', items, wear, prefix, '0']);
+  assert.deepEqual(remaining.map(([id]) => id).sort(), ['photo-b', 'photo-history', 'photo-small']);
+  command(['SET', prefix + 'photo-b'], JSON.stringify(compact));
+  assert.equal(migrate('photo-b', token(compact))[0], 1);
+  assert.deepEqual(migrate('missing', token(compact)), [-1, 0]);
+  assert.equal(command(['HGET', items, 'item']), storedItem);
+  assert.equal(command(['HGET', wear, 'history']), storedWear);
+  console.log(JSON.stringify({ photos: 3, savedStorageBytes: saved, passed: ['reference discovery', 'deduplication', 'discarded and historical photos', 'legacy JSON storage', 'version conflicts', 'smaller-only writes', 'idempotent retries', 'expiry preservation', 'account isolation', 'unchanged item and history metadata', 'atomic R2 migration', 'R2 conditional cache', 'migrated photo exclusion'] }, null, 2));
 } finally {
   if (server.exitCode === null && !startupError) {
     server.kill('SIGTERM');

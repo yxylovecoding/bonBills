@@ -6,6 +6,7 @@ if not photo or photo == '' then return {'', ''} end
 -- Historical SDK writes may be JSON strings; SAVE_CLOTHES writes raw data URLs.
 if string.sub(photo, 1, 1) == '"' then photo = cjson.decode(photo) end
 local etag = 'photo-v2-' .. redis.sha1hex(photo)
+if string.sub(photo, 1, 1) == '{' then etag = cjson.decode(photo).validator end
 for _, tag in ipairs(cjson.decode(ARGV[1])) do
   if tag == '"' .. etag .. '"' or tag == '*' then return {etag, ''} end
 end

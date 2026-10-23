@@ -13,7 +13,7 @@ end
 local result = {}
 for id, _ in pairs(ids) do
   local bytes = redis.call('STRLEN', KEYS[3] .. id)
-  if bytes > tonumber(ARGV[1]) then table.insert(result, {id, bytes}) end
+  if bytes > tonumber(ARGV[1]) and redis.call('GETRANGE', KEYS[3] .. id, 0, 0) ~= '{' then table.insert(result, {id, bytes}) end
 end
 return result
 `;
@@ -23,10 +23,24 @@ return result
 export const COMPRESS_PHOTO = `
 local raw = redis.call('GET', KEYS[1])
 if not raw then return {-1, 0} end
+if string.sub(raw, 1, 1) == '{' then return {-3, 0} end
 local photo = raw
 if string.sub(photo, 1, 1) == '"' then photo = cjson.decode(photo) end
 if #ARGV[2] >= #raw or photo == ARGV[2] then return {0, 0} end
 if 'photo-v2-' .. redis.sha1hex(photo) ~= ARGV[1] then return {-2, 0} end
 redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
 return {1, #raw - #ARGV[2]}
+`;
+
+// Swap only the source version that was uploaded and verified. Concurrent
+// compression and another migration must never overwrite a newer reference.
+export const MIGRATE_PHOTO = `
+local raw = redis.call('GET', KEYS[1])
+if not raw then return {-1, 0} end
+if string.sub(raw, 1, 1) == '{' then return {0, 0} end
+local photo = raw
+if string.sub(photo, 1, 1) == '"' then photo = cjson.decode(photo) end
+if 'photo-v2-' .. redis.sha1hex(photo) ~= ARGV[1] then return {-2, 0} end
+redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
+return {1, math.max(0, #raw - #ARGV[2])}
 `;

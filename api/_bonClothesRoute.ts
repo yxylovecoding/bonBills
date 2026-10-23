@@ -1,5 +1,6 @@
 import { READ_PHOTO, READ_WEAR_PAGE } from './_clothesReads.js';
-import { READ_PHOTO_SIZES, COMPRESS_PHOTO } from './_clothesPhotoStorage.js';
+import { READ_PHOTO_SIZES, COMPRESS_PHOTO, MIGRATE_PHOTO } from './_clothesPhotoStorage.js';
+import { r2Enabled, r2Photo, readR2Photo, storeR2Photo } from './_clothesR2.js';
 import { PHOTO_MAX_BYTES, PHOTO_MAX_STORED_BYTES } from '../src/clothes/photoCompression.js';
 import { privateJson, privateCache } from './_privateCache.js';
 import { withAccountScope } from './_accountRoute.js';
@@ -29,9 +30,11 @@ async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (!await authOk(req)) return res.status(401).json({ error: '请先登录' });
     if (req.method === 'GET') {
-      if (req.query.view === 'photo-sizes') {
+      if (req.query.view === 'photo-sizes' || req.query.view === 'photo-migration') {
+        const migration = req.query.view === 'photo-migration';
+        if (migration && !r2Enabled()) return res.status(503).json({ error: '照片存储尚未配置' });
         const photos = await kv.eval<string[], [string, number][]>(READ_PHOTO_SIZES,
-          [ITEMS_KEY, WEAR_KEY, photoKey('')], [String(PHOTO_MAX_STORED_BYTES)]);
+          [ITEMS_KEY, WEAR_KEY, photoKey('')], [String(migration ? 0 : PHOTO_MAX_STORED_BYTES)]);
         return res.status(200).json({ photos: photos.map(([id, bytes]) => ({ id, bytes })) });
       }
       if (req.query.view === 'photo') {
@@ -39,7 +42,8 @@ async function handler(req: VercelRequest, res: VercelResponse) {
         const [validator, photo] = await kv.eval<string[], [string, string]>(READ_PHOTO,
           [photoKey(id(req.query.id))], [JSON.stringify(tags)]);
         if (!validator) return res.status(404).json({ error: '照片不存在' });
-        const decoded = photo ? photoData(photo) : null;
+        const reference = photo ? r2Photo(photo) : null;
+        const decoded = reference ? { mime: reference.mime, data: await readR2Photo(reference) } : photo ? photoData(photo) : null;
         privateCache(res, 30 * 24 * 60 * 60, true);
         res.setHeader('ETag', `"${validator}"`);
         if (!decoded) return res.status(304).end();
@@ -84,13 +88,25 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       const records = worn.filter((record) => dates.includes(record.date));
       const [items, context] = await Promise.all([kv.hgetall<Record<string, ClothesItem>>(ITEMS_KEY), kv.hget<ClothesDayContext>(CONTEXTS_KEY, date)]);
       const learningTimezone = timezoneInput(req.query.timezone ?? context?.timezone ?? 'Asia/Shanghai');
-      return privateJson(req, res, { items: calibratedItems(Object.values(items ?? {}).filter((item) => !item.deleted).map(normalizeItem), allRecords, deviceDate(new Date(), learningTimezone)), context: context ?? allRecords.find((record) => record.date === date)?.context ?? null, records, outfits, wearCounts: totalWearCounts(worn), pairCounts: outfitPairCounts(allRecords) });
+      return privateJson(req, res, { photoStorage: r2Enabled() ? 'r2' : 'redis', items: calibratedItems(Object.values(items ?? {}).filter((item) => !item.deleted).map(normalizeItem), allRecords, deviceDate(new Date(), learningTimezone)), context: context ?? allRecords.find((record) => record.date === date)?.context ?? null, records, outfits, wearCounts: totalWearCounts(worn), pairCounts: outfitPairCounts(allRecords) });
     }
     if (req.method !== 'POST') return res.status(405).json({ error: '请求方式无效' });
     let body: Record<string, any>;
     try { body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body; } catch { throw new ClothesInputError('请求内容无效'); }
     requireInput(body && typeof body === 'object' && !Array.isArray(body), '请求内容无效');
     requireInput(JSON.stringify(body).length <= 300000, '请求过大');
+    if (body.action === 'migrate-photo') {
+      if (!r2Enabled()) return res.status(503).json({ error: '照片存储尚未配置' });
+      const key = photoKey(id(body.id));
+      const [validator, source] = await kv.eval<string[], [string, string]>(READ_PHOTO, [key], ['[]']);
+      if (!validator) return res.status(404).json({ error: '照片不存在' });
+      if (r2Photo(source)) return res.status(200).json({ migrated: false, savedBytes: 0 });
+      const reference = await storeR2Photo(source);
+      const [result, savedBytes] = await kv.eval<string[], [number, number]>(MIGRATE_PHOTO, [key], [validator, JSON.stringify(reference)]);
+      if (result === -1) return res.status(404).json({ error: '照片不存在' });
+      if (result === -2) return res.status(409).json({ error: '照片已更新，请重试转存' });
+      return res.status(200).json({ migrated: result === 1, savedBytes });
+    }
     if (body.action === 'compress-photo') {
       const key = photoKey(id(body.id));
       requireInput(typeof body.validator === 'string' && /^photo-v2-[a-f0-9]{40}$/.test(body.validator), '请重新读取照片');
@@ -99,6 +115,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       const [result, savedBytes] = await kv.eval<string[], [number, number]>(COMPRESS_PHOTO, [key], [body.validator, photo]);
       if (result === -1) return res.status(404).json({ error: '照片不存在' });
       if (result === -2) return res.status(409).json({ error: '照片已更新，请重试压缩' });
+      if (result === -3) return res.status(409).json({ error: '照片已转存，请刷新页面' });
       return res.status(200).json({ savedBytes });
     }
     const mutationId = id(body.mutationId), sig = signature(body);
@@ -201,6 +218,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
         body.purpose === '睡觉' ? { ...entry, ...(entry.cycling !== undefined ? { cycling: null } : {}), outdoor: null, outdoorTemperature: null } : entry])) } : {}), kind, ...(manual ? { id: field, purpose: body.purpose, indoor: kind === 'styled' ? null : body.indoor, outdoor: kind === 'styled' || body.purpose === '睡觉' ? null : body.outdoor, time: body.time,
         ...(body.indoorCoat !== undefined || previous?.indoorCoat !== undefined ? { indoorCoat: body.indoorCoat ?? previous?.indoorCoat } : {}) } : {}), date: context.date, revision: mutationId, confirmedAt: previous?.confirmedAt ?? new Date().toISOString(), items, context, weather };
     } else throw new ClothesInputError('操作无效');
+    if (photo && r2Enabled()) photo = JSON.stringify(await storeR2Photo(photo));
     const [ok, raw] = await kv.eval<string[], [number, string | unknown]>(SAVE_CLOTHES,
       [key, receiptKey(mutationId), ITEMS_KEY, photoStorage],
       [field, expected, mutationId, JSON.stringify(value), photo, JSON.stringify(checks), sig]);

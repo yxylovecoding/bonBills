@@ -65,7 +65,7 @@ export interface WearRecord {
 }
 export interface Outfit { items: ClothesItem[]; missing: string[]; key: string }
 export type PairCounts = Record<string, Record<string, number>>;
-export interface ClothesData { items: ClothesItem[]; context: ClothesDayContext | null; records: WearRecord[]; outfits?: WearRecord[]; wearCounts?: Record<string, number>; pairCounts?: PairCounts }
+export interface ClothesData { photoStorage?: 'redis' | 'r2'; items: ClothesItem[]; context: ClothesDayContext | null; records: WearRecord[]; outfits?: WearRecord[]; wearCounts?: Record<string, number>; pairCounts?: PairCounts }
 export interface ClothesTrip {
   id: string; title: string; startDate: string; endDate: string; dates: string[];
   destinations: string[]; events: ClothesEvent[]; archived?: boolean;

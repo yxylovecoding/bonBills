@@ -1,7 +1,8 @@
 import { kv as rawKv } from '@vercel/kv';
 import { createHash } from 'node:crypto';
+import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { READ_PHOTO, READ_WEAR_PAGE } from './_clothesReads';
-import { COMPRESS_PHOTO, READ_PHOTO_SIZES } from './_clothesPhotoStorage';
+import { COMPRESS_PHOTO, READ_PHOTO_SIZES, MIGRATE_PHOTO } from './_clothesPhotoStorage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from './_bonClothesRoute';
@@ -52,6 +53,7 @@ async function call(method: string, query: Record<string, string> = {}, body?: u
   return result;
 }
 beforeEach(() => {
+  for (const key of ['CLOTHES_R2_ENDPOINT', 'CLOTHES_R2_BUCKET', 'CLOTHES_R2_ACCESS_KEY_ID', 'CLOTHES_R2_SECRET_ACCESS_KEY']) vi.stubEnv(key, '');
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-05T12:00:00Z'));
   vi.mocked(rawKv.hget).mockClear();
   data.clear(); hashes.clear(); auth.mockResolvedValue(true); origin.mockReturnValue(true); evalMock.mockReset();
@@ -75,9 +77,46 @@ beforeEach(() => {
     return [1, args[3]];
   });
 });
-afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe('衣柜与实际穿搭接口', () => {
+  it('R2 转存验证成功后才替换引用；失败保留旧照片；缓存命中不读取 R2', async () => {
+    vi.stubEnv('CLOTHES_R2_ENDPOINT', `https://${'a'.repeat(32)}.r2.cloudflarestorage.com`);
+    vi.stubEnv('CLOTHES_R2_BUCKET', 'fixture-photos');
+    vi.stubEnv('CLOTHES_R2_ACCESS_KEY_ID', 'offline-fixture');
+    vi.stubEnv('CLOTHES_R2_SECRET_ACCESS_KEY', 'offline-fixture');
+    const bytes = Buffer.from(pngPhoto.split(',')[1], 'base64');
+    const token = `photo-v2-${createHash('sha1').update(pngPhoto).digest('hex')}`;
+    const send = vi.spyOn(S3Client.prototype, 'send').mockImplementation(async (command: any) => command instanceof PutObjectCommand ? {} : {
+      ContentType: 'image/png', ContentLength: bytes.length, Body: { transformToByteArray: async () => bytes },
+    });
+    const migrate = { action: 'migrate-photo', id: item.photoId };
+    evalMock.mockResolvedValueOnce([token, pngPhoto]).mockImplementationOnce(async (script, _keys, args) => {
+      expect(script).toBe(MIGRATE_PHOTO);
+      expect(send.mock.calls.map(([command]) => command.constructor)).toEqual([PutObjectCommand, GetObjectCommand]);
+      expect(JSON.parse(args[1])).toMatchObject({ storage: 'r2', validator: token });
+      return [1, 12345];
+    });
+    expect((await call('POST', {}, migrate)).body).toEqual({ migrated: true, savedBytes: 12345 });
+    const reference = JSON.parse(evalMock.mock.calls.at(-1)![2][1]);
+    evalMock.mockClear(); send.mockClear();
+    evalMock.mockResolvedValueOnce([token, reference]);
+    expect((await call('POST', {}, migrate)).body).toEqual({ migrated: false, savedBytes: 0 });
+    expect(send).not.toHaveBeenCalled();
+    evalMock.mockResolvedValueOnce([token, '']);
+    expect((await call('GET', { view: 'photo', id: item.photoId }, undefined, { 'if-none-match': `"${token}"` })).status).toBe(304);
+    expect(send).not.toHaveBeenCalled();
+    evalMock.mockResolvedValueOnce([token, reference]);
+    expect((await call('GET', { view: 'photo', id: item.photoId })).body).toEqual(bytes);
+    expect(send).toHaveBeenCalledTimes(1);
+    evalMock.mockClear(); send.mockRejectedValueOnce(new Error('R2 unavailable'));
+    evalMock.mockResolvedValueOnce([token, pngPhoto]);
+    expect((await call('POST', {}, migrate)).status).toBe(503);
+    expect(evalMock).toHaveBeenCalledTimes(1);
+    auth.mockResolvedValue(false); send.mockClear();
+    expect((await call('POST', {}, migrate)).status).toBe(401);
+    expect(send).not.toHaveBeenCalled();
+  });
   it('旧照片压缩只传递账号内照片大小，读取与写入继续鉴权', async () => {
     evalMock.mockResolvedValueOnce([[item.photoId, 90000]]);
     const sizes = await call('GET', { view: 'photo-sizes' });
@@ -136,7 +175,7 @@ describe('衣柜与实际穿搭接口', () => {
     let payload: any;
     const response = { status() { return this; }, setHeader() {}, json(value: unknown) { payload = value; return this; } };
     await dispatcher({ method: 'GET', headers: {}, query: { app: 'bonclothes', date: context.date } } as unknown as VercelRequest, response as unknown as VercelResponse);
-    expect(payload).toEqual({ items: [], context: null, records: [], outfits: [], wearCounts: {}, pairCounts: {} });
+    expect(payload).toEqual({ photoStorage: 'redis', items: [], context: null, records: [], outfits: [], wearCounts: {}, pairCounts: {} });
   });
   it('未登录和跨站请求不可读照片或修改，方法受限', async () => {
     auth.mockResolvedValue(false); expect((await call('GET', { view: 'photo', id: item.photoId })).status).toBe(401);
