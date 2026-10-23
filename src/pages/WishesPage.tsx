@@ -1,3 +1,4 @@
+import SavingsCalendar from '../components/SavingsCalendar';
 import { resolveDailyContext } from '../utils/internship';
 import { useLifeCalendar } from '../hooks/useLifeCalendar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -142,9 +143,9 @@ export default function WishesPage() {
   const [deadlineSettingsOpen, setDeadlineSettingsOpen] = useState(false);
   const [planningDetail, setPlanningDetail] = useState<PlanningDetailKind | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeView = searchParams.get('view') === 'shopping' ? 'shopping' : 'wishes';
-  const setActiveView = (view: 'wishes' | 'shopping') => {
-    if (view === 'shopping') setSearchParams({ view: 'shopping' }, { replace: true });
+  const activeView = searchParams.get('view') === 'savings-calendar' ? 'savings-calendar' : searchParams.get('view') === 'shopping' ? 'shopping' : 'wishes';
+  const setActiveView = (view: 'wishes' | 'shopping' | 'savings-calendar') => {
+    if (view !== 'wishes') setSearchParams({ view });
     else {
       searchParams.delete('view');
       setSearchParams(searchParams, { replace: true });
@@ -845,6 +846,8 @@ export default function WishesPage() {
     </div>
   );
 
+  if (activeView === 'savings-calendar') return <SavingsCalendar onBack={() => setActiveView('wishes')} />;
+
   if (activeView === 'shopping') {
     return (
       <ShoppingList
@@ -901,6 +904,13 @@ export default function WishesPage() {
           <p style={{ fontSize: 13, color: C.sub, margin: 0 }}>把想要的，变成每个月做得到的</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <button
+            type="button"
+            onClick={() => setActiveView('savings-calendar')}
+            style={{ border: '1px solid #ddd6fe', borderRadius: 999, backgroundColor: '#fff', color: C.purple, fontSize: 12, fontWeight: 700, padding: '7px 11px', cursor: 'pointer' }}
+          >
+            📅 攒钱日历
+          </button>
           <button
             type="button"
             onClick={() => setActiveView('shopping')}
