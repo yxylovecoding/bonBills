@@ -91,10 +91,12 @@
 .clothes-replacements button { color: var(--life-muted); padding: 0; }
 .clothes-replacements span { display: inline-block; margin-top: 6px; }
 .clothes-wardrobe-toolbar { display: flex; justify-content: space-between; gap: 12px; margin: 24px 0; }
-.clothes-wardrobe-toolbar > div { display: flex; gap: 12px; }
+.clothes-wardrobe-toolbar > div { display: flex; align-items: center; gap: 12px; }
 .clothes-wardrobe-toolbar select { background: transparent; border: 0; color: var(--life-muted); font-size: 12px; max-width: 110px; }
 .clothes-wardrobe-toolbar button { padding: 8px 14px; font-size: 12px; }
-.clothes-wardrobe-tabs { margin-top: 24px; }
+.clothes-wardrobe-toolbar .clothes-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; color: var(--life-muted); border-radius: 10px; flex-shrink: 0; }
+.clothes-icon-button:hover { color: var(--life-accent); background: var(--clothes-soft); }
+.clothes-archive-label { color: var(--life-muted); font-size: 13px; white-space: nowrap; }
 .clothes-discarded-list > button { width: 100%; padding: 18px 0; border-bottom: 1px solid var(--life-line); text-align: left; }
 .clothes-discarded-list strong { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
 .clothes-discarded-list span { font-size: 12px; color: var(--life-muted); flex-shrink: 0; }
