@@ -147,15 +147,29 @@ export function matchingSkinProducts(settings: SkinSettings, state: SkinState | 
     && (!careState || !item.states.length || item.states.includes(careState))
     && (!item.seasons.length || item.seasons.includes(season)) && (!time || !item.times.length || item.times.includes(time)));
 }
+export const skinProductNames = (value: string): string[] =>
+  [...new Set(value.split(/[、,，\n]/).map((name) => name.trim()).filter(Boolean))];
+
+// Explicit timing in the selected plan takes precedence over product tags.
+// Unknown/custom names and products without timing remain available at both times.
+export function skinMedicationAvailable(settings: SkinSettings, name: string, time: SkinTime, day?: SkinPlanDay): boolean {
+  const morning = skinProductNames(day?.morningMedication ?? '');
+  const evening = skinProductNames(day?.eveningMedication ?? '');
+  if (morning.includes(name) || evening.includes(name)) return (time === 'morning' ? morning : evening).includes(name);
+  const products = settings.products.filter((item) => item.kind === 'medication' && skinProductNames(item.name).includes(name));
+  return !products.length || products.some((item) => !item.times.length || item.times.includes(time));
+}
+
 // Picker order favors the selected state, then inherited care, then unrestricted
-// products. Season and time break ties without hiding other active choices.
-export function rankedSkinProducts(settings: SkinSettings, state: SkinState | undefined, season: SkinSeason, kind: SkinProduct['kind'], time?: SkinTime): SkinProduct[] {
+// products. Medication timing filters choices; skincare timing only breaks ties.
+export function rankedSkinProducts(settings: SkinSettings, state: SkinState | undefined, season: SkinSeason, kind: SkinProduct['kind'], time?: SkinTime, day?: SkinPlanDay): SkinProduct[] {
   const careState = state && kind === 'skincare' ? settings.plans[state].careFrom : undefined;
   const stateRank = (item: SkinProduct) => !state || item.states.includes(state) ? 0
     : careState && item.states.includes(careState) ? 1 : !item.states.length ? 2 : 3;
   const contextRank = (item: SkinProduct) => Number(Boolean(item.seasons.length && !item.seasons.includes(season)))
     + Number(Boolean(time && item.times.length && !item.times.includes(time)));
-  return settings.products.filter((item) => item.active && item.kind === kind)
+  return settings.products.filter((item) => item.active && item.kind === kind
+    && (kind !== 'medication' || !time || skinProductNames(item.name).some((name) => skinMedicationAvailable(settings, name, time, day))))
     .sort((a, b) => stateRank(a) - stateRank(b) || contextRank(a) - contextRank(b));
 }
 // Products marked as suitable for the current skin state directly (ignoring the

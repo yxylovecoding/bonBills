@@ -3,21 +3,21 @@ import type { LifeEntries } from '../utils/bonLife';
 import { nextSkinPlan } from '../utils/lifeSkinProgress';
 import { symptomColor } from './symptomColor';
 import { SYMPTOM_STATES, type SymptomState } from '../utils/lifeSymptoms';
-import { DEFAULT_SKIN_SETTINGS, SKIN_FIELDS, SKIN_SEASONS, SKIN_STATES, matchingSkinProducts, rankedSkinProducts, skinLocalPlanValues, skinPlanValues, skinSeason,
+import { DEFAULT_SKIN_SETTINGS, SKIN_FIELDS, SKIN_SEASONS, SKIN_STATES, matchingSkinProducts, rankedSkinProducts, skinMedicationAvailable, skinProductNames, skinLocalPlanValues, skinPlanValues, skinSeason,
   type SkinRecord, type SkinSeason, type SkinSettings, type SkinState } from '../utils/lifeSkin';
 
 const RECORD_FIELDS = ['morningMedication', 'morningProducts', 'eveningMedication', 'eveningProducts'] as const;
-const productNames = (value: string) => [...new Set(value.split(/[、,，\n]/).map((name) => name.trim()).filter(Boolean))];
+const productNames = skinProductNames;
 
-function SkinProductChoices({ label, kind, value, products, busy, onChange }: {
+function SkinProductChoices({ label, kind, value, products, isAvailable, busy, onChange }: {
   label: string; kind: 'medication' | 'skincare'; value: string; products: { name: string }[];
-  busy: boolean; onChange: (value: string) => void;
+  isAvailable: (name: string) => boolean; busy: boolean; onChange: (value: string) => void;
 }) {
   const selected = productNames(value);
   const [remembered, setRemembered] = useState(selected);
   const [editing, setEditing] = useState(false);
   const names = [...new Set([...products.flatMap((item) => productNames(item.name)), ...remembered])]
-    .filter((name) => !selected.includes(name));
+    .filter((name) => !selected.includes(name) && isAvailable(name));
   const kindLabel = kind === 'medication' ? '药品' : '护肤品';
   function remember(names: string[]) { setRemembered((previous) => [...new Set([...previous, ...names])]); }
   function finishEditing() { remember(selected); setEditing(false); }
@@ -104,8 +104,9 @@ export default function LifeSkinFields({ value = {}, date, entries, settings = D
     <div className="life-fields">{RECORD_FIELDS.map((field) => {
       const kind = field.endsWith('Products') ? 'skincare' : 'medication';
       const time = field.startsWith('morning') ? 'morning' : 'evening';
-      const products = rankedSkinProducts(settings, status, season, kind, time);
+      const products = rankedSkinProducts(settings, status, season, kind, time, selectedDay);
       return <SkinProductChoices key={field} label={SKIN_FIELDS[field]} kind={kind} value={value[field] ?? ''} products={products}
+        isAvailable={(name) => kind !== 'medication' || skinMedicationAvailable(settings, name, time, selectedDay)}
         busy={busy} onChange={(next) => change({ [field]: next })} />;
     })}</div>
   </div>;
