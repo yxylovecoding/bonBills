@@ -13,7 +13,7 @@ const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai'
 
 export default function AlipayScreenshotImport({ yearMonth, items, snapshots, onImport }: {
   yearMonth: string; items: InvestPositionItems; snapshots: Record<string, AlipayActualSnapshot>;
-  onImport: (snapshot: AlipayActualSnapshot, baseline: string) => Promise<void>;
+  onImport: (snapshot: AlipayActualSnapshot, baseline: string, importedCodes?: string[]) => Promise<void>;
 }) {
   const choices = useMemo(() => alipayFundChoices(items, snapshots), [items, snapshots]);
   const [open, setOpen] = useState(false);
@@ -100,7 +100,7 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
           if (getAccountStorage() !== owner.current) throw new Error('账号已切换，请重新导入');
           if (JSON.stringify(snapshots[date] ?? null) !== baseline) throw new Error('当日持仓已更新，请重新选择截图');
           const snapshot = materializeAlipayScreenshots(draft, date, choices, snapshots[date]);
-          await onImport(snapshot, baseline); close(); setError('');
+          await onImport(snapshot, baseline, [...new Set([...draft.funds, ...draft.orders].filter((row) => row.selected).map((row) => row.code))]); close(); setError('');
         } catch (cause) {
           setError(cause instanceof Error ? cause.message : '请核对识别结果');
           setAttention(cause instanceof AlipayScreenshotValidationError ? cause : null);
@@ -134,7 +134,8 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
           const nextDraft = inferAlipayFundClassesByAmount(combineAlipayScreenshotDrafts(images.map((image) => parseAlipayScreenshot(image, choices, date))), choices, snapshots, date);
           setDraft(nextDraft);
           setProgress('同步持仓中');
-          await onImport(materializeAlipayScreenshots(nextDraft, date, choices, snapshots[date]), importBaseline);
+          await onImport(materializeAlipayScreenshots(nextDraft, date, choices, snapshots[date]), importBaseline,
+            [...new Set([...nextDraft.funds, ...nextDraft.orders].filter((row) => row.selected).map((row) => row.code))]);
           close();
         } catch (cause) {
           if (token === job.current) {

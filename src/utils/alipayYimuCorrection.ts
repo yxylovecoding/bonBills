@@ -143,12 +143,14 @@ export function buildAlipayYimuCorrection(
     }
     const costPrice = row.bridges.length ? (shares > 0 ? round(cost / shares) : 0) : round(basis.costPrice);
     const metric = calculateInvestPositionMetric(item);
-    const price = metric.price ?? basis.nav ?? (basis.shares > 0 ? basis.confirmedAmount / basis.shares : undefined);
+    // The imported balance is the new anchor; a cached ledger quote must not
+    // overwrite its amount/profit as soon as the imported shares and cost are saved.
+    const price = basis.nav ?? (basis.shares > 0 ? basis.confirmedAmount / basis.shares : undefined) ?? metric.price;
     const preservedPending = (item.pendingBuys ?? []).filter((order) => order.operationAt.slice(0, 10) > snapshot.date);
     const target: InvestPositionItem = { ...item, shares, costPrice, status: shares > 0 ? 'active' : 'paused',
       historicalProfitCny: money(metric.historicalProfitCny / metric.profitFxRateToCny), profitInputMode: 'historical',
       historicalProfitCurrency: 'CNY', quoteCurrency: 'CNY', lastCurrency: 'CNY', lastFxRateToCny: 1,
-      lastPrice: price ?? undefined, quoteAt: metric.quoteAt ?? basis.navDate ?? snapshot.date,
+      lastPrice: price ?? undefined, quoteAt: basis.navDate ?? snapshot.date,
       marketValueCny: price === undefined ? basis.confirmedAmount : money(shares * price),
       holdingProfitCny: price === undefined ? fund.holdingProfit : money(shares * (price - costPrice)),
       pendingBuys: [...preservedPending, ...deferred, ...bridgedPending],

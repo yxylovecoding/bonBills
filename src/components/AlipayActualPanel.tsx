@@ -103,9 +103,9 @@ export default function AlipayActualPanel({ yearMonth, items, estimate, fallback
     <div className="alipay-actual-content">
       <div className="alipay-detail-line">
         <b>支付宝持仓</b>
-        <AlipayScreenshotImport key={yearMonth} yearMonth={yearMonth} items={items} snapshots={snapshots ?? {}} onImport={async (next, baseline) => {
+        <AlipayScreenshotImport key={yearMonth} yearMonth={yearMonth} items={items} snapshots={snapshots ?? {}} onImport={async (next, baseline, importedCodes) => {
           if (!next.date.startsWith(`${yearMonth}-`)) throw new Error('月份已切换，请重新导入');
-          const result = await importAlipaySnapshotToLedger(next, baseline);
+          const result = await importAlipaySnapshotToLedger(next, baseline, undefined, importedCodes);
           setSelected(next.date); setMessage(result.message);
         }} />
       </div>

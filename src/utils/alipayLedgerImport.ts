@@ -40,11 +40,14 @@ export async function importAlipaySnapshotToLedger(
   input: AlipayActualSnapshot,
   baseline: string,
   load = loadAlipayLedgerInputs,
+  importedCodes = input.funds.map((fund) => fund.code),
 ) {
   const snapshot = parseAlipayActual(JSON.stringify(input));
+  const selected = { ...snapshot, funds: snapshot.funds.filter((fund) => importedCodes.includes(fund.code)),
+    orders: snapshot.orders.filter((order) => importedCodes.includes(order.code)) };
   const owner = getAccountStorage();
   const signature = yimuCorrectionSignature(useMonthlyStore.getState().records);
-  const { holidays, quotes } = await load(snapshot);
+  const { holidays, quotes } = await load(selected);
   return runWithSyncPaused(async () => {
     const { config, setConfig } = useConfigStore.getState();
     const store = useMonthlyStore.getState();
@@ -52,7 +55,7 @@ export async function importAlipaySnapshotToLedger(
     if (JSON.stringify(config.alipayActualSnapshots?.[snapshot.date] ?? null) !== baseline
       || yimuCorrectionSignature(store.records) !== signature) throw new Error('持仓已更新，请重新导入');
     const current = store.records.find((record) => record.yearMonth === snapshot.date.slice(0, 7));
-    const plan = buildAlipayYimuCorrection(snapshot, current?.investPositionItems ?? {}, store.records, holidays, quotes);
+    const plan = buildAlipayYimuCorrection(selected, current?.investPositionItems ?? {}, store.records, holidays, quotes);
     const ready = plan.rows.filter((row) => !row.reason && row.target && row.groupKey);
     const corrected = current && ready.length ? applyAlipayYimuCorrection(current, plan, ready.map((row) => row.code)) : undefined;
     const beforeConfig = config.alipayActualSnapshots;

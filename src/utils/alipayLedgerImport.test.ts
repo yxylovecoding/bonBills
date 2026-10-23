@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AlipayActualSnapshot } from '../models/types';
 import { useConfigStore } from '../stores/configStore';
 import { useMonthlyStore } from '../stores/monthlyStore';
-import { syncInvestPositionItems } from './investPositionItems';
+import { calculateInvestPositionMetric, syncInvestPositionItems } from './investPositionItems';
 import { emptyMonthlyRecord } from './investmentRollover';
 import { importAlipaySnapshotToLedger } from './alipayLedgerImport';
 import { fundConfirmationKey, projectAlipayHoldings } from './alipayHoldings';
@@ -76,5 +76,45 @@ describe('支付宝导入写入共享账本', () => {
     expect(result.unresolved[0].reason).toContain('未唯一匹配');
     expect(useMonthlyStore.getState().records).toEqual(before);
     expect(useConfigStore.getState().config.alipayActualSnapshots?.[date]).toEqual(source);
+  });
+});
+
+
+describe('截图完整持仓更新', () => {
+  it('明确份额和成本写回共享持仓，新截图报价覆盖旧缓存', async () => {
+    const source: AlipayActualSnapshot = { date, funds: [{ code, name: '标普500', shares: 80, costPrice: 2.25,
+      totalAmount: 200, holdingProfit: 20, amountKind: 'confirmed', nav: 2.5, navDate: '2026-09-15' }], orders: [] };
+    await importAlipaySnapshotToLedger(source, 'null', load);
+    expect(item()).toMatchObject({ shares: 80, costPrice: 2.25, lastPrice: 2.5, quoteAt: date, marketValueCny: 200, holdingProfitCny: 20 });
+    const view = projectAlipayHoldings(current().investPositionItems!, { asOf: date, records: useMonthlyStore.getState().records, holidays: { 2026: {} }, metadata: {} });
+    expect(calculateInvestPositionMetric(view.items.us![0])).toMatchObject({ marketValueCny: 200, holdingProfitCny: 20 });
+  });
+
+  it('仅有金额收益时使用对应日期净值推算份额与成本', async () => {
+    const source: AlipayActualSnapshot = { date, funds: [{ code, name: '标普500', totalAmount: 200, holdingProfit: 20, amountKind: 'confirmed' }], orders: [] };
+    await importAlipaySnapshotToLedger(source, 'null', async () => ({ holidays: {}, quotes: { holdings: { [code]: { code, date, nav: 2.5 } }, orders: {} } }));
+    expect(item()).toMatchObject({ shares: 80, costPrice: 2.25, marketValueCny: 200, holdingProfitCny: 20 });
+  });
+
+  it('没有截图净值时以截图金额与真实份额更新报价', async () => {
+    const source: AlipayActualSnapshot = { date, funds: [{ code, name: '标普500', shares: 80, costPrice: 2.25,
+      totalAmount: 200, holdingProfit: 20, amountKind: 'confirmed' }], orders: [] };
+    await importAlipaySnapshotToLedger(source, 'null', load);
+    expect(item()).toMatchObject({ shares: 80, costPrice: 2.25, lastPrice: 2.5, marketValueCny: 200, holdingProfitCny: 20 });
+  });
+
+  it('同日追加截图不重放其他基金的旧实录覆盖后续编辑', async () => {
+    const source = snapshot();
+    await importAlipaySnapshotToLedger(source, 'null', load);
+    const items = structuredClone(current().investPositionItems!); items.us![0].shares = 115;
+    items.us!.push({ ...items.us![0], id: 'second', symbol: '123456', shares: 999, pendingBuys: [], alipayCorrection: undefined });
+    useMonthlyStore.getState().upsert(syncInvestPositionItems(current(), items), { investmentSource: 'manual' });
+    const edited = structuredClone(item());
+    source.funds.push({ code: '123456', name: '另一只基金', totalAmount: 200, holdingProfit: 20, shares: 80, costPrice: 2.25, nav: 2.5, navDate: date, amountKind: 'confirmed' });
+    const result = await importAlipaySnapshotToLedger(source, JSON.stringify(useConfigStore.getState().config.alipayActualSnapshots?.[date]), load, ['123456']);
+    expect(result.updated).toBe(1);
+    expect(item()).toEqual(edited);
+    expect(current().investPositionItems!.us![1]).toMatchObject({ shares: 80, costPrice: 2.25, marketValueCny: 200, holdingProfitCny: 20 });
+    expect(useConfigStore.getState().config.alipayActualSnapshots?.[date].funds).toHaveLength(2);
   });
 });
