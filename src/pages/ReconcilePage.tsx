@@ -7,8 +7,6 @@ import { useSyncStatus } from '../utils/syncStatus';
 import Card from '../components/Card';
 import { formatCurrency } from '../components/CurrencyDisplay';
 import AmountInput from '../components/AmountInput';
-import FinanceImportPreviewDialog from '../components/FinanceImportPreviewDialog';
-import ImportCutoffHint from '../components/ImportCutoffHint';
 import SceneCityFields, { type SceneCitySettings } from '../components/SceneCityFields';
 import SchoolPeriods from '../components/SchoolPeriods';
 
@@ -27,7 +25,7 @@ import { calcHistoryStats } from '../calculations/history';
 import { calcAllocationRatios, calcRebalance, calcTopUpRebalance } from '../calculations/rebalance';
 import { calcRemainingRecurringInvestments, deductRecurringInvestments } from '../calculations/recurringInvestment';
 import { investMeta, tagMeta } from '../data/mockData';
-import type { AccountSnapshot, AppConfig, AutoAccountBalanceKey, DailyTag, InvestAllocTargets, InvestHoldings, InvestKey, TagKind, UsStockHoldingItem } from '../models/types';
+import type { AccountSnapshot, AppConfig, DailyTag, InvestAllocTargets, InvestHoldings, InvestKey, TagKind, UsStockHoldingItem } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
 import { normalizeDecimalPunctuation, sanitizeDecimalNumberInput } from '../utils/numberInput';
 import { tryEvalFormula } from '../utils/formula';
@@ -39,24 +37,12 @@ import {
 import { calculateCreditRepaymentPlan, LONG_BOND_REPAY_THRESHOLD } from '../utils/creditRepayment';
 import {
   FINANCE_SCREENSHOT_DRAFT_EVENT,
-  isFinanceScreenshotFile,
-  parseFinanceScreenshot,
   screenshotDraftItemCount,
   type FinanceScreenshotDraftEventDetail,
   type ScreenshotParseResult,
 } from '../utils/financeScreenshotOcr';
-import { importBillFileIntoStores } from '../utils/billImportActions';
-import { formatInvestmentImportSummary, importInvestmentFileIntoStores } from '../utils/importInvestments';
 import { pendingInvestmentAmounts } from '../utils/investmentRollover';
-import { fetchLatestMailAttachments } from '../utils/mailAttachments';
-import { accountBalanceUpdatedAt, investmentImportCutoff } from '../utils/importCutoffs';
 import { createManualBackup } from '../utils/syncEngine';
-import {
-  confirmFinanceImport,
-  confirmFinanceImportAccount,
-  prepareFinanceImport,
-  type FinanceImportPreviewDraft,
-} from '../utils/importPreview';
 import {
   buildDramDecision,
   normalizeDramDecisionConfig,
@@ -813,9 +799,6 @@ export default function ReconcilePage() {
   const [usdRebalanceCells, setUsdRebalanceCells] = useState<Set<InvestKey>>(() => new Set());
   const [screenshotImportMsg, setScreenshotImportMsg] = useState('');
   const [backupCreating, setBackupCreating] = useState(false);
-  const [mailImporting, setMailImporting] = useState(false);
-  const [financeImportDraft, setFinanceImportDraft] = useState<FinanceImportPreviewDraft | null>(null);
-  const [financeImportConfirming, setFinanceImportConfirming] = useState(false);
   const [screenshotDraft, setScreenshotDraft] = useState<ScreenshotParseResult | null>(null);
   const [screenshotPreview, setScreenshotPreview] = useState<{ url: string; fileName: string } | null>(null);
   const screenshotPreviewUrlRef = useRef<string | null>(null);
@@ -829,16 +812,6 @@ export default function ReconcilePage() {
     }
     setScreenshotPreview(null);
     setScreenshotDraft(null);
-  };
-
-  const showScreenshotDraft = (draft: ScreenshotParseResult, file: File) => {
-    if (screenshotPreviewUrlRef.current) URL.revokeObjectURL(screenshotPreviewUrlRef.current);
-    const url = URL.createObjectURL(file);
-    screenshotPreviewUrlRef.current = url;
-    setScreenshotPreview({ url, fileName: file.name });
-    setScreenshotDraft(draft);
-    const kind = draft.mode === 'investments' ? '理财' : draft.mode === 'accounts' ? '资产' : '图片';
-    return `已识别${kind} ${screenshotDraftItemCount(draft)} 项 · ${file.name}`;
   };
 
   useEffect(() => {
@@ -868,76 +841,6 @@ export default function ReconcilePage() {
     };
   }, []);
 
-  const importLatestFromMail = async () => {
-    setMailImporting(true);
-    setScreenshotImportMsg('邮箱查找中');
-    try {
-      const attachments = await fetchLatestMailAttachments();
-      const imported: string[] = [];
-      const failed: string[] = [];
-      const tableAttachments = [] as typeof attachments;
-      for (const attachment of attachments) {
-        try {
-          if (isFinanceScreenshotFile(attachment.file)) {
-            setScreenshotImportMsg('邮箱图片识别中');
-            imported.push(showScreenshotDraft(await parseFinanceScreenshot(attachment.file), attachment.file));
-          } else {
-            tableAttachments.push(attachment);
-          }
-        } catch (error) {
-          failed.push(`${attachment.file.name}：${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-      if (tableAttachments.length > 0) {
-        const draft = await prepareFinanceImport(async () => {
-          const investmentMonths: string[] = [];
-          const billMonths: string[] = [];
-          const lines: string[] = [];
-          for (const attachment of tableAttachments) {
-            try {
-              if (attachment.kind === 'investment') {
-                setScreenshotImportMsg('邮箱理财预览中');
-                const result = await importInvestmentFileIntoStores(attachment.file, { mailUid: attachment.uid, deferUpload: true });
-                const line = `理财 ${formatInvestmentImportSummary(result)}`;
-                lines.push(line);
-                imported.push(line);
-                investmentMonths.push(...result.months);
-              } else {
-                setScreenshotImportMsg('邮箱账单预览中');
-                const result = await importBillFileIntoStores(attachment.file, { deferUpload: true });
-                const line = `账单 ${result.updatedMonths} 个月 · 余额 ${result.accountBalances.appliedTransactions} 笔`;
-                lines.push(line);
-                imported.push(line);
-                billMonths.push(...result.months);
-              }
-            } catch (error) {
-              failed.push(`${attachment.file.name}：${error instanceof Error ? error.message : String(error)}`);
-            }
-          }
-          if (lines.length === 0) throw new Error(failed.join('；') || '没有可预览附件');
-          if (failed.length > 0) lines.push(...failed.map((message) => `失败 · ${message}`));
-          return {
-            title: '邮箱导入预览',
-            lines,
-            investmentMonths: [...new Set(investmentMonths)].sort(),
-            billMonths: [...new Set(billMonths)].sort(),
-            successMessage: `邮箱已导入 · ${imported.join(' · ')}`,
-            changesOnly: true,
-          };
-        });
-        setFinanceImportDraft(draft);
-      }
-      if (imported.length === 0) throw new Error(failed.join('；') || '没有可导入附件');
-      setScreenshotImportMsg(tableAttachments.length > 0
-        ? '邮箱预览已生成 · 等待确认'
-        : `已生成图片草稿 · ${imported.join(' · ')}`);
-    } catch (error) {
-      setScreenshotImportMsg(`邮箱导入失败：${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      setMailImporting(false);
-    }
-  };
-
   const backupCurrentVersion = async () => {
     setBackupCreating(true);
     setScreenshotImportMsg('备份中');
@@ -948,24 +851,6 @@ export default function ReconcilePage() {
       setScreenshotImportMsg(`备份失败：${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setBackupCreating(false);
-    }
-  };
-
-  const confirmImportDraft = async (accountKey?: AutoAccountBalanceKey) => {
-    if (!financeImportDraft || financeImportConfirming) return;
-    setFinanceImportConfirming(true);
-    try {
-      if (accountKey) {
-        setFinanceImportDraft(await confirmFinanceImportAccount(financeImportDraft, accountKey));
-      } else {
-        await confirmFinanceImport(financeImportDraft, { preserveAccounts: true });
-        setFinanceImportDraft({ ...financeImportDraft, remainderConfirmed: true });
-        setScreenshotImportMsg('已保存确认项');
-      }
-    } catch (error) {
-      setScreenshotImportMsg(`导入失败：${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      setFinanceImportConfirming(false);
     }
   };
 
@@ -2285,19 +2170,6 @@ export default function ReconcilePage() {
             {backupCreating ? '备份中' : '备份'}
           </button>
           <button
-            type="button"
-            onClick={importLatestFromMail}
-            disabled={mailImporting}
-            title="从邮箱导入最新账单、图片和理财附件"
-            style={{ fontSize: 11, lineHeight: 1, padding: '4px 7px', borderRadius: 7, border: '1px solid #e0e0e0', backgroundColor: mailImporting ? '#f1f3f4' : '#fff', color: mailImporting ? '#9aa0a6' : C.sub, cursor: mailImporting ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
-          >
-            {mailImporting ? '导入中' : '邮箱'}
-          </button>
-          <ImportCutoffHint
-            investment={investmentImportCutoff(records)}
-            account={accountBalanceUpdatedAt(current)}
-          />
-          <button
             onClick={() => {
               setGroupedTargetInputs(groupedTargetInputFromConfig(effectiveInvestTargets(config.investAllocTargets)));
               setSettingsOpen(true);
@@ -3296,19 +3168,6 @@ export default function ReconcilePage() {
         </div>
       </Card>
       </div>
-
-      {financeImportDraft && (
-        <FinanceImportPreviewDialog
-          draft={financeImportDraft}
-          confirming={financeImportConfirming}
-          onCancel={() => {
-            setFinanceImportDraft(null);
-            setScreenshotImportMsg('已关闭导入预览');
-          }}
-          onConfirm={() => { void confirmImportDraft(); }}
-          onConfirmAccount={(key) => { void confirmImportDraft(key); }}
-        />
-      )}
 
       {screenshotDraft && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000, backgroundColor: 'rgba(32,33,36,0.32)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
