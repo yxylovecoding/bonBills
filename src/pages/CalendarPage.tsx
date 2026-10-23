@@ -3596,12 +3596,12 @@ export default function CalendarPage() {
       <input ref={billFileRef} type="file" style={{ display: 'none' }} onChange={handleBillFile} />
       {/* 页头 + 胶囊切换 */}
       <div className="calendar-page-header" style={{ margin: '0 0 16px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, flexWrap: 'nowrap', minWidth: 0 }}>
+        <div className="calendar-header-toolbar">
           <h1 style={{ fontSize: 'clamp(18px, 4.8vw, 22px)', fontWeight: 700, margin: 0, whiteSpace: 'nowrap', flexShrink: 0 }}>
             {tab === 'month' ? '日历标记' : '历史记录'}
           </h1>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 'clamp(3px, 1.5vw, 8px)', flexWrap: 'nowrap', minWidth: 0, flexShrink: 0, whiteSpace: 'nowrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+          <div className="calendar-header-actions">
+            <div className="calendar-header-imports">
               <button
                 type="button"
                 onClick={backupCurrentVersion}
@@ -3632,11 +3632,11 @@ export default function CalendarPage() {
                 本地
               </button>
             </div>
-            <div style={{ display: 'flex', backgroundColor: '#e8eaed', borderRadius: 20, padding: 3, gap: 2, flexShrink: 0 }}>
+            <div className="calendar-header-views" role="group" aria-label="记录视图" style={{ display: 'flex', backgroundColor: '#e8eaed', borderRadius: 20, padding: 3, gap: 2, flexShrink: 0 }}>
               {(['month', 'year'] as const).map((t) => {
                 const active = tab === t;
                 return (
-                  <button key={t} onClick={() => setTab(t)} style={{
+                  <button key={t} aria-pressed={active} onClick={() => setTab(t)} style={{
                     padding: '5px clamp(9px, 3vw, 14px)', borderRadius: 16, border: 'none', cursor: 'pointer',
                     fontSize: 13, fontWeight: 600,
                     backgroundColor: active ? '#fff' : 'transparent',
