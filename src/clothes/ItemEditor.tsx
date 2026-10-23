@@ -22,20 +22,22 @@ export default function ItemEditor({ initial, owner, onClose, onSaved, onExpired
   const [deleting, setDeleting] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const deleteId = useRef(crypto.randomUUID());
+  const statusId = useRef(crypto.randomUUID());
   const { item, photo } = draft;
   useEffect(() => { dialog.current?.showModal(); }, []);
   useEffect(() => { writeLocal(itemDraftKey(owner), draft); }, [draft, owner]);
   function change(next: Partial<ClothesItem>, nextPhoto = photo) {
+    statusId.current = crypto.randomUUID();
     setDraft({ item: { ...item, ...next, ...('warmth' in next ? { learnedWarmth: undefined } : {}) }, photo: nextPhoto, mutationId: crypto.randomUUID() }); setDeleting(false);
   }
   function close() { writeLocal(itemDraftKey(owner), null); onClose(); }
-  async function save(remove = false) {
+  async function save(remove = false, nextStatus = item.status) {
     if (busy) return;
     setBusy(true); setError('');
     try {
       const { value } = await clothesRequest<{ value: ClothesItem }>('POST', remove
         ? { action: 'delete-item', id: item.id, revision: item.revision, mutationId: deleteId.current }
-        : { action: 'save-item', item, photo, mutationId: draft.mutationId });
+        : { action: 'save-item', item: { ...item, status: nextStatus }, photo, mutationId: nextStatus === item.status ? draft.mutationId : statusId.current });
       writeLocal(itemDraftKey(owner), null); onSaved(value);
     } catch (cause) {
       if (cause instanceof ClothesError && cause.status === 401) onExpired();
@@ -61,7 +63,7 @@ export default function ItemEditor({ initial, owner, onClose, onSaved, onExpired
           {['上衣', '外套'].includes(categoryLabel(item.category)) && <label className="clothes-check"><input type="checkbox" checked={itemCategories(item).length > 1} onChange={(e) => change({ wearAs: e.target.checked ? ['上衣', '外套'] : [] })} />{categoryLabel(item.category) === '外套' ? '也可作上衣' : '也可作外套'}</label>}
           <label>颜色<select aria-label="颜色" value={item.color} onChange={(e) => change({ color: e.target.value as ClothesItem['color'] })}>{COLORS.map((v) => <option key={v} value={v}>{v === '多色' ? v : `${v}色`}</option>)}</select></label>
           <label>厚薄<select aria-label="厚薄" value={item.thickness} onChange={(e) => change({ thickness: Number(e.target.value) as 1 | 2 | 3 })}><option value={1}>薄</option><option value={2}>适中</option><option value={3}>厚</option></select></label>
-          <label>状态<select aria-label="状态" value={item.status} onChange={(e) => change({ status: e.target.value as ClothesItem['status'] })}>{['可穿', '收起'].map((v) => <option key={v}>{v}</option>)}</select></label>
+          <label>状态<select aria-label="状态" value={item.status} onChange={(e) => change({ status: e.target.value as ClothesItem['status'] })}>{['可穿', '收起', '已丢弃'].map((v) => <option key={v}>{v}</option>)}</select></label>
           <label className="clothes-check clothes-full"><input type="checkbox" checked={item.sleepwear ?? false} onChange={(e) => change({ sleepwear: e.target.checked })} />睡衣</label>
           {categoryLabel(item.category) === '配饰' && <div className="clothes-full"><span className="clothes-label">保暖部位</span><div className="clothes-checks" role="group" aria-label="保暖部位">{BODY_REGIONS.map((region) => <label key={region}><input type="checkbox" checked={itemRegions(item).includes(region)} onChange={(e) => change({ warmthRegions: e.target.checked ? [...itemRegions(item), region] : itemRegions(item).filter((value) => value !== region) })} />{REGION_LABELS[region]}</label>)}</div></div>}
           <label>保暖值 °C<input type="number" min={0} max={40} step={0.5} required value={itemWarmth(item)} onChange={(e) => change({ warmth: e.target.value === '' ? undefined : Number(e.target.value) })} /></label>
@@ -77,6 +79,7 @@ export default function ItemEditor({ initial, owner, onClose, onSaved, onExpired
       {deleting && <p className="life-error">删除这件衣物？</p>}
       <div className="life-editor-actions clothes-editor-actions">
         {item.revision && <button type="button" className="clothes-danger" disabled={busy || Boolean(conflict)} onClick={() => deleting ? void save(true) : setDeleting(true)}>{deleting ? '确认删除' : '删除'}</button>}
+        {item.revision && <button type="button" disabled={busy || Boolean(conflict)} onClick={() => void save(false, item.status === '已丢弃' ? '可穿' : '已丢弃')}>{item.status === '已丢弃' ? '放回衣柜' : '丢掉'}</button>}
         <button type="button" disabled={busy} onClick={close}>放弃</button>
         <button className="life-primary" disabled={busy || Boolean(conflict) || (!photo && !item.photoId)}>{busy ? '处理中…' : '保存'}</button>
       </div>

@@ -260,8 +260,32 @@ describe('衣柜与实际穿搭接口', () => {
     expect(history.body.records).toHaveLength(1); expect(history.body.records[0].items[0].name).toBe('白色上装');
     expect(Object.keys(hashes.get(WEAR_KEY)!)).toEqual([context.date]);
   });
-  it('确认时衣物变为收起或事务中更新都拒绝保存', async () => {
-    hashes.set(ITEMS_KEY, { [item.id]: { ...item, status: '收起' } });
+  it('丢弃与放回保留原照片和历史，重复提交幂等，旧版本不能覆盖丢弃状态', async () => {
+    hashes.set(ITEMS_KEY, { [item.id]: item });
+    data.set(photoKey(item.photoId), jpeg());
+    const record = { action: 'confirm', recordId: uid('before-discard'), context, items: [item], revision: '',
+      weather: null, purpose: '休闲', time: '10:00', indoor: null, outdoor: null, mutationId: uid('record-discard') };
+    const worn = await call('POST', {}, record);
+    expect(worn.status).toBe(200);
+    const request = { action: 'save-item', item: { ...item, status: '已丢弃' }, mutationId: uid('discard') };
+    const discarded = await call('POST', {}, request);
+    expect(discarded.status).toBe(200);
+    expect(discarded.body.value).toMatchObject({ id: item.id, status: '已丢弃', photoId: item.photoId });
+    expect((await call('POST', {}, request)).body).toEqual(discarded.body);
+    expect((await call('POST', {}, { action: 'save-item', item, mutationId: uid('stale-restore') })).status).toBe(409);
+    const dataResult = await call('GET', { date: context.date });
+    expect(dataResult.body.items[0]).toMatchObject({ status: '已丢弃', photoId: item.photoId });
+    expect(dataResult.body.records[0].items[0]).toEqual(worn.body.value.items[0]);
+    // Feedback on an old outfit remains editable after its item is discarded.
+    expect((await call('POST', {}, { ...record, revision: worn.body.value.revision, indoor: '舒适', mutationId: uid('edit-discarded') })).status).toBe(200);
+    const restored = await call('POST', {}, { action: 'save-item', item: { ...discarded.body.value, status: '可穿' }, mutationId: uid('restore') });
+    expect(restored.body.value).toMatchObject({ id: item.id, status: '可穿', photoId: item.photoId });
+    const writes = evalMock.mock.calls.filter(([script]) => script === SAVE_CLOTHES);
+    expect(writes.every(([, , args]) => args[4] === '')).toBe(true);
+    expect(data.get(photoKey(item.photoId))).toBe(jpeg());
+  });
+  it.each(['收起', '已丢弃'])('确认时衣物变为%s或事务中更新都拒绝保存', async (status) => {
+    hashes.set(ITEMS_KEY, { [item.id]: { ...item, status } });
     const body = { action: 'confirm', context, items: [{ id: item.id, revision: item.revision }], revision: '', weather: null, mutationId: uid('confirm') };
     expect((await call('POST', {}, body)).status).toBe(409); expect(evalMock).not.toHaveBeenCalled();
     hashes.set(ITEMS_KEY, { [item.id]: item }); evalMock.mockResolvedValueOnce([-2, '']);
@@ -576,6 +600,8 @@ describe('出行预报与计划接口', () => {
   it('不接受收起、不方便运动的单品或超出行程日期的计划', async () => {
     hashes.set(ITEMS_KEY, { [item.id]: { ...item, status: '收起' } });
     const body = { action: 'save-trip-plan', plan, mutationId: uid('trip-save') };
+    expect((await call('POST', {}, body)).status).toBe(409);
+    hashes.set(ITEMS_KEY, { [item.id]: { ...item, status: '已丢弃' } });
     expect((await call('POST', {}, body)).status).toBe(409);
     hashes.set(ITEMS_KEY, { [item.id]: { ...item, active: false } });
     expect((await call('POST', {}, { ...body, plan: { ...plan, days: { '2026-10-05': { ...plan.days['2026-10-05'], active: true } } } })).status).toBe(400);

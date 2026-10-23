@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ClothesCalendar, ClothesDayContext, ClothesItem, ClothesLocation, Outfit, PairCounts, WearRecord, WeatherSnapshot } from './types';
 import { SCENES, PURPOSES, PURPOSE_LABELS, wearId, type Purpose, type Category, categoryLabel } from './types';
 import { calendarDestinations, chooseLocation, effectiveContext, eligibleItems, recommend, replacements, weatherFor } from './rules';
-import { ClothesError, clothesRequest, photoUrl, readLocal, writeLocal } from './client';
+import { ClothesError, clothesRequest, readLocal, writeLocal } from './client';
+import ItemPhoto from './ItemPhoto';
 import CityPicker from './CityPicker';
 import { createWearDraft, type WearDraft } from './WearEditor';
 import OutfitWarmth from './OutfitWarmth';
@@ -167,7 +168,7 @@ export default function Today({ owner, items, initial, records, outfits, tomorro
       {todayRecords.length ? todayRecords.map((record, i) => <article className="clothes-daily-record" key={wearId(record)}>
         <div className="clothes-row"><strong>{`第 ${i + 1} 套`}{record.purpose ? ` · ${record.purpose}` : ''} · {record.kind === 'styled' ? '搭了' : '穿了'}</strong><button className="clothes-link" onClick={() => openWear([], record)}>编辑穿搭</button></div>
         <WearDetails record={record} />
-        <div className="clothes-history-pieces">{record.items.map((item) => <figure key={item.id}><img loading="lazy" src={photoUrl(item.photoId)} alt={item.name} /><figcaption>{item.name}</figcaption></figure>)}</div>
+        <div className="clothes-history-pieces">{record.items.map((item) => <figure key={item.id}><ItemPhoto item={item} current={items.find((piece) => piece.id === item.id)} /><figcaption>{item.name}</figcaption></figure>)}</div>
       </article>) : <p className="clothes-muted">{past ? '这天还没有穿搭记录' : tomorrow ? '还没有明天的搭配' : '今天还没有记录穿搭'}</p>}
     </section>
     <section className="clothes-context" aria-label="当天条件">
@@ -226,7 +227,7 @@ export default function Today({ owner, items, initial, records, outfits, tomorro
       {history && <div>{historyRecords.length ? historyRecords.map((record) => <article key={wearId(record)}>
         <div className="clothes-row"><strong>{record.date} {record.purpose}</strong><button className="clothes-link" onClick={() => onReviewDay(record.date)}>回顾这天</button></div>
         <WearDetails record={record} />
-        <div className="clothes-history-pieces">{record.items.map((item) => <figure key={item.id}><img loading="lazy" src={photoUrl(item.photoId)} alt={item.name} /><figcaption>{item.name}</figcaption></figure>)}</div>
+        <div className="clothes-history-pieces">{record.items.map((item) => <figure key={item.id}><ItemPhoto item={item} current={items.find((piece) => piece.id === item.id)} /><figcaption>{item.name}</figcaption></figure>)}</div>
         <button className="clothes-link" onClick={() => openWear([], record)}>补记体感／编辑穿搭</button>
       </article>) : <p className="clothes-muted">暂无记录</p>}{moreHistory && historyRecords.length >= 30 && <button disabled={busy} onClick={() => void loadHistory()}>更早记录</button>}</div>}
     </section>

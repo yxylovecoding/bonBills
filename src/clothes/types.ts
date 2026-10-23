@@ -19,7 +19,7 @@ export interface ClothesItem {
   wearAs?: Category[];
   sleepwear?: boolean;
   braRequirement?: 'required' | 'optional';
-  status: '可穿' | '待洗' | '收起'; photoId: string; deleted?: boolean;
+  status: '可穿' | '待洗' | '收起' | '已丢弃'; photoId: string; deleted?: boolean;
 }
 export interface ClothesLocation { name: string; latitude: number; longitude: number; source: 'manual' | 'geo' | 'calendar'; timezone?: string }
 export interface ClothesDayContext {

@@ -46,8 +46,8 @@ describe('BonClothes 规则推荐', () => {
     const result = recommend([...wardrobe, item('coat', '外套'), item('wind', '外套', { windproof: true })], { ...context, scene: '有室外' }, windy)[0];
     expect(result.items.map((i) => i.id)).toContain('wind');
   });
-  it('收起、已删除以及不方便活动的衣物不可用于活动场景', () => {
-    const excluded = [item('stored', '上装', { status: '收起' }), item('deleted', '上装', { deleted: true }), item('tight', '上装', { active: false })];
+  it('收起、已丢弃、已删除以及不方便活动的衣物不可用于活动场景', () => {
+    const excluded = [item('stored', '上装', { status: '收起' }), item('discarded', '上装', { status: '已丢弃' }), item('deleted', '上装', { deleted: true }), item('tight', '上装', { active: false })];
     const result = recommend([...excluded, ...wardrobe.slice(1)], { ...context, active: true }, weather)[0];
     expect(result.items.every((i) => !excluded.some((e) => e.id === i.id))).toBe(true);
     expect(result.missing).toContain('上衣');

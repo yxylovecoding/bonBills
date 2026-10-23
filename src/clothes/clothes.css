@@ -94,6 +94,12 @@
 .clothes-wardrobe-toolbar > div { display: flex; gap: 12px; }
 .clothes-wardrobe-toolbar select { background: transparent; border: 0; color: var(--life-muted); font-size: 12px; max-width: 110px; }
 .clothes-wardrobe-toolbar button { padding: 8px 14px; font-size: 12px; }
+.clothes-wardrobe-tabs { margin-top: 24px; }
+.clothes-discarded-list > button { width: 100%; padding: 18px 0; border-bottom: 1px solid var(--life-line); text-align: left; }
+.clothes-discarded-list strong { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
+.clothes-discarded-list span { font-size: 12px; color: var(--life-muted); flex-shrink: 0; }
+.bonclothes .clothes-photo-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; width: 100%; aspect-ratio: 4 / 5; background: var(--clothes-photo); color: var(--life-muted); border-radius: 8px; font-size: 11px; }
+.clothes-history-pieces .clothes-photo-placeholder { width: 90px; height: 110px; }
 .clothes-footer { display: flex; justify-content: space-between; color: var(--life-muted); margin-top: 40px; font-size: 11px; }
 .clothes-footer button { color: inherit; }
 .clothes-history { border-top: 1px solid var(--life-line); margin-top: 34px; padding-top: 20px; font-size: 12px; color: var(--life-muted); }

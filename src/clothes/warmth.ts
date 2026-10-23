@@ -93,7 +93,7 @@ export function environmentWarmth(items: ClothesItem[], indoorCoat = false) {
     outdoor: warmthTotals(items),
   };
 }
-export function wearable(item: ClothesItem) { return !item.deleted && item.status !== '收起'; }
+export function wearable(item: ClothesItem) { return !item.deleted && (item.status === '可穿' || item.status === '待洗'); }
 export function normalizeItem(item: ClothesItem): ClothesItem {
   return { ...item, status: item.status === '待洗' ? '可穿' : item.status };
 }

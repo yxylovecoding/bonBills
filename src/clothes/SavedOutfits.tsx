@@ -1,6 +1,6 @@
 import type { ClothesDayContext, ClothesItem, WearRecord } from './types';
 import { wearId } from './types';
-import { photoUrl } from './client';
+import ItemPhoto from './ItemPhoto';
 import { weatherFor } from './rules';
 import { itemCategories, wearAs } from './pairing';
 import { categoryLabel } from './types';
@@ -22,7 +22,7 @@ export default function SavedOutfits({ outfits, items, context, onOpenWear, hasW
       const available = pieces.every((piece) => !!piece);
       return <article className="clothes-daily-record" key={wearId(outfit)}>
         <div className="clothes-row"><strong>{outfit.date}{outfit.purpose ? ` · ${outfit.purpose}` : ''}</strong><button className="clothes-link" onClick={() => onOpenWear(createWearDraft(context, null, [], outfit))}>编辑穿搭</button></div>
-        <div className="clothes-history-pieces">{outfit.items.map((item) => <figure key={item.id}><img loading="lazy" src={photoUrl(item.photoId)} alt={item.name} /><figcaption>{item.name}</figcaption></figure>)}</div>
+        <div className="clothes-history-pieces">{outfit.items.map((item) => <figure key={item.id}><ItemPhoto item={item} current={items.find((piece) => piece.id === item.id)} /><figcaption>{item.name}</figcaption></figure>)}</div>
         <OutfitWarmth items={outfit.items} indoorCoat={outfit.indoorCoat} indoorOnly={outfit.purpose === '睡觉'} />
         <div className="clothes-row">{!available ? <span className="clothes-muted">部分衣物不可穿</span> : <span />}<button className="clothes-save" disabled={!available} onClick={() => onOpenWear({
           ...createWearDraft(context, weatherFor(context, null), pieces as ClothesItem[]),

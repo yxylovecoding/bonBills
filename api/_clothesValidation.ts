@@ -34,7 +34,7 @@ export function locationInput(value: unknown): ClothesLocation | null {
 export function itemInput(value: unknown): ClothesItem {
   const v = value as ClothesItem;
   requireInput(v && CATEGORIES.includes(categoryLabel(v.category)) && COLORS.includes(v.color) && [1, 2, 3].includes(v.thickness)
-    && ['可穿', '待洗', '收起'].includes(v.status) && typeof v.active === 'boolean' && typeof v.windproof === 'boolean'
+    && ['可穿', '待洗', '收起', '已丢弃'].includes(v.status) && typeof v.active === 'boolean' && typeof v.windproof === 'boolean'
     && typeof v.waterproof === 'boolean' && typeof v.name === 'string' && v.name.trim().length <= 60
     && (v.sleepwear === undefined || typeof v.sleepwear === 'boolean')
     && (v.braRequirement === undefined || ['required', 'optional'].includes(v.braRequirement)), '衣物信息无效');

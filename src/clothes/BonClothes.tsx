@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import LoginPage from '../pages/LoginPage';
 import { invalidateAccountRequests, requestSession, restoreSession } from '../utils/authClient';
 import type { ClothesData, ClothesDayContext, ClothesItem, ClothesLocation, WearRecord } from './types';
-import { CATEGORIES, wearId } from './types';
+import { CATEGORIES, categoryLabel, wearId } from './types';
 import { deviceDate, emptyContext, totalWearCounts } from './rules';
 import { addTripDays } from './tripRules';
 import { ClothesError, clothesRequest, photoUrl, readLocal, writeLocal } from './client';
@@ -54,6 +54,7 @@ function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void
   const [tab, setTab] = useState<'today' | 'wardrobe' | 'outfits'>('today');
   const [size, setSize] = useState(() => readLocal<'small' | 'medium' | 'large'>(`bonclothes:view:${owner}`, 'medium'));
   const [category, setCategory] = useState('全部'), [status, setStatus] = useState('全部状态');
+  const [discarded, setDiscarded] = useState(false);
   const [data, setData] = useState<ClothesData | null>(null), [error, setError] = useState(''), [loading, setLoading] = useState(false);
   const [refresh, setRefresh] = useState(0), [editor, setEditor] = useState<ItemDraft | null>(null);
   const refreshData = () => { invalidateAccountRequests(); setRefresh((value) => value + 1); };
@@ -103,7 +104,18 @@ function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void
     setData((current) => current && ({ ...current, items: [...current.items.filter((old) => old.id !== item.id), ...(!item.deleted ? [item] : [])] }));
     setEditor(null); setHasDraft(false); refreshData();
   }
-  const items = (data?.items ?? []).filter((item) => (category === '全部' || (category === '睡衣' ? item.sleepwear : itemCategories(item).some((role) => role === category))) && (status === '全部状态' || item.status === status));
+  function openItem(item: ClothesItem) {
+    const draft = readItemDraft(owner);
+    // A saved draft belongs to one item, never to whichever card was clicked.
+    if (draft && draft.item.id !== item.id) {
+      setError('请先继续编辑并保存或放弃草稿');
+      return;
+    }
+    setEditor(draft ?? { item: { ...item }, photo: '', mutationId: crypto.randomUUID() });
+  }
+  const wardrobe = (data?.items ?? []).filter((item) => !item.deleted && (item.status === '已丢弃') === discarded);
+  const discardedCount = (data?.items ?? []).filter((item) => !item.deleted && item.status === '已丢弃').length;
+  const items = wardrobe.filter((item) => (category === '全部' || (category === '睡衣' ? item.sleepwear : itemCategories(item).some((role) => role === category))) && (discarded || status === '全部状态' || item.status === status));
   return <main className="life-shell clothes-shell">
     <header className="life-header"><h1><img src="/bonclothes.svg" alt="" width="27" height="27" />BonClothes</h1><div className="life-header-actions"><a href={APP_LINKS.log.url}>BonLog</a><InstallApp app="clothes" /><button onClick={async () => {
       try { await requestSession({ method: 'DELETE' }); localStorage.setItem('bonclothes-logout-at', String(Date.now())); onExpired(); }
@@ -115,14 +127,13 @@ function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void
       : tab === 'today' ? <Today key={`${date}:${timezone}`} owner={owner} items={data.items} initial={context} records={data.records} outfits={data.outfits ?? []} wearCounts={data.wearCounts} pairCounts={data.pairCounts}
         tomorrow={tomorrow} past={past} onReviewDay={setSelectedDate} onToggleDay={(location) => { setDayLocation(location); setSelectedDate(date === today ? addTripDays(today, 1) : null); }} onContext={onContext} onOpenWear={openWear} hasWearDraft={hasWearDraft} onExpired={onExpired} onRefresh={() => refreshData()} onWardrobe={() => { setTab('wardrobe'); setEditor(readItemDraft(owner) ?? { item: newItem(), photo: '', mutationId: crypto.randomUUID() }); }} />
         : tab === 'outfits' ? <SavedOutfits outfits={data.outfits ?? []} items={data.items} context={context.date === today ? context : { ...emptyContext(today, timezone), location: context.location }} onOpenWear={openWear} hasWearDraft={hasWearDraft} />
-        : <section aria-label="衣柜"><div className="clothes-wardrobe-toolbar"><div><select aria-label="衣物分类" value={category} onChange={(e) => setCategory(e.target.value)}>{['全部', ...CATEGORIES, '睡衣'].map((value) => <option key={value}>{value}</option>)}</select><select aria-label="衣物状态" value={status} onChange={(e) => setStatus(e.target.value)}>{['全部状态', '可穿', '收起'].map((value) => <option key={value}>{value}</option>)}</select></div><button className="life-primary" onClick={() => {
+        : <section aria-label="衣柜"><nav className="life-tabs clothes-wardrobe-tabs" aria-label="衣物归档"><button aria-pressed={!discarded} onClick={() => setDiscarded(false)}>衣柜</button><button aria-pressed={discarded} onClick={() => setDiscarded(true)}>已丢弃{discardedCount > 0 ? ` · ${discardedCount}` : ''}</button></nav><div className="clothes-wardrobe-toolbar"><div><select aria-label="衣物分类" value={category} onChange={(e) => setCategory(e.target.value)}>{['全部', ...CATEGORIES, '睡衣'].map((value) => <option key={value}>{value}</option>)}</select>{!discarded && <select aria-label="衣物状态" value={status} onChange={(e) => setStatus(e.target.value)}>{['全部状态', '可穿', '收起'].map((value) => <option key={value}>{value}</option>)}</select>}</div><button className="life-primary" onClick={() => {
           const draft = readItemDraft(owner); setEditor(draft ?? { item: newItem(), photo: '', mutationId: crypto.randomUUID() });
         }}>{hasDraft ? '继续编辑' : '新增衣物'}</button></div>
-          <div className="clothes-view" aria-label="衣柜视图"><span>图片大小</span>{([['small', '小'], ['medium', '中'], ['large', '大']] as const).map(([value, label]) => <button key={value} aria-pressed={size === value} onClick={() => { setSize(value); writeLocal(`bonclothes:view:${owner}`, value); }}>{label}</button>)}</div>
-          <div className={`clothes-grid clothes-wardrobe-grid clothes-size-${size}`}>{items.map((item) => <button className="clothes-card" key={item.id} onClick={() => {
-            const draft = readItemDraft(owner); setEditor(draft ?? { item: { ...item }, photo: '', mutationId: crypto.randomUUID() });
-          }}><img loading="lazy" src={photoUrl(item.photoId)} alt={item.name} /><div className="clothes-card-caption"><strong>{item.name}</strong><span>{itemWarmth(item)}°C{item.sleepwear ? ' · 睡衣' : ''}{item.status === '收起' ? ' · 收起' : ''}</span></div></button>)}</div>
-          {!items.length && <div className="clothes-empty">{data.items.length ? '暂无符合条件的衣物' : '添加第一件衣物'}</div>}
+          {!discarded && <div className="clothes-view" aria-label="衣柜视图"><span>图片大小</span>{([['small', '小'], ['medium', '中'], ['large', '大']] as const).map(([value, label]) => <button key={value} aria-pressed={size === value} onClick={() => { setSize(value); writeLocal(`bonclothes:view:${owner}`, value); }}>{label}</button>)}</div>}
+          {discarded ? <div className="clothes-discarded-list">{items.map((item) => <button type="button" key={item.id} className="clothes-row" onClick={() => openItem(item)}><strong>{item.name}</strong><span>{categoryLabel(item.category)} · {item.color} <span aria-hidden="true">›</span></span></button>)}</div>
+            : <div className={`clothes-grid clothes-wardrobe-grid clothes-size-${size}`}>{items.map((item) => <button className="clothes-card" key={item.id} onClick={() => openItem(item)}><img loading="lazy" src={photoUrl(item.photoId)} alt={item.name} /><div className="clothes-card-caption"><strong>{item.name}</strong><span>{itemWarmth(item)}°C{item.sleepwear ? ' · 睡衣' : ''}{item.status === '收起' ? ' · 收起' : ''}</span></div></button>)}</div>}
+          {!items.length && <div className="clothes-empty">{wardrobe.length ? '暂无符合条件的衣物' : discarded ? '还没有丢弃的衣物' : '添加第一件衣物'}</div>}
         </section>}
     <footer className="clothes-footer"><a href={APP_LINKS.bills.url}>BonBills</a><button disabled={loading} onClick={() => refreshData()}>{loading ? '刷新中…' : '刷新'}</button></footer>
     {editor && <ItemEditor initial={editor} owner={owner} onClose={() => { setEditor(null); setHasDraft(Boolean(readItemDraft(owner))); }} onSaved={saved} onExpired={onExpired} />}
