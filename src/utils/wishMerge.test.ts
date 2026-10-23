@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WishItem } from '../models/types';
-import { applyWishMerge, previewWishMerge, undoWishMerge } from './wishMerge';
+import { applyWishMerge, isWishExpiredForMerge, previewWishMerge, undoWishMerge } from './wishMerge';
 import { wishAssociationStatus } from './wishAssociations';
 import { normalizeOutlookWishEvents, buildOutlookSnapshot, applyOutlookSnapshotToState, DEFAULT_OUTLOOK_RULES } from './outlookCalendar';
 import { resolveWishBillSpending, reconcileTripWishes, wishTravelLifeAmount } from './wishes';
@@ -14,6 +14,22 @@ const sources: WishItem[] = [
 const choices = { primary: 'a', target: 'b', saved: 'a', deadline: 'b', details: 'a' };
 const trips = detectAllTrips({ '2026-11-01': 'travel', '2026-11-02': 'travel', '2026-11-04': 'travel' });
 describe('手动合并心愿', () => {
+  it('普通心愿排除过期项，保留当天截止、未来和未设截止日的心愿', () => {
+    const wish = { ...sources[0], linkedTripStartDate: null };
+    expect(isWishExpiredForMerge({ ...wish, deadline: '2026-10-22' }, [], '2026-10-23')).toBe(true);
+    for (const deadline of ['2026-10-23', '2026-10-24', null]) {
+      expect(isWishExpiredForMerge({ ...wish, deadline }, [], '2026-10-23')).toBe(false);
+    }
+  });
+  it('出行按最后结束日期判断，无账单也隐藏已结束行程，筹款截止不隐藏进行中或未来行程', () => {
+    const wish = { ...sources[0], deadline: '2026-10-30' };
+    expect(isWishExpiredForMerge(wish, trips, '2026-11-03')).toBe(true);
+    for (const today of ['2026-10-31', '2026-11-01', '2026-11-02']) {
+      expect(isWishExpiredForMerge(wish, trips, today)).toBe(false);
+    }
+    expect(isWishExpiredForMerge({ ...wish, linkedTripStartDates: ['2026-11-01', '2026-11-04'] }, trips, '2026-11-03')).toBe(false);
+    expect(isWishExpiredForMerge(wish, [], '2026-11-03')).toBe(true);
+  });
   it('缺项按真实引用判断，标题相同不冒充 Outlook 关联', () => {
     expect(wishAssociationStatus(sources[0], trips, events, {}).complete).toBe(true);
     expect(wishAssociationStatus({ ...sources[0], outlookEventKeys: [] }, trips, events, {}).outlook).toBe(false);

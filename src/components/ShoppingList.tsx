@@ -54,12 +54,12 @@ export default function ShoppingList({ items, onChange, onBack }: ShoppingListPr
     <div className="wishes-page-shell">
       <div className="wishes-page-content">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, marginBottom: 16 }}>
-          <div>
-            <button type="button" onClick={onBack} style={{ border: 'none', background: 'transparent', color: COLORS.purple, padding: '0 0 5px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>← 返回心愿</button>
-            <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 2px' }}>购物清单</h1>
+          <div className="wish-subpage-heading">
+            <button type="button" onClick={onBack} className="wish-text-button">← 返回心愿</button>
+            <h1>购物清单</h1>
             <p style={{ fontSize: 13, color: COLORS.sub, margin: 0 }}>{pendingCount} 件待买 · 记下见过的好价再决定</p>
           </div>
-          <button type="button" onClick={addItem} style={{ border: 'none', borderRadius: 999, backgroundColor: COLORS.purple, color: '#fff', fontSize: 12, fontWeight: 700, padding: '7px 12px', cursor: 'pointer' }}>+ 添加商品</button>
+          <button type="button" onClick={addItem} className="wish-button wish-button--primary">+ 添加商品</button>
         </div>
 
         <Card>

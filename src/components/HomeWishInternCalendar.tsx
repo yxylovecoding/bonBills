@@ -125,10 +125,9 @@ export default function HomeWishInternCalendar({
     <section className="home-wish-calendar" aria-label={`${year}年${month}月攒钱日历`}>
       <div className="home-wish-calendar-header">
         <div>
-          <h2>攒钱日历</h2>
+          <h2>{year}年{month}月</h2>
           <span>
-            {year}年{month}月
-            {` · 剩余${remainingRestDays}天可休息`}
+            剩余{remainingRestDays}天可休息
           </span>
         </div>
         <div className="home-wish-calendar-actions">

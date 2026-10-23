@@ -908,14 +908,14 @@ export default function WishesPage() {
           <button
             type="button"
             onClick={() => setActiveView('savings-calendar')}
-            style={{ border: '1px solid #ddd6fe', borderRadius: 999, backgroundColor: '#fff', color: C.purple, fontSize: 12, fontWeight: 700, padding: '7px 11px', cursor: 'pointer' }}
+            className="wish-button"
           >
             📅 攒钱日历
           </button>
           <button
             type="button"
             onClick={() => setActiveView('shopping')}
-            style={{ border: '1px solid #ddd6fe', borderRadius: 999, backgroundColor: '#fff', color: C.purple, fontSize: 12, fontWeight: 700, padding: '7px 11px', cursor: 'pointer' }}
+            className="wish-button"
           >
             🛒 购物清单
           </button>
@@ -923,14 +923,14 @@ export default function WishesPage() {
             type="button"
             aria-expanded={deadlineSettingsOpen}
             onClick={() => setDeadlineSettingsOpen((open) => !open)}
-            style={{ border: '1px solid #ddd6fe', borderRadius: 999, backgroundColor: deadlineSettingsOpen ? '#ede9fe' : '#fff', color: C.purple, fontSize: 12, fontWeight: 700, padding: '7px 11px', cursor: 'pointer' }}
+            className="wish-button"
           >
             ⚙ 时间节点
           </button>
           <button
             type="button"
             onClick={addWish}
-            style={{ border: 'none', borderRadius: 999, backgroundColor: C.purple, color: '#fff', fontSize: 12, fontWeight: 700, padding: '7px 12px', cursor: 'pointer', boxShadow: '0 2px 8px rgba(124,58,237,0.24)' }}
+            className="wish-button wish-button--primary"
           >
             + 添加心愿
           </button>
@@ -1114,7 +1114,7 @@ export default function WishesPage() {
       <WishDebtSummary wishes={wishes} total={config.wishDebtTotal} onChange={updateDebtTotal} />
       {mergeOpen && <WishMergeDialog
         wishes={storedWishes} resolved={wishes} trips={allTripSegments} events={useCalendarStore.getState().outlookWishEvents.filter((event) => event.available !== false)}
-        tripTags={tripTags} history={config.wishMerges ?? []} onClose={() => setMergeOpen(false)}
+        tripTags={tripTags} history={config.wishMerges ?? []} today={todayKey} onClose={() => setMergeOpen(false)}
         onMerge={(sources, result) => {
           const current = useConfigStore.getState().config;
           const change = applyWishMerge(current.wishes ?? [], sources, result, crypto.randomUUID(), new Date().toISOString());
@@ -1134,7 +1134,7 @@ export default function WishesPage() {
       />}
       <Card className="wish-list-card" title="心愿清单" headerAction={<div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: C.sub }}>
         <span>{normalizedWishSearch ? `${visiblePlanItems.length} / ${wishes.length} 个心愿` : `${wishes.length} 个心愿`}</span>
-        <button type="button" onClick={() => setMergeOpen(true)} style={{ border: '1px solid #ddd6fe', borderRadius: 8, padding: '5px 8px', background: '#fff', color: C.purple, cursor: 'pointer' }}>合并</button>
+        <button type="button" onClick={() => setMergeOpen(true)} className="wish-button wish-button--small">合并</button>
       </div>}>
         <div className="wish-search" role="search" aria-label="心愿搜索">
           <input
@@ -1264,7 +1264,7 @@ export default function WishesPage() {
                   {item.isActive && !item.billSpending?.ended && (!linkedTrip || linkedTrip.startDate > todayKey) && <button
                     type="button" aria-label={`编辑${item.name}时间与绑定`} title="时间与绑定"
                     onClick={() => setEditingScheduleId(item.id)}
-                    style={{ border: 0, background: 'transparent', color: C.purple, padding: 6, cursor: 'pointer', fontSize: 16 }}
+                    className="wish-icon-button wish-icon-button--accent"
                   >◷</button>}
                   <button type="button" aria-label="删除心愿" onClick={() => removeWish(item.id)} style={{ border: 'none', background: 'transparent', color: '#9aa0a6', fontSize: 18, padding: '0 2px', cursor: 'pointer', lineHeight: 1 }}>×</button>
                 </div>

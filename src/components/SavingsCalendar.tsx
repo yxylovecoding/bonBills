@@ -174,8 +174,11 @@ export default function SavingsCalendar({ onBack }: { onBack: () => void }) {
     setTag(date, resolveDailyContext(date, currentTag, internship).working ? 'school' : 'intern');
   }, [setTag, tagMap, internship]);
 
-  return <div style={{ maxWidth: 720, margin: '0 auto' }}>
-    <button type="button" onClick={onBack} style={{ border: 0, background: 'transparent', color: '#7c3aed', padding: '8px 0', cursor: 'pointer' }}>← 返回心愿</button>
+  return <div className="wish-savings-page">
+    <header className="wish-subpage-heading">
+      <button type="button" className="wish-text-button" onClick={onBack}>← 返回心愿</button>
+      <h1>攒钱日历</h1>
+    </header>
     {holidayWarning && <p role="status" style={{ color: '#b45309', fontSize: 12 }}>{holidayWarning}</p>}
       <HomeWishInternCalendar
         visibleMonth={visibleWishCalendarMonth}

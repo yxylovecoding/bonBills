@@ -1,5 +1,16 @@
 import type { WishItem, WishMergeRecord } from '../models/types';
 import { uniqueStrings, wishBillTags, wishTripStarts } from './wishAssociations';
+import type { TripSegment } from './trips';
+
+export function isWishExpiredForMerge(wish: WishItem, trips: readonly TripSegment[], today: string): boolean {
+  const starts = wishTripStarts(wish);
+  const linkedTrips = trips.filter((trip) => starts.includes(trip.startDate));
+  // 出行心愿的筹款截止日通常在出发前，行程结束才算过期；无行程时沿用截止日。
+  const endDate = linkedTrips.length > 0
+    ? linkedTrips.reduce((latest, trip) => trip.endDate > latest ? trip.endDate : latest, '')
+    : wish.deadline;
+  return Boolean(endDate && endDate < today);
+}
 
 export type WishMergeChoices = { primary: string; target: string; saved: string; deadline: string; details: string };
 function canonical(value: unknown): string {

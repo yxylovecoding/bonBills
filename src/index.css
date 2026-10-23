@@ -1751,3 +1751,69 @@ input[type='number'] { -moz-appearance: textfield; }
 .holdings-mode-pill { flex-shrink: 0; margin-left: 10px; padding: 5px 11px; border: 1px solid #dadce0; border-radius: 999px; background: #fff; color: #5f6368; font: inherit; font-size: 11px; cursor: pointer; white-space: nowrap; }
 .holdings-mode-pill[aria-pressed="true"] { color: #1a73e8; border-color: #d2e3fc; background: #e8f0fe; }
 .alipay-text-button:disabled { opacity: .45; cursor: default; }
+
+/* 心愿页沿用同一组操作、字段与弹窗样式。 */
+.wish-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  min-height: 32px; padding: 7px 11px; border: 1px solid #ddd6fe; border-radius: 999px;
+  background: #fff; color: #7c3aed; font: inherit; font-size: 12px; font-weight: 600;
+  line-height: 1.4; white-space: nowrap; cursor: pointer;
+}
+.wish-button:hover:not(:disabled), .wish-button[aria-expanded="true"] { background: #f5f3ff; border-color: #c4b5fd; }
+.wish-button--primary { background: #7c3aed; border-color: #7c3aed; color: #fff; }
+.wish-button--primary:hover:not(:disabled) { background: #6d28d9; border-color: #6d28d9; }
+.wish-button--small { min-height: 28px; padding: 4px 10px; font-size: 11px; }
+.wish-button:disabled { opacity: .45; cursor: default; }
+.wish-text-button { border: 0; padding: 0; background: transparent; color: #7c3aed; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.wish-icon-button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 28px; height: 28px; border: 0; border-radius: 8px; padding: 0; background: transparent; color: #9aa0a6; font-size: 20px; cursor: pointer; }
+.wish-icon-button:hover { background: #f5f3ff; color: #7c3aed; }
+.wish-icon-button--accent { color: #7c3aed; font-size: 16px; }
+.wish-dialog { width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); box-sizing: border-box; margin: auto; padding: 0; overflow: hidden; border: 1px solid #ddd6fe; border-radius: 16px; background: #fff; color: #202124; box-shadow: 0 8px 32px rgba(0,0,0,.18); font-size: 12px; line-height: 1.5; }
+.wish-dialog[open] { display: flex; flex-direction: column; }
+.wish-dialog::backdrop { background: rgba(0,0,0,.3); }
+.wish-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; padding: 16px 16px 12px; border-bottom: 1px solid #f0edf5; }
+.wish-dialog-heading h2 { min-width: 0; margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.wish-dialog-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px; }
+.wish-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; flex-shrink: 0; padding: 12px 16px 16px; border-top: 1px solid #f0edf5; }
+.wish-form { display: grid; gap: 14px; }
+.wish-field { display: grid; gap: 5px; min-width: 0; color: #5f6368; font-size: 11px; }
+.wish-control { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; min-height: 34px; border: 1px solid #e5e7eb; border-radius: 9px; padding: 7px 8px; background: #fff; color: #202124; font: inherit; font-size: 12px; }
+.wish-control:focus { outline: none; border-color: #a78bfa; box-shadow: 0 0 0 2px #ede9fe; }
+.wish-fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.wish-fieldset legend { padding: 0; margin-bottom: 5px; color: #5f6368; font-size: 11px; }
+.wish-options { max-height: 176px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid #e5e7eb; border-radius: 9px; }
+.wish-option { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; overflow-wrap: anywhere; cursor: pointer; }
+.wish-option + .wish-option { border-top: 1px solid #f3f4f6; }
+.wish-option:has(input:checked) { background: #faf7ff; color: #7c3aed; }
+.wish-option input, .wish-choice input, .wish-filter-option input { flex-shrink: 0; margin: 3px 0 0; accent-color: #7c3aed; }
+.wish-filter-option { display: flex; align-items: flex-start; gap: 6px; margin-bottom: 12px; color: #5f6368; font-size: 11px; cursor: pointer; }
+.wish-choice-list { display: grid; gap: 8px; }
+.wish-choice { display: flex; align-items: flex-start; gap: 9px; padding: 11px 12px; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; cursor: pointer; }
+.wish-choice[data-selected="true"] { border-color: #a78bfa; background: #faf7ff; }
+.wish-choice-content { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.wish-choice-content > strong { font-size: 13px; font-weight: 600; }
+.wish-choice-meta, .wish-field-hint { margin: 0; color: #5f6368; font-size: 11px; }
+.wish-association-status { display: flex; flex-wrap: wrap; gap: 3px 10px; margin-top: 2px; color: #9aa0a6; font-size: 10px; }
+.wish-association-status [data-linked="true"] { color: #7c3aed; }
+.wish-empty-state { margin: 0; padding: 28px 12px; color: #5f6368; text-align: center; font-size: 12px; }
+.wish-form-error { margin: 0 0 12px; color: #ea4335; font-size: 12px; }
+.wish-disclosure { margin-top: 14px; padding-top: 12px; border-top: 1px solid #ede9fe; }
+.wish-disclosure > summary { color: #7c3aed; font-size: 11px; cursor: pointer; }
+.wish-disclosure > summary > span { margin-left: 4px; color: #9aa0a6; }
+.wish-disclosure--nested { margin-top: 6px; padding-top: 0; border: 0; }
+.wish-merge-history { padding-top: 12px; overflow-wrap: anywhere; }
+.wish-merge-history + .wish-merge-history { margin-top: 12px; border-top: 1px solid #f0edf5; }
+.wish-merge-history-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+.wish-history-source { margin-top: 6px; font-size: 11px; color: #5f6368; }
+.wish-merge-preview { overflow-wrap: anywhere; }
+.wish-merge-preview h3 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
+.wish-preview-values { margin: 0; display: grid; gap: 10px; font-variant-numeric: tabular-nums; }
+.wish-preview-values > div { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.wish-preview-values dt { flex-shrink: 0; color: #5f6368; font-size: 11px; }
+.wish-preview-values dd { margin: 0; min-width: 0; text-align: right; font-weight: 600; }
+.wish-preview-details { display: grid; gap: 6px; margin-top: 10px; color: #5f6368; font-size: 11px; }
+.wish-button:focus-visible, .wish-icon-button:focus-visible, .wish-text-button:focus-visible, .wish-dialog input[type="checkbox"]:focus-visible, .wish-disclosure summary:focus-visible { outline: 2px solid #7c3aed; outline-offset: 3px; }
+.wish-savings-page { max-width: 720px; margin: 0 auto; }
+.wish-subpage-heading { margin-bottom: 16px; }
+.wish-subpage-heading h1 { margin: 5px 0 2px; font-size: 22px; font-weight: 700; }
+.wishes-page-content .wish-subpage-heading { margin-bottom: 0; }
