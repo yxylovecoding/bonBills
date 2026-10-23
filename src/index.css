@@ -1768,6 +1768,9 @@ input[type='number'] { -moz-appearance: textfield; }
 .wish-icon-button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 28px; height: 28px; border: 0; border-radius: 8px; padding: 0; background: transparent; color: #9aa0a6; font-size: 20px; cursor: pointer; }
 .wish-icon-button:hover { background: #f5f3ff; color: #7c3aed; }
 .wish-icon-button--accent { color: #7c3aed; font-size: 16px; }
+.wish-card-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.wish-card-actions .wish-icon-button { width: 24px; height: 24px; border-radius: 6px; line-height: 1; }
+.wish-card-actions .wish-icon-button svg { display: block; flex-shrink: 0; }
 .wish-dialog { width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); box-sizing: border-box; margin: auto; padding: 0; overflow: hidden; border: 1px solid #ddd6fe; border-radius: 16px; background: #fff; color: #202124; box-shadow: 0 8px 32px rgba(0,0,0,.18); font-size: 12px; line-height: 1.5; }
 .wish-dialog[open] { display: flex; flex-direction: column; }
 .wish-dialog::backdrop { background: rgba(0,0,0,.3); }
