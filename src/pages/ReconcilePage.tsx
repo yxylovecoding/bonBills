@@ -36,10 +36,8 @@ import {
 } from '../utils/investPositionItems';
 import { calculateCreditRepaymentPlan, LONG_BOND_REPAY_THRESHOLD } from '../utils/creditRepayment';
 import {
-  FINANCE_SCREENSHOT_DRAFT_EVENT,
-  screenshotDraftItemCount,
-  type FinanceScreenshotDraftEventDetail,
-  type ScreenshotParseResult,
+  FINANCE_SCREENSHOT_IMPORT_EVENT,
+  type FinanceScreenshotImportEventDetail,
 } from '../utils/financeScreenshotOcr';
 import { pendingInvestmentAmounts } from '../utils/investmentRollover';
 import { createManualBackup } from '../utils/syncEngine';
@@ -163,21 +161,6 @@ const syncSpyUsStockAmount = (items: UsStockItemInput[], usTotalCny: number) => 
     usedSpy = true;
     return { ...item, amountCny: spyAmount };
   });
-};
-const ACCOUNT_FIELD_LABELS: Record<keyof AccountSnapshot['accounts'], string> = {
-  credit: '信用卡总待还',
-  creditMonthly: '信用卡本期',
-  savingsCard: '储蓄卡',
-  incomeBank: '收入',
-  livingBank: '生活',
-  campusCard: '校园卡',
-  consumptionBank: '消费',
-  wishJar: '心愿罐',
-  investCnyBank: '人民币理财现金',
-  usdLivingBank: '美元生活',
-  usdConsumptionBank: '美元消费',
-  usdWishJar: '美元心愿',
-  investUsdBank: '美元理财现金',
 };
 const INVEST_FIELD_LABELS: Record<InvestKey, string> = {
   us: '美股',
@@ -799,47 +782,17 @@ export default function ReconcilePage() {
   const [usdRebalanceCells, setUsdRebalanceCells] = useState<Set<InvestKey>>(() => new Set());
   const [screenshotImportMsg, setScreenshotImportMsg] = useState('');
   const [backupCreating, setBackupCreating] = useState(false);
-  const [screenshotDraft, setScreenshotDraft] = useState<ScreenshotParseResult | null>(null);
-  const [screenshotPreview, setScreenshotPreview] = useState<{ url: string; fileName: string } | null>(null);
-  const screenshotPreviewUrlRef = useRef<string | null>(null);
   const [reconcileMode, setReconcileMode] = useState<ReconcileMode>(() => defaultReconcileMode(new Date()));
   const isMonthStartMode = reconcileMode === 'monthStart';
 
-  const clearScreenshotDraft = () => {
-    if (screenshotPreviewUrlRef.current) {
-      URL.revokeObjectURL(screenshotPreviewUrlRef.current);
-      screenshotPreviewUrlRef.current = null;
-    }
-    setScreenshotPreview(null);
-    setScreenshotDraft(null);
-  };
-
   useEffect(() => {
-    const onFinanceScreenshotDraft = (event: Event) => {
-      const detail = (event as CustomEvent<FinanceScreenshotDraftEventDetail>).detail;
-      if (!detail?.draft) return;
-      detail.handled?.();
-      if (screenshotPreviewUrlRef.current) {
-        URL.revokeObjectURL(screenshotPreviewUrlRef.current);
-        screenshotPreviewUrlRef.current = null;
-      }
-      if (detail.file) {
-        const url = URL.createObjectURL(detail.file);
-        screenshotPreviewUrlRef.current = url;
-        setScreenshotPreview({ url, fileName: detail.fileName });
-      } else {
-        setScreenshotPreview(null);
-      }
-      setScreenshotDraft(detail.draft);
-      const kind = detail.draft.mode === 'investments' ? '理财' : detail.draft.mode === 'accounts' ? '资产' : '图片';
-      setScreenshotImportMsg(`已识别${kind} ${screenshotDraftItemCount(detail.draft)} 项 · ${detail.fileName}`);
+    const onScreenshotImport = (event: Event) => {
+      const detail = (event as CustomEvent<FinanceScreenshotImportEventDetail>).detail;
+      detail.reconcileHoldings = reconcileHoldings;
     };
-    window.addEventListener(FINANCE_SCREENSHOT_DRAFT_EVENT, onFinanceScreenshotDraft);
-    return () => {
-      window.removeEventListener(FINANCE_SCREENSHOT_DRAFT_EVENT, onFinanceScreenshotDraft);
-      if (screenshotPreviewUrlRef.current) URL.revokeObjectURL(screenshotPreviewUrlRef.current);
-    };
-  }, []);
+    window.addEventListener(FINANCE_SCREENSHOT_IMPORT_EVENT, onScreenshotImport);
+    return () => window.removeEventListener(FINANCE_SCREENSHOT_IMPORT_EVENT, onScreenshotImport);
+  }, [reconcileHoldings]);
 
   const backupCurrentVersion = async () => {
     setBackupCreating(true);
@@ -1147,53 +1100,6 @@ export default function ReconcilePage() {
         },
       });
     }
-  };
-  const applyScreenshotDraft = () => {
-    if (!screenshotDraft) return;
-    const accountPatch: Partial<AccountSnapshot['accounts']> = {};
-    for (const [key, value] of Object.entries(screenshotDraft.accounts) as [keyof AccountSnapshot['accounts'], number | null][]) {
-      if (value !== null && Number.isFinite(value)) accountPatch[key] = roundMoney(value);
-    }
-    if (Object.keys(accountPatch).length > 0) {
-      updateAccounts(accountPatch);
-      setLocalAccounts((prev) => {
-        const next = { ...prev };
-        for (const [key, value] of Object.entries(accountPatch) as [keyof AccountSnapshot['accounts'], number][]) {
-          next[key] = String(value);
-        }
-        return next;
-      });
-    }
-
-    const holdingPatch: Partial<AccountSnapshot['investHoldings']> = {};
-    for (const [key, value] of Object.entries(screenshotDraft.investHoldings) as [InvestKey, number | null][]) {
-      if (value !== null && Number.isFinite(value)) holdingPatch[key] = roundMoney(value);
-    }
-    if (Object.keys(holdingPatch).length > 0) {
-      const nextHoldings = { ...reconcileHoldings, ...holdingPatch };
-      updateReconcileHoldings(nextHoldings);
-    }
-
-    if (screenshotDraft.usStockHoldings.length > 0) {
-      const items = screenshotDraft.usStockHoldings.map((item, index) => {
-        const currency = item.currency;
-        const amountCny = currency === 'USD'
-          ? (latestUsdRate !== null ? roundMoney(item.amount * latestUsdRate) : 0)
-          : roundMoney(item.amount);
-        return {
-          id: `shot-us-${Date.now()}-${index}`,
-          name: item.name.trim() || `项目${index + 1}`,
-          symbol: (item.symbol || '').trim().toUpperCase(),
-          amountCny,
-        };
-      });
-      const inputs = usStockInputsFromItems(items);
-      setLocalUsStockItems(inputs);
-      updateUsStockHoldings(usStockInputsToItems(inputs));
-    }
-
-    clearScreenshotDraft();
-    setScreenshotImportMsg('图片已应用');
   };
   const patchUsStockItem = (item: UsStockItemInput, patch: Partial<UsStockItemInput>, options?: { autoAmount?: boolean }) => {
     const next = { ...item, ...patch };
@@ -2130,15 +2036,6 @@ export default function ReconcilePage() {
       )}
     </div>
   );
-
-  const screenshotAccountEntries = screenshotDraft
-    ? (Object.entries(screenshotDraft.accounts) as [keyof AccountSnapshot['accounts'], number | null][])
-      .filter(([, value]) => value !== null)
-    : [];
-  const screenshotHoldingEntries = screenshotDraft
-    ? (Object.entries(screenshotDraft.investHoldings) as [InvestKey, number | null][])
-      .filter(([, value]) => value !== null)
-    : [];
 
   return (
     <div
@@ -3168,116 +3065,6 @@ export default function ReconcilePage() {
         </div>
       </Card>
       </div>
-
-      {screenshotDraft && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, backgroundColor: 'rgba(32,33,36,0.32)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ width: 'min(760px, 100%)', maxHeight: '86vh', overflow: 'auto', backgroundColor: '#fff', borderRadius: 14, boxShadow: '0 12px 36px rgba(0,0,0,0.24)', padding: 16 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 800, color: '#202124' }}>图片导入草稿</div>
-                <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>
-                  {screenshotDraft.mode === 'accounts' ? '账户截图' : screenshotDraft.mode === 'investments' ? '理财截图' : screenshotDraft.mode === 'mixed' ? '混合截图' : '未确定类型'}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={clearScreenshotDraft}
-                aria-label="关闭图片导入草稿"
-                style={{ border: 'none', borderRadius: 8, backgroundColor: '#f1f3f4', color: C.sub, width: 30, height: 30, fontSize: 16, fontWeight: 800, cursor: 'pointer' }}
-              >
-                ×
-              </button>
-            </div>
-
-            {screenshotPreview && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 800, color: '#202124', marginBottom: 6 }}>原图</div>
-                <div style={{ border: '1px solid #e8eaed', borderRadius: 10, overflow: 'hidden', backgroundColor: '#f8f9fa' }}>
-                  <img
-                    src={screenshotPreview.url}
-                    alt={screenshotPreview.fileName}
-                    style={{ display: 'block', width: '100%', maxHeight: 'min(42vh, 420px)', objectFit: 'contain', backgroundColor: '#f8f9fa' }}
-                  />
-                </div>
-              </div>
-            )}
-
-            {screenshotAccountEntries.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 800, color: C.blue, marginBottom: 6 }}>账户</div>
-                <div style={{ border: '1px solid #e8eaed', borderRadius: 10, overflow: 'hidden' }}>
-                  {screenshotAccountEntries.map(([key, value]) => (
-                    <div key={key} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '7px 9px', borderBottom: '1px solid #f1f3f4', fontSize: 12 }}>
-                      <span style={{ color: '#202124', fontWeight: 700 }}>{ACCOUNT_FIELD_LABELS[key]}</span>
-                      <span style={{ color: value! < 0 ? C.green : '#202124', fontVariantNumeric: 'tabular-nums', fontWeight: 800 }}>¥{formatCurrency(value!)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {screenshotHoldingEntries.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 800, color: C.orange, marginBottom: 6 }}>理财大类</div>
-                <div style={{ border: '1px solid #e8eaed', borderRadius: 10, overflow: 'hidden' }}>
-                  {screenshotHoldingEntries.map(([key, value]) => (
-                    <div key={key} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '7px 9px', borderBottom: '1px solid #f1f3f4', fontSize: 12 }}>
-                      <span style={{ color: '#202124', fontWeight: 700 }}>{INVEST_FIELD_LABELS[key]}</span>
-                      <span style={{ color: '#202124', fontVariantNumeric: 'tabular-nums', fontWeight: 800 }}>¥{formatCurrency(value!)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {screenshotDraft.usStockHoldings.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 800, color: C.green, marginBottom: 6 }}>美股明细（now）</div>
-                <div style={{ border: '1px solid #e8eaed', borderRadius: 10, overflow: 'hidden' }}>
-                  {screenshotDraft.usStockHoldings.map((item, index) => (
-                    <div key={`${item.name}-${index}`} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, padding: '7px 9px', borderBottom: '1px solid #f1f3f4', fontSize: 12 }}>
-                      <span style={{ color: '#202124', fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {item.name}{item.symbol ? ` · ${item.symbol}` : ''}
-                      </span>
-                      <span style={{ color: '#202124', fontVariantNumeric: 'tabular-nums', fontWeight: 800 }}>
-                        {item.currency === 'USD' ? '$' : '¥'}{formatCurrency(item.amount)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                {latestUsdRate === null && screenshotDraft.usStockHoldings.some((item) => item.currency === 'USD') && (
-                  <div style={{ marginTop: 6, fontSize: 11, color: C.orange }}>美元明细需要汇率，暂无汇率时会先按 0 写入。</div>
-                )}
-              </div>
-            )}
-
-            {screenshotDraft.notes.length > 0 && (
-              <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {screenshotDraft.notes.map((note, index) => (
-                  <div key={index} style={{ fontSize: 11, lineHeight: 1.4, color: C.sub, backgroundColor: '#f8f9fa', borderRadius: 8, padding: '6px 8px' }}>{note}</div>
-                ))}
-              </div>
-            )}
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <button
-                type="button"
-                onClick={clearScreenshotDraft}
-                style={{ border: '1px solid #dadce0', borderRadius: 10, backgroundColor: '#fff', color: C.sub, padding: '10px 0', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={applyScreenshotDraft}
-                style={{ border: 'none', borderRadius: 10, backgroundColor: C.blue, color: '#fff', padding: '10px 0', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}
-              >
-                应用识别
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
     </div>
   );

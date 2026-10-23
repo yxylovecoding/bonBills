@@ -11,9 +11,9 @@ const money = (value: number) => `¥${value.toLocaleString('zh-CN', { minimumFra
 const orderStatus = { unknown: '待核对状态', pending: '交易进行中', confirmed: '已确认', cancelled: '已撤销' };
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 
-export default function AlipayScreenshotImport({ yearMonth, items, snapshots, onPreview }: {
+export default function AlipayScreenshotImport({ yearMonth, items, snapshots, onImport }: {
   yearMonth: string; items: InvestPositionItems; snapshots: Record<string, AlipayActualSnapshot>;
-  onPreview: (snapshot: AlipayActualSnapshot, baseline: string) => void;
+  onImport: (snapshot: AlipayActualSnapshot, baseline: string) => void;
 }) {
   const choices = useMemo(() => alipayFundChoices(items, snapshots), [items, snapshots]);
   const [open, setOpen] = useState(false);
@@ -99,13 +99,13 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
           if (getAccountStorage() !== owner.current) throw new Error('账号已切换，请重新导入');
           if (JSON.stringify(snapshots[date] ?? null) !== baseline) throw new Error('当日持仓已更新，请重新选择截图');
           const snapshot = materializeAlipayScreenshots(draft, date, choices, snapshots[date]);
-          onPreview(snapshot, baseline); close(); setError('');
+          onImport(snapshot, baseline); close(); setError('');
         } catch (cause) {
           setError(cause instanceof Error ? cause.message : '请核对识别结果');
           setAttention(cause instanceof AlipayScreenshotValidationError ? cause : null);
           if (cause instanceof AlipayScreenshotValidationError) setReviewOnly(false);
         }
-      }}>生成持仓预览</button>}
+      }}>导入</button>}
     </>}>
       <div className="alipay-detail-line"><label>持仓日期 <input aria-label="截图持仓日期" type="date" value={date} max={today()} disabled={!!progress} onChange={(event) => { setDate(event.target.value); setDraft(null); }} /></label>
         <button type="button" className="alipay-text-button" disabled={!!progress} onClick={() => input.current?.click()}>{draft ? '重新选择截图' : '选择截图'}</button></div>
@@ -115,7 +115,8 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
         if (!files.length) return;
         controller.current?.abort(); controller.current = new AbortController();
         const token = ++job.current; const account = getAccountStorage(); owner.current = account;
-        setError(''); setAttention(null); setDraft(null); setReviewOnly(false); setBaseline(JSON.stringify(snapshots[date] ?? null));
+        const importBaseline = JSON.stringify(snapshots[date] ?? null);
+        setError(''); setAttention(null); setDraft(null); setReviewOnly(false); setBaseline(importBaseline);
         try {
           if (!date || !date.startsWith(`${yearMonth}-`)) throw new Error(`请选 ${yearMonth} 的持仓日期`);
           if (files.some((file) => /\.json$/i.test(file.name))) {
@@ -123,14 +124,22 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
             const value = parseAlipayActual(await files[0].text());
             if (!value.date.startsWith(`${yearMonth}-`)) throw new Error(`请先切换到 ${value.date.slice(0, 7)}`);
             if (token !== job.current || account !== getAccountStorage()) return;
-            onPreview(value, JSON.stringify(snapshots[value.date] ?? null)); close(); return;
+            onImport(value, JSON.stringify(snapshots[value.date] ?? null)); close(); return;
           }
           if (files.reduce((sum, file) => sum + file.size, 0) > 60_000_000) throw new Error('每批截图请控制在 60 MB 以内');
           setSources(files.map((file) => ({ name: file.name, url: URL.createObjectURL(file) })));
           const images = await readAlipayScreenshots(files, (message) => { if (token === job.current) setProgress(message); }, controller.current.signal);
           if (token !== job.current || account !== getAccountStorage()) return;
-          setDraft(inferAlipayFundClassesByAmount(combineAlipayScreenshotDrafts(images.map((image) => parseAlipayScreenshot(image, choices, date))), choices, snapshots, date));
-        } catch (cause) { if (token === job.current) setError(cause instanceof Error ? cause.message : '截图识别失败'); }
+          const nextDraft = inferAlipayFundClassesByAmount(combineAlipayScreenshotDrafts(images.map((image) => parseAlipayScreenshot(image, choices, date))), choices, snapshots, date);
+          setDraft(nextDraft);
+          onImport(materializeAlipayScreenshots(nextDraft, date, choices, snapshots[date]), importBaseline);
+          close();
+        } catch (cause) {
+          if (token === job.current) {
+            setError(cause instanceof Error ? cause.message : '截图识别失败');
+            setAttention(cause instanceof AlipayScreenshotValidationError ? cause : null);
+          }
+        }
         finally { if (token === job.current) setProgress(''); }
       }} />
       {sources.length > 0 && <details><summary>查看原图（{sources.length}）</summary><div className="alipay-import-images">{sources.map((source, index) => <a href={source.url} target="_blank" rel="noreferrer" key={`${source.name}:${index}`}><img src={source.url} alt={source.name} loading="lazy" /></a>)}</div></details>}

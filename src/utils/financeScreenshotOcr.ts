@@ -1,7 +1,7 @@
 import type { AccountSnapshot, InvestKey } from '../models/types';
 import { useSnapshotStore } from '../stores/snapshotStore';
 
-export const FINANCE_SCREENSHOT_DRAFT_EVENT = 'monthlyBills:finance-screenshot-draft';
+export const FINANCE_SCREENSHOT_IMPORT_EVENT = 'monthlyBills:finance-screenshot-import';
 
 export type ScreenshotImportMode = 'accounts' | 'investments';
 export type ScreenshotCurrency = 'CNY' | 'USD' | 'UNKNOWN';
@@ -35,11 +35,8 @@ export type ScreenshotParseResult = {
   recognizedRows: ScreenshotRow[];
   notes: string[];
 };
-export type FinanceScreenshotDraftEventDetail = {
-  draft: ScreenshotParseResult;
-  fileName: string;
-  file?: File;
-  handled?: () => void;
+export type FinanceScreenshotImportEventDetail = {
+  reconcileHoldings?: AccountSnapshot['investHoldings'];
 };
 export type FinanceScreenshotApplyResult = {
   updatedAccounts: number;
@@ -389,7 +386,7 @@ export async function fetchFinanceScreenshotUsdRate(): Promise<number | null> {
   }
 }
 
-export function applyFinanceScreenshotDraftToSnapshot(draft: ScreenshotParseResult, options?: { usdRate?: number | null }): FinanceScreenshotApplyResult {
+export function applyFinanceScreenshotDraftToSnapshot(draft: ScreenshotParseResult, options?: { usdRate?: number | null; reconcileHoldings?: AccountSnapshot['investHoldings'] }): FinanceScreenshotApplyResult {
   const store = useSnapshotStore.getState();
   const accountPatch: Partial<AccountSnapshot['accounts']> = {};
   for (const [key, value] of Object.entries(draft.accounts) as [keyof AccountSnapshot['accounts'], number | null][]) {
@@ -401,7 +398,14 @@ export function applyFinanceScreenshotDraftToSnapshot(draft: ScreenshotParseResu
   for (const [key, value] of Object.entries(draft.investHoldings) as [InvestKey, number | null][]) {
     if (value !== null && Number.isFinite(value)) holdingPatch[key] = roundMoney(value);
   }
-  if (Object.keys(holdingPatch).length > 0) store.updateHoldings(holdingPatch);
+  const updateHoldings = (patch: Partial<AccountSnapshot['investHoldings']>) => {
+    if (options?.reconcileHoldings) {
+      store.updateReconcileHoldings({ ...options.reconcileHoldings, ...holdingPatch, ...patch });
+    } else {
+      store.updateHoldings(patch);
+    }
+  };
+  if (Object.keys(holdingPatch).length > 0) updateHoldings(holdingPatch);
 
   let skippedUsdUsStockHoldings = 0;
   const usdRate = options?.usdRate ?? null;
@@ -422,7 +426,7 @@ export function applyFinanceScreenshotDraftToSnapshot(draft: ScreenshotParseResu
     store.updateUsStockHoldings(usStockItems);
     const usTotal = usStockItems.reduce((sum, item) => sum + item.amountCny, 0);
     if (usTotal > 0 && (draft.investHoldings.us === null || draft.investHoldings.us === undefined)) {
-      store.updateHoldings({ us: roundMoney(usTotal) });
+      updateHoldings({ us: roundMoney(usTotal) });
     }
   }
 
@@ -441,7 +445,9 @@ export async function importFinanceScreenshotFileIntoSnapshot(file: File): Promi
 }> {
   const draft = await parseFinanceScreenshot(file);
   const usdRate = financeScreenshotNeedsUsdRate(draft) ? await fetchFinanceScreenshotUsdRate() : null;
-  const result = applyFinanceScreenshotDraftToSnapshot(draft, { usdRate });
+  const detail: FinanceScreenshotImportEventDetail = {};
+  window.dispatchEvent(new CustomEvent<FinanceScreenshotImportEventDetail>(FINANCE_SCREENSHOT_IMPORT_EVENT, { detail }));
+  const result = applyFinanceScreenshotDraftToSnapshot(draft, { usdRate, ...detail });
   return { draft, result, usdRate };
 }
 

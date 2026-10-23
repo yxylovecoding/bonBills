@@ -9,8 +9,7 @@ import StatRow from '../components/StatRow';
 import CurrencyDisplay, { formatCurrency } from '../components/CurrencyDisplay';
 import { tagMeta, investMeta } from '../data/mockData';
 import { aggregateExpenseItems, assignExpenseIds, type BillItem, type BillExpenseMonth, type BillExpenseItem } from '../utils/importBill';
-import { fieldsNeedingRestore, importBillFileIntoStores, recordFromBillAggregate } from '../utils/billImportActions';
-import { formatInvestmentImportSummary, importInvestmentFileIntoStores } from '../utils/importInvestments';
+import { fieldsNeedingRestore, recordFromBillAggregate } from '../utils/billImportActions';
 import { inferInvestmentProfitFromBaseline } from '../utils/investTransactionProfit';
 import { useBillDetailStore } from '../stores/billDetailStore';
 import { useExpenseScopeOverrideStore, resolveExpenseScope, subcategoryKey, type ExpenseScope, type OverrideValue, type OverrideDimension } from '../stores/expenseScopeOverrideStore';
@@ -20,7 +19,6 @@ import type { TripGroup } from '../utils/trips';
 import { getTripDisplayTitle } from '../utils/outlookCalendar';
 import AmountInput from '../components/AmountInput';
 import InvestInstrumentPicker from '../components/InvestInstrumentPicker';
-import FinanceImportPreviewDialog from '../components/FinanceImportPreviewDialog';
 import PendingInvestmentBuyRow from '../components/PendingInvestmentBuyRow';
 import HoldingsViewToggle from '../components/HoldingsViewToggle';
 import AlipayHoldingsSection from '../components/AlipayHoldingsSection';
@@ -42,7 +40,6 @@ import { classifyTag, isMajorExcludedTag, type ManualTagCategory } from '../util
 import { usePrefsStore, REVIEWABLE_CATEGORIES, type ReviewableCategory } from '../stores/prefsStore';
 import { useDragSort } from '../hooks/useDragSort';
 import type {
-  AutoAccountBalanceKey,
   TagKind,
   MonthlyRecord,
   MajorExpense,
@@ -92,20 +89,10 @@ import {
 } from '../utils/investPositionDrafts';
 import { getMonthlyAssetChange, getMonthlySavedAmount, getMonthlySavingsRate } from '../utils/monthlyMetrics';
 import { createManualBackup, triggerUpload } from '../utils/syncEngine';
-import {
-  financeScreenshotImportMessage,
-  importFinanceScreenshotFileIntoSnapshot,
-  isFinanceScreenshotFile,
-} from '../utils/financeScreenshotOcr';
+import { isFinanceScreenshotFile } from '../utils/financeScreenshotOcr';
 import TagLogicStats, { CategoryRow, ExpenseItemLine, extractMeaningful } from '../components/TagLogicStats';
 import { useBillStatisticItems } from '../hooks/useBillStatisticItems';
-import {
-  confirmFinanceImport,
-  confirmFinanceImportAccount,
-  prepareFinanceImport,
-  type FinanceImportPreviewDraft,
-  type FinanceImportPreviewMeta,
-} from '../utils/importPreview';
+import { importFinanceFile } from '../utils/financeImport';
 
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', border: '#e0e0e0', weekend: '#ea4335', orange: '#e8710a' };
 const HOLIDAY_COLORS = {
@@ -3281,58 +3268,12 @@ export default function CalendarPage() {
   const [billImportMsg, setBillImportMsg] = useState<string>('');
   const [backupCreating, setBackupCreating] = useState(false);
   const [billImporting, setBillImporting] = useState(false);
-  const [financeImportDraft, setFinanceImportDraft] = useState<FinanceImportPreviewDraft | null>(null);
-  const [financeImportConfirming, setFinanceImportConfirming] = useState(false);
   const billFileRef = useRef<HTMLInputElement>(null);
-  const importFileContent = async (file: File) => {
-    const isInvestment = /^理财/i.test(file.name) && /\.(xlsx?|csv)$/i.test(file.name);
-    if (isInvestment) {
-      const result = await importInvestmentFileIntoStores(file, { deferUpload: true });
-      return {
-        line: `理财 ${formatInvestmentImportSummary(result)}`,
-        investmentMonths: result.months,
-        billMonths: [] as string[],
-        changesOnly: true,
-      };
-    }
-    if (isFinanceScreenshotFile(file)) {
-      const { result } = await importFinanceScreenshotFileIntoSnapshot(file);
-      return { line: financeScreenshotImportMessage(result, file.name), investmentMonths: [] as string[], billMonths: [] as string[], changesOnly: false };
-    }
-    const result = await importBillFileIntoStores(file, { deferUpload: true });
-    const balanceStatus = result.accountBalances.updatedKeys.length > 0
-      ? ` · 余额 ${result.accountBalances.updatedKeys.length} 项`
-      : result.accountBalances.initializedKeys.length > 0
-        ? ' · 余额已接续'
-        : '';
-    return {
-      line: `账单 ${result.updatedMonths} 个月${balanceStatus}${result.importedPossessions > 0 ? ` · ${result.importedPossessions} 个物品动作` : ''}`,
-      investmentMonths: [] as string[],
-      billMonths: result.months,
-      changesOnly: true,
-    };
-  };
-  const buildPreviewMeta = (title: string, results: Awaited<ReturnType<typeof importFileContent>>[]): FinanceImportPreviewMeta => {
-    const lines = results.map((result) => result.line);
-    return {
-      title,
-      lines,
-      investmentMonths: [...new Set(results.flatMap((result) => result.investmentMonths))].sort(),
-      billMonths: [...new Set(results.flatMap((result) => result.billMonths))].sort(),
-      successMessage: `已导入 · ${lines.join(' · ')}`,
-      changesOnly: results.every((result) => result.changesOnly),
-    };
-  };
   const importBillFromFile = async (file: File) => {
     setBillImporting(true);
     try {
-      setBillImportMsg(isFinanceScreenshotFile(file) ? '图片OCR中' : '生成预览中');
-      const draft = await prepareFinanceImport(async () => buildPreviewMeta(
-        `导入预览 · ${file.name}`,
-        [await importFileContent(file)],
-      ));
-      setFinanceImportDraft(draft);
-      setBillImportMsg('预览已生成 · 等待确认');
+      setBillImportMsg(isFinanceScreenshotFile(file) ? '图片OCR中' : '导入中');
+      setBillImportMsg(await importFinanceFile(file));
     } catch (err) {
       setBillImportMsg(`导入失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -3361,23 +3302,6 @@ export default function CalendarPage() {
       }
     }
     if (billFileRef.current) billFileRef.current.value = '';
-  };
-  const confirmImportDraft = async (accountKey?: AutoAccountBalanceKey) => {
-    if (!financeImportDraft || financeImportConfirming) return;
-    setFinanceImportConfirming(true);
-    try {
-      if (accountKey) {
-        setFinanceImportDraft(await confirmFinanceImportAccount(financeImportDraft, accountKey));
-      } else {
-        await confirmFinanceImport(financeImportDraft, { preserveAccounts: true });
-        setFinanceImportDraft({ ...financeImportDraft, remainderConfirmed: true });
-        setBillImportMsg('已保存确认项');
-      }
-    } catch (error) {
-      setBillImportMsg(`导入失败：${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      setFinanceImportConfirming(false);
-    }
   };
   const pickerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -4255,18 +4179,6 @@ export default function CalendarPage() {
             ))}
           </Card>
         </>
-      )}
-      {financeImportDraft && (
-        <FinanceImportPreviewDialog
-          draft={financeImportDraft}
-          confirming={financeImportConfirming}
-          onCancel={() => {
-            setFinanceImportDraft(null);
-            setBillImportMsg('已关闭导入预览');
-          }}
-          onConfirm={() => { void confirmImportDraft(); }}
-          onConfirmAccount={(key) => { void confirmImportDraft(key); }}
-        />
       )}
     </div>
   );
