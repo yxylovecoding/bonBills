@@ -1,6 +1,6 @@
 # Upstash 读取流量优化（2026-10-23）
 
-基于 main `f2a4ef0`；仅代码补丁，未访问生产 Redis、迁移或删除数据、修改余额、升级套餐、合并或部署。
+基于 main `f2a4ef0`；本记录描述代码优化和离线验证，未访问生产 Redis、迁移或删除数据、修改余额、升级套餐或操作生产部署。
 
 ## 实现范围
 
@@ -39,4 +39,4 @@ REDIS_SERVER=/path/redis-server REDIS_CLI=/path/redis-cli node scripts/measure-c
 - 新生产 API 文件及新增 SDK 测试另按 bundler 模式严格类型检查通过（`tsc --noEmit --target ES2022 --module ESNext --moduleResolution bundler --esModuleInterop --skipLibCheck --strict api/_clothesReads.ts api/_bonClothesRoute.ts api/_clothesReads.test.ts`）。额外把旧 API 测试文件纳入严格检查时有 8 个既有类型诊断（Buffer 类型及旧测试夹具等），独立 main 同样复现，不属于项目默认类型检查范围。SDK 回归验证 Upstash 对嵌套 JSON 的自动反序列化，校验值以不带引号的 token 传输，HTTP 层再添加引号。
 - 离线脚本覆盖真实 Lua、旧存储、旧校验值、同键变化与删除、不同账号键、整日分页、空页、styled 和单日回退。接口测试覆盖未登录不读 Redis、账号切换后不能用原账号 ETag 得到 304。
 
-发布前由用户批准，合并协调移动端布局提交并重新构建；不需要新环境变量或数据迁移。部署后验收照片首次 200/重复条件请求 304、另账号不能读取、历史分页及多端确认冲突；观察 Upstash 实际带宽与请求延迟。回滚代码即可，存储格式未变。图片外迁仍是另行确认事项，当前没有接入外部存储。
+已获授权与移动端布局提交集成、复验并正常推送 main；生产部署操作及线上验收不属于本轮执行范围。不需要新环境变量或数据迁移。未来部署后的验收建议：照片首次 200/重复条件请求 304、另账号不能读取、历史分页及多端确认冲突；观察 Upstash 实际带宽与请求延迟。回滚代码即可，存储格式未变。图片外迁仍是另行确认事项，当前没有接入外部存储。
