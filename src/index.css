@@ -57,6 +57,21 @@ input[type='number'] { -moz-appearance: textfield; }
   margin: 0 auto;
 }
 
+/* Wrap only when needed; every calendar action remains visible. */
+.calendar-header-toolbar,
+.calendar-header-actions,
+.calendar-header-imports {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.calendar-header-toolbar { justify-content: space-between; }
+.calendar-header-actions { justify-content: flex-end; }
+.calendar-header-imports > button { flex-shrink: 0; }
+
 .invest-position-group-title {
   font-size: 12px;
 }

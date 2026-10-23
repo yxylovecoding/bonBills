@@ -27,7 +27,6 @@ import AlipayHoldingsSection from '../components/AlipayHoldingsSection';
 import TickTickTripSyncControl from '../components/TickTickTripSyncControl';
 import OutlookCalendarSyncControl from '../components/OutlookCalendarSyncControl';
 import { useOutlookCalendarSync } from '../hooks/useOutlookCalendarSync';
-import ImportCutoffHint from '../components/ImportCutoffHint';
 import { calcHistoryStats } from '../calculations/history';
 import { buildExpenseScopeStats, suggestScope, isInconsistent, type ExpenseScopeStatRow } from '../calculations/expenseScopeStats';
 import {
@@ -38,7 +37,6 @@ import {
 } from '../stores/calendarStore';
 import { useConfigStore } from '../stores/configStore';
 import { useMonthlyStore, type InvestmentMutationSource } from '../stores/monthlyStore';
-import { useSnapshotStore } from '../stores/snapshotStore';
 import { usePossessionStore } from '../stores/possessionStore';
 import { classifyTag, isMajorExcludedTag, type ManualTagCategory } from '../utils/tagCategory';
 import { usePrefsStore, REVIEWABLE_CATEGORIES, type ReviewableCategory } from '../stores/prefsStore';
@@ -101,8 +99,6 @@ import {
 } from '../utils/financeScreenshotOcr';
 import TagLogicStats, { CategoryRow, ExpenseItemLine, extractMeaningful } from '../components/TagLogicStats';
 import { useBillStatisticItems } from '../hooks/useBillStatisticItems';
-import { fetchLatestMailAttachments } from '../utils/mailAttachments';
-import { accountBalanceUpdatedAt, investmentImportCutoff } from '../utils/importCutoffs';
 import {
   confirmFinanceImport,
   confirmFinanceImportAccount,
@@ -3030,7 +3026,6 @@ export default function CalendarPage() {
   const { tagMap, internship, countByTag } = useLifeCalendar();
   const { config, setConfig } = useConfigStore();
   const { records, upsert, updateDayCounts } = useMonthlyStore();
-  const importSnapshot = useSnapshotStore((state) => state.current);
   const { tagStats: billTagStats, aggregates: billAggregates, expenseItems: billExpenseItems } = useBillDetailStore();
   const { overrides: expenseScopeOverrides, setOverride: setExpenseScopeOverride } = useExpenseScopeOverrideStore();
   const { tripTags, tripNotes, tripSplits, setTripTag, setTripNote, clearTripTag, toggleTripSplit } = useTripStore();
@@ -3288,11 +3283,10 @@ export default function CalendarPage() {
   const [financeImportDraft, setFinanceImportDraft] = useState<FinanceImportPreviewDraft | null>(null);
   const [financeImportConfirming, setFinanceImportConfirming] = useState(false);
   const billFileRef = useRef<HTMLInputElement>(null);
-  const importFileContent = async (file: File, kind: 'auto' | 'bill' | 'investment' = 'auto', mailUid?: number) => {
-    const isInvestment = kind === 'investment'
-      || (kind === 'auto' && /^理财/i.test(file.name) && /\.(xlsx?|csv)$/i.test(file.name));
+  const importFileContent = async (file: File) => {
+    const isInvestment = /^理财/i.test(file.name) && /\.(xlsx?|csv)$/i.test(file.name);
     if (isInvestment) {
-      const result = await importInvestmentFileIntoStores(file, { mailUid, deferUpload: true });
+      const result = await importInvestmentFileIntoStores(file, { deferUpload: true });
       return {
         line: `理财 ${formatInvestmentImportSummary(result)}`,
         investmentMonths: result.months,
@@ -3340,35 +3334,6 @@ export default function CalendarPage() {
       setBillImportMsg('预览已生成 · 等待确认');
     } catch (err) {
       setBillImportMsg(`导入失败：${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setBillImporting(false);
-    }
-  };
-  const importLatestBillFromMail = async () => {
-    setBillImporting(true);
-    setBillImportMsg('邮箱查找中');
-    try {
-      const attachments = await fetchLatestMailAttachments();
-      const imported: Awaited<ReturnType<typeof importFileContent>>[] = [];
-      const failed: string[] = [];
-      const draft = await prepareFinanceImport(async () => {
-        for (const attachment of attachments) {
-          setBillImportMsg(attachment.kind === 'investment' ? '邮箱理财预览中' : '邮箱账单预览中');
-          try {
-            imported.push(await importFileContent(attachment.file, attachment.kind, attachment.uid));
-          } catch (err) {
-            failed.push(`${attachment.file.name}：${err instanceof Error ? err.message : String(err)}`);
-          }
-        }
-        if (imported.length === 0) throw new Error(failed.join('；') || '没有可导入附件');
-        const meta = buildPreviewMeta('邮箱导入预览', imported);
-        if (failed.length > 0) meta.lines.push(...failed.map((message) => `失败 · ${message}`));
-        return meta;
-      });
-      setFinanceImportDraft(draft);
-      setBillImportMsg('邮箱预览已生成 · 等待确认');
-    } catch (err) {
-      setBillImportMsg(`邮箱导入失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setBillImporting(false);
     }
@@ -3596,12 +3561,12 @@ export default function CalendarPage() {
       <input ref={billFileRef} type="file" style={{ display: 'none' }} onChange={handleBillFile} />
       {/* 页头 + 胶囊切换 */}
       <div className="calendar-page-header" style={{ margin: '0 0 16px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, flexWrap: 'nowrap', minWidth: 0 }}>
+        <div className="calendar-header-toolbar">
           <h1 style={{ fontSize: 'clamp(18px, 4.8vw, 22px)', fontWeight: 700, margin: 0, whiteSpace: 'nowrap', flexShrink: 0 }}>
             {tab === 'month' ? '日历标记' : '历史记录'}
           </h1>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 'clamp(3px, 1.5vw, 8px)', flexWrap: 'nowrap', minWidth: 0, flexShrink: 0, whiteSpace: 'nowrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+          <div className="calendar-header-actions">
+            <div className="calendar-header-imports">
               <button
                 type="button"
                 onClick={backupCurrentVersion}
@@ -3612,18 +3577,6 @@ export default function CalendarPage() {
                 {backupCreating ? '备份中' : '备份'}
               </button>
               <button
-                onClick={importLatestBillFromMail}
-                disabled={billImporting}
-                title="从邮箱导入最新账单、图片和理财附件"
-                style={{ fontSize: 11, lineHeight: 1, padding: '4px clamp(5px, 1.5vw, 7px)', borderRadius: 7, border: `1px solid ${C.border}`, backgroundColor: billImporting ? '#f1f3f4' : '#fff', color: billImporting ? '#9aa0a6' : C.sub, cursor: billImporting ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
-              >
-                {billImporting ? '导入中' : '邮箱'}
-              </button>
-              <ImportCutoffHint
-                investment={investmentImportCutoff(records)}
-                account={accountBalanceUpdatedAt(importSnapshot)}
-              />
-              <button
                 onClick={() => billFileRef.current?.click()}
                 disabled={billImporting}
                 title="手动选择账单、图片或理财文件"
@@ -3632,11 +3585,11 @@ export default function CalendarPage() {
                 本地
               </button>
             </div>
-            <div style={{ display: 'flex', backgroundColor: '#e8eaed', borderRadius: 20, padding: 3, gap: 2, flexShrink: 0 }}>
+            <div className="calendar-header-views" role="group" aria-label="记录视图" style={{ display: 'flex', backgroundColor: '#e8eaed', borderRadius: 20, padding: 3, gap: 2, flexShrink: 0 }}>
               {(['month', 'year'] as const).map((t) => {
                 const active = tab === t;
                 return (
-                  <button key={t} onClick={() => setTab(t)} style={{
+                  <button key={t} aria-pressed={active} onClick={() => setTab(t)} style={{
                     padding: '5px clamp(9px, 3vw, 14px)', borderRadius: 16, border: 'none', cursor: 'pointer',
                     fontSize: 13, fontWeight: 600,
                     backgroundColor: active ? '#fff' : 'transparent',
