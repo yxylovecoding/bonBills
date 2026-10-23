@@ -1,4 +1,6 @@
 import { READ_PHOTO, READ_WEAR_PAGE } from './_clothesReads.js';
+import { READ_PHOTO_SIZES, COMPRESS_PHOTO } from './_clothesPhotoStorage.js';
+import { PHOTO_MAX_BYTES, PHOTO_MAX_STORED_BYTES } from '../src/clothes/photoCompression.js';
 import { privateJson, privateCache } from './_privateCache.js';
 import { withAccountScope } from './_accountRoute.js';
 import { kv } from './_accountKv.js';
@@ -27,6 +29,11 @@ async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (!await authOk(req)) return res.status(401).json({ error: '请先登录' });
     if (req.method === 'GET') {
+      if (req.query.view === 'photo-sizes') {
+        const photos = await kv.eval<string[], [string, number][]>(READ_PHOTO_SIZES,
+          [ITEMS_KEY, WEAR_KEY, photoKey('')], [String(PHOTO_MAX_STORED_BYTES)]);
+        return res.status(200).json({ photos: photos.map(([id, bytes]) => ({ id, bytes })) });
+      }
       if (req.query.view === 'photo') {
         const tags = (req.headers['if-none-match'] ?? '').split(',').map((tag) => tag.trim().replace(/^W\//, ''));
         const [validator, photo] = await kv.eval<string[], [string, string]>(READ_PHOTO,
@@ -84,6 +91,16 @@ async function handler(req: VercelRequest, res: VercelResponse) {
     try { body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body; } catch { throw new ClothesInputError('请求内容无效'); }
     requireInput(body && typeof body === 'object' && !Array.isArray(body), '请求内容无效');
     requireInput(JSON.stringify(body).length <= 300000, '请求过大');
+    if (body.action === 'compress-photo') {
+      const key = photoKey(id(body.id));
+      requireInput(typeof body.validator === 'string' && /^photo-v2-[a-f0-9]{40}$/.test(body.validator), '请重新读取照片');
+      const photo = photoInput(body.photo);
+      requireInput(photoData(photo).data.length <= PHOTO_MAX_BYTES, '压缩后照片不能超过 40KB');
+      const [result, savedBytes] = await kv.eval<string[], [number, number]>(COMPRESS_PHOTO, [key], [body.validator, photo]);
+      if (result === -1) return res.status(404).json({ error: '照片不存在' });
+      if (result === -2) return res.status(409).json({ error: '照片已更新，请重试压缩' });
+      return res.status(200).json({ savedBytes });
+    }
     const mutationId = id(body.mutationId), sig = signature(body);
     const receipt = await kv.get<{ signature: string; value: unknown }>(receiptKey(mutationId));
     if (receipt) {

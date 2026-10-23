@@ -11,6 +11,7 @@ import { itemCategories, outfitPairCounts, updatePairCounts } from './pairing';
 import { itemWarmth } from './warmth';
 import Today from './Today';
 import SavedOutfits from './SavedOutfits';
+import PhotoOptimizer from './PhotoOptimizer';
 import WearEditor, { readWearDraftAt, readWearDraft, wearDraftKey, type WearDraft } from './WearEditor';
 import InstallApp from '../components/InstallApp';
 import { APP_LINKS } from '../utils/apps';
@@ -135,7 +136,7 @@ function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void
             : <div className={`clothes-grid clothes-wardrobe-grid clothes-size-${size}`}>{items.map((item) => <button className="clothes-card" key={item.id} onClick={() => openItem(item)}><img loading="lazy" src={photoUrl(item.photoId)} alt={item.name} /><div className="clothes-card-caption"><strong>{item.name}</strong><span>{itemWarmth(item)}°C{item.sleepwear ? ' · 睡衣' : ''}{item.status === '收起' ? ' · 收起' : ''}</span></div></button>)}</div>}
           {!items.length && <div className="clothes-empty">{wardrobe.length ? '暂无符合条件的衣物' : discarded ? '还没有丢弃的衣物' : '添加第一件衣物'}</div>}
         </section>}
-    <footer className="clothes-footer"><a href={APP_LINKS.bills.url}>BonBills</a><button disabled={loading} onClick={() => refreshData()}>{loading ? '刷新中…' : '刷新'}</button></footer>
+    <footer className="clothes-footer"><a href={APP_LINKS.bills.url}>BonBills</a>{tab === 'wardrobe' && <PhotoOptimizer onExpired={onExpired} />}<button disabled={loading} onClick={() => refreshData()}>{loading ? '刷新中…' : '刷新'}</button></footer>
     {editor && <ItemEditor initial={editor} owner={owner} onClose={() => { setEditor(null); setHasDraft(Boolean(readItemDraft(owner))); }} onSaved={saved} onExpired={onExpired} />}
     {wearEditor && data && <WearEditor initial={wearEditor.draft} storageKey={wearEditor.storageKey} items={data.items} pairCounts={data.pairCounts ?? outfitPairCounts([...data.records, ...(data.outfits ?? [])])} onSaved={(record) => {
       onRecord(record); refreshData(); setWearEditor(null); setHasWearDraft(Boolean(readWearDraft(owner, date))); setTab(record.kind === 'styled' ? 'outfits' : 'today');

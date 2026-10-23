@@ -1,5 +1,6 @@
 import { requestWithRetry } from '../utils/requestWithRetry';
 import { accountFetch, accountRequestHeaders } from '../utils/authClient';
+export { compressPhoto } from './photoCompression';
 
 export class ClothesError extends Error {
   constructor(message: string, public status: number, public current?: unknown, public wardrobeChanged = false) { super(message); }
@@ -25,33 +26,4 @@ export function writeLocal(key: string, value: unknown) {
 export function photoUrl(id: string) {
   const account = accountRequestHeaders()['X-BonBills-Account'] ?? '';
   return `/api/bonclothes?view=photo&id=${encodeURIComponent(id)}&account=${encodeURIComponent(account)}`;
-}
-export async function compressPhoto(file: File): Promise<string> {
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) throw new Error('请选择 JPEG、PNG 或 WebP 照片');
-  if (file.size > 20 * 1024 * 1024) throw new Error('原照片不能超过 20MB');
-  const image = await createImageBitmap(file).catch(() => { throw new Error('无法读取照片，请换一张'); });
-  try {
-    if (image.width * image.height > 50000000) throw new Error('照片尺寸过大');
-    let scale = Math.min(1, 960 / Math.max(image.width, image.height));
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('无法处理照片');
-    let format = 'image/jpeg';
-    for (let attempt = 0; attempt < 8; attempt++) {
-      canvas.width = Math.max(1, Math.round(image.width * scale));
-      canvas.height = Math.max(1, Math.round(image.height * scale));
-      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-      if (attempt === 0 && file.type !== 'image/jpeg') {
-        const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-        for (let alpha = 3; alpha < pixels.length; alpha += 4) {
-          if (pixels[alpha] < 255) { format = 'image/webp'; break; }
-        }
-      }
-      // Canvas falls back to PNG when WebP encoding is unavailable; both keep alpha.
-      const value = canvas.toDataURL(format, Math.max(.5, .86 - attempt * .06));
-      if (atob(value.slice(value.indexOf(',') + 1)).length <= 200 * 1024) return value;
-      scale *= .85;
-    }
-    throw new Error('照片压缩失败，请换一张');
-  } finally { image.close(); }
 }

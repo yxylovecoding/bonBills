@@ -1,6 +1,7 @@
 import { kv as rawKv } from '@vercel/kv';
 import { createHash } from 'node:crypto';
 import { READ_PHOTO, READ_WEAR_PAGE } from './_clothesReads';
+import { COMPRESS_PHOTO, READ_PHOTO_SIZES } from './_clothesPhotoStorage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from './_bonClothesRoute';
@@ -77,6 +78,34 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('衣柜与实际穿搭接口', () => {
+  it('旧照片压缩只传递账号内照片大小，读取与写入继续鉴权', async () => {
+    evalMock.mockResolvedValueOnce([[item.photoId, 90000]]);
+    const sizes = await call('GET', { view: 'photo-sizes' });
+    expect(sizes.body).toEqual({ photos: [{ id: item.photoId, bytes: 90000 }] });
+    expect(evalMock).toHaveBeenLastCalledWith(READ_PHOTO_SIZES, [ITEMS_KEY, WEAR_KEY, photoKey('')], [expect.any(String)]);
+    expect(sizes.headers['Cache-Control']).toContain('no-store');
+    auth.mockResolvedValue(false); evalMock.mockClear();
+    expect((await call('GET', { view: 'photo-sizes' })).status).toBe(401);
+    expect((await call('POST', {}, { action: 'compress-photo' })).status).toBe(401);
+    expect(evalMock).not.toHaveBeenCalled();
+  });
+  it('压缩保持照片引用并校验来源版本、图片格式与 40KB 上限', async () => {
+    const body = { action: 'compress-photo', id: item.photoId, validator: `photo-v2-${'a'.repeat(40)}`, photo: pngPhoto };
+    evalMock.mockResolvedValueOnce([1, 12345]);
+    expect((await call('POST', {}, body)).body).toEqual({ savedBytes: 12345 });
+    expect(evalMock).toHaveBeenLastCalledWith(COMPRESS_PHOTO, [photoKey(item.photoId)], [body.validator, pngPhoto]);
+    evalMock.mockResolvedValueOnce([0, 0]);
+    expect((await call('POST', {}, body)).body).toEqual({ savedBytes: 0 });
+    evalMock.mockResolvedValueOnce([-2, 0]);
+    expect((await call('POST', {}, body)).status).toBe(409);
+    evalMock.mockResolvedValueOnce([-1, 0]);
+    expect((await call('POST', {}, body)).status).toBe(404);
+    expect((await call('POST', {}, { ...body, validator: 'invalid' })).status).toBe(400);
+    expect((await call('POST', {}, { ...body, photo: 'data:image/png;base64,bm90IGFuIGltYWdl' })).status).toBe(400);
+    const largeJpeg = Buffer.from(jpeg(480, 400).split(',')[1], 'base64');
+    const padded = Buffer.concat([largeJpeg.subarray(0, -2), Buffer.from([0xff, 0xda]), Buffer.alloc(41 * 1024), largeJpeg.subarray(-2)]);
+    expect((await call('POST', {}, { ...body, photo: `data:image/jpeg;base64,${padded.toString('base64')}` })).body.error).toBe('压缩后照片不能超过 40KB');
+  });
   it('成功照片使用浏览器私有长期缓存，条件请求仍先鉴权，缺失照片不缓存', async () => {
     data.set(photoKey(item.photoId), jpeg());
     const query = { view: 'photo', id: item.photoId };

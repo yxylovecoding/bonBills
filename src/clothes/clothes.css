@@ -102,6 +102,7 @@
 .clothes-history-pieces .clothes-photo-placeholder { width: 90px; height: 110px; }
 .clothes-footer { display: flex; justify-content: space-between; color: var(--life-muted); margin-top: 40px; font-size: 11px; }
 .clothes-footer button { color: inherit; }
+.clothes-photo-optimizer { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
 .clothes-history { border-top: 1px solid var(--life-line); margin-top: 34px; padding-top: 20px; font-size: 12px; color: var(--life-muted); }
 .clothes-history > button { width: 100%; padding: 0; color: inherit; }
 .clothes-history article { border-bottom: 1px solid var(--life-line); padding: 24px 0; }
