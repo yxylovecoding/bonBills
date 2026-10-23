@@ -80,6 +80,11 @@
 .bonclothes .clothes-piece-photo { display: block; width: 100%; padding: 0; border-radius: 10px; }
 .clothes-card-caption .clothes-pinned { color: var(--life-accent); }
 .clothes-card-caption .clothes-layer-add { min-width: 28px; padding: 3px 8px; border: 1px solid var(--life-line); border-radius: 999px; color: var(--life-accent); font-size: 18px; line-height: 1; }
+.clothes-piece-actions { justify-content: flex-end; gap: 4px; padding: 4px 0; min-height: 32px; }
+.clothes-piece-actions .clothes-piece-remove, .clothes-piece-actions .clothes-layer-add { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; }
+.clothes-piece-actions .clothes-piece-remove { font-size: 22px; line-height: 1; }
+.clothes-photo-choices .clothes-card { position: relative; }
+.clothes-choice-mark { position: absolute; top: 5px; right: 5px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--clothes-primary); color: var(--life-accent); font-size: 13px; }
 .clothes-wear-dialog .clothes-replacements { margin: 12px 0; }
 @media (max-width: 560px) { .clothes-wear-dialog .clothes-outfit-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .clothes-empty { text-align: center; color: var(--life-muted); font-size: 13px; padding: 58px 0; }

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { MAX_OUTFIT_ITEMS, PURPOSES, PURPOSE_LABELS, SENSATIONS, DAY_PERIODS, categoryLabel, wearId, type DayPeriod, type WearFeelings, type PeriodFeeling, type Category, type PairCounts, type ClothesDayContext, type ClothesItem, type Purpose, type Sensation, type WearKind, type WearRecord, type WeatherSnapshot } from './types';
 import { ClothesError, clothesRequest, photoUrl, readLocal, writeLocal } from './client';
-import { isOutdoorCoat, itemWarmth, wearable } from './warmth';
+import { isOutdoorCoat, wearable } from './warmth';
 import OutfitWarmth from './OutfitWarmth';
 import { blankFeeling, outdoorTemperatureForPeriod, recordFeelings, timePeriod } from './feelings';
 import { itemCategories, wearAs, pairingScore } from './pairing';
@@ -91,8 +91,8 @@ export default function WearEditor({ initial, storageKey, items, pairCounts, onS
       <div className="life-editor-heading"><div className="clothes-row"><h2 id="wear-title">{draft.revision ? '编辑穿搭' : '记录穿搭'}</h2><button type="button" className="clothes-save" disabled={busy} aria-label={`当前${styled ? '搭了' : '穿了'}，切换为${styled ? '穿了' : '搭了'}`} onClick={() => change({ kind: styled ? 'worn' : 'styled' })}>{styled ? '搭了' : '穿了'}</button></div><button type="button" disabled={busy} onClick={onClose}>稍后继续</button></div>
       <fieldset disabled={busy}>
         <div className="clothes-row clothes-selected-heading"><h3>{styled ? '我搭了什么' : '我穿了什么'}</h3><span className="clothes-muted">{draft.items.length} 件</span></div>
-        <OutfitPieces items={draft.items} onReplace={(item) => { setReplace(item.id); setAdding(false); }} onAddLayer={(category) => { setAddingCategory(category); setQuery(''); setReplace(null); setAdding(true); }} onRemove={(item) => { change({ items: draft.items.filter((piece) => piece.id !== item.id) }); setReplace(null); }} />
-        {replaceItem && <PiecePicker key={replaceItem.id} previous={replaceItem} choices={replacementChoices(replaceItem, draft.items, items)} selected={draft.items} pairCounts={pairCounts}
+        <OutfitPieces photosOnly items={draft.items} onReplace={(item) => { setReplace(item.id); setAdding(false); }} onAddLayer={(category) => { setAddingCategory(category); setQuery(''); setReplace(null); setAdding(true); }} onRemove={(item) => { change({ items: draft.items.filter((piece) => piece.id !== item.id) }); setReplace(null); }} />
+        {replaceItem && <PiecePicker photosOnly key={replaceItem.id} previous={replaceItem} choices={replacementChoices(replaceItem, draft.items, items)} selected={draft.items} pairCounts={pairCounts}
           onClose={() => setReplace(null)} onSelect={(next) => { change({ items: replaceSelectedItem(draft.items, replaceItem, next) }); setReplace(null); }} />}
         <OutfitWarmth items={draft.items} indoorCoat={draft.indoorCoat} indoorOnly={draft.purpose === '睡觉'} />
         {!draft.items.length && <button type="button" className="clothes-link" aria-expanded={adding} onClick={() => { setAddingCategory(null); setAdding(!adding); setReplace(null); }}>{adding ? '收起衣柜' : '添加衣物'}</button>}
@@ -102,10 +102,9 @@ export default function WearEditor({ initial, storageKey, items, pairCounts, onS
         {groups.filter((group) => (!addingCategory || group.category === categoryLabel(addingCategory))
           && (group.choices.length || ['上衣', '下装', '外套'].includes(group.category))).map(({ category, choices: pieces }) => <section key={category} className="clothes-picker-section" aria-label={`选择${category}`}>
           <div className="clothes-row"><h3>{category}</h3><span className="clothes-muted">{draft.items.filter((piece) => categoryLabel(piece.category) === category).length || '未选'}</span>{category === '外套' && draft.items.some(isOutdoorCoat) && <button type="button" className="clothes-link" onClick={() => change({ items: draft.items.filter((p) => !isOutdoorCoat(p)) })}>不穿外套</button>}</div>
-          {pieces.length ? <div className="clothes-grid clothes-picker-grid">{pieces.map((item) => {
+          {pieces.length ? <div className="clothes-grid clothes-picker-grid clothes-photo-choices">{pieces.map((item) => {
             const selected = draft.items.some((piece) => piece.id === item.id && categoryLabel(piece.category) === category);
-            const paired = pairingScore(item, draft.items, pairCounts) > 0;
-            return <button type="button" className="clothes-card" key={item.id} aria-pressed={selected} aria-label={`${selected ? '取消选择' : '选择'}${item.name}作${category}`} onClick={() => select(item, category)}><img loading="lazy" src={photoUrl(item.photoId)} alt="" /><div className="clothes-card-caption"><strong>{item.name}</strong><span>{selected ? '✓' : paired ? '常搭' : `${itemWarmth(item)}°C`}</span></div></button>;
+            return <button type="button" className="clothes-card" key={item.id} aria-pressed={selected} aria-label={`${selected ? '取消选择' : '选择'}${item.name}作${category}`} onClick={() => select(item, category)}><img loading="lazy" src={photoUrl(item.photoId)} alt="" />{selected && <span className="clothes-choice-mark" aria-hidden="true">✓</span>}</button>;
           })}</div> : <p className="clothes-muted">暂无衣物</p>}
         </section>)}
         </>}
