@@ -1,3 +1,4 @@
+import { wishTripStarts, wishBillTags } from './wishAssociations';
 import { wishRequiredIncome } from './wishRaiseSavings';
 import type { TagKind, WishExtraExpenseItem, WishItem } from '../models/types';
 import { roundToSitePrecision } from './numberInput';
@@ -134,8 +135,9 @@ export function resolveWishRepayments(wishes: readonly WishItem[], total?: numbe
 
 export function wishTravelLifeAmount(wish: WishItem, dailyLifeAmount: number, tripDatesByStart?: Record<string, string[]>) {
   if (wish.billSpending?.ended) return 0;
-  const days = (wish.linkedTripStartDate ? tripDatesByStart?.[wish.linkedTripStartDate]?.length : undefined)
-    ?? Math.max(Math.round(wish.plannedTravelDays ?? 0), 0);
+  const starts = wishTripStarts(wish);
+  const dates = starts.flatMap((start) => tripDatesByStart?.[start] ?? []);
+  const days = dates.length ? new Set(dates).size : Math.max(Math.round(wish.plannedTravelDays ?? 0), 0);
   return Math.max(days * normalizedAmount(dailyLifeAmount) - normalizedAmount(wish.travelLifeCorrectionAmount), 0);
 }
 
@@ -170,12 +172,13 @@ export function resolveWishBillSpending(
   const allTags = [...new Set(allItems.flatMap((item) => (item.tags || '').split(',').map((tag) => tag.trim()).filter(Boolean)))];
   const summaries = new Map<string, ReturnType<typeof sumBillsByTag>>();
   return wishes.map((wish) => {
-    const trip = wish.linkedTripStartDate ? tripsByStart.get(wish.linkedTripStartDate) : undefined;
+    const linkedTrips = wishTripStarts(wish).flatMap((start) => { const found = tripsByStart.get(start); return found ? [found] : []; });
+    const trip = linkedTrips.length ? { startDate: linkedTrips.map((item) => item.startDate).sort()[0], endDate: linkedTrips.map((item) => item.endDate).sort().at(-1)!, dates: [...new Set(linkedTrips.flatMap((item) => item.dates))] } : undefined;
     const selectedTag = wish.billTag !== undefined ? wish.billTag : trip ? tripTags[trip.startDate] : undefined;
     const tripMonths = new Set(trip?.dates.map((date) => `${date.slice(2, 4)}.${Number(date.slice(5, 7))}`));
     const name = wish.name.trim();
     const exactTag = allTags.find((tag) => tag === name && !SYSTEM_BILL_TAGS.has(tag));
-    const tags = wish.billTag === null ? [] : selectedTag ? [selectedTag] : exactTag ? [exactTag] : allTags.filter((tag) => {
+    const tags = wish.billTags !== undefined ? wishBillTags(wish, tripTags) : wish.billTag === null ? [] : selectedTag ? [selectedTag] : exactTag ? [exactTag] : allTags.filter((tag) => {
       if (!name || SYSTEM_BILL_TAGS.has(tag)) return false;
       const tagMonth = tagYearMonthPrefix(tag);
       return wishTagName(tag) === wishTagName(name)
@@ -191,7 +194,7 @@ export function resolveWishBillSpending(
     }))];
     const amount = normalizedAmount(Math.round(items.reduce((sum, item) => sum + item.amount, 0) * 100) / 100);
     // 尚无匹配账单不等同于零支出；有账单但全额退款则按零元结算。
-    const ended = !!trip && trip.endDate < today && items.length > 0;
+    const ended = !!trip && linkedTrips.length === wishTripStarts(wish).length && trip.endDate < today && items.length > 0;
     const amounts = { consumption: 0, life: 0, unclassified: 0 };
     let unclassifiedCount = 0;
     const categories = new Map<string, number>();
@@ -231,7 +234,7 @@ export function reconcileWishTripLinks<T extends WishItem>(
 ): T[] {
   return wishes.map((wish) => {
     const previousStart = wish.linkedTripStartDate;
-    if (!previousStart || trips.some((trip) => trip.startDate === previousStart)) return wish;
+    if (wish.linkedTripStartDates?.length || !previousStart || trips.some((trip) => trip.startDate === previousStart)) return wish;
     // Outlook 调整出发日或连续出游合并后，旧起点不再是行程的键。
     let trip = trips.find((candidate) => candidate.dates.includes(previousStart));
     if (!trip) {
@@ -271,18 +274,18 @@ export function reconcileTripWishes(
     return !(synthetic && untouched && wish.linkedTripStartDate && !eligibleStarts.has(wish.linkedTripStartDate));
   });
   let next = reconcileWishTripLinks(retainedWishes, eligibleTrips, tripTags, travelTitles).map((wish) => {
-    if (!wish.linkedTripStartDate || wish.deadlineMode === 'manual') return wish;
+    if (!wish.linkedTripStartDate || wish.linkedTripStartDates?.length || wish.deadlineMode === 'manual') return wish;
     const deadline = beforeDeparture(wish.linkedTripStartDate);
     return wish.deadline === deadline ? wish : { ...wish, deadline };
   });
   // 旧版本可能先自动补建空白项，后又保留了用户填写的同名项。自动合并时始终保留用户数据。
   for (const trip of eligibleTrips) {
-    const generated = next.find((wish) => wish.linkedTripStartDate === trip.startDate
+    const generated = next.find((wish) => !wish.mergedWishIds?.length && wish.linkedTripStartDate === trip.startDate
       && /^wish_trip_\d{4}-\d{2}-\d{2}(?:_\d+)?$/.test(wish.id)
       && wish.targetAmount === 0 && wish.savedAmount === 0 && !wish.repaidAmount && !(wish.spentItems?.length));
     if (!generated) continue;
     const generatedName = wishTripMatchName(generated.name);
-    const manualCandidates = next.filter((wish) => wish !== generated
+    const manualCandidates = next.filter((wish) => !wish.mergedWishIds?.length && wish !== generated
       && (!wish.linkedTripStartDate || wish.linkedTripStartDate === trip.startDate)
       && !/^wish_trip_\d{4}-\d{2}-\d{2}(?:_\d+)?$/.test(wish.id)
       && wishTripMatchName(wish.name) === generatedName);
@@ -292,7 +295,7 @@ export function reconcileTripWishes(
     next = next.map((wish) => wish === manual ? linked : wish).filter((wish) => wish !== generated);
   }
   for (const trip of [...trips].sort((a, b) => a.startDate.localeCompare(b.startDate))) {
-    if (dismissedStarts[trip.startDate] || next.some((wish) => wish.linkedTripStartDate === trip.startDate)) continue;
+    if (dismissedStarts[trip.startDate] || next.some((wish) => wishTripStarts(wish).includes(trip.startDate))) continue;
     const title = getTripDisplayTitle(tripTags[trip.startDate], trip.dates, travelTitles).trim();
     if (!title) continue;
     const names = new Set([title, getTripDisplayTitle(undefined, trip.dates, travelTitles)]
@@ -324,9 +327,9 @@ export function updateTripWishDismissals(
   dismissedStarts: Record<string, true> = {},
 ): Record<string, true> {
   const dismissed = { ...dismissedStarts };
-  const linkedStarts = new Set(next.map((wish) => wish.linkedTripStartDate).filter(Boolean));
+  const linkedStarts = new Set(next.flatMap(wishTripStarts));
   for (const wish of previous) {
-    if (wish.linkedTripStartDate && !linkedStarts.has(wish.linkedTripStartDate)) dismissed[wish.linkedTripStartDate] = true;
+    for (const start of wishTripStarts(wish)) if (!linkedStarts.has(start)) dismissed[start] = true;
   }
   for (const start of linkedStarts) if (start) delete dismissed[start];
   return dismissed;
@@ -338,7 +341,7 @@ export function sortWishesForDisplay<T extends WishItem>(wishes: readonly T[], t
     .map((trip) => [trip.startDate, trip]));
   // A trip's funding deadline is before departure; it does not mark the end of the wish.
   return wishes.map((wish) => {
-    const ongoingTrip = wish.linkedTripStartDate ? ongoingTrips.get(wish.linkedTripStartDate) : undefined;
+    const ongoingTrip = wishTripStarts(wish).flatMap((start) => ongoingTrips.get(start) ?? []).sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
     return { wish, ongoing: Boolean(ongoingTrip), date: ongoingTrip?.endDate
       ?? (wish.deadline && wish.deadline >= today ? wish.deadline : '9999-12-31') };
   }).sort((a, b) => Number(b.ongoing) - Number(a.ongoing)

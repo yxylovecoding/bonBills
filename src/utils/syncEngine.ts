@@ -13,7 +13,7 @@ import { useSnapshotStore } from '../stores/snapshotStore';
 import { useTripStore } from '../stores/tripStore';
 import { useSyncStatus } from './syncStatus';
 import { loadTickTickSyncStatus, syncTickTickTrips } from './tickTickSync';
-import { normalizeOutlookCalendarState, normalizeOutlookTravelTitles } from './outlookCalendar';
+import { normalizeOutlookCalendarState, normalizeOutlookTravelTitles, normalizeOutlookWishEvents } from './outlookCalendar';
 import { mergeSyncValue, sameSyncValue } from './syncMerge';
 import { detectAllTrips } from './trips';
 import { reconcileTripWishes } from './wishes';
@@ -60,12 +60,12 @@ const stores: StoreEntry[] = [
   {
     key: 'calendar-tags',
     getState: () => useCalendarStore.getState(),
-    setState: (p) => useCalendarStore.setState({ ...p, ...normalizeOutlookCalendarState(p), dayOverrides: normalizeDayOverrides(p.dayOverrides), outlookTravelTitles: normalizeOutlookTravelTitles(p.outlookTravelTitles), confirmedExpenses: normalizeConfirmedExpenses(p.confirmedExpenses) }),
+    setState: (p) => useCalendarStore.setState({ ...p, ...normalizeOutlookCalendarState(p), outlookWishEvents: normalizeOutlookWishEvents(p.outlookWishEvents), dayOverrides: normalizeDayOverrides(p.dayOverrides), outlookTravelTitles: normalizeOutlookTravelTitles(p.outlookTravelTitles), confirmedExpenses: normalizeConfirmedExpenses(p.confirmedExpenses) }),
     subscribe: (l) => useCalendarStore.subscribe(l),
     serialize: () => {
       const s = useCalendarStore.getState();
       return { tagMap: s.tagMap, dayOverrides: s.dayOverrides, initializedFromRecords: s.initializedFromRecords, confirmedExpenses: s.confirmedExpenses,
-        outlookApplied: s.outlookApplied, manualTagDates: s.manualTagDates, outlookTravelTitles: s.outlookTravelTitles };
+        outlookApplied: s.outlookApplied, manualTagDates: s.manualTagDates, outlookTravelTitles: s.outlookTravelTitles, outlookWishEvents: s.outlookWishEvents };
     },
   },
   {

@@ -168,7 +168,7 @@ export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind
     }
     return new Date(`${time.toString()}+08:00`).toISOString();
   };
-  const append = (event: IcalEvent, start: IcalTime, end: IcalTime) => {
+  const append = (event: IcalEvent, start: IcalTime, end: IcalTime, recurrenceId?: string) => {
     if (isCancelled(event)) return;
     const location = options?.includeLocation ? { location: String(event.component.getFirstPropertyValue('location') || '').slice(0, 500) } : {};
     const link = options?.includeTaskLink ? `${event.component.getFirstPropertyValue('description') || ''} ${event.component.getFirstPropertyValue('url') || ''}`
@@ -183,14 +183,14 @@ export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind
       const rangeEnd = options?.timezone ? wallTimeInstant(`${endDate}T00:00:00`, options.timezone) : new Date(`${endDate}T00:00:00+08:00`).toISOString();
       if (from < rangeEnd && to > rangeStart) {
         result.push({ calendar, title: event.summary || '', startDate: from, endDate: to, allDay: false,
-          ...location, ...taskLink, ...(includeUid ? { uid: event.uid } : {}) });
+          ...location, ...taskLink, ...(includeUid ? { uid: event.uid, ...((recurrenceId || event.isRecurrenceException()) ? { recurrenceId: recurrenceId || event.recurrenceId.toString() } : {}) } : {}) });
       }
       return;
     }
     const from = dayOf(start);
     const to = dayOf(end);
     if (from < endDate && to > startDate) result.push({ calendar, title: event.summary || '', startDate: from, endDate: to, allDay: true,
-      ...location, ...(includeUid ? { uid: event.uid } : {}) });
+      ...location, ...(includeUid ? { uid: event.uid, ...((recurrenceId || event.isRecurrenceException()) ? { recurrenceId: recurrenceId || event.recurrenceId.toString() } : {}) } : {}) });
   };
   let iterations = 0;
   const deadline = Date.now() + 2500;
@@ -214,7 +214,7 @@ export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind
       if (exceptions.get(event.uid)?.has(occurrence.toString())) continue;
       const end = occurrence.clone();
       end.addDuration(duration);
-      append(event, occurrence, end);
+      append(event, occurrence, end, occurrence.toString());
     }
   }
   return result;
@@ -229,7 +229,7 @@ export async function readOutlookSnapshot(input: OutlookConnectionInput, startDa
   const events = await Promise.all(sources.map(async ({ name, kind, url }) => {
     try {
       const text = await fetchCalendar(url);
-      return { name, days: parseOutlookCalendar(text, kind, startDate, endDate, false, false, { timezone }), timed: availabilityRange
+      return { name, days: parseOutlookCalendar(text, kind, startDate, endDate, true, false, { timezone }), timed: availabilityRange
         ? parseOutlookCalendar(text, kind, availabilityRange.startDate, availabilityRange.endDate, false, true,
           { timezone, includeFree: true, includeTaskLink: true }).filter((event) => !event.allDay) : [] };
     } catch {

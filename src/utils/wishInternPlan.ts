@@ -1,3 +1,4 @@
+import { wishTripStarts } from './wishAssociations';
 import { internshipStart, type InternshipContext } from './internship';
 import { reserveWishIncomeGroups } from './wishRaiseSavings';
 import { calculateDatedWishInternPlan, chooseInternDays } from './datedWishInternPlan';
@@ -240,9 +241,7 @@ export function calculateWishInternPlan(options: WishInternPlanOptions): WishInt
     const amountIncludingLife = calculateWishFunding(wish).remainingAmount;
     const amount = calculateWishFunding(wish, wishTravelLifeAmount(wish, travelLifeDaily, options.tripDatesByStart)).remainingAmount;
     const excludedLifeExpense = Math.max(amountIncludingLife - amount, 0);
-    const linkedDates = wish.linkedTripStartDate
-      ? options.tripDatesByStart?.[wish.linkedTripStartDate]
-      : undefined;
+    const linkedDates = [...new Set(wishTripStarts(wish).flatMap((start) => options.tripDatesByStart?.[start] ?? []))];
     if (linkedDates && linkedDates.length > 0) {
       for (const date of linkedDates) linkedTravelDates.add(date);
       return {

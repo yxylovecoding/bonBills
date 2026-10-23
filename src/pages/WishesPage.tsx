@@ -1,3 +1,6 @@
+import WishMergeDialog from '../components/WishMergeDialog';
+import { applyWishMerge, undoWishMerge } from '../utils/wishMerge';
+import { wishTripStarts } from '../utils/wishAssociations';
 import { defaultWishDeadline, visibleWishMilestones } from '../utils/wishDeadlineMilestones';
 import WishScheduleEditor from '../components/WishScheduleEditor';
 import SavingsCalendar from '../components/SavingsCalendar';
@@ -129,6 +132,7 @@ export default function WishesPage() {
   const [amountDrafts, setAmountDrafts] = useState<Record<string, string>>({});
   const [lodgingAmountModes, setLodgingAmountModes] = useState<Record<string, LodgingAmountMode>>({});
   const [budgetEstimateWishId, setBudgetEstimateWishId] = useState<string | null>(null);
+  const [mergeOpen, setMergeOpen] = useState(false);
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [planningDeadline, setPlanningDeadline] = useState('');
   const [activeWishId, setActiveWishId] = useState<string | null>(null);
@@ -179,7 +183,7 @@ export default function WishesPage() {
     [allTripSegments, todayKey],
   );
   const linkedTripStartDates = useMemo(
-    () => new Set(wishes.map((wish) => wish.linkedTripStartDate).filter((date): date is string => !!date)),
+    () => new Set(wishes.flatMap(wishTripStarts)),
     [wishes],
   );
   const tripDatesByStart = useMemo(
@@ -1108,7 +1112,30 @@ export default function WishesPage() {
         className="wish-list-scroll"
       >
       <WishDebtSummary wishes={wishes} total={config.wishDebtTotal} onChange={updateDebtTotal} />
-      <Card className="wish-list-card" title="心愿清单" subtitle={normalizedWishSearch ? `${visiblePlanItems.length} / ${wishes.length} 个心愿` : `${wishes.length} 个心愿`}>
+      {mergeOpen && <WishMergeDialog
+        wishes={storedWishes} resolved={wishes} trips={allTripSegments} events={useCalendarStore.getState().outlookWishEvents.filter((event) => event.available !== false)}
+        tripTags={tripTags} history={config.wishMerges ?? []} onClose={() => setMergeOpen(false)}
+        onMerge={(sources, result) => {
+          const current = useConfigStore.getState().config;
+          const change = applyWishMerge(current.wishes ?? [], sources, result, crypto.randomUUID(), new Date().toISOString());
+          setConfig({ wishes: change.wishes, wishMerges: [...(current.wishMerges ?? []), change.record],
+            dismissedTripWishStarts: updateTripWishDismissals(current.wishes ?? [], change.wishes, current.dismissedTripWishStarts) });
+          setSelectedSegmentDays({}); setActiveWishId(result.id);
+        }}
+        onUndo={(record) => {
+          const current = useConfigStore.getState().config;
+          const authoritative = current.wishMerges?.find((item) => item.id === record.id);
+          if (!authoritative) throw new Error('合并记录已变更，请刷新');
+          const restored = undoWishMerge(current.wishes ?? [], authoritative);
+          setConfig({ wishes: restored, wishMerges: current.wishMerges!.map((item) => item.id === record.id ? { ...item, undoneAt: new Date().toISOString() } : item),
+            dismissedTripWishStarts: updateTripWishDismissals(current.wishes ?? [], restored, current.dismissedTripWishStarts) });
+          setSelectedSegmentDays({});
+        }}
+      />}
+      <Card className="wish-list-card" title="心愿清单" headerAction={<div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: C.sub }}>
+        <span>{normalizedWishSearch ? `${visiblePlanItems.length} / ${wishes.length} 个心愿` : `${wishes.length} 个心愿`}</span>
+        <button type="button" onClick={() => setMergeOpen(true)} style={{ border: '1px solid #ddd6fe', borderRadius: 8, padding: '5px 8px', background: '#fff', color: C.purple, cursor: 'pointer' }}>合并</button>
+      </div>}>
         <div className="wish-search" role="search" aria-label="心愿搜索">
           <input
             type="search"
@@ -1145,12 +1172,13 @@ export default function WishesPage() {
             const confirmedSavedAmount = item.savedAmount;
             const ticketKey = `${item.id}:travelTicketAmount`;
             const lifeCorrectionKey = `${item.id}:travelLifeCorrectionAmount`;
-            const linkedTrip = item.linkedTripStartDate
-              ? allTripSegments.find((trip) => trip.startDate === item.linkedTripStartDate)
-              : undefined;
+            const linkedTrips = allTripSegments.filter((trip) => wishTripStarts(item).includes(trip.startDate));
+            const linkedTrip = linkedTrips.find((trip) => trip.startDate <= todayKey && trip.endDate >= todayKey)
+              ?? linkedTrips.find((trip) => trip.startDate > todayKey) ?? linkedTrips[0];
             const isOngoingTrip = item.isActive && linkedTrip
               && linkedTrip.startDate <= todayKey && linkedTrip.endDate >= todayKey;
-            const itemTravelDays = linkedTrip?.dates.length ?? Math.max(Math.round(item.plannedTravelDays ?? 0), 0);
+            const linkedDates = wishTripStarts(item).flatMap((start) => tripDatesByStart[start] ?? []);
+            const itemTravelDays = linkedDates.length ? new Set(linkedDates).size : Math.max(Math.round(item.plannedTravelDays ?? 0), 0);
             const lodgingNights = Math.max(itemTravelDays - 1, 0);
             const travelBudget = resolveWishTravelBudget(item, itemTravelDays, stats.stateDailyAvg.travel);
             const lodgingAmountMode = travelBudget.lodgingActual !== undefined ? 'total' : lodgingAmountModes[item.id] ?? 'daily';
@@ -1267,8 +1295,9 @@ export default function WishesPage() {
 
                 {editingScheduleId === item.id && <WishScheduleEditor
                   wish={storedWishes.find((wish) => wish.id === item.id)!}
-                  trips={selectableTripSegments.filter((trip) => trip.startDate === item.linkedTripStartDate || !linkedTripStartDates.has(trip.startDate))}
+                  trips={selectableTripSegments.filter((trip) => wishTripStarts(item).includes(trip.startDate) || !linkedTripStartDates.has(trip.startDate))}
                   tripLabels={tripTags}
+                  events={useCalendarStore.getState().outlookWishEvents.filter((event) => event.available !== false)}
                   billTags={[...new Set(flattenExpenseItems(expenseItems).flatMap((bill) => (bill.tags || '').split(',').map((tag) => tag.trim()).filter(Boolean)))]}
                   onCancel={() => setEditingScheduleId(null)}
                   onSave={(patch) => { updateWishFields(item.id, patch); setEditingScheduleId(null); }}

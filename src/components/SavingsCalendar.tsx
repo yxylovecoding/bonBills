@@ -1,3 +1,4 @@
+import { wishTripStarts } from '../utils/wishAssociations';
 import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import HomeWishInternCalendar from './HomeWishInternCalendar';
@@ -103,10 +104,12 @@ export default function SavingsCalendar({ onBack }: { onBack: () => void }) {
     const labels: Record<string, string> = {};
     const wishesByTripStart = new Map<string, string[]>();
     for (const wish of wishes) {
-      if (!wish.linkedTripStartDate || !wish.name.trim()) continue;
-      const names = wishesByTripStart.get(wish.linkedTripStartDate) ?? [];
-      names.push(wish.name.trim());
-      wishesByTripStart.set(wish.linkedTripStartDate, names);
+      if (!wish.name.trim()) continue;
+      for (const start of wishTripStarts(wish)) {
+        const names = wishesByTripStart.get(start) ?? [];
+        names.push(wish.name.trim());
+        wishesByTripStart.set(start, names);
+      }
     }
     for (const trip of allTripSegments) {
       const wishLabel = wishesByTripStart.get(trip.startDate)?.join('、') ?? '';
@@ -184,7 +187,7 @@ export default function SavingsCalendar({ onBack }: { onBack: () => void }) {
         internSavingRecords={wishInternSavingRecords}
         availableInternDates={wishMilestonePlan.segments[wishMilestonePlan.segments.length - 1]?.availableInternDateKeys ?? EMPTY_DATE_KEYS}
         wishSummaryLabelsById={wishSummaryLabelsById}
-        wishNamesById={Object.fromEntries(wishes.filter((wish) => wish.isActive).map((wish) => [wish.id, wish.name]))}
+        wishNamesById={Object.fromEntries(wishes.filter((wish) => wish.isActive).flatMap((wish) => [wish.id, ...(wish.mergedWishIds ?? [])].map((id) => [id, wish.name])))}
         travelLabelsByDate={travelLabelsByDate}
         holidayDataByYear={holidayDataByYear}
         internship={internship}

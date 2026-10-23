@@ -52,7 +52,7 @@ describe('Outlook 连接接口', () => {
   it('预览不保存；返回日程标题但不暴露订阅链接', async () => {
     const preview = await call('POST', { ...input, action: 'preview' });
     expect(preview.status).toBe(200); expect(data.size).toBe(0);
-    expect(preview.body.snapshot).toEqual({ ...range, tags: { '2026-09-22': 'travel', '2026-09-23': 'travel' }, travelTitles: { '2026-09-22': '出游', '2026-09-23': '出游' } });
+    expect(preview.body.snapshot).toEqual({ ...range, tags: { '2026-09-22': 'travel', '2026-09-23': 'travel' }, travelTitles: { '2026-09-22': '出游', '2026-09-23': '出游' }, wishEvents: [{ calendar: 'play', uid: 'trip', key: JSON.stringify(['play', 'trip', '']), recurrenceId: undefined, title: '出游', startDate: '2026-09-22', endDate: '2026-09-24' }] });
     const connected = await call('PUT', input);
     expect(connected.body.connected).toBe(true);
     expect(JSON.stringify(data.get(key))).not.toContain('https://');
@@ -61,6 +61,7 @@ describe('Outlook 连接接口', () => {
     expect(JSON.stringify(status)).not.toContain(input.playUrl);
     expect(status.headers['Cache-Control']).toBe('private, max-age=30, must-revalidate');
     const calendar = data.get('calendar-tags');
+    expect(calendar.outlookWishEvents).toEqual(preview.body.snapshot.wishEvents);
     expect((await call('DELETE')).body.connected).toBe(false);
     expect(data.size).toBe(1);
     expect(data.get('calendar-tags')).toEqual(calendar);

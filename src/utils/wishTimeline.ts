@@ -1,3 +1,4 @@
+import { wishTripStarts } from './wishAssociations';
 import { resolveDailyContext, type InternshipContext } from './internship';
 import { dailyLivingAmount } from './cityLiving';
 import type { CurrentStats } from '../models/types';
@@ -76,10 +77,12 @@ export function buildWishTimelineEntries(options: WishTimelineOptions): WishTime
   const wishesByTrip = new Map<string, WishItem[]>();
 
   for (const wish of options.wishes) {
-    if (!wish.isActive || !wish.linkedTripStartDate) continue;
-    const linked = wishesByTrip.get(wish.linkedTripStartDate) ?? [];
-    linked.push(wish);
-    wishesByTrip.set(wish.linkedTripStartDate, linked);
+    if (!wish.isActive) continue;
+    for (const start of wishTripStarts(wish)) {
+      const linked = wishesByTrip.get(start) ?? [];
+      linked.push(wish);
+      wishesByTrip.set(start, linked);
+    }
   }
 
   for (const trip of options.trips) {

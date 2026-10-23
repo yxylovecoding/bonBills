@@ -4,7 +4,7 @@ import { getAccountStorage } from '../utils/accountCache';
 import { useConfigStore } from './configStore';
 import { normalizeDayOverrides, resolveDailyContext } from '../utils/internship';
 import type { DayOverride, DayOverrides, TagKind } from '../models/types';
-import { applyOutlookSnapshotToState, normalizeOutlookCalendarState, normalizeOutlookTravelTitles, type OutlookAppliedDays, type OutlookConflictPolicy, type OutlookSnapshot } from '../utils/outlookCalendar';
+import { applyOutlookSnapshotToState, normalizeOutlookCalendarState, normalizeOutlookTravelTitles, normalizeOutlookWishEvents, type OutlookWishEvent, type OutlookAppliedDays, type OutlookConflictPolicy, type OutlookSnapshot } from '../utils/outlookCalendar';
 
 // tagMap: { "2026-04-11": "school", ... }
 type TagMap = Record<string, TagKind>;
@@ -67,6 +67,7 @@ interface CalendarStore {
   setDayOverride: (date: string, value: DayOverride) => void;
   outlookApplied: OutlookAppliedDays;
   outlookTravelTitles: Record<string, string>;
+  outlookWishEvents: OutlookWishEvent[];
   manualTagDates: Record<string, true>;
   applyOutlookSnapshot: (snapshot: OutlookSnapshot, policy: OutlookConflictPolicy) => void;
   initializedFromRecords: boolean; // 防止重复执行一次性初始化
@@ -96,10 +97,11 @@ export const useCalendarStore = create<CalendarStore>()(
       setDayOverride: (date, value) => set(s => ({ dayOverrides: normalizeDayOverrides({ ...s.dayOverrides, [date]: value }) })),
       outlookApplied: {},
       outlookTravelTitles: {},
+      outlookWishEvents: [],
       manualTagDates: {},
       applyOutlookSnapshot: (snapshot, policy) => set((s) => {
         const next = applyOutlookSnapshotToState({ ...s }, snapshot, policy);
-        return JSON.stringify([s.tagMap, s.outlookApplied, s.manualTagDates, s.outlookTravelTitles]) === JSON.stringify([next.tagMap, next.outlookApplied, next.manualTagDates, next.outlookTravelTitles]) ? s : next;
+        return JSON.stringify([s.tagMap, s.outlookApplied, s.manualTagDates, s.outlookTravelTitles, s.outlookWishEvents]) === JSON.stringify([next.tagMap, next.outlookApplied, next.manualTagDates, next.outlookTravelTitles, next.outlookWishEvents]) ? s : next;
       }),
       initializedFromRecords: false,
       confirmedExpenses: {},
@@ -266,6 +268,7 @@ export const useCalendarStore = create<CalendarStore>()(
           ...persisted,
           ...normalizeOutlookCalendarState(persisted),
           dayOverrides: normalizeDayOverrides((persisted as Record<string, unknown>).dayOverrides),
+          outlookWishEvents: normalizeOutlookWishEvents((persisted as Record<string, unknown>).outlookWishEvents),
           outlookTravelTitles: normalizeOutlookTravelTitles((persisted as Record<string, unknown>).outlookTravelTitles),
           confirmedExpenses: normalizeConfirmedExpenses(persisted.confirmedExpenses),
         };

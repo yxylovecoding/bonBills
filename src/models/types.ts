@@ -220,7 +220,18 @@ export interface ShoppingItem {
   createdAt: string;
 }
 
+export interface WishMergeRecord {
+  id: string;
+  createdAt: string;
+  sources: WishItem[];
+  result: WishItem;
+  undoneAt?: string;
+}
 export interface WishItem {
+  linkedTripStartDates?: string[];
+  billTags?: string[];
+  outlookEventKeys?: string[];
+  mergedWishIds?: string[];
   deadlineMode?: 'manual'; // Explicit dates survive automatic trip reconciliation.
   billTag?: string | null; // undefined: automatic matching; null: no bill tag.
   id: string;
@@ -417,6 +428,7 @@ export interface AppConfig {
   futureFireExpenses: FutureFireExpense[];
   majorFireWishes?: MajorFireWish[];
   wishes?: WishItem[];
+  wishMerges?: WishMergeRecord[];
   shoppingList?: ShoppingItem[];
   dismissedTripWishStarts?: Record<string, true>; // 主动删除或解除关联的出游不再自动补建心愿
   wishDebtTotal?: number; // 外部债务账户的当前总欠款；缺省时仅汇总心愿欠款

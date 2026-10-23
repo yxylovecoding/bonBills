@@ -155,3 +155,15 @@ describe('Outlook 订阅地址和加密', () => {
     expect(fetch).toHaveBeenCalledWith(playUrl, expect.objectContaining({ redirect: 'error' }));
   });
 });
+
+it('保留稳定 UID 与重复实例标识，移动例外不与系列其他实例混淆', () => {
+  const ics = calendar([
+    event('UID:stable\nDTSTART;VALUE=DATE:20261101\nDTEND;VALUE=DATE:20261102\nRRULE:FREQ=DAILY;COUNT=2\nSUMMARY:原名'),
+    event('UID:stable\nRECURRENCE-ID;VALUE=DATE:20261102\nDTSTART;VALUE=DATE:20261104\nDTEND;VALUE=DATE:20261105\nSUMMARY:改名'),
+  ].join('\n'));
+  const result = parseOutlookCalendar(ics, 'play', '2026-11-01', '2026-12-01', true);
+  expect(result).toHaveLength(2);
+  expect(result.every((item) => item.uid === 'stable')).toBe(true);
+  expect(new Set(result.map((item) => item.recurrenceId)).size).toBe(2);
+  expect(result.find((item) => item.title === '改名')?.recurrenceId).toBe('2026-11-02');
+});

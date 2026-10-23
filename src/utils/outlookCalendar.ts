@@ -8,6 +8,7 @@ export interface OutlookDayEvent {
   taskLink?: { taskId: string; projectId: string };
   location?: string;
   uid?: string;
+  recurrenceId?: string;
   calendar: OutlookCalendarKind;
   title: string;
   startDate: string;
@@ -31,11 +32,32 @@ const HOLIDAY_REMINDER_TITLES = new Set([
   '情人节', '母亲节', '父亲节', '感恩节', '平安夜', '圣诞', '圣诞节',
 ]);
 
+export interface OutlookWishEvent {
+  available?: boolean;
+  key: string;
+  uid: string;
+  recurrenceId?: string;
+  calendar: OutlookCalendarKind;
+  title: string;
+  startDate: string;
+  endDate: string;
+}
+export function normalizeOutlookWishEvents(input: unknown): OutlookWishEvent[] {
+  if (!Array.isArray(input)) return [];
+  return [...new Map(input.filter((event): event is OutlookWishEvent => !!event && typeof event === 'object'
+    && typeof event.uid === 'string' && !!event.uid.trim()
+    && ['play', 'class', 'work', 'calendar'].includes(event.calendar)
+    && (event.recurrenceId === undefined || typeof event.recurrenceId === 'string')
+    && typeof event.title === 'string' && isCalendarDate(event.startDate) && isCalendarDate(event.endDate)
+    && event.startDate < event.endDate)
+    .map((event) => { const key = JSON.stringify([event.calendar, event.uid, event.recurrenceId ?? '']); return [key, { ...event, key }]; })).values()];
+}
 export interface OutlookSnapshot {
   startDate: string;
   endDate: string;
   tags: Record<string, OutlookTag>;
   travelTitles?: Record<string, string>;
+  wishEvents?: OutlookWishEvent[];
   availability?: OutlookAvailability;
 }
 
@@ -73,6 +95,7 @@ export function buildOutlookSnapshot(
   }
   const tags: Record<string, OutlookTag> = {};
   const titlesByDay: Record<string, Set<string>> = {};
+  const wishEvents: OutlookWishEvent[] = [];
   const homeTitles = new Set(rules.homeTitles.map((title) => title.trim()));
   const ignoredTitles = new Set(rules.ignoredPlayTitles.map((title) => title.trim()));
   const priority = { intern: 1, home: 2, travel: 3 };
@@ -90,13 +113,14 @@ export function buildOutlookSnapshot(
     }
     const start = event.startDate > startDate ? event.startDate : startDate;
     const end = event.endDate < endDate ? event.endDate : endDate;
+    if (start < end && tag === 'travel' && event.uid) wishEvents.push({ key: '', uid: event.uid, recurrenceId: event.recurrenceId, calendar: event.calendar, title, startDate: event.startDate, endDate: event.endDate });
     for (let day = start; day < end; day = nextCalendarDate(day)) {
       if (!tags[day] || priority[tag] > priority[tags[day]]) tags[day] = tag;
       if (tag === 'travel' && title) (titlesByDay[day] ??= new Set()).add(title);
     }
   }
   const travelTitles = Object.fromEntries(Object.entries(titlesByDay).map(([day, titles]) => [day, [...titles].sort().join('、')]));
-  return { startDate, endDate, tags, travelTitles };
+  return { startDate, endDate, tags, travelTitles, ...(wishEvents.length ? { wishEvents: normalizeOutlookWishEvents(wishEvents) } : {}) };
 }
 
 export function normalizeOutlookTravelTitles(input: unknown): Record<string, string> {
@@ -177,5 +201,7 @@ export function applyOutlookSnapshotToState(state: Record<string, unknown>, snap
   for (const [day, title] of Object.entries(normalizeOutlookTravelTitles(snapshot.travelTitles))) {
     if (day >= snapshot.startDate && day < snapshot.endDate && snapshot.tags[day] === 'travel') outlookTravelTitles[day] = title;
   }
-  return { ...state, ...next, outlookTravelTitles };
+  const retained = normalizeOutlookWishEvents(state.outlookWishEvents).filter((event) => event.endDate <= snapshot.startDate || event.startDate >= snapshot.endDate).map((event) => ({ ...event, available: false }));
+  const outlookWishEvents = normalizeOutlookWishEvents([...retained, ...normalizeOutlookWishEvents(snapshot.wishEvents)]);
+  return { ...state, ...next, outlookTravelTitles, outlookWishEvents };
 }
