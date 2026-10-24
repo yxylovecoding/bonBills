@@ -21,6 +21,41 @@ import {
   type TickTickTripSyncState,
 } from './_ticktickTrips';
 
+describe('TickTick 网络读取恢复', () => {
+  it.each(['get', 'filter', 'completed'] as const)('%s 网络失败只重试当前读取', async operation => {
+    vi.useFakeTimers();
+    try {
+      const fetcher = vi.fn<typeof fetch>().mockRejectedValueOnce(new TypeError('fetch failed'))
+        .mockRejectedValueOnce(new TypeError('fetch failed')).mockResolvedValue(new Response('[]'));
+      const api = new TickTickOpenApiClient('secret', 'https://ticktick.test', fetcher);
+      const result = operation === 'get' ? api.listProjects() : operation === 'filter' ? api.filterTasks(undefined, [0]) : api.listCompletedTasks(['project'], 'from', 'through');
+      await vi.runAllTimersAsync();
+      await expect(result).resolves.toEqual([]);
+      expect(fetcher).toHaveBeenCalledTimes(3);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it.each(['create', 'update', 'delete'] as const)('%s 网络结果未知时不重放写入', async operation => {
+    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('PRIVATE fetch failed'));
+    const api = new TickTickOpenApiClient('secret', 'https://ticktick.test', fetcher);
+    const result = operation === 'create' ? api.createTask({ title: 'task' }) : operation === 'update'
+      ? api.updateTask('task', { title: 'task' }) : api.deleteTask('project', 'task');
+    await expect(result).rejects.toThrow('TickTick 写入请求失败');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('持续读取故障在两次重试后停止，错误正文不暴露令牌和请求内容', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('PRIVATE network data'));
+      const api = new TickTickOpenApiClient('PRIVATE token', 'https://ticktick.test', fetcher);
+      const result = expect(api.getTask('PRIVATE-project', 'PRIVATE-task')).rejects.toThrow('TickTick 读取请求失败（GET /project/:id/task/:id）');
+      await vi.runAllTimersAsync(); await result;
+      expect(fetcher).toHaveBeenCalledTimes(3);
+    } finally { vi.useRealTimers(); }
+  });
+});
+
 describe('TickTick 写入协议', () => {
   it.each(['create', 'update'] as const)('%s 清单项只发送数字 0/1，不改变任务状态或原始数据', async (operation) => {
     const fetcher = vi.fn<typeof fetch>(async (_url, init) => {

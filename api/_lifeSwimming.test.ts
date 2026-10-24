@@ -33,7 +33,7 @@ function apiFor(initial: TickTickTask[]) {
 
 beforeEach(() => {
   data.clear(); vi.stubEnv('SYNC_SECRET', 'secret');
-  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date(`${today}T12:00:00+08:00`));
+  vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] }); vi.setSystemTime(new Date(`${today}T12:00:00+08:00`));
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
@@ -152,8 +152,14 @@ describe('经期游泳顺延', () => {
     expect(data.has('ticktick:trip-sync:lock')).toBe(false);
     expect(await syncSwimmingSchedule()).toEqual({ updated: 0 });
     fetchMock.mockRejectedValue(new Error('private-token'));
-    await expect(syncSwimmingSchedule()).rejects.toThrow('TickTick 游泳待办顺延失败');
-    expect(await swimmingSyncWarning()).not.toContain('private-token');
+    vi.useFakeTimers();
+    try {
+      const failure = expect(syncSwimmingSchedule()).rejects.toThrow('TickTick 游泳待办顺延失败');
+      await vi.runAllTimersAsync(); await failure;
+      const warning = swimmingSyncWarning();
+      await vi.runAllTimersAsync();
+      expect(await warning).not.toContain('private-token');
+    } finally { vi.useRealTimers(); }
     expect(data.has('ticktick:trip-sync:lock')).toBe(false);
   });
   it('断开连接或其他同步持锁时不写任务，不释放别人的锁', async () => {

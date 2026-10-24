@@ -228,6 +228,8 @@ export class TickTickOpenApiClient implements TickTickApi {
   ) {}
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const method = init.method ?? 'GET';
+    const readOnly = method === 'GET' || method === 'POST' && ['/preference', '/task/filter', '/task/completed'].includes(path);
     for (let attempt = 0; ; attempt++) {
       const response = await this.fetcher(`${this.baseUrl}${path}`, {
         ...init,
@@ -238,7 +240,17 @@ export class TickTickOpenApiClient implements TickTickApi {
           ...init.headers,
         },
         signal: init.signal ?? AbortSignal.timeout(15_000),
+      }).catch(async error => {
+        // Retry the individual read, never a creation/update/deletion whose
+        // outcome is unknown. Keep this separate from whole-workflow retries.
+        if (readOnly && attempt < 2 && !init.signal?.aborted) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+          return null;
+        }
+        const route = path.replace(/\/project\/[^/]+/g, '/project/:id').replace(/\/task\/[^/]+/g, '/task/:id');
+        throw new Error(`TickTick ${readOnly ? '读取' : '写入'}请求失败（${method} ${route}）`, { cause: error });
       });
+      if (!response) continue;
       if (!response.ok) {
         const detail = (await response.text().catch(() => '')).slice(0, 300);
         // TickTick reports its query limit as HTTP 500 as well as 429. Only

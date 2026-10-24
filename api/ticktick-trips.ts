@@ -143,9 +143,11 @@ async function runSyncInner(allowDisconnected: boolean) {
       // Follow explicit task dates after generated trips/wishes have their final
       // dates, including tasks first created during this sync.
       const excludedTaskIds = getTickTickRoutineExcludedTaskIds(template, state);
+      console.info('[ticktick-sync-step]', JSON.stringify({ step: 'exercise' }));
       const exercise = await syncExerciseSchedule(api, { connectionId, calendarState, excludedTaskIds, rolling: true });
       for (const id of exercise.managedTaskIds) excludedTaskIds.add(id);
       const laundryTasks = await schedulingStage('tasks-read', true, () => readAllTickTickTasks(api, [0]));
+      console.info('[ticktick-sync-step]', JSON.stringify({ step: 'laundry' }));
       const laundry = await syncLaundrySchedule(api, { connectionId, tasks: laundryTasks, history: dailyPlan.history,
         calendarState, configState, trips, availability, profile: availabilityProfile(settings?.availabilityProfile),
         today, now: new Date(), excludedTaskIds });
@@ -153,6 +155,7 @@ async function runSyncInner(allowDisconnected: boolean) {
       // it back to today, including when the forecast is temporarily unavailable.
       for (const id of laundry.managedTaskIds) excludedTaskIds.add(id);
       const periodPrediction = await syncPeriodPredictionTask(api, { connection, tasks: sourceTasks, completedTasks: dailyPlan.history, today });
+      console.info('[ticktick-sync-step]', JSON.stringify({ step: 'daily-plan' }));
       const routineResult = await syncTickTickRoutines({
         api, calendarState, today,
         excludedTaskIds, minimumTaskDates: exercise.minimumDates, fixedTaskDates: exercise.fixedDates, completedTasks: dailyPlan.history,
@@ -167,6 +170,7 @@ async function runSyncInner(allowDisconnected: boolean) {
         },
       });
       await kv.set(DAILY_PLAN_KEY, dailyPlan);
+      console.info('[ticktick-sync-step]', JSON.stringify({ step: 'calendar-events' }));
       const laundryOutlook = await syncLaundryOutlook(api, { tasks: laundryTasks, managedTaskIds: laundry.managedTaskIds,
         ticktickConnectionId: connectionId, configState, calendarState, today,
         plannedDates: Object.fromEntries(laundryTasks.filter(task => laundry.managedTaskIds.has(task.id))
