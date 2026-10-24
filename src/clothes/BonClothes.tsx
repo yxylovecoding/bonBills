@@ -1,7 +1,9 @@
+import { linkedClothesContext } from './calendarContext';
+import { isCalendarDate } from '../utils/outlookCalendar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import LoginPage from '../pages/LoginPage';
 import { invalidateAccountRequests, requestSession, restoreSession } from '../utils/authClient';
-import type { ClothesData, ClothesDayContext, ClothesItem, ClothesLocation, WearRecord } from './types';
+import type { ClothesData, ClothesDayContext, ClothesItem, WearRecord } from './types';
 import { CATEGORIES, categoryLabel, wearId } from './types';
 import { deviceDate, emptyContext, totalWearCounts } from './rules';
 import { addTripDays } from './tripRules';
@@ -48,8 +50,11 @@ export default function BonClothes() {
 function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void }) {
   const [clock, setClock] = useState(() => ({ date: deviceDate(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }));
   const { date: today, timezone } = clock;
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [dayLocation, setDayLocation] = useState<ClothesLocation | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(() => {
+    const requested = new URLSearchParams(window.location.search).get('date');
+    return requested && isCalendarDate(requested) ? requested : null;
+  });
+  const [loadedDate, setLoadedDate] = useState<string | null>(null);
   const date = selectedDate ?? today;
   const tomorrow = date === addTripDays(today, 1), past = date < today;
   const [tab, setTab] = useState<'today' | 'wardrobe' | 'outfits'>('today');
@@ -78,14 +83,17 @@ function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void
   useEffect(() => {
     const abort = new AbortController(); let active = true;
     setLoading(true); setError('');
-    void clothesRequest<ClothesData>('GET', { date, timezone }, abort.signal).then((result) => { if (active) setData(result); }).catch((cause) => {
+    void clothesRequest<ClothesData>('GET', { date, timezone }, abort.signal).then((result) => { if (active) { setData(result); setLoadedDate(date); } }).catch((cause) => {
       if (!active) return;
       if (cause instanceof ClothesError && cause.status === 401) onExpired();
       setError(cause instanceof Error ? cause.message : '读取失败，请重试');
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; abort.abort(); };
   }, [date, timezone, refresh, onExpired]);
-  const context = useMemo(() => data?.context?.date === date ? { ...data.context, timezone } : { ...emptyContext(date, timezone), location: past ? null : dayLocation ?? data?.context?.location ?? null }, [data?.context, date, timezone, dayLocation, past]);
+  const context = useMemo(() => {
+    const saved = loadedDate === date && data?.context?.date === date ? { ...data.context, timezone } : emptyContext(date, timezone);
+    return linkedClothesContext(saved, loadedDate === date ? data?.calendarLocation : undefined);
+  }, [data?.context, data?.calendarLocation, loadedDate, date, timezone]);
   const onContext = useCallback((next: ClothesDayContext) => setData((current) => current && (next.date === date ? { ...current, context: next } : current)), [date]);
   const onRecord = useCallback((record: WearRecord) => setData((current) => {
     if (!current) return current;
@@ -124,9 +132,9 @@ function ClothesApp({ owner, onExpired }: { owner: string; onExpired: () => void
     }}>退出</button></div></header>
     <div className="life-toolbar"><nav className="life-tabs" aria-label="BonClothes"><button aria-pressed={tab === 'today'} onClick={() => setTab('today')}>今日</button><button aria-pressed={tab === 'wardrobe'} onClick={() => setTab('wardrobe')}>衣柜</button><button aria-pressed={tab === 'outfits'} onClick={() => setTab('outfits')}>搭配</button></nav><input className="clothes-date clothes-date-picker" type="date" aria-label="穿搭日期" min="2000-01-01" max="2100-12-31" value={date} onChange={(e) => { if (e.target.value && e.target.validity.valid) setSelectedDate(e.target.value === today ? null : e.target.value); }} /></div>
     {error && <div className="life-error-banner" role="alert">{error}<button onClick={() => refreshData()}>重试</button></div>}
-    {!data ? <div className="clothes-empty" role="status">{loading ? '加载中…' : '暂无数据'}</div>
-      : tab === 'today' ? <Today key={`${date}:${timezone}`} owner={owner} items={data.items} initial={context} records={data.records} outfits={data.outfits ?? []} wearCounts={data.wearCounts} pairCounts={data.pairCounts}
-        tomorrow={tomorrow} past={past} onReviewDay={setSelectedDate} onToggleDay={(location) => { setDayLocation(location); setSelectedDate(date === today ? addTripDays(today, 1) : null); }} onContext={onContext} onOpenWear={openWear} hasWearDraft={hasWearDraft} onExpired={onExpired} onRefresh={() => refreshData()} onWardrobe={() => { setTab('wardrobe'); setEditor(readItemDraft(owner) ?? { item: newItem(), photo: '', mutationId: crypto.randomUUID() }); }} />
+    {!data || loadedDate !== date ? <div className="clothes-empty" role="status">{loading ? '加载中…' : '暂无数据'}</div>
+      : tab === 'today' ? <Today key={`${date}:${timezone}`} owner={owner} items={data.items} initial={context} calendarLocation={data.calendarLocation} records={data.records} outfits={data.outfits ?? []} wearCounts={data.wearCounts} pairCounts={data.pairCounts}
+        tomorrow={tomorrow} past={past} onReviewDay={setSelectedDate} onToggleDay={() => { setSelectedDate(date === today ? addTripDays(today, 1) : null); }} onContext={onContext} onOpenWear={openWear} hasWearDraft={hasWearDraft} onExpired={onExpired} onRefresh={() => refreshData()} onWardrobe={() => { setTab('wardrobe'); setEditor(readItemDraft(owner) ?? { item: newItem(), photo: '', mutationId: crypto.randomUUID() }); }} />
         : tab === 'outfits' ? <SavedOutfits outfits={data.outfits ?? []} items={data.items} context={context.date === today ? context : { ...emptyContext(today, timezone), location: context.location }} onOpenWear={openWear} hasWearDraft={hasWearDraft} />
         : <section aria-label={discarded ? '已丢弃衣物' : '衣柜'}><div className="clothes-wardrobe-toolbar"><div>{discarded && <><button type="button" className="clothes-icon-button" aria-label="返回衣柜" title="返回衣柜" onClick={() => setDiscarded(false)}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m12 5-7 7 7 7M5 12h14" /></svg></button><span className="clothes-archive-label">已丢弃{discardedCount > 0 ? ` · ${discardedCount}` : ''}</span></>}<select aria-label="衣物分类" value={category} onChange={(e) => setCategory(e.target.value)}>{['全部', ...CATEGORIES, '睡衣'].map((value) => <option key={value}>{value}</option>)}</select>{!discarded && <select aria-label="衣物状态" value={status} onChange={(e) => setStatus(e.target.value)}>{['全部状态', '可穿', '收起'].map((value) => <option key={value}>{value}</option>)}</select>}</div>{!discarded && <div><button type="button" className="clothes-icon-button" aria-label={`查看已丢弃衣物（${discardedCount} 件）`} title={`已丢弃（${discardedCount} 件）`} onClick={() => setDiscarded(true)}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6" /></svg></button><button className="life-primary" onClick={() => {
           const draft = readItemDraft(owner); setEditor(draft ?? { item: newItem(), photo: '', mutationId: crypto.randomUUID() });

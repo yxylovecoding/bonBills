@@ -1,3 +1,7 @@
+import { useCalendarWeather } from '../hooks/useCalendarWeather';
+import { dailyWeatherLabel, weatherSymbol } from '../utils/weather';
+import { cityLabel } from '../utils/sceneCities';
+import { APP_LINKS } from '../utils/apps';
 import InternshipDayEditor from '../components/InternshipDayEditor';
 import { resolveDailyContext } from '../utils/internship';
 import { useLifeCalendar } from '../hooks/useLifeCalendar';
@@ -3117,6 +3121,7 @@ export default function CalendarPage() {
     [internship, tagMap, year, month, holidayDataByYear, legacyCutoffPreference],
   );
 
+  const calendarWeather = useCalendarWeather(yearMonth, syncReady && tab === 'month');
   const cells = useMemo(() => {
     const arr: { key: string; day: number | null }[] = [];
     for (let i = 0; i < firstDayWeekIdx; i++) arr.push({ key: `empty-${i}`, day: null });
@@ -4021,6 +4026,8 @@ export default function CalendarPage() {
                 let borderStyle = 'none';
                 if (isToday || isRangeStart || isSelectedDay) borderStyle = `2px solid ${C.blue}`;
                 else if (inPreview) borderStyle = `1.5px dashed ${C.blue}`;
+                const weatherEntries = calendarWeather.days[cell.key] ?? [];
+                const weatherTitle = weatherEntries.map(({ location, weather, stale }) => `${cityLabel(location)} · ${weather ? dailyWeatherLabel(weather) : '暂无天气'}${stale ? '（待更新）' : ''}`).join('；');
                 const connect = tripConnect[cell.key];
                 const travelColor = tagMeta.travel.color;
                 const backgroundColor = displayMeta
@@ -4051,14 +4058,19 @@ export default function CalendarPage() {
                   <button key={cell.key}
                     onClick={() => handleCellClick(cell.key)}
                     onMouseEnter={() => { if (selectMode === 'range' && rangeStart) setRangeHover(cell.key); }}
-                    aria-label={`${cell.key}${holidayMarker ? `，${holiday?.name ?? '法定节假日'}，${holidayMarker === '休' ? '休假' : '调休上班'}` : ''}`}
-                    title={holidayMarker ? `${holiday?.name ?? '法定节假日'} · ${holidayMarker === '休' ? '休假' : '调休上班'}` : undefined}
+                    aria-label={`${cell.key}${weatherTitle ? `，${weatherTitle}` : ''}${holidayMarker ? `，${holiday?.name ?? '法定节假日'}，${holidayMarker === '休' ? '休假' : '调休上班'}` : ''}`}
+                    title={[holidayMarker ? `${holiday?.name ?? '法定节假日'} · ${holidayMarker === '休' ? '休假' : '调休上班'}` : '', weatherTitle].filter(Boolean).join('；') || undefined}
                     style={{ aspectRatio: '1', fontSize: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: borderStyle, backgroundColor, color: textColor, cursor: 'pointer', fontWeight: 500, transition: 'all 0.1s', outline: 'none', position: 'relative', ...radiusStyle }}
                   >
                     {connect?.right && (
                       <span style={{ position: 'absolute', right: -5, top: 0, bottom: 0, width: 5, backgroundColor: `${travelColor}20`, pointerEvents: 'none', zIndex: 1 }} />
                     )}
-                    {cell.day}
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                      {cell.day}
+                      <span aria-hidden="true" style={{ display: 'inline-flex', fontSize: 11, lineHeight: 1, opacity: weatherEntries.some((entry) => entry.stale) ? .5 : 1 }}>
+                        {weatherEntries.slice(0, 2).map((entry, index) => <span key={index}>{weatherSymbol(entry.weather?.code)?.icon}</span>)}
+                      </span>
+                    </span>
                     {resolveDailyContext(cell.key, tagMap[cell.key], internship).period && <span style={{ fontSize: 8 }}>{resolveDailyContext(cell.key, tagMap[cell.key], internship).label}</span>}
                     {displayMeta && <span style={{ fontSize: 8, marginTop: 1 }}>{displayMeta.icon}</span>}
                     {(isPayrollCutoff || holidayMarker) && (
@@ -4075,6 +4087,10 @@ export default function CalendarPage() {
                   </button>
                 );
               })}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, alignItems: 'center', marginTop: 6, fontSize: 10, color: C.sub }}>
+                {calendarWeather.error && <button type="button" disabled={calendarWeather.busy} onClick={calendarWeather.refresh} style={{ border: 0, background: 'none', color: C.sub, cursor: 'pointer', fontSize: 10 }}>天气重试</button>}
+                <a href="https://open-meteo.com/" target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>Open-Meteo</a>
               </div>
             </Card>
           </div>
@@ -4117,6 +4133,10 @@ export default function CalendarPage() {
             });
             return (
               <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12, color: C.sub, margin: '12px 0' }}>
+                <span>{(calendarWeather.days[selectedDay] ?? []).map(({ location, weather, stale }) => `${cityLabel(location)} ${weather ? `${weatherSymbol(weather.code)?.icon ?? ''} ${dailyWeatherLabel(weather)}` : '暂无天气'}${stale ? '（待更新）' : ''}`).join('；')}</span>
+                <a href={`${APP_LINKS.clothes.url}?date=${selectedDay}`} style={{ color: C.blue }}>当天穿搭 ↗</a>
+              </div>
               <InternshipDayEditor date={selectedDay} />
               <DayDetailPanel
                 date={selectedDay}

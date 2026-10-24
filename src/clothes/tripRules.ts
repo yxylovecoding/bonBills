@@ -1,3 +1,4 @@
+import { tripDestinationQueries } from '../utils/tripDestinations.js';
 import { detectAllTrips } from '../utils/trips.js';
 import { getTripDisplayTitle, isCalendarDate } from '../utils/outlookCalendar.js';
 import { calendarDestinations, deviceDate, emptyContext, inferActivities } from './rules.js';
@@ -25,12 +26,13 @@ export function buildClothesTrips(calendar: Record<string, unknown>, settings: R
     .map((trip) => {
       const dates = trip.dates.slice(0, 366);
       const matches = events.filter((event) => dates.some((date) => tripEventsOnDate([event], date, timezone).length));
-      return { id: `trip:${trip.startDate}`, title: getTripDisplayTitle(names?.[trip.startDate], dates, titles ?? {}) || '出游',
-        startDate: trip.startDate, endDate: trip.endDate, dates, destinations: calendarDestinations(matches), events: matches };
+      const title = getTripDisplayTitle(names?.[trip.startDate], dates, titles ?? {}) || '出游';
+      return { id: `trip:${trip.startDate}`, title,
+        startDate: trip.startDate, endDate: trip.endDate, dates, destinations: [...new Set([...tripDestinationQueries(title), ...calendarDestinations(matches)])].slice(0, 6), events: matches };
     });
 }
 export function newTripPlan(trip: ClothesTrip): ClothesTripPlan {
-  return { tripId: trip.id, revision: '', title: trip.title, startDate: trip.startDate, endDate: trip.endDate, location: null, days: {} };
+  return { tripId: trip.id, revision: '', title: trip.title, startDate: trip.startDate, endDate: trip.endDate, location: trip.locations?.length === 1 ? trip.locations[0] : null, days: {} };
 }
 export function tripDayContext(trip: ClothesTrip, plan: ClothesTripPlan, date: string, timezone: string): ClothesDayContext {
   const inferred = inferActivities(tripEventsOnDate(trip.events, date, timezone));

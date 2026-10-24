@@ -33,6 +33,7 @@ export interface WeatherSnapshot {
   date: string; timezone: string; latitude: number; longitude: number; fetchedAt: string;
   temperature: number; apparent: number; min: number; max: number; apparentMin: number;
   precipitation: number; wind: number;
+  code?: number;
   periodTemperatures?: Partial<Record<DayPeriod, number>>;
 }
 export interface ClothesEvent { title: string; location?: string; startDate: string; endDate: string; allDay: boolean }
@@ -65,9 +66,10 @@ export interface WearRecord {
 }
 export interface Outfit { items: ClothesItem[]; missing: string[]; key: string }
 export type PairCounts = Record<string, Record<string, number>>;
-export interface ClothesData { photoStorage?: 'redis' | 'r2'; items: ClothesItem[]; context: ClothesDayContext | null; records: WearRecord[]; outfits?: WearRecord[]; wearCounts?: Record<string, number>; pairCounts?: PairCounts }
+export interface ClothesData { calendarLocation?: import('../utils/calendarWeather.js').CalendarLocationDay; photoStorage?: 'redis' | 'r2'; items: ClothesItem[]; context: ClothesDayContext | null; records: WearRecord[]; outfits?: WearRecord[]; wearCounts?: Record<string, number>; pairCounts?: PairCounts }
 export interface ClothesTrip {
   id: string; title: string; startDate: string; endDate: string; dates: string[];
+  locations?: ClothesLocation[];
   destinations: string[]; events: ClothesEvent[]; archived?: boolean;
 }
 export interface TripDayPlan { purpose?: Purpose | null; scene: Scene | null; active: boolean | null; itemIds: string[] | null; itemCategories?: Record<string, Category> }

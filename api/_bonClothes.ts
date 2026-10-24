@@ -1,4 +1,6 @@
 import { kv } from './_accountKv.js';
+import { upstream } from './_weatherClient.js';
+export { upstream } from './_weatherClient.js';
 import { createHash } from 'node:crypto';
 import { decryptOutlookConnection, fetchCalendar, parseOutlookCalendar } from './_outlookCalendar.js';
 import { OUTLOOK_CONNECTION_KEY, type OutlookConnection } from './_outlookSync.js';
@@ -40,11 +42,6 @@ redis.call('SET', KEYS[2], cjson.encode({signature=ARGV[7], value=cjson.decode(A
 return {1, ARGV[4]}
 `;
 
-export async function upstream(url: URL) {
-  const result = await fetch(url, { signal: AbortSignal.timeout(12000), redirect: 'error' });
-  if (!result.ok) throw new Error('天气服务暂不可用');
-  return result.json();
-}
 export async function searchCities(query: string): Promise<ClothesLocation[]> {
   const url = new URL('https://geocoding-api.open-meteo.com/v1/search');
   url.search = new URLSearchParams({ name: query, count: '10', language: 'zh', format: 'json' }).toString();
@@ -69,7 +66,7 @@ export async function readWeather(location: ClothesLocation, date: string, timez
     url.search = new URLSearchParams({ latitude: String(latitude), longitude: String(longitude), timezone,
       current: 'temperature_2m,apparent_temperature,precipitation,wind_speed_10m',
       hourly: 'temperature_2m',
-      daily: 'temperature_2m_min,temperature_2m_max,apparent_temperature_min,precipitation_sum,wind_speed_10m_max',
+      daily: 'temperature_2m_min,temperature_2m_max,apparent_temperature_min,precipitation_sum,wind_speed_10m_max,weather_code',
       start_date: date, end_date: date }).toString();
     const data = await upstream(url);
     const current = data.current, daily = data.daily;
@@ -92,6 +89,7 @@ export async function readWeather(location: ClothesLocation, date: string, timez
     })) as Partial<Record<DayPeriod, number>>;
     const weather: WeatherSnapshot = { date, timezone, latitude, longitude, fetchedAt: new Date().toISOString(),
       temperature, apparent, min, max, apparentMin, precipitation, wind,
+      ...(typeof daily.weather_code?.[0] === 'number' ? { code: daily.weather_code[0] } : {}),
       ...(Object.keys(periodTemperatures).length ? { periodTemperatures } : {}) };
     // Keep the observed day's weather for later reviews; never relabel live weather as a past day.
     await kv.set(key, weather);

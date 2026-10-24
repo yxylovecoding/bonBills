@@ -4,9 +4,10 @@ import { decryptOutlookConnection, fetchCalendar, parseOutlookCalendar } from '.
 import { applyOutlookSnapshotToState, buildOutlookSnapshot } from '../src/utils/outlookCalendar.js';
 import { addTripDays, buildClothesTrips, tripDates } from '../src/clothes/tripRules.js';
 import { deviceDate } from '../src/clothes/rules.js';
-import { CATEGORIES, MAX_OUTFIT_ITEMS, PURPOSES, SCENES, categoryLabel, type ClothesEvent, type ClothesLocation, type ClothesTripPlan, type ClothesTripsData, type TripForecast, type WeatherSnapshot } from '../src/clothes/types.js';
+import { CATEGORIES, MAX_OUTFIT_ITEMS, PURPOSES, SCENES, categoryLabel, type ClothesEvent, type ClothesLocation, type ClothesTripPlan, type ClothesTripsData, type TripForecast } from '../src/clothes/types.js';
 import { dateInput, id, locationInput, requireInput } from './_clothesValidation.js';
-import { upstream } from './_bonClothes.js';
+import { readDailyWeather } from './_dailyWeather.js';
+import { resolveDestination } from './_calendarWeather.js';
 
 export const TRIP_PLANS_KEY = 'bonclothes:trip-plans:v1';
 export async function readClothesTrips(today: string, timezone: string): Promise<ClothesTripsData> {
@@ -33,36 +34,17 @@ export async function readClothesTrips(today: string, timezone: string): Promise
     trips.push({ id: plan.tripId, title: plan.title, startDate: plan.startDate, endDate: plan.endDate,
       dates: tripDates(plan.startDate, plan.endDate), destinations: [], events: [], archived: true });
   }
+  await Promise.all(trips.map(async (trip) => {
+    trip.locations = (await Promise.all(trip.destinations.map((name) => resolveDestination(name).catch(() => null))))
+      .filter((city): city is ClothesLocation => !!city);
+  }));
   return { trips: trips.sort((a, b) => a.startDate.localeCompare(b.startDate)), plans, connected: Boolean(connection), calendarError };
 }
 
 export async function readTripForecast(location: ClothesLocation, start: string, end: string, timezone: string): Promise<TripForecast> {
   requireInput(start <= end && Date.parse(end) - Date.parse(start) < 366 * 86400000, '行程日期无效');
-  const today = deviceDate(new Date(), timezone), last = addTripDays(today, 15);
-  const from = start > today ? start : today, to = end < last ? end : last;
-  if (from > to) return { days: {}, stale: false };
-  const latitude = Number(location.latitude.toFixed(3)), longitude = Number(location.longitude.toFixed(3));
-  const key = `bonclothes:forecast:v1:${latitude}:${longitude}:${from}:${to}:${timezone}`;
-  const saved = await kv.get<TripForecast>(key);
-  if (saved?.fetchedAt && Date.now() - Date.parse(saved.fetchedAt) < 30 * 60000) return saved;
-  try {
-    const url = new URL('https://api.open-meteo.com/v1/forecast');
-    url.search = new URLSearchParams({ latitude: String(latitude), longitude: String(longitude), timezone,
-      daily: 'temperature_2m_min,temperature_2m_max,apparent_temperature_min,apparent_temperature_max,precipitation_sum,wind_speed_10m_max',
-      start_date: from, end_date: to }).toString();
-    const data = await upstream(url), daily = data.daily;
-    const fetchedAt = new Date().toISOString(), days: Record<string, WeatherSnapshot> = {};
-    for (const date of tripDates(from, to)) {
-      const index = daily?.time?.indexOf(date) ?? -1;
-      const fields = ['temperature_2m_min', 'temperature_2m_max', 'apparent_temperature_min', 'apparent_temperature_max', 'precipitation_sum', 'wind_speed_10m_max'].map((key) => daily?.[key]?.[index]);
-      if (index < 0 || !fields.every((value) => typeof value === 'number' && Number.isFinite(value))) throw new Error();
-      const [min, max, apparentMin, apparent, precipitation, wind] = fields;
-      days[date] = { date, timezone, latitude, longitude, fetchedAt, temperature: max, apparent, apparentMin, min, max, precipitation, wind };
-    }
-    const result = { days, fetchedAt, stale: false };
-    await kv.set(key, result, { ex: 7 * 86400 });
-    return result;
-  } catch { return { days: saved?.days ?? {}, fetchedAt: saved?.fetchedAt, stale: true, error: '预报更新失败' }; }
+  const today = deviceDate(new Date(), timezone);
+  return readDailyWeather(location, start > today ? start : today, end, timezone);
 }
 
 export function tripPlanInput(value: unknown): ClothesTripPlan {

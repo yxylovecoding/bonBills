@@ -14,6 +14,8 @@ import { itemCategories, wearAs, outfitPairCounts } from '../src/clothes/pairing
 import { calibratedItems } from '../src/clothes/thermalLearning.js';
 import { itemWarmth, normalizeItem, wearable } from '../src/clothes/warmth.js';
 import { TRIP_PLANS_KEY, readClothesTrips, readTripForecast, tripPlanInput } from './_clothesTrips.js';
+import { readCalendarLocations, readCalendarWeather } from './_calendarWeather.js';
+import { readDailyWeather } from './_dailyWeather.js';
 import { deviceDate, totalWearCounts } from '../src/clothes/rules.js';
 
 async function readWearPage(date: string, mode: 'history' | 'day'): Promise<WearRecord[]> {
@@ -56,6 +58,11 @@ async function handler(req: VercelRequest, res: VercelResponse) {
         return privateJson(req, res, { cities: await searchCities(req.query.q.trim()) });
       }
       const date = dateInput(req.query.date);
+      if (req.query.view === 'calendar-weather') {
+        const end = dateInput(req.query.endDate);
+        requireInput(date <= end && Date.parse(end) - Date.parse(date) < 31 * 86400000, '天气日期无效');
+        return privateJson(req, res, await readCalendarWeather(date, end));
+      }
       if (req.query.view === 'trips') return privateJson(req, res, await readClothesTrips(date, timezoneInput(req.query.timezone)));
       if (req.query.view === 'forecast') {
         const location = locationInput({ name: '行程目的地', latitude: Number(req.query.latitude), longitude: Number(req.query.longitude), source: 'manual' });
@@ -76,6 +83,10 @@ async function handler(req: VercelRequest, res: VercelResponse) {
             && Math.abs(record.weather.latitude - location!.latitude) < .1 && Math.abs(record.weather.longitude - location!.longitude) < .1)
             .sort((a, b) => b.confirmedAt.localeCompare(a.confirmedAt))[0]?.weather ?? null;
         }
+        if (date < deviceDate(new Date(), timezone) && !result.weather) {
+          const history = await readDailyWeather(location!, date, date, timezone);
+          return privateJson(req, res, { weather: history.days[date] ?? null, stale: history.stale, error: history.error });
+        }
         return privateJson(req, res, result);
       }
       if (req.query.view === 'history') return privateJson(req, res, { records: await readWearPage(date, 'history') });
@@ -86,9 +97,9 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       // Paginate whole dates so a busy day is never split or silently skipped.
       const dates = [...new Set(worn.map((record) => record.date))].slice(0, 30);
       const records = worn.filter((record) => dates.includes(record.date));
-      const [items, context] = await Promise.all([kv.hgetall<Record<string, ClothesItem>>(ITEMS_KEY), kv.hget<ClothesDayContext>(CONTEXTS_KEY, date)]);
+      const [items, context, locations] = await Promise.all([kv.hgetall<Record<string, ClothesItem>>(ITEMS_KEY), kv.hget<ClothesDayContext>(CONTEXTS_KEY, date), readCalendarLocations(date, date)]);
       const learningTimezone = timezoneInput(req.query.timezone ?? context?.timezone ?? 'Asia/Shanghai');
-      return privateJson(req, res, { photoStorage: r2Enabled() ? 'r2' : 'redis', items: calibratedItems(Object.values(items ?? {}).filter((item) => !item.deleted).map(normalizeItem), allRecords, deviceDate(new Date(), learningTimezone)), context: context ?? allRecords.find((record) => record.date === date)?.context ?? null, records, outfits, wearCounts: totalWearCounts(worn), pairCounts: outfitPairCounts(allRecords) });
+      return privateJson(req, res, { photoStorage: r2Enabled() ? 'r2' : 'redis', calendarLocation: locations[date], items: calibratedItems(Object.values(items ?? {}).filter((item) => !item.deleted).map(normalizeItem), allRecords, deviceDate(new Date(), learningTimezone)), context: context ?? allRecords.find((record) => record.date === date)?.context ?? null, records, outfits, wearCounts: totalWearCounts(worn), pairCounts: outfitPairCounts(allRecords) });
     }
     if (req.method !== 'POST') return res.status(405).json({ error: '请求方式无效' });
     let body: Record<string, any>;
@@ -205,12 +216,13 @@ async function handler(req: VercelRequest, res: VercelResponse) {
           && ['temperature', 'apparent', 'min', 'max', 'apparentMin', 'precipitation', 'wind', 'latitude', 'longitude']
             .every((key) => typeof w[key as keyof WeatherSnapshot] === 'number' && Number.isFinite(w[key as keyof WeatherSnapshot]))
           && typeof w.fetchedAt === 'string' && w.fetchedAt.length <= 40, '天气快照无效');
+        requireInput(w.code === undefined || (typeof w.code === 'number' && Number.isInteger(w.code) && w.code >= 0 && w.code <= 99), '天气代码无效');
         const periodTemperatures = w.periodTemperatures;
         requireInput(periodTemperatures === undefined || (periodTemperatures && typeof periodTemperatures === 'object'
           && Object.entries(periodTemperatures).every(([period, temperature]) => ['早晨', '上午', '中午', '下午', '晚上'].includes(period)
             && typeof temperature === 'number' && Number.isFinite(temperature))), '天气快照无效');
         weather = { ...Object.fromEntries(['date', 'timezone', 'latitude', 'longitude', 'fetchedAt', 'temperature', 'apparent', 'min', 'max', 'apparentMin', 'precipitation', 'wind'].map((key) => [key, w[key as keyof WeatherSnapshot]])),
-          ...(periodTemperatures ? { periodTemperatures } : {}) } as unknown as WeatherSnapshot;
+          ...(w.code !== undefined ? { code: w.code } : {}), ...(periodTemperatures ? { periodTemperatures } : {}) } as unknown as WeatherSnapshot;
       }
       const indoorTemperature = body.indoorTemperature === undefined ? previous?.indoorTemperature : body.indoorTemperature === null ? null : numberInput(body.indoorTemperature, -60, 60);
       const feelings = body.feelings === undefined ? previous?.feelings : feelingsInput(body.feelings);

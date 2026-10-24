@@ -175,7 +175,7 @@ describe('衣柜与实际穿搭接口', () => {
     let payload: any;
     const response = { status() { return this; }, setHeader() {}, json(value: unknown) { payload = value; return this; } };
     await dispatcher({ method: 'GET', headers: {}, query: { app: 'bonclothes', date: context.date } } as unknown as VercelRequest, response as unknown as VercelResponse);
-    expect(payload).toEqual({ photoStorage: 'redis', items: [], context: null, records: [], outfits: [], wearCounts: {}, pairCounts: {} });
+    expect(payload).toEqual({ calendarLocation: { locations: [], travel: false, scene: undefined, active: undefined }, photoStorage: 'redis', items: [], context: null, records: [], outfits: [], wearCounts: {}, pairCounts: {} });
   });
   it('未登录和跨站请求不可读照片或修改，方法受限', async () => {
     auth.mockResolvedValue(false); expect((await call('GET', { view: 'photo', id: item.photoId })).status).toBe(401);
@@ -552,7 +552,7 @@ describe('天气、Outlook 和设备时区', () => {
     const result = await call('GET', { view: 'weather', date: '2026-10-06', timezone: 'Asia/Shanghai', latitude: '30', longitude: '120' });
     expect(result.status).toBe(200);
     expect(result.body.weather).toMatchObject({ date: '2026-10-06', temperature: 21, min: 12, max: 21, apparentMin: 10, precipitation: 2 });
-    expect(String(fetchMock.mock.calls[0][0])).toContain('start_date=2026-10-06');
+    expect(String(fetchMock.mock.calls[0][0])).toContain('forecast_days=16');
     expect(String(fetchMock.mock.calls[0][0])).not.toContain('current=');
   });
   it('明日条件和成套搭配独立保存，不覆盖今天记录', async () => {
@@ -589,7 +589,7 @@ describe('天气、Outlook 和设备时区', () => {
     const stale = await readWeather(city, context.date, context.timezone); expect(stale.stale).toBe(true); expect(stale.weather).toEqual(first.weather);
     const missing = await readWeather({ ...city, latitude: 40 }, context.date, context.timezone); expect(missing.weather).toBeNull();
   });
-  it('历史天气只读取保存值或当时穿搭快照，缺失时不请求当前实况', async () => {
+  it('历史天气优先保存值和穿搭快照，缺失时只查询逐日历史', async () => {
     vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-06T12:00:00Z'));
     const fetch = vi.fn(); vi.stubGlobal('fetch', fetch);
     const weather = { date: context.date, timezone: context.timezone, latitude: 30, longitude: 120, fetchedAt: '2026-10-05T10:00:00Z', temperature: 18, apparent: 17, min: 12, max: 20, apparentMin: 10, wind: 10, precipitation: 0 };
@@ -599,7 +599,9 @@ describe('天气、Outlook 和设备时区', () => {
     expect((await call('GET', query)).body.weather).toEqual(weather);
     data.set('bonclothes:weather:v1:30:120:2026-10-05:Asia/Shanghai', { ...weather, temperature: 19 });
     expect((await call('GET', query)).body.weather.temperature).toBe(19);
-    expect(fetch).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(String(fetch.mock.calls[0][0])).toContain('past_days=5');
+    expect(String(fetch.mock.calls[0][0])).not.toContain('current=');
   });
   it('未连接日历返回独立状态，不覆盖手填条件', async () => {
     hashes.set(CONTEXTS_KEY, { [context.date]: context });
@@ -649,7 +651,7 @@ describe('出行预报与计划接口', () => {
     vi.stubGlobal('fetch', fetchMock);
     const first = await readTripForecast(city, '2026-10-19', '2026-10-25', city.timezone);
     expect(Object.keys(first.days)).toEqual(['2026-10-19', '2026-10-20']); expect(first.days['2026-10-19'].temperature).toBe(20);
-    const url = String(fetchMock.mock.calls[0][0]); expect(url).toContain('end_date=2026-10-20'); expect(url).not.toContain('current=');
+    const url = String(fetchMock.mock.calls[0][0]); expect(url).toContain('forecast_days=16'); expect(url).not.toContain('current=');
     await readTripForecast(city, '2026-10-19', '2026-10-25', city.timezone); expect(fetchMock).toHaveBeenCalledTimes(1);
     expect((await readTripForecast(city, '2026-11-01', '2026-11-03', city.timezone)).days).toEqual({}); expect(fetchMock).toHaveBeenCalledTimes(1);
     vi.setSystemTime(new Date('2026-10-05T01:31:00Z')); fetchMock.mockRejectedValue(new Error('offline'));

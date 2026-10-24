@@ -46,7 +46,7 @@ function TripEditor({ trip, saved, owner, date: today, timezone, items, records,
   const [index, setIndex] = useState(0), [selection, setSelection] = useState<Outfit | null>(null), [replace, setReplace] = useState<string | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [conflict, setConflict] = useState<string | null>(null);
   const latest = useRef(draft); latest.current = draft;
-  const location = plan.location, forecastTimezone = location?.timezone ?? timezone;
+  const location = plan.location ?? (trip.locations?.length === 1 ? trip.locations[0] : null), forecastTimezone = location?.timezone ?? timezone;
   useEffect(() => {
     if (!location) return;
     let active = true; const abort = new AbortController();
@@ -65,7 +65,7 @@ function TripEditor({ trip, saved, owner, date: today, timezone, items, records,
     const timer = window.setInterval(refresh, 30 * 60000); window.addEventListener('focus', refresh);
     return () => { clearInterval(timer); window.removeEventListener('focus', refresh); };
   }, []);
-  const context = useMemo(() => tripDayContext(trip, plan, date, timezone), [trip, plan, date, timezone]);
+  const context = useMemo(() => tripDayContext(trip, { ...plan, location }, date, timezone), [trip, plan, location, date, timezone]);
   const weather = forecast.days[date] ?? null;
   const candidates = useMemo(() => context.purpose ? recommend(items, context, weather, records, wearCounts) : [], [items, context, weather, records, wearCounts]);
   const selectedIds = plan.days[date]?.itemIds;
@@ -107,6 +107,7 @@ function TripEditor({ trip, saved, owner, date: today, timezone, items, records,
     {(trip.archived || datesChanged) && <div className="clothes-status">行程已变更{datesChanged && <button onClick={() => change({ ...plan, title: trip.title, startDate: trip.startDate, endDate: trip.endDate, days: Object.fromEntries(Object.entries(plan.days).filter(([date]) => trip.dates.includes(date))) })}>更新日期</button>}</div>}
     <fieldset disabled={busy}>
       <div className="clothes-row"><span className="clothes-label">目的地</span><button onClick={() => setCity('')}>{location?.name ?? '选择城市'} ⌄</button></div>
+      {(trip.locations?.length ?? 0) > 1 && <div className="clothes-destinations">{trip.locations!.map((city) => <button key={`${city.latitude}:${city.longitude}`} onClick={() => change({ ...plan, location: { ...city, source: 'manual' } })}>{city.name}</button>)}</div>}
       {trip.destinations.length > 0 && <div className="clothes-destinations">{trip.destinations.map((destination) => <button key={destination} onClick={() => setCity(destination)}>{destination}</button>)}</div>}
       <label className="clothes-trip-select">日期<select aria-label="出行日期" value={date} onChange={(e) => { setDate(e.target.value); setSelection(null); setIndex(0); setReplace(null); }}>{trip.dates.map((day) => <option key={day} value={day}>{day}{plan.days[day]?.itemIds ? ' · 已选穿搭' : ''}</option>)}</select></label>
       <div className="clothes-weather">{weather ? <><strong>{Math.round(weather.min)}–{Math.round(weather.max)}°</strong><div><span>体感 {Math.round(weather.apparentMin)}–{Math.round(weather.apparent)}°</span><span>{weather.precipitation > 0 ? `降水 ${weather.precipitation} mm` : '无雨'} · 风 {Math.round(weather.wind)} km/h</span></div></> : <span className="clothes-muted">{forecastBusy ? '预报加载中…' : !location ? '请选择目的地' : forecast.error ? '暂无预报' : '待预报'}</span>}<a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a></div>

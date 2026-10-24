@@ -27,10 +27,10 @@ export function readWearDraftAt(key: string) {
   return draft?.id && draft.context?.date && Array.isArray(draft.items) ? { ...draft, feelings: draft.feelings ?? recordFeelings({ ...draft, purpose: draft.purpose || undefined, date: draft.context.date, confirmedAt: '' }), kind: draft.kind ?? 'worn', indoorCoat: draft.indoorCoat ?? false } : null;
 }
 export function createWearDraft(context: ClothesDayContext, weather: WeatherSnapshot | null, items: ClothesItem[] = [], record?: WearRecord): WearDraft {
-  return { indoorTemperature: record?.indoorTemperature !== undefined ? record.indoorTemperature : record?.context.indoorTemperature ?? context.indoorTemperature ?? null, feelings: record ? recordFeelings(record) : {}, kind: record ? record.kind ?? 'worn' : context.date > deviceDate(new Date(), context.timezone) ? 'styled' : 'worn', id: record ? wearId(record) : crypto.randomUUID(), revision: record?.revision ?? '', items: record?.items ?? items,
+  return { indoorTemperature: record?.indoorTemperature !== undefined ? record.indoorTemperature : (record ? record.context.indoorTemperature : context.indoorTemperature) ?? null, feelings: record ? recordFeelings(record) : {}, kind: record ? record.kind ?? 'worn' : context.date > deviceDate(new Date(), context.timezone) ? 'styled' : 'worn', id: record ? wearId(record) : crypto.randomUUID(), revision: record?.revision ?? '', items: record?.items ?? items,
     purpose: record?.purpose ?? context.purpose ?? '', indoor: record?.indoor ?? null, outdoor: record?.outdoor ?? null, indoorCoat: record?.indoorCoat ?? false,
     time: record?.time ?? new Date().toTimeString().slice(0, 5), context: record?.context ?? context,
-    weather: record?.weather ?? weather, mutationId: crypto.randomUUID() };
+    weather: record ? record.weather : weather, mutationId: crypto.randomUUID() };
 }
 export default function WearEditor({ initial, storageKey, items, pairCounts, onSaved, onClose, onExpired, onRefresh }: {
   initial: WearDraft; storageKey: string; items: ClothesItem[]; pairCounts: PairCounts; onSaved: (record: WearRecord) => void;

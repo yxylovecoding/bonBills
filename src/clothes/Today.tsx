@@ -1,3 +1,6 @@
+import { linkedClothesContext } from './calendarContext';
+import type { CalendarLocationDay } from '../utils/calendarWeather';
+import { dailyWeatherLabel, weatherSymbol } from '../utils/weather';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ClothesCalendar, ClothesDayContext, ClothesItem, ClothesLocation, Outfit, PairCounts, WearRecord, WeatherSnapshot } from './types';
 import { SCENES, PURPOSES, PURPOSE_LABELS, wearId, type Purpose, type Category, categoryLabel } from './types';
@@ -17,23 +20,24 @@ import PiecePicker from './PiecePicker';
 
 interface WeatherResult { weather: WeatherSnapshot | null; stale: boolean; error?: string }
 interface Props {
+  calendarLocation?: CalendarLocationDay;
   owner: string; items: ClothesItem[]; initial: ClothesDayContext; records: WearRecord[]; outfits: WearRecord[];
   tomorrow: boolean; past: boolean; onReviewDay: (date: string) => void; onToggleDay: (location: ClothesLocation | null) => void;
   wearCounts?: Record<string, number>; pairCounts?: PairCounts;
   onContext: (context: ClothesDayContext) => void; onOpenWear: (draft: WearDraft) => void; hasWearDraft: boolean; onExpired: () => void;
   onRefresh: () => void; onWardrobe: () => void;
 }
-export default function Today({ owner, items, initial, records, outfits, tomorrow, past, onReviewDay, onToggleDay, wearCounts, pairCounts, onContext, onOpenWear, hasWearDraft, onExpired, onRefresh, onWardrobe }: Props) {
+export default function Today({ calendarLocation, owner, items, initial, records, outfits, tomorrow, past, onReviewDay, onToggleDay, wearCounts, pairCounts, onContext, onOpenWear, hasWearDraft, onExpired, onRefresh, onWardrobe }: Props) {
   const storageKey = `bonclothes:context-draft:${owner}:${initial.date}`;
   const lastCityKey = `bonclothes:last-city:${owner}`;
   const preferenceKey = `bonclothes:location-choice:${owner}`;
   const preferred = useMemo(() => {
     const choice = readLocal<ClothesLocation | null>(preferenceKey, null);
-    const context = !past && !initial.location && choice && choice.source !== 'geo' ? { ...initial, location: choice } : initial;
+    const context = !calendarLocation?.travel && !past && !initial.location && choice && choice.source !== 'geo' ? { ...initial, location: choice } : initial;
     const location = context.location;
     const beijing = location && (location.name.includes('北京') || (location.latitude >= 39.4 && location.latitude <= 41.1 && location.longitude >= 115.4 && location.longitude <= 117.6));
     return !past && context.indoorTemperature === undefined && beijing ? { ...context, indoorTemperature: 25 } : context;
-  }, [initial, preferenceKey, past]);
+  }, [initial, preferenceKey, past, calendarLocation?.travel]);
   const sync = useContextAutosave(storageKey, preferred);
   const { context, queue } = sync;
   const [calendar, setCalendar] = useState<ClothesCalendar | null>(null), [calendarError, setCalendarError] = useState('');
@@ -49,10 +53,11 @@ export default function Today({ owner, items, initial, records, outfits, tomorro
   const [fixed, setFixed] = useState<ClothesItem[]>([]), [index, setIndex] = useState(0), [replace, setReplace] = useState<string | null>(null), [adding, setAdding] = useState<Category | null>(null);
   const [history, setHistory] = useState(false), [older, setOlder] = useState<WearRecord[]>([]), [moreHistory, setMoreHistory] = useState(true);
   const calendarRequest = useRef(0), geoRequest = useRef(0);
-  const contextRef = useRef(context); contextRef.current = context;
+  const linked = useMemo(() => linkedClothesContext(context, calendarLocation), [context, calendarLocation]);
+  const contextRef = useRef(linked); contextRef.current = linked;
   const todayRecords = [...records, ...outfits].filter((record) => record.date === initial.date).sort((a, b) => (a.time ?? '').localeCompare(b.time ?? '') || a.confirmedAt.localeCompare(b.confirmedAt));
-  const location = chooseLocation(context.location, located, lastCity);
-  const effective = useMemo(() => ({ ...effectiveContext(context, calendar), location }), [context, calendar, location]);
+  const location = chooseLocation(linked.location, located, past || calendarLocation?.travel ? null : lastCity);
+  const effective = useMemo(() => ({ ...effectiveContext(linked, calendar), location, timezone: location?.timezone ?? linked.timezone }), [linked, calendar, location]);
   const weather = weatherState.weather;
   const pairs = useMemo(() => pairCounts ?? outfitPairCounts([...records, ...outfits]), [pairCounts, records, outfits]);
   const candidates = useMemo(() => effective.purpose ? recommend(items, effective, weather, [...records, ...outfits], wearCounts, { fixedItems: fixed, pairCounts: pairs }) : [], [items, effective, weather, records, outfits, wearCounts, fixed, pairs]);
@@ -105,7 +110,7 @@ export default function Today({ owner, items, initial, records, outfits, tomorro
     }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
   }, [queue, preferenceKey]);
   useEffect(() => {
-    if (past) return;
+    if (past || calendarLocation?.travel) return;
     let active = true;
     let attempted = false;
     const auto = async () => {
@@ -118,17 +123,17 @@ export default function Today({ owner, items, initial, records, outfits, tomorro
     };
     void auto(); window.addEventListener('focus', auto);
     return () => { active = false; geoRequest.current++; window.removeEventListener('focus', auto); };
-  }, [locate, past]);
+  }, [locate, past, calendarLocation?.travel]);
   useEffect(() => {
     if (!location) { setWeatherState({ weather: null, stale: false }); return; }
     const abort = new AbortController(); let active = true;
     // Never show weather from the previous destination while a request is pending.
-    setWeatherState((value) => value.weather && Math.abs(value.weather.latitude - location.latitude) < .001
+    setWeatherState((value) => value.weather && value.weather.date === initial.date && value.weather.timezone === effective.timezone && Math.abs(value.weather.latitude - location.latitude) < .001
       && Math.abs(value.weather.longitude - location.longitude) < .001 ? value : { weather: null, stale: false });
     const load = async () => {
       setWeatherBusy(true);
       try {
-        const result = await clothesRequest<WeatherResult>('GET', { view: 'weather', date: initial.date, timezone: initial.timezone,
+        const result = await clothesRequest<WeatherResult>('GET', { view: 'weather', date: initial.date, timezone: effective.timezone,
           latitude: location.latitude, longitude: location.longitude }, abort.signal);
         if (active) setWeatherState(result);
       } catch (cause) {
@@ -142,7 +147,7 @@ export default function Today({ owner, items, initial, records, outfits, tomorro
     const focus = () => setWeatherRetry((value) => value + 1);
     window.addEventListener('focus', focus);
     return () => { active = false; abort.abort(); clearInterval(timer); window.removeEventListener('focus', focus); };
-  }, [location?.latitude, location?.longitude, initial.date, initial.timezone, weatherRetry, onExpired]);
+  }, [location?.latitude, location?.longitude, initial.date, effective.timezone, weatherRetry, onExpired]);
   function failed(cause: unknown) {
     if (cause instanceof ClothesError) {
       if (cause.status === 401) onExpired();
@@ -161,6 +166,10 @@ export default function Today({ owner, items, initial, records, outfits, tomorro
     } catch (cause) { failed(cause); } finally { setBusy(false); }
   }
   const destinations = calendarDestinations(calendar?.events ?? []);
+  const selectCity = (city: ClothesLocation) => {
+    geoRequest.current++; setGeoBusy(false); setGeoError(''); setCityQuery(null); setLastCity(city); writeLocal(lastCityKey, city);
+    writeLocal(preferenceKey, city); changeContext({ location: { ...city, source: 'manual' }, timezone: city.timezone ?? context.timezone });
+  };
   const replaceItem = outfit?.items.find((item) => item.id === replace);
   return <>
     <section className="clothes-today-records" aria-label={past ? '历史穿搭' : tomorrow ? '明日穿搭' : '今日穿搭'}>
@@ -174,10 +183,11 @@ export default function Today({ owner, items, initial, records, outfits, tomorro
     <section className="clothes-context" aria-label="当天条件">
       <div className="clothes-row"><div className="clothes-location"><span className="clothes-label">地点</span><button onClick={() => setCityQuery('')}>{location?.name ?? '选择城市'} <span aria-hidden="true">⌄</span></button></div>
         {!past && <button className="clothes-link" disabled={geoBusy || busy} onClick={() => locate(true)}>{geoBusy ? '定位中…' : '定位'}</button>}</div>
+      {(calendarLocation?.locations.length ?? 0) > 1 && <div className="clothes-destinations"><span className="clothes-label">出游目的地</span>{calendarLocation!.locations.map((city) => <button key={`${city.latitude}:${city.longitude}`} onClick={() => selectCity(city)}>{city.name}</button>)}</div>}
       {geoError && <p className="clothes-status" role="status">{geoError}</p>}
       {destinations.length > 0 && <div className="clothes-destinations"><span className="clothes-label">日程地点</span>{destinations.map((destination) => <button key={destination} onClick={() => setCityQuery(destination)}>{destination}</button>)}</div>}
       <div className="clothes-weather">
-        {weather ? <><strong>{tomorrow || past ? `${Math.round(weather.min)}–${Math.round(weather.max)}` : Math.round(weather.temperature)}°</strong><div><span>{tomorrow ? `预报 · 体感 ${Math.round(weather.apparentMin)}–${Math.round(weather.apparent)}°` : `体感 ${Math.round(weather.apparent)}° · ${Math.round(weather.min)}–${Math.round(weather.max)}°`}</span><span>{weather.precipitation > 0 ? `降水 ${weather.precipitation} mm` : '无雨'} · 风 {Math.round(weather.wind)} km/h</span></div></>
+        {weather ? <><span title={weatherSymbol(weather.code)?.label} aria-label={weatherSymbol(weather.code)?.label}>{weatherSymbol(weather.code)?.icon}</span><strong>{tomorrow || past ? `${Math.round(weather.min)}–${Math.round(weather.max)}` : Math.round(weather.temperature)}°</strong><div><span>{tomorrow ? `预报 · 体感 ${Math.round(weather.apparentMin)}–${Math.round(weather.apparent)}°` : `体感 ${Math.round(weather.apparent)}° · ${Math.round(weather.min)}–${Math.round(weather.max)}°`}</span><span>{dailyWeatherLabel(weather).split(' · ')[0]} · 风 {Math.round(weather.wind)} km/h</span></div></>
           : <span className="clothes-muted">{weatherBusy ? '天气加载中…' : location ? past ? '暂无历史天气' : '暂无天气' : '请选择城市'}</span>}
         <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a>
       </div>
@@ -225,16 +235,12 @@ export default function Today({ owner, items, initial, records, outfits, tomorro
     {!past && <TripPlanner owner={owner} date={initial.date} timezone={initial.timezone} items={items} records={records} wearCounts={wearCounts} onExpired={onExpired} onRefresh={onRefresh} />}
     <section className="clothes-history"><button className="clothes-row" aria-expanded={history} onClick={() => setHistory(!history)}><span>穿搭历史</span><span>{history ? '−' : '+'}</span></button>
       {history && <div>{historyRecords.length ? historyRecords.map((record) => <article key={wearId(record)}>
-        <div className="clothes-row"><strong>{record.date} {record.purpose}</strong><button className="clothes-link" onClick={() => onReviewDay(record.date)}>回顾这天</button></div>
+        <div className="clothes-row"><strong>{record.date} {record.purpose} · 穿了</strong><button className="clothes-link" onClick={() => onReviewDay(record.date)}>回顾这天</button></div>
         <WearDetails record={record} />
         <div className="clothes-history-pieces">{record.items.map((item) => <figure key={item.id}><ItemPhoto item={item} current={items.find((piece) => piece.id === item.id)} /><figcaption>{item.name}</figcaption></figure>)}</div>
         <button className="clothes-link" onClick={() => openWear([], record)}>补记体感／编辑穿搭</button>
       </article>) : <p className="clothes-muted">暂无记录</p>}{moreHistory && historyRecords.length >= 30 && <button disabled={busy} onClick={() => void loadHistory()}>更早记录</button>}</div>}
     </section>
-    {cityQuery !== null && <CityPicker initial={cityQuery} onClose={() => setCityQuery(null)} onSelect={(city) => {
-      geoRequest.current++; setGeoBusy(false); setGeoError(''); setCityQuery(null); setLastCity(city); writeLocal(lastCityKey, city);
-      writeLocal(preferenceKey, city);
-      changeContext({ location: city });
-    }} />}
+    {cityQuery !== null && <CityPicker initial={cityQuery} onClose={() => setCityQuery(null)} onSelect={selectCity} />}
   </>;
 }
