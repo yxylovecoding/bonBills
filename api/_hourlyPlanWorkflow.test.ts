@@ -76,7 +76,7 @@ describe('hourly planning workflow recovery', () => {
     expect((await run([busy(), busy(), busy(), success()])).calls).toBe(3);
   });
 
-  it.each(['sleep-window', 'restore-pending', 'disconnected'])(
+  it.each(['rest-window', 'sleep-window', 'restore-pending', 'disconnected'])(
     'still accepts an intentional %s skip after a read failure', async skipped => {
       const result = await run([readFailure(), Response.json({ ok: true, skipped })]);
       expect(result.error).toBeUndefined();

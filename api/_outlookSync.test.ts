@@ -61,7 +61,7 @@ const cron = () => call(ticktickHandler, 'GET', 'Bearer cron-secret');
 
 beforeEach(() => {
   data.clear(); events.length = 0; vi.clearAllMocks(); auth.mockResolvedValue(false);
-  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-09-24T16:30:00Z'));
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-09-24T16:01:00Z'));
   vi.stubEnv('SYNC_SECRET', secret); vi.stubEnv('CRON_SECRET', 'cron-secret');
   data.set(OUTLOOK_CONNECTION_KEY, connection());
   data.set('calendar-tags', { tagMap: { '2026-09-25': 'school' }, confirmedExpenses: { '2026-09-25': { localIds: ['bill'], reviewed: true } }, initializedFromRecords: true });

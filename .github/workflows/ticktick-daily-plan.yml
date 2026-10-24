@@ -2,8 +2,8 @@ name: Daily calendar sync and planning
 
 on:
   schedule:
-    # Asia/Shanghai: 05:00, 12:00, 17:00, 20:00. GitHub cron uses UTC.
-    - cron: '0 21 * * *'
+    # Asia/Shanghai: 07:01, 12:00, 17:00, 20:00. GitHub cron uses UTC.
+    - cron: '1 23 * * *'
     - cron: '0 4,9 * * *'
     - cron: '0 12 * * *'
   workflow_dispatch:
@@ -47,6 +47,9 @@ jobs:
               continue;
             }
             const result = await response.json().catch(() => null);
+            if (response.status === 200 && result?.ok === true && result.skipped === 'rest-window') {
+              console.log('Automatic work paused for the rest window.'); process.exit(0);
+            }
             if (response.status !== 200 || result?.ok !== true || result.busy || result.error
                 || (result.connected !== false && (!result.hairWash || !result.reading))) {
               throw new Error(`Hair-wash visibility did not complete (HTTP ${response.status})`);
@@ -57,14 +60,67 @@ jobs:
           NODE
   archive-periods:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 25
+    outputs:
+      completed: ${{ steps.archive.outputs.completed }}
+      restored: ${{ steps.restore.outputs.completed }}
     steps:
-      - name: Import and save Outlook periods
+      - name: Restore morning visibility before planning
+        id: restore
+        if: ${{ github.event.schedule == '1 23 * * *' }}
         env:
           CRON_SECRET: ${{ secrets.BONBILLS_CRON_SECRET }}
         shell: bash
         run: |
           node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs';
+          const secret = process.env.CRON_SECRET?.trim();
+          if (!secret) throw new Error('Missing BONBILLS_CRON_SECRET');
+          const scope = 'all', action = 'routine-visibility';
+          let busyAttempts = 0;
+          for (let batch = 0; batch < 40; batch++) {
+            let response;
+            try {
+              response = await fetch(`https://www.bonbills.cn/api/ticktick-trips?action=${action}`, {
+                headers: { Authorization: `Bearer ${secret}` },
+                redirect: 'error',
+                signal: AbortSignal.timeout(150_000),
+              });
+            } catch {
+              throw new Error('Routine visibility request failed or timed out');
+            }
+            if (response.status === 202 && busyAttempts++ < 2) {
+              await response.body?.cancel();
+              await new Promise(resolve => setTimeout(resolve, 30_000));
+              continue;
+            }
+            const result = await response.json().catch(() => null);
+            if (response.status === 200 && result?.ok === true && result.skipped === 'rest-window') {
+              console.log('Automatic work paused for the rest window.'); process.exit(0);
+            }
+            if (response.status === 200 && result?.ok === true && !result.busy && !result.error
+                && result.sleepTags?.complete === false) continue;
+            if (response.status !== 200 || result?.ok !== true || result.busy || result.error
+                || (result.connected !== false && ((scope !== 'daily' && (!result.nightRoutine || !result.exercise))
+                  || (scope !== 'night' && result.sleepTags?.complete !== true)))) {
+              throw new Error(`Routine visibility sync did not complete (HTTP ${response.status})`);
+            }
+            // Public logs contain no credentials, task titles, tags or dates.
+            appendFileSync(process.env.GITHUB_OUTPUT, 'completed=true\n');
+            console.log('Scheduled routine visibility sync completed successfully.');
+            process.exit(0);
+          }
+          throw new Error('Routine visibility still has pending batches');
+          NODE
+      - name: Import and save Outlook periods
+        id: archive
+        if: ${{ github.event.schedule != '1 23 * * *' || steps.restore.outputs.completed == 'true' }}
+        env:
+          CRON_SECRET: ${{ secrets.BONBILLS_CRON_SECRET }}
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs';
           const secret = process.env.CRON_SECRET?.trim();
           if (!secret) throw new Error('Missing BONBILLS_CRON_SECRET');
           for (let attempt = 0; attempt < 3; attempt++) {
@@ -75,8 +131,12 @@ jobs:
                 signal: AbortSignal.timeout(80_000),
               });
               const result = await response.json().catch(() => null);
+              if (response.status === 200 && result?.ok === true && result.skipped === 'rest-window') {
+                console.log('Automatic work paused for the rest window.'); process.exit(0);
+              }
               if (response.status === 200 && result?.ok === true
                 && (result.connected === false || (result.connected === true && typeof result.syncedAt === 'string'))) {
+                appendFileSync(process.env.GITHUB_OUTPUT, 'completed=true\n');
                 console.log(result.connected ? 'Outlook periods archived successfully.' : 'Period calendar is not connected.');
                 process.exit(0);
               }
@@ -88,16 +148,20 @@ jobs:
           NODE
   recalculate:
     needs: [archive-periods, hair-wash]
-    if: ${{ always() && inputs.periods_only != true }}
+    if: ${{ always() && inputs.periods_only != true && (github.event.schedule != '1 23 * * *' || needs.archive-periods.outputs.restored == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      completed: ${{ steps.plan.outputs.completed }}
     steps:
       - name: Refresh Outlook and recalculate TickTick
+        id: plan
         env:
           CRON_SECRET: ${{ secrets.BONBILLS_CRON_SECRET }}
         shell: bash
         run: |
           node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs';
           const secret = process.env.CRON_SECRET?.trim();
           if (!secret) throw new Error('Missing BONBILLS_CRON_SECRET');
           let busyAttempts = 0;
@@ -118,6 +182,9 @@ jobs:
               throw new Error('Scheduling request failed or timed out');
             }
             const result = await response.json().catch(() => null);
+            if (response.status === 200 && result?.ok === true && result.skipped === 'rest-window') {
+              console.log('Automatic work paused for the rest window.'); process.exit(0);
+            }
             // Resume persisted tag-restoration batches before planning starts.
             if (response.status === 202 && result?.sleepTags?.complete === false) continue;
             if (response.status === 202 && busyAttempts++ < 2) {
@@ -147,6 +214,7 @@ jobs:
               const { created = 0, updated = 0, deleted = 0 } = result.periodPrediction;
               console.log(`Reminder sync completed: created=${created}, updated=${updated}, duplicates removed=${deleted}.`);
             }
+            appendFileSync(process.env.GITHUB_OUTPUT, 'completed=true\n');
             console.log('Outlook and TickTick planning completed successfully.');
             process.exit(0);
           }
@@ -154,7 +222,7 @@ jobs:
           NODE
   daily-email:
     needs: [archive-periods, recalculate]
-    if: ${{ always() && needs.archive-periods.result == 'success' && needs.recalculate.result == 'success' && (github.event.schedule == '0 21 * * *' || inputs.send_email == true) }}
+    if: ${{ always() && needs.archive-periods.result == 'success' && needs.recalculate.result == 'success' && needs.archive-periods.outputs.completed == 'true' && needs.recalculate.outputs.completed == 'true' && (github.event.schedule == '1 23 * * *' || inputs.send_email == true) }}
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
@@ -176,6 +244,9 @@ jobs:
               continue;
             }
             const result = await response.json().catch(() => null);
+            if (response.status === 200 && result?.ok === true && result.skipped === 'rest-window') {
+              console.log('Automatic work paused for the rest window.'); process.exit(0);
+            }
             if (response.status !== 200 || result?.sent !== true) {
               throw new Error(`Daily email did not complete (HTTP ${response.status})`);
             }

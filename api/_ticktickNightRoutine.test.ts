@@ -19,7 +19,7 @@ beforeEach(() => data.clear());
 
 describe('阅读按晚间窗口切换 routine', () => {
   const reading = task({ title: '而阅读📖是另一个🪝', content: '(15m)', priority: 3, tags: ['玩'] });
-  it.each([['00:00:00', false], ['04:59:59', false], ['05:00:00', true], ['19:59:59', true],
+  it.each([['00:00:00', false], ['05:00:00', false], ['07:00:59', false], ['07:01:00', true], ['19:59:59', true],
     ['20:00:00', false], ['23:59:59', false]])('%s 的标签状态', (time, hidden) => {
     expect(readingHidden(reading, at(time))).toBe(hidden);
     expect(readingHidden({ ...reading, isAllDay: true, timeZone: 'America/New_York' }, at(time))).toBe(hidden);
@@ -32,8 +32,8 @@ describe('阅读按晚间窗口切换 routine', () => {
   });
   it('晚间移除，跨午夜保留，早晨加回；不改变估时、其他标签、优先级或重复规则', async () => {
     const { api, current } = client(reading);
-    // 到了 05:00，进入隐藏期，添加标签并占有。
-    expect(await syncReadingVisibility(api, { now: new Date('2026-10-05T05:00:00+08:00'), projectId: 'inbox-real' })).toMatchObject({ updated: 1, hidden: 1 });
+    // 到了 07:01，进入隐藏期，添加标签并占有。
+    expect(await syncReadingVisibility(api, { now: new Date('2026-10-05T07:01:00+08:00'), projectId: 'inbox-real' })).toMatchObject({ updated: 1, hidden: 1 });
     expect(current().tags).toEqual(['玩', 'bon-hidden']);
     // 到了 20:00，退出隐藏期，移除标签。
     expect(await syncReadingVisibility(api, { now: at('20:00:00'), projectId: 'inbox-real' })).toMatchObject({ updated: 1, visible: 1 });

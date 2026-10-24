@@ -62,7 +62,7 @@ export function syncHairWashVisibility(api: TickTickApi, options: VisibilityOpti
 export function readingHidden(task: TickTickTask, now = new Date()): boolean | null {
   if (!isReadingTask(task) || (task.status ?? 0) !== 0) return null;
   const time = localTime(now, 'Asia/Shanghai').time;
-  return time >= '05:00:00' && time < '20:00:00';
+  return time >= '07:01:00' && time < '20:00:00';
 }
 
 export function syncReadingVisibility(api: TickTickApi, options: VisibilityOptions = {}) {

@@ -27,7 +27,7 @@ const feed = () => calendar([
 
 beforeEach(() => {
   data.clear(); vi.clearAllMocks(); vi.useFakeTimers({ toFake: ['Date'] });
-  vi.setSystemTime(new Date('2026-10-05T05:00:00+08:00'));
+  vi.setSystemTime(new Date('2026-10-05T07:01:00+08:00'));
   vi.stubEnv('SYNC_SECRET', 'secret'); vi.stubEnv('CRON_SECRET', 'cron-secret'); auth.mockResolvedValue(false);
   data.set(LIFE_CONNECTION_KEY, { id: 'period-connection', encrypted: encryptOutlookConnection({ playUrl: url, classUrl: '',
     policy: 'manual', rules: DEFAULT_OUTLOOK_RULES }, 'secret') });
@@ -54,7 +54,7 @@ describe('独立经期定时归档', () => {
     data.set('ticktick:trip-sync:lock', 'busy');
     data.set('calendar-tags', { untouched: true });
     const result = await request('GET', 'Bearer cron-secret');
-    expect(result).toMatchObject({ status: 200, body: { ok: true, connected: true, syncedAt: '2026-10-04T21:00:00.000Z' } });
+    expect(result).toMatchObject({ status: 200, body: { ok: true, connected: true, syncedAt: '2026-10-04T23:01:00.000Z' } });
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(lock).not.toHaveBeenCalled();
     expect(data.get('calendar-tags')).toEqual({ untouched: true });
@@ -76,7 +76,7 @@ describe('独立经期定时归档', () => {
   });
   it('跨年后订阅已移除旧日程，保存的历史仍能读取', async () => {
     await syncRecentLifePeriods();
-    vi.setSystemTime(new Date('2027-02-01T05:00:00+08:00'));
+    vi.setSystemTime(new Date('2027-02-01T07:01:00+08:00'));
     vi.mocked(fetch).mockImplementation(async () => new Response(calendar([])));
     await syncRecentLifePeriods();
     expect(await readPeriodDays(2026)).toEqual(expect.arrayContaining(['2026-01-03', '2026-09-29', '2026-10-02', '2027-01-03']));

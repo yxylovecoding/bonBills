@@ -1,3 +1,4 @@
+import { automaticRestWindow } from '../src/utils/schedulerTime.js';
 import { resolveCalendarState } from '../src/utils/internship.js';
 import { privateCache, privateJson } from './_privateCache.js';
 import { withAccountScope } from './_accountRoute.js';
@@ -61,7 +62,7 @@ async function runSyncInner(allowDisconnected: boolean) {
     const connection = await kv.get<TickTickConnection>(CONNECTION_KEY);
     const token = connection ? decryptTickTickToken(connection.encryptedToken, secret) : null;
     const api = token === null ? null : new TickTickOpenApiClient(token, (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
-    // Whichever 05:00 workflow runs first must restore temporary tags before
+    // Morning synchronization at 07:01 must restore temporary tags before
     // calculating availability; otherwise every masked task looks like routine.
     if (connection && api) {
       const sleepTags = await syncSleepRoutineTags(api, { projectId: connection.projectId, restoreOnly: true });
@@ -323,6 +324,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       // recurring occurrence even after the user has completed the original.
       return res.status(410).json({ error: '该次电动车安排已结束，不再重放' });
     }
+    if (isCron && automaticRestWindow()) return res.status(200).json({ ok: true, skipped: 'rest-window' });
     if (req.query?.action === 'plan-details') {
       if (req.method !== 'GET') return res.status(405).json({ error: 'method not allowed' });
       const { readTickTickPlanDetails } = await import('./_ticktickPlanDetails.js');

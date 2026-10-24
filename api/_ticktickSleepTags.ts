@@ -12,8 +12,8 @@ const addDays = (day: string, count: number) => new Date(Date.parse(`${day}T00:0
 
 export function sleepWindow(now = new Date()) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric',
-    month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' }).formatToParts(now).map(part => [part.type, part.value]));
-  return { day: `${parts.year}-${parts.month}-${parts.day}`, hidden: Number(parts.hour) < 5 };
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now).map(part => [part.type, part.value]));
+  return { day: `${parts.year}-${parts.month}-${parts.day}`, hidden: Number(parts.hour) * 60 + Number(parts.minute) < 7 * 60 + 1 };
 }
 
 // Union of bon's four saved smart filters, read from TickTick on 2026-10-05.
@@ -53,7 +53,7 @@ export async function syncSleepRoutineTags(api: TickTickApi, options: {
 
   if (mode === 'hide') {
     const tasks = await readAllTickTickTasks(api, [0]);
-    // Reading stays visible across midnight and owns its routine tag until 05:00.
+    // Reading stays visible across midnight and owns its routine tag until 07:01.
     await syncReadingVisibility(api, { tasks, now: options.now, projectId: options.projectId });
     // Reuse midnight to hide washing until 20:00, including future occurrences
     // outside the four smart filters. It owns this tag until the evening.

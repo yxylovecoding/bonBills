@@ -2,8 +2,8 @@ name: Hourly TickTick replanning
 
 on:
   schedule:
-    # Shanghai 00:01, then 07:01–23:01; pause hourly work from 00:30 to 06:30.
-    - cron: '1 0-16,23 * * *'
+    # Shanghai 00:01 and 08:01–23:01; 07:01 is covered by the morning full sync.
+    - cron: '1 0-16 * * *'
   workflow_dispatch:
 
 permissions: {}
