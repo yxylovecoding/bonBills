@@ -122,6 +122,7 @@ async function runSyncInner(allowDisconnected: boolean) {
       const trips = buildTripSourcesFromSyncState(calendarState, tripState);
       const result = await reconcileTickTickTrips({
         api,
+        sourceTasks,
         template,
         trips,
         state,
@@ -131,6 +132,7 @@ async function runSyncInner(allowDisconnected: boolean) {
       });
       const wishResult = await reconcileTickTickWishPreparations({
         api,
+        sourceTasks,
         template,
         configState,
         state,

@@ -965,6 +965,58 @@ describe('出行模板改名', () => {
     expect(api.tasks.get(tripRoot!)?.projectId).toBe('play');
   });
 
+  it.each(['trip', 'wish'] as const)('%s 整树移到其他清单后使用当前清单，保留 ID、手动日期和进度', async kind => {
+    const api = new FakeTickTickApi();
+    addWishPreparationTemplate(api);
+    let template = await discoverTickTickTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    const sync = () => kind === 'trip'
+      ? reconcileTickTickTrips({ api, template, state, trips: [futureTrip], sourceTasks: [...api.tasks.values()], today: '2026-09-04', saveState: async () => undefined })
+      : reconcileTickTickWishPreparations({ api, template, state, configState: { config: { wishes: [futureWish] } }, sourceTasks: [...api.tasks.values()], today: '2026-09-04', saveState: async () => undefined });
+    await sync();
+    const instance = kind === 'trip' ? state.instances[futureTrip.key] : state.wishInstances![futureWish.id];
+    const ids = { ...instance.taskIdsByTemplateId };
+    const created = api.createCalls;
+    for (const id of Object.values(ids)) api.tasks.get(id)!.projectId = 'moved-list';
+    const root = api.tasks.get(instance.rootTaskId!)!;
+    root.startDate = root.dueDate = '2026-12-03T09:00:00+0800';
+    root.status = 2;
+    const update = api.updateTask.bind(api);
+    vi.spyOn(api, 'updateTask').mockImplementation(async (id, payload) => {
+      if (api.tasks.get(id)?.projectId !== payload.projectId) throw new Error('TickTick 404: task not found');
+      return update(id, payload);
+    });
+    const rootRead = vi.spyOn(api, 'getTask');
+    await sync();
+    expect(rootRead).toHaveBeenCalledWith('moved-list', root.id);
+    expect(instance.projectId).toBe('moved-list');
+    expect(instance.taskIdsByTemplateId).toEqual(ids);
+    expect(api.createCalls).toBe(created);
+    expect(api.tasks.get(root.id)).toMatchObject({ projectId: 'moved-list', status: 2, dueDate: '2026-12-03T09:00:00+0800' });
+    const templateParent = kind === 'trip' ? template.rootTask.id : 'template-seven-months';
+    api.tasks.set('new-template-child', { id: 'new-template-child', projectId: 'play', parentId: templateParent, title: '新增准备事项' });
+    template = await discoverTickTickTemplate(api);
+    await sync();
+    expect(api.createCalls).toBe(created + 1);
+    expect(api.tasks.get(instance.taskIdsByTemplateId['new-template-child'])).toMatchObject({ projectId: 'moved-list', parentId: root.id });
+    expect(api.deleteCalls).toBe(0);
+  });
+
+  it('移动后的根任务补读失败时不猜清单、不复制或更新任务', async () => {
+    const api = new FakeTickTickApi();
+    const template = await discoverTickTickTemplate(api);
+    const state: TickTickTripSyncState = { instances: {} };
+    const sync = () => reconcileTickTickTrips({ api, template, state, trips: [futureTrip], sourceTasks: [...api.tasks.values()], today: '2026-09-04', saveState: async () => undefined });
+    await sync();
+    const instance = state.instances[futureTrip.key];
+    for (const id of Object.values(instance.taskIdsByTemplateId)) api.tasks.get(id)!.projectId = 'moved-list';
+    vi.spyOn(api, 'getTask').mockRejectedValue(new Error('TickTick read unavailable'));
+    const before = [api.createCalls, api.updateCalls, api.deleteCalls];
+    await expect(sync()).rejects.toThrow('TickTick read unavailable');
+    expect([api.createCalls, api.updateCalls, api.deleteCalls]).toEqual(before);
+    expect(instance.projectId).toBe('play');
+  });
+
   it('已连接模板改名沿用原任务 ID 和出行、心愿实例', async () => {
     const api = new FakeTickTickApi();
     addWishPreparationTemplate(api);

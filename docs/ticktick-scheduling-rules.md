@@ -186,7 +186,7 @@
 
 - `README.md`：「TickTick 出游与场景待办」。
 - `api/ticktick-trips.ts`：完整同步的执行顺序。
-- `api/_ticktickTrips.ts`：场景、重复类型、模板、日期跟随及喷雾互斥。
+- `api/_ticktickTrips.ts`：场景、重复类型、模板、日期跟随及喷雾互斥。 已生成的出行／心愿树移动清单后，结合全局任务快照并回读根任务，更新实例的目标清单，保留任务 ID、完成进度与手动日期；根任务无法确认时停止，不猜测重建。
 - `api/_ticktickDailyPlan.ts`：普通轮换、完成历史、周期锚点和安排原因。
 - `api/_dailyAvailability.ts`：可用时段、日程占用及剩余额度。
 - `api/_ticktickReplan.ts`：DoneList「重排今日事」的限定范围。

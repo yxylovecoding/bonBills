@@ -1427,6 +1427,18 @@ async function syncTripInstance(
 
   // Validate stage names before creating or updating any part of the instance.
   for (const task of orderedTemplateTasks) scheduledTaskDate(task, template, trip);
+  // A generated tree can move independently of its template. Confirm the root's
+  // current location before using a persisted project ID for writes or creation.
+  const rootId = instance.rootTaskId ?? instance.taskIdsByTemplateId[template.rootTask.id];
+  const knownRoot = rootId ? projectTasks.get(rootId) : undefined;
+  if (knownRoot && knownRoot.projectId !== template.projectId) {
+    const currentRoot = await api.getTask(knownRoot.projectId, knownRoot.id);
+    if (currentRoot.id !== knownRoot.id || !currentRoot.projectId) throw new Error('无法确认出行任务当前清单，未继续同步');
+    template = { ...template, projectId: currentRoot.projectId };
+    instance.projectId = currentRoot.projectId;
+    projectTasks.set(currentRoot.id, currentRoot);
+    await persist();
+  }
   await rebindTemplateTaskIds(api, template, instance, orderedTemplateTasks, projectTasks);
 
   for (const templateTask of orderedTemplateTasks) {
@@ -1555,6 +1567,7 @@ export async function reconcileTickTickTrips(options: {
   today: string;
   matchByDateOverlap?: boolean;
   legacyProjectId?: string;
+  sourceTasks?: TickTickTask[];
   saveState: (state: TickTickTripSyncState) => Promise<void>;
 }): Promise<TickTickSyncResult> {
   const { api, template, state, today, saveState } = options;
@@ -1564,7 +1577,7 @@ export async function reconcileTickTickTrips(options: {
   const originalProjectId = options.legacyProjectId ?? template.projectId;
   const projectIds = [...new Set([template.projectId, ...activeInstances.map(([, instance]) => instance.projectId ?? originalProjectId)])];
   const projectData = await Promise.all(projectIds.map((projectId) => api.getProjectData(projectId)));
-  const projectTasks = new Map(projectData.flatMap((data) => data.tasks).map((task) => [task.id, task]));
+  const projectTasks = new Map([...(options.sourceTasks ?? []), ...projectData.flatMap((data) => data.tasks)].map((task) => [task.id, task]));
   const unmatchedInstances = new Map(activeInstances);
   const matches = new Map<string, { oldKey: string; instance: TickTickTripInstance }>();
 
@@ -1635,6 +1648,7 @@ export async function reconcileTickTickWishPreparations(options: {
   state: TickTickTripSyncState;
   today: string;
   legacyProjectId?: string;
+  sourceTasks?: TickTickTask[];
   saveState: (state: TickTickTripSyncState) => Promise<void>;
 }) {
   const { state, template, today, saveState } = options;
@@ -1652,6 +1666,7 @@ export async function reconcileTickTickWishPreparations(options: {
     state: { instances: state.wishInstances ?? {} },
     today,
     legacyProjectId: options.legacyProjectId,
+    sourceTasks: options.sourceTasks,
     // 同一天的不同心愿不能像日历行程那样凭日期重叠合并。
     matchByDateOverlap: false,
     saveState: async (next) => {
