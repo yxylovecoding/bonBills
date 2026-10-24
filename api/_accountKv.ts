@@ -1,4 +1,4 @@
-import { kv as rawKv } from '@vercel/kv';
+import { kv as rawKv } from './_storage.js';
 import { accountStorageKey } from './_accountScope.js';
 
 // 所有个人数据命令统一隔离，包括事务脚本的 KEYS、照片、连接和同步锁。

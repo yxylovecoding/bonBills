@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
-import { kv } from '@vercel/kv';
+import { kv } from './_storage.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { authorizeAccountScope } from './_accountScope.js';
 
