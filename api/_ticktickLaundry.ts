@@ -241,20 +241,8 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
         reason: '保留 Outlook 当日调整后的洗衣时段' });
       continue;
     }
-    // A four-day laundry cadence is a fixed interval. TickTick may create the next
-    // occurrence from its previous due date (for example 10/08 + 4 = 10/12), so repair
-    // it from the latest actual completion before applying any optional heuristics.
-    if (/(?:^|;)INTERVAL=4(?:;|$)/i.test(task.repeatFlag!)) {
-      const changed = await moveLaundry(api, task, anchor.target);
-      if (changed === undefined) {
-        decisions.push({ id: task.id, target: anchor.target, reason: '任务已由用户更新，保留最新状态' });
-        continue;
-      }
-      if (changed) updated++;
-      decisions.push({ id: task.id, target: anchor.target, date: anchor.target, location: laundryLocation(options.configState, anchor.target, options.calendarState)?.name,
-        reason: '按最近一次实际完成日期和四天固定间隔排期' });
-      continue;
-    }
+    // The completion-based anchor defines the cycle target for every cadence,
+    // including four days; travel, weather and availability still choose the date.
     const beforeTrip = laundryBeforeTrip(anchor.target, options.trips ?? [], calendarDateInTimeZone(anchor.completion, task.timeZone));
     if (beforeTrip) {
       if (beforeTrip < options.today) {

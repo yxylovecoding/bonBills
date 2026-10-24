@@ -16,7 +16,7 @@ const history = [task({ id: 'history', status: 2, completedTime: '2026-10-05T03:
 const state = (): LaundryState => ({ connectionId: 'connection', anchors: {} });
 const sunny: LaundryWeather = { rain: 0, probability: 5, sunshine: 7 * 3600, code: 0 };
 const wet: LaundryWeather = { rain: 3, probability: 80, sunshine: 3600, code: 61 };
-const dates = Array.from({ length: 20 }, (_, i) => `2026-10-${String(i + 5).padStart(2, '0')}`);
+const dates = Array.from({ length: 26 }, (_, i) => `2026-10-${String(i + 5).padStart(2, '0')}`);
 const forecast = (weather = wet): LaundryForecast => ({ fetchedAt: now.toISOString(), days: Object.fromEntries(dates.map(date => [date, { ...weather }])) });
 const city = { name: '北京', latitude: 40, longitude: 116.3 };
 const options = (fields: Record<string, any> = {}) => ({ tasks: [task()], history,
@@ -229,22 +229,44 @@ describe('洗衣同步与天气故障', () => {
     await syncLaundrySchedule(c.api, { ...o, connectionId: 'connection' });
     expect(data.get(LAUNDRY_STATE_KEY).anchors.wash.completion).toBe('2026-10-05T04:50:00Z');
   });
-  it('四天固定周期始终从实际完成日计算，并纠正 TickTick 按旧到期日生成的日期', async () => {
+  it('四天周期从实际完成日计算目标，再避开雨天，反复同步不把晴天排期拉回目标日', async () => {
     const original = task({
       startDate: '2026-10-12T00:00:00Z', dueDate: '2026-10-12T00:00:00Z',
       repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=4',
     });
+    const f = forecast();
+    for (const day of ['2026-10-10', '2026-10-11']) f.days[day] = sunny;
+    mockWeather(f);
     const c = client(original);
     const result = await syncLaundrySchedule(c.api, {
-      ...options({ tasks: [original], availability: undefined, configState: {} }), connectionId: 'connection',
+      ...options({ tasks: [original] }), connectionId: 'connection',
     });
     expect(result.updated).toBe(1);
-    expect(result.decisions[0]).toMatchObject({ target: '2026-10-09', date: '2026-10-09' });
+    expect(result.decisions[0]).toMatchObject({ target: '2026-10-09', date: '2026-10-10', location: '北京' });
     expect(c.current()).toMatchObject({
-      startDate: '2026-10-09T00:00:00Z', dueDate: '2026-10-09T00:00:00Z',
-      repeatFlag: original.repeatFlag,
+      startDate: '2026-10-10T00:00:00Z', dueDate: '2026-10-10T00:00:00Z',
+      repeatFlag: original.repeatFlag, repeatFrom: original.repeatFrom, tags: original.tags, priority: original.priority,
     });
-    expect(upstream).not.toHaveBeenCalled();
+    expect(upstream).toHaveBeenCalledOnce();
+    expect(await syncLaundrySchedule(c.api, { ...options({ tasks: [c.current()] }), connectionId: 'connection' }))
+      .toMatchObject({ updated: 0, decisions: [{ target: '2026-10-09', date: '2026-10-10' }] });
+    expect(data.get(LAUNDRY_STATE_KEY).anchors.wash.target).toBe('2026-10-09');
+  });
+  it.each(['weather', 'availability'])('四天周期缺少 %s 时保留原排期，不强制写回周期目标日', async missing => {
+    const original = task({ repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=4' }), c = client(original);
+    if (missing === 'weather') upstream.mockRejectedValue(new Error('offline'));
+    const o = options({ tasks: [original], ...(missing === 'availability' ? { availability: undefined } : {}) });
+    expect(await syncLaundrySchedule(c.api, { ...o, connectionId: 'connection' })).toMatchObject({ updated: 0,
+      decisions: [{ target: '2026-10-09', reason: expect.stringContaining('保留原排期') }] });
+    expect(c.api.updateTask).not.toHaveBeenCalled();
+  });
+  it('四天周期仍避开目标日固定时段的冲突', async () => {
+    const original = task({ repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=4' }), c = client(original);
+    mockWeather(forecast(sunny));
+    const o = options({ tasks: [original] });
+    o.availability.events.push({ title: '会议', start: '2026-10-09T08:00:00+08:00', end: '2026-10-09T09:00:00+08:00' });
+    expect((await syncLaundrySchedule(c.api, { ...o, connectionId: 'connection' })).decisions[0])
+      .toMatchObject({ target: '2026-10-09', date: '2026-10-10' });
   });
   it('纠正旧窗口内提前两天的排期，保留时刻/重复/标签/清单和周期，再次执行幂等', async () => {
     const original = task({ startDate: '2026-10-08T00:00:00Z', dueDate: '2026-10-08T00:00:00Z',
@@ -306,6 +328,15 @@ describe('出行前洗衣', () => {
     for (const day of travelDays) o.calendarState.tagMap[day] = 'travel';
     return { ...o, connectionId: 'connection', trips: buildTripSourcesFromSyncState(o.calendarState, {}) };
   };
+  it('四天周期的目标日在出行期间也提前到出行前一天', async () => {
+    const original = task({ repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=4' }), c = client(original);
+    const result = await syncLaundrySchedule(c.api, tripOptions(['2026-10-09', '2026-10-10'], {
+      tasks: [original], availability: undefined, configState: {},
+    }));
+    expect(result.decisions[0]).toMatchObject({ target: '2026-10-09', date: '2026-10-08' });
+    expect(c.current().dueDate).toBe('2026-10-08T00:00:00Z');
+    expect(upstream).not.toHaveBeenCalled();
+  });
   it.each([
     [['2026-10-10'], '2026-10-09'],
     [['2026-10-09', '2026-10-10', '2026-10-11'], '2026-10-08'],
