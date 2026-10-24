@@ -39,6 +39,15 @@ jobs:
               continue;
             }
             const stage = failureStages.has(result?.failure?.stage) ? result.failure.stage : 'unknown';
+            // Only emit fixed categories; provider messages can contain private
+            // task details or credentials and must never enter public logs.
+            const error = typeof result?.error === 'string' ? result.error : '';
+            const reason = /bandwidth.*(limit|exceed)|(limit|exceed).*bandwidth/i.test(error) ? 'storage-bandwidth-limit'
+              : /(max|limit|exceed).*(request|command)|(request|command).*(limit|exceed)/i.test(error) ? 'request-limit'
+              : /WRONGPASS|NOAUTH|invalid.*token|unauthorized/i.test(error) ? 'authentication'
+              : /always-today/.test(error) ? 'always-today-verification'
+              : /TickTick/.test(error) ? 'ticktick'
+              : /fetch failed|timeout|timed out/i.test(error) ? 'upstream-unavailable' : 'unknown';
             // Retry only confirmed read failures. A timeout or failed write may
             // have already changed tasks upstream, so do not replay it blindly.
             if (response.status === 502 && result?.failure?.retryable === true
@@ -51,7 +60,7 @@ jobs:
             const skipped = ['sleep-window', 'restore-pending', 'disconnected'].includes(result?.skipped);
             if (response.status !== 200 || result?.ok !== true || result.busy || result.error
                 || (!skipped && !result.dailyPlan)) {
-              throw new Error(`Hourly replanning did not complete (HTTP ${response.status}, stage=${stage})`);
+              throw new Error(`Hourly replanning did not complete (HTTP ${response.status}, stage=${stage}, reason=${reason})`);
             }
             // No task titles, dates, credentials or provider responses in public logs.
             console.log(skipped ? 'Hourly replanning deferred by current connection/visibility state.'
