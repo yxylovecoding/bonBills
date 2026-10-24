@@ -200,11 +200,13 @@ async function runSyncInner(allowDisconnected: boolean) {
     } catch (error) {
       // Record only code locations, never the error body (which may contain
       // private task data or subscription URLs).
-      const frames = error instanceof Error ? [...(error.stack ?? '').matchAll(
-        /(?:api\/[A-Za-z0-9_./-]+\.[cm]?[jt]s:\d+:\d+|node_modules\/@[A-Za-z0-9_.-]+\/[A-Za-z0-9_./-]+\.[cm]?[jt]s:\d+:\d+|node:internal\/[A-Za-z0-9_./-]+:\d+:\d+)/g,
-      )].slice(0, 8).map(match => match[0]) : [];
-      const errorName = error instanceof Error && /^[A-Za-z]{1,32}$/.test(error.name) ? error.name : 'unknown';
-      console.error('[ticktick-sync-source]', JSON.stringify({ step: planningStep, errorName, frames }));
+      if (schedulingFailure(error).stage === 'unknown') {
+        const frames = error instanceof Error ? [...(error.stack ?? '').matchAll(
+          /(?:api\/[A-Za-z0-9_./-]+\.[cm]?[jt]s:\d+:\d+|node_modules\/@[A-Za-z0-9_.-]+\/[A-Za-z0-9_./-]+\.[cm]?[jt]s:\d+:\d+|node:internal\/[A-Za-z0-9_./-]+:\d+:\d+)/g,
+        )].slice(0, 8).map(match => match[0]) : [];
+        const errorName = error instanceof Error && /^[A-Za-z]{1,32}$/.test(error.name) ? error.name : 'unknown';
+        console.error('[ticktick-sync-source]', JSON.stringify({ step: planningStep, errorName, frames }));
+      }
       state.lastError = error instanceof Error ? error.message : String(error);
       await kv.set(SYNC_STATE_KEY, state);
       throw error;

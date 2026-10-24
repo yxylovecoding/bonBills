@@ -1,10 +1,22 @@
-import type { Client } from '@libsql/client';
+import type { Client, Transaction } from '@libsql/client';
 import { decodeStorage, encodeStorage } from './_storageCodec.js';
 import { storageOperation } from './_storageScriptIds.js';
 import { runStorageOperation } from './_tursoOperations.js';
 import { StorageTransaction } from './_tursoTransaction.js';
 
 type SetOptions = { nx?: boolean; xx?: boolean; ex?: number; px?: number; keepTtl?: boolean };
+
+function transientNetworkError(error: unknown): boolean {
+  const codes = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE',
+    'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT']);
+  let current = error;
+  for (let depth = 0; current && typeof current === 'object' && depth < 4; depth++) {
+    const value = current as { name?: string; message?: string; code?: string; cause?: unknown };
+    if (value.code && codes.has(value.code) || value.name === 'TypeError' && value.message === 'fetch failed') return true;
+    current = value.cause;
+  }
+  return false;
+}
 
 export function createTursoKv(client: Client, clock = Date.now) {
   // A local libSQL connection cannot nest transactions. Also reduce contention
@@ -13,28 +25,41 @@ export function createTursoKv(client: Client, clock = Date.now) {
   let nextCleanup = 0;
   function transaction<T>(work: (tx: StorageTransaction) => Promise<T>, write = true): Promise<T> {
     const run = pending.catch(() => {}).then(async () => {
-      const sql = await client.transaction(write ? 'write' : 'read');
-      try {
-        const now = clock();
-        const cleanup = write && now >= nextCleanup;
-        if (cleanup) {
-          // Bound reclamation work. Expiry is enforced on every read regardless
-          // of when these physical rows are removed.
-          await sql.batch([
-            `DELETE FROM storage_hash WHERE key IN (SELECT key FROM storage_keys WHERE expires_at<=${Math.trunc(now)} ORDER BY expires_at LIMIT 256)`,
-            `DELETE FROM storage_zset WHERE key IN (SELECT key FROM storage_keys WHERE expires_at<=${Math.trunc(now)} ORDER BY expires_at LIMIT 256)`,
-            `DELETE FROM storage_keys WHERE key IN (SELECT key FROM storage_keys WHERE expires_at<=${Math.trunc(now)} ORDER BY expires_at LIMIT 256)`,
-          ]);
-        }
-        const result = await work(new StorageTransaction(sql, now));
-        await sql.commit();
-        if (cleanup) nextCleanup = now + 3_600_000;
-        return result;
-      } catch (error) {
-        // Never retry an ambiguous commit: an increment may already be saved.
-        if (!sql.closed) await sql.rollback().catch(() => {});
-        throw error;
-      } finally { sql.close(); }
+      for (let attempt = 0; ; attempt++) {
+        let sql: Transaction | undefined;
+        let phase: 'opening' | 'working' | 'committing' = 'opening';
+        try {
+          sql = await client.transaction(write ? 'write' : 'read');
+          phase = 'working';
+          const now = clock();
+          const cleanup = write && now >= nextCleanup;
+          if (cleanup) {
+            // Bound reclamation work. Expiry is enforced on every read regardless
+            // of when these physical rows are removed.
+            await sql.batch([
+              `DELETE FROM storage_hash WHERE key IN (SELECT key FROM storage_keys WHERE expires_at<=${Math.trunc(now)} ORDER BY expires_at LIMIT 256)`,
+              `DELETE FROM storage_zset WHERE key IN (SELECT key FROM storage_keys WHERE expires_at<=${Math.trunc(now)} ORDER BY expires_at LIMIT 256)`,
+              `DELETE FROM storage_keys WHERE key IN (SELECT key FROM storage_keys WHERE expires_at<=${Math.trunc(now)} ORDER BY expires_at LIMIT 256)`,
+            ]);
+          }
+          const result = await work(new StorageTransaction(sql, now));
+          phase = 'committing';
+          await sql.commit();
+          if (cleanup) nextCleanup = now + 3_600_000;
+          return result;
+        } catch (error) {
+          if (sql && !sql.closed) await sql.rollback().catch(() => {});
+          // Work touches only this SQL transaction. Before COMMIT is sent,
+          // closing/rolling back makes a fresh transaction safe, including INCR.
+          // Never replay a write after an ambiguous COMMIT response.
+          if (attempt >= 2 || write && phase === 'committing' || !transientNetworkError(error)) {
+            if (transientNetworkError(error)) console.error('[turso-transaction-failure]', JSON.stringify({ write, phase }));
+            throw error;
+          }
+          console.warn('[turso-transaction-retry]', JSON.stringify({ write, phase, attempt: attempt + 1 }));
+        } finally { sql?.close(); }
+        await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+      }
     });
     pending = run;
     return run;

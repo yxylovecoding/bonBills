@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createClient, type Client } from '@libsql/client';
 import { readFileSync, readdirSync } from 'node:fs';
 import ts from 'typescript';
@@ -16,7 +16,84 @@ beforeEach(async () => {
   await initializeTursoSchema(client);
   now = Date.now(); kv = createTursoKv(client, () => now);
 });
-afterEach(() => client.close());
+afterEach(() => { vi.restoreAllMocks(); client.close(); });
+
+describe('Turso network recovery', () => {
+  it('rolls back a partial increment before retrying and keeps queued writes serialized', async () => {
+    await kv.set('counter', 0);
+    const open = client.transaction.bind(client);
+    let attempts = 0;
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(client, 'transaction').mockImplementation(async mode => {
+      const tx = await open(mode);
+      if (++attempts === 1) {
+        const batch = tx.batch.bind(tx);
+        vi.spyOn(tx, 'batch').mockImplementationOnce(async statements => {
+          await batch(statements);
+          throw new TypeError('fetch failed');
+        });
+      }
+      return tx;
+    });
+    expect(await Promise.all([kv.incr('counter'), kv.incr('counter')])).toEqual([1, 2]);
+    expect(attempts).toBe(3);
+    expect(await kv.get('counter')).toBe(2);
+    expect(warning.mock.calls).toEqual([['[turso-transaction-retry]', '{"write":true,"phase":"working","attempt":1}']]);
+  });
+
+  it.each([false, true])('never replays an ambiguous write commit (already committed: %s)', async committed => {
+    await kv.set('counter', 0);
+    const open = client.transaction.bind(client);
+    const failure = new TypeError('fetch failed');
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const transactions = vi.spyOn(client, 'transaction').mockImplementation(async mode => {
+      const tx = await open(mode);
+      const commit = tx.commit.bind(tx);
+      vi.spyOn(tx, 'commit').mockImplementationOnce(async () => {
+        if (committed) await commit();
+        throw failure;
+      });
+      return tx;
+    });
+    await expect(kv.incr('counter')).rejects.toBe(failure);
+    expect(transactions).toHaveBeenCalledTimes(1);
+    transactions.mockRestore();
+    expect(await kv.get('counter')).toBe(committed ? 1 : 0);
+  });
+
+  it('retries a read even when its closing commit response is lost', async () => {
+    await kv.set('value', { preserved: true });
+    const open = client.transaction.bind(client);
+    let attempts = 0;
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(client, 'transaction').mockImplementation(async mode => {
+      const tx = await open(mode);
+      if (++attempts === 1) {
+        const commit = tx.commit.bind(tx);
+        vi.spyOn(tx, 'commit').mockImplementationOnce(async () => {
+          await commit();
+          throw new TypeError('fetch failed');
+        });
+      }
+      return tx;
+    });
+    expect(await kv.get('value')).toEqual({ preserved: true });
+    expect(attempts).toBe(2);
+  });
+
+  it('bounds retries before opening a transaction and does not retry validation errors', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const failure = new Error('network failure', { cause: Object.assign(new Error(), { code: 'ECONNRESET' }) });
+    const transactions = vi.spyOn(client, 'transaction').mockRejectedValue(failure);
+    await expect(kv.set('value', 1)).rejects.toBe(failure);
+    expect(transactions).toHaveBeenCalledTimes(3);
+    transactions.mockRestore();
+    const validationTransactions = vi.spyOn(client, 'transaction');
+    await expect(kv.set('value', 1, { ex: -1 })).rejects.toThrow('expiry');
+    expect(validationTransactions).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('Turso storage contract', () => {
   it('preserves wire values, hash fields, account namespaces and missing values', async () => {
