@@ -102,6 +102,7 @@ async function runSyncInner(allowDisconnected: boolean) {
     const state: TickTickTripSyncState = savedState && typeof savedState === 'object'
       ? { ...savedState, instances: savedState.instances ?? {} }
       : { instances: {} };
+    let planningStep = 'initial-read';
     try {
       const connectionId = createHash('sha256').update(token).digest('hex');
       const [savedPlan, settings, sourceTasks] = await Promise.all([
@@ -156,20 +157,26 @@ async function runSyncInner(allowDisconnected: boolean) {
       for (const id of laundry.managedTaskIds) excludedTaskIds.add(id);
       const periodPrediction = await syncPeriodPredictionTask(api, { connection, tasks: sourceTasks, completedTasks: dailyPlan.history, today });
       console.info('[ticktick-sync-step]', JSON.stringify({ step: 'daily-plan' }));
+      planningStep = 'routine-read';
       const routineResult = await syncTickTickRoutines({
         api, calendarState, today,
         excludedTaskIds, minimumTaskDates: exercise.minimumDates, fixedTaskDates: exercise.fixedDates, completedTasks: dailyPlan.history,
         planDay: !availability && dailyBudget(settings?.budgetMinutes) === null ? undefined : async (tasks) => {
+          planningStep = 'calculate-daily-plan';
           const plan = planTickTickDay({ tasks, calendarState, today, state: dailyPlan,
             budgetMinutes: settings?.budgetMinutes, availability, availabilityProfile: availabilityProfile(settings?.availabilityProfile),
             excludedTaskIds });
           // Save cycle anchors before writes so a partially failed run can be retried.
+          planningStep = 'save-cycle-anchors';
           await kv.set(DAILY_PLAN_KEY, { ...dailyPlan, summary: savedPlan?.summary,
             briefing: savedPlan?.connectionId === connectionId ? savedPlan.briefing : undefined });
+          planningStep = 'routine-dates';
           return plan.dates;
         },
       });
+      planningStep = 'save-daily-plan';
       await kv.set(DAILY_PLAN_KEY, dailyPlan);
+      planningStep = 'calendar-events';
       console.info('[ticktick-sync-step]', JSON.stringify({ step: 'calendar-events' }));
       const laundryOutlook = await syncLaundryOutlook(api, { tasks: laundryTasks, managedTaskIds: laundry.managedTaskIds,
         ticktickConnectionId: connectionId, configState, calendarState, today,
@@ -196,7 +203,8 @@ async function runSyncInner(allowDisconnected: boolean) {
       const frames = error instanceof Error ? [...(error.stack ?? '').matchAll(
         /(?:api\/[A-Za-z0-9_./-]+\.[cm]?[jt]s:\d+:\d+|node_modules\/@[A-Za-z0-9_.-]+\/[A-Za-z0-9_./-]+\.[cm]?[jt]s:\d+:\d+|node:internal\/[A-Za-z0-9_./-]+:\d+:\d+)/g,
       )].slice(0, 8).map(match => match[0]) : [];
-      console.error('[ticktick-sync-source]', JSON.stringify({ frames }));
+      const errorName = error instanceof Error && /^[A-Za-z]{1,32}$/.test(error.name) ? error.name : 'unknown';
+      console.error('[ticktick-sync-source]', JSON.stringify({ step: planningStep, errorName, frames }));
       state.lastError = error instanceof Error ? error.message : String(error);
       await kv.set(SYNC_STATE_KEY, state);
       throw error;
