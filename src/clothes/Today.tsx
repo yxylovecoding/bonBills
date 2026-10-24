@@ -4,7 +4,7 @@ import { dailyWeatherLabel, weatherSymbol } from '../utils/weather';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ClothesCalendar, ClothesDayContext, ClothesItem, ClothesLocation, Outfit, PairCounts, WearRecord, WeatherSnapshot } from './types';
 import { SCENES, PURPOSES, PURPOSE_LABELS, wearId, type Purpose, type Category, categoryLabel } from './types';
-import { calendarDestinations, chooseLocation, effectiveContext, eligibleItems, recommend, replacements, weatherFor } from './rules';
+import { calendarDestinations, chooseLocation, deviceDate, effectiveContext, eligibleItems, recommend, replacements, weatherFor } from './rules';
 import { ClothesError, clothesRequest, readLocal, writeLocal } from './client';
 import ItemPhoto from './ItemPhoto';
 import CityPicker from './CityPicker';
@@ -28,6 +28,8 @@ interface Props {
   onRefresh: () => void; onWardrobe: () => void;
 }
 export default function Today({ calendarLocation, owner, items, initial, records, outfits, tomorrow, past, onReviewDay, onToggleDay, wearCounts, pairCounts, onContext, onOpenWear, hasWearDraft, onExpired, onRefresh, onWardrobe }: Props) {
+  const future = initial.date > deviceDate(new Date(), initial.timezone);
+  const datedHeading = past || (future && !tomorrow);
   const storageKey = `bonclothes:context-draft:${owner}:${initial.date}`;
   const lastCityKey = `bonclothes:last-city:${owner}`;
   const preferenceKey = `bonclothes:location-choice:${owner}`;
@@ -172,13 +174,13 @@ export default function Today({ calendarLocation, owner, items, initial, records
   };
   const replaceItem = outfit?.items.find((item) => item.id === replace);
   return <>
-    <section className="clothes-today-records" aria-label={past ? '历史穿搭' : tomorrow ? '明日穿搭' : '今日穿搭'}>
-      <div className="clothes-row clothes-section-heading"><h2><button className="clothes-day-toggle" title={past ? '返回今天' : tomorrow ? '切换到今天' : '切换到明天'} onClick={() => onToggleDay(location)}>{past ? `${initial.date.slice(5).replace('-', '.')} 穿搭` : tomorrow ? '明天穿啥' : '今天穿了什么'}</button></h2><button className="life-primary" onClick={() => openWear()}>{hasWearDraft ? '继续记录' : todayRecords.length ? '再记一套' : past ? '补记穿搭' : tomorrow ? '搭一套' : '记录穿搭'}</button></div>
+    <section className="clothes-today-records" aria-label={past ? '历史穿搭' : tomorrow ? '明日穿搭' : future ? '未来穿搭' : '今日穿搭'}>
+      <div className="clothes-row clothes-section-heading"><h2><button className="clothes-day-toggle" title={past || future ? '返回今天' : '切换到明天'} onClick={() => onToggleDay(location)}>{datedHeading ? `${initial.date.slice(5).replace('-', '.')} 穿搭` : tomorrow ? '明天穿啥' : '今天穿了什么'}</button></h2><button className="life-primary" onClick={() => openWear()}>{hasWearDraft ? '继续记录' : todayRecords.length ? '再记一套' : past ? '补记穿搭' : future ? '搭一套' : '记录穿搭'}</button></div>
       {todayRecords.length ? todayRecords.map((record, i) => <article className="clothes-daily-record" key={wearId(record)}>
         <div className="clothes-row"><strong>{`第 ${i + 1} 套`}{record.purpose ? ` · ${record.purpose}` : ''} · {record.kind === 'styled' ? '搭了' : '穿了'}</strong><button className="clothes-link" onClick={() => openWear([], record)}>编辑穿搭</button></div>
         <WearDetails record={record} />
         <div className="clothes-history-pieces">{record.items.map((item) => <figure key={item.id}><ItemPhoto item={item} current={items.find((piece) => piece.id === item.id)} /><figcaption>{item.name}</figcaption></figure>)}</div>
-      </article>) : <p className="clothes-muted">{past ? '这天还没有穿搭记录' : tomorrow ? '还没有明天的搭配' : '今天还没有记录穿搭'}</p>}
+      </article>) : <p className="clothes-muted">{past ? '这天还没有穿搭记录' : future ? '这天还没有搭配' : '今天还没有记录穿搭'}</p>}
     </section>
     <section className="clothes-context" aria-label="当天条件">
       <div className="clothes-row"><div className="clothes-location"><span className="clothes-label">地点</span><button onClick={() => setCityQuery('')}>{location?.name ?? '选择城市'} <span aria-hidden="true">⌄</span></button></div>
@@ -187,7 +189,7 @@ export default function Today({ calendarLocation, owner, items, initial, records
       {geoError && <p className="clothes-status" role="status">{geoError}</p>}
       {destinations.length > 0 && <div className="clothes-destinations"><span className="clothes-label">日程地点</span>{destinations.map((destination) => <button key={destination} onClick={() => setCityQuery(destination)}>{destination}</button>)}</div>}
       <div className="clothes-weather">
-        {weather ? <><span title={weatherSymbol(weather.code)?.label} aria-label={weatherSymbol(weather.code)?.label}>{weatherSymbol(weather.code)?.icon}</span><strong>{tomorrow || past ? `${Math.round(weather.min)}–${Math.round(weather.max)}` : Math.round(weather.temperature)}°</strong><div><span>{tomorrow ? `预报 · 体感 ${Math.round(weather.apparentMin)}–${Math.round(weather.apparent)}°` : `体感 ${Math.round(weather.apparent)}° · ${Math.round(weather.min)}–${Math.round(weather.max)}°`}</span><span>{dailyWeatherLabel(weather).split(' · ')[0]} · 风 {Math.round(weather.wind)} km/h</span></div></>
+        {weather ? <><span title={weatherSymbol(weather.code)?.label} aria-label={weatherSymbol(weather.code)?.label}>{weatherSymbol(weather.code)?.icon}</span><strong>{future || past ? `${Math.round(weather.min)}–${Math.round(weather.max)}` : Math.round(weather.temperature)}°</strong><div><span>{future ? `预报 · 体感 ${Math.round(weather.apparentMin)}–${Math.round(weather.apparent)}°` : `体感 ${Math.round(weather.apparent)}° · ${Math.round(weather.min)}–${Math.round(weather.max)}°`}</span><span>{dailyWeatherLabel(weather).split(' · ')[0]} · 风 {Math.round(weather.wind)} km/h</span></div></>
           : <span className="clothes-muted">{weatherBusy ? '天气加载中…' : location ? past ? '暂无历史天气' : '暂无天气' : '请选择城市'}</span>}
         <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a>
       </div>
@@ -205,7 +207,7 @@ export default function Today({ calendarLocation, owner, items, initial, records
       {calendar?.events.length ? <details className="clothes-events"><summary>当日日程</summary>{calendar.events.map((event, i) => <div key={i}><span>{event.allDay ? '全天' : new Date(event.startDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><span>{event.title}{event.location && <small>{event.location}</small>}</span></div>)}</details> : null}
     </section>
     {!past && <section className="clothes-outfit" aria-label="穿搭推荐">
-      <div className="clothes-row clothes-section-heading"><h2>{tomorrow ? '明日穿搭推荐' : '穿搭推荐'}</h2><button className="clothes-link" disabled={candidates.length < 2 || busy} onClick={() => { setIndex((v) => v + 1); setReplace(null); }}>换一套</button></div>
+      <div className="clothes-row clothes-section-heading"><h2>{tomorrow ? '明日穿搭推荐' : future ? `${initial.date.slice(5).replace('-', '.')} 穿搭推荐` : '穿搭推荐'}</h2><button className="clothes-link" disabled={candidates.length < 2 || busy} onClick={() => { setIndex((v) => v + 1); setReplace(null); }}>换一套</button></div>
       <div className="clothes-fields clothes-picker-controls"><label>用途<select aria-label="推荐用途" value={effective.purpose ?? ''} onChange={(e) => changeContext({ purpose: e.target.value as Purpose || null })}><option value="">请选择</option>{PURPOSES.filter((purpose) => purpose !== '睡觉').map((purpose) => <option key={purpose} value={purpose}>{PURPOSE_LABELS[purpose]}</option>)}</select></label></div>
       {outfit?.items.length ? <><OutfitPieces items={outfit.items} fixed={fixed} onReplace={(item) => setReplace(item.id)} onUnpin={(item) => { setFixed((value) => value.filter((piece) => piece.id !== item.id)); setIndex(0); setReplace(null); }} />
           <div className="clothes-row clothes-add-layers">
