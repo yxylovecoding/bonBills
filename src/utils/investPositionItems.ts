@@ -158,12 +158,17 @@ export function calculateInvestPositionMetric(
         }
       : undefined;
   const canCalculatePosition = Boolean(effectiveMarket) && shares > 0;
-  const marketValueCny = hasExplicitShares && shares === 0
+  const valuation = item.alipayCorrection?.valuation;
+  const anchored = valuation && canCalculatePosition && shares === valuation.shares && costPrice === valuation.costPrice
+    && ['CNY', 'CNH'].includes(effectiveMarket!.currency.toUpperCase()) && effectiveMarket!.fxRateToCny === 1
+    && [valuation.price, valuation.marketValueCny, valuation.holdingProfitCny].every(Number.isFinite);
+  const priceChange = anchored ? shares * (effectiveMarket!.price - valuation.price) : 0;
+  const marketValueCny = anchored ? roundMoney(valuation.marketValueCny + priceChange) : hasExplicitShares && shares === 0
     ? 0
     : canCalculatePosition
     ? roundMoney(shares * effectiveMarket!.price * effectiveMarket!.fxRateToCny)
     : roundMoney(Math.max(finiteOrZero(item.marketValueCny), 0));
-  const holdingProfitCny = hasExplicitShares && shares === 0
+  const holdingProfitCny = anchored ? roundMoney(valuation.holdingProfitCny + priceChange) : hasExplicitShares && shares === 0
     ? 0
     : canCalculatePosition && costPrice > 0
     ? roundMoney((effectiveMarket!.price - costPrice) * shares * effectiveMarket!.fxRateToCny)

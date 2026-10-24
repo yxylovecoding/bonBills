@@ -4,7 +4,8 @@ import type {
 } from '../models/types';
 import type { HolidayDataByYear } from './holidays';
 import { canonicalInvestmentSymbol } from './investmentInstrument';
-import { calculateInvestPositionMetric, INVEST_POSITION_KEYS } from './investPositionItems';
+import { calculateInvestPositionMetric, INVEST_POSITION_KEYS, summarizeInvestPositionItems, type InvestMarketSnapshot } from './investPositionItems';
+import { coveredByAlipayCorrection } from './investmentCorrectionBoundary';
 import { cloneInvestPositionItems, investmentApplicationOrder } from './investmentRollover';
 import { estimatePendingFundBuy, pendingFundNavStartDate, type FundNavBar } from './pendingFundEstimate';
 
@@ -156,7 +157,11 @@ export function projectAlipayHoldings(source: InvestPositionItems, options: Alip
     const item = items[groupKey]![index];
     if (!isConfirmationFund(item)) continue;
     const symbol = canonicalInvestmentSymbol(item.symbol);
-    const transactions = ledger.filter((transaction) => canonicalInvestmentSymbol(transaction.symbol) === symbol);
+    // The imported balance already includes older ledger trades, even when their
+    // exported time differs from Alipay. Only current T+1 bridges need projecting back out.
+    const transactions = ledger.filter((transaction) => canonicalInvestmentSymbol(transaction.symbol) === symbol
+      && (!coveredByAlipayCorrection(item, transaction)
+        || (!!transaction.autoBuy?.alipayAsOf && transaction.autoBuy.alipayAsOf === item.alipayCorrection?.date)));
     const buys = transactions.filter((transaction) => transaction.side === 'buy');
     const keyed = new Map<string, InvestmentTransactionRecord[]>();
     buys.forEach((transaction) => keyed.set(confirmationOrderKey(transaction), [...(keyed.get(confirmationOrderKey(transaction)) ?? []), transaction]));
@@ -243,6 +248,7 @@ export function projectAlipayHoldings(source: InvestPositionItems, options: Alip
     }
     // Pending-only imports have no ledger effect yet. Add their estimated shares only to this view.
     let invalidPending = false;
+    let addedPendingCost = 0;
     for (let i = 0; i < pending.length; i++) {
       const order = pendingOrders[i];
       if (order.status !== 'confirmed') continue;
@@ -254,7 +260,7 @@ export function projectAlipayHoldings(source: InvestPositionItems, options: Alip
         order.status = 'review'; reviewItemIds.add(item.id); invalidPending = true; continue;
       }
       const next = replay(projected, { ...entry, date: order.confirmationDate!, side: 'buy', shares: order.shares!, price: order.price!, fee: entry.fee ?? 0, costFromAmount: true });
-      if (next) projected = next;
+      if (next) { projected = next; addedPendingCost += entry.amount ?? order.shares! * order.price! + (entry.fee ?? 0); }
       else { reviewItemIds.add(item.id); invalidPending = true; }
     }
     if (invalidPending) continue;
@@ -263,14 +269,48 @@ export function projectAlipayHoldings(source: InvestPositionItems, options: Alip
     const fx = metric.fxRateToCny ?? metric.profitFxRateToCny;
     const price = metric.price ?? ((item.shares ?? 0) > 0 ? metric.marketValueCny / item.shares! / fx : undefined);
     if (projected.shares > 0 && !(price && price > 0)) { reviewItemIds.add(item.id); continue; }
+    const valuation = item.alipayCorrection?.valuation;
+    const preserveCents = valuation && valuation.shares === item.shares && valuation.costPrice === item.costPrice && fx === 1;
+    const marketDelta = (projected.shares - (item.shares ?? 0)) * (price ?? 0) * fx;
+    const excludedCost = buys.filter((entry) => excluded.has(entry.id)).reduce((sum, entry) => sum
+      + (entry.costFromAmount && entry.amount !== undefined ? entry.amount : entry.shares * entry.price + entry.fee), 0);
+    const marketValueCny = round(preserveCents ? metric.marketValueCny + marketDelta : projected.shares * (price ?? 0) * fx, 2);
+    const holdingProfitCny = round(preserveCents
+      ? metric.holdingProfitCny + marketDelta + (excludedCost - addedPendingCost - realizedDelta) * fx
+      : projected.shares * ((price ?? 0) - projected.costPrice) * fx, 2);
     items[groupKey]![index] = {
       ...item, shares: projected.shares, costPrice: projected.costPrice,
       status: item.status === 'closed' && projected.shares > 0 ? 'active' : item.status,
-      marketValueCny: round(projected.shares * (price ?? 0) * fx, 2),
-      holdingProfitCny: round(projected.shares * ((price ?? 0) - projected.costPrice) * fx, 2),
+      marketValueCny, holdingProfitCny,
+      ...(preserveCents && price ? { alipayCorrection: { ...item.alipayCorrection!, valuation: {
+        shares: projected.shares, costPrice: projected.costPrice, price, marketValueCny, holdingProfitCny,
+      } } } : {}),
       historicalProfitCny: round(metric.historicalProfitCny / metric.profitFxRateToCny + realizedDelta, 2),
       profitInputMode: 'historical',
     };
   }
   return { items, orders, reviewItemIds };
+}
+
+/** Alipay's amount includes unconfirmed cash. Cash changes neither shares nor profit. */
+export function summarizeAlipayHoldings(items: InvestPositionItems, orders: AlipayOrder[], markets: Record<string, InvestMarketSnapshot | undefined> = {}, reviewItemIds = new Set<string>()) {
+  const summary = summarizeInvestPositionItems(items, markets);
+  const pendingCashById: Record<string, number> = {};
+  for (const key of INVEST_POSITION_KEYS) for (const item of items[key] ?? []) {
+    const metric = summary.metricsById[item.id];
+    const seen = new Set<string>();
+    // A failed projection may still contain the bought shares. Do not add cash again.
+    const cash = orders.filter((order) => !reviewItemIds.has(item.id) && order.itemId === item.id && order.status === 'pending' && !order.ambiguous).reduce((sum, order) => {
+      if (seen.has(order.key) || order.amount === undefined || !Number.isFinite(order.amount) || order.amount < 0) return sum;
+      seen.add(order.key);
+      const currency = order.currency.toUpperCase();
+      const fx = ['CNY', 'CNH'].includes(currency) ? 1 : currency === metric.currency ? metric.fxRateToCny : undefined;
+      return sum + (fx ? Math.round(order.amount * fx * 100) : 0);
+    }, 0) / 100;
+    pendingCashById[item.id] = cash;
+    metric.marketValueCny = round(metric.marketValueCny + cash, 2);
+    summary.marketValueByCategory[key] = round(summary.marketValueByCategory[key] + cash, 2);
+    summary.totalMarketValueCny = round(summary.totalMarketValueCny + cash, 2);
+  }
+  return { ...summary, pendingCashById };
 }

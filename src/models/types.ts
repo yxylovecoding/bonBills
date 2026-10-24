@@ -108,6 +108,8 @@ export interface InvestPositionItem {
   alipayCorrection?: {
     date: string;
     deferredBuys: { operationAt: string; amount: number; orderId?: string }[];
+    // Preserve the observed cents despite rounded shares/cost. Invalidated by position edits.
+    valuation?: { shares: number; costPrice: number; price: number; marketValueCny: number; holdingProfitCny: number };
   };
 }
 

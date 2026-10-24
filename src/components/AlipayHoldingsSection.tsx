@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react';
 import type { FundConfirmationOverride, FundConfirmationRule, InvestPositionGroupKey, InvestPositionItems, MonthlyRecord } from '../models/types';
 import { useConfigStore } from '../stores/configStore';
 import { useAlipayHoldings } from '../hooks/useAlipayHoldings';
-import { fundConfirmationKey, isConfirmationFund, resolveFundConfirmationRule, validConfirmationDate, type AlipayOrder } from '../utils/alipayHoldings';
-import { calculateInvestPositionMonthlyProfit, summarizeInvestPositionItems, type InvestMarketSnapshot } from '../utils/investPositionItems';
+import { fundConfirmationKey, isConfirmationFund, resolveFundConfirmationRule, summarizeAlipayHoldings, validConfirmationDate, type AlipayOrder } from '../utils/alipayHoldings';
+import { calculateInvestPositionMonthlyProfit, type InvestMarketSnapshot } from '../utils/investPositionItems';
 import { investMeta } from '../data/mockData';
 import AlipayActualPanel from './AlipayActualPanel';
 import AlipayAmountProfit from './AlipayAmountProfit';
@@ -83,8 +83,8 @@ export default function AlipayHoldingsSection({ items, previousItems, records, y
   const rules = useConfigStore((state) => state.config.fundConfirmationRules);
   const [past, setPast] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  const summary = useMemo(() => summarizeInvestPositionItems(view.items, markets), [view.items, markets]);
-  const previousSummary = useMemo(() => view.previous ? summarizeInvestPositionItems(view.previous.items, previousMarkets) : undefined, [view.previous, previousMarkets]);
+  const summary = useMemo(() => summarizeAlipayHoldings(view.items, view.orders, markets, view.reviewItemIds), [view.items, view.orders, view.reviewItemIds, markets]);
+  const previousSummary = useMemo(() => view.previous ? summarizeAlipayHoldings(view.previous.items, view.previous.orders, previousMarkets, view.previous.reviewItemIds) : undefined, [view.previous, previousMarkets]);
   const monthly = useMemo(() => calculateInvestPositionMonthlyProfit(view.items, view.previous?.items, markets, previousMarkets), [view.items, view.previous, markets, previousMarkets]);
   const profit = previousSummary ? Math.round((summary.totalProfitCny - previousSummary.totalProfitCny) * 100) / 100 : null;
   const holdingProfit = Object.values(summary.metricsById).reduce((sum, metric) => sum + Math.round(metric.holdingProfitCny * 100), 0) / 100;
@@ -158,7 +158,7 @@ export default function AlipayHoldingsSection({ items, previousItems, records, y
                 <div className="alipay-position-basis">
                   <span><span className="alipay-metric-label">份额（推算）</span><b>{item.shares?.toLocaleString('zh-CN', { maximumFractionDigits: 4 }) ?? '待补充'}</b></span>
                   <span><span className="alipay-metric-label">成本价（推算）</span><b>{item.costPrice?.toFixed(4) ?? '待补充'}</b></span>
-                  <span><span className="alipay-metric-label">成本合计（推算）</span><b>{item.shares !== undefined && item.costPrice !== undefined ? money(item.shares * item.costPrice, currency) : '待补充'}</b></span>
+                  <span><span className="alipay-metric-label">成本合计（推算）</span><b>{metric && item.shares !== undefined && item.costPrice !== undefined ? money((metric.marketValueCny - (summary.pendingCashById[item.id] ?? 0) - metric.holdingProfitCny) / fx, currency) : '待补充'}</b></span>
                 </div>
                 {itemOrders.filter((order) => order.status === 'pending').map((order, i) => <div className="alipay-pending" key={`${order.key}:${i}`}>
                   <span>待确认 {order.amount === undefined ? '金额待补' : money(order.amount, order.currency)}</span><span>{order.confirmationDate ? `预计 ${order.confirmationDate}` : '手动待确认'}</span>

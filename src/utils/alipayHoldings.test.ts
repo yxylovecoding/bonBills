@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { InvestPositionItems, InvestmentTransactionRecord, PendingInvestmentBuy } from '../models/types';
-import { confirmationOrderKey, estimateConfirmationDate, fundConfirmationKey, holdingsAsOf, projectAlipayHoldings, resolveFundConfirmationRule, type AlipayProjectionOptions } from './alipayHoldings';
+import { confirmationOrderKey, estimateConfirmationDate, fundConfirmationKey, holdingsAsOf, projectAlipayHoldings, resolveFundConfirmationRule, summarizeAlipayHoldings, type AlipayProjectionOptions } from './alipayHoldings';
 import { applyInvestmentTransaction, captureInvestmentPositionBefore, createInvestmentRolloverRecord, emptyMonthlyRecord } from './investmentRollover';
 import { summarizeInvestPositionItems, syncInvestPositionItems } from './investPositionItems';
 import { bookPendingFundBuy, reconcileAutoFundBuy } from './autoFundBuys';
@@ -69,6 +69,17 @@ describe('支付宝确认日期', () => {
 });
 
 describe('支付宝持仓投影', () => {
+  it('各层金额加入在途现金一次，确认后移除现金且收益不变；未能回退份额时不重复加钱', () => {
+    const record = booked();
+    const view = projectAlipayHoldings(record.investPositionItems!, options({ records: [record] }));
+    const summary = summarizeAlipayHoldings(view.items, [...view.orders, ...view.orders]);
+    expect(summary).toMatchObject({ totalMarketValueCny: 1420, totalProfitCny: 220, marketValueByCategory: { us: 1420 }, pendingCashById: { fund: 220 } });
+    expect(summary.metricsById.fund).toMatchObject({ marketValueCny: 1420, holdingProfitCny: 200 });
+    const later = projectAlipayHoldings(record.investPositionItems!, options({ records: [record], asOf: '2026-09-16' }));
+    expect(summarizeAlipayHoldings(later.items, later.orders)).toMatchObject({ totalMarketValueCny: 1440, pendingCashById: { fund: 0 } });
+    const before = summarizeInvestPositionItems(record.investPositionItems!);
+    expect(summarizeAlipayHoldings(record.investPositionItems!, view.orders, {}, new Set(['fund'])).totalMarketValueCny).toBe(before.totalMarketValueCny);
+  });
   it('未确认买入同步移除份额和成本，原成交净值及账本不变', () => {
     const record = booked();
     const before = structuredClone(record);
