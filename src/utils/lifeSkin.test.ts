@@ -8,11 +8,13 @@ describe('用品选择按当前肤况排序', () => {
     expect(skinPlanValues(DEFAULT_SKIN_SETTINGS, 'acne', 1, 'autumn').morningProducts).toBe('珂润霜');
   });
 
-  it('切换肤况后药品重新排序，隐藏不匹配时段，其他肤况药品仍可选', () => {
+  it('药品仅显示对应肤况，并隐藏不匹配时段，不沿用其他肤况的药', () => {
     expect(rankedSkinProducts(DEFAULT_SKIN_SETTINGS, 'damaged', 'autumn', 'medication', 'morning').map((item) => item.name))
-      .toEqual(['生长因子', '炉甘石', '过氧', '酸']);
+      .toEqual(['生长因子']);
     expect(rankedSkinProducts(DEFAULT_SKIN_SETTINGS, 'acne', 'autumn', 'medication', 'evening').map((item) => item.name))
-      .toEqual(['炉甘石', '阿达帕林', '酸', '生长因子']);
+      .toEqual(['炉甘石', '阿达帕林', '酸']);
+    expect(rankedSkinProducts(DEFAULT_SKIN_SETTINGS, 'healthy', 'autumn', 'medication')).toEqual([]);
+    expect(rankedSkinProducts(DEFAULT_SKIN_SETTINGS, 'allergic', 'autumn', 'medication', 'morning')).toEqual([]);
   });
 
   it.each(['medication', 'skincare'] as const)('%s 同肤况按季节和早晚排序，通用和不匹配项靠后，停用品不出现', (kind) => {
@@ -27,7 +29,7 @@ describe('用品选择按当前肤况排序', () => {
     ] };
     const original = structuredClone(settings);
     expect(rankedSkinProducts(settings, 'damaged', 'autumn', kind, 'morning').map((item) => item.id))
-      .toEqual(kind === 'medication' ? ['first', 'second', 'summer', 'general', 'other'] : ['first', 'second', 'summer', 'evening', 'general', 'other']);
+      .toEqual(kind === 'medication' ? ['first', 'second', 'summer', 'general'] : ['first', 'second', 'summer', 'evening', 'general', 'other']);
     expect(settings).toEqual(original);
   });
 

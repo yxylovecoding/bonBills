@@ -106,7 +106,7 @@ export default function LifeSkinFields({ value = {}, date, entries, settings = D
       const time = field.startsWith('morning') ? 'morning' : 'evening';
       const products = rankedSkinProducts(settings, status, season, kind, time, selectedDay);
       return <SkinProductChoices key={field} label={SKIN_FIELDS[field]} kind={kind} value={value[field] ?? ''} products={products}
-        isAvailable={(name) => kind !== 'medication' || skinMedicationAvailable(settings, name, time, selectedDay)}
+        isAvailable={(name) => kind !== 'medication' || skinMedicationAvailable(settings, name, time, selectedDay, status)}
         busy={busy} onChange={(next) => change({ [field]: next })} />;
     })}</div>
   </div>;

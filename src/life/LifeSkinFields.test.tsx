@@ -14,6 +14,20 @@ function render(settings = DEFAULT_SKIN_SETTINGS, value = {}) {
 }
 
 describe('日常记录用药时段', () => {
+  it('只显示当前症状的药品，痘印副状态不引入其他肤况的药品', () => {
+    const acne = render(DEFAULT_SKIN_SETTINGS, { status: 'acne', acneMarks: true, planDay: 1 });
+    const damaged = render(DEFAULT_SKIN_SETTINGS, { status: 'damaged', planDay: 1 });
+    const healthy = render(DEFAULT_SKIN_SETTINGS, { status: 'healthy' });
+    for (const label of ['早间用药', '晚间用药']) {
+      expect(picker(acne, label)).toContain('炉甘石');
+      expect(picker(acne, label)).not.toContain('生长因子');
+      expect(picker(damaged, label)).toContain('生长因子');
+      expect(picker(damaged, label)).not.toMatch(/炉甘石|过氧|阿达帕林|酸/);
+      expect(picker(healthy, label)).not.toContain('value="product:');
+      expect(picker(healthy, label)).toContain('手动填写');
+    }
+  });
+
   it('早晚下拉完全隐藏不匹配药品，未设置时段的药早晚可选', () => {
     const html = render();
     expect(picker(html, '早间用药')).not.toContain('阿达帕林');
@@ -36,13 +50,14 @@ describe('日常记录用药时段', () => {
     expect(skinMedicationAvailable(settings, '炉甘石', 'evening', day)).toBe(true);
   });
 
-  it('保留时段不匹配、已停用和已删除的历史用药及旧字段，渲染不改写记录', () => {
-    const value = { status: 'acne' as const, planDay: 2, morningMedication: '阿达帕林、旧药', eveningMedication: '过氧', medication: '旧未分时段用药' };
+  it('保留症状或时段不匹配、已停用和已删除的历史用药及旧字段，渲染不改写记录', () => {
+    const value = { status: 'acne' as const, planDay: 2, morningMedication: '阿达帕林、旧药、生长因子', eveningMedication: '过氧', medication: '旧未分时段用药' };
     const original = structuredClone(value);
     const settings = { ...DEFAULT_SKIN_SETTINGS, products: DEFAULT_SKIN_SETTINGS.products.map((item) => ({ ...item, active: false })) };
     const html = render(settings, value);
     expect(html).toContain('早间用药 · 移除阿达帕林');
     expect(html).toContain('早间用药 · 移除旧药');
+    expect(html).toContain('早间用药 · 移除生长因子');
     expect(html).toContain('晚间用药 · 移除过氧');
     expect(parseSkinRecord(value)).toEqual(original);
     expect(value).toEqual(original);
@@ -50,6 +65,11 @@ describe('日常记录用药时段', () => {
     expect(skinMedicationAvailable(settings, '阿达帕林', 'morning')).toBe(false);
     expect(skinMedicationAvailable(settings, '过氧', 'evening')).toBe(false);
     expect(skinMedicationAvailable(settings, '旧药', 'morning')).toBe(true);
+    expect(skinMedicationAvailable(DEFAULT_SKIN_SETTINGS, '生长因子', 'morning', undefined, 'acne')).toBe(false);
+    expect(skinMedicationAvailable(DEFAULT_SKIN_SETTINGS, '炉甘石', 'evening', undefined, 'damaged')).toBe(false);
+    expect(skinMedicationAvailable(settings, '炉甘石', 'morning', undefined, 'acne')).toBe(false);
+    const day = { ...emptySkinDay(), morningMedication: '生长因子' };
+    expect(skinMedicationAvailable(DEFAULT_SKIN_SETTINGS, '生长因子', 'morning', day, 'acne')).toBe(false);
   });
 
   it('时段标签早晚均可和不设时段保留原语义，方案天数失效也可记录', () => {
