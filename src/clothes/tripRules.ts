@@ -32,7 +32,7 @@ export function buildClothesTrips(calendar: Record<string, unknown>, settings: R
     });
 }
 export function newTripPlan(trip: ClothesTrip): ClothesTripPlan {
-  return { tripId: trip.id, revision: '', title: trip.title, startDate: trip.startDate, endDate: trip.endDate, location: trip.locations?.length === 1 ? trip.locations[0] : null, days: {} };
+  return { tripId: trip.id, revision: '', title: trip.title, startDate: trip.startDate, endDate: trip.endDate, location: trip.locations?.length === 1 && !trip.unresolvedDestinations?.length ? trip.locations[0] : null, days: {} };
 }
 export function tripDayContext(trip: ClothesTrip, plan: ClothesTripPlan, date: string, timezone: string): ClothesDayContext {
   const inferred = inferActivities(tripEventsOnDate(trip.events, date, timezone));

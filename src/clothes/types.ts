@@ -70,6 +70,7 @@ export interface ClothesData { calendarLocation?: import('../utils/calendarWeath
 export interface ClothesTrip {
   id: string; title: string; startDate: string; endDate: string; dates: string[];
   locations?: ClothesLocation[];
+  unresolvedDestinations?: string[];
   destinations: string[]; events: ClothesEvent[]; archived?: boolean;
 }
 export interface TripDayPlan { purpose?: Purpose | null; scene: Scene | null; active: boolean | null; itemIds: string[] | null; itemCategories?: Record<string, Category> }

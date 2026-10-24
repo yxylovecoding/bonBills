@@ -11,10 +11,17 @@ import type { ClothesDayContext, ClothesLocation, ClothesTripPlan } from '../src
 import type { CalendarLocationDay, CalendarWeather } from '../src/utils/calendarWeather.js';
 import { deviceDate } from '../src/clothes/rules.js';
 
-interface GeocodedCity { name: string; latitude: number; longitude: number; timezone?: string; population?: number; feature_code?: string }
+interface GeocodedCity { name: string; latitude: number; longitude: number; timezone?: string; population?: number; feature_code?: string; admin1?: string }
 const normalizedName = (name: string) => name.trim().toLocaleLowerCase().replace(/市$/, '');
+const normalizedRegion = (name: string) => name.replace(/(?:省|市|壮族自治区|回族自治区|维吾尔自治区|自治区|特别行政区)$/, '');
+export function destinationParts(query: string) {
+  const match = query.match(/^(?:中国)?(内蒙古|黑龙江|广西|宁夏|新疆|西藏|河北|山西|辽宁|吉林|江苏|浙江|安徽|福建|江西|山东|河南|湖北|湖南|广东|海南|四川|贵州|云南|陕西|甘肃|青海|台湾|北京|天津|上海|重庆|香港|澳门)(?:壮族自治区|回族自治区|维吾尔自治区|自治区|特别行政区|省|市)?\s*(.{2,})$/);
+  return match ? { name: match[2].trim(), region: match[1] } : { name: query, region: null };
+}
 export function selectDestinationCity(query: string, cities: GeocodedCity[]): ClothesLocation | null {
-  const matches = cities.filter((city) => normalizedName(city.name) === normalizedName(query) && readSceneCity(city));
+  const { name, region } = destinationParts(query);
+  const matches = cities.filter((city) => normalizedName(city.name) === normalizedName(name) && readSceneCity(city)
+    && (!region || normalizedRegion(city.admin1 ?? '') === region));
   const unique = [...new Map(matches.map((city) => [`${city.latitude.toFixed(2)}:${city.longitude.toFixed(2)}`, city])).values()]
     .sort((a, b) => (b.population ?? 0) - (a.population ?? 0));
   const first = unique[0];
@@ -23,10 +30,11 @@ export function selectDestinationCity(query: string, cities: GeocodedCity[]): Cl
 }
 export async function resolveDestination(query: string): Promise<ClothesLocation | null> {
   if (!/^[\p{L}\s·.-]{2,40}$/u.test(query)) return null;
-  const key = `weather:destination:v1:${query}`;
+  const key = `weather:destination:v2:${query}`;
   const cached = await kv.get<{ city: ClothesLocation | null }>(key);
   if (cached) return cached.city;
-  const queries = /^[\u4e00-\u9fff]{2,8}$/.test(query) && !query.endsWith('市') ? [query, `${query}市`] : [query];
+  const { name } = destinationParts(query);
+  const queries = /^[\u4e00-\u9fff]{2,8}$/.test(name) && !name.endsWith('市') ? [name, `${name}市`] : [name];
   const results = await Promise.all(queries.map(async (name) => {
     const url = new URL('https://geocoding-api.open-meteo.com/v1/search');
     url.search = new URLSearchParams({ name, count: '10', language: 'zh', format: 'json' }).toString();
@@ -64,10 +72,13 @@ export async function readCalendarLocations(start: string, end: string): Promise
       ?? readSceneCity(dayOverrides[date]?.city);
     const fixed = explicit ?? (daily.tag === 'travel' ? plannedLocation : daily.city);
     let locations: ClothesLocation[] = fixed ? [{ ...fixed, source: 'calendar' }] : [];
+    let unresolved: string[] = [];
     if (!fixed && trip) {
-      locations = (await Promise.all(tripDestinationQueries(title).map(resolve))).filter((city): city is ClothesLocation => !!city);
+      const names = tripDestinationQueries(title), cities = await Promise.all(names.map(resolve));
+      locations = cities.filter((city): city is ClothesLocation => !!city);
+      unresolved = names.filter((_, index) => !cities[index]);
     }
-    return [date, { locations, travel: daily.tag === 'travel', scene: context?.scene ?? tripDay?.scene, active: context?.active ?? tripDay?.active }] as const;
+    return [date, { locations, ...(unresolved.length ? { unresolved } : {}), travel: daily.tag === 'travel', scene: context?.scene ?? tripDay?.scene, active: context?.active ?? tripDay?.active }] as const;
   }));
   return Object.fromEntries(rows);
 }

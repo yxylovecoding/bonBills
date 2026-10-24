@@ -2,6 +2,7 @@ import type { ClothesLocation, Scene, WeatherSnapshot } from '../clothes/types.j
 
 export interface CalendarLocationDay {
   locations: ClothesLocation[];
+  unresolved?: string[];
   travel: boolean;
   scene?: Scene | null;
   active?: boolean | null;

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { readCalendarLocations, readCalendarWeather, resolveDestination, selectDestinationCity } from './_calendarWeather';
+import { destinationParts, readCalendarLocations, readCalendarWeather, resolveDestination, selectDestinationCity } from './_calendarWeather';
 import { readDailyWeather } from './_dailyWeather';
 import { BEIJING, GUANGZHOU } from '../src/utils/internship';
 import { tripDestinationQueries } from '../src/utils/tripDestinations';
@@ -31,6 +31,15 @@ describe('日历与穿搭共用所在地', () => {
     vi.stubGlobal('fetch', fetch);
     expect(await resolveDestination('大同')).toMatchObject({ latitude: 40.09 });
     await resolveDestination('大同'); expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  it('省名限定用于匹配城市，山西大同不遗漏也不匹配外省同名地点', async () => {
+    expect(destinationParts('山西省大同市')).toEqual({ name: '大同市', region: '山西' });
+    expect(destinationParts('内蒙古呼和浩特')).toEqual({ name: '呼和浩特', region: '内蒙古' });
+    const fetch = vi.fn(async (_url: URL) => new Response(JSON.stringify({ results: [{ ...datong, admin1: '山西' }, { ...datong, latitude: 22, admin1: '广东' }] })));
+    vi.stubGlobal('fetch', fetch);
+    expect(await resolveDestination('山西大同')).toMatchObject({ name: '大同市', latitude: 40.09 });
+    expect(fetch.mock.calls.map(([url]) => url.searchParams.get('name'))).toEqual(['大同', '大同市']);
+    expect(selectDestinationCity('广东大同', [{ ...datong, admin1: '山西' }])).toBeNull();
   });
   it('按每天居寄、出行分段和手动城市解析，BonClothes 地点与日历一致', async () => {
     store.set('app-config', { config: { schoolCity: BEIJING, homeCity: GUANGZHOU } });

@@ -8,6 +8,7 @@ import { CATEGORIES, MAX_OUTFIT_ITEMS, PURPOSES, SCENES, categoryLabel, type Clo
 import { dateInput, id, locationInput, requireInput } from './_clothesValidation.js';
 import { readDailyWeather } from './_dailyWeather.js';
 import { resolveDestination } from './_calendarWeather.js';
+import { tripDestinationQueries } from '../src/utils/tripDestinations.js';
 
 export const TRIP_PLANS_KEY = 'bonclothes:trip-plans:v1';
 export async function readClothesTrips(today: string, timezone: string): Promise<ClothesTripsData> {
@@ -35,8 +36,10 @@ export async function readClothesTrips(today: string, timezone: string): Promise
       dates: tripDates(plan.startDate, plan.endDate), destinations: [], events: [], archived: true });
   }
   await Promise.all(trips.map(async (trip) => {
-    trip.locations = (await Promise.all(trip.destinations.map((name) => resolveDestination(name).catch(() => null))))
-      .filter((city): city is ClothesLocation => !!city);
+    const names = tripDestinationQueries(trip.title);
+    const locations = await Promise.all(names.map((name) => resolveDestination(name).catch(() => null)));
+    trip.locations = locations.filter((city): city is ClothesLocation => !!city);
+    trip.unresolvedDestinations = names.filter((_, index) => !locations[index]);
   }));
   return { trips: trips.sort((a, b) => a.startDate.localeCompare(b.startDate)), plans, connected: Boolean(connection), calendarError };
 }

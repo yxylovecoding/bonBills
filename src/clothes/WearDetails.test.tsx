@@ -34,6 +34,7 @@ describe('穿搭历史保留实际天气和温度参考', () => {
     vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-25T01:00:00Z'));
     const day = { locations: [], travel: true };
     expect(linkedClothesContext(context, day).location).toBeNull();
+    expect(linkedClothesContext(context, { ...day, locations: [context.location], unresolved: ['未知目的地'] }).location).toBeNull();
     expect(linkedClothesContext({ ...context, date: '2026-10-27', location: { ...context.location, source: 'geo' } }, day).location).toBeNull();
     expect(linkedClothesContext({ ...context, location: { ...context.location, source: 'manual' } }, day).location?.name).toBe('北京');
   });

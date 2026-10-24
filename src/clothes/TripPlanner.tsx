@@ -46,7 +46,7 @@ function TripEditor({ trip, saved, owner, date: today, timezone, items, records,
   const [index, setIndex] = useState(0), [selection, setSelection] = useState<Outfit | null>(null), [replace, setReplace] = useState<string | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [conflict, setConflict] = useState<string | null>(null);
   const latest = useRef(draft); latest.current = draft;
-  const location = plan.location ?? (trip.locations?.length === 1 ? trip.locations[0] : null), forecastTimezone = location?.timezone ?? timezone;
+  const location = plan.location ?? (trip.locations?.length === 1 && !trip.unresolvedDestinations?.length ? trip.locations[0] : null), forecastTimezone = location?.timezone ?? timezone;
   useEffect(() => {
     if (!location) return;
     let active = true; const abort = new AbortController();
