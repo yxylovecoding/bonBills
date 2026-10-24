@@ -42,7 +42,8 @@ jobs:
             // Only emit fixed categories; provider messages can contain private
             // task details or credentials and must never enter public logs.
             const error = typeof result?.error === 'string' ? result.error : '';
-            const reason = /bandwidth.*(limit|exceed)|(limit|exceed).*bandwidth/i.test(error) ? 'storage-bandwidth-limit'
+            const reason = /ERR max requests limit exceeded/i.test(error) ? 'storage-monthly-request-limit'
+              : /bandwidth.*(limit|exceed)|(limit|exceed).*bandwidth/i.test(error) ? 'storage-bandwidth-limit'
               : /(max|limit|exceed).*(request|command)|(request|command).*(limit|exceed)/i.test(error) ? 'request-limit'
               : /WRONGPASS|NOAUTH|invalid.*token|unauthorized/i.test(error) ? 'authentication'
               : /always-today/.test(error) ? 'always-today-verification'
