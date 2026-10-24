@@ -42,7 +42,8 @@ jobs:
             // Only emit fixed categories; provider messages can contain private
             // task details or credentials and must never enter public logs.
             const error = typeof result?.error === 'string' ? result.error : '';
-            const reason = /ERR max requests limit exceeded/i.test(error) ? 'storage-monthly-request-limit'
+            const reason = /max daily requests? limit exceeded/i.test(error) ? 'storage-daily-request-limit'
+              : /max (?:monthly )?requests? limit exceeded/i.test(error) ? 'storage-monthly-request-limit'
               : /bandwidth.*(limit|exceed)|(limit|exceed).*bandwidth/i.test(error) ? 'storage-bandwidth-limit'
               : /(max|limit|exceed).*(request|command)|(request|command).*(limit|exceed)/i.test(error) ? 'request-limit'
               : /WRONGPASS|NOAUTH|invalid.*token|unauthorized/i.test(error) ? 'authentication'
@@ -61,7 +62,8 @@ jobs:
             const skipped = ['sleep-window', 'restore-pending', 'disconnected'].includes(result?.skipped);
             if (response.status !== 200 || result?.ok !== true || result.busy || result.error
                 || (!skipped && !result.dailyPlan)) {
-              throw new Error(`Hourly replanning did not complete (HTTP ${response.status}, stage=${stage}, reason=${reason})`);
+              const provider = /upstash/i.test(error) ? 'upstash' : /TickTick/i.test(error) ? 'ticktick' : 'unknown';
+              throw new Error(`Hourly replanning did not complete (HTTP ${response.status}, stage=${stage}, reason=${reason}, provider=${provider})`);
             }
             // No task titles, dates, credentials or provider responses in public logs.
             console.log(skipped ? 'Hourly replanning deferred by current connection/visibility state.'
