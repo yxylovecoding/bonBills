@@ -24,9 +24,11 @@ const options = (fields: Record<string, any> = {}) => ({ tasks: [task()], histor
   calendarState: { tagMap: Object.fromEntries(dates.map(date => [date, 'school'])) },
   availability: { startDate: '2026-10-05', endDate: '2026-11-01', events: [] }, today: '2026-10-05', now, ...fields });
 function mockWeather(f = forecast()) {
-  upstream.mockResolvedValue({ daily: { time: dates, precipitation_sum: dates.map(d => f.days[d].rain),
+  const response = { daily: { time: dates, precipitation_sum: dates.map(d => f.days[d].rain) as (number | null)[],
     precipitation_probability_max: dates.map(d => f.days[d].probability), sunshine_duration: dates.map(d => f.days[d].sunshine),
-    weather_code: dates.map(d => f.days[d].code) } });
+    weather_code: dates.map(d => f.days[d].code) } };
+  upstream.mockResolvedValue(response);
+  return response;
 }
 function client(original = task()) {
   let current = structuredClone(original);
@@ -318,6 +320,32 @@ describe('洗衣同步与天气故障', () => {
     await expect(readLaundryForecast(loc, '2026-10-05', new Date(now.getTime() + 4 * 3600_000))).rejects.toThrow('offline');
     data.clear(); upstream.mockResolvedValue({ daily: { time: dates, precipitation_sum: dates.map(() => null) } });
     await expect(readLaundryForecast(loc, '2026-10-05', now)).rejects.toThrow('不完整');
+  });
+  it('北京时间跨午夜使用预报天数请求，远期缺测不阻止五天周期在近期避雨', async () => {
+    const f = forecast();
+    for (const day of ['2026-10-11', '2026-10-12']) f.days[day] = sunny;
+    const response = mockWeather(f);
+    const last = dates.indexOf('2026-10-20');
+    response.daily.precipitation_sum[last] = null;
+    const c = client();
+    const midnight = new Date('2026-10-05T00:05:00+08:00');
+    const result = await syncLaundrySchedule(c.api, { ...options({ now: midnight, history: [task({
+      id: 'history', status: 2, completedTime: '2026-10-04T23:00:00+08:00',
+    })] }), connectionId: 'connection' });
+    expect(result.decisions[0]).toMatchObject({ target: '2026-10-09', date: '2026-10-11' });
+    expect(c.current().repeatFlag).toBe('RRULE:FREQ=DAILY;INTERVAL=5');
+    const url = upstream.mock.calls[0][0] as URL;
+    expect(url.searchParams.get('forecast_days')).toBe('16');
+    expect(url.searchParams.has('end_date')).toBe(false);
+    expect((await readLaundryForecast(city, '2026-10-05', midnight)).days['2026-10-20']).toBeUndefined();
+  });
+  it('五天周期候选窗口内缺测仍保留原日期，不将缺测日当晴天', async () => {
+    const response = mockWeather(forecast(sunny));
+    response.daily.precipitation_sum[dates.indexOf('2026-10-11')] = null;
+    const c = client();
+    expect(await syncLaundrySchedule(c.api, { ...options(), connectionId: 'connection' })).toMatchObject({ updated: 0,
+      decisions: [{ target: '2026-10-10', reason: expect.stringContaining('暂无完整天气') }] });
+    expect(c.api.updateTask).not.toHaveBeenCalled();
   });
 });
 

@@ -43,17 +43,21 @@ export async function readLaundryForecast(location: SceneCity, today: string, no
   const url = new URL('https://api.open-meteo.com/v1/forecast');
   url.search = new URLSearchParams({ latitude: String(latitude), longitude: String(longitude), timezone: 'Asia/Shanghai',
     daily: 'precipitation_sum,precipitation_probability_max,sunshine_duration,weather_code',
-    start_date: today, end_date: addDays(today, 15) }).toString();
+    forecast_days: '16', past_days: '1' }).toString();
   const data = await upstream(url), daily = data.daily;
   const days: Record<string, LaundryWeather> = {};
-  for (let offset = 0; offset < 16; offset++) {
+  for (let offset = -1; offset < 16; offset++) {
     const date = addDays(today, offset), index = daily?.time?.indexOf(date) ?? -1;
     const fields = ['precipitation_sum', 'precipitation_probability_max', 'sunshine_duration', 'weather_code'].map(key => daily?.[key]?.[index]);
-    if (index < 0 || !fields.every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0)) throw new Error('洗衣天气预报不完整');
+    // A distant model horizon may be missing even while the nearby laundry
+    // window is complete. Keep unknown days absent; chooseLaundryDay requires
+    // complete weather for each eligible washing day and its drying day.
+    if (index < 0 || !fields.every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0)) continue;
     const [rain, probability, sunshine, code] = fields;
-    if (probability > 100 || sunshine > 86400) throw new Error('洗衣天气预报无效');
+    if (probability > 100 || sunshine > 86400) continue;
     days[date] = { rain, probability, sunshine, code };
   }
+  if (!Object.keys(days).some(date => date >= today)) throw new Error('洗衣天气预报不完整');
   const result = { fetchedAt: now.toISOString(), days };
   await kv.set(key, result, { ex: 86400 });
   return result;
