@@ -1,3 +1,5 @@
+import { collectCompleted } from './_ticktickCompleted.js';
+import { schedulingStage } from './_schedulingFailure.js';
 import { createCipheriv, createDecipheriv, createHash, createSecretKey, randomBytes, type KeyObject } from 'node:crypto';
 import { Lunar } from 'lunar-typescript';
 import ICAL from 'ical.js';
@@ -826,15 +828,46 @@ export async function updateRoutineTaskDate(
 // made since the list snapshot, and never revive a completed occurrence.
 export async function syncTickTickAlwaysToday(api: TickTickApi, options: { tasks?: TickTickTask[]; today?: string } = {}) {
   const tasks = options.tasks ?? await readAllTickTickTasks(api, [0]);
+  const today = options.today ?? calendarDateInTimeZone(new Date().toISOString())!;
+  const candidates = tasks.filter(task => isAlwaysTodayTask(task) && (task.status ?? 0) === 0 && !task.completedTime);
+  if (!candidates.length) return { matched: 0, updated: 0 };
+  // A repeating task can already be pending again with a new ID after completion.
+  // Read today's actual completions before any writes; failed reads must not look empty.
+  const completed = await schedulingStage('completion-history', true, async () => {
+    const records = await collectCompleted(api, [...new Set(candidates.map(task => task.projectId))],
+      Date.parse(`${today}T00:00:00+08:00`), Date.parse(`${today}T23:59:59.999+08:00`), Date.now() + 55_000);
+    return records.filter(task => {
+      if ((task.status ?? 2) !== 2) return false;
+      if (!task.id || !task.projectId || !task.title || !task.completedTime
+        || !/(?:Z|[+-]\d{2}:?\d{2})$/.test(task.completedTime) || !Number.isFinite(Date.parse(task.completedTime))) {
+        throw new Error('TickTick 完成记录无效，未调整固定今日任务');
+      }
+      return Date.parse(task.completedTime) <= Date.now() && calendarDateInTimeZone(task.completedTime, 'Asia/Shanghai') === today;
+    });
+  });
+  const identity = (task: TickTickTask) => JSON.stringify([task.projectId, task.id]);
+  const completedIds = new Set(completed.map(identity));
+  const completedFamilies = new Set(completed.map(routineOccurrenceKey));
+  const familyCounts = new Map<string, number>();
+  for (const task of tasks.filter(task => (task.status ?? 0) === 0 && !task.completedTime)) {
+    const key = routineOccurrenceKey(task);
+    familyCounts.set(key, (familyCounts.get(key) ?? 0) + 1);
+  }
   let matched = 0, updated = 0;
-  for (const candidate of tasks) {
+  for (const candidate of candidates) {
     if (!isAlwaysTodayTask(candidate) || (candidate.status ?? 0) !== 0 || candidate.completedTime) continue;
     const task = await api.getTask(candidate.projectId, candidate.id);
     if (!task || task.id !== candidate.id || task.projectId !== candidate.projectId) throw new Error('always-today 待办读取失败');
+    const datesChanged = candidate.startDate !== task.startDate || candidate.dueDate !== task.dueDate;
     Object.assign(candidate, task);
     if (!isAlwaysTodayTask(task) || (task.status ?? 0) !== 0 || task.completedTime) continue;
     matched++;
-    const today = options.today ?? calendarDateInTimeZone(new Date().toISOString())!;
+    const family = routineOccurrenceKey(task);
+    if (completedIds.has(identity(task)) || Boolean(task.repeatFlag)
+        && familyCounts.get(family) === 1 && completedFamilies.has(family)) continue;
+    // A new recurring occurrence may have appeared after the history snapshot.
+    // Leave concurrently advanced/edited dates for the next fresh read.
+    if (task.repeatFlag && datesChanged) continue;
     const saved = await updateRoutineTaskDate(api, task, today, true, true);
     if (!saved) continue;
     if ((saved.status ?? 0) !== 0 || saved.completedTime || saved.projectId !== task.projectId

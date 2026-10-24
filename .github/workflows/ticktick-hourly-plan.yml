@@ -2,8 +2,8 @@ name: Hourly TickTick replanning
 
 on:
   schedule:
-    # Every hour at :07, away from the top-of-hour visibility/full-sync jobs.
-    - cron: '7 * * * *'
+    # Shanghai 00:01, then 07:01–23:01; pause hourly work from 00:30 to 06:30.
+    - cron: '1 0-16,23 * * *'
   workflow_dispatch:
 
 permissions: {}
@@ -59,7 +59,7 @@ jobs:
               await new Promise(resolve => setTimeout(resolve, delay));
               continue;
             }
-            const skipped = ['sleep-window', 'restore-pending', 'disconnected'].includes(result?.skipped);
+            const skipped = ['rest-window', 'sleep-window', 'restore-pending', 'disconnected'].includes(result?.skipped);
             if (response.status !== 200 || result?.ok !== true || result.busy || result.error
                 || (!skipped && !result.dailyPlan)) {
               const provider = /upstash/i.test(error) ? 'upstash' : /TickTick/i.test(error) ? 'ticktick' : 'unknown';

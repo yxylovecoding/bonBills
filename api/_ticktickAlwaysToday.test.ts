@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { schedulingFailure } from './_schedulingFailure';
 import { planTickTickDay } from './_ticktickDailyPlan';
 import { routineTaskDate, syncTickTickAlwaysToday, syncTickTickRoutines, type TickTickApi, type TickTickTask } from './_ticktickTrips';
 
@@ -14,13 +15,14 @@ function fixture(tasks: TickTickTask[]) {
     saved.set(id, { ...saved.get(id)!, ...structuredClone(payload) });
     return saved.get(id)!;
   });
+  const completed = vi.fn(async (): Promise<TickTickTask[]> => []);
   const api = { getTask, updateTask,
     listProjects: async () => [{ id: 'life', name: '生活' }],
     getProjectData: async () => ({ tasks: structuredClone([...saved.values()]) }),
     filterTasks: async () => structuredClone([...saved.values()]),
-    listCompletedTasks: async () => [],
+    listCompletedTasks: completed,
   } as unknown as TickTickApi;
-  return { api, saved, getTask, updateTask };
+  return { api, saved, getTask, updateTask, completed };
 }
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date(`${day}T00:00:01+08:00`)); });
 afterEach(() => vi.useRealTimers());
@@ -71,6 +73,87 @@ describe('always-today 截止日期', () => {
     const f = fixture(tasks);
     f.saved.get('removed')!.tags = ['routine'];
     await syncTickTickAlwaysToday(f.api, { tasks });
+    expect(f.updateTask).not.toHaveBeenCalled();
+  });
+
+  it('今天完成过的重复系列保留下一次日期，次日才重新固定今日', async () => {
+    vi.setSystemTime(new Date(`${day}T21:00:00+08:00`));
+    const next = makeTask('next-id', { title: '重复任务', repeatFlag: 'RRULE:FREQ=WEEKLY', dueDate: '2026-10-28T00:00:00+0800' });
+    const f = fixture([next]);
+    f.completed.mockResolvedValue([makeTask('history-id', { title: next.title, status: 2, completedTime: `${day}T09:00:00+08:00` })]);
+    expect(await syncTickTickAlwaysToday(f.api)).toEqual({ matched: 1, updated: 0 });
+    expect(f.saved.get(next.id)).toEqual(next);
+    expect(f.completed).toHaveBeenCalledWith(['life'], '2026-10-20T16:00:00.000Z', '2026-10-21T15:59:59.999Z');
+    vi.setSystemTime(new Date('2026-10-22T00:01:00+08:00'));
+    expect(await syncTickTickAlwaysToday(f.api)).toEqual({ matched: 1, updated: 1 });
+    expect(routineTaskDate(f.saved.get(next.id)!)).toBe('2026-10-22');
+    expect(f.saved.get(next.id)?.repeatFlag).toBe(next.repeatFlag);
+  });
+
+  it('按上海日期识别 UTC 完成时间，确切任务 ID 匹配不依赖名称或重复标签', async () => {
+    const f = fixture([makeTask('same-id', { title: '已改名', dueDate: '2026-10-29T00:00:00+0800' })]);
+    f.completed.mockResolvedValue([makeTask('same-id', { title: '旧名字', status: 2, tags: [], completedTime: '2026-10-20T16:00:00Z' })]);
+    expect(await syncTickTickAlwaysToday(f.api)).toEqual({ matched: 1, updated: 0 });
+    expect(f.updateTask).not.toHaveBeenCalled();
+  });
+
+  it('改变 ID 的系列只匹配同清单、同父任务且唯一的重复任务', async () => {
+    const f = fixture([
+      makeTask('matching', { title: '同名', repeatFlag: 'RRULE:FREQ=DAILY', parentId: 'parent-a' }),
+      makeTask('other-parent', { title: '同名', repeatFlag: 'RRULE:FREQ=DAILY', parentId: 'parent-b' }),
+      makeTask('other-project', { title: '同名', repeatFlag: 'RRULE:FREQ=DAILY', parentId: 'parent-a', projectId: 'elsewhere' }),
+      makeTask('not-recurring', { title: '另一个同名' }),
+    ]);
+    f.completed.mockResolvedValue([
+      makeTask('old', { title: '同名', parentId: 'parent-a', status: 2, completedTime: `${day}T00:00:00+08:00` }),
+      makeTask('old-single', { title: '另一个同名', status: 2, completedTime: `${day}T00:00:00+08:00` }),
+    ]);
+    expect(await syncTickTickAlwaysToday(f.api)).toEqual({ matched: 4, updated: 3 });
+    expect(routineTaskDate(f.saved.get('matching')!)).toBe('2026-10-20');
+    for (const id of ['other-parent', 'other-project', 'not-recurring']) expect(routineTaskDate(f.saved.get(id)!)).toBe(day);
+  });
+
+  it('同名有歧义时不猜系列归属；准确 ID 仍可识别', async () => {
+    const f = fixture(['one', 'two'].map(id => makeTask(id, { title: '同名', repeatFlag: 'RRULE:FREQ=DAILY' })));
+    f.completed.mockResolvedValue([makeTask('one', { title: '同名', status: 2, completedTime: `${day}T00:00:00+08:00` })]);
+    expect(await syncTickTickAlwaysToday(f.api)).toEqual({ matched: 2, updated: 1 });
+    expect(f.updateTask.mock.calls[0][0]).toBe('two');
+  });
+
+  it('不把昨天、未来时刻或未完成记录算作今天已完成', async () => {
+    const f = fixture([makeTask('fixed', { repeatFlag: 'RRULE:FREQ=DAILY' })]);
+    f.completed.mockResolvedValue([
+      makeTask('fixed', { status: 2, completedTime: '2026-10-20T15:59:59Z' }),
+      makeTask('fixed', { status: 2, completedTime: '2026-10-21T00:00:00Z' }),
+      makeTask('fixed', { status: 0, completedTime: `${day}T00:00:00+08:00` }),
+    ]);
+    expect(await syncTickTickAlwaysToday(f.api)).toEqual({ matched: 1, updated: 1 });
+  });
+
+  it.each(['read-error', 'invalid-time', 'missing-id'])('完成记录 %s 时停止改期，不能当作今天未完成', async mode => {
+    const f = fixture([makeTask('fixed')]);
+    if (mode === 'read-error') f.completed.mockRejectedValue(new Error('private upstream error'));
+    else f.completed.mockResolvedValue([makeTask(mode === 'missing-id' ? '' : 'fixed', { status: 2,
+      completedTime: mode === 'invalid-time' ? 'invalid' : `${day}T00:00:00+08:00` })]);
+    const error = await syncTickTickAlwaysToday(f.api).catch(error => error);
+    expect(schedulingFailure(error)).toEqual({ stage: 'completion-history', retryable: true });
+    expect(f.updateTask).not.toHaveBeenCalled();
+  });
+
+  it('读取达到接口上限时拆分时间窗，不能漏掉当天完成记录', async () => {
+    vi.setSystemTime(new Date(`${day}T21:00:00+08:00`));
+    const f = fixture([makeTask('fixed', { title: 'fixed', repeatFlag: 'RRULE:FREQ=DAILY' })]);
+    const records = Array.from({ length: 50 }, (_, i) => makeTask(`old-${i}`, { status: 2,
+      title: i === 49 ? 'fixed' : `other-${i}`, completedTime: new Date(Date.parse(`${day}T00:00:00+08:00`) + i * 20 * 60_000).toISOString() }));
+    f.completed.mockImplementation(async (_projects, start, end) => records.filter(task => Date.parse(task.completedTime!) >= Date.parse(start) && Date.parse(task.completedTime!) <= Date.parse(end)).slice(0, 50));
+    expect(await syncTickTickAlwaysToday(f.api)).toEqual({ matched: 1, updated: 0 });
+    expect(f.completed.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it('读取历史后循环任务刚生成下一次日期时留待下轮核对，不覆盖并发完成', async () => {
+    const f = fixture([makeTask('fixed', { repeatFlag: 'RRULE:FREQ=DAILY' })]);
+    f.getTask.mockImplementationOnce(async () => ({ ...f.saved.get('fixed')!, dueDate: '2026-10-22T00:00:00+0800' }));
+    expect(await syncTickTickAlwaysToday(f.api)).toEqual({ matched: 1, updated: 0 });
     expect(f.updateTask).not.toHaveBeenCalled();
   });
 

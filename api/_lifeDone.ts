@@ -1,6 +1,8 @@
+import { collectCompleted } from './_ticktickCompleted.js';
+export { collectCompleted } from './_ticktickCompleted.js';
 import { kv } from './_accountKv.js';
 import { createHash } from 'node:crypto';
-import { decryptTickTickToken, TICKTICK_CONNECTION_KEY, TickTickOpenApiClient, type TickTickApi, type TickTickConnection, type TickTickTask } from './_ticktickTrips.js';
+import { decryptTickTickToken, TICKTICK_CONNECTION_KEY, TickTickOpenApiClient, type TickTickConnection, type TickTickTask } from './_ticktickTrips.js';
 import { lifeYear, type DoneItem, type DoneMonth } from '../src/utils/bonLife.js';
 import { classifyDoneCategory, mergeDoneItems } from '../src/utils/lifeDone.js';
 import { markedTaskMinutes } from '../src/utils/taskDuration.js';
@@ -40,19 +42,6 @@ export function completedItems(tasks: TickTickTask[], from: string, until: strin
       ...(projectName ? { projectName } : {}) });
   }
   return [...result.values()];
-}
-
-// Split dense ranges so provider result limits cannot silently drop old completions.
-export async function collectCompleted(api: Pick<TickTickApi, 'listCompletedTasks'>, projects: string[], start: number, end: number, deadline: number): Promise<TickTickTask[]> {
-  if (Date.now() > deadline) throw new Error('TickTick 同步超时，请重试');
-  const tasks = await api.listCompletedTasks(projects, new Date(start).toISOString(), new Date(end).toISOString());
-  if (!Array.isArray(tasks)) throw new Error('TickTick 完成记录无效');
-  if (tasks.length < 50) return tasks;
-  if (end - start < 1000) throw new Error('TickTick 完成记录过多，无法完整读取');
-  const middle = Math.floor((start + end) / 2);
-  const left = await collectCompleted(api, projects, start, middle, deadline);
-  const right = await collectCompleted(api, projects, middle + 1, end, deadline);
-  return [...left, ...right];
 }
 
 export async function readDoneMonth(month: string): Promise<DoneMonth> {

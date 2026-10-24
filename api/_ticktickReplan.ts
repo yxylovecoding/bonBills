@@ -1,3 +1,4 @@
+import { hourlyRestWindow } from '../src/utils/hourlySchedule.js';
 import { resolveCalendarState } from '../src/utils/internship.js';
 import { createHash } from 'node:crypto';
 import { kv } from './_accountKv.js';
@@ -43,6 +44,7 @@ export async function replanRemainingToday(options: { scheduled?: boolean } = {}
 }
 
 async function replanRemainingTodayInner(options: { scheduled?: boolean }) {
+  if (options.scheduled && hourlyRestWindow()) return { busy: false as const, skipped: 'rest-window' as const };
   const lock = await acquireTickTickLock();
   if (!lock) return { busy: true as const };
   try {
