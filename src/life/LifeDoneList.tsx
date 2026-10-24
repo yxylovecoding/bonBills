@@ -147,7 +147,7 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
     } catch (cause) {
       if (!request.signal.aborted) setReplanError(cause instanceof TypeError
         ? '触发请求失败，请检查网络后重试' : cause instanceof Error ? cause.message : '触发重排失败，请重试');
-      else setReplanError('触发结果暂未确认，请稍后查看 GitHub Actions');
+      else setReplanError('触发结果暂未确认，请稍后查看更新结果');
     } finally {
       clearTimeout(timer);
       if (replanController.current === request) replanController.current = null;

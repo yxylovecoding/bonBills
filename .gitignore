@@ -12,3 +12,6 @@ src/data/*.local.json
 .DS_Store
 *.tsbuildinfo
 .vercel
+
+.wrangler
+.dev.vars*

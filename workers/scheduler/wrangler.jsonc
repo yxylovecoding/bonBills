@@ -1,0 +1,12 @@
+{
+  "name": "bonbills-scheduler",
+  "main": "index.js",
+  "compatibility_date": "2026-10-24",
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": { "ORIGIN": "https://www.bonbills.cn" },
+  "triggers": { "crons": ["1 0-16,23 * * *", "0 4,9,12,14,16 * * *"] },
+  "durable_objects": { "bindings": [{ "name": "SCHEDULER_QUEUE", "class_name": "SchedulerQueue" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SchedulerQueue"] }],
+  "observability": { "enabled": true }
+}

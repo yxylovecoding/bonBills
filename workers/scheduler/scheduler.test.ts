@@ -1,0 +1,189 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { CRONS, manualJob, scheduledJobs } from './schedule.js';
+import { classify, callAction } from './result.js';
+import { SchedulerQueue } from './queue.js';
+import worker from './index.js';
+const attempt = { retries: 0, busy: 0, batches: 0 };
+const good = () => Response.json({ ok: true, dailyPlan: {} });
+beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-24T04:01:00Z')); });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+describe('cloud schedule', () => {
+  it('runs one morning sequence at 07:01 with no automatic triggers during rest', () => {
+    for (let hour = 0; hour < 24; hour++) {
+      const base = Date.UTC(2026, 9, 24, hour);
+      expect(scheduledJobs(base + 60_000).map(j => j.kind)).toEqual(hour === 23 ? ['full'] : hour <= 16 ? ['hourly'] : []);
+      expect(scheduledJobs(base + 7 * 60_000)).toEqual([]);
+      expect(scheduledJobs(base).some(j => j.kind === 'full')).toBe([4, 9, 12].includes(hour));
+    }
+    expect(scheduledJobs(Date.parse('2026-10-24T21:00Z'))).toEqual([]);
+    expect(scheduledJobs(Date.parse('2026-10-24T23:01Z')).map(j => j.steps)).toEqual([
+      ['routine-visibility', 'life-periods', 'full', 'daily-email'],
+    ]);
+    expect(scheduledJobs(Date.parse('2026-10-24T12:00Z'))[0].steps).toEqual(['hair-wash', 'life-periods', 'full']);
+    expect(scheduledJobs(Date.parse('2026-10-24T16:00Z'))[0].steps).toEqual(['daily-routine']);
+    expect(scheduledJobs(Date.parse('2026-10-24T14:00Z'))[0].steps).toEqual(['night-routine']);
+    expect(JSON.parse(readFileSync('workers/scheduler/wrangler.jsonc', 'utf8')).triggers.crons).toEqual(CRONS);
+    expect(manualJob('full', 'x', Date.now()).steps).not.toContain('daily-email');
+  });
+});
+describe('response and retry boundary', () => {
+  it.each(['outlook-refresh', 'tasks-read', 'completion-history', 'template-read'])('retries only explicitly safe %s failures', stage => {
+    const body = { failure: { stage, retryable: true }, error: 'PRIVATE' };
+    expect(classify('hourly-replan', 502, body, attempt)).toMatchObject({ outcome: 'retry', delay: 30_000 });
+    expect(classify('full', 502, body, { ...attempt, retries: 1 })).toMatchObject({ outcome: 'retry', delay: 60_000 });
+    expect(classify('full', 502, body, { ...attempt, retries: 2 }).outcome).toBe('failed');
+  });
+  it.each(['planning', 'finalize', 'timed-visibility', 'PRIVATE'])('does not replay a %s write or unknown failure', stage => {
+    expect(classify('full', 502, { error: 'PRIVATE', failure: { stage, retryable: true } }, attempt).outcome).toBe('failed');
+  });
+  it('treats deferred hourly as a lock wait, never successful completion', () => {
+    expect(classify('hourly-replan', 200, { ok: true, deferred: true, dailyPlan: {} }, attempt)).toMatchObject({ outcome: 'retry', counter: 'busy' });
+    expect(classify('full', 202, { busy: true }, { ...attempt, busy: 12 }).outcome).toBe('failed');
+  });
+  it.each(['sleep-window', 'restore-pending', 'disconnected'])('accepts deliberate %s hourly skip', skipped => {
+    expect(classify('hourly-replan', 200, { ok: true, skipped }, attempt).outcome).toBe('success');
+  });
+  it('continues only persisted tag batches and checks all required results', () => {
+    expect(classify('full', 202, { sleepTags: { complete: false } }, attempt)).toMatchObject({ outcome: 'retry', counter: 'batches' });
+    expect(classify('routine-visibility', 200, { ok: true, sleepTags: { complete: false } }, attempt).outcome).toBe('retry');
+    for (const body of [{ ok: true }, { ok: true, dailyPlan: {}, laundry: { outlook: { error: 'PRIVATE' } } }, { ok: true, dailyPlan: {}, charging: { outlook: { error: 'PRIVATE' } } }])
+      expect(classify('full', 200, body, attempt).outcome).toBe('failed');
+    expect(classify('routine-visibility', 200, { ok: true, sleepTags: { complete: true } }, attempt).outcome).toBe('failed');
+    expect(classify('daily-email', 200, { ok: true }, attempt).outcome).toBe('failed');
+  });
+  it('never follows an upstream redirect with the cron credential', async () => {
+    const fn = vi.fn().mockResolvedValue(new Response(null, { status: 302, headers: { Location: 'https://untrusted.example' } }));
+    vi.stubGlobal('fetch', fn);
+    expect(await callAction('full', { ORIGIN: 'https://www.bonbills.cn', SCHEDULER_RUN_SECRET: 'secret' }, attempt)).toMatchObject({ outcome: 'failed', http: 302 });
+    expect(fn.mock.calls[0][1].redirect).toBe('manual');
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+  it('does not log or persist credentials, private bodies, or ambiguous network writes', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('PRIVATE request')));
+    const result = await callAction('full', { ORIGIN: 'https://www.bonbills.cn', SCHEDULER_RUN_SECRET: 'PRIVATE secret' }, attempt);
+    expect(result).toEqual({ outcome: 'failed', reason: 'response-unknown', http: 0 });
+    expect(JSON.stringify(result)).not.toContain('PRIVATE');
+    expect(await callAction('life-periods', { ORIGIN: 'https://www.bonbills.cn', SCHEDULER_RUN_SECRET: 'secret' }, attempt)).toMatchObject({ outcome: 'retry' });
+  });
+});
+
+function fixture() {
+  const records = new Map(); let alarmAt: number | null = null, gate = Promise.resolve();
+  const ctx = {
+    storage: {
+      get: async key => structuredClone(records.get(key)),
+      put: async (key, value) => { records.set(key, structuredClone(value)); },
+      setAlarm: async value => { alarmAt = value; }, deleteAlarm: async () => { alarmAt = null; },
+    },
+    blockConcurrencyWhile(fn) { const next = gate.then(fn); gate = next.catch(() => {}); return next; },
+  };
+  const env = { ORIGIN: 'https://www.bonbills.cn', SCHEDULER_RUN_SECRET: 'secret' };
+  const queue = new SchedulerQueue(ctx, env);
+  const enqueue = (jobs, extra = {}) => queue.fetch(new Request('https://queue/enqueue', { method: 'POST', body: JSON.stringify({ jobs, ...extra }) }));
+  const tick = async (target = queue) => { if (alarmAt !== null) vi.setSystemTime(alarmAt); await target.alarm(); };
+  return { ctx, env, queue, enqueue, tick, state: () => ctx.storage.get('state') };
+}
+describe('durable serial execution', () => {
+  it.each(['hourly', 'full', 'night', 'midnight', 'morning'])('skips delayed %s work that reaches the queue during the Shanghai rest window', async kind => {
+    vi.setSystemTime(new Date('2026-10-24T16:01:00Z'));
+    const f = fixture(); vi.stubGlobal('fetch', vi.fn());
+    await f.enqueue([{ ...manualJob('full', kind, Date.now()), kind }]);
+    vi.setSystemTime(new Date('2026-10-24T16:30:00Z'));
+    await f.queue.alarm();
+    expect((await f.state()).jobs[0]).toMatchObject({ status: 'skipped', reason: 'rest-window' });
+    expect(fetch).not.toHaveBeenCalled();
+    vi.setSystemTime(new Date('2026-10-25T00:01:00Z'));
+    vi.mocked(fetch).mockResolvedValue(good());
+    await f.enqueue(scheduledJobs(Date.now())); await f.tick();
+    expect((await f.state()).jobs[1].status).toBe('success');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('stops the remaining sequence, including email, when the API reports rest', async () => {
+    const f = fixture(); vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ ok: true, skipped: 'rest-window' })));
+    await f.enqueue([{ ...manualJob('full', 'rest-crossing', Date.now()), steps: ['full', 'daily-email'] }]);
+    await f.tick(); await f.tick();
+    expect((await f.state()).jobs[0]).toMatchObject({ status: 'skipped', reason: 'rest-window' });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('deduplicates cron delivery and overlapping manual dispatch, retaining completions', async () => {
+    const f = fixture(); vi.stubGlobal('fetch', vi.fn().mockResolvedValue(good()));
+    const jobs = scheduledJobs(Date.now());
+    await Promise.all([f.enqueue(jobs), f.enqueue(jobs)]);
+    expect((await f.state()).jobs).toHaveLength(1);
+    await f.tick(); expect((await f.state()).jobs[0].status).toBe('success');
+    await f.enqueue(jobs); await f.tick(); expect(fetch).toHaveBeenCalledTimes(1);
+    await f.enqueue([manualJob('full', 'a', Date.now())], { coalesce: true });
+    await f.enqueue([manualJob('full', 'b', Date.now())], { coalesce: true });
+    expect((await f.state()).jobs).toHaveLength(2);
+  });
+  it('serializes enqueue during a long request without losing the following job', async () => {
+    const f = fixture(); let finish; let entered;
+    const started = new Promise(resolve => { entered = resolve; });
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => { entered(); return new Promise(resolve => { finish = resolve; }); }));
+    await f.enqueue([manualJob('hourly', 'first', Date.now())]);
+    const running = f.tick(); await started;
+    await f.enqueue([manualJob('hourly', 'next', Date.now())]);
+    expect((await f.state()).jobs[0].inFlightUntil).toBeGreaterThan(Date.now());
+    finish(good()); await running;
+    expect((await f.state()).jobs.map(j => j.status)).toEqual(['success', 'queued']);
+  });
+  it('never replays an uncertain request after a process restart', async () => {
+    const f = fixture(); await f.enqueue([manualJob('full', 'restart', Date.now())]);
+    const state = await f.state(); Object.assign(state.jobs[0], { status: 'running', index: 1, inFlightUntil: Date.now() - 1 });
+    await f.ctx.storage.put('state', state); vi.stubGlobal('fetch', vi.fn());
+    await f.tick(new SchedulerQueue(f.ctx, f.env));
+    expect((await f.state()).jobs[0]).toMatchObject({ status: 'failed', reason: 'interrupted-response-unknown' });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it('continues planning after archive failure but suppresses the daily email', async () => {
+    vi.setSystemTime(new Date('2026-10-24T23:01Z'));
+    const f = fixture(); const fetcher = vi.fn()
+      .mockResolvedValueOnce(Response.json({ ok: true, sleepTags: { complete: true }, nightRoutine: {}, exercise: {} }))
+      .mockResolvedValueOnce(Response.json({ error: 'PRIVATE' }, { status: 401 }))
+      .mockResolvedValueOnce(good()); vi.stubGlobal('fetch', fetcher);
+    await f.enqueue(scheduledJobs(Date.now()).filter(j => j.kind === 'full'));
+    await f.tick(); await f.tick(); await f.tick(); await f.tick();
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect((await f.state()).jobs[0]).toMatchObject({ status: 'failed', reason: 'email-prerequisite' });
+    expect(JSON.stringify(await f.state())).not.toContain('PRIVATE');
+  });
+  it('sends email only after the morning archive and plan both succeed', async () => {
+    vi.setSystemTime(new Date('2026-10-24T23:01Z'));
+    const f = fixture(); vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(Response.json({ ok: true, sleepTags: { complete: true }, nightRoutine: {}, exercise: {} }))
+      .mockResolvedValueOnce(Response.json({ ok: true, connected: false }))
+      .mockResolvedValueOnce(good()).mockResolvedValueOnce(Response.json({ sent: true })));
+    await f.enqueue(scheduledJobs(Date.now()).filter(j => j.kind === 'full'));
+    await f.tick(); await f.tick(); await f.tick(); await f.tick();
+    expect((await f.state()).jobs[0].status).toBe('success');
+    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => new URL(String(url)).searchParams.get('action') ?? 'full'))
+      .toEqual(['routine-visibility', 'life-periods', 'full', 'daily-email']);
+  });
+  it('stops the morning sequence immediately if visibility restoration fails', async () => {
+    vi.setSystemTime(new Date('2026-10-24T23:01Z'));
+    const f = fixture(); vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ error: true }, { status: 502 })));
+    await f.enqueue(scheduledJobs(Date.now())); await f.tick(); await f.tick();
+    expect((await f.state()).jobs[0].status).toBe('failed');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('expires stale jobs and bounds restoration attempts', async () => {
+    const f = fixture(); vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Response.json({ sleepTags: { complete: false } }, { status: 202 })));
+    await f.enqueue([{ ...manualJob('full', 'batch', Date.now()), steps: ['full'] }]);
+    for (let i = 0; i < 40; i++) await f.tick();
+    expect((await f.state()).jobs[0]).toMatchObject({ status: 'failed', reason: 'batch-limit' });
+    expect(fetch).toHaveBeenCalledTimes(40);
+    await f.enqueue([manualJob('full', 'old', Date.now() - 46 * 60_000)]); await f.tick();
+    expect((await f.state()).jobs[1]).toMatchObject({ status: 'failed', reason: 'expired' });
+    expect(fetch).toHaveBeenCalledTimes(40);
+  });
+});
+describe('dispatcher authentication', () => {
+  it('rejects unauthorized access and disallows caller-selected URLs or email jobs', async () => {
+    const env = { DISPATCH_SECRET: 'secret' };
+    expect((await worker.fetch(new Request('https://worker/status'), env)).status).toBe(401);
+    expect((await worker.fetch(new Request('https://worker/dispatch', { method: 'POST', headers: { Authorization: 'Bearer secret' }, body: JSON.stringify({ kind: 'daily-email', id: 'x' }) }), env)).status).toBe(400);
+  });
+});

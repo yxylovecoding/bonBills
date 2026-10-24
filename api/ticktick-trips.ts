@@ -1,5 +1,7 @@
 import { automaticRestWindow } from '../src/utils/schedulerTime.js';
 import { resolveCalendarState } from '../src/utils/internship.js';
+import { cloudSchedulerAuthOk } from './_cloudSchedulerAuth.js';
+import { schedulerResponse } from './_schedulerResponse.js';
 import { privateCache, privateJson } from './_privateCache.js';
 import { withAccountScope } from './_accountRoute.js';
 import { authorizeAccountScope } from './_accountScope.js';
@@ -313,8 +315,12 @@ async function status() {
 
 async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'private, no-store');
-  const isCron = req.method === 'GET' && cronAuthOk(req);
+  const isCron = req.method === 'GET' && (cronAuthOk(req) || cloudSchedulerAuthOk(req));
   if (isCron) authorizeAccountScope('legacy');
+  if (isCron && req.query?.scheduler === '1') {
+    const json = res.json.bind(res);
+    res.json = body => json(schedulerResponse(body));
+  }
   if (!isCron && !await authOk(req)) return res.status(401).json({ error: 'unauthorized' });
 
   try {
@@ -332,7 +338,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (req.query?.action === 'trigger-replan') {
       if (req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
-      const { dispatchFullReplan } = await import('./_githubActions.js');
+      const { dispatchFullReplan } = await import('./_cloudScheduler.js');
       return res.status(202).json({ ok: true, triggered: true, ...await dispatchFullReplan() });
     }
     if (req.query?.action === 'replan-today') {
