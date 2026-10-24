@@ -15,6 +15,8 @@ export function matchesInvestmentOrder(
 ) {
   if (('side' in transaction && transaction.side !== 'buy') || !sameSymbol(transaction.symbol, entry.symbol)
     || transaction.currency.toUpperCase() !== entry.currency.toUpperCase()) return false;
+  if (('ledgerTransactionId' in entry && entry.ledgerTransactionId === transaction.id)
+    || ('ledgerTransactionId' in transaction && transaction.ledgerTransactionId === entry.id)) return true;
   if (transaction.orderId && entry.orderId) return transaction.orderId === entry.orderId;
   if ((entry.id.startsWith('alipay:') || ('notBefore' in entry && entry.notBefore)
     || ('autoBuy' in entry && entry.autoBuy?.alipayAsOf) || ('autoBuy' in transaction && transaction.autoBuy?.alipayAsOf))
@@ -43,7 +45,9 @@ export function bookPendingFundBuy(
   if (pending.booking || groupKey === 'account' || groupKey === 'aggregate'
     || !(pending.amount && pending.amount > 0) || !(estimate.shares > 0) || !(estimate.price > 0)) return record;
   const ledger = record.investmentTransactions ?? [];
-  if (ledger.some((transaction) => matchesInvestmentOrder(transaction, pending))) return record;
+  const linked = pending.ledgerTransactionId ? ledger.find((transaction) => transaction.id === pending.ledgerTransactionId) : undefined;
+  if ((pending.ledgerTransactionId && (!linked || linked.side !== 'buy' || !sameSymbol(linked.symbol, pending.symbol)))
+    || ledger.some((transaction) => transaction !== linked && matchesInvestmentOrder(transaction, pending))) return record;
   const sameOrders = Object.values(items).flatMap((group) => (group ?? []).flatMap((position) => position.pendingBuys ?? []))
     .filter((candidate) => pending.orderId ? candidate.orderId === pending.orderId : candidate.baseMatchKey === pending.baseMatchKey);
   if (sameOrders.length !== 1) return record;
@@ -52,24 +56,26 @@ export function bookPendingFundBuy(
   const date = effectiveDate < `${record.yearMonth}-01` ? `${record.yearMonth}-01` : effectiveDate;
   if (date.slice(0, 7) !== record.yearMonth) return record;
   const transaction: InvestmentTransactionRecord = {
-    id: `auto-invest:${pending.id}`, date, side: 'buy', name: pending.name, symbol: canonicalInvestmentSymbol(pending.symbol),
-    groupKey: groupKey as InvestKey, shares: estimate.shares, price: estimate.price, fee: pending.fee ?? 0,
+    ...linked,
+    id: linked?.id ?? `auto-invest:${pending.id}`, date, side: 'buy', name: pending.name, symbol: canonicalInvestmentSymbol(pending.symbol),
+    groupKey: groupKey as InvestKey, shares: linked?.shares ?? estimate.shares, price: linked?.price ?? estimate.price, fee: linked?.fee ?? pending.fee ?? 0,
     currency: pending.currency, quoteSource: 'eastmoney-fund', amount: pending.amount, costFromAmount: true,
     operationAt: pending.operationAt, occurredAt: pending.operationAt, account: pending.account, orderId: pending.orderId,
     pendingMatchKey: pending.matchKey, pendingBaseMatchKey: pending.baseMatchKey,
     applicationOrder: nextInvestmentApplicationOrder(ledger),
     positionBefore: { shares: item.shares ?? 0, costPrice: item.costPrice ?? 0 },
     autoBuy: {
-      pendingId, status: 'estimated', navDate: estimate.navDate, beforeFee: estimate.beforeFee,
+      pendingId, status: linked ? 'reconciled' : 'estimated', navDate: estimate.navDate, beforeFee: linked ? false : estimate.beforeFee,
       beforeShares: item.shares ?? 0, beforeCostPrice: item.costPrice ?? 0,
       previousTransactionIds: ledger.map((entry) => entry.id),
+      ...(linked ? { alipayAsOf: item.alipayCorrection?.date } : {}),
     },
   };
   applyInvestmentTransaction(items, transaction);
   updatePendingBuyFromTransaction(items, transaction);
   return {
     ...syncInvestPositionItems(record, items),
-    investmentTransactions: [...ledger, transaction],
+    investmentTransactions: linked ? ledger.map((entry) => entry.id === linked.id ? transaction : entry) : [...ledger, transaction],
     investmentInheritanceRevision: (record.investmentInheritanceRevision ?? 0) + 1,
   };
 }

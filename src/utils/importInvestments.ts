@@ -409,7 +409,8 @@ function attachPendingBuy(items: InvestPositionItems, pending: PendingInvestment
   }
   const nextPending = [...existingPending];
   if (pendingIndex >= 0) nextPending[pendingIndex] = { ...pending, id: nextPending[pendingIndex].id,
-    booking: nextPending[pendingIndex].booking, notBefore: nextPending[pendingIndex].notBefore };
+    booking: nextPending[pendingIndex].booking, notBefore: nextPending[pendingIndex].notBefore,
+    ledgerTransactionId: nextPending[pendingIndex].ledgerTransactionId };
   else nextPending.push({ ...pending });
   group[itemIndex] = { ...item, pendingBuys: nextPending };
   items[pending.groupKey] = group;
@@ -675,6 +676,7 @@ export async function importInvestmentFileIntoStores(file: File, options?: { mai
     const pendingMatchCount = matches.length || (transaction.side === 'buy'
       ? parsed.pendingBuys.filter((pending) => matchesInvestmentOrder(transaction, pending)).length : 0);
     const isUniquePendingResolution = pendingMatchCount === 1
+      && !matches[0]?.pending.ledgerTransactionId
       && transaction.shares > 0
       && (transaction.amount ?? 0) > 0;
     if (!transaction.orderId && pendingMatchCount > 1) continue;

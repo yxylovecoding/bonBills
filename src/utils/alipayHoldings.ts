@@ -160,6 +160,7 @@ export function projectAlipayHoldings(source: InvestPositionItems, options: Alip
     // The imported balance already includes older ledger trades, even when their
     // exported time differs from Alipay. Only current T+1 bridges need projecting back out.
     const transactions = ledger.filter((transaction) => canonicalInvestmentSymbol(transaction.symbol) === symbol
+      && !item.pendingBuys?.some((pending) => !pending.booking && pending.ledgerTransactionId === transaction.id)
       && (!coveredByAlipayCorrection(item, transaction)
         || (!!transaction.autoBuy?.alipayAsOf && transaction.autoBuy.alipayAsOf === item.alipayCorrection?.date)));
     const buys = transactions.filter((transaction) => transaction.side === 'buy');

@@ -154,12 +154,55 @@ describe('支付宝矫正一木 T+1', () => {
     expect(fund(result).shares).toBe(100);
   });
 
-  it('撤销早于 T+1 的旧预估入账，重新等待一木确认日', () => {
+  it('早于 T+1 的一木手工交易保留历史，关联待确认后只在到期计入一次', () => {
     const record = base(); record.investmentTransactions = [{ ...actual(10), date: '2026-09-14', fee: 0 }];
     const result = correct(shot('2026-09-14'), record);
-    expect(result.investmentTransactions).toHaveLength(0);
+    expect(result.investmentTransactions).toHaveLength(1);
+    expect(result.investmentTransactions![0]).toMatchObject(record.investmentTransactions[0]);
     expect(fund(result).shares).toBe(100);
     expect(fund(result).pendingBuys?.[0].booking).toBeUndefined();
+    expect(fund(result).pendingBuys?.[0].ledgerTransactionId).toBe('mail-invest:formal');
+    const booked = bookPendingFundBuy(result, fund(result).pendingBuys![0].id,
+      { navDate: '2026-09-14', shares: 10, price: 2, beforeFee: false }, now);
+    expect(fund(booked).shares).toBe(110);
+    expect(booked.investmentTransactions).toHaveLength(1);
+    expect(booked.investmentTransactions![0]).toMatchObject({ id: 'mail-invest:formal', date: '2026-09-15' });
+    expect(bookPendingFundBuy(booked, fund(result).pendingBuys![0].id,
+      { navDate: '2026-09-14', shares: 10, price: 2, beforeFee: false }, now)).toBe(booked);
+  });
+
+  it('手工时间不同但同日同基金同金额唯一时复用原交易，不新增桥接流水', () => {
+    const record = base();
+    record.investmentTransactions = [actual(9.9, '2026-09-14T14:55:00')];
+    record.investmentTransactions[0].date = '2026-09-15';
+    const result = correct(shot(), record);
+    expect(result.investmentTransactions).toHaveLength(1);
+    expect(result.investmentTransactions![0]).toMatchObject({ id: 'mail-invest:formal', shares: 9.9, fee: 0.2 });
+    expect(fund(result).shares).toBe(109.9);
+    const ambiguous = base();
+    ambiguous.investmentTransactions = [record.investmentTransactions[0], { ...record.investmentTransactions[0], id: 'another', orderId: 'another' }];
+    expect(plan(shot(), ambiguous).rows[0].reason).toContain('同日同金额');
+    const twoOrders = shot('2026-09-15', [order(), order({ id: 'second', operationAt: '2026-09-14T11:00:00' })]);
+    expect(plan(twoOrders, record).rows[0].reason).toContain('同日同金额');
+  });
+
+  it('手工交易完整重导不会提前消掉截图待确认，后续确认复用同一流水', async () => {
+    const record = base();
+    const manualRow = ['formal-1', '2026-09-14 14:55:00', '2026-09-14', '买入', '标普测试A', code, 20, 9.9, 2, 0.2, '测试账户', '交易成功'];
+    useMonthlyStore.setState({ records: [record] });
+    await importInvestmentFileIntoStores(statement([manualRow]), { deferUpload: true });
+    useMonthlyStore.setState({ records: [correct(shot('2026-09-14'), current())] });
+    const before = structuredClone(fund(current()));
+    await importInvestmentFileIntoStores(statement([manualRow]), { deferUpload: true });
+    expect(fund(current()).shares).toBe(before.shares);
+    expect(fund(current()).pendingBuys).toHaveLength(1);
+    expect(current().investmentTransactions).toHaveLength(1);
+    const pending = fund(current()).pendingBuys![0];
+    const booked = bookPendingFundBuy(current(), pending.id, { navDate: '2026-09-14', shares: 10, price: 2, beforeFee: true }, now);
+    useMonthlyStore.setState({ records: [booked] });
+    await importInvestmentFileIntoStores(statement([manualRow]), { deferUpload: true });
+    expect(current().investmentTransactions).toHaveLength(1);
+    expect(fund(current()).shares).toBe(109.9);
   });
 
   it('正式确认按差额替换截图预估，真实流水号后来出现也不重复，重复矫正保留正式份额', () => {

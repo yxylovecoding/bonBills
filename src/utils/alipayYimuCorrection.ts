@@ -13,12 +13,16 @@ const round = (n: number, digits = 4) => Math.round((n + Number.EPSILON) * 10 **
 const money = (n: number) => round(n, 2);
 const codeOf = (item: { symbol: string }) => canonicalInvestmentSymbol(item.symbol);
 const realOrderId = (order: AlipayActualOrder) => /^\d{15,40}$/.test(order.id) ? order.id : undefined;
-const matchOrder = (order: AlipayActualOrder, entry: InvestmentTransactionRecord | PendingInvestmentBuy) => {
+const matchOrder = (order: AlipayActualOrder, entry: InvestmentTransactionRecord | PendingInvestmentBuy, dateOnly = false) => {
   if (codeOf(entry) !== order.code || entry.currency.toUpperCase() !== 'CNY') return false;
   if ('side' in entry && entry.side !== order.side) return false;
   if (realOrderId(order) && entry.orderId) return realOrderId(order) === entry.orderId;
-  return entry.operationAt === order.operationAt && order.unit === 'CNY'
+  return (dateOnly ? entry.operationAt?.slice(0, 10) === order.operationAt.slice(0, 10) : entry.operationAt === order.operationAt) && order.unit === 'CNY'
     && entry.amount !== undefined && Math.abs(entry.amount - order.quantity) < 0.005;
+};
+const matchingEntries = <T extends InvestmentTransactionRecord | PendingInvestmentBuy>(order: AlipayActualOrder, entries: T[]) => {
+  const exact = entries.filter((entry) => matchOrder(order, entry));
+  return exact.length ? exact : entries.filter((entry) => matchOrder(order, entry, true));
 };
 
 function tradeDate(order: AlipayActualOrder, holidays: HolidayDataByYear) {
@@ -78,6 +82,9 @@ export function buildAlipayYimuCorrection(
     const pending = orders.filter((order) => order.status === 'pending');
     if (pending.some((order) => order.unit !== 'CNY')) return fail('待确认交易金额待补充');
     const buys = pending.filter((order) => order.side === 'buy').sort((a, b) => a.operationAt.localeCompare(b.operationAt) || a.id.localeCompare(b.id));
+    const bookings = new Map(buys.map((order) => [order.id, matchingEntries(order, local)]));
+    const matchedIds = [...bookings.values()].flat().map((entry) => entry.id);
+    if ([...bookings.values()].some((entries) => entries.length > 1) || new Set(matchedIds).size !== matchedIds.length) return fail('同日同金额订单需核对编号');
     if (fund.pendingBuyAmount !== undefined && Math.abs(fund.pendingBuyAmount - buys.reduce((sum, order) => sum + order.quantity, 0)) > 0.015) return fail('待确认买入记录不完整');
     if (pending.some((order) => order.side === 'sell') && (fund.shares === undefined || fund.confirmedAmount === undefined)) return fail('赎回中，请补充含份额和持有金额的详情页');
     const basis = alipayActualBasis(fund, items, orders, quotes.holdings?.[fund.code]);
@@ -89,14 +96,14 @@ export function buildAlipayYimuCorrection(
     row.estimated = basis.sharesEstimated || basis.costPriceEstimated;
     const deferred: PendingInvestmentBuy[] = [];
     const bridgedPending: PendingInvestmentBuy[] = [];
-    const referenceIds = local.filter((entry) => !buys.some((order) => matchOrder(order, entry))).map((entry) => entry.id);
+    const referenceIds = local.filter((entry) => !matchedIds.includes(entry.id)).map((entry) => entry.id);
     for (const order of buys) {
       if (!(order.quantity > 0) || !Number.isFinite(order.quantity)) return fail('交易金额待核对');
       const navDate = tradeDate(order, holidays);
       const confirmation = navDate && estimateConfirmationDate(order.operationAt, 1, holidays, navDate);
       if (!navDate || !confirmation) return fail('T+1 日期待核对，节假日资料或成交日暂缺');
-      const booked = local.filter((entry) => matchOrder(order, entry));
-      const pendingMatches = (item.pendingBuys ?? []).filter((entry) => matchOrder(order, entry));
+      const booked = bookings.get(order.id)!;
+      const pendingMatches = matchingEntries(order, item.pendingBuys ?? []);
       if (booked.length > 1 || pendingMatches.length > 1) return fail('同时间同金额订单需核对编号');
       const oldPending = pendingMatches[0];
       const pendingId = oldPending?.id ?? `alipay:${order.id}`;
@@ -104,6 +111,7 @@ export function buildAlipayYimuCorrection(
       const fee = order.fee ?? (formal || booked[0] && !booked[0].autoBuy?.beforeFee ? booked[0].fee : oldPending?.fee);
       const nextPending: PendingInvestmentBuy = {
         id: pendingId, orderId: realOrderId(order) ?? oldPending?.orderId ?? booked[0]?.orderId,
+        ledgerTransactionId: formal ? booked[0].id : oldPending?.ledgerTransactionId,
         matchKey: oldPending?.matchKey ?? booked[0]?.pendingMatchKey ?? `alipay:${order.id}`,
         baseMatchKey: oldPending?.baseMatchKey ?? booked[0]?.pendingBaseMatchKey ?? `alipay:${fund.code}:${order.operationAt}`,
         operationAt: order.operationAt, amount: order.quantity, fee, name: fund.name, symbol: fund.code, groupKey,
@@ -131,7 +139,7 @@ export function buildAlipayYimuCorrection(
         orderId: nextPending.orderId, amount: order.quantity, costFromAmount: true, account: nextPending.account,
         pendingMatchKey: nextPending.matchKey, pendingBaseMatchKey: nextPending.baseMatchKey,
         positionBefore: before, applicationOrder: nextInvestmentApplicationOrder(ledger) + row.bridges.length,
-        autoBuy: { pendingId, status: 'estimated', navDate, beforeFee, beforeShares: before.shares, beforeCostPrice: before.costPrice,
+        autoBuy: { pendingId, status: formal ? 'reconciled' : 'estimated', navDate, beforeFee, beforeShares: before.shares, beforeCostPrice: before.costPrice,
           previousTransactionIds: [...new Set([...referenceIds, ...row.bridges.map((entry) => entry.id)])], alipayAsOf: snapshot.date },
       };
       // Moving an existing prior-month booking would leave two ledger owners.
@@ -173,7 +181,7 @@ export function applyAlipayYimuCorrection(record: MonthlyRecord, plan: AlipayYim
     const index = (items[row.groupKey!] ?? []).findIndex((item) => item.id === row.itemId && codeOf(item) === row.code);
     if (index < 0) throw new Error('一木持仓已变化，请重新矫正');
     items[row.groupKey!]![index] = row.target!;
-    transactions = transactions.filter((entry) => !(codeOf(entry) === row.code && entry.side === 'buy'
+    transactions = transactions.filter((entry) => !(entry.autoBuy?.status === 'estimated' && codeOf(entry) === row.code && entry.side === 'buy'
       && row.target!.pendingBuys?.some((pending) => !pending.booking && pending.operationAt.slice(0, 10) <= plan.date
         && (pending.orderId && entry.orderId ? pending.orderId === entry.orderId
           : pending.operationAt === entry.operationAt && pending.amount === entry.amount))));

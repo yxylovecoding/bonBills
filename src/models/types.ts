@@ -64,6 +64,7 @@ export interface AlipayActualSnapshot {
 
 export interface PendingInvestmentBuy {
   id: string;
+  ledgerTransactionId?: string; // Existing manual trade awaiting confirmation after a balance import.
   orderId?: string;
   matchKey: string;
   baseMatchKey: string;
