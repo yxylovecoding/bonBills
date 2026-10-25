@@ -150,11 +150,31 @@ export function matchingSkinProducts(settings: SkinSettings, state: SkinState | 
 export const skinProductNames = (value: string): string[] =>
   [...new Set(value.split(/[、,，\n]/).map((name) => name.trim()).filter(Boolean))];
 
+export const SKINCARE_GROUPS = ['水乳霜', '精华', '其他'] as const;
+export function skinCareGroup(name: string, tags: readonly string[] = []): typeof SKINCARE_GROUPS[number] {
+  const tagged = SKINCARE_GROUPS.find((group) => tags.includes(group));
+  if (tagged) return tagged;
+  if (/精华[水乳霜]/.test(name)) return '水乳霜';
+  if (/精华|\b(?:serum|essence)\b/i.test(name)) return '精华';
+  if (/[水乳霜]|\b(?:toner|lotion|cream)\b/i.test(name)) return '水乳霜';
+  return '其他';
+}
+
+function matchesPickerSkinState(settings: SkinSettings, item: SkinProduct, state?: SkinState): boolean {
+  const careState = state && item.kind === 'skincare' ? settings.plans[state].careFrom : undefined;
+  return !state || !item.states.length || item.states.includes(state) || Boolean(careState && item.states.includes(careState));
+}
+
+export function skinCareAvailable(settings: SkinSettings, name: string, state?: SkinState): boolean {
+  const products = settings.products.filter((item) => item.kind === 'skincare' && skinProductNames(item.name).includes(name));
+  return !products.length || products.some((item) => item.active && matchesPickerSkinState(settings, item, state));
+}
+
 // Medication choices must match the selected state. Explicit plan timing then
 // takes precedence over product timing; custom names remain manually available.
 export function skinMedicationAvailable(settings: SkinSettings, name: string, time: SkinTime, day?: SkinPlanDay, state?: SkinState): boolean {
   const products = settings.products.filter((item) => item.kind === 'medication' && skinProductNames(item.name).includes(name));
-  const available = products.filter((item) => item.active && (!state || !item.states.length || item.states.includes(state)));
+  const available = products.filter((item) => item.active && matchesPickerSkinState(settings, item, state));
   if (products.length && !available.length) return false;
   const morning = skinProductNames(day?.morningMedication ?? '');
   const evening = skinProductNames(day?.eveningMedication ?? '');
@@ -163,18 +183,16 @@ export function skinMedicationAvailable(settings: SkinSettings, name: string, ti
 }
 
 // Picker order favors the selected state, then inherited care, then unrestricted
-// products. Medication state and timing filter choices; skincare keeps all states.
+// products. Both kinds filter by state; only medication also filters by timing.
 export function rankedSkinProducts(settings: SkinSettings, state: SkinState | undefined, season: SkinSeason, kind: SkinProduct['kind'], time?: SkinTime, day?: SkinPlanDay): SkinProduct[] {
   const careState = state && kind === 'skincare' ? settings.plans[state].careFrom : undefined;
   const stateRank = (item: SkinProduct) => !state || item.states.includes(state) ? 0
     : careState && item.states.includes(careState) ? 1 : !item.states.length ? 2 : 3;
   const contextRank = (item: SkinProduct) => Number(Boolean(item.seasons.length && !item.seasons.includes(season)))
     + Number(Boolean(time && item.times.length && !item.times.includes(time)));
-  const stateMatches = (item: SkinProduct) => !state || !item.states.length
-    || item.states.includes(state) || Boolean(careState && item.states.includes(careState));
-  return settings.products.filter((item) => item.active && item.kind === kind && stateMatches(item)
-    && (kind !== 'medication' || !time
-      || skinProductNames(item.name).some((name) => skinMedicationAvailable(settings, name, time, day, state))))
+  return settings.products.filter((item) => item.active && item.kind === kind
+    && matchesPickerSkinState(settings, item, state)
+    && (kind !== 'medication' || !time || skinProductNames(item.name).some((name) => skinMedicationAvailable(settings, name, time, day, state))))
     .sort((a, b) => stateRank(a) - stateRank(b) || contextRank(a) - contextRank(b));
 }
 // Products marked as suitable for the current skin state directly (ignoring the

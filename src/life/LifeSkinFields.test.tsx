@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import LifeSkinFields from './LifeSkinFields';
 import { DEFAULT_SKIN_SETTINGS, emptySkinDay, parseSkinRecord, skinMedicationAvailable, type SkinSettings } from '../utils/lifeSkin';
 
-function picker(html: string, label: string) {
-  return html.match(new RegExp(`<select[^>]*aria-label="${label} · 选择药品"[^>]*>([\\s\\S]*?)</select>`))?.[1] ?? '';
+function picker(html: string, label: string, kind = '药品') {
+  return html.match(new RegExp(`<select[^>]*aria-label="${label} · 选择${kind}"[^>]*>([\\s\\S]*?)</select>`))?.[1] ?? '';
 }
 function render(settings = DEFAULT_SKIN_SETTINGS, value = {}) {
   const onChange = vi.fn();
@@ -80,5 +80,50 @@ describe('日常记录用药时段', () => {
       expect(picker(html, label)).toContain('阿达帕林');
       expect(picker(html, label)).toContain('过氧');
     }
+  });
+});
+
+describe('日常记录护肤品选择', () => {
+  it('同一下拉框按水乳霜、精华分组，早晚均只显示当前及沿用肤况的用品', () => {
+    const acne = render(DEFAULT_SKIN_SETTINGS, { status: 'acne' });
+    const damaged = render(DEFAULT_SKIN_SETTINGS, { status: 'damaged' });
+    const healthy = render(DEFAULT_SKIN_SETTINGS, { status: 'healthy' });
+    for (const label of ['早间护肤品', '晚间护肤品']) {
+      const choices = picker(acne, label, '护肤品');
+      expect(choices).toMatch(/<optgroup label="水乳霜">[^]*珂润霜[^]*珂润乳[^]*<\/optgroup><optgroup label="精华">[^]*安修泽油橄榄精华[^]*<\/optgroup>/);
+      expect(choices).not.toContain('label="其他"');
+      expect(picker(damaged, label, '护肤品')).toContain('珂润霜');
+      expect(picker(damaged, label, '护肤品')).not.toContain('精华');
+      expect(picker(healthy, label, '护肤品')).not.toContain('<optgroup');
+      expect(picker(healthy, label, '护肤品')).not.toContain('value="product:');
+      expect(picker(healthy, label, '护肤品')).toContain('手动填写');
+    }
+  });
+
+  it('按标签归类自定义名称，其他用品仍可选择，组合名称拆分后分别归组', () => {
+    const template = DEFAULT_SKIN_SETTINGS.products.find((item) => item.kind === 'skincare')!;
+    const settings = { ...DEFAULT_SKIN_SETTINGS, products: [
+      { ...template, id: 'tagged', name: '小棕瓶', tags: ['精华'] },
+      { ...template, id: 'other', name: '面膜', tags: [] },
+      { ...template, id: 'combined', name: '保湿精华水、补水精华', tags: [] },
+    ] };
+    const choices = picker(render(settings, { status: 'damaged' }), '早间护肤品', '护肤品');
+    expect(choices.match(/<optgroup label="水乳霜">([^]*?)<\/optgroup>/)?.[1]).toContain('保湿精华水');
+    const essence = choices.match(/<optgroup label="精华">([^]*?)<\/optgroup>/)?.[1];
+    expect(essence).toContain('小棕瓶');
+    expect(essence).toContain('补水精华');
+    expect(essence).not.toContain('保湿精华水');
+    expect(choices.match(/<optgroup label="其他">([^]*?)<\/optgroup>/)?.[1]).toContain('面膜');
+  });
+
+  it('已选用品继续显示且不会重复出现在选项中，历史记录不因筛选和分组改写', () => {
+    const value = { status: 'damaged' as const, morningProducts: '珂润霜、安修泽油橄榄精华、旧护肤品' };
+    const original = structuredClone(value);
+    const html = render(DEFAULT_SKIN_SETTINGS, value);
+    for (const name of ['珂润霜', '安修泽油橄榄精华', '旧护肤品']) {
+      expect(html).toContain(`早间护肤品 · 移除${name}`);
+      expect(picker(html, '早间护肤品', '护肤品')).not.toContain(name);
+    }
+    expect(value).toEqual(original);
   });
 });
