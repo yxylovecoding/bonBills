@@ -19,6 +19,11 @@ function SkinProductChoices({ label, kind, value, products, isAvailable, busy, o
   const names = [...new Set([...products.flatMap((item) => productNames(item.name)), ...remembered])]
     .filter((name) => !selected.includes(name) && isAvailable(name));
   const kindLabel = kind === 'medication' ? '药品' : '护肤品';
+  const isEssence = (name: string) => name.includes('精华');
+  const groups: { key: string; label: string; match: (name: string) => boolean }[] = kind === 'skincare'
+    ? [{ key: 'cream', label: '水乳霜', match: (name) => !isEssence(name) },
+       { key: 'essence', label: '精华', match: isEssence }]
+    : [{ key: 'all', label: kindLabel, match: () => true }];
   function remember(names: string[]) { setRemembered((previous) => [...new Set([...previous, ...names])]); }
   function finishEditing() { remember(selected); setEditing(false); }
   return <fieldset className="life-skin-choices life-skin-product-choices" disabled={busy}><legend>{label}</legend>
@@ -30,17 +35,20 @@ function SkinProductChoices({ label, kind, value, products, isAvailable, busy, o
     </div> : <>
       {selected.length > 0 && <div>{selected.map((name) => <button type="button" key={name} aria-pressed="true" aria-label={`${label} · 移除${name}`}
         onClick={() => { remember(selected); onChange(selected.filter((item) => item !== name).join('、')); }}>{name}<span aria-hidden="true"> ×</span></button>)}</div>}
-      <select className="life-skin-product-picker" aria-label={`${label} · 选择${kindLabel}`} value="" onChange={(event) => {
-        if (event.target.value === 'custom') { setEditing(true); return; }
-        const name = event.target.value.slice('product:'.length);
-        if (!name) return;
-        const next = [...new Set([...selected, name])].join('、');
-        if (next.length <= 500) { remember([...selected, name]); onChange(next); }
-      }}>
-        <option value="" disabled>＋ 选择{kindLabel}</option>
-        {names.map((name) => <option key={name} value={`product:${name}`} disabled={[...selected, name].join('、').length > 500}>{name}</option>)}
-        <option value="custom">手动填写…</option>
-      </select>
+      {groups.map((group, index) => {
+        const groupNames = names.filter(group.match);
+        return <select key={group.key} className="life-skin-product-picker" aria-label={`${label} · 选择${group.label}`} value="" onChange={(event) => {
+          if (event.target.value === 'custom') { setEditing(true); return; }
+          const name = event.target.value.slice('product:'.length);
+          if (!name) return;
+          const next = [...new Set([...selected, name])].join('、');
+          if (next.length <= 500) { remember([...selected, name]); onChange(next); }
+        }}>
+          <option value="" disabled>＋ 选择{group.label}</option>
+          {groupNames.map((name) => <option key={name} value={`product:${name}`} disabled={[...selected, name].join('、').length > 500}>{name}</option>)}
+          {index === groups.length - 1 && <option value="custom">手动填写…</option>}
+        </select>;
+      })}
     </>}
   </fieldset>;
 }

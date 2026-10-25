@@ -29,7 +29,7 @@ describe('用品选择按当前肤况排序', () => {
     ] };
     const original = structuredClone(settings);
     expect(rankedSkinProducts(settings, 'damaged', 'autumn', kind, 'morning').map((item) => item.id))
-      .toEqual(kind === 'medication' ? ['first', 'second', 'summer', 'general'] : ['first', 'second', 'summer', 'evening', 'general', 'other']);
+      .toEqual(kind === 'medication' ? ['first', 'second', 'summer', 'general'] : ['first', 'second', 'summer', 'evening', 'general']);
     expect(settings).toEqual(original);
   });
 

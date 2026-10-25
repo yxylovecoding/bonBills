@@ -170,9 +170,11 @@ export function rankedSkinProducts(settings: SkinSettings, state: SkinState | un
     : careState && item.states.includes(careState) ? 1 : !item.states.length ? 2 : 3;
   const contextRank = (item: SkinProduct) => Number(Boolean(item.seasons.length && !item.seasons.includes(season)))
     + Number(Boolean(time && item.times.length && !item.times.includes(time)));
-  return settings.products.filter((item) => item.active && item.kind === kind
-    && (kind !== 'medication' || ((!state || !item.states.length || item.states.includes(state))
-      && (!time || skinProductNames(item.name).some((name) => skinMedicationAvailable(settings, name, time, day, state))))))
+  const stateMatches = (item: SkinProduct) => !state || !item.states.length
+    || item.states.includes(state) || Boolean(careState && item.states.includes(careState));
+  return settings.products.filter((item) => item.active && item.kind === kind && stateMatches(item)
+    && (kind !== 'medication' || !time
+      || skinProductNames(item.name).some((name) => skinMedicationAvailable(settings, name, time, day, state))))
     .sort((a, b) => stateRank(a) - stateRank(b) || contextRank(a) - contextRank(b));
 }
 // Products marked as suitable for the current skin state directly (ignoring the
