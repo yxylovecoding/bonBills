@@ -48,7 +48,8 @@ describe('response and retry boundary', () => {
   it('continues only persisted tag batches and checks all required results', () => {
     expect(classify('full', 202, { sleepTags: { complete: false } }, attempt)).toMatchObject({ outcome: 'retry', counter: 'batches' });
     expect(classify('routine-visibility', 200, { ok: true, sleepTags: { complete: false } }, attempt).outcome).toBe('retry');
-    for (const body of [{ ok: true }, { ok: true, dailyPlan: {}, laundry: { outlook: { error: 'PRIVATE' } } }, { ok: true, dailyPlan: {}, charging: { outlook: { error: 'PRIVATE' } } }])
+    for (const body of [{ ok: true }, { ok: true, dailyPlan: {}, laundry: { outlook: { error: 'PRIVATE' } } },
+      { ok: true, dailyPlan: {}, charging: { outlook: { error: 'PRIVATE' } } }, { ok: true, dailyPlan: {}, hairWash: { outlook: { error: 'PRIVATE' } } }])
       expect(classify('full', 200, body, attempt).outcome).toBe('failed');
     expect(classify('routine-visibility', 200, { ok: true, sleepTags: { complete: true } }, attempt).outcome).toBe('failed');
     expect(classify('daily-email', 200, { ok: true }, attempt).outcome).toBe('failed');

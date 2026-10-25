@@ -17,7 +17,7 @@ async function request<T>(method: string, body?: unknown, calendars = false): Pr
   if (!response.ok) throw new Error(data.error ?? 'Outlook 连接失败');
   return data as T;
 }
-export default function OutlookLaundryControl() {
+export default function OutlookWriteControl() {
   const [status, setStatus] = useState<Status | null>(null), [expanded, setExpanded] = useState(false);
   const [clientId, setClientId] = useState(''), [calendarId, setCalendarId] = useState('');
   const [webhookUrl, setWebhookUrl] = useState(''), [direct, setDirect] = useState(false);
@@ -68,7 +68,7 @@ export default function OutlookLaundryControl() {
   }
   return <div style={{ border: '1px solid #f1f3f4', borderRadius: 10, padding: '9px 10px', marginBottom: 12 }}>
     <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center' }}>
-      <div><div style={{ fontSize: 13, fontWeight: 700 }}>洗衣日程 · Outlook</div>
+      <div><div style={{ fontSize: 13, fontWeight: 700 }}>连接 Outlook</div>
         <div role="status" style={{ fontSize: 11, color: '#5f6368', marginTop: 3 }}>
           {status?.error ? '同步失败' : status?.enabled ? `已开启 · ${status.calendarName}` : status?.connected ? '待选择日历' : status ? '未连接' : error ? '连接失败' : '加载中…'}
         </div></div>
@@ -101,7 +101,7 @@ export default function OutlookLaundryControl() {
         <button type="button" style={{ ...button, color: '#5f6368' }} disabled={busy} onClick={() => void run('disconnect')}>取消授权</button>
       </>}
       {status?.connected && !status.enabled && <>
-        <select aria-label="洗衣日程日历" style={field} disabled={busy} value={calendarId} onChange={event => setCalendarId(event.target.value)}>
+        <select aria-label="Outlook 日程日历" style={field} disabled={busy} value={calendarId} onChange={event => setCalendarId(event.target.value)}>
           <option value="">选择日历</option>{status.calendars?.map(calendar => <option value={calendar.id} key={calendar.id}>{calendar.name}</option>)}
         </select>
         <button type="button" style={button} disabled={busy || !calendarId} onClick={() => void run('select')}>开启同步</button>

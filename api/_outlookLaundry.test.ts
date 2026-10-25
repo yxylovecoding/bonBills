@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { BEIJING, GUANGZHOU, DEFAULT_INTERNSHIP_RULES } from '../src/utils/internship';
 import { laundryEventPlan, LAUNDRY_EVENT_PROPERTY, syncLaundryOutlook } from './_outlookLaundry';
 import { chargingEventPlan, syncChargingOutlook } from './_outlookCharging';
+import { hairWashEventPlan, syncHairWashOutlook } from './_outlookHairWash';
 import { OUTLOOK_WRITE_KEY, sealOutlookWrite } from './_outlookWrite';
 import { LAUNDRY_STATE_KEY } from './_ticktickLaundry';
 import type { TickTickApi, TickTickTask } from './_ticktickTrips';
@@ -281,6 +282,102 @@ it('充电同步成功不能清除仍失败的洗衣状态，洗衣恢复后才�
   task = original;
   events.get('event-1').attendees = [];
   expect(await syncLaundryOutlook(api, options())).not.toHaveProperty('error');
+  expect(data.get(OUTLOOK_WRITE_KEY).lastError).toBeUndefined();
+});
+
+it('洗头沿用具体时刻和描述估时；全天默认20点，隐藏标签不阻止同步', async () => {
+  task.title = ' 洗头 '; task.tags = ['routine', 'bon-hidden']; task.content = '(30m)';
+  task.startDate = task.dueDate = '2026-10-08T14:10:00Z';
+  expect(hairWashEventPlan(task, options().today)).toEqual({ subject: '洗头',
+    start: { dateTime: '2026-10-08T22:10:00', timeZone: 'Asia/Shanghai' },
+    end: { dateTime: '2026-10-08T22:40:00', timeZone: 'Asia/Shanghai' } });
+  const original = structuredClone(task);
+  expect(await syncHairWashOutlook(api, { ...options(), history: [], excludedTaskIds: new Set() })).toMatchObject({ created: 1 });
+  expect(writes[0].body).toMatchObject({ subject: '洗头', attendees: [], isReminderOn: false, showAs: 'busy' });
+  expect(writes[0].body).not.toHaveProperty('recurrence');
+  expect(task).toEqual(original);
+  expect(hairWashEventPlan({ ...task, isAllDay: true, content: '' }, options().today)).toMatchObject({
+    start: { dateTime: '2026-10-08T20:00:00' }, end: { dateTime: '2026-10-08T20:15:00' } });
+  expect(hairWashEventPlan({ ...task, content: '', dueDate: '2026-10-08T14:30:00Z' }, options().today))
+    .toMatchObject({ end: { dateTime: '2026-10-08T22:30:00' } });
+});
+
+it('洗头创建响应丢失后找回，同周期改期更新原预约，同日手动改时保留', async () => {
+  task.title = '洗头'; task.isAllDay = true; task.content = '(25m)';
+  const sync = () => syncHairWashOutlook(api, { ...options(), history: [], excludedTaskIds: new Set() });
+  loseCreateResponse = true;
+  expect(await sync()).toHaveProperty('error');
+  expect(await sync()).toMatchObject({ created: 0, updated: 0 });
+  expect(writes).toHaveLength(1);
+  const transactionId = writes[0].body.transactionId;
+  task.startDate = task.dueDate = '2026-10-09T00:00:00Z';
+  expect(await sync()).toMatchObject({ created: 0, updated: 1 });
+  expect(events.size).toBe(1);
+  expect(events.get('event-1').start.dateTime).toBe('2026-10-09T20:00:00');
+  events.get('event-1').start.dateTime = '2026-10-09T21:00:00';
+  events.get('event-1').end.dateTime = '2026-10-09T21:25:00';
+  expect(await sync()).toMatchObject({ created: 0, updated: 0 });
+  expect(events.get('event-1').start.dateTime).toBe('2026-10-09T21:00:00');
+  events.clear();
+  expect(await sync()).toMatchObject({ created: 1 });
+  expect(writes.at(-1)!.body.transactionId).not.toBe(transactionId);
+  expect(await sync()).toMatchObject({ created: 0, updated: 0 });
+  expect(events.size).toBe(1);
+});
+
+it('洗头实际完成后新建下一周期，保留历史和手动同名日程', async () => {
+  task.title = '洗头'; task.isAllDay = true;
+  const history: TickTickTask[] = [];
+  const sync = (overrides = {}) => syncHairWashOutlook(api, { ...options(), history, excludedTaskIds: new Set(), ...overrides });
+  events.set('manual', { id: 'manual', subject: '洗头', start: {}, end: {} });
+  await sync();
+  history.push({ ...task, status: 2, completedTime: '2026-10-08T13:30:00Z' });
+  task.startDate = task.dueDate = '2026-10-10T00:00:00Z';
+  expect(await sync({ today: '2026-10-09', now: new Date('2026-10-09T00:00:00Z') })).toMatchObject({ created: 1 });
+  expect(events.size).toBe(3);
+  expect(events.get('event-2').start.dateTime).toBe('2026-10-08T20:00:00');
+  expect(events.get('manual').start).toEqual({});
+  history.length = 0;
+  expect(await sync({ today: '2026-10-09', now: new Date('2026-10-09T00:00:00Z') })).toMatchObject({ created: 0, updated: 0 });
+  expect(events.size).toBe(3);
+});
+
+it('洗头不处理跟随项、模板后代、已完成、过去、无日期或不关我事的待办', async () => {
+  task.title = '洗头';
+  for (const fields of [{ status: 2 }, { completedTime: '2026-10-04T01:00:00Z' },
+    { startDate: undefined, dueDate: undefined }, { dueDate: '2026-10-04T00:00:00Z' },
+    { tags: ['不关我事'] }, { title: '准备洗头', tags: ['洗头'] }, { startDate: 'invalid' }]) {
+    expect(hairWashEventPlan({ ...task, ...fields }, options().today)).toBeNull();
+  }
+  task.parentId = 'child';
+  await syncHairWashOutlook(api, { ...options(), tasks: [task, { ...task, id: 'child', parentId: 'template', title: '阶段' }],
+    history: [], excludedTaskIds: new Set(['template']) });
+  expect(writes).toHaveLength(0);
+});
+
+it('洗头写入前刚完成或改期时不创建旧日程', async () => {
+  task.title = '洗头';
+  for (const fields of [{ status: 2, completedTime: '2026-10-05T03:00:00Z' },
+    { dueDate: '2026-10-10T00:00:00Z', startDate: '2026-10-10T00:00:00Z' }]) {
+    vi.mocked(api.getTask).mockResolvedValueOnce(structuredClone(task)).mockResolvedValueOnce({ ...task, ...fields });
+    expect(await syncHairWashOutlook(api, { ...options(), history: [], excludedTaskIds: new Set() })).toMatchObject({ created: 0, updated: 0 });
+  }
+  expect(writes).toHaveLength(0);
+});
+
+it('洗头同步失败保持独立错误，充电成功不能掩盖', async () => {
+  task.title = '洗头';
+  const sync = () => syncHairWashOutlook(api, { ...options(), history: [], excludedTaskIds: new Set() });
+  await sync();
+  events.get('event-1').attendees = [{}];
+  expect(await sync()).toHaveProperty('error');
+  const original = structuredClone(task);
+  task = { ...task, id: 'charge', title: '电动车充电' };
+  expect(await syncChargingOutlook(api, { ...options(), history: [], excludedTaskIds: new Set() })).toMatchObject({ created: 1 });
+  expect(data.get(OUTLOOK_WRITE_KEY).syncErrors['洗头']).toContain('参与人');
+  expect(data.get(OUTLOOK_WRITE_KEY).lastError).toContain('参与人');
+  task = original; events.get('event-1').attendees = [];
+  expect(await sync()).not.toHaveProperty('error');
   expect(data.get(OUTLOOK_WRITE_KEY).lastError).toBeUndefined();
 });
 

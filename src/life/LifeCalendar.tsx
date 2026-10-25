@@ -169,7 +169,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
 
   return <main className="life-shell">
     <header className="life-header"><h1><span className="life-brand-dot" />BonLog</h1>
-      <div className="life-header-actions"><InstallApp app="log" /><button disabled={!current || loading} onClick={() => setCycleSettings(true)}>经期设置</button><button onClick={() => setSettings(true)}>Outlook<span className={`life-connection-dot${current?.connected ? ' connected' : ''}`} /></button>
+      <div className="life-header-actions"><InstallApp app="log" /><button disabled={!current || loading} onClick={() => setCycleSettings(true)}>经期设置</button><button onClick={() => setSettings(true)}>连接 Outlook</button>
         <button onClick={() => void logout()} disabled={loggingOut}>{loggingOut ? '退出中…' : '退出'}</button></div></header>
     <div className="life-toolbar">
       <nav className="life-tabs" aria-label="状态日历">{(['skin', 'eyes', 'discomfort', 'mood', 'training', 'done'] as const).map((value) => <button key={value}

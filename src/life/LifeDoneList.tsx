@@ -7,7 +7,6 @@ import { doneCategory, doneWeekDates, doneWeekMonths, doneWeekNumber, earlierDon
 import { squarifiedTreemap } from '../utils/squarifiedTreemap';
 import { LifeError, lifeRequest } from './client';
 import LifePlanDetails from './LifePlanDetails';
-import OutlookLaundryControl from '../components/OutlookLaundryControl';
 import { markedTaskMinutes } from '../utils/taskDuration';
 
 const shanghaiToday = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date());
@@ -250,7 +249,6 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
     </button> : replanMessage || (syncedAt ? `${completionTime.format(new Date(syncedAt))} 已同步` : '尚未同步')}</span>
       <div className="life-done-actions"><button disabled={busy || replanning} onClick={() => void triggerReplan()}>{replanning ? '触发中…' : '重排任务'}</button>
         <button disabled={busy || replanning} onClick={() => void refresh(true)}>同步记录</button></div></div>
-    <OutlookLaundryControl />
     {replanError && <p className="life-error" role="alert">{replanError}</p>}
     {detailsError && <p className="life-error" role="alert">{detailsError}</p>}
     {detailsOpen && planDetails && <LifePlanDetails plan={planDetails} />}

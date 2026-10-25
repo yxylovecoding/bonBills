@@ -27,7 +27,7 @@ export function classify(action, status, body, attempt) {
     ? { outcome: 'success' } : fail('email-incomplete');
   if (status !== 200 || body?.ok !== true || body.busy || body.error) return fail('incomplete');
   if (action === 'full') {
-    if (!body.dailyPlan || body.laundry?.outlook?.error || body.charging?.outlook?.error) return fail('plan-incomplete');
+    if (!body.dailyPlan || body.laundry?.outlook?.error || body.charging?.outlook?.error || body.hairWash?.outlook?.error) return fail('plan-incomplete');
   } else if (action === 'hourly-replan') {
     if (!body.dailyPlan && !skipReasons.has(body.skipped)) return fail('plan-incomplete');
   } else if (body.connected !== false) {

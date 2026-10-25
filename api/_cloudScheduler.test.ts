@@ -21,8 +21,9 @@ describe('cloud manual dispatch', () => {
   it('does not expose errors or private contents to the dispatcher', () => {
     const body = schedulerResponse({ ok: false, dailyPlan: { tasks: ['PRIVATE'] }, error: 'PRIVATE URL',
       failure: { stage: 'PRIVATE', retryable: false }, laundry: { outlook: { error: 'PRIVATE' } },
+      hairWash: { outlook: { error: 'PRIVATE' } },
       connection: 'PRIVATE', sleepTags: { complete: false, tasks: ['PRIVATE'] } });
-    expect(body).toEqual({ ok: false, error: true, dailyPlan: {}, failure: { stage: 'unknown', retryable: false }, laundry: { outlook: { error: true } }, sleepTags: { complete: false } });
+    expect(body).toEqual({ ok: false, error: true, dailyPlan: {}, failure: { stage: 'unknown', retryable: false }, laundry: { outlook: { error: true } }, hairWash: { outlook: { error: true } }, sleepTags: { complete: false } });
     expect(JSON.stringify(body)).not.toContain('PRIVATE');
   });
 });

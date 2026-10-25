@@ -22,6 +22,7 @@ import { syncExerciseSchedule } from './_ticktickExercise.js';
 import { syncLaundrySchedule } from './_ticktickLaundry.js';
 import { syncLaundryOutlook } from './_outlookLaundry.js';
 import { syncChargingOutlook } from './_outlookCharging.js';
+import { syncHairWashOutlook } from './_outlookHairWash.js';
 import { syncPeriodPredictionTask } from './_ticktickPeriodPrediction.js';
 import { schedulingFailure, schedulingStage } from './_schedulingFailure.js';
 import { syncTickTickAlwaysToday } from './_ticktickTrips.js';
@@ -183,17 +184,22 @@ async function runSyncInner(allowDisconnected: boolean) {
         plannedDates: Object.fromEntries(laundryTasks.filter(task => laundry.managedTaskIds.has(task.id))
           .map(task => [task.id, laundry.decisions.find(decision => decision.id === task.id)?.date ?? routineTaskDate(task)])),
       }).catch(() => ({ error: 'Outlook 日程同步暂不可用，请重试' }));
-      // Charge appointments follow the final pending dates after scene planning.
-      const chargingOutlook = await syncChargingOutlook(api, {
+      // Calendar appointments follow the final pending dates after scene planning.
+      const calendarTaskOptions = {
         tasks: await schedulingStage('tasks-read', true, () => readAllTickTickTasks(api, [0])),
         history: dailyPlan.history, excludedTaskIds, ticktickConnectionId: connectionId, today,
-      }).catch(() => ({ error: 'Outlook 充电日程同步暂不可用，请重试' }));
+      };
+      const chargingOutlook = await syncChargingOutlook(api, calendarTaskOptions)
+        .catch(() => ({ error: 'Outlook 充电日程同步暂不可用，请重试' }));
+      const hairWashOutlook = await syncHairWashOutlook(api, calendarTaskOptions)
+        .catch(() => ({ error: 'Outlook 洗头日程同步暂不可用，请重试' }));
       console.info('[ticktick-routine-sync]', JSON.stringify(routineResult));
       console.info('[ticktick-trip-sync]', JSON.stringify({ ...result, ...wishResult }));
       return { busy: false as const, ...result, ...wishResult, ...routineResult, exercise: { updated: exercise.updated },
         timedTasks, alwaysToday,
         laundry: { updated: laundry.updated, decisions: laundry.decisions, outlook: laundryOutlook },
         charging: { outlook: chargingOutlook },
+        hairWash: { outlook: hairWashOutlook },
         periodPrediction,
         dailyPlan: dailyPlan.summary, budgetMinutes: dailyBudget(settings?.budgetMinutes),
         availabilityProfile: availabilityProfile(settings?.availabilityProfile), lastSyncAt: state.lastSyncAt };

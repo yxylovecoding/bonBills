@@ -9,7 +9,7 @@ export function schedulerResponse(body: Record<string, any>) {
   for (const key of ['dailyPlan', 'nightRoutine', 'exercise', 'hairWash', 'reading'])
     if (body?.[key]) safe[key] = {};
   if (body?.sleepTags) safe.sleepTags = { complete: body.sleepTags.complete === true };
-  for (const key of ['laundry', 'charging']) if (body?.[key]?.outlook?.error) safe[key] = { outlook: { error: true } };
+  for (const key of ['laundry', 'charging', 'hairWash']) if (body?.[key]?.outlook?.error) safe[key] = { outlook: { error: true } };
   const stages = ['completion-archive', 'outlook-refresh', 'tasks-read', 'completion-history', 'template-read', 'timed-visibility', 'planning', 'finalize'];
   if (body?.failure) safe.failure = { stage: stages.includes(body.failure.stage) ? body.failure.stage : 'unknown', retryable: body.failure.retryable === true };
   return safe;

@@ -21,7 +21,7 @@ export interface TaskEventOptions {
   tasks: TickTickTask[]; managedTaskIds: ReadonlySet<string>; ticktickConnectionId: string; today: string;
   plannedDates: Record<string, string | null | undefined>; now?: Date;
 }
-interface EventSpec {
+export interface EventSpec {
   subject: string; propertyId: string; statePrefix: string;
   cycle: (task: TickTickTask) => string | null;
   plan: (task: TickTickTask) => { subject: string; start: EventTime; end: EventTime; location?: { displayName: string } } | null;
