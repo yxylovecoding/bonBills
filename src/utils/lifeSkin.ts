@@ -15,6 +15,7 @@ export interface SkinProduct {
   id: string; name: string; kind: 'medication' | 'skincare'; active: boolean;
   states: SkinState[]; seasons: SkinSeason[]; times: SkinTime[]; tags: string[]; notes: string;
   skincareGroup?: SkinCareGroup;
+  possessionId?: string;
 }
 export interface SkinPlanDay { medication: string; morningMedication: string; eveningMedication: string; notes: string }
 export interface SkinPlan { days: SkinPlanDay[]; careFrom?: 'damaged'; repeat?: boolean }
@@ -89,8 +90,10 @@ export function parseSkinSettings(value: unknown): SkinSettings {
       || !['medication', 'skincare'].includes(String(item.kind)) || typeof item.active !== 'boolean') throw new Error('用品信息无效');
     ids.add(id);
     if (item.skincareGroup !== undefined && !SKINCARE_GROUPS.includes(item.skincareGroup as SkinCareGroup)) throw new Error('护肤品分类无效');
+    if (item.possessionId !== undefined && (item.kind !== 'skincare' || typeof item.possessionId !== 'string'
+      || !/^[a-zA-Z0-9_-]{1,100}$/.test(item.possessionId))) throw new Error('关联物品无效');
     if (!Array.isArray(item.tags) || item.tags.length > 12) throw new Error('最多添加 12 个自定义标签');
-    return { id, name, kind: item.kind as SkinProduct['kind'], active: item.active,
+    return { ...(item.possessionId !== undefined ? { possessionId: item.possessionId as string } : {}), id, name, kind: item.kind as SkinProduct['kind'], active: item.active,
       states: choices(item.states, SKIN_STATES), seasons: choices(item.seasons, SKIN_SEASONS), times: choices(item.times, SKIN_TIMES),
       ...(item.skincareGroup !== undefined ? { skincareGroup: item.skincareGroup as SkinCareGroup } : {}),
       tags: [...new Set(item.tags.map((tag) => text(tag, 24).trim()).filter(Boolean))], notes: text(item.notes, 500) };

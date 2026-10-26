@@ -1,3 +1,4 @@
+import type { PossessionItem } from '../src/models/types.js';
 import { privateJson } from './_privateCache.js';
 import { withAccountScope } from './_accountRoute.js';
 import { hydrateMakeupEntries } from '../src/utils/lifeMakeup.js';
@@ -34,6 +35,11 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       year = lifeYear(req.method === 'GET' ? req.query.year : body?.year ?? String(body?.date).slice(0, 4));
     } catch { return res.status(400).json({ error: '请求内容或年份无效' }); }
     if (req.method === 'GET') {
+      if (req.query.view === 'skin-possessions') {
+        const stored = await kv.get<{ items?: PossessionItem[] }>('possessions');
+        return privateJson(req, res, { items: (stored?.items ?? []).filter((item) => item.kind === 'consumable')
+          .map(({ id, name, status, category, categoryOverride }) => ({ id, name, status, category: categoryOverride || category || '' })) });
+      }
       if (req.query.view === 'training') return privateJson(req, res, await readTrainingSource(year));
       if (req.query.view === 'done') {
         let month: string;
@@ -109,6 +115,14 @@ async function handler(req: VercelRequest, res: VercelResponse) {
         settings = currentSkinSettings(parseSkinSettings(body.settings));
         if (typeof body.mutationId !== 'string' || !/^[a-zA-Z0-9-]{16,80}$/.test(body.mutationId)) throw new Error();
       } catch { return res.status(400).json({ error: '皮肤方案或用品信息无效' }); }
+      const [inventory, previous] = await Promise.all([kv.get<{ items?: PossessionItem[] }>('possessions'),
+        kv.hgetall<{ skin?: SkinSettings }>(LIFE_SETTINGS_KEY)]);
+      for (const product of settings.products) {
+        if (product.possessionId && !inventory?.items?.some((item) => item.id === product.possessionId && item.kind === 'consumable')
+          && !previous?.skin?.products.some((item) => item.id === product.id && item.possessionId === product.possessionId)) {
+          return res.status(400).json({ error: '关联物品已不存在，请重新选择' });
+        }
+      }
       const next = { ...settings, revision: body.mutationId };
       const [ok, raw] = await kv.eval<string[], [number, string | SkinSettings]>(SAVE_LIFE_ENTRY, [LIFE_SETTINGS_KEY],
         ['skin', settings.revision, body.mutationId as string, JSON.stringify(next), 'skin-settings']);

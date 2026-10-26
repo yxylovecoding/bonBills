@@ -4,6 +4,8 @@ import { DEFAULT_ACNE_MARKS_MEDICATION, SKIN_SEASONS, SKIN_STATES, SKIN_TIMES, S
 import { LifeError, lifeRequest } from './client';
 import { symptomColor } from './symptomColor';
 
+type LinkedPossession = { id: string; name: string; status: 'active' | 'retired'; category: string };
+
 function TagChoices<T extends string>({ label, options, value, disabled, onChange, colorFor }: {
   label: string; options: Record<T, string>; value: T[]; disabled: boolean; onChange: (next: T[]) => void;
   colorFor?: (key: T) => ReturnType<typeof symptomColor>;
@@ -23,6 +25,9 @@ export default function LifeSkinSettings({ initial, year, onSave, onClose, onExp
   const [tab, setTab] = useState<'plans' | 'products'>('plans');
   const [state, setState] = useState<SkinState>('acne');
   const [item, setItem] = useState<SkinProduct | null>(null);
+  const [possessions, setPossessions] = useState<LinkedPossession[]>([]);
+  const [inventoryState, setInventoryState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [inventoryRetry, setInventoryRetry] = useState(0);
   const [tags, setTags] = useState('');
   const [filter, setFilter] = useState<'all' | 'medication' | 'skincare'>('all');
   const [query, setQuery] = useState('');
@@ -34,6 +39,17 @@ export default function LifeSkinSettings({ initial, year, onSave, onClose, onExp
   const dirty = draft !== initial || Boolean(item);
   const plan = draft.plans[state];
   useEffect(() => { dialog.current?.showModal(); }, []);
+  useEffect(() => {
+    const controller = new AbortController();
+    setInventoryState('loading');
+    void lifeRequest<{ items: LinkedPossession[] }>('GET', { year, view: 'skin-possessions' }, controller.signal)
+      .then((result) => { if (!controller.signal.aborted) { setPossessions(result.items); setInventoryState('ready'); } })
+      .catch((cause) => { if (!controller.signal.aborted) {
+        setInventoryState('error');
+        if (cause instanceof LifeError && cause.status === 401) onExpired();
+      } });
+    return () => controller.abort();
+  }, [year, inventoryRetry, onExpired]);
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => { if (dirty) event.preventDefault(); };
     window.addEventListener('beforeunload', beforeUnload);
@@ -73,6 +89,7 @@ export default function LifeSkinSettings({ initial, year, onSave, onClose, onExp
   return <dialog className="life-dialog life-skin-settings" ref={dialog} onCancel={(event) => { event.preventDefault(); close(); }} aria-labelledby="life-skin-title">
     <form onSubmit={(event) => { event.preventDefault(); if (item) finishProduct(); else void save(); }}>
       <div className="life-editor-heading"><h2 id="life-skin-title">皮肤护理</h2><span>{dirty ? '未保存' : '个人方案'}</span></div>
+      <div className="life-skin-settings-scroll">
       <nav className="life-skin-section-tabs" aria-label="皮肤设置"><button type="button" disabled={busy || Boolean(item)} aria-pressed={tab === 'plans'} onClick={() => setTab('plans')}>护理方案</button>
         <button type="button" disabled={busy || Boolean(item)} aria-pressed={tab === 'products'} onClick={() => setTab('products')}>在用清单 · {draft.products.filter((value) => value.active).length}</button></nav>
       {tab === 'plans' && <>
@@ -111,6 +128,7 @@ export default function LifeSkinSettings({ initial, year, onSave, onClose, onExp
             <button type="button" disabled={busy || draft.products.length >= 100} onClick={() => editProduct()}>＋ 添加用品</button></div>
           <ul className="life-skin-products">{products.map((product) => <li key={product.id} className={product.active ? '' : 'is-paused'}>
             <div><strong>{product.name}</strong><span className="life-skin-product-kind">{product.kind === 'medication' ? '药品' : `护肤品 · ${skinCareGroup(product.name, product.tags, product.skincareGroup)}`} · {product.active ? '在用' : '停用'}</span>
+              {product.possessionId && <span className="life-skin-product-kind">bonbills · {possessions.find((value) => value.id === product.possessionId)?.name ?? (inventoryState === 'ready' ? '物品已移除' : '已关联')}</span>}
               <div className="life-skin-tags">{product.states.map((key) => <span key={`skin:${key}`} className="life-symptom-mark" style={symptomColor(`skin:${key}`)}>{SKIN_STATES[key]}</span>)}
                 {[...new Set([...product.seasons.map((key) => SKIN_SEASONS[key]), ...product.times.map((key) => SKIN_TIMES[key]), ...product.tags])]
                 .map((label) => <span key={label}>{label}</span>)}</div>{product.notes && <p>{product.notes}</p>}</div>
@@ -123,21 +141,36 @@ export default function LifeSkinSettings({ initial, year, onSave, onClose, onExp
           <div className="life-fields"><label>用品名称<input autoFocus required maxLength={100} disabled={busy} value={item.name} onChange={(event) => setItem({ ...item, name: event.target.value })} /></label>
             <label className="life-field">类型<select disabled={busy} value={item.kind} onChange={(event) => {
               const kind = event.target.value as SkinProduct['kind'];
-              setItem({ ...item, kind, ...(kind === 'skincare' ? { skincareGroup: skinCareGroup(item.name, item.tags, item.skincareGroup) } : {}) });
+              setItem({ ...item, kind, possessionId: kind === 'skincare' ? item.possessionId : undefined, ...(kind === 'skincare' ? { skincareGroup: skinCareGroup(item.name, item.tags, item.skincareGroup) } : {}) });
             }}><option value="skincare">护肤品</option><option value="medication">药品</option></select></label>
             {item.kind === 'skincare' && <label className="life-field">护肤分类<select disabled={busy} value={skinCareGroup(item.name, item.tags, item.skincareGroup)}
               onChange={(event) => setItem({ ...item, skincareGroup: event.target.value as SkinCareGroup })}>
               {SKINCARE_GROUPS.map((group) => <option key={group} value={group}>{group}</option>)}
             </select></label>}</div>
+          {item.kind === 'skincare' && <>
+            <label className="life-field">关联 bonbills 物品<select disabled={busy || inventoryState !== 'ready'} value={item.possessionId ?? ''}
+              onChange={(event) => {
+                const linked = possessions.find((value) => value.id === event.target.value);
+                setItem({ ...item, possessionId: linked?.id, name: item.name.trim() ? item.name : linked?.name.slice(0, 100) ?? '' });
+              }}>
+              <option value="">{inventoryState === 'loading' ? '读取中…' : inventoryState === 'error' ? '读取失败' : '不关联'}</option>
+              {item.possessionId && !possessions.some((value) => value.id === item.possessionId) && <option value={item.possessionId}>已关联 · {inventoryState === 'ready' ? '物品已移除' : '待读取'}</option>}
+              {possessions.map((value) => <option key={value.id} value={value.id}>{value.name}{value.category ? ` · ${value.category}` : ''}{value.status === 'retired' ? ' · 已归档' : ''}</option>)}
+            </select></label>
+            {inventoryState === 'ready' && !possessions.length && <p className="life-empty-state">bonbills 暂无消耗品</p>}
+            {inventoryState === 'error' && <button type="button" onClick={() => setInventoryRetry((value) => value + 1)}>重新读取物品</button>}
+          </>}
           <TagChoices label="状态标签" options={SKIN_STATES} value={item.states} disabled={busy} colorFor={(key) => symptomColor(`skin:${key}`)} onChange={(states) => setItem({ ...item, states })} />
           <TagChoices label="季节标签 · 不选为全年" options={SKIN_SEASONS} value={item.seasons} disabled={busy} onChange={(seasons) => setItem({ ...item, seasons })} />
           <TagChoices label="时段标签" options={SKIN_TIMES} value={item.times} disabled={busy} onChange={(times) => setItem({ ...item, times })} />
           <label className="life-field">自定义标签<input maxLength={310} disabled={busy} placeholder="例如：保湿，修护，局部使用" value={tags} onChange={(event) => setTags(event.target.value)} /></label>
           <label className="life-field">备注<input maxLength={500} disabled={busy} value={item.notes} onChange={(event) => setItem({ ...item, notes: event.target.value })} /></label>
           <label className="life-check"><input type="checkbox" disabled={busy} checked={item.active} onChange={(event) => setItem({ ...item, active: event.target.checked })} />正在使用</label>
-          <div className="life-editor-actions"><button type="button" onClick={() => { setItem(null); setError(''); }}>取消编辑</button><button type="submit" className="life-primary">完成编辑</button></div>
+
         </div>}
       </>}
+      </div>
+      {item && <div className="life-editor-actions"><button type="button" onClick={() => { setItem(null); setError(''); }}>取消编辑</button><button type="submit" className="life-primary">完成编辑</button></div>}
       {error && <p role="alert" className="life-error">{error}</p>}
       {!item && <div className="life-editor-actions"><button type="button" disabled={busy} onClick={close}>{discarding ? '放弃修改' : '取消'}</button>
         <button type="submit" className="life-primary" disabled={busy}>{busy ? '保存中…' : '保存设置'}</button></div>}
