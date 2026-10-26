@@ -1471,7 +1471,7 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
     <>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gridTemplateRows: 'repeat(2, minmax(50px, auto))', gap: 8, marginBottom: 8 }}>
         <div style={{ gridColumn: '1', gridRow: '1 / 3', minWidth: 0, backgroundColor: '#e6f4ea', borderRadius: 10, padding: '10px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-          <div style={{ fontSize: 11, color: C.sub }}>生活</div>
+          <div style={{ fontSize: 11, color: C.sub }} aria-label="生活">🌿</div>
           <div style={{ fontSize: 16, fontWeight: 700, color: C.green, fontVariantNumeric: 'tabular-nums' }}>
             {periodicLife || volatileLife ? `¥${formatCurrency(lifeAmount)}` : '—'}
           </div>
