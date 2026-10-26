@@ -640,7 +640,7 @@ function SettingsModal({
   return (
     <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={onClose}>
-      <div style={{ backgroundColor: '#fff', borderRadius: 16, width: '100%', maxWidth: 380, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}
+      <div style={{ backgroundColor: '#fff', borderRadius: 16, width: '100%', maxWidth: 380, maxHeight: '85dvh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}
         onClick={(e) => e.stopPropagation()}>
         {/* 头部 */}
         <div style={{ padding: '20px 20px 12px' }}>
@@ -850,7 +850,7 @@ function SettingsModal({
           </div>
         </div>
         {/* 底部按钮 */}
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '12px 20px 20px', borderTop: '1px solid #f1f3f4' }}>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexShrink: 0, flexWrap: 'wrap', padding: '12px 20px max(20px, env(safe-area-inset-bottom))', borderTop: '1px solid #f1f3f4' }}>
           <button onClick={onClose}
             style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', color: '#5f6368', fontSize: 13, cursor: 'pointer' }}>
             取消

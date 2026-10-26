@@ -206,3 +206,8 @@
 
 .clothes-add-layers { margin: 12px 0 24px; justify-content: flex-start; gap: 20px; }
 @media (max-width: 600px) { .clothes-add-layers { gap: 14px; } }
+
+.clothes-city-dialog { overflow: hidden; }
+.clothes-city-dialog[open] { display: flex; flex-direction: column; }
+.clothes-city-dialog > :not(.clothes-city-results) { flex-shrink: 0; }
+.clothes-city-results { min-height: 0; overflow-y: auto; }

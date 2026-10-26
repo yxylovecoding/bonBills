@@ -46,7 +46,8 @@ export default function ItemEditor({ initial, owner, onClose, onSaved, onExpired
     } finally { setBusy(false); }
   }
   return <dialog ref={dialog} className="life-dialog clothes-dialog" aria-labelledby="item-title" onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
-    <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
+    <form className="persistent-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+      <div className="persistent-form-body">
       <div className="life-editor-heading"><h2 id="item-title">{item.revision ? '编辑衣物' : '新增衣物'}</h2><button type="button" disabled={busy} onClick={onClose}>稍后继续</button></div>
       <fieldset disabled={busy}>
         <label className="clothes-upload">{photo || item.photoId ? <img src={photo || photoUrl(item.photoId)} alt="衣物照片" /> : <span>添加照片</span>}
@@ -77,6 +78,7 @@ export default function ItemEditor({ initial, owner, onClose, onSaved, onExpired
         change({ revision: conflict.revision }); deleteId.current = crypto.randomUUID(); setConflict(null); setError('');
       }}>沿用当前编辑</button></div>}
       {deleting && <p className="life-error">删除这件衣物？</p>}
+      </div>
       <div className="life-editor-actions clothes-editor-actions">
         {item.revision && <button type="button" className="clothes-danger" disabled={busy || Boolean(conflict)} onClick={() => deleting ? void save(true) : setDeleting(true)}>{deleting ? '确认删除' : '删除'}</button>}
         {item.revision && <button type="button" disabled={busy || Boolean(conflict)} onClick={() => void save(false, item.status === '已丢弃' ? '可穿' : '已丢弃')}>{item.status === '已丢弃' ? '放回衣柜' : '丢掉'}</button>}

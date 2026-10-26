@@ -15,7 +15,7 @@ export default function CityPicker({ initial = '', onSelect, onClose }: { initia
     } catch (cause) { if (token === request.current) setError(cause instanceof Error ? cause.message : '城市查询失败'); }
     finally { if (token === request.current) setBusy(false); }
   }
-  return <dialog ref={dialog} className="life-dialog clothes-dialog" aria-labelledby="city-title" onCancel={onClose}>
+  return <dialog ref={dialog} className="life-dialog clothes-dialog clothes-city-dialog" aria-labelledby="city-title" onCancel={onClose}>
     <div className="life-editor-heading"><h2 id="city-title">选择城市</h2><button onClick={onClose}>关闭</button></div>
     <form className="clothes-search" onSubmit={(e) => { e.preventDefault(); void search(); }}><input aria-label="城市名" value={query} minLength={2} maxLength={120} required placeholder="城市名" onChange={(e) => { setQuery(e.target.value); request.current++; setBusy(false); setCities([]); }} /><button className="life-primary" disabled={busy}>{busy ? '查询中…' : '搜索'}</button></form>
     {error && <p role="status" className="life-error">{error}</p>}

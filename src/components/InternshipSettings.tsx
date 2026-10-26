@@ -112,7 +112,8 @@ export function InternshipPeriods({ config, onChange }: { config: AppConfig; onC
       })}
     </div>}
     {periods.map(p => <button type="button" key={p.id} style={{ ...button, display: 'block', width: '100%', textAlign: 'left', marginTop: 6 }} onClick={() => begin(p)}>{cityLabel(p.city) || '城市未设置'} · {p.profileName || '公司未设置'}<br /><span style={{ fontSize: 11, color: '#5f6368' }}>{p.startDate || '开始日期'} — {p.endDate || '结束日期'}{!periodReady(p) ? ' · 草稿' : ''}</span></button>)}
-    {editing && <div style={{ marginTop: 8, border: '1px solid #dadce0', borderRadius: 10, padding: 10 }}>
+    {editing && <div className="inline-editor" style={{ marginTop: 8, border: '1px solid #dadce0', borderRadius: 10, padding: 10 }}>
+      <div className="inline-editor-body">
       <div style={{ fontSize: 11, color: '#5f6368', marginBottom: 6 }}>{editing.profileName} · v{editing.revision}</div>
       {editing.bonCvSource && <div style={{ fontSize: 11, color: '#5f6368', marginBottom: 6 }}>BonCV · {editing.bonCvSource.startDate || '开始日期未填写'} — {editing.bonCvSource.endDate || '结束日期未填写'}</div>}
       <Field label="公司模式"><select aria-label="实习公司模式" disabled={periods.some(p => p.id === editing.id && periodReady(p))} style={input} value={`${editing.profileId}:${editing.revision}`} onChange={e => { const p = editorProfiles.find(p => `${p.id}:${p.revision}` === e.target.value); if (p) setEditing({ ...editing, profileId: p.id, profileName: p.name, revision: p.revision, rules: structuredClone(p.rules) }); }}>
@@ -126,7 +127,8 @@ export function InternshipPeriods({ config, onChange }: { config: AppConfig; onC
       <CityPicker city={editing.city} onChange={city => setEditing({ ...editing, city })} />
       {periods.some(p => p.id === editing.id && periodReady(p)) && <details style={{ fontSize: 12, marginBottom: 8 }}><summary>从指定日期切换公司</summary><div style={row}><input aria-label="切换生效日期" type="date" style={input} value={switchDate} onChange={e => setSwitchDate(e.target.value)} /><select aria-label="切换到公司" style={input} value={switchProfile} onChange={e => setSwitchProfile(e.target.value)}><option value="">选择公司</option>{profiles.map(p => <option key={p.id} value={p.id}>{p.name} · v{p.revision}</option>)}</select></div><button type="button" style={{ ...button, marginTop: 8 }} onClick={applySwitch}>切换</button></details>}
       {error && <div role="alert" style={{ color: '#c5221f', fontSize: 12, marginBottom: 8 }}>{error}</div>}
-      <div style={{ display: 'flex', gap: 6 }}><button type="button" style={button} onClick={() => {
+      </div>
+      <div className="inline-editor-actions" style={{ display: 'flex', gap: 6 }}><button type="button" style={button} onClick={() => {
         if (editing.startDate && editing.endDate && editing.startDate > editing.endDate) { setError('结束日期不能早于开始日期'); return; }
         if (periodOverlap(editing, periods)) { setError('实习日期与已有实习段重叠'); return; }
         if (!editing.profileId) { setError('请先在收入管理添加公司模式'); return; }
@@ -148,7 +150,8 @@ export default function InternshipSettings() {
   return <div style={{ marginBottom: 12, borderBottom: '1px solid #e8eaed', paddingBottom: 12 }}>
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><strong style={{ fontSize: 13 }}>公司模式</strong><button style={button} type="button" onClick={() => { setDraft({ id: uid(), name: '', revision: 1, rules: { ...DEFAULT_INTERNSHIP_RULES } }); setError(''); }}>＋公司</button></div>
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>{profiles.map(p => <button key={p.id} type="button" style={button} onClick={() => { setDraft(structuredClone({ ...p, showPayrollCutoffMarkers: showsCompanyPayrollCutoff(p, legacyCutoffPreference) })); setError(''); }}>{p.name} · v{p.revision}{rulesError(p.rules) ? ' · 草稿' : ''}</button>)}</div>
-    {draft && <div style={{ marginTop: 8 }}>
+    {draft && <div className="inline-editor" style={{ marginTop: 8 }}>
+      <div className="inline-editor-body">
       <Field label="公司名称"><input aria-label="公司名称" style={input} value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} /></Field>
       <RuleFields value={draft.rules} onChange={rules => setDraft({ ...draft, rules })} />
       <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 10, fontSize: 12, cursor: 'pointer' }}>
@@ -156,7 +159,8 @@ export default function InternshipSettings() {
         <input type="checkbox" checked={showsCompanyPayrollCutoff(draft, legacyCutoffPreference)} onChange={e => setDraft({ ...draft, showPayrollCutoffMarkers: e.target.checked })} style={{ width: 16, height: 16, accentColor: '#1a73e8' }} />
       </label>
       {error && <p role="alert" style={{ fontSize: 12, color: '#c5221f' }}>{error}</p>}
-      <div style={{ display: 'flex', gap: 6, marginTop: 8 }}><button style={button} type="button" onClick={() => {
+      </div>
+      <div className="inline-editor-actions" style={{ display: 'flex', gap: 6, marginTop: 8 }}><button style={button} type="button" onClick={() => {
         const ruleError = rulesError(draft.rules), taxError = calculateIncomeTax(10000, draft.rules.taxRuleText).ruleError;
         if (!draft.name.trim() || (draft.rules.salary !== null && ruleError) || taxError) { setError(!draft.name.trim() ? '请填写公司名称' : taxError ?? ruleError ?? ''); return; }
         const old = profiles.find(p => p.id === draft.id);

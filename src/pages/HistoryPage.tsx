@@ -39,12 +39,13 @@ function prevYearMonth(ym: string) {
 // ── 本月填写表单 ───────────────────────────────────────────────────
 const INVEST_KEYS = ['us', 'eu', 'asia', 'a', 'longBond', 'usBond', 'gold'] as const;
 
-function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
+function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave, onCancel }: {
   yearMonth: string;
   existing?: MonthlyRecord;
   prevRecord?: MonthlyRecord;
   tagCounts: Record<TagKind, number>;
   onSave: (r: MonthlyRecord) => void;
+  onCancel: () => void;
 }) {
   const [income,        setIncome]        = useState(String(existing?.income        ?? ''));
   const [totalExpense,  setTotalExpense]   = useState(String(existing?.totalExpense  ?? ''));
@@ -125,7 +126,8 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
   const labelStyle: React.CSSProperties = { fontSize: 12, color: C.sub, marginBottom: 3, fontWeight: 500 };
 
   return (
-    <div>
+    <div className="inline-editor">
+      <div className="inline-editor-body">
       {/* 自动计算提示 */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 100, backgroundColor: surplus >= 0 ? '#fce8e6' : '#e6f4ea', borderRadius: 10, padding: '10px 14px' }}>
@@ -282,16 +284,20 @@ function MonthForm({ yearMonth, existing, prevRecord, tagCounts, onSave }: {
         />
       </div>
 
+      </div>
+      <div className="inline-editor-actions">
+      <button type="button" onClick={onCancel} style={{ padding: '10px 16px', border: '1px solid #dadce0', borderRadius: 10, background: '#fff' }}>取消</button>
       <button
         onClick={handleSave}
         style={{
-          width: '100%', backgroundColor: C.blue, color: '#fff', fontWeight: 700,
+          flex: 1, backgroundColor: C.blue, color: '#fff', fontWeight: 700,
           fontSize: 15, padding: '13px 0', borderRadius: 12, border: 'none',
           cursor: 'pointer', letterSpacing: 1,
         }}
       >
         保存本月数据
       </button>
+      </div>
     </div>
   );
 }
@@ -596,14 +602,10 @@ export default function HistoryPage() {
               existing={existingThisMonth}
               prevRecord={prevMonthRecord}
               tagCounts={countByTag(thisMonth)}
+              onCancel={() => setFormOpen(false)}
               onSave={handleSaveMonth}
             />
-            <button
-              onClick={() => setFormOpen(false)}
-              style={{ width: '100%', marginTop: 8, padding: '10px 0', borderRadius: 10, border: '1px solid #dadce0', backgroundColor: '#fff', color: C.sub, fontSize: 13, cursor: 'pointer' }}
-            >
-              取消
-            </button>
+
           </>
         )}
       </Card>

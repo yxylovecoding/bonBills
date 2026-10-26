@@ -87,7 +87,8 @@ export default function WearEditor({ initial, storageKey, items, pairCounts, onS
     } finally { setBusy(false); }
   }
   return <dialog ref={dialog} className="life-dialog clothes-dialog clothes-wear-dialog" aria-labelledby="wear-title" onCancel={(e) => { e.preventDefault(); if (!busy) onClose(); }}>
-    <form onSubmit={(e) => { e.preventDefault(); void save(); }}>
+    <form className="persistent-form" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+      <div className="persistent-form-body">
       <div className="life-editor-heading"><div className="clothes-row"><h2 id="wear-title">{draft.revision ? '编辑穿搭' : '记录穿搭'}</h2><button type="button" className="clothes-save" disabled={busy} aria-label={`当前${styled ? '搭了' : '穿了'}，切换为${styled ? '穿了' : '搭了'}`} onClick={() => change({ kind: styled ? 'worn' : 'styled' })}>{styled ? '搭了' : '穿了'}</button></div><button type="button" disabled={busy} onClick={onClose}>稍后继续</button></div>
       <fieldset disabled={busy}>
         <div className="clothes-row clothes-selected-heading"><h3>{styled ? '我搭了什么' : '我穿了什么'}</h3><span className="clothes-muted">{draft.items.length} 件</span></div>
@@ -132,6 +133,7 @@ export default function WearEditor({ initial, storageKey, items, pairCounts, onS
         change({ items: draft.items.flatMap((piece) => { const current = items.find((item) => item.id === piece.id && wearable(item)); return current && itemCategories(current).includes(categoryLabel(piece.category)) ? [wearAs(current, piece.category)] : []; }) }); setWardrobeChanged(false);
       }}>更新已选衣物</button>}
       {conflict && <div className="life-conflict"><button type="button" disabled={busy} onClick={() => { change({ revision: conflict.revision }); setConflict(null); }}>保留当前编辑</button></div>}
+      </div>
       <div className="life-editor-actions"><button type="button" disabled={busy} onClick={() => { writeLocal(key, null); onClose(); }}>放弃</button><button className="life-primary" disabled={busy || !draft.purpose || !draft.items.length || draft.items.length > MAX_OUTFIT_ITEMS || !!conflict || wardrobeChanged}>{busy ? '保存中…' : styled ? '保存为一套' : '保存穿搭'}</button></div>
     </form>
   </dialog>;

@@ -383,9 +383,3 @@
 .life-briefing small { color: var(--life-muted); }
 .life-cycle-auto { display: flex; align-items: center; gap: 8px; margin: 16px 0; color: var(--life-muted); font-size: 14px; }
 .life-dialog .life-cycle-auto input { width: auto; flex: 0 0 auto; accent-color: var(--life-accent); }
-
-.life-skin-settings { overflow: hidden; }
-.life-skin-settings > form { display: flex; flex-direction: column; max-height: calc(100dvh - 90px); }
-.life-skin-settings-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-.life-skin-settings .life-editor-heading, .life-skin-settings .life-editor-actions { flex-shrink: 0; }
-.life-skin-settings .life-editor-actions { padding-bottom: env(safe-area-inset-bottom); }

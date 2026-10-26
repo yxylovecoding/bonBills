@@ -103,9 +103,9 @@ function TripEditor({ trip, saved, owner, date: today, timezone, items, records,
       setError(cause instanceof Error ? cause.message : '计划保存失败');
     } finally { setBusy(false); }
   }
-  return <div className="clothes-trip-editor">
+  return <div className="clothes-trip-editor inline-editor">
     {(trip.archived || datesChanged) && <div className="clothes-status">行程已变更{datesChanged && <button onClick={() => change({ ...plan, title: trip.title, startDate: trip.startDate, endDate: trip.endDate, days: Object.fromEntries(Object.entries(plan.days).filter(([date]) => trip.dates.includes(date))) })}>更新日期</button>}</div>}
-    <fieldset disabled={busy}>
+    <fieldset className="inline-editor-body" disabled={busy}>
       <div className="clothes-row"><span className="clothes-label">目的地</span><button onClick={() => setCity('')}>{location?.name ?? '选择城市'} ⌄</button></div>
       {(trip.locations?.length ?? 0) > 1 && <div className="clothes-destinations">{trip.locations!.map((city) => <button key={`${city.latitude}:${city.longitude}`} onClick={() => change({ ...plan, location: { ...city, source: 'manual' } })}>{city.name}</button>)}</div>}
       {trip.destinations.length > 0 && <div className="clothes-destinations">{trip.destinations.map((destination) => <button key={destination} onClick={() => setCity(destination)}>{destination}</button>)}</div>}
@@ -125,7 +125,7 @@ function TripEditor({ trip, saved, owner, date: today, timezone, items, records,
     </fieldset>
     {error && <p className="life-error" role="alert">{error}</p>}
     {conflict !== null && <button onClick={() => { change({ ...plan, revision: conflict }); setConflict(null); }}>保留当前内容，重新保存</button>}
-    <div className="clothes-row clothes-trip-save"><span className="clothes-muted">已选 {Object.values(plan.days).filter((day) => day.itemIds?.length).length} / {trip.dates.length} 天{!dirty && plan.revision ? ' · 已保存' : ''}</span><button className="life-primary" disabled={!dirty || busy || conflict !== null || datesChanged || Boolean(selectedIds && !plan.days[date]?.purpose)} onClick={() => void save()}>{busy ? '保存中…' : '保存计划'}</button></div>
+    <div className="clothes-row clothes-trip-save inline-editor-actions"><span className="clothes-muted">已选 {Object.values(plan.days).filter((day) => day.itemIds?.length).length} / {trip.dates.length} 天{!dirty && plan.revision ? ' · 已保存' : ''}</span><button className="life-primary" disabled={!dirty || busy || conflict !== null || datesChanged || Boolean(selectedIds && !plan.days[date]?.purpose)} onClick={() => void save()}>{busy ? '保存中…' : '保存计划'}</button></div>
     {city !== null && <CityPicker initial={city} onClose={() => setCity(null)} onSelect={(location) => { change({ ...plan, location, days: Object.fromEntries(Object.entries(plan.days).map(([date, day]) => [date, { ...day, itemIds: null, itemCategories: undefined }])) }); setCity(null); setSelection(null); setIndex(0); }} />}
   </div>;
 }

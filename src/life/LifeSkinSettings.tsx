@@ -87,9 +87,9 @@ export default function LifeSkinSettings({ initial, year, onSave, onClose, onExp
       ...product.tags, ...product.states.map((key) => SKIN_STATES[key]), ...product.seasons.map((key) => SKIN_SEASONS[key])]
       .join(' ').toLowerCase().includes(query.trim().toLowerCase()));
   return <dialog className="life-dialog life-skin-settings" ref={dialog} onCancel={(event) => { event.preventDefault(); close(); }} aria-labelledby="life-skin-title">
-    <form onSubmit={(event) => { event.preventDefault(); if (item) finishProduct(); else void save(); }}>
+    <form className="persistent-form" onSubmit={(event) => { event.preventDefault(); if (item) finishProduct(); else void save(); }}>
       <div className="life-editor-heading"><h2 id="life-skin-title">皮肤护理</h2><span>{dirty ? '未保存' : '个人方案'}</span></div>
-      <div className="life-skin-settings-scroll">
+      <div className="persistent-form-body">
       <nav className="life-skin-section-tabs" aria-label="皮肤设置"><button type="button" disabled={busy || Boolean(item)} aria-pressed={tab === 'plans'} onClick={() => setTab('plans')}>护理方案</button>
         <button type="button" disabled={busy || Boolean(item)} aria-pressed={tab === 'products'} onClick={() => setTab('products')}>在用清单 · {draft.products.filter((value) => value.active).length}</button></nav>
       {tab === 'plans' && <>
@@ -169,9 +169,9 @@ export default function LifeSkinSettings({ initial, year, onSave, onClose, onExp
 
         </div>}
       </>}
+      {error && <p role="alert" className="life-error">{error}</p>}
       </div>
       {item && <div className="life-editor-actions"><button type="button" onClick={() => { setItem(null); setError(''); }}>取消编辑</button><button type="submit" className="life-primary">完成编辑</button></div>}
-      {error && <p role="alert" className="life-error">{error}</p>}
       {!item && <div className="life-editor-actions"><button type="button" disabled={busy} onClick={close}>{discarding ? '放弃修改' : '取消'}</button>
         <button type="submit" className="life-primary" disabled={busy}>{busy ? '保存中…' : '保存设置'}</button></div>}
     </form>

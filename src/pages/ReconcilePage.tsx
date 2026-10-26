@@ -445,7 +445,7 @@ function RebalanceSettingsModal({
             })}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '12px 20px 20px', borderTop: '1px solid #f1f3f4' }}>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexShrink: 0, flexWrap: 'wrap', padding: '12px 20px max(20px, env(safe-area-inset-bottom))', borderTop: '1px solid #f1f3f4' }}>
           <button onClick={onClose}
             style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #dadce0', backgroundColor: '#fff', color: C.sub, fontSize: 13, cursor: 'pointer' }}>
             取消

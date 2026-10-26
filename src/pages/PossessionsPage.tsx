@@ -134,14 +134,14 @@ function Modal({
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}
-        style={{ width: '100%', maxWidth: 430, maxHeight: '88vh', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', borderRadius: 16, boxShadow: '0 16px 48px rgba(0,0,0,0.2)', overflow: 'hidden' }}
+        style={{ width: '100%', maxWidth: 430, maxHeight: '88dvh', display: 'flex', flexDirection: 'column', backgroundColor: '#fff', borderRadius: 16, boxShadow: '0 16px 48px rgba(0,0,0,0.2)', overflow: 'hidden' }}
       >
-        <div style={{ padding: '18px 20px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ padding: '18px 20px 10px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
           <div style={{ fontSize: 16, fontWeight: 800 }}>{title}</div>
           <button type="button" onClick={onClose} style={{ border: 'none', background: 'transparent', color: '#9aa0a6', fontSize: 22, lineHeight: 1, cursor: 'pointer', padding: 0 }}>×</button>
         </div>
-        <div style={{ padding: '0 20px 16px', overflowY: 'auto' }}>{children}</div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px 18px', borderTop: '1px solid #f1f3f4' }}>
+        <div style={{ padding: '0 20px 16px', minHeight: 0, overflowY: 'auto' }}>{children}</div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexShrink: 0, flexWrap: 'wrap', padding: '12px 20px max(18px, env(safe-area-inset-bottom))', borderTop: '1px solid #f1f3f4' }}>
           {footer}
         </div>
       </div>

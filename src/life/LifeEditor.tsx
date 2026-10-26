@@ -97,7 +97,8 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
       startedOnBackdrop.current = false;
       if (outside) dismiss();
     }}>
-    <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
+    <form className="persistent-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+      <div className="persistent-form-body">
       <div className="life-editor-heading"><h2 id="life-editor-title">{LIFE_LABELS[draft.kind]} <span>{draft.date.replace(/-/g, '.')}</span></h2>
         {guidance && <span className={`life-period-label phase-${phase?.phase}`}>{phase?.estimated ? '预计·' : ''}{guidance.label}</span>}</div>
       {(draft.kind === 'skin' || draft.kind === 'eyes') && <LifeMakeupFields value={draft.makeup} busy={busy} onChange={(makeup) => change({ makeup })} />}
@@ -148,6 +149,7 @@ export default function LifeEditor({ initial, owner, cycle, periodDays, training
             ...(draft.makeup ? { makeup: { ...draft.makeup, revision: conflict.makeup?.revision ?? '' } } : {}) };
           setDraft(next); persist(next); setConflict(null); setError('');
         }}>保留我的记录并继续编辑</button></div>}
+      </div>
       <div className="life-editor-actions"><button type="button" disabled={busy} onClick={close}>{discarding ? '放弃修改' : '取消'}</button>
         <button type="submit" className="life-primary" disabled={busy || Boolean(conflict)}>{busy ? '保存中…' : '保存'}</button></div>
     </form>

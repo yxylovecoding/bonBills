@@ -30,7 +30,8 @@ export default function LifeCycleSettings({ initial, periodDays, year, tickTickT
     } finally { setBusy(false); }
   }
   return <dialog ref={dialog} className="life-dialog" aria-labelledby="life-cycle-title" onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
-    <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
+    <form className="persistent-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+      <div className="persistent-form-body">
       <div className="life-editor-heading"><h2 id="life-cycle-title">经期与训练</h2></div>
       <label className="life-field">最近月经开始<input type="date" min="1900-01-01" max={today} value={startEdited ? draft.lastPeriodStart : estimate.lastPeriodStart} disabled={busy}
         onChange={(event) => { setStartEdited(true); change({ lastPeriodStart: event.target.value }); }} /></label>
@@ -47,6 +48,7 @@ export default function LifeCycleSettings({ initial, periodDays, year, tickTickT
         <button key={day} type="button" disabled={busy} aria-pressed={draft.trainingDays.includes(day)} aria-label={`周${'一二三四五六日'[index]}`}
           onClick={() => change({ trainingDays: draft.trainingDays.includes(day) ? draft.trainingDays.filter((value) => value !== day) : [...draft.trainingDays, day] })}>{'一二三四五六日'[index]}</button>)}</div></fieldset>}
       {error && <p className="life-error" role="alert">{error}</p>}
+      </div>
       <div className="life-editor-actions"><button type="button" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="life-primary" disabled={busy}>{busy ? '保存中…' : '保存'}</button></div>
     </form>
   </dialog>;

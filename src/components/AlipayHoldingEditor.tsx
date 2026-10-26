@@ -15,7 +15,7 @@ export default function AlipayHoldingEditor({ item, onSave }: {
     setError('');
   }}>编辑持仓</button>;
 
-  return <form className="alipay-item-detail" aria-label={`${item.name}编辑持仓`} onSubmit={(event) => {
+  return <form className="inline-editor alipay-item-detail" aria-label={`${item.name}编辑持仓`} onSubmit={(event) => {
     event.preventDefault();
     if (draft.baseline !== signature(item)) { setError('持仓已更新，请重新编辑'); return; }
     if (!draft.name.trim() || [draft.shares, draft.costPrice].some((value) => value.trim() && (!Number.isFinite(Number(value)) || Number(value) < 0))) {
@@ -24,6 +24,7 @@ export default function AlipayHoldingEditor({ item, onSave }: {
     onSave({ name: draft.name.trim(), shares: draft.shares, costPrice: draft.costPrice, status: draft.status });
     setDraft(undefined);
   }}>
+    <div className="inline-editor-body">
     <label className="alipay-detail-line">名称<input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
     <label className="alipay-detail-line">账本份额<input type="number" min="0" step="any" value={draft.shares} onChange={(event) => setDraft({ ...draft, shares: event.target.value })} /></label>
     <label className="alipay-detail-line">账本成本价<input type="number" min="0" step="any" value={draft.costPrice} onChange={(event) => setDraft({ ...draft, costPrice: event.target.value })} /></label>
@@ -31,6 +32,7 @@ export default function AlipayHoldingEditor({ item, onSave }: {
       <option value="active">持有</option><option value="paused">历史</option>{draft.status === 'closed' && <option value="closed">已清仓</option>}
     </select></label>
     {error && <div role="alert">{error}</div>}
-    <div className="alipay-detail-line"><button type="submit" className="alipay-text-button">保存</button><button type="button" className="alipay-text-button" onClick={() => setDraft(undefined)}>取消</button></div>
+    </div>
+    <div className="alipay-detail-line inline-editor-actions"><button type="submit" className="alipay-text-button">保存</button><button type="button" className="alipay-text-button" onClick={() => setDraft(undefined)}>取消</button></div>
   </form>;
 }
