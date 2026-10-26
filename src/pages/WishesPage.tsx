@@ -1266,7 +1266,7 @@ export default function WishesPage() {
                     style={{ flex: 1, minWidth: 0, border: 'none', borderBottom: '1px solid transparent', outline: 'none', background: 'transparent', fontSize: 14, fontWeight: 700, color: item.isActive ? '#202124' : '#9aa0a6' }}
                   />
                   <div className="wish-card-actions">
-                    {item.isActive && !item.billSpending?.ended && (!linkedTrip || linkedTrip.startDate > todayKey) && <button
+                    <button
                       type="button" aria-label={`编辑${item.name}时间与绑定`} title="时间与绑定"
                       onClick={() => setEditingScheduleId(item.id)}
                       className="wish-icon-button wish-icon-button--accent"
@@ -1275,7 +1275,7 @@ export default function WishesPage() {
                         <circle cx="12" cy="12" r="8" />
                         <path d="M12 7v5h5" />
                       </svg>
-                    </button>}
+                    </button>
                     <button type="button" className="wish-icon-button" aria-label="删除心愿" title="删除心愿" onClick={() => removeWish(item.id)}>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true" focusable="false">
                         <path d="m5 5 14 14M19 5 5 19" />
@@ -1310,7 +1310,7 @@ export default function WishesPage() {
 
                 {editingScheduleId === item.id && <WishScheduleEditor
                   wish={storedWishes.find((wish) => wish.id === item.id)!}
-                  trips={selectableTripSegments.filter((trip) => wishTripStarts(item).includes(trip.startDate) || !linkedTripStartDates.has(trip.startDate))}
+                  trips={allTripSegments.filter((trip) => wishTripStarts(item).includes(trip.startDate) || !linkedTripStartDates.has(trip.startDate))}
                   tripLabels={tripTags}
                   events={useCalendarStore.getState().outlookWishEvents.filter((event) => event.available !== false
                     && (item.outlookEventKeys?.includes(event.key) || !linkedOutlookEventKeys.has(event.key)))}

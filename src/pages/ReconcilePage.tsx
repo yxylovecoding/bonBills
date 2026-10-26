@@ -572,7 +572,15 @@ const reconcileUndoFingerprint = (state: ReconcileUndoState) => {
   });
 };
 
-interface BudgetDetailItem { icon?: string; label: string; amount: number; note?: string; isIncome?: boolean }
+interface BudgetDetailItem { icon?: string; label: string; amount: number; note?: string; isIncome?: boolean; isLivingExpense?: boolean }
+
+const BUDGET_SCENE_META = {
+  school: { icon: '🏫', label: '校' },
+  work: tagMeta.intern,
+  rest: { icon: '☕', label: '休' },
+  home: tagMeta.home,
+  travel: tagMeta.travel,
+} as const;
 
 const RECONCILE_MODES: { key: ReconcileMode; label: string; hint: string }[] = [
   { key: 'monthStart', label: '月初', hint: '1-13号' },
@@ -1445,16 +1453,17 @@ export default function ReconcilePage() {
   };
 
   const livingRows = (window: BudgetKey): BudgetDetailItem[] => {
-    const grouped = new Map<string, { amount: number; days: number }>();
+    const grouped = new Map<string, { icon: string; amount: number; days: number }>();
     for (const { date, tag } of tags) {
       const day = Number(date.slice(8));
       const include = window === 'beyond' ? date.startsWith(`${nextYear}-${String(nextMonth + 1).padStart(2, '0')}`) : date.startsWith(curYM) && day > todayDate && (window !== 'weekly' || day <= weekEnd);
       if (!include) continue;
       const context = resolveDailyContext(date, tag, internship);
-      const label = `${context.label}·生活`, item = grouped.get(label) ?? { amount: 0, days: 0 };
+      const { label, icon } = BUDGET_SCENE_META[context.livingKind];
+      const item = grouped.get(label) ?? { icon, amount: 0, days: 0 };
       item.amount += dailyLivingAmount(date, tag, stats, internship); item.days++; grouped.set(label, item);
     }
-    return [...grouped].map(([label, value]) => ({ label, amount: Math.round(value.amount), note: `${value.days}天` }));
+    return [...grouped].map(([label, value]) => ({ icon: value.icon, label, amount: Math.round(value.amount), note: `${value.days}天`, isLivingExpense: true }));
   };
   const budgetDetails: Record<BudgetKey, { income: BudgetDetailItem[]; expense: BudgetDetailItem[] }> = {
     weekly: {
@@ -2338,9 +2347,10 @@ export default function ReconcilePage() {
         <div className="reconcile-wrap-row" style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: C.sub, marginBottom: 12 }}>
           <span>本月剩余 {budget.daysLeftInMonth} 天</span>
           <span className="reconcile-budget-days">
-            {(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => (
-              <span key={k}>{tagMeta[k].icon}{tagMeta[k].label} {budget.stateDaysLeft[k]}</span>
-            ))}
+            {(['school', 'intern', 'home', 'travel'] as TagKind[]).map((k) => {
+              const scene = BUDGET_SCENE_META[k === 'intern' ? 'work' : k];
+              return <span key={k}>{scene.icon}{scene.label} {budget.stateDaysLeft[k]}</span>;
+            })}
           </span>
         </div>
 
@@ -2352,9 +2362,9 @@ export default function ReconcilePage() {
             .filter((item) => item.isIncome)
             .reduce((sum, item) => sum + item.amount, 0);
           const livingExpenseTotal = detail.expense
-            .filter((item) => item.label.endsWith('·生活'))
+            .filter((item) => item.isLivingExpense)
             .reduce((sum, item) => sum + item.amount, 0);
-          const livingExpenseStartIndex = detail.expense.findIndex((item) => item.label.endsWith('·生活'));
+          const livingExpenseStartIndex = detail.expense.findIndex((item) => item.isLivingExpense);
           return (
             <div key={row.key} style={{ marginBottom: 4 }}>
               <button

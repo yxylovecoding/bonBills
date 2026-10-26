@@ -518,22 +518,23 @@ export default function TagLogicStats({ items, initialTags = [], compact = false
             type="button"
             aria-expanded={expanded}
             onClick={() => setExpanded((current) => !current)}
-            style={{ width: '100%', border: 'none', background: 'none', padding: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, textAlign: 'left', cursor: 'pointer' }}
+            style={{ width: '100%', border: 'none', background: 'none', padding: 0, display: 'flex', flexWrap: compact ? 'wrap' : undefined, justifyContent: 'space-between', alignItems: 'baseline', gap: 8, textAlign: 'left', cursor: 'pointer' }}
           >
             <span title={logicLabel} style={{ minWidth: 0, fontSize: 11, color: C.sub, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {expanded ? '▾' : '▸'} {compact ? '账单明细' : '按当前筛选匹配'}
             </span>
-            <span style={{ minWidth: 0, fontSize: 13, fontWeight: 700, color: C.purple, fontVariantNumeric: 'tabular-nums', textAlign: 'right', lineHeight: 1.45 }}>
+            <span style={{ minWidth: 0, display: compact ? 'inline-flex' : undefined, alignItems: 'baseline', gap: 8, marginLeft: compact ? 'auto' : undefined, whiteSpace: compact ? 'nowrap' : undefined, fontSize: 13, fontWeight: 700, color: C.purple, fontVariantNumeric: 'tabular-nums', textAlign: 'right', lineHeight: 1.45 }}>
               {!compact && <>{amountLeadLabel} ·{' '}</>}
               <span style={{ ...surplusHighlightStyle(balanceAmount), display: 'inline-block', margin: '0 2px' }}>
                 结余 {balanceAmount >= 0 ? '+' : '-'}¥{formatCurrency(Math.abs(balanceAmount))}
               </span>
               {!compact && <>{' '}· {matchedItems.length} 笔</>}
+              {compact && <span style={{ fontSize: 10, fontWeight: 400, color: C.sub }}>日均 {formatBillCurrency(dailyAverageAmount)}</span>}
             </span>
           </button>
-          <div style={{ marginTop: 4, fontSize: 10, color: C.sub, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-            {compact ? <>日均 {formatBillCurrency(dailyAverageAmount)}</> : <>均 {formatBillCurrency(averageAmount)} · 占当前范围 {rangedShare.toFixed(1)}%</>}
-          </div>
+          {!compact && <div style={{ marginTop: 4, fontSize: 10, color: C.sub, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+            均 {formatBillCurrency(averageAmount)} · 占当前范围 {rangedShare.toFixed(1)}%
+          </div>}
           {expanded && (
             <div style={{ marginTop: 6, maxHeight: 360, overflowY: 'auto' }}>
               {matchedItems.length === 0 ? (
