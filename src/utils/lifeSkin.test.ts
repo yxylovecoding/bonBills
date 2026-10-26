@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SKIN_SETTINGS, rankedSkinProducts, skinCareAvailable, skinCareGroup, skinPlanValues, type SkinProduct } from './lifeSkin';
+import { DEFAULT_SKIN_SETTINGS, SKINCARE_GROUPS, currentSkinSettings, parseSkinSettings, rankedSkinProducts, skinCareAvailable, skinCareGroup, skinPlanValues, type SkinProduct } from './lifeSkin';
 
 describe('用品选择按当前肤况排序', () => {
   it('痤疮专用护肤品排在沿用受损护理之前，保留其他季节用品', () => {
@@ -53,6 +53,29 @@ describe('用品选择按当前肤况排序', () => {
 });
 
 describe('护肤品分组', () => {
+  it('保存和重新读取保留手选分类，优先于名称和旧分类标签', () => {
+    for (const group of SKINCARE_GROUPS) {
+      const settings = structuredClone(DEFAULT_SKIN_SETTINGS);
+      const product = settings.products.find((item) => item.id === 'olive-essence')!;
+      product.skincareGroup = group;
+      product.tags = ['精华', '修护'];
+      const saved = currentSkinSettings(parseSkinSettings(JSON.parse(JSON.stringify(settings))));
+      const restored = saved.products.find((item) => item.id === product.id)!;
+      expect(restored.skincareGroup).toBe(group);
+      expect(restored.tags).toEqual(['精华', '修护']);
+      expect(skinCareGroup(restored.name, restored.tags, restored.skincareGroup)).toBe(group);
+      expect(skinCareGroup('改名后的用品', restored.tags, restored.skincareGroup)).toBe(group);
+    }
+    expect(parseSkinSettings(DEFAULT_SKIN_SETTINGS)).toEqual(DEFAULT_SKIN_SETTINGS);
+  });
+
+  it('拒绝无效分类，不把未知分类静默覆盖成默认值', () => {
+    for (const skincareGroup of ['', '面膜', null, 1]) {
+      const settings = { ...DEFAULT_SKIN_SETTINGS, products: [{ ...DEFAULT_SKIN_SETTINGS.products[5], skincareGroup }] };
+      expect(() => parseSkinSettings(settings)).toThrow('护肤品分类无效');
+    }
+  });
+
   it('区分水乳霜和精华，支持精华水和分类标签，未知用品归入其他', () => {
     for (const name of ['珂润霜', '珂润乳', '海蓝之谜水', '保湿精华水', '保湿精华乳', '保湿精华霜', 'Moisturizing Cream']) {
       expect(skinCareGroup(name)).toBe('水乳霜');

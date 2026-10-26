@@ -18,9 +18,10 @@ function SkinProductChoices({ label, kind, value, products, isAvailable, busy, o
   const [editing, setEditing] = useState(false);
   const names = [...new Set([...products.flatMap((item) => productNames(item.name)), ...remembered])]
     .filter((name) => !selected.includes(name) && isAvailable(name));
-  const groupedNames = kind === 'skincare' ? names.map((name) => ({ name,
-    group: skinCareGroup(name, products.filter((item) => productNames(item.name).includes(name)).flatMap((item) => item.tags)),
-  })) : [];
+  const groupedNames = kind === 'skincare' ? names.map((name) => {
+    const matches = products.filter((item) => productNames(item.name).includes(name));
+    return { name, group: skinCareGroup(name, matches.flatMap((item) => item.tags), matches.find((item) => item.skincareGroup)?.skincareGroup) };
+  }) : [];
   const kindLabel = kind === 'medication' ? '药品' : '护肤品';
   const option = (name: string) => <option key={name} value={`product:${name}`} disabled={[...selected, name].join('、').length > 500}>{name}</option>;
   function remember(names: string[]) { setRemembered((previous) => [...new Set([...previous, ...names])]); }

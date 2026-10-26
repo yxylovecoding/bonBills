@@ -3,6 +3,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from './outlook-calendar';
 import { entriesKey, LIFE_CONNECTION_KEY, LIFE_SETTINGS_KEY, LIFE_TRAINING_ENTRIES_KEY, LIFE_SYMPTOM_ENTRIES_KEY, parsePeriodCalendar, periodsKey, readPeriodDays, syncLifePeriods } from './_bonLife';
 import { DEFAULT_CYCLE } from '../src/utils/bonLife';
+import { DEFAULT_SKIN_SETTINGS, type SkinSettings } from '../src/utils/lifeSkin';
 import { estimateCycle } from '../src/utils/lifeCycle';
 import { encryptOutlookConnection } from './_outlookCalendar';
 import { DEFAULT_OUTLOOK_RULES } from '../src/utils/outlookCalendar';
@@ -156,6 +157,25 @@ describe('经期 Outlook 解析', () => {
 });
 
 describe('BonLife 接口', () => {
+  it('护肤品手选分类写入设置，保存响应和重新读取保持一致', async () => {
+    const settings = structuredClone(DEFAULT_SKIN_SETTINGS);
+    settings.products.find((item) => item.id === 'curel-cream')!.skincareGroup = '精华';
+    settings.products.find((item) => item.id === 'olive-essence')!.skincareGroup = '水乳霜';
+    evalMock.mockImplementationOnce(async (_script, _keys, args: string[]) => {
+      const stored = JSON.parse(args[3]) as SkinSettings;
+      data.set(LIFE_SETTINGS_KEY, { skin: stored });
+      return [1, JSON.stringify(stored)];
+    });
+    const saved = await call('POST', { year: 2026, action: 'save-skin-settings', settings, mutationId: 'skin-category-12345678' });
+    expect(saved.status).toBe(200);
+    expect(saved.body.settings.products.find((item: { id: string }) => item.id === 'curel-cream').skincareGroup).toBe('精华');
+    expect(saved.body.settings.products.find((item: { id: string }) => item.id === 'olive-essence').skincareGroup).toBe('水乳霜');
+    getHash.mockImplementation(async (key: string) => key === LIFE_SETTINGS_KEY ? data.get(key) : null);
+    const loaded = await call('GET');
+    expect(loaded.status).toBe(200);
+    expect(loaded.body.skinSettings).toEqual(saved.body.settings);
+  });
+
   it('症状历史合并跨年索引及旧记录，当年清空覆盖旧索引', async () => {
     const old = { text: '', revision: 'old', eyes: { leftEye: '红血丝' } };
     const cleared = { text: '', revision: 'cleared', eyes: { symptoms: {} } };

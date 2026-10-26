@@ -3,6 +3,8 @@ import { SYMPTOM_STATES, type SymptomState } from './lifeSymptoms.js';
 export const SKIN_STATES = { acne: '痤疮', damaged: '受损', healthy: '健康', allergic: '过敏' } as const;
 export const SKIN_SEASONS = { spring: '春天', summer: '夏天', autumn: '秋天', winter: '冬天' } as const;
 export const SKIN_TIMES = { morning: '早间', evening: '晚间' } as const;
+export const SKINCARE_GROUPS = ['水乳霜', '精华', '其他'] as const;
+export type SkinCareGroup = typeof SKINCARE_GROUPS[number];
 export type SkinState = keyof typeof SKIN_STATES;
 export type SkinSeason = keyof typeof SKIN_SEASONS;
 export type SkinTime = keyof typeof SKIN_TIMES;
@@ -12,6 +14,7 @@ export type SkinRecord = Partial<Record<SkinField, string>> & { status?: SkinSta
 export interface SkinProduct {
   id: string; name: string; kind: 'medication' | 'skincare'; active: boolean;
   states: SkinState[]; seasons: SkinSeason[]; times: SkinTime[]; tags: string[]; notes: string;
+  skincareGroup?: SkinCareGroup;
 }
 export interface SkinPlanDay { medication: string; morningMedication: string; eveningMedication: string; notes: string }
 export interface SkinPlan { days: SkinPlanDay[]; careFrom?: 'damaged'; repeat?: boolean }
@@ -85,9 +88,11 @@ export function parseSkinSettings(value: unknown): SkinSettings {
     if (!/^[a-zA-Z0-9-]{1,80}$/.test(id) || ids.has(id) || !name
       || !['medication', 'skincare'].includes(String(item.kind)) || typeof item.active !== 'boolean') throw new Error('用品信息无效');
     ids.add(id);
+    if (item.skincareGroup !== undefined && !SKINCARE_GROUPS.includes(item.skincareGroup as SkinCareGroup)) throw new Error('护肤品分类无效');
     if (!Array.isArray(item.tags) || item.tags.length > 12) throw new Error('最多添加 12 个自定义标签');
     return { id, name, kind: item.kind as SkinProduct['kind'], active: item.active,
       states: choices(item.states, SKIN_STATES), seasons: choices(item.seasons, SKIN_SEASONS), times: choices(item.times, SKIN_TIMES),
+      ...(item.skincareGroup !== undefined ? { skincareGroup: item.skincareGroup as SkinCareGroup } : {}),
       tags: [...new Set(item.tags.map((tag) => text(tag, 24).trim()).filter(Boolean))], notes: text(item.notes, 500) };
   });
   const rawPlans = record(input.plans);
@@ -150,8 +155,8 @@ export function matchingSkinProducts(settings: SkinSettings, state: SkinState | 
 export const skinProductNames = (value: string): string[] =>
   [...new Set(value.split(/[、,，\n]/).map((name) => name.trim()).filter(Boolean))];
 
-export const SKINCARE_GROUPS = ['水乳霜', '精华', '其他'] as const;
-export function skinCareGroup(name: string, tags: readonly string[] = []): typeof SKINCARE_GROUPS[number] {
+export function skinCareGroup(name: string, tags: readonly string[] = [], selectedGroup?: SkinCareGroup): SkinCareGroup {
+  if (selectedGroup) return selectedGroup;
   const tagged = SKINCARE_GROUPS.find((group) => tags.includes(group));
   if (tagged) return tagged;
   if (/精华[水乳霜]/.test(name)) return '水乳霜';

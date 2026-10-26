@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { DEFAULT_ACNE_MARKS_MEDICATION, SKIN_SEASONS, SKIN_STATES, SKIN_TIMES, emptySkinDay, parseSkinSettings,
-  type SkinProduct, type SkinSettings, type SkinState } from '../utils/lifeSkin';
+import { DEFAULT_ACNE_MARKS_MEDICATION, SKIN_SEASONS, SKIN_STATES, SKIN_TIMES, SKINCARE_GROUPS, emptySkinDay, parseSkinSettings, skinCareGroup,
+  type SkinCareGroup, type SkinProduct, type SkinSettings, type SkinState } from '../utils/lifeSkin';
 import { LifeError, lifeRequest } from './client';
 import { symptomColor } from './symptomColor';
 
@@ -54,7 +54,8 @@ export default function LifeSkinSettings({ initial, year, onSave, onClose, onExp
     } finally { setBusy(false); attempted.current = false; }
   }
   function editProduct(product?: SkinProduct) {
-    setItem(product ?? { id: crypto.randomUUID(), name: '', kind: 'skincare', active: true, states: [], seasons: [], times: [], tags: [], notes: '' });
+    setItem(product ? { ...product, ...(product.kind === 'skincare' ? { skincareGroup: skinCareGroup(product.name, product.tags, product.skincareGroup) } : {}) }
+      : { id: crypto.randomUUID(), name: '', kind: 'skincare', skincareGroup: '水乳霜', active: true, states: [], seasons: [], times: [], tags: [], notes: '' });
     setTags(product?.tags.join('，') ?? ''); setError(''); setDiscarding(false);
   }
   function finishProduct() {
@@ -66,7 +67,8 @@ export default function LifeSkinSettings({ initial, year, onSave, onClose, onExp
     catch (cause) { setError(cause instanceof Error ? cause.message : '用品信息无效'); }
   }
   const products = draft.products.filter((product) => (filter === 'all' || product.kind === filter)
-    && [product.name, ...product.tags, ...product.states.map((key) => SKIN_STATES[key]), ...product.seasons.map((key) => SKIN_SEASONS[key])]
+    && [product.name, ...(product.kind === 'skincare' ? [skinCareGroup(product.name, product.tags, product.skincareGroup)] : []),
+      ...product.tags, ...product.states.map((key) => SKIN_STATES[key]), ...product.seasons.map((key) => SKIN_SEASONS[key])]
       .join(' ').toLowerCase().includes(query.trim().toLowerCase()));
   return <dialog className="life-dialog life-skin-settings" ref={dialog} onCancel={(event) => { event.preventDefault(); close(); }} aria-labelledby="life-skin-title">
     <form onSubmit={(event) => { event.preventDefault(); if (item) finishProduct(); else void save(); }}>
@@ -108,7 +110,7 @@ export default function LifeSkinSettings({ initial, year, onSave, onClose, onExp
             <label className="life-field">搜索<input value={query} placeholder="名称或标签" onChange={(event) => setQuery(event.target.value)} /></label>
             <button type="button" disabled={busy || draft.products.length >= 100} onClick={() => editProduct()}>＋ 添加用品</button></div>
           <ul className="life-skin-products">{products.map((product) => <li key={product.id} className={product.active ? '' : 'is-paused'}>
-            <div><strong>{product.name}</strong><span className="life-skin-product-kind">{product.kind === 'medication' ? '药品' : '护肤品'} · {product.active ? '在用' : '停用'}</span>
+            <div><strong>{product.name}</strong><span className="life-skin-product-kind">{product.kind === 'medication' ? '药品' : `护肤品 · ${skinCareGroup(product.name, product.tags, product.skincareGroup)}`} · {product.active ? '在用' : '停用'}</span>
               <div className="life-skin-tags">{product.states.map((key) => <span key={`skin:${key}`} className="life-symptom-mark" style={symptomColor(`skin:${key}`)}>{SKIN_STATES[key]}</span>)}
                 {[...new Set([...product.seasons.map((key) => SKIN_SEASONS[key]), ...product.times.map((key) => SKIN_TIMES[key]), ...product.tags])]
                 .map((label) => <span key={label}>{label}</span>)}</div>{product.notes && <p>{product.notes}</p>}</div>
@@ -119,7 +121,14 @@ export default function LifeSkinSettings({ initial, year, onSave, onClose, onExp
           {!products.length && <p className="life-empty-state">暂无用品</p>}
         </> : <div className="life-skin-product-editor">
           <div className="life-fields"><label>用品名称<input autoFocus required maxLength={100} disabled={busy} value={item.name} onChange={(event) => setItem({ ...item, name: event.target.value })} /></label>
-            <label className="life-field">类型<select disabled={busy} value={item.kind} onChange={(event) => setItem({ ...item, kind: event.target.value as SkinProduct['kind'] })}><option value="skincare">护肤品</option><option value="medication">药品</option></select></label></div>
+            <label className="life-field">类型<select disabled={busy} value={item.kind} onChange={(event) => {
+              const kind = event.target.value as SkinProduct['kind'];
+              setItem({ ...item, kind, ...(kind === 'skincare' ? { skincareGroup: skinCareGroup(item.name, item.tags, item.skincareGroup) } : {}) });
+            }}><option value="skincare">护肤品</option><option value="medication">药品</option></select></label>
+            {item.kind === 'skincare' && <label className="life-field">护肤分类<select disabled={busy} value={skinCareGroup(item.name, item.tags, item.skincareGroup)}
+              onChange={(event) => setItem({ ...item, skincareGroup: event.target.value as SkinCareGroup })}>
+              {SKINCARE_GROUPS.map((group) => <option key={group} value={group}>{group}</option>)}
+            </select></label>}</div>
           <TagChoices label="状态标签" options={SKIN_STATES} value={item.states} disabled={busy} colorFor={(key) => symptomColor(`skin:${key}`)} onChange={(states) => setItem({ ...item, states })} />
           <TagChoices label="季节标签 · 不选为全年" options={SKIN_SEASONS} value={item.seasons} disabled={busy} onChange={(seasons) => setItem({ ...item, seasons })} />
           <TagChoices label="时段标签" options={SKIN_TIMES} value={item.times} disabled={busy} onChange={(times) => setItem({ ...item, times })} />

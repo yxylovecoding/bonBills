@@ -84,6 +84,23 @@ describe('日常记录用药时段', () => {
 });
 
 describe('日常记录护肤品选择', () => {
+  it('按手选分类显示，覆盖名称和旧标签推断，早晚一致', () => {
+    const settings: SkinSettings = { ...DEFAULT_SKIN_SETTINGS, products: [
+      { ...DEFAULT_SKIN_SETTINGS.products[5], name: '精华名称', tags: ['精华'], skincareGroup: '水乳霜' },
+      { ...DEFAULT_SKIN_SETTINGS.products[6], name: '面霜名称', tags: ['水乳霜'], skincareGroup: '精华' },
+    ] };
+    const html = render(settings, { status: 'damaged' });
+    for (const label of ['早间护肤品', '晚间护肤品']) {
+      const choices = picker(html, label, '护肤品');
+      const basic = choices.match(/<optgroup label="水乳霜">([^]*?)<\/optgroup>/)?.[1];
+      const essence = choices.match(/<optgroup label="精华">([^]*?)<\/optgroup>/)?.[1];
+      expect(basic).toContain('精华名称');
+      expect(basic).not.toContain('面霜名称');
+      expect(essence).toContain('面霜名称');
+      expect(essence).not.toContain('精华名称');
+    }
+  });
+
   it('同一下拉框按水乳霜、精华分组，早晚均只显示当前及沿用肤况的用品', () => {
     const acne = render(DEFAULT_SKIN_SETTINGS, { status: 'acne' });
     const damaged = render(DEFAULT_SKIN_SETTINGS, { status: 'damaged' });
