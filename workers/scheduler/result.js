@@ -31,6 +31,7 @@ export function classify(action, status, body, attempt) {
   } else if (action === 'hourly-replan') {
     if (!body.dailyPlan && !skipReasons.has(body.skipped)) return fail('plan-incomplete');
   } else if (body.connected !== false) {
+    if (action === 'reading-visibility' && !body.reading) return fail('visibility-incomplete');
     if (action === 'hair-wash' && (!body.hairWash || !body.reading)) return fail('visibility-incomplete');
     if (['night-routine', 'routine-visibility'].includes(action) && (!body.nightRoutine || !body.exercise)) return fail('visibility-incomplete');
     if (['daily-routine', 'routine-visibility'].includes(action) && body.sleepTags?.complete !== true) return fail('visibility-incomplete');

@@ -10,21 +10,22 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-24T04:
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('cloud schedule', () => {
-  it('runs one morning sequence at 07:01 with no automatic triggers during rest', () => {
+  it('runs one morning sequence at 05:01 with no automatic triggers during rest', () => {
     for (let hour = 0; hour < 24; hour++) {
       const base = Date.UTC(2026, 9, 24, hour);
-      expect(scheduledJobs(base + 60_000).map(j => j.kind)).toEqual(hour === 23 ? ['full'] : hour <= 16 ? ['hourly'] : []);
+      expect(scheduledJobs(base + 60_000).map(j => j.kind)).toEqual(hour === 21 ? ['full'] : (hour <= 16 || hour >= 22) ? ['hourly'] : []);
       expect(scheduledJobs(base + 7 * 60_000)).toEqual([]);
       expect(scheduledJobs(base).some(j => j.kind === 'full')).toBe([4, 9, 12].includes(hour));
     }
     expect(scheduledJobs(Date.parse('2026-10-24T21:00Z'))).toEqual([]);
-    expect(scheduledJobs(Date.parse('2026-10-24T23:01Z')).map(j => j.steps)).toEqual([
+    expect(scheduledJobs(Date.parse('2026-10-24T21:01Z')).map(j => j.steps)).toEqual([
       ['routine-visibility', 'life-periods', 'full', 'daily-email'],
     ]);
     expect(scheduledJobs(Date.parse('2026-10-24T12:00Z'))[0].steps).toEqual(['hair-wash', 'life-periods', 'full']);
     expect(scheduledJobs(Date.parse('2026-10-24T16:00Z'))[0].steps).toEqual(['daily-routine']);
     expect(scheduledJobs(Date.parse('2026-10-24T14:00Z'))[0].steps).toEqual(['night-routine']);
     expect(JSON.parse(readFileSync('workers/scheduler/wrangler.jsonc', 'utf8')).triggers.crons).toEqual(CRONS);
+    expect(scheduledJobs(Date.parse('2026-10-24T23:01Z')).map(j => j.steps)).toEqual([['reading-visibility', 'hourly-replan']]);
     expect(manualJob('full', 'x', Date.now()).steps).not.toContain('daily-email');
   });
 });
@@ -44,6 +45,10 @@ describe('response and retry boundary', () => {
   });
   it.each(['sleep-window', 'restore-pending', 'disconnected'])('accepts deliberate %s hourly skip', skipped => {
     expect(classify('hourly-replan', 200, { ok: true, skipped }, attempt).outcome).toBe('success');
+  });
+  it('confirms the separate 07:01 reading visibility step before marking it successful', () => {
+    expect(classify('reading-visibility', 200, { ok: true, reading: { updated: 1 } }, attempt).outcome).toBe('success');
+    expect(classify('reading-visibility', 200, { ok: true }, attempt).outcome).toBe('failed');
   });
   it('continues only persisted tag batches and checks all required results', () => {
     expect(classify('full', 202, { sleepTags: { complete: false } }, attempt)).toMatchObject({ outcome: 'retry', counter: 'batches' });
@@ -139,7 +144,7 @@ describe('durable serial execution', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
   it('continues planning after archive failure but suppresses the daily email', async () => {
-    vi.setSystemTime(new Date('2026-10-24T23:01Z'));
+    vi.setSystemTime(new Date('2026-10-24T21:01Z'));
     const f = fixture(); const fetcher = vi.fn()
       .mockResolvedValueOnce(Response.json({ ok: true, sleepTags: { complete: true }, nightRoutine: {}, exercise: {} }))
       .mockResolvedValueOnce(Response.json({ error: 'PRIVATE' }, { status: 401 }))
@@ -151,7 +156,7 @@ describe('durable serial execution', () => {
     expect(JSON.stringify(await f.state())).not.toContain('PRIVATE');
   });
   it('sends email only after the morning archive and plan both succeed', async () => {
-    vi.setSystemTime(new Date('2026-10-24T23:01Z'));
+    vi.setSystemTime(new Date('2026-10-24T21:01Z'));
     const f = fixture(); vi.stubGlobal('fetch', vi.fn()
       .mockResolvedValueOnce(Response.json({ ok: true, sleepTags: { complete: true }, nightRoutine: {}, exercise: {} }))
       .mockResolvedValueOnce(Response.json({ ok: true, connected: false }))
@@ -164,7 +169,7 @@ describe('durable serial execution', () => {
       .toEqual(['routine-visibility', 'life-periods', 'full', 'daily-email']);
   });
   it('stops the morning sequence immediately if visibility restoration fails', async () => {
-    vi.setSystemTime(new Date('2026-10-24T23:01Z'));
+    vi.setSystemTime(new Date('2026-10-24T21:01Z'));
     const f = fixture(); vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ error: true }, { status: 502 })));
     await f.enqueue(scheduledJobs(Date.now())); await f.tick(); await f.tick();
     expect((await f.state()).jobs[0].status).toBe('failed');

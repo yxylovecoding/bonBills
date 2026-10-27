@@ -99,7 +99,7 @@ describe('重排剩余今日事并从明日补入', () => {
     expect(mocks.acquire).toHaveBeenCalled();
     expect(mocks.set).not.toHaveBeenCalled(); expect(mocks.update).not.toHaveBeenCalled();
   });
-  it.each(['00:30', '01:01', '04:59', '06:29'])('凌晨休息 %s 连写锁和上游读取也不运行', async time => {
+  it.each(['00:30', '01:01', '04:59', '05:00'])('凌晨休息 %s 连写锁和上游读取也不运行', async time => {
     vi.setSystemTime(new Date(`${day}T${time}:00+08:00`));
     mocks.tasks = [task('fixed', { tags: ['always-today'] })];
     expect(await replanRemainingToday({ scheduled: true })).toEqual({ busy: false, skipped: 'rest-window' });
@@ -115,7 +115,7 @@ describe('重排剩余今日事并从明日补入', () => {
     expect(mocks.update).not.toHaveBeenCalled();
   });
   it('每小时排期等候凌晨临时标签恢复，不把暂时隐藏的任务当作永久排除', async () => {
-    vi.setSystemTime(new Date(`${day}T07:01:00+08:00`));
+    vi.setSystemTime(new Date(`${day}T05:01:00+08:00`));
     mocks.data.set(sleepTagStateKey('life'), { hidden: { projectId: 'life', addedOn: day, phase: 'restoring' } });
     await expect(replanRemainingToday({ scheduled: true })).resolves.toMatchObject({ busy: false, skipped: 'restore-pending' });
     expect(mocks.historyRead).not.toHaveBeenCalled(); expect(mocks.set).not.toHaveBeenCalled();

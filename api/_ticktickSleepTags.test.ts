@@ -41,6 +41,8 @@ describe('阅读窗口与凌晨临时标签衔接', () => {
     await syncSleepRoutineTags(c.api, config('00:00:00'));
     expect(c.tasks.get('reading')?.tags).toEqual(['玩']);
     expect(data.has(key)).toBe(false);
+    await syncSleepRoutineTags(c.api, config('05:01:00'));
+    expect(c.tasks.get('reading')?.tags).toEqual(['玩']);
     await syncSleepRoutineTags(c.api, config('07:01:00'));
     expect(c.tasks.get('reading')?.tags).toEqual(['玩', 'bon-hidden']);
     await syncSleepRoutineTags(c.api, config('12:00:00'));
@@ -58,7 +60,7 @@ describe('阅读窗口与凌晨临时标签衔接', () => {
 });
 
 describe('四个智能清单范围和凌晨窗口', () => {
-  it.each([['00:00:00', true], ['07:00:59', true], ['07:01:00', false], ['23:59:59', false]])('%s 的北京时间边界', (time, hidden) => {
+  it.each([['00:00:00', true], ['05:00:59', true], ['05:01:00', false], ['23:59:59', false]])('%s 的北京时间边界', (time, hidden) => {
     expect(sleepWindow(at(time))).toEqual({ day: '2026-10-05', hidden });
   });
   it('重要事项仅在逾期或今天进入临时隐藏范围，明日之重要事保持可见', () => {
@@ -83,7 +85,7 @@ describe('四个智能清单范围和凌晨窗口', () => {
 });
 
 describe('临时 routine 标签所有权', () => {
-  it('凌晨隐藏未来洗头任务，07:01保持 bon-hidden，不影响用户 routine', async () => {
+  it('凌晨隐藏未来洗头任务，05:01保持 bon-hidden，不影响用户 routine', async () => {
     const wash = task({ id: 'wash', title: '洗头', dueDate: '2027-01-01T00:00:00+0800' });
     const c = client(wash);
     await syncSleepRoutineTags(c.api, config('00:00:00'));
@@ -92,12 +94,12 @@ describe('临时 routine 标签所有权', () => {
     expect(data.get(key)).toHaveProperty('wash');
     // A prior version may already have journaled this task as a temporary tag.
     data.set(key, { wash: { projectId: 'life', addedOn: '2026-10-05', phase: 'added' } });
-    expect(await syncSleepRoutineTags(c.api, config('07:01:00'))).toMatchObject({ updated: 0, complete: true });
+    expect(await syncSleepRoutineTags(c.api, config('05:01:00'))).toMatchObject({ updated: 0, complete: true });
     expect(c.tasks.get('wash')?.tags).toContain('bon-hidden');
     expect(data.get(key)).toEqual({});
     expect(c.write).toHaveBeenCalledOnce();
   });
-  it('只记录本次添加的标签，07:01恢复时保留所有原生 routine', async () => {
+  it('只记录本次添加的标签，05:01恢复时保留所有原生 routine', async () => {
     const original = task({ content: 'content', reminders: ['TRIGGER:PT0S'], parentId: 'parent',
       items: [{ id: 'done', title: 'done', status: 1, completedTime: '2026-10-04T10:00:00Z' }] });
     const permanent = task({ id: 'original-routine', tags: [' Routine ', '居'] });
@@ -107,7 +109,7 @@ describe('临时 routine 标签所有权', () => {
     expect(data.get(key)).toEqual({ task: { projectId: 'life', addedOn: '2026-10-05', phase: 'added' } });
     expect(c.tasks.get('task')).toEqual({ ...original, tags: ['活', 'bon-hidden'] });
     c.tasks.get('task')!.tags!.push('新标签');
-    expect(await syncSleepRoutineTags(c.api, config('07:01:00'))).toMatchObject({ updated: 1, complete: true });
+    expect(await syncSleepRoutineTags(c.api, config('05:01:00'))).toMatchObject({ updated: 1, complete: true });
     expect(c.tasks.get('task')).toEqual({ ...original, tags: ['活', '新标签'] });
     expect(c.tasks.get(permanent.id)).toEqual(permanent);
     expect(c.tasks.get(outside.id)).toEqual(outside);
@@ -119,8 +121,8 @@ describe('临时 routine 标签所有权', () => {
     expect(await syncSleepRoutineTags(c.api, { ...config('00:00:00'), maxTasks: 1 })).toMatchObject({ updated: 1, remaining: 1, complete: false });
     expect(await syncSleepRoutineTags(c.api, { ...config('00:00:00'), maxTasks: 1 })).toMatchObject({ updated: 1, complete: true });
     expect(await syncSleepRoutineTags(c.api, config('01:00:00'))).toMatchObject({ updated: 0, complete: true });
-    expect(await syncSleepRoutineTags(c.api, { ...config('07:01:00'), maxTasks: 1 })).toMatchObject({ updated: 1, remaining: 1 });
-    expect(await syncSleepRoutineTags(c.api, config('07:01:00'))).toMatchObject({ updated: 1, complete: true });
+    expect(await syncSleepRoutineTags(c.api, { ...config('05:01:00'), maxTasks: 1 })).toMatchObject({ updated: 1, remaining: 1 });
+    expect(await syncSleepRoutineTags(c.api, config('05:01:00'))).toMatchObject({ updated: 1, complete: true });
     expect(await syncSleepRoutineTags(c.api, config('12:00:00'))).toMatchObject({ updated: 0, complete: true });
     expect(c.write).toHaveBeenCalledTimes(4);
   });
@@ -133,15 +135,15 @@ describe('临时 routine 标签所有权', () => {
     });
     await expect(syncSleepRoutineTags(c.api, config('00:00:00'))).rejects.toThrow('response lost');
     expect(await syncSleepRoutineTags(c.api, config('01:00:00'))).toMatchObject({ updated: 0 });
-    await syncSleepRoutineTags(c.api, config('07:01:00'));
+    await syncSleepRoutineTags(c.api, config('05:01:00'));
     expect(c.tasks.get('task')?.tags).toEqual(['活']);
     expect(data.get(key)).toEqual({});
   });
-  it('07:01删除失败保留记录重试；网络故障不会当成任务已删除', async () => {
+  it('05:01删除失败保留记录重试；网络故障不会当成任务已删除', async () => {
     const c = client(task());
     await syncSleepRoutineTags(c.api, config('00:00:00'));
     c.write.mockRejectedValueOnce(new Error('offline'));
-    await expect(syncSleepRoutineTags(c.api, config('07:01:00'))).rejects.toThrow('offline');
+    await expect(syncSleepRoutineTags(c.api, config('05:01:00'))).rejects.toThrow('offline');
     expect(data.get(key)).toHaveProperty('task.phase', 'restoring');
     c.read.mockRejectedValueOnce(new Error('TickTick 503'));
     await expect(syncSleepRoutineTags(c.api, config('12:00:00'))).rejects.toThrow('503');
@@ -149,22 +151,22 @@ describe('临时 routine 标签所有权', () => {
     await syncSleepRoutineTags(c.api, config('12:00:00'));
     expect(c.tasks.get('task')?.tags).toEqual(['活']);
   });
-  it('07:01依记录恢复，任务改期移出过滤器或夜里完成后也能恢复', async () => {
+  it('05:01依记录恢复，任务改期移出过滤器或夜里完成后也能恢复', async () => {
     const c = client(task(), task({ id: 'done' }));
     await syncSleepRoutineTags(c.api, config('00:00:00'));
     Object.assign(c.tasks.get('task')!, { projectId: 'moved', dueDate: '2027-01-01T00:00:00+0800' });
     Object.assign(c.tasks.get('done')!, { status: 2, completedTime: '2026-10-05T03:00:00+0800' });
-    await syncSleepRoutineTags(c.api, config('07:01:00'));
+    await syncSleepRoutineTags(c.api, config('05:01:00'));
     expect(c.tasks.get('task')).toMatchObject({ projectId: 'moved', dueDate: '2027-01-01T00:00:00+0800', tags: ['活'] });
     expect(c.tasks.get('done')).toMatchObject({ status: 2, completedTime: '2026-10-05T03:00:00+0800', tags: ['活'] });
   });
-  it('07:01恢复时让夜间 routine 继续隐藏；新规则不再移除日常父任务的原生标签', async () => {
+  it('05:01恢复时让夜间 routine 继续隐藏；新规则不再移除日常父任务的原生标签', async () => {
     const night = task({ id: 'night', title: '夜间routine ', priority: 5, isAllDay: false,
       startDate: '2026-10-04T22:00:00+0800', dueDate: '2026-10-04T22:00:00+0800' });
     const originalDaily = task({ id: 'daily', title: '🐦日常任务 ', tags: ['routine'] });
     const c = client(night, originalDaily);
     await syncSleepRoutineTags(c.api, config('00:00:00'));
-    await syncSleepRoutineTags(c.api, config('07:01:00'));
+    await syncSleepRoutineTags(c.api, config('05:01:00'));
     expect(c.tasks.get('night')?.tags).toContain('bon-hidden');
     expect(c.tasks.get('daily')?.tags).toEqual(['routine']);
     expect(data.get(key)).toEqual({});
@@ -174,7 +176,7 @@ describe('临时 routine 标签所有权', () => {
     c.read.mockResolvedValueOnce(task({ tags: ['routine'] }));
     await syncSleepRoutineTags(c.api, config('00:00:00'));
     expect(data.has(key)).toBe(false); expect(c.write).not.toHaveBeenCalled();
-    expect(await syncSleepRoutineTags(c.api, config('07:01:00'))).toMatchObject({ updated: 0 });
+    expect(await syncSleepRoutineTags(c.api, config('05:01:00'))).toMatchObject({ updated: 0 });
   });
   it('恢复入口在凌晨不提前揭开任务，缺少记录或已删除任务不会误写其他任务', async () => {
     const c = client(task());
@@ -182,7 +184,7 @@ describe('临时 routine 标签所有权', () => {
     expect(c.write).not.toHaveBeenCalled();
     await syncSleepRoutineTags(c.api, config('01:00:00'));
     c.tasks.delete('task');
-    expect(await syncSleepRoutineTags(c.api, config('07:01:00'))).toMatchObject({ updated: 0, complete: true });
+    expect(await syncSleepRoutineTags(c.api, config('05:01:00'))).toMatchObject({ updated: 0, complete: true });
     expect(data.get(key)).toEqual({});
   });
 });

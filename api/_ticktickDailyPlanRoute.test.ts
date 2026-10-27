@@ -54,7 +54,7 @@ async function request(method: string, body?: unknown, action?: string, format?:
   return result;
 }
 beforeEach(() => { data.clear(); auth.ok = true; failHistory.value = false; failWrite.value = false;
-  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-24T07:01:00+08:00'));
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-24T05:01:00+08:00'));
   archiveDone.mockReset().mockResolvedValue(undefined);
   outlookSync.mockReset().mockResolvedValue({ connected: true,
     availability: { startDate: '2020-01-01', endDate: '2030-01-01', events: [] } });

@@ -26,7 +26,7 @@ async function request(method = 'GET', authorization?: string, action = 'night-r
   return result;
 }
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-24T07:01:00+08:00'));
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-24T05:01:00+08:00'));
   vi.clearAllMocks(); data.clear(); vi.stubEnv('CRON_SECRET', 'cron-secret'); auth.mockResolvedValue(false);
   lock.mockResolvedValue('lock'); sync.mockResolvedValue({ matched: 1, updated: 1, visible: 1, hidden: 0, skipped: 0 });
   timed.mockResolvedValue({ matched: 2, updated: 1, visible: 1, hidden: 1, skipped: 0 });
@@ -38,7 +38,7 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
 
 describe('夜间显隐轻量入口', () => {
-  it.each(['00:30', '05:00', '06:29'])('北京时间 %s 所有自动入口暂停，显隐、排程、归档和邮件均不执行', async time => {
+  it.each(['00:30', '05:00', '05:00'])('北京时间 %s 所有自动入口暂停，显隐、排程、归档和邮件均不执行', async time => {
     vi.setSystemTime(new Date(`2026-10-24T${time}:00+08:00`));
     for (const action of ['', 'hourly-replan', 'life-periods', 'daily-email', 'night-routine', 'daily-routine', 'routine-visibility', 'hair-wash', 'reading-visibility', 'timed-visibility']) {
       expect(await request('GET', 'Bearer cron-secret', action)).toEqual({ status: 200, body: { ok: true, skipped: 'rest-window' } });
@@ -83,7 +83,7 @@ describe('夜间显隐轻量入口', () => {
     expect(timed).toHaveBeenCalledOnce(); expect(release).toHaveBeenCalledOnce();
     expect(daily).not.toHaveBeenCalled(); expect(sync).not.toHaveBeenCalled(); expect(exercise).not.toHaveBeenCalled();
   });
-  it('零点入口只切换日常任务；07:01入口在同一把锁内处理两种 routine 和运动', async () => {
+  it('零点入口只切换日常任务；05:01入口在同一把锁内处理两种 routine 和运动', async () => {
     expect(await request('GET', 'Bearer cron-secret', 'daily-routine')).toMatchObject({ status: 200, body: { sleepTags: { updated: 1, complete: true }, alwaysToday: { matched: 1, updated: 1 } } });
     expect(sync).not.toHaveBeenCalled(); expect(exercise).not.toHaveBeenCalled();
     expect(outlook).not.toHaveBeenCalled(); expect(archive).not.toHaveBeenCalled();
@@ -92,7 +92,7 @@ describe('夜间显隐轻量入口', () => {
     expect(daily).toHaveBeenCalledTimes(2); expect(sync).toHaveBeenCalledOnce(); expect(exercise).toHaveBeenCalledOnce();
     expect(lock).toHaveBeenCalledTimes(2); expect(release).toHaveBeenCalledTimes(2);
   });
-  it('07:01分批恢复完成后才继续夜间显隐和运动收尾', async () => {
+  it('05:01分批恢复完成后才继续夜间显隐和运动收尾', async () => {
     daily.mockResolvedValueOnce({ mode: 'restore', updated: 20, remaining: 30, complete: false });
     expect(await request('GET', 'Bearer cron-secret', 'routine-visibility')).toMatchObject({ status: 200,
       body: { sleepTags: { remaining: 30, complete: false } } });

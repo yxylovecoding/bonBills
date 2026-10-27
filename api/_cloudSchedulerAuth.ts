@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { VercelRequest } from '@vercel/node';
-const actions = new Set(['', 'hourly-replan', 'life-periods', 'night-routine', 'daily-routine', 'routine-visibility', 'hair-wash', 'daily-email']);
+const actions = new Set(['', 'hourly-replan', 'life-periods', 'night-routine', 'daily-routine', 'routine-visibility', 'hair-wash', 'reading-visibility', 'daily-email']);
 // Independent credential created for this scheduler. It cannot authorize other APIs.
 export function cloudSchedulerAuthOk(req: VercelRequest) {
   const secret = process.env.CLOUD_SCHEDULER_RUN_SECRET?.trim();

@@ -13,7 +13,7 @@ const addDays = (day: string, count: number) => new Date(Date.parse(`${day}T00:0
 export function sleepWindow(now = new Date()) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric',
     month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now).map(part => [part.type, part.value]));
-  return { day: `${parts.year}-${parts.month}-${parts.day}`, hidden: Number(parts.hour) * 60 + Number(parts.minute) < 7 * 60 + 1 };
+  return { day: `${parts.year}-${parts.month}-${parts.day}`, hidden: Number(parts.hour) * 60 + Number(parts.minute) < 5 * 60 + 1 };
 }
 
 // Union of bon's four saved smart filters, read from TickTick on 2026-10-05.
