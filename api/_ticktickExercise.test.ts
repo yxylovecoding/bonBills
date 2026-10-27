@@ -42,6 +42,20 @@ describe('与网页共用实际完成轮换', () => {
   const source = (): TrainingSource => ({ year: 2026, connected: true, syncedAt: null,
     tasks: ['全身力训', '臀腿', '爬坡'].map((name, i) => ({ id: `life:${i}`, name, title: `${name}-运动💪🏻是生活的第一个锚点🪝`, dates: [], schedule: '', notes: '', links: [] })),
     completions: [{ project: '臀腿', date: '2026-09-28' }, { project: '爬坡', date: '2026-10-03' }] });
+  it('居寄训练在游日不安排，最近居日才执行，普通场景同步不拉回', async () => {
+    const task = workout({ id: 'cardio', title: '燃脂操-运动💪🏻是生活的第一个锚点🪝', tags: ['居', '寄', '当天'],
+      dueDate: '2026-10-05T01:00:00.000+0000', startDate: '2026-10-05T01:00:00.000+0000' });
+    training.mockResolvedValue({ year: 2026, connected: true, syncedAt: null, tasks: [{ id: 'life:cardio', name: '燃脂操',
+      title: task.title, dates: [], schedule: '', notes: '', links: [] }] });
+    const f = fakeApi(task);
+    const calendarState = { tagMap: { '2026-10-05': 'travel', '2026-10-06': 'school', '2026-10-07': 'home' } };
+    const result = await syncExerciseSchedule(f.api, { rolling: true, connectionId: 'account', now: now('2026-10-05T10:00:00'), calendarState });
+    expect(result.fixedDates.get(task.id)).toBe('2026-10-06');
+    expect(f.stored.get(task.id)).toMatchObject({ tags: task.tags, repeatFlag: task.repeatFlag, repeatFrom: task.repeatFrom,
+      priority: 5, dueDate: '2026-10-06T01:00:00.000+0000' });
+    await syncTickTickRoutines({ api: f.api, calendarState, today: '2026-10-05', excludedTaskIds: result.managedTaskIds, fixedTaskDates: result.fixedDates });
+    expect(f.stored.get(task.id)?.dueDate).toBe('2026-10-06T01:00:00.000+0000');
+  });
   it('TickTick 燃脂操绑定同名自建项目后按网页日期移动，重复同步不新增或改写训练', async () => {
     const current: TrainingSource = { year: 2026, connected: true, syncedAt: null,
       tasks: ['HIIT', '燃脂操', '上半身', '全身力训', '臀腿'].map((name, index) => ({ id: `life:${index}`, name,
@@ -61,10 +75,11 @@ describe('与网页共用实际完成轮换', () => {
     expect((await syncExerciseSchedule(fake.api, { rolling: true, connectionId: 'account', ...options('2026-10-05T05:00:00') })).updated).toBe(0);
   });
   it('高优先级固定星期训练也与网页相同，日常排期不会改回臀腿', async () => {
-    const current = source(); training.mockResolvedValue(current);
+    const current = source();
+    const calendarState = { tagMap: Object.fromEntries(Array.from({ length: 90 }, (_, i) => [new Date(Date.UTC(2026, 9, 5 + i)).toISOString().slice(0, 10), 'school'])) };  training.mockResolvedValue(current);
     const raw = current.tasks.map((task, i) => workout({ id: String(i), title: task.title, tags: ['居', '洗头'] }));
     const fake = fakeApi(...raw, workout({ id: 'wash', title: '洗头', tags: [], repeatFlag: '', startDate: '2026-10-09T01:00:00.000+0000', dueDate: '2026-10-09T01:00:00.000+0000' }));
-    const result = await syncExerciseSchedule(fake.api, { rolling: true, connectionId: 'account', ...options('2026-10-05T05:00:00') });
+    const result = await syncExerciseSchedule(fake.api, { rolling: true, connectionId: 'account', ...options('2026-10-05T05:00:00'), calendarState });
     expect(fake.stored.get('0')?.dueDate?.slice(0, 10)).toBe('2026-10-05');
     expect(fake.stored.get('1')?.dueDate?.slice(0, 10)).toBe('2026-10-06');
     await syncTickTickRoutines({ api: fake.api, today: '2026-10-05', calendarState: { tagMap: { '2026-10-05': 'school' } }, excludedTaskIds: result.managedTaskIds, fixedTaskDates: result.fixedDates });
@@ -73,7 +88,7 @@ describe('与网页共用实际完成轮换', () => {
     expect(fake.update.mock.calls.every(([, payload]) => !('status' in payload))).toBe(true);
     const page = rollingTrainingPlan(2026, 10, '2026-10-05', current, DEFAULT_CYCLE, [], {});
     expect(page.plans.get('2026-10-05')?.plan).toContain('全身力训');
-    expect((await syncExerciseSchedule(fake.api, { rolling: true, connectionId: 'account', ...options('2026-10-05T05:00:00') })).updated).toBe(0);
+    expect((await syncExerciseSchedule(fake.api, { rolling: true, connectionId: 'account', ...options('2026-10-05T05:00:00'), calendarState })).updated).toBe(0);
   });
   it('22 点后未完成轮换从明天续排，游泳只到下一洗头日，重试和次晨不跳过项目', async () => {
     const current = source();

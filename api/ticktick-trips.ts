@@ -111,7 +111,7 @@ async function runSyncInner(allowDisconnected: boolean) {
         kv.get<{ budgetMinutes?: number | null; availabilityProfile?: string }>(DAILY_PLAN_SETTINGS_KEY),
         schedulingStage('tasks-read', true, () => readAllTickTickTasks(api, [0])),
       ]);
-      const alwaysToday = await syncTickTickAlwaysToday(api, { tasks: sourceTasks, today });
+      const alwaysToday = await syncTickTickAlwaysToday(api, { tasks: sourceTasks, today, calendarState });
       const timedTasks = await syncTimedTaskVisibility(api, { tasks: sourceTasks, timeZone: connection.timeZone, projectId: connection.projectId });
       const dailyPlan: DailyPlanState = savedPlan?.connectionId === connectionId
         ? { ...savedPlan, history: [...savedPlan.history], deadlines: { ...savedPlan.deadlines } }

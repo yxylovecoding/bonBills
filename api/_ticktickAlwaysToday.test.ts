@@ -28,6 +28,24 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date(`${day}T00:00:0
 afterEach(() => vi.useRealTimers());
 
 describe('always-today 截止日期', () => {
+  it('游日的居寄固定今日任务移到最近适用日，回到居日恢复今天且保留提醒', async () => {
+    const task = makeTask('eggs', { tags: ['always-today', '当天', '居', '寄'], priority: 5,
+      dueDate: `${day}T08:30:00+0800`, isAllDay: false, repeatFlag: 'RRULE:FREQ=DAILY', reminders: ['TRIGGER:PT0S'] });
+    const f = fixture([task]);
+    const calendarState = { tagMap: { [day]: 'travel', '2026-10-22': 'school', '2026-10-23': 'home' } };
+    await syncTickTickAlwaysToday(f.api, { calendarState });
+    expect(f.saved.get('eggs')).toEqual({ ...task, dueDate: '2026-10-22T08:30:00+0800' });
+    expect((await syncTickTickAlwaysToday(f.api, { calendarState })).updated).toBe(0);
+    await syncTickTickAlwaysToday(f.api, { calendarState: { tagMap: { [day]: 'home' } } });
+    expect(f.saved.get('eggs')).toEqual(task);
+  });
+  it('没有可用场景日时保留日期，无场景标签仍固定今日', async () => {
+    const task = makeTask('school', { tags: ['always-today', '居'] });
+    const f = fixture([task, makeTask('anywhere')]);
+    await syncTickTickAlwaysToday(f.api, { calendarState: {} });
+    expect(f.saved.get('school')).toEqual(task);
+    expect(routineTaskDate(f.saved.get('anywhere')!)).toBe(day);
+  });
   it('北京时间跨天滚动，重复同步不重复写；不按 UTC 日期判断今天', async () => {
     const f = fixture([makeTask('today')]);
     expect(await syncTickTickAlwaysToday(f.api)).toEqual({ matched: 1, updated: 1 });
@@ -45,7 +63,7 @@ describe('always-today 截止日期', () => {
       makeTask('start-only', { dueDate: undefined, startDate: `${day}T09:00:00+0800`, isAllDay: false }),
       makeTask('important', { priority: 5, tags: ['routine', 'bon-hidden', '旅', 'always-today'] })];
     const f = fixture(tasks);
-    expect(await syncTickTickAlwaysToday(f.api)).toEqual({ matched: 4, updated: 4 });
+    expect(await syncTickTickAlwaysToday(f.api, { calendarState: { tagMap: { [day]: 'travel' } } })).toEqual({ matched: 4, updated: 4 });
     for (const task of f.saved.values()) { expect(task.dueDate).toBeTruthy(); expect(routineTaskDate(task)).toBe(day); }
     expect(f.saved.get('undated')?.isAllDay).toBe(true);
     expect(f.saved.get('start-only')?.dueDate).toBe(`${day}T09:00:00+0800`);
@@ -62,7 +80,7 @@ describe('always-today 截止日期', () => {
         { id: 'undated', title: '无日期', status: 0 },
       ] });
     const f = fixture([task]);
-    await syncTickTickAlwaysToday(f.api);
+    await syncTickTickAlwaysToday(f.api, { calendarState: { tagMap: { [day]: 'school' } } });
     expect(f.saved.get(task.id)).toEqual({ ...task, startDate: '2026-10-20T15:00:00Z', dueDate: '2026-10-21T01:00:00Z',
       items: [{ ...task.items![0], startDate: '2026-10-20T16:00:00Z' }, ...task.items!.slice(1)] });
   });
@@ -168,14 +186,14 @@ describe('always-today 截止日期', () => {
     await expect(syncTickTickAlwaysToday(f.api)).rejects.toThrow('更新结果未确认');
   });
 
-  it('完整同步中优先于场景、洗头日期跟随、重复周期与普通轮换，且占用今日预算', async () => {
+  it('完整同步先遵守场景，适用日优先于洗头跟随、重复周期和普通轮换', async () => {
     const f = fixture([makeTask('fixed', { tags: ['always-today', '旅', '洗头', 'at-least'], content: '(30m)',
       repeatFlag: 'RRULE:FREQ=WEEKLY', dueDate: '2026-11-05T00:00:00+0800' }),
     makeTask('wash', { title: '洗头', tags: [], dueDate: '2026-10-25T00:00:00+0800' }),
     makeTask('ordinary', { tags: [], content: '(30m)', dueDate: `${day}T00:00:00+0800` })]);
     vi.setSystemTime(new Date(`${day}T21:30:00+08:00`));
     let fixedMinutes = 0;
-    await syncTickTickRoutines({ api: f.api, today: day, calendarState: { tagMap: { [day]: 'school', '2026-10-25': 'travel' } },
+    await syncTickTickRoutines({ api: f.api, today: day, calendarState: { tagMap: { [day]: 'travel', '2026-10-25': 'school' } },
       planDay: async tasks => {
         const state = { connectionId: 'test', history: [], deadlines: {} };
         const plan = planTickTickDay({ tasks, today: day, calendarState: {}, state, budgetMinutes: 30 });

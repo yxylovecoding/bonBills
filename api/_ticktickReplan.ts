@@ -72,7 +72,6 @@ async function replanRemainingTodayInner(options: { scheduled?: boolean }) {
       kv.get<TickTickTripSyncState>('ticktick:trip-sync:v1'),
       schedulingStage('template-read', true, () => readConnectedTickTickTemplate(api, connection)), kv.get('app-config'),
     ]);
-    const alwaysToday = await syncTickTickAlwaysToday(api, { tasks: sourceTasks });
     const timedTasks = await schedulingStage('timed-visibility', false,
       () => syncTimedTaskVisibility(api, { tasks: sourceTasks, timeZone: connection.timeZone }));
     // Visibility updates have finished and been verified before any retryable
@@ -93,6 +92,7 @@ async function replanRemainingTodayInner(options: { scheduled?: boolean }) {
     if (calendarDateInTimeZone(now.toISOString()) !== today) throw new Error('日期已变化，请重新重排');
     if (options.scheduled && sleepWindow(now).hidden) return { busy: false as const, skipped: 'sleep-window' as const };
     const calendarState = resolveCalendarState(configState, snapshot && input ? applyOutlookSnapshotToState(calendar ?? {}, snapshot, input.policy, today) : calendar);
+    const alwaysToday = await syncTickTickAlwaysToday(api, { tasks, today, calendarState });
     const excluded = getTickTickRoutineExcludedTaskIds(template, { ...trips, instances: trips?.instances ?? {} });
     // Preserve protected ancestors as well as individually managed tasks.
     const byId = new Map(tasks.map(task => [task.id, task]));

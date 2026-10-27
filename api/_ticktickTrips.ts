@@ -838,11 +838,26 @@ export async function updateRoutineTaskDate(
 
 // Callers hold the shared write lock. Re-read each matching task to retain edits
 // made since the list snapshot, and never revive a completed occurrence.
-export async function syncTickTickAlwaysToday(api: TickTickApi, options: { tasks?: TickTickTask[]; today?: string } = {}) {
+export async function readRoutineCalendarState(): Promise<unknown> {
+  const [{ kv }, { resolveCalendarState }] = await Promise.all([import('./_accountKv.js'), import('../src/utils/internship.js')]);
+  const [calendar, config] = await Promise.all([kv.get('calendar-tags'), kv.get('app-config')]);
+  return resolveCalendarState(config, calendar);
+}
+
+export function nextRoutineSceneDate(task: TickTickTask, calendarState: unknown, from: string): string | null {
+  const scenes = routineScenes(task);
+  if (!scenes.length) return from;
+  const targets = getTickTickRoutineTargetDates(calendarState, from);
+  return scenes.map(scene => targets[scene]).filter((date): date is string => Boolean(date)).sort()[0] ?? null;
+}
+
+export async function syncTickTickAlwaysToday(api: TickTickApi, options: { tasks?: TickTickTask[]; today?: string; calendarState?: unknown } = {}) {
   const tasks = options.tasks ?? await readAllTickTickTasks(api, [0]);
   const today = options.today ?? calendarDateInTimeZone(new Date().toISOString())!;
   const candidates = tasks.filter(task => isAlwaysTodayTask(task) && (task.status ?? 0) === 0 && !task.completedTime);
   if (!candidates.length) return { matched: 0, updated: 0 };
+  const calendarState = options.calendarState ?? (candidates.some(task => routineScenes(task).length)
+    ? await readRoutineCalendarState() : undefined);
   // A repeating task can already be pending again with a new ID after completion.
   // Read today's actual completions before any writes; failed reads must not look empty.
   const completed = await schedulingStage('completion-history', true, async () => {
@@ -880,7 +895,9 @@ export async function syncTickTickAlwaysToday(api: TickTickApi, options: { tasks
     // A new recurring occurrence may have appeared after the history snapshot.
     // Leave concurrently advanced/edited dates for the next fresh read.
     if (task.repeatFlag && datesChanged) continue;
-    const saved = await updateRoutineTaskDate(api, task, today, true, true);
+    const target = nextRoutineSceneDate(task, calendarState, today);
+    if (!target) continue;
+    const saved = await updateRoutineTaskDate(api, task, target, true, true);
     if (!saved) continue;
     if ((saved.status ?? 0) !== 0 || saved.completedTime || saved.projectId !== task.projectId
       || (['title', 'content', 'desc', 'priority', 'tags', 'reminders', 'parentId', 'sortOrder', 'kind'] as const)
@@ -916,7 +933,7 @@ export async function syncTickTickRoutines(options: {
   const currentScene = routineCalendarScene(tagMap[today]);
   const routineTargets = getTickTickRoutineTargetDates(calendarState, today);
   const allTasks = await readAllTickTickTasks(api, [0]);
-  const alwaysToday = await syncTickTickAlwaysToday(api, { tasks: allTasks, today });
+  const alwaysToday = await syncTickTickAlwaysToday(api, { tasks: allTasks, today, calendarState });
   const tasksById = new Map(allTasks.map((task) => [task.id, task]));
   const pendingTasks = allTasks.filter((task) => (task.status ?? 0) === 0);
   const hairWashFollowers = pendingTasks.filter(task => followsHairWash(task) && !isAlwaysTodayTask(task));

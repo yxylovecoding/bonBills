@@ -186,7 +186,7 @@ export function swimmingTrainingDates(task: TrainingTask, today: string, through
 }
 
 export function rollingTrainingPlan(year: number, month: number, today: string, source: TrainingSource,
-  settings: CycleSettings, periods: string[], localEntries: LifeEntries) {
+  settings: CycleSettings, periods: string[], localEntries: LifeEntries, allowed: (task: TrainingTask, date: string) => boolean = () => true) {
   // Category-only TickTick tasks remain readable as history, but cannot become
   // a selectable project or count as a completed climb/swim session.
   const categoryHistory: TrainingTask[] = [
@@ -250,12 +250,12 @@ export function rollingTrainingPlan(year: number, month: number, today: string, 
     const phase = cycleDay(date, settings, periods);
     const mainDone = done.some(task => !isSwimmingTraining(task));
     const main = tasks.filter((task) => {
-      if (task.rotation === false || isSwimmingTraining(task) || mainDone) return false;
+      if (!allowed(task, date) || task.rotation === false || isSwimmingTraining(task) || mainDone) return false;
       if (phase?.phase === 'menstrual' && /HIIT|间歇/i.test(task.name)) return false;
       return true;
     }).sort((a, b) => compareTrainingOrder(last.get(trainingIdentity(a)) ?? '', last.get(trainingIdentity(b)) ?? '')
       || compareTrainingOrder(trainingIdentity(a), trainingIdentity(b))).slice(0, 1);
-    let suggested = [...main, ...tasks.filter(task => swims.get(trainingIdentity(task))?.has(date)
+    let suggested = [...main, ...tasks.filter(task => allowed(task, date) && swims.get(trainingIdentity(task))?.has(date)
       && !actual.get(date)?.has(trainingIdentity(task)))];
     let record: TrainingRecord;
     if (saved && (saved.completed || saved.mode !== 'auto')) {
