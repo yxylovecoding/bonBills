@@ -116,11 +116,11 @@ export function parseAlipayActual(text: string): AlipayActualSnapshot {
     if (order.unit !== 'CNY' && order.unit !== 'shares') return fail('交易单位不正确', 'unit');
     if (order.status !== 'pending' && order.status !== 'confirmed' && order.status !== 'cancelled' && order.status !== 'unknown') return fail('交易状态不正确', 'status');
     const details: Partial<AlipayActualOrder> = {};
-    for (const field of ['navDate', 'confirmationDate', 'expectedConfirmationDate'] as const) {
+    for (const field of ['navDate', 'confirmationDate', 'expectedConfirmationDate', 'expectedArrivalDate'] as const) {
       const value = order[field];
       if (value === undefined) continue;
       if (typeof value !== 'string' || !validConfirmationDate(value) || value < order.operationAt.slice(0, 10)
-        || (field !== 'expectedConfirmationDate' && value > date)) return fail('净值或确认日期不正确', field);
+        || (!field.startsWith('expected') && value > date)) return fail(field === 'expectedArrivalDate' ? '预计到账日期不正确' : '净值或确认日期不正确', field);
       details[field] = value;
     }
     for (const field of ['confirmedShares', 'nav', 'fee'] as const) {
@@ -141,11 +141,14 @@ export function parseAlipayActual(text: string): AlipayActualSnapshot {
 export function summarizeAlipayActual(snapshot: AlipayActualSnapshot) {
   const cents = (values: number[]) => values.reduce((sum, value) => sum + Math.round(value * 100), 0) / 100;
   const pending = snapshot.orders.filter((order) => order.status === 'pending' && order.unit === 'CNY');
+  const pendingSells = snapshot.orders.filter((order) => order.status === 'pending' && order.side === 'sell');
   return {
     totalAmount: cents(snapshot.funds.map((fund) => fund.totalAmount)),
     holdingProfit: cents(snapshot.funds.map((fund) => fund.holdingProfit)),
     pendingBuy: cents(snapshot.funds.map((fund) => fund.pendingBuyAmount ?? cents(pending.filter((order) => order.code === fund.code && order.side === 'buy').map((order) => order.quantity)))),
     pendingSell: cents(pending.filter((order) => order.side === 'sell').map((order) => order.quantity)),
+    pendingSellCount: pendingSells.length,
+    pendingSellAmountUnknown: pendingSells.some((order) => order.unit === 'shares'),
     unknownCount: snapshot.orders.filter((order) => order.status === 'unknown').length,
   };
 }

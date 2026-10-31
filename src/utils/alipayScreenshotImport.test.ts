@@ -171,6 +171,60 @@ describe('支付宝基金匹配与截图布局', () => {
     expect(result.orders[2].status).toBe('unknown');
     expect(result.orders[2].notes).toContain('交易未截全，默认不计入');
   });
+  it('卖出待到账避开收益明细导航和顶部汇总，名称与换行到账提示分列', () => {
+    const parsed = parseAlipayScreenshot(screen([
+      [10, [['全部持有', 30, 200], ['收益明细', 400, 600], ['交易记录', 750, 950]]],
+      [60, [['全部交易汇总', 40, 300]]],
+      [100, [['共9,999.00元', 50, 300], ['共8,888.00元', 400, 650], ['共2,222.00元', 780, 980]]],
+      [150, [['红利再投资31.15份', 50, 300]]],
+      [250, [['明细', 40, 100], ['基金', 170, 260]]],
+      [300, [['卖出', 40, 100], ['基金 | 摩根示例欧洲股票', 170, 640], ['3,456.78份', 780, 980]]],
+      [335, [['(QDII)A', 170, 300], ['预', 660, 680], ['计11-04 24点前到', 680, 980]]],
+      [370, [['2026-10-08 19:57:32', 170, 630], ['账', 950, 980]]],
+      [430, [['定投', 40, 100], [choices[1].name, 170, 690], ['10.00元', 790, 950]]],
+      [465, [['交易进行中', 790, 950]]], [500, [['2026-10-08 10:00:00', 170, 630]]],
+    ]), choices, date);
+    expect(parsed.funds).toEqual([]);
+    expect(parsed.orders).toHaveLength(2);
+    expect(parsed.orders[0]).toMatchObject({ name: choices[0].name, code: '123456', quantity: 3456.78, unit: 'shares', side: 'sell',
+      status: 'pending', operationAt: '2026-10-08T19:57:32', expectedArrivalDate: '2026-11-04' });
+    expect(alipayOrderNeedsReview(parsed.orders[0])).toBe(false);
+    expect(parsed.orders[1]).toMatchObject({ quantity: 10, side: 'buy', status: 'pending' });
+    expect(parsed.orders[1].name).not.toContain('账');
+    const snapshot = materializeAlipayScreenshots({ ...parsed, funds: [fund(), fund({ code: '123457', name: choices[1].name })] }, date, choices);
+    expect(snapshot.orders[0]).toMatchObject({ quantity: 3456.78, unit: 'shares', status: 'pending', expectedArrivalDate: '2026-11-04' });
+    expect(snapshot.orders[0].confirmationDate).toBeUndefined();
+  });
+  it.each(['预计01-04 24点前到账', '预计01-04 24点前到', '预计1月4日到账', '预计2027-01-04到账'])('预计到账跨年且不会因截止日已过自动完成：%s', (label) => {
+    const parsed = parseAlipayScreenshot(screen([
+      [100, [['卖出', 40, 100], [choices[0].name, 170, 640], ['30.00份', 790, 950]]],
+      [135, [[label, 660, 980]]], [170, [['2026-12-31 19:00:00', 170, 630]]],
+    ]), choices, '2027-01-05');
+    expect(parsed.orders[0]).toMatchObject({ code: '123456', status: 'pending', expectedArrivalDate: '2027-01-04' });
+  });
+  it.each([['未到账', 'pending'], ['待到账', 'pending'], ['已到账', 'confirmed'], ['已撤销', 'cancelled']] as const)('卖出状态 %s 保留为 %s', (label, status) => {
+    const parsed = parseAlipayScreenshot(screen([
+      [100, [['卖出', 40, 100], [choices[0].name, 170, 640], ['30.00份', 790, 950]]],
+      [135, [[label, 660, 980]]], [170, [['2026-10-08 19:00:00', 170, 630]]],
+    ]), choices, date);
+    expect(parsed.orders[0]).toMatchObject({ code: '123456', unit: 'shares', quantity: 30, status });
+  });
+  it('份额待确认状态不把买入金额误认为份额', () => {
+    const parsed = parseAlipayScreenshot(screen([
+      [100, [['买入', 40, 100], [choices[0].name, 170, 640], ['20.00元', 790, 950]]],
+      [135, [['份额待确认', 660, 980]]], [170, [['2026-10-08 10:00:00', 170, 630]]],
+    ]), choices, date);
+    expect(parsed.orders[0]).toMatchObject({ code: '123456', quantity: 20, unit: 'CNY', status: 'pending' });
+  });
+  it('卖出详情明确显示份额时保留份额及预计到账日', () => {
+    const parsed = parseAlipayScreenshot(screen([
+      [10, [['预计11-04 24点前到账', 40, 800]]], [50, [['卖出信息', 40, 200]]],
+      [100, [['卖出产品', 40, 200], [choices[0].name, 350, 980]]],
+      [150, [['卖出份额', 40, 200], ['30.50份', 780, 980]]],
+      [200, [['卖出时间', 40, 200], ['2026-10-08 19:00:00', 400, 980]]],
+    ]), choices, date);
+    expect(parsed.orders[0]).toMatchObject({ side: 'sell', unit: 'shares', quantity: 30.5, status: 'pending', expectedArrivalDate: '2026-11-04' });
+  });
   it('交易名称去掉字段引号和抬头，未显示状态的完整订单直接确认', () => {
     const parsed = parseAlipayScreenshot(screen([
       [10, [['交易记录', 40, 300]]], [50, [['明细', 40, 100]]],
@@ -463,6 +517,18 @@ describe('日经 A/C 历史金额推测与确认', () => {
 });
 
 describe('截图合并和实录生成', () => {
+  it('追加截图乱码名称可复用同日已保存的唯一交易，保留新状态和到账日且不重复入账', () => {
+    const previous = materializeAlipayScreenshots(draft([fund()], [order({ side: 'sell', unit: 'shares' })]), date, choices);
+    const pending = draft([], [order({ name: '乱码(QDII)A', code: '', side: 'sell', unit: 'shares', status: 'confirmed', notes: ['基金待匹配'] })]);
+    const resolved = combineAlipayScreenshotDrafts([pending], previous);
+    expect(resolved.orders[0]).toMatchObject({ code: '123456', name: choices[0].name, status: 'confirmed', notes: [] });
+    expect(materializeAlipayScreenshots(resolved, date, choices, previous).orders).toHaveLength(1);
+    for (const patch of [{ operationAt: '2026-10-08T11:00:00' }, { quantity: 21 }, { unit: 'CNY' as const }, { side: 'buy' as const }, { name: '乱码C' }, { name: '南方示例股票A' }, { orderId: 'different-order' }, { notes: ['基金识别不一致，请核对'] }]) {
+      expect(combineAlipayScreenshotDrafts([{ ...pending, orders: [{ ...pending.orders[0], ...patch }] }], previous).orders[0].code).toBe('');
+    }
+    const ambiguous = { ...previous, orders: [...previous.orders, { ...previous.orders[0], id: 'second' }] };
+    expect(combineAlipayScreenshotDrafts([pending], ambiguous).orders[0].code).toBe('');
+  });
   it('长截图重复行默认只选一笔，重复导入不会增加订单', () => {
     const merged = combineAlipayScreenshotDrafts([draft([fund()], [order(), order({ id: 'duplicate' })])]);
     expect(merged.orders.map((row) => row.selected)).toEqual([true, false]);

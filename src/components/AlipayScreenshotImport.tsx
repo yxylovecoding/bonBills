@@ -131,7 +131,7 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
           setSources(files.map((file) => ({ name: file.name, url: URL.createObjectURL(file) })));
           const images = await readAlipayScreenshots(files, (message) => { if (token === job.current) setProgress(message); }, controller.current.signal);
           if (token !== job.current || account !== getAccountStorage()) return;
-          const nextDraft = inferAlipayFundClassesByAmount(combineAlipayScreenshotDrafts(images.map((image) => parseAlipayScreenshot(image, choices, date))), choices, snapshots, date);
+          const nextDraft = inferAlipayFundClassesByAmount(combineAlipayScreenshotDrafts(images.map((image) => parseAlipayScreenshot(image, choices, date)), snapshots[date]), choices, snapshots, date);
           setDraft(nextDraft);
           setProgress('同步持仓中');
           await onImport(materializeAlipayScreenshots(nextDraft, date, choices, snapshots[date]), importBaseline,
@@ -194,7 +194,8 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
           {attention?.rowId === row.id && <div id={attentionId} className="alipay-import-warning">{attention.message}</div>}
           <div className="alipay-import-summary"><span>{row.operationAt ? row.operationAt.replace('T', ' ') : '时间待核对'}</span>
             <span>{row.side === 'sell' ? '卖出' : '买入'} {row.quantity === undefined ? '数量待核对' : row.unit === 'CNY' ? money(row.quantity) : `${row.quantity.toLocaleString('zh-CN')} 份`}</span>
-            <span>{orderStatus[row.status]}</span></div>
+            <span>{row.side === 'sell' && row.status === 'pending' ? '卖出未到账' : orderStatus[row.status]}</span>
+            {row.expectedArrivalDate && <span>预计到账 {row.expectedArrivalDate}</span>}</div>
           {row.notes.filter((note) => /重复|冲突|未截全/.test(note)).map((note) => <span className="alipay-import-warning" key={note}>{note}</span>)}
           {row.selected && needsReview && <span className="alipay-import-warning">需核对基金、时间、数量或状态</span>}
           <details className="alipay-import-edit"><summary>{needsReview ? '核对字段' : '编辑字段'}</summary>
@@ -207,7 +208,7 @@ export default function AlipayScreenshotImport({ yearMonth, items, snapshots, on
           </div>
           <details><summary>订单与确认信息</summary><div className="alipay-import-fields">
             <label>订单号<input {...fieldProps(row.id, 'orderId')} value={row.orderId ?? ''} onChange={(event) => patchOrder(row.id, { orderId: event.target.value.trim() || undefined })} /></label>
-            {(['navDate', 'confirmationDate', 'expectedConfirmationDate'] as const).map((key) => <label key={key}>{{navDate:'成交净值日', confirmationDate:'实际确认日期', expectedConfirmationDate:'预计确认日期'}[key]}<input {...fieldProps(row.id, key)} type="date" value={row[key] ?? ''} onChange={(event) => patchOrder(row.id, { [key]: event.target.value || undefined })} /></label>)}
+            {(['navDate', 'confirmationDate', 'expectedConfirmationDate', 'expectedArrivalDate'] as const).map((key) => <label key={key}>{{navDate:'成交净值日', confirmationDate:'实际确认日期', expectedConfirmationDate:'预计确认日期', expectedArrivalDate:'预计到账日期'}[key]}<input {...fieldProps(row.id, key)} type="date" value={row[key] ?? ''} onChange={(event) => patchOrder(row.id, { [key]: event.target.value || undefined })} /></label>)}
             {(['confirmedShares', 'nav', 'fee'] as const).map((key) => <label key={key}>{{confirmedShares:'确认份额', nav:'成交净值', fee:'手续费'}[key]}<input {...fieldProps(row.id, key)} type="number" min="0" step="any" value={row[key] ?? ''} onChange={(event) => patchOrder(row.id, { [key]: numeric(event.target.value) })} /></label>)}
           </div></details>
           </details>

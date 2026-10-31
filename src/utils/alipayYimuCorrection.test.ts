@@ -135,6 +135,19 @@ describe('支付宝矫正一木 T+1', () => {
     delete snapshot.funds[0].shares;
     expect(plan(snapshot).rows[0].reason).toContain('赎回中');
   });
+  it('按份额卖出未到账可使用明确持仓详情，不把卖出份额当金额再扣一次', () => {
+    const snapshot = shot('2026-09-15', [order({ side: 'sell', quantity: 20, unit: 'shares', expectedArrivalDate: '2026-09-18' })]);
+    snapshot.funds[0].totalAmount = 239.5;
+    expect(plan(snapshot).rows[0]).toMatchObject({ shares: 100, costPrice: 1.5 });
+    expect(plan(snapshot).rows[0].reason).toBeUndefined();
+    const corrected = correct(snapshot);
+    expect(fund(corrected).shares).toBe(100);
+    expect(fund(corrected).marketValueCny).toBe(200);
+    expect(corrected.investmentTransactions ?? []).toEqual([]);
+    expect(fund(correct(snapshot, corrected)).shares).toBe(100);
+    delete snapshot.funds[0].confirmedAmount;
+    expect(plan(snapshot).rows[0].reason).toContain('赎回中');
+  });
 
   it('重复矫正覆盖基准而不累加，刷新和后续月份保留基准与待确认身份', () => {
     const first = correct();

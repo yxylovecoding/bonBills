@@ -18,7 +18,7 @@ export interface AlipayOrderDraft {
   orderId?: string; operationAt: string; side: 'buy' | 'sell'; quantity?: number;
   unit: 'CNY' | 'shares'; status: AlipayActualOrder['status'];
   statusFromBlank?: boolean;
-  navDate?: string; confirmationDate?: string; expectedConfirmationDate?: string;
+  navDate?: string; confirmationDate?: string; expectedConfirmationDate?: string; expectedArrivalDate?: string;
   confirmedShares?: number; nav?: number; fee?: number;
 }
 export interface AlipayScreenshotDraft { funds: AlipayFundDraft[]; orders: AlipayOrderDraft[]; notes: string[] }
@@ -195,8 +195,27 @@ function field(lines: Line[], label: RegExp, width: number): number | undefined 
 }
 
 const statusOf = (text: string): AlipayActualOrder['status'] => /已撤[销消]|交易关闭|买入失败|赎回失败/.test(text) ? 'cancelled'
-  : /交易进行中|份额待确认|确认中|到账中|待到账/.test(text) ? 'pending'
+  : /交易进行中|份额待确认|确认中|到[账帐]中|待到[账帐]|未到[账帐]|预计.{0,32}到(?:[账帐]|$)/.test(text) ? 'pending'
     : /买入成功|卖出成功|交易成功|已确认|已到账/.test(text) ? 'confirmed' : 'unknown';
+
+function expectedArrivalDate(text: string, operationDate: string) {
+  const match = text.match(/预计(?:于)?(?:(20\d{2})[-/年])?(\d{1,2})[-/月](\d{1,2})(?:日)?[^\d]{0,4}(?:\d{1,2}[点时:：\d]*前)?到(?:[账帐]|$)/);
+  if (!match) return undefined;
+  const monthDay = `${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
+  return match[1] ? `${match[1]}-${monthDay}` : monthDayDate(monthDay, operationDate, 'future');
+}
+
+/** Long status labels extend left of the usual value column. Keep them out of names. */
+function transactionColumns(line: Line, width: number) {
+  const trailing = line.words.filter((word) => word.bbox.x0 >= width * 0.5);
+  const statusStart = trailing.find((_, index) => /^(?:预计|交易|份额待确认|确认中|到账中|待到账|未到账|已到账|已确认|已撤[销消]|买入成功|卖出成功)/
+    .test(compact(trailing.slice(index).map((word) => word.text).join(''))));
+  const boundary = Math.min(width * 0.7, statusStart?.bbox.x0 ?? width);
+  return {
+    name: line.words.filter((word) => word.bbox.x0 > width * 0.13 && word.bbox.x0 < boundary),
+    right: line.words.filter((word) => word.bbox.x0 >= boundary),
+  };
+}
 
 /** Stop at the product's share class or ellipsis, before badges and promotions. */
 function holdingName(block: Line[], leftText: (line: Line) => string, gold: boolean): string {
@@ -233,7 +252,8 @@ export function parseAlipayScreenshot(image: AlipayOcrImage, choices: AlipayFund
     const nameIndex = lines.findIndex((line) => /买入产品|卖出产品/.test(compact(line.text)));
     const name = compact(lines[nameIndex]?.text ?? '').replace(/^.*?(买入产品|卖出产品)/, '');
     const code = matchAlipayFund(name, choices);
-    const quantity = field(lines, /买入金额|卖出金额|赎回金额/, image.width);
+    const soldShares = /卖出时间/.test(all) ? field(lines, /卖出份额|赎回份额/, image.width) : undefined;
+    const quantity = soldShares ?? field(lines, /买入金额|卖出金额|赎回金额/, image.width);
     const operationAt = normalizeTime(lines.find((line) => /买入时间|卖出时间/.test(compact(line.text)))?.text ?? '') || normalizeTime(image.text);
     const orderId = compact(image.text).match(/订单号(\d{15,40})/)?.[1];
     const navDateText = all.match(/按照(\d{1,2})月(\d{1,2})日净值/) ?? all.match(/按(\d{1,2})月(\d{1,2})日净值/);
@@ -241,35 +261,44 @@ export function parseAlipayScreenshot(image: AlipayOcrImage, choices: AlipayFund
     const expected = all.match(/(\d{2}-\d{2})星期[一二三四五六日天]确认份额/)?.[1];
     const informationStart = all.search(/买入信息|卖出信息/);
     const orderStatus = statusOf(informationStart >= 0 ? all.slice(0, informationStart) : all);
+    const arrival = expectedArrivalDate(informationStart >= 0 ? all.slice(0, informationStart) : all, operationAt.slice(0, 10) || date);
     result.orders.push({ id: `${source}:order`, source, name, code, quantity, operationAt, orderId, selected: true,
-      side: /卖出时间/.test(all) ? 'sell' : 'buy', unit: 'CNY', status: orderStatus, notes: notesFor(code, [quantity]),
+      side: /卖出时间/.test(all) ? 'sell' : 'buy', unit: soldShares === undefined ? 'CNY' : 'shares', status: orderStatus, notes: notesFor(code, [quantity]),
       ...(navDateText ? { navDate: monthDayDate(`${navDateText[1].padStart(2, '0')}-${navDateText[2].padStart(2, '0')}`, operationAt.slice(0, 10) || date, 'future') } : {}),
       ...(confirmationDate ? { confirmationDate } : {}), ...(expected ? { expectedConfirmationDate: monthDayDate(expected, operationAt.slice(0, 10) || date, 'future') } : {}),
+      ...(arrival ? { expectedArrivalDate: arrival } : {}),
       confirmedShares: field(lines, /确认份额/, image.width), nav: field(lines, /确认净值/, image.width), fee: field(lines, /手续费/, image.width),
     });
   } else if (/交易记录|定投|买入|卖出|赎回/.test(all) && lines.some((line) => normalizeTime(line.text))) {
-    let top = lines.find((line) => /明细/.test(line.text))?.bottom ?? 0;
+    // 收益明细 in the navigation is not the start of the transaction table.
+    let top = lines.find((line) => /^明细/.test(compact(line.text)))?.bottom ?? 0;
     const stamps = lines.filter((line) => normalizeTime(line.text));
     const tail = lines.filter((line) => line.y > stamps[stamps.length - 1].bottom);
     // Keep a clipped last order as an unresolved row instead of silently dropping it.
     if (tail.some((line) => /基金|定投|买入|卖出/.test(line.text))) stamps.push({ text: '', words: [], y: image.height, bottom: image.height, height: 1 });
     else if (tail.some((line) => line.bottom >= image.height - 3)) result.notes.push(`${source}：底部交易不完整，未计入`);
     for (const stamp of stamps) {
-      const block = lines.filter((line) => line.y >= top && line.y <= stamp.y);
-      const words = block.filter((line) => line !== stamp).flatMap((line) => line.words);
-      const name = productText(words.filter((word) => word.bbox.x0 > image.width * 0.13 && word.bbox.x0 < image.width * 0.70).map((word) => word.text).join(''));
-      const right = compact(words.filter((word) => word.bbox.x0 >= image.width * 0.7).map((word) => word.text).join(''));
+      let block = lines.filter((line) => line.y >= top && line.y <= stamp.y);
+      const start = block.findIndex((line) => /^(?:定投|买入|卖出|赎回)/.test(compact(line.words.filter((word) => word.bbox.x0 < image.width * 0.16).map((word) => word.text).join(''))));
+      if (start >= 0) block = block.slice(start);
+      const name = productText(block.filter((line) => line !== stamp).flatMap((line) => transactionColumns(line, image.width).name).map((word) => word.text).join(''));
+      // The last character of 到账 can share the timestamp's visual line.
+      const rightLines = block.map((line) => compact(transactionColumns(line, image.width).right.map((word) => word.text).join('')));
+      const right = rightLines.join('');
       const text = compact(block.map((line) => line.text).join(''));
       const code = matchAlipayFund(name, choices);
-      const amount = numbers(right)[0];
-      const unit = /份/.test(right) ? 'shares' : 'CNY';
+      const quantityText = rightLines.find((line) => /^[¥￥]?[+\-]?\d[\d,]*\.\d+/.test(line)) ?? '';
+      const amount = numbers(quantityText)[0];
+      const unit = /^[¥￥]?[+\-]?\d[\d,]*\.\d+份/.test(quantityText) ? 'shares' : 'CNY';
       const quantity = amount !== undefined && (unit === 'shares' || Math.abs(amount * 100 - Math.round(amount * 100)) < 0.00001) ? amount : undefined;
       const operationAt = normalizeTime(stamp.text);
+      const arrival = expectedArrivalDate(right, operationAt.slice(0, 10) || date);
       // Alipay omits the status label after confirmation. A clipped row or unreadable
       // label is not evidence of a blank status.
       const statusFromBlank = !!operationAt && quantity !== undefined && /^[¥￥]?[+\-]?\d[\d,]*\.\d+(?:元|份)?$/.test(right);
       result.orders.push({ id: `${source}:${stamp.y}`, source, name, code, quantity, operationAt, selected: !!operationAt,
         side: /卖出|赎回/.test(text) ? 'sell' : 'buy', unit, status: statusFromBlank ? 'confirmed' : statusOf(right), statusFromBlank,
+        ...(arrival ? { expectedArrivalDate: arrival } : {}),
         notes: [...notesFor(code, [quantity]), ...(!operationAt ? ['交易未截全，默认不计入'] : [])] });
       top = stamp.bottom;
     }
@@ -344,7 +373,7 @@ export function parseAlipayScreenshot(image: AlipayOcrImage, choices: AlipayFund
   return result;
 }
 
-export function combineAlipayScreenshotDrafts(drafts: AlipayScreenshotDraft[]): AlipayScreenshotDraft {
+export function combineAlipayScreenshotDrafts(drafts: AlipayScreenshotDraft[], previous?: AlipayActualSnapshot): AlipayScreenshotDraft {
   const result: AlipayScreenshotDraft = { funds: drafts.flatMap((draft) => draft.funds), orders: drafts.flatMap((draft) => draft.orders), notes: drafts.flatMap((draft) => draft.notes) };
   // A detailed order can resolve an overlapping list row using its exact time and amount.
   result.orders = result.orders.map((row) => {
@@ -356,7 +385,21 @@ export function combineAlipayScreenshotDrafts(drafts: AlipayScreenshotDraft[]): 
     const detail = detailIds.size === 1 ? details[0] : undefined;
     return { ...row, ...(!row.orderId && detailIds.size > 1 ? { selected: false, notes: [...row.notes, '重复候选：匹配多笔订单，请核对'] } : {}), ...(!row.code && codes.size === 1 ? { code: candidates[0].code, name: candidates[0].name } : {}),
       ...(!row.orderId && detail ? { ...Object.fromEntries(Object.entries(detail).filter(([key, value]) =>
-        ['orderId', 'status', 'confirmedShares', 'confirmationDate', 'expectedConfirmationDate', 'navDate', 'nav', 'fee'].includes(key) && value !== undefined)) } : {}) };
+        ['orderId', 'status', 'confirmedShares', 'confirmationDate', 'expectedConfirmationDate', 'expectedArrivalDate', 'navDate', 'nav', 'fee'].includes(key) && value !== undefined)) } : {}) };
+  });
+  // An overlapping screenshot may garble a name already identified in this day's import.
+  // Reuse identity only for a unique exact transaction; never copy its earlier status.
+  result.orders = result.orders.map((row) => {
+    if (row.code || !row.operationAt || row.quantity === undefined || row.notes.some((note) => /不一致|冲突/.test(note))) return row;
+    const candidates = previous?.orders.filter((order) => order.operationAt === row.operationAt && order.side === row.side
+      && order.quantity === row.quantity && order.unit === row.unit && (!row.orderId || row.orderId === order.id)) ?? [];
+    if (candidates.length !== 1) return row;
+    const known = previous?.funds.find((fund) => fund.code === candidates[0].code);
+    const shareClass = fundName(row.name).match(/([ACE])$/)?.[1];
+    const brand = row.name.match(brands)?.[0];
+    if (!known || (shareClass && fundName(known.name).match(/([ACE])$/)?.[1] !== shareClass)
+      || (brand && known.name.match(brands)?.[0] !== brand)) return row;
+    return { ...row, name: known.name, code: known.code, notes: row.notes.filter((note) => note !== '基金待匹配') };
   });
   const seen = new Map<string, AlipayOrderDraft>();
   result.orders = result.orders.map((row) => {
@@ -364,7 +407,7 @@ export function combineAlipayScreenshotDrafts(drafts: AlipayScreenshotDraft[]): 
     if (!row.operationAt || row.quantity === undefined) return row;
     const previous = seen.get(identity);
     if (previous) {
-      const fields = ['code', 'operationAt', 'side', 'quantity', 'unit', 'status', 'navDate', 'confirmationDate', 'expectedConfirmationDate', 'confirmedShares', 'nav', 'fee'] as const;
+      const fields = ['code', 'operationAt', 'side', 'quantity', 'unit', 'status', 'navDate', 'confirmationDate', 'expectedConfirmationDate', 'expectedArrivalDate', 'confirmedShares', 'nav', 'fee'] as const;
       if (row.orderId && fields.some((key) => row[key] !== undefined && previous[key] !== undefined && row[key] !== previous[key])) {
         return { ...row, notes: [...row.notes, '同一订单内容冲突，请核对'] };
       }
@@ -415,7 +458,7 @@ export function materializeAlipayScreenshots(draft: AlipayScreenshotDraft, date:
     const id = row.orderId ?? (priorMatch.length === 1 ? priorMatch[0].id : `screenshot:${key}:${occurrence}`);
     usedPrior.add(id);
     const value: AlipayActualOrder = { id, code: row.code, operationAt: row.operationAt, side: row.side, quantity: row.quantity, unit: row.unit, status: row.status };
-    for (const key of ['navDate', 'confirmationDate', 'expectedConfirmationDate', 'confirmedShares', 'nav', 'fee'] as const) if (row[key] !== undefined) Object.assign(value, { [key]: row[key] });
+    for (const key of ['navDate', 'confirmationDate', 'expectedConfirmationDate', 'expectedArrivalDate', 'confirmedShares', 'nav', 'fee'] as const) if (row[key] !== undefined) Object.assign(value, { [key]: row[key] });
     const sameImport = imported.get(id);
     if (sameImport && JSON.stringify(sameImport) !== JSON.stringify(value)) throw new AlipayScreenshotValidationError('同一订单内容冲突，请仅保留最新状态', row.id, 'orderId');
     imported.set(id, value);

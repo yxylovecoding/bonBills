@@ -161,6 +161,15 @@ describe('支付宝基金份额与成本', () => {
 });
 
 describe('支付宝实录', () => {
+  it('预计到账日期独立保存，可晚于实录日期，不能代替实际确认', () => {
+    const input = sample();
+    input.orders = [{ ...order, side: 'sell', unit: 'shares', expectedArrivalDate: '2026-11-04' }];
+    expect(parse(input).orders).toEqual(input.orders);
+    expect(parse(input).orders[0].confirmationDate).toBeUndefined();
+    for (const expectedArrivalDate of ['2026-02-30', '2026-10-07', 'invalid']) {
+      expect(() => parse({ ...input, orders: [{ ...input.orders[0], expectedArrivalDate }] })).toThrow('到账日期');
+    }
+  });
   it('记录实际确认数据和预计日期，不将预期确认当作实际确认', () => {
     const input = sample();
     input.orders = [
@@ -193,7 +202,8 @@ describe('支付宝实录', () => {
       { ...order, id: 'unknown', status: 'unknown' },
       { ...order, id: 'shares', side: 'sell', unit: 'shares', quantity: 40 },
     );
-    expect(summarizeAlipayActual(parse(input))).toEqual({ totalAmount: 120, holdingProfit: -3, pendingBuy: 20, pendingSell: 35.12, unknownCount: 1 });
+    expect(summarizeAlipayActual(parse(input))).toEqual({ totalAmount: 120, holdingProfit: -3, pendingBuy: 20, pendingSell: 35.12,
+      pendingSellCount: 2, pendingSellAmountUnknown: true, unknownCount: 1 });
     expect(parse(input).orders.find((row) => row.id === 'cancel')?.unit).toBe('shares');
   });
   it('含在途的总金额不反推份额和成本，明确持有金额才反推成本', () => {

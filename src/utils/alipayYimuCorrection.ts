@@ -80,7 +80,7 @@ export function buildAlipayYimuCorrection(
     const orders = [...seen.values()];
     if (orders.some((order) => order.status === 'unknown')) return fail('交易状态待核对');
     const pending = orders.filter((order) => order.status === 'pending');
-    if (pending.some((order) => order.unit !== 'CNY')) return fail('待确认交易金额待补充');
+    if (pending.some((order) => order.side === 'buy' && order.unit !== 'CNY')) return fail('待确认交易金额待补充');
     const buys = pending.filter((order) => order.side === 'buy').sort((a, b) => a.operationAt.localeCompare(b.operationAt) || a.id.localeCompare(b.id));
     const bookings = new Map(buys.map((order) => [order.id, matchingEntries(order, local)]));
     const matchedIds = [...bookings.values()].flat().map((entry) => entry.id);
@@ -89,7 +89,10 @@ export function buildAlipayYimuCorrection(
     if (pending.some((order) => order.side === 'sell') && (fund.shares === undefined || fund.confirmedAmount === undefined)) return fail('赎回中，请补充含份额和持有金额的详情页');
     const basis = alipayActualBasis(fund, items, orders, quotes.holdings?.[fund.code]);
     if (basis.shares === null || basis.costPrice === null || basis.costTotal === null || basis.confirmedAmount === null) return fail('份额、成本或对应净值待补充');
-    if (fund.amountKind === 'total' && Math.abs(basis.confirmedAmount + basis.pendingBuy + basis.pendingSell - fund.totalAmount) > 0.03) return fail('持有金额与在途金额不一致');
+    const sellAmountUnknown = pending.some((order) => order.side === 'sell' && order.unit === 'shares');
+    const accountedAmount = basis.confirmedAmount + basis.pendingBuy + basis.pendingSell;
+    if (fund.amountKind === 'total' && (sellAmountUnknown ? accountedAmount > fund.totalAmount + 0.03
+      : Math.abs(accountedAmount - fund.totalAmount) > 0.03)) return fail('持有金额与在途金额不一致');
     if (basis.nav !== null && Math.abs(basis.shares * basis.nav - basis.confirmedAmount) > Math.max(0.03, basis.nav * 0.006)) return fail('份额与金额对应的净值不一致');
     let shares = basis.shares;
     let cost = basis.costTotal;

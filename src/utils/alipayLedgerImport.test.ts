@@ -27,6 +27,18 @@ beforeEach(() => {
 });
 
 describe('支付宝导入写入共享账本', () => {
+  it('仅有卖出份额和预计到账日时保存待到账实录，不重复扣除账本份额或入账现金', async () => {
+    const source: AlipayActualSnapshot = { date, funds: [{ code, name: '测试基金', amountKind: 'total', totalAmount: 200, holdingProfit: 50 }],
+      orders: [{ id: 'sell-pending', code, operationAt: '2026-09-14T19:00:00', side: 'sell', quantity: 30.5, unit: 'shares', status: 'pending', expectedArrivalDate: '2026-09-18' }] };
+    const before = structuredClone(useMonthlyStore.getState().records);
+    const result = await importAlipaySnapshotToLedger(source, 'null', load);
+    expect(result.updated).toBe(0);
+    expect(result.unresolved[0].reason).toContain('赎回中');
+    expect(useMonthlyStore.getState().records).toEqual(before);
+    expect(useConfigStore.getState().config.alipayActualSnapshots?.[date]).toEqual(source);
+    await importAlipaySnapshotToLedger(source, JSON.stringify(source), load);
+    expect(useMonthlyStore.getState().records).toEqual(before);
+  });
   it('导入后两种模式读取同一持仓，只有确认时间造成份额差异', async () => {
     const source = snapshot();
     const other = structuredClone(current().investPositionItems!.gold);

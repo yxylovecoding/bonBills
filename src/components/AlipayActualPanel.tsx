@@ -43,8 +43,9 @@ function ActualFundDetails({ fund, orders, rule, estimate, nav, navLoading }: { 
         }}><option value="auto">自动</option><option value="1">T+1</option><option value="2">T+2</option></select>
       </label>
       {orders.map((order) => <div className="alipay-order" key={order.id}>
-        <div className="alipay-detail-line"><span>{order.side === 'buy' ? '买入' : '卖出'} {order.unit === 'CNY' ? money(order.quantity) : `${order.quantity} 份`}</span><span>{statusLabel[order.status]}</span></div>
+        <div className="alipay-detail-line"><span>{order.side === 'buy' ? '买入' : '卖出'} {order.unit === 'CNY' ? money(order.quantity) : `${order.quantity.toLocaleString('zh-CN')} 份`}</span><span>{order.side === 'sell' && order.status === 'pending' ? '卖出未到账' : statusLabel[order.status]}</span></div>
         <div>{order.operationAt.replace('T', ' ')}</div>
+        {order.expectedArrivalDate && <div>预计到账 {order.expectedArrivalDate}</div>}
         {(order.navDate || order.expectedConfirmationDate || order.confirmationDate) && <div className="alipay-detail-line">
           {order.navDate && <span>成交净值日 {order.navDate}</span>}
           <span>{order.confirmationDate ? `确认 ${order.confirmationDate}` : order.expectedConfirmationDate ? `预计确认 ${order.expectedConfirmationDate}` : ''}</span>
@@ -68,7 +69,7 @@ function SnapshotDetails({ snapshot, items, estimate }: { snapshot: AlipayActual
   return <>
     <b>已录入 {snapshot.funds.length} 只基金</b>
     <div className="alipay-overview"><AlipayAmountProfit amount={totals.totalAmount} holdingProfit={totals.holdingProfit} /></div>
-    <div className="alipay-detail-line"><span>已记录买入中 {money(totals.pendingBuy)}</span><span>卖出未到账 {money(totals.pendingSell)}</span></div>
+    <div className="alipay-detail-line"><span>已记录买入中 {money(totals.pendingBuy)}</span><span>卖出未到账 {totals.pendingSellAmountUnknown ? `${totals.pendingSellCount} 笔` : money(totals.pendingSell)}</span></div>
     {totals.unknownCount > 0 && <div className="alipay-pending">状态待核对 {totals.unknownCount} 笔</div>}
     {navs.failed && !navs.loading && <button type="button" className="alipay-text-button" onClick={navs.retry}>重试净值查询</button>}
     {sections.map((section) => <section className="invest-holdings-group" key={section.label} aria-label={`支付宝实录${section.label}类`}>

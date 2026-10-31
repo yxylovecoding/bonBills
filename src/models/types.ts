@@ -51,6 +51,7 @@ export interface AlipayActualOrder {
   navDate?: string;
   confirmationDate?: string;
   expectedConfirmationDate?: string;
+  expectedArrivalDate?: string; // Expected cash arrival, distinct from share confirmation.
   confirmedShares?: number;
   nav?: number;
   fee?: number;
