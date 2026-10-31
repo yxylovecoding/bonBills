@@ -44,6 +44,16 @@ describe('支付宝基金匹配与截图布局', () => {
     const ambiguous = [...indexChoices, { code: '800005', name: '华安三菱日联日经225其他产品C', aliases: ['华安三菱日联日经225其他产品C'] }];
     expect(matchAlipayFund('华安三菱日联日经225…C', ambiguous)).toBe('');
   });
+  it('日经联接全名与已有简称互通，保留类别且不混淆其他产品', () => {
+    expect(matchAlipayFund('华安三菱日联日经225ETF联接(QDIDC', indexChoices)).toBe('800003');
+    expect(matchAlipayFund('基金 华安三菱日联日经225ETF联接(QDII)A', indexChoices)).toBe('800004');
+    expect(matchAlipayFund('华安三菱日联日经225ETF联接...', indexChoices)).toBe('');
+    const fullNames = indexChoices.map((choice) => ({ ...choice, aliases: choice.aliases.map((name) => name.replace('225ETF', '225ETF发起式联接')) }));
+    expect(matchAlipayFund(indexChoices[2].name, fullNames)).toBe('800003');
+    expect(matchAlipayFund('华安三菱日联日经225其他产品C', indexChoices)).toBe('');
+    expect(matchAlipayFund('易方达日经225ETF联接C', indexChoices)).toBe('');
+    expect(matchAlipayFund('华泰柏瑞沪深300ETFC', indexChoices)).toBe('');
+  });
   it('沪深300持有行保留基金名、金额和持有收益', () => {
     const parsed = parseAlipayScreenshot(screen([
       [100, [['华泰柏瑞沪深3OO', 30, 410], ['120.00', 600, 730], ['+10.00', 820, 930]]],
@@ -189,6 +199,29 @@ describe('支付宝基金匹配与截图布局', () => {
     const conflict = parseAlipayScreenshot({ ...transaction(choices[1].name), fallback }, choices, date).orders[0];
     expect(conflict.code).toBe('');
     expect(conflict.notes).toContain('基金识别不一致，请核对');
+  });
+  it('裁掉标题的交易截图按时间和交易行解析，换行的 ETF 与 A/C 不生成持仓', () => {
+    const parsed = parseAlipayScreenshot(screen([
+      [10, [['定投', 40, 100], ['基金 | 华安三菱日联日经225E', 170, 690], ['20.00元', 790, 950]]],
+      [45, [['TF联接(QDIDC', 170, 500], ['交易进行中', 790, 950]]],
+      [80, [['2026-10-08 09:44:18', 170, 630]]],
+      [150, [['定投', 40, 100], ['基金 | 华安三菱日联日经225E', 170, 690], ['30.00元', 790, 950]]],
+      [185, [['TF联接(QDIDA', 170, 500], ['交易进行中', 790, 950]]],
+      [220, [['2026-10-08 09:44:02', 170, 630]]],
+    ]), indexChoices, date);
+    expect(parsed.funds).toEqual([]);
+    expect(parsed.orders).toHaveLength(2);
+    expect(parsed.orders[0]).toMatchObject({ code: '800003', quantity: 20, status: 'pending', operationAt: '2026-10-08T09:44:18' });
+    expect(parsed.orders[1]).toMatchObject({ code: '800004', quantity: 30, status: 'pending', operationAt: '2026-10-08T09:44:02' });
+    expect(parsed.orders.every((row) => !alipayOrderNeedsReview(row))).toBe(true);
+  });
+  it('有定投标签但没有交易时间的持有页仍读取金额和收益', () => {
+    const parsed = parseAlipayScreenshot(screen([
+      [100, [[choices[0].name, 30, 410], ['120.00', 600, 730], ['-10.00', 820, 930]]],
+      [135, [['定投', 30, 100], ['+1.00', 630, 730], ['-8.33%', 820, 930]]],
+    ]), choices, date);
+    expect(parsed.orders).toEqual([]);
+    expect(parsed.funds[0]).toMatchObject({ code: '123456', totalAmount: 120, holdingProfit: -10 });
   });
   it.each([['', 'confirmed'], ['已撤销', 'cancelled'], ['交易进行中', 'pending'], ['无法辨认的状态', 'unknown']] as const)
   ('交易状态 %s 识别为 %s，并保留到持仓预览', (label, status) => {
@@ -350,6 +383,35 @@ describe('日经 A/C 历史金额推测与确认', () => {
       { code: '800004', totalAmount: 1200, holdingProfit: -10, shares: undefined },
     ]);
     expect(inferAlipayFundClassesByAmount(inferred, indexChoices, {}, date)).toEqual(inferred);
+  });
+  it('日经截断联接名称接上历史简称，持有页与无标题交易页可合并直接导入', () => {
+    const holdings = parseAlipayScreenshot(screen([
+      [100, [['华安三萎日联日', 30, 410], ['1200.00', 600, 730], ['+20.00', 820, 930]]],
+      [135, [['经225ETF联接.…', 30, 300], ['-2.00', 630, 730], ['+1.69%', 820, 930]]],
+      [300, [['华安三菱日联日', 30, 410], ['160.00', 600, 730], ['-5.00', 820, 930]]],
+      [335, [['经225ETF联接...', 30, 300], ['-1.00', 630, 730], ['-3.03%', 820, 930]]],
+    ]), indexChoices, date);
+    const orders = parseAlipayScreenshot({ ...screen([
+      [100, [['定投', 40, 100], ['基金 | 华安三菱日联日经225E', 170, 690], ['10.00元', 790, 950]]],
+      [135, [['TF联接(QDIDC', 170, 500], ['交易进行中', 790, 950]]],
+      [170, [['2026-10-08 09:44:18', 170, 630]]],
+    ]), name: 'orders.png' }, indexChoices, date);
+    const inferred = inferAlipayFundClassesByAmount(combineAlipayScreenshotDrafts([holdings, orders]), indexChoices, { old: history() }, date);
+    expect(inferred.funds.map((row) => row.code)).toEqual(['800004', '800003']);
+    const snapshot = materializeAlipayScreenshots(inferred, date, indexChoices);
+    expect(snapshot.funds.map(({ code, totalAmount, holdingProfit }) => ({ code, totalAmount, holdingProfit }))).toEqual([
+      { code: '800004', totalAmount: 1200, holdingProfit: 20 }, { code: '800003', totalAmount: 160, holdingProfit: -5 },
+    ]);
+    expect(snapshot.orders[0]).toMatchObject({ code: '800003', quantity: 10, status: 'pending' });
+  });
+  it('历史金额表明 C 较大时按成对总差额分配，明确类别仍优先', () => {
+    const snapshots = { old: history('2026-10-09', 1000, 150) };
+    const input = draft([truncated({ totalAmount: 1200 }), truncated({ totalAmount: 160 })]);
+    const inferred = inferAlipayFundClassesByAmount(input, indexChoices, snapshots, date);
+    expect(inferred.funds.map((row) => row.code)).toEqual(['800003', '800004']);
+    expect(inferAlipayFundClassesByAmount(inferred, indexChoices, snapshots, date)).toEqual(inferred);
+    input.funds[0] = { ...input.funds[0], code: '800004', manualCode: true };
+    expect(inferAlipayFundClassesByAmount(input, indexChoices, snapshots, date).funds.map((row) => row.code)).toEqual(['800004', '800003']);
   });
   it('成对金额优先于逐笔历史距离，倒序和重复截图仍得到同一类别', () => {
     const input = draft([truncated({ totalAmount: 1300 }), truncated({ totalAmount: 1100 }), truncated({ totalAmount: 1300, selected: false })]);

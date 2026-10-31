@@ -40,6 +40,8 @@ const fundName = (text: string) => {
   const clean = compact(text).toUpperCase().replace(/三[鞭萎]/g, '三菱').replace(/[^\u4e00-\u9fffA-Z0-9()\-]/g, '')
     .replace(/沪深3[O0]{2}/g, '沪深300').replace(/日经22[5S]/g, '日经225')
     .replace(/ETF[链连]接/g, 'ETF联接').replace(/ETF联接基金/g, 'ETF联接')
+    // This fund's saved short name omits 联接; Alipay includes it before the ellipsis.
+    .replace(/(华安三菱日联日经225ETF)(?:发起式)?联接/, '$1')
     .replace(/\(?QD[A-Z0-9]*?\)?([ACE])$/, '$1').replace(/\(?QD[A-Z0-9]*\)?$/, '').replace(/[()\-]$/g, '');
   const start = clean.search(brands);
   return start >= 0 ? clean.slice(start) : clean.replace(/^基金/, '');
@@ -112,7 +114,7 @@ export function suggestAlipayFundByAmount(row: AlipayFundDraft, choices: AlipayF
   }).sort((a, b) => a.difference - b.difference || a.code.localeCompare(b.code));
 }
 
-/** Bon's default for an unlabeled Nikkei pair: the larger balance is A, the smaller C. */
+/** Match the whole A/C pair to history before falling back to Bon's larger-A default. */
 export function inferAlipayFundClassesByAmount(draft: AlipayScreenshotDraft, choices: AlipayFundChoice[], snapshots: Record<string, AlipayActualSnapshot>, date: string): AlipayScreenshotDraft {
   const funds = draft.funds.map((row) => row.amountMatch?.inferred ? { ...row, code: '', amountMatch: undefined } : row);
   return { ...draft, funds: funds.map((row) => {
@@ -131,6 +133,16 @@ export function inferAlipayFundClassesByAmount(draft: AlipayScreenshotDraft, cho
     let code = '';
     if (balances.length === 2) {
       let highCode = a[0].code;
+      const suggestions = suggestAlipayFundByAmount(row, choices, snapshots, date);
+      if (suggestions.length === 2) {
+        const previousA = suggestions.find((candidate) => candidate.code === a[0].code)!;
+        const previousC = suggestions.find((candidate) => candidate.code === c[0].code)!;
+        const aCents = Math.round(previousA.previousAmount * 100);
+        const cCents = Math.round(previousC.previousAmount * 100);
+        const highA = Math.abs(balances[1] - aCents) + Math.abs(balances[0] - cCents);
+        const highC = Math.abs(balances[1] - cCents) + Math.abs(balances[0] - aCents);
+        if (highC < highA) highCode = c[0].code;
+      }
       // Explicit OCR/manual labels take precedence over the default ranking.
       const known = peers.filter((other) => other.code);
       if (known.length) highCode = cents(known[0]) === balances[1] ? known[0].code : candidates.find((choice) => choice.code !== known[0].code)!.code;
@@ -235,7 +247,7 @@ export function parseAlipayScreenshot(image: AlipayOcrImage, choices: AlipayFund
       ...(confirmationDate ? { confirmationDate } : {}), ...(expected ? { expectedConfirmationDate: monthDayDate(expected, operationAt.slice(0, 10) || date, 'future') } : {}),
       confirmedShares: field(lines, /确认份额/, image.width), nav: field(lines, /确认净值/, image.width), fee: field(lines, /手续费/, image.width),
     });
-  } else if (/交易记录/.test(all) && lines.filter((line) => normalizeTime(line.text)).length > 0) {
+  } else if (/交易记录|定投|买入|卖出|赎回/.test(all) && lines.some((line) => normalizeTime(line.text))) {
     let top = lines.find((line) => /明细/.test(line.text))?.bottom ?? 0;
     const stamps = lines.filter((line) => normalizeTime(line.text));
     const tail = lines.filter((line) => line.y > stamps[stamps.length - 1].bottom);

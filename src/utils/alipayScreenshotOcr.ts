@@ -50,7 +50,8 @@ export async function readAlipayScreenshots(files: File[], progress: (message: s
         const detail = /资产详情|买入产品|卖出产品/.test(text);
         let fallback: AlipayOcrImage['fallback'];
         // Sparse layout still helps on detail pages and names misread in an aligned list.
-        if (detail || /交易记录|我的持有|我的黄金基金|持有收益/.test(text)) {
+        const croppedOrders = /定投|买入|卖出|赎回/.test(text) && /(?:19|20)\d{2}-\d{2}-\d{2}[012]\d:[0-5]\d:[0-5]\d/.test(text);
+        if (detail || croppedOrders || /交易记录|我的持有|我的黄金基金|持有收益/.test(text)) {
           await wait(worker.setParameters({ tessedit_pageseg_mode: '11' }));
           try {
             const alternate = (await wait(worker.recognize(canvas, {}, { text: true, blocks: true }))).data;
