@@ -17,13 +17,12 @@ export default function SyncIndicator() {
   return (
     <div
       style={{
-        position: 'fixed', top: 8, right: 8, zIndex: 100,
         fontSize: 11, padding: '4px 10px', borderRadius: 12,
         backgroundColor: m.bg, color: m.color,
         boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
         display: 'flex', alignItems: 'center', gap: 4,
         pointerEvents: state === 'error' ? 'auto' : 'none', userSelect: 'none',
-        maxWidth: 260,
+        maxWidth: '100%', overflowWrap: 'anywhere',
       }}
     >
       <span>{m.icon}</span>

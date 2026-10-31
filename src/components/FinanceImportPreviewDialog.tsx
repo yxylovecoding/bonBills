@@ -103,6 +103,7 @@ export default function FinanceImportPreviewDialog({
           <button type="button" onClick={onCancel} disabled={confirming} aria-label="关闭导入预览" style={{ border: 'none', borderRadius: 8, backgroundColor: '#f1f3f4', color: '#5f6368', width: 30, height: 30, fontSize: 16, fontWeight: 800, cursor: confirming ? 'default' : 'pointer' }}>×</button>
         </div>
 
+        <div className="finance-import-preview-body">
         {!changesOnly && <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 12 }}>
           {draft.meta.lines.map((line, index) => (
             <div key={`${index}:${line}`} style={{ padding: '7px 9px', borderRadius: 8, backgroundColor: '#f8f9fa', color: '#3c4043', fontSize: 12, fontWeight: 700 }}>{line}</div>
@@ -216,7 +217,8 @@ export default function FinanceImportPreviewDialog({
           </div>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: hasRemainder ? '1fr 1fr' : '1fr', gap: 8 }}>
+        </div>
+        <div className="finance-import-preview-actions" style={{ display: 'grid', gridTemplateColumns: hasRemainder ? 'repeat(2, minmax(0, 1fr))' : '1fr', gap: 8 }}>
           <button type="button" onClick={onCancel} disabled={confirming} style={{ border: '1px solid #dadce0', borderRadius: 10, backgroundColor: '#fff', color: '#5f6368', padding: '10px 0', fontSize: 13, fontWeight: 800, cursor: confirming ? 'default' : 'pointer' }}>关闭</button>
           {hasRemainder && <button type="button" onClick={onConfirm} disabled={confirming} style={{ border: 'none', borderRadius: 10, backgroundColor: confirming ? '#9aa0a6' : '#1a73e8', color: '#fff', padding: '10px 0', fontSize: 13, fontWeight: 800, cursor: confirming ? 'default' : 'pointer' }}>{confirming ? '写入中' : changesOnly || billsAlreadyImported ? '确认理财' : '确认其余导入'}</button>}
         </div>

@@ -11,7 +11,7 @@ import { cityLabel } from '../utils/sceneCities';
 
 const input: CSSProperties = { width: '100%', minWidth: 0, boxSizing: 'border-box', padding: '6px 8px', border: '1px solid #dadce0', borderRadius: 7, fontSize: 12, background: '#fff' };
 const button: CSSProperties = { border: 'none', borderRadius: 7, background: '#f1f3f4', color: '#1a73e8', padding: '6px 10px', fontSize: 12, cursor: 'pointer' };
-const row: CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 };
+const row: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginTop: 8 };
 const uid = () => crypto.randomUUID();
 const cityPresets = [BEIJING, GUANGZHOU];
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

@@ -245,7 +245,7 @@
   .life-done-heading h2 { font-size: 19px; }
   .life-body-charts { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .life-tabs { width: 100%; }
-  .life-tabs button { flex: 1; min-width: 0; padding: 8px 6px; }
+  .life-tabs button { flex: 1 0 auto; min-width: max-content; padding: 8px 6px; }
   .life-header-actions { gap: 12px; }
   .life-phase-row { grid-template-columns: 76px 1fr; gap: 3px 8px; padding-left: 8px; }
   .life-phase-name { grid-row: span 2; }

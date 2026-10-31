@@ -1469,7 +1469,7 @@ function MonthDataSection({ state }: { state: MonthFormState }) {
   ];
   return (
     <>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gridTemplateRows: 'repeat(2, minmax(50px, auto))', gap: 8, marginBottom: 8 }}>
+      <div className="monthly-expense-summary" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gridTemplateRows: 'repeat(2, minmax(50px, auto))', gap: 8, marginBottom: 8 }}>
         <div style={{ gridColumn: '1', gridRow: '1 / 3', minWidth: 0, backgroundColor: '#e6f4ea', borderRadius: 10, padding: '10px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           <div style={{ fontSize: 11, color: C.sub }}>生活</div>
           <div style={{ fontSize: 16, fontWeight: 700, color: C.green, fontVariantNumeric: 'tabular-nums' }}>
@@ -2648,24 +2648,27 @@ function MonthRow({
           backgroundColor: open ? '#e8f0fe' : '#fafafa', cursor: 'pointer',
           textAlign: 'left', transition: 'background-color 0.15s',
         }}
+        className="history-summary"
       >
-        <span style={{ fontSize: 13, fontWeight: 600, color: open ? C.blue : '#202124' }}>
+        <span data-label="月份" style={{ fontSize: 13, fontWeight: 600, color: open ? C.blue : '#202124' }}>
           {record.yearMonth.slice(2)}
           {expenseMismatch && <span title={`三项之和 ${formatCurrency(expenseSum)} ≠ 总支出 ${formatCurrency(record.totalExpense)}`} style={{ marginLeft: 4, color: '#c5221f' }}>⚠️</span>}
           {hasAbnormalExpense && <span title={`异常支出：缺少核心标签 ${noTagExpenses.length} 笔，多个核心标签 ${multiTagExpenses.length} 笔`} style={{ marginLeft: 4, color: '#c5221f' }}>⚠️</span>}
         </span>
-        <span title={`¥${formatCurrency(record.income)}`} style={{ fontSize: 13, color: C.red,   fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>+{formatCompactAmount(record.income)}</span>
-        <span title={`¥${formatCurrency(record.totalExpense)}`} style={{ fontSize: 13, color: C.green,  fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>-{formatCompactAmount(record.totalExpense)}</span>
-        <span title={formatSignedCurrency(surplus)} style={{ fontSize: 13, fontWeight: 600, color: surplus >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+        <span data-label="收入" title={`¥${formatCurrency(record.income)}`} style={{ fontSize: 13, color: C.red,   fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>+{formatCompactAmount(record.income)}</span>
+        <span data-label="支出" title={`¥${formatCurrency(record.totalExpense)}`} style={{ fontSize: 13, color: C.green,  fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>-{formatCompactAmount(record.totalExpense)}</span>
+        <span data-label="结余" title={formatSignedCurrency(surplus)} style={{ fontSize: 13, fontWeight: 600, color: surplus >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
           {surplus >= 0 ? '+' : '-'}{formatCompactAmount(surplus)}
         </span>
         <span
+          data-label="存下"
           title={savedAmountTitle}
           style={{ fontSize: 12, fontWeight: 600, color: savedAmount !== null ? (savedAmount >= 0 ? C.red : C.green) : C.sub, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}
         >
           {savedAmount !== null ? formatSignedCompactCurrency(savedAmount) : '—'}
         </span>
         <span
+          data-label="收益率"
           title={investTotalForRate?.estimated ? `理财总额按 ${investTotalForRate.beforeMonth} / ${investTotalForRate.afterMonth} 均值估算` : undefined}
           style={{ fontSize: 12, color: investMonthly !== null ? (investMonthly >= 0 ? C.red : C.green) : C.sub, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}
         >
@@ -2916,6 +2919,7 @@ function YearSection({
     <div style={{ marginBottom: 4 }}>
       <button
         onClick={() => setExpanded((o) => !o)}
+        className="history-summary"
         style={{
           width: '100%', display: 'grid', gridTemplateColumns: HISTORY_GRID_COLUMNS,
           alignItems: 'center', padding: '12px 10px', borderRadius: 10, border: 'none',
@@ -2923,13 +2927,14 @@ function YearSection({
           textAlign: 'left', transition: 'background-color 0.15s',
         }}
       >
-        <span style={{ fontSize: 14, fontWeight: 700, color: expanded ? C.blue : '#202124' }}>{year} {expanded ? '▼' : '▶'}</span>
-        <span title={`¥${formatCurrency(totalIncome)}`} style={{ fontSize: 13, color: C.red,   fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>+{formatCompactAmount(totalIncome)}</span>
-        <span title={`¥${formatCurrency(totalExpense)}`} style={{ fontSize: 13, color: C.green,  fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>-{formatCompactAmount(totalExpense)}</span>
-        <span title={formatSignedCurrency(surplus)} style={{ fontSize: 13, fontWeight: 600, color: surplus >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+        <span data-label="年份" style={{ fontSize: 14, fontWeight: 700, color: expanded ? C.blue : '#202124' }}>{year} {expanded ? '▼' : '▶'}</span>
+        <span data-label="收入" title={`¥${formatCurrency(totalIncome)}`} style={{ fontSize: 13, color: C.red,   fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>+{formatCompactAmount(totalIncome)}</span>
+        <span data-label="支出" title={`¥${formatCurrency(totalExpense)}`} style={{ fontSize: 13, color: C.green,  fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>-{formatCompactAmount(totalExpense)}</span>
+        <span data-label="结余" title={formatSignedCurrency(surplus)} style={{ fontSize: 13, fontWeight: 600, color: surplus >= 0 ? C.red : C.green, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
           {surplus >= 0 ? '+' : '-'}{formatCompactAmount(surplus)}
         </span>
         <span
+          data-label="存下"
           title="本年各月存下合计"
           style={{ fontSize: 12, fontWeight: 600, color: yearSavedAmount !== null ? (yearSavedAmount >= 0 ? C.red : C.green) : C.sub, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}
         >
@@ -2937,6 +2942,7 @@ function YearSection({
         </span>
         <span
           role="button"
+          data-label={yearProfitMode === 'rate' ? '收益率' : '收益'}
           tabIndex={0}
           aria-label={yearProfitMode === 'rate' ? `${year}年年化收益率` : `${year}年收益金额`}
           title={yearProfitMode === 'rate' ? '点击切换为收益金额' : '点击切换为收益率'}
@@ -3458,7 +3464,7 @@ export default function CalendarPage() {
           ))}
         </div>
       )}
-      <div style={{ display: 'grid', gridTemplateColumns: HISTORY_GRID_COLUMNS, padding: '6px 10px', fontSize: 11, color: C.sub, fontWeight: 500 }}>
+      <div className="history-grid-heading" style={{ display: 'grid', gridTemplateColumns: HISTORY_GRID_COLUMNS, padding: '6px 10px', fontSize: 11, color: C.sub, fontWeight: 500 }}>
         <span>年/月</span>
         <span style={{ textAlign: 'right' }}>收入</span>
         <span style={{ textAlign: 'right' }}>支出</span>
@@ -3605,8 +3611,6 @@ export default function CalendarPage() {
           <div style={{
             position: 'sticky', top: 0, zIndex: 10,
             backgroundColor: '#f0f2f5',
-            marginLeft: -16, marginRight: -16,
-            paddingLeft: 16, paddingRight: 16,
             paddingTop: 8, paddingBottom: 8,
             marginBottom: 6,
           }}>
@@ -3999,10 +4003,10 @@ export default function CalendarPage() {
               <span><span style={{ marginRight: 3, borderRadius: 4, padding: '1px 3px', backgroundColor: HOLIDAY_COLORS.off.background, color: HOLIDAY_COLORS.off.color, fontWeight: 700 }}>休</span>法定节假日</span>
               <span><span style={{ marginRight: 3, borderRadius: 4, padding: '1px 3px', backgroundColor: HOLIDAY_COLORS.work.background, color: HOLIDAY_COLORS.work.color, fontWeight: 700 }}>班</span>调休上班</span>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, textAlign: 'center', fontSize: 11, marginBottom: 4, fontWeight: 500 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 4, textAlign: 'center', fontSize: 11, marginBottom: 4, fontWeight: 500 }}>
               {WEEK_HEADERS.map((w, i) => <div key={w} style={{ color: (i === 5 || i === 6) ? C.weekend : C.sub }}>{w}</div>)}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 4 }}>
               {cells.map((cell) => {
                 if (cell.day === null) return <div key={cell.key} style={{ aspectRatio: '1' }} />;
                 const tag = tagMap[cell.key];
@@ -4060,12 +4064,12 @@ export default function CalendarPage() {
                     onMouseEnter={() => { if (selectMode === 'range' && rangeStart) setRangeHover(cell.key); }}
                     aria-label={`${cell.key}${weatherTitle ? `，${weatherTitle}` : ''}${holidayMarker ? `，${holiday?.name ?? '法定节假日'}，${holidayMarker === '休' ? '休假' : '调休上班'}` : ''}`}
                     title={[holidayMarker ? `${holiday?.name ?? '法定节假日'} · ${holidayMarker === '休' ? '休假' : '调休上班'}` : '', weatherTitle].filter(Boolean).join('；') || undefined}
-                    style={{ aspectRatio: '1', fontSize: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: borderStyle, backgroundColor, color: textColor, cursor: 'pointer', fontWeight: 500, transition: 'all 0.1s', outline: 'none', position: 'relative', ...radiusStyle }}
+                    style={{ aspectRatio: '1', width: '100%', minWidth: 0, minHeight: 48, fontSize: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: borderStyle, backgroundColor, color: textColor, cursor: 'pointer', fontWeight: 500, transition: 'all 0.1s', outline: 'none', position: 'relative', ...radiusStyle }}
                   >
                     {connect?.right && (
                       <span style={{ position: 'absolute', right: -5, top: 0, bottom: 0, width: 5, backgroundColor: `${travelColor}20`, pointerEvents: 'none', zIndex: 1 }} />
                     )}
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                    <span style={{ display: 'inline-flex', flexWrap: 'wrap', justifyContent: 'center', maxWidth: '100%', alignItems: 'center', gap: 2 }}>
                       {cell.day}
                       <span aria-hidden="true" style={{ display: 'inline-flex', fontSize: 11, lineHeight: 1, opacity: weatherEntries.some((entry) => entry.stale) ? .5 : 1 }}>
                         {weatherEntries.slice(0, 2).map((entry, index) => <span key={index}>{weatherSymbol(entry.weather?.code)?.icon}</span>)}

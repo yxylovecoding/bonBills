@@ -25,7 +25,7 @@ export default function SchoolPeriods({ periods, onChange, onEditingChange }: {
     {draft && <div className="inline-editor" style={{ marginTop: 8 }}>
       <div className="inline-editor-body">
       <SceneCityFields value={{ schoolCity: draft.city }} onChange={value => setDraft({ ...draft, city: value.schoolCity ?? null })} onlySchool presets={presets} />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
         <label style={{ fontSize: 12 }}>开始月份<input aria-label="上学开始月份" style={input} type="month" value={draft.startMonth} onChange={event => setDraft({ ...draft, startMonth: event.target.value })} /></label>
         <label style={{ fontSize: 12 }}>结束月份<input aria-label="上学结束月份" style={input} type="month" value={draft.endMonth} onChange={event => setDraft({ ...draft, endMonth: event.target.value })} /></label>
       </div>

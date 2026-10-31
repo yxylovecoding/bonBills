@@ -290,7 +290,7 @@ function RebalanceSettingsModal({
         <div style={{ padding: '20px 20px 12px' }}>
           <div style={{ fontSize: 16, fontWeight: 700 }}>设置</div>
         </div>
-        <div style={{ padding: '0 20px 4px' }}>
+        <div className="reconcile-settings-body" style={{ padding: '0 20px 4px' }}>
           <label className="reconcile-settings-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 12, fontSize: 13, fontWeight: 700 }}>
             <span>涨薪的一半存起来</span>
             <input type="checkbox" role="switch" aria-label="涨薪的一半存起来" checked={raiseSettingsDraft.enabled}

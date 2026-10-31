@@ -17,7 +17,7 @@ export default function Card({ title, subtitle, headerAction, children, classNam
   const isCollapsed = collapsible && collapsed;
   return (
     <section
-      className={className}
+      className={`app-card ${className}`}
       style={{
         backgroundColor: '#ffffff',
         borderRadius: 16,
@@ -29,6 +29,7 @@ export default function Card({ title, subtitle, headerAction, children, classNam
     >
       {showHeader && (
         <div
+          className="app-card-heading"
           onClick={collapsible ? () => setCollapsed((v) => !v) : undefined}
           style={{
             display: 'flex',

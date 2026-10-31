@@ -19,25 +19,23 @@ export default function Layout() {
     <div
       style={{ minHeight: '100vh', backgroundColor: '#f0f2f5', color: '#202124' }}
     >
-      <SyncIndicator />
       {syncReady && <AutoPossessionImporter />}
       {syncReady && <AutoFundBuySync />}
       <BillDropImporter />
       <div
+        className="app-content"
         style={{
           maxWidth: isHomePage ? 720 : isCalendarPage ? 944 : isWishesPage ? 1200 : 480,
           width: '100%',
           margin: '0 auto',
           minHeight: '100vh',
-          paddingBottom: 80,
-          paddingLeft: 16,
-          paddingRight: 16,
-          paddingTop: 20,
           boxSizing: 'border-box',
-          overflowX: 'clip',
         }}
       >
-        {isHomePage && <div className="app-install-toolbar"><InstallApp app="bills" /></div>}
+        <div className="app-status-toolbar">
+          {isHomePage && <InstallApp app="bills" />}
+          <SyncIndicator />
+        </div>
         <Outlet />
       </div>
       <Nav />

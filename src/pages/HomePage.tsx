@@ -51,7 +51,7 @@ import {
 import { version as APP_VERSION } from '../../package.json';
 import { useSyncStatus } from '../utils/syncStatus';
 // 本版改动概括（≤6 字），随每次迭代更新
-const RELEASE_NOTE = '子行程归并';
+const RELEASE_NOTE = '手机显示修复';
 const C = { blue: '#1a73e8', red: '#ea4335', green: '#0d9488', purple: '#7c3aed', sub: '#5f6368', orange: '#e8710a' };
 const DEFAULT_TAX_RULE_TEXT = TAX_RULE_PRESETS[0].text;
 const MIN_INVEST_ANNUAL_GROWTH_RATE = -0.99;
@@ -797,6 +797,7 @@ export default function HomePage() {
         ] as const).map((row) => (
           <div
             key={row.key}
+            className="home-investment-summary"
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -806,7 +807,7 @@ export default function HomePage() {
             }}
           >
             <span style={{ color: C.sub, flexShrink: 0 }}>{row.label}</span>
-            <span style={{ flex: 1, display: 'inline-flex', alignItems: 'baseline', gap: 8, fontWeight: 500, fontVariantNumeric: 'tabular-nums', minWidth: 0 }}>
+            <span className="home-investment-value" style={{ flex: 1, display: 'inline-flex', alignItems: 'baseline', gap: 8, fontWeight: 500, fontVariantNumeric: 'tabular-nums', minWidth: 0 }}>
               {row.income === null
                 ? <span style={{ color: C.sub }}>—</span>
                 : <CurrencyDisplay value={row.income} color={row.income >= 0 ? C.red : C.green} />}
@@ -814,7 +815,7 @@ export default function HomePage() {
                 <span className="rate-label-prefix">{row.rateLabel} </span>{row.rateValue}
               </span>
             </span>
-            <span style={{ flexShrink: 0, minWidth: 140, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+            <span className="home-investment-benchmark" style={{ flexShrink: 0, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
               {renderSp500Cell(row.diff)}
             </span>
           </div>

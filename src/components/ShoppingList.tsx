@@ -53,7 +53,7 @@ export default function ShoppingList({ items, onChange, onBack }: ShoppingListPr
   return (
     <div className="wishes-page-shell">
       <div className="wishes-page-content">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, marginBottom: 16 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, marginBottom: 16 }}>
           <div className="wish-subpage-heading">
             <button type="button" onClick={onBack} className="wish-text-button">← 返回心愿</button>
             <h1>购物清单</h1>
@@ -94,7 +94,7 @@ export default function ShoppingList({ items, onChange, onBack }: ShoppingListPr
                     <input aria-label={`${item.name || '商品'}备注或链接`} value={item.note ?? ''} onChange={(event) => updateItem(item.id, { note: event.target.value })} placeholder="备注或商品链接（可选）" style={{ width: '100%', boxSizing: 'border-box', marginTop: 8, border: 'none', borderBottom: '1px solid #e5e7eb', outline: 'none', padding: '6px 2px', fontSize: 11, color: COLORS.sub }} />
                     <button type="button" onClick={() => setExpandedId(expanded ? null : item.id)} style={{ border: 'none', background: 'transparent', color: COLORS.purple, padding: '9px 0 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{expanded ? '收起价格记录' : `价格记录 (${item.priceHistory.length})`}</button>
                     {expanded && <div style={{ marginTop: 8, borderTop: '1px dashed #ddd6fe', paddingTop: 8 }}>
-                      {item.priceHistory.map((record) => <div key={record.id} style={{ display: 'grid', gridTemplateColumns: '110px 90px minmax(0, 1fr) auto', gap: 6, marginBottom: 6 }}>
+                      {item.priceHistory.map((record) => <div key={record.id} className="shopping-price-row">
                         <input type="date" aria-label="好价日期" value={record.date} onChange={(event) => updatePrice(item, record.id, { date: event.target.value })} style={{ minWidth: 0, border: '1px solid #e5e7eb', borderRadius: 7, padding: '5px', fontSize: 10 }} />
                         <AmountInput aria-label="好价金额" value={record.price ? String(record.price) : ''} onChange={(raw) => updatePrice(item, record.id, { price: Math.max(Number(raw) || 0, 0) })} placeholder="价格" style={{ minWidth: 0, width: '100%', boxSizing: 'border-box', border: '1px solid #e5e7eb', borderRadius: 7, padding: '5px', fontSize: 10 }} />
                         <input aria-label="好价备注" value={record.note ?? ''} onChange={(event) => updatePrice(item, record.id, { note: event.target.value })} placeholder="平台 / 活动" style={{ minWidth: 0, border: '1px solid #e5e7eb', borderRadius: 7, padding: '5px', fontSize: 10 }} />
