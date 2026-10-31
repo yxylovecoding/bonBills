@@ -146,6 +146,23 @@ describe('本月出游自动创建并关联心愿', () => {
 });
 
 describe('心愿按账单标签统计实际支出', () => {
+  it('绑定山西全程后包含大同与临汾子行程支出，只显示主标签且同笔不重复', () => {
+    const parent = '26.10山西大同&临汾';
+    const dates = ['2026-10-27', '2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31'];
+    const trips = [{ startDate: dates[0], endDate: dates[4], dates }];
+    const tags = [parent, '26.10山西大同', '26.10山西临汾', `${parent},26.10山西临汾`];
+    const expenses = { '2026-10': tags.map((tag, index): BillExpenseItem => ({
+      date: dates[index], amount: 100, tags: `消费,${tag}`, category: '旅行', subcategory: '', note: '', account: '银行卡',
+    })) };
+    const [resolved] = resolveWishBillSpending([wish({ linkedTripStartDate: dates[0], billTags: tags.slice(0, 3) })],
+      trips, { [dates[0]]: parent }, expenses, '2026-11-01');
+    expect(resolved.billSpending).toMatchObject({ amount: 400, count: 4, tags: [parent], ended: true });
+    expect(resolved.targetAmount).toBe(400);
+    const [auto] = resolveWishBillSpending([wish({ linkedTripStartDate: dates[0] })],
+      trips, { [dates[0]]: parent }, expenses, '2026-11-01');
+    expect(auto.billSpending).toMatchObject({ amount: 400, count: 4, tags: [parent] });
+  });
+
   const tripTags = { '2026-09-30': '26.9.30 旅行', '2026-10-02': '26.10.2 郊游' };
   const trips = detectAllTrips({
     '2026-09-30': 'travel', '2026-10-01': 'travel',

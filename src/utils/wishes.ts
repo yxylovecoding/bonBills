@@ -3,7 +3,7 @@ import { wishRequiredIncome } from './wishRaiseSavings';
 import type { TagKind, WishExtraExpenseItem, WishItem } from '../models/types';
 import { roundToSitePrecision } from './numberInput';
 import type { BillExpenseItem, BillExpenseMonth } from './importBill';
-import { flattenExpenseItems, sumBillsByTag, SYSTEM_BILL_TAGS, tagYearMonthPrefix, type TripSegment } from './trips';
+import { collapseTripTags, flattenExpenseItems, sumBillsByTag, SYSTEM_BILL_TAGS, tagYearMonthPrefix, type TripSegment } from './trips';
 import { getTripDisplayTitle } from './outlookCalendar';
 
 export const POST_LIFE_FLEXIBLE_SHARE = 0.5;
@@ -178,12 +178,12 @@ export function resolveWishBillSpending(
     const tripMonths = new Set(trip?.dates.map((date) => `${date.slice(2, 4)}.${Number(date.slice(5, 7))}`));
     const name = wish.name.trim();
     const exactTag = allTags.find((tag) => tag === name && !SYSTEM_BILL_TAGS.has(tag));
-    const tags = wish.billTags !== undefined ? wishBillTags(wish, tripTags) : wish.billTag === null ? [] : selectedTag ? [selectedTag] : exactTag ? [exactTag] : allTags.filter((tag) => {
+    const tags = collapseTripTags(wish.billTags !== undefined ? wishBillTags(wish, tripTags) : wish.billTag === null ? [] : selectedTag ? [selectedTag] : exactTag ? [exactTag] : allTags.filter((tag) => {
       if (!name || SYSTEM_BILL_TAGS.has(tag)) return false;
       const tagMonth = tagYearMonthPrefix(tag);
       return wishTagName(tag) === wishTagName(name)
         && (!trip || !tagMonth || tripMonths.has(tagMonth));
-    });
+    }));
     const items = [...new Set(tags.flatMap((tag) => {
       let summary = summaries.get(tag);
       if (!summary) {

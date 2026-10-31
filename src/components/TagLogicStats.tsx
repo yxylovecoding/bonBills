@@ -4,7 +4,7 @@ import { usePossessionStore } from '../stores/possessionStore';
 import type { BillExpenseItem } from '../utils/importBill';
 import { isMajorExcludedTag } from '../utils/tagCategory';
 import { compileTagLogic, formatTagReference } from '../utils/tagLogic';
-import { isDailyTripTagFormat } from '../utils/trips';
+import { collapseTripTags, createTripTagMatcher, isDailyTripTagFormat } from '../utils/trips';
 import { formatCurrency } from './CurrencyDisplay';
 
 const formatBillCurrency = (amount: number) => `${amount < 0 ? '−' : ''}¥${formatCurrency(amount)}`;
@@ -136,12 +136,19 @@ export default function TagLogicStats({ items, initialTags = [], compact = false
   const creditCardCount = accountOptions.find(({ account }) => account === '信用卡')?.count ?? 0;
   const selectedAccountLabel = selectedAccounts.length === 0 ? '全部账户' : selectedAccounts.join('、');
 
+  const tripTagLabels = useMemo(() => {
+    const tags = [...new Set(items.flatMap(getStatisticTags))];
+    const roots = new Set(collapseTripTags(tags));
+    const matchers = [...roots].map((tag) => ({ tag, matches: createTripTagMatcher(tag) }));
+    return new Map(tags.filter((tag) => !roots.has(tag))
+      .map((tag) => [tag, matchers.filter(({ matches }) => matches(tag)).map((parent) => parent.tag)]));
+  }, [items]);
   const tagOptions = useMemo(() => {
     const counts = new Map<string, number>();
     let lifeCount = 0;
     for (const item of accountFilteredItems) {
       const tags = getStatisticTags(item);
-      for (const tag of tags) {
+      for (const tag of new Set(tags.flatMap((tag) => tripTagLabels.get(tag) ?? [tag]))) {
         counts.set(tag, (counts.get(tag) ?? 0) + 1);
       }
       if (item.transactionType !== '收入' && (tags.includes('周期生活') || tags.includes('波动生活'))) {
@@ -152,7 +159,7 @@ export default function TagLogicStats({ items, initialTags = [], compact = false
     return [...counts.entries()]
       .map(([tag, count]) => ({ tag, count }))
       .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag, 'zh-CN'));
-  }, [accountFilteredItems]);
+  }, [accountFilteredItems, tripTagLabels]);
 
   const expression = useMemo(
     () => logicParts.map((part) => part.kind === 'tag' ? formatTagReference(part.value) : part.value).join(' '),

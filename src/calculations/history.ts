@@ -6,6 +6,7 @@ import { normalizeConfirmedSelection } from '../stores/calendarStore';
 import type { ExpenseScopeOverrides } from '../stores/expenseScopeOverrideStore';
 import { getMonthlySavedAmount } from '../utils/monthlyMetrics';
 import { resolveExpenseScope } from '../stores/expenseScopeOverrideStore';
+import { createTripTagMatcher } from '../utils/trips';
 
 // ── Ridge 回归（正规方程 + 对角正则化，避免奇异）────────────────
 function ridgeSolve(X: number[][], y: number[], lambda = 0.1): number[] {
@@ -94,6 +95,7 @@ function buildConfirmedAggregatesByMonth(
   overrides: ExpenseScopeOverrides,
   tripTagSet: Set<string>,
 ): MonthConfirmed[] {
+  const tripTagMatchers = [...tripTagSet].map(createTripTagMatcher);
   return records.map((r) => {
     const out: MonthConfirmed = {
       dailyLocalLife: {},
@@ -141,7 +143,7 @@ function buildConfirmedAggregatesByMonth(
         const isPeriodicLife = tagList.includes('周期生活');
         const isLife = isPeriodicLife || tagList.includes('波动生活');
         const isCons = tagList.includes('消费');
-        const localState: TagKind = travelSet.has(id) || tagList.some((t) => tripTagSet.has(t)) ? 'travel' : state;
+        const localState: TagKind = travelSet.has(id) || tripTagMatchers.some((matches) => tagList.some(matches)) ? 'travel' : state;
 
         if (isLife) {
           // 优先级：override > 显式 local/shared > 旧数据 reviewed 兜底 > 残差

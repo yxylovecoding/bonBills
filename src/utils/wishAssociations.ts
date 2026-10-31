@@ -1,12 +1,12 @@
 import type { WishItem } from '../models/types';
-import type { TripSegment } from './trips';
+import { collapseTripTags, type TripSegment } from './trips';
 import type { OutlookWishEvent } from './outlookCalendar';
 export const uniqueStrings = (values: readonly (string | null | undefined)[]) => [...new Set(values.filter((v): v is string => typeof v === 'string' && !!v.trim()).map((v) => v.trim()))];
 export function wishTripStarts(wish: WishItem): string[] { return uniqueStrings([wish.linkedTripStartDate, ...(wish.linkedTripStartDates ?? [])]); }
 export function wishBillTags(wish: WishItem, tripTags: Record<string, string>, resolvedTags: readonly string[] = []): string[] {
-  if (wish.billTags !== undefined) return uniqueStrings(wish.billTags);
+  if (wish.billTags !== undefined) return collapseTripTags(uniqueStrings(wish.billTags));
   if (wish.billTag !== undefined) return wish.billTag === null ? [] : uniqueStrings([wish.billTag]);
-  return uniqueStrings([...wishTripStarts(wish).map((start) => tripTags[start]), ...resolvedTags]);
+  return collapseTripTags(uniqueStrings([...wishTripStarts(wish).map((start) => tripTags[start]), ...resolvedTags]));
 }
 export function wishAssociationStatus(wish: WishItem, trips: readonly TripSegment[], events: readonly OutlookWishEvent[], tripTags: Record<string, string>, resolvedTags: readonly string[] = []) {
   const starts = wishTripStarts(wish), tags = wishBillTags(wish, tripTags, resolvedTags);

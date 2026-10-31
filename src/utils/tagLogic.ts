@@ -1,3 +1,5 @@
+import { createTripTagMatcher } from './trips';
+
 type TagPredicate = (tags: ReadonlySet<string>) => boolean;
 
 type LogicToken =
@@ -118,9 +120,10 @@ export function compileTagLogic(source: string): CompiledTagLogic {
       if (token.kind === 'tag') {
         cursor += 1;
         const aliases = TAG_ALIASES[token.value];
+        const matches = createTripTagMatcher(token.value);
         return aliases
           ? (tags) => aliases.some((tag) => tags.has(tag))
-          : (tags) => tags.has(token.value);
+          : (tags) => tags.has(token.value) || [...tags].some(matches);
       }
       if (token.kind === 'leftParen') {
         cursor += 1;
