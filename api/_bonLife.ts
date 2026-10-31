@@ -2,6 +2,7 @@ import ICAL from 'ical.js';
 import { kv } from './_accountKv.js';
 import { fetchCalendar, parseOutlookCalendar, decryptOutlookConnection } from './_outlookCalendar.js';
 import { periodDays, reconcilePeriodEvents, type PeriodEvent } from '../src/utils/bonLife.js';
+import { isPeriodCalendarTitle } from '../src/utils/outlookCalendar.js';
 
 export const LIFE_CONNECTION_KEY = 'bonlife:outlook-connection:v1';
 export interface LifeConnection { id: string; encrypted: string }
@@ -27,7 +28,7 @@ export function parsePeriodCalendar(text: string, year: number) {
   const root = new ICAL.Component(ICAL.parse(text));
   const seenUids = root.getAllSubcomponents('vevent').map((event) => String(event.getFirstPropertyValue('uid') || '')).filter(Boolean);
   const localDay = (instant: number) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date(instant));
-  return { seenUids, events: events.filter((event) => /月经|🩸/u.test(event.title)).map((event) => {
+  return { seenUids, events: events.filter((event) => isPeriodCalendarTitle(event.title)).map((event) => {
     if (!event.uid) throw new Error('日程标识缺失');
     if (event.allDay) return { uid: event.uid, startDate: event.startDate, endDate: event.endDate };
     // Store every Shanghai date touched by a timed event using the same

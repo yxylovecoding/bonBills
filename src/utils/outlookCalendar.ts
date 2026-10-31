@@ -24,6 +24,10 @@ export interface OutlookRules {
 
 export const DEFAULT_OUTLOOK_RULES: OutlookRules = { homeTitles: ['🏠'], ignoredPlayTitles: ['新卡池', '新卡池&新月卡'] };
 
+export function isPeriodCalendarTitle(title: string): boolean {
+  return /月经|🩸/u.test(title);
+}
+
 // Match holiday/break reminders exactly, leaving actual trips such as 平遥电影节 or 寒假旅行 intact.
 const HOLIDAY_REMINDER_TITLES = new Set([
   '寒假', '暑假',
@@ -48,7 +52,8 @@ export function normalizeOutlookWishEvents(input: unknown): OutlookWishEvent[] {
     && typeof event.uid === 'string' && !!event.uid.trim()
     && ['play', 'class', 'work', 'calendar'].includes(event.calendar)
     && (event.recurrenceId === undefined || typeof event.recurrenceId === 'string')
-    && typeof event.title === 'string' && isCalendarDate(event.startDate) && isCalendarDate(event.endDate)
+    && typeof event.title === 'string' && !isPeriodCalendarTitle(event.title)
+    && isCalendarDate(event.startDate) && isCalendarDate(event.endDate)
     && event.startDate < event.endDate)
     .map((event) => { const key = JSON.stringify([event.calendar, event.uid, event.recurrenceId ?? '']); return [key, { ...event, key }]; })).values()];
 }
@@ -102,7 +107,7 @@ export function buildOutlookSnapshot(
   for (const event of events) {
     if (!event.allDay || event.cancelled) continue;
     const title = event.title.trim();
-    if (HOLIDAY_REMINDER_TITLES.has(title)) continue;
+    if (HOLIDAY_REMINDER_TITLES.has(title) || isPeriodCalendarTitle(title)) continue;
     const isClassLike = event.calendar === 'class' || event.calendar === 'work';
     const tag: OutlookTag | null = isClassLike
       ? (title === '实习' ? 'intern' : 'travel')
@@ -126,6 +131,11 @@ export function buildOutlookSnapshot(
 export function normalizeOutlookTravelTitles(input: unknown): Record<string, string> {
   if (!input || typeof input !== 'object') return {};
   return Object.fromEntries(Object.entries(input).filter(([day, title]) => isCalendarDate(day) && typeof title === 'string' && title.trim()).map(([day, title]) => [day, (title as string).trim()]));
+}
+
+// Older snapshots joined all event titles with 、, including period reminders.
+function withoutPeriodTitles(title: string): string {
+  return title.split('、').map((part) => part.trim()).filter((part) => part && !isPeriodCalendarTitle(part)).join('、');
 }
 
 export function getTripDisplayTitle(billTag: string | undefined, dates: string[], travelTitles: Record<string, string>): string {
@@ -192,9 +202,37 @@ export function normalizeOutlookCalendarState(state: Record<string, unknown>) {
 export function applyOutlookSnapshotToState(state: Record<string, unknown>, snapshot: OutlookSnapshot, policy: OutlookConflictPolicy,
   today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date())) {
   const source = normalizeOutlookCalendarState(state);
-  const tagMap = state.tagMap && typeof state.tagMap === 'object' ? state.tagMap as Record<string, TagKind> : {};
-  const next = reconcileOutlookSnapshot(tagMap, source.outlookApplied, source.manualTagDates, snapshot, policy, today);
+  const tagMap = state.tagMap && typeof state.tagMap === 'object' ? { ...state.tagMap } as Record<string, TagKind> : {};
   const outlookTravelTitles = normalizeOutlookTravelTitles(state.outlookTravelTitles);
+  for (const [day, title] of Object.entries(outlookTravelTitles)) {
+    const cleaned = withoutPeriodTitles(title);
+    if (cleaned) outlookTravelTitles[day] = cleaned;
+    else {
+      delete outlookTravelTitles[day];
+      const previous = source.outlookApplied[day];
+      // Explicit title evidence can repair past misclassification, even after the
+      // feed window moves on. Never infer cancellation from an absent past event.
+      if (previous?.tag !== 'travel') continue;
+      if (tagMap[day] === previous.tag) {
+        if (previous.previousTag && previous.previousTag !== 'travel') tagMap[day] = previous.previousTag;
+        else delete tagMap[day];
+        delete source.manualTagDates[day];
+      }
+      delete source.outlookApplied[day];
+    }
+  }
+  // Saved server snapshots are also replayed over browser uploads. Sanitize them
+  // before reconciliation so an older cache cannot put the period trip back.
+  snapshot = { ...snapshot, tags: { ...snapshot.tags }, travelTitles: normalizeOutlookTravelTitles(snapshot.travelTitles) };
+  for (const [day, title] of Object.entries(snapshot.travelTitles!)) {
+    const cleaned = withoutPeriodTitles(title);
+    if (cleaned) snapshot.travelTitles![day] = cleaned;
+    else {
+      delete snapshot.travelTitles![day];
+      if (snapshot.tags[day] === 'travel') delete snapshot.tags[day];
+    }
+  }
+  const next = reconcileOutlookSnapshot(tagMap, source.outlookApplied, source.manualTagDates, snapshot, policy, today);
   for (const day of Object.keys(outlookTravelTitles)) {
     if (day >= snapshot.startDate && day < snapshot.endDate && (day >= today || snapshot.tags[day])) delete outlookTravelTitles[day];
   }

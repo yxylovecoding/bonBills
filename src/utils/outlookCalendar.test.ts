@@ -33,6 +33,59 @@ describe('订阅窗口移走后的历史留存', () => {
 });
 
 describe('Outlook 月历映射', () => {
+  it.each(['play', 'class', 'calendar', 'work'] as const)('%s 的经期全天日程不生成出行或心愿，旧连接规则同样生效', (calendar) => {
+    for (const title of ['🩸', '月经', ' 月经第 2 天 ', '预计月经', '预测🩸', '预估月经结束']) {
+      const result = buildOutlookSnapshot([
+        event({ calendar, uid: 'period', title, startDate: start, endDate: end }),
+      ], start, end, { homeTitles: ['🏠'], ignoredPlayTitles: [] });
+      expect(result.tags).toEqual({});
+      expect(result.travelTitles).toEqual({});
+      expect(result.wishEvents ?? []).toEqual([]);
+    }
+  });
+
+  it('经期不覆盖在家或实习，不延长同一天的真实旅行', () => {
+    const result = snapshot([
+      event({ uid: 'period', title: '预计🩸月经', startDate: start, endDate: end }),
+      event({ title: '🏠', startDate: '2026-09-01', endDate: '2026-09-02' }),
+      event({ calendar: 'class', title: '实习', startDate: '2026-09-02', endDate: '2026-09-03' }),
+      event({ uid: 'trip', title: '杭州' }),
+    ]);
+    expect(result.tags).toEqual({ '2026-09-01': 'home', '2026-09-02': 'intern', '2026-09-22': 'travel' });
+    expect(result.travelTitles).toEqual({ '2026-09-22': '杭州' });
+    expect(result.wishEvents?.map(({ uid }) => uid)).toEqual(['trip']);
+  });
+
+  it('清理历史经期误标并恢复原场景，保留真实旅行和手动修改，旧缓存重放也不复发', () => {
+    const old = {
+      tagMap: { '2026-09-01': 'travel', '2026-09-02': 'travel', '2026-09-03': 'travel', '2026-09-04': 'home', '2026-09-05': 'travel' },
+      outlookApplied: {
+        '2026-09-01': { tag: 'travel', previousTag: 'school' },
+        '2026-09-02': { tag: 'travel', previousTag: null },
+        '2026-09-03': { tag: 'travel', previousTag: 'intern' },
+        '2026-09-04': { tag: 'travel', previousTag: 'school' },
+      },
+      manualTagDates: { '2026-09-04': true, '2026-09-05': true },
+      outlookTravelTitles: { '2026-09-01': '预计月经', '2026-09-02': '🩸', '2026-09-03': '杭州、🩸', '2026-09-04': '月经' },
+      outlookWishEvents: [
+        { key: '', uid: 'old-period', calendar: 'play', title: '月经', startDate: '2026-08-01', endDate: '2026-08-06' },
+        { key: '', uid: 'old-trip', calendar: 'play', title: '杭州', startDate: '2026-08-03', endDate: '2026-08-04' },
+      ],
+    };
+    const cached = { startDate: start, endDate: end,
+      tags: { '2026-09-01': 'travel', '2026-09-02': 'travel', '2026-09-03': 'travel', '2026-09-04': 'travel' } as const,
+      travelTitles: old.outlookTravelTitles };
+    const original = JSON.stringify(old);
+    const corrected = applyOutlookSnapshotToState(old, cached, 'manual', '2026-10-31');
+    expect(corrected.tagMap).toEqual({ '2026-09-01': 'school', '2026-09-03': 'travel', '2026-09-04': 'home', '2026-09-05': 'travel' });
+    expect(corrected.outlookApplied).toEqual({ '2026-09-03': { tag: 'travel', previousTag: 'intern' } });
+    expect(corrected.outlookTravelTitles).toEqual({ '2026-09-03': '杭州' });
+    expect(corrected.outlookWishEvents.map(({ uid }) => uid)).toEqual(['old-trip']);
+    expect(corrected.manualTagDates).toEqual(old.manualTagDates);
+    expect(applyOutlookSnapshotToState(corrected, cached, 'manual', '2026-10-31')).toEqual(corrected);
+    expect(JSON.stringify(old)).toBe(original);
+  });
+
   it.each([
     ['play', '寒假'], ['play', '暑假'], ['class', '寒假'], ['class', '暑假'],
   ] as const)('%s 日历的 %s 不标记出游或保留出游标题，旧连接规则同样生效', (calendar, title) => {
