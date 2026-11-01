@@ -85,11 +85,11 @@ describe('实录金额与在途核对', () => {
       expect(alipayActualBasis(fund, {}, [...buys, extra])).toMatchObject({ shares: null, costTotal: null, needsReview: true });
     }
   });
-  it('买入中和卖出未到账同时扣除，撤销卖出不再扣一次', () => {
+  it('买入待确认金额从持有金额中拆出，待确认卖出在确认前不扣减', () => {
     const sell: AlipayActualOrder = { ...order, id: 'redemption', side: 'sell', quantity: 25.8 };
     const result = alipayActualBasis(fund, {}, [...buys, sell, { ...sell }, { ...sell, id: 'cancelled', status: 'cancelled', unit: 'shares' }]);
-    expect(result).toMatchObject({ pendingBuy: 20, pendingSell: 25.8, confirmedAmount: 77.4, shares: 60, costTotal: 72.2, needsReview: false });
-    expect(result.costPrice).toBeCloseTo(1.20333333, 8);
+    expect(result).toMatchObject({ pendingBuy: 20, pendingSell: 25.8, confirmedAmount: 103.2, shares: 80, costTotal: 98, needsReview: false });
+    expect(result.costPrice).toBeCloseTo(1.225, 8);
   });
   it('自动查询的净值可补全份额，但实录净值和份额始终优先', () => {
     const quote = { code: fund.code, nav: 1.29, date: '2026-10-09' };

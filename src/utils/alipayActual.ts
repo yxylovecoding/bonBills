@@ -181,8 +181,9 @@ export function alipayActualBasis(fund: AlipayActualFund, items: InvestPositionI
   const pendingSell = pending.filter((order) => order.side === 'sell' && order.unit === 'CNY')
     .reduce((sum, order) => sum + Math.round(order.quantity * 100), 0) / 100;
   // Missing manual verification is not missing data: use the recorded orders and label the result 推算.
+  // Pending buys are already included in Alipay's displayed amount, while pending sells are not deducted until confirmation.
   const amount = finite(fund.confirmedAmount) ?? (fund.amountKind === 'confirmed' ? fund.totalAmount
-    : !unavailable ? Math.round((fund.totalAmount - pendingBuy - pendingSell) * 100) / 100 : null);
+    : !unavailable ? Math.round((fund.totalAmount - pendingBuy) * 100) / 100 : null);
   const confirmedAmount = amount !== null && amount >= 0 ? amount : null;
   const quote = automaticNav?.code === fund.code ? automaticNav : undefined;
   const nav = finite(fund.nav ?? quote?.nav);
