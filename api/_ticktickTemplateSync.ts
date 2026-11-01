@@ -56,8 +56,10 @@ export async function syncTickTickTemplates(api: TickTickOpenApiClient, rootId: 
       if (changed[0] !== changed[1]) source = changed[0] ? 0 : 1;
       else {
         const times = pairTasks.map(modified);
-        if (!times.every(Number.isFinite) || times[0] === times[1]) { conflicts.push(key); continue; }
-        source = times[0] > times[1] ? 0 : 1;
+        if (!times.every(Number.isFinite) || times[0] === times[1]) {
+          if (pair.baseline) { conflicts.push(key); continue; }
+          source = 0; // bon approved travel as the initial fallback on 2026-11-01.
+        } else source = times[0] > times[1] ? 0 : 1;
       }
       const target = 1 - source, task = pairTasks[target], value = values[source];
       const fresh = await api.getTask(task.projectId, task.id);

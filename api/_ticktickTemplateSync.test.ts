@@ -40,3 +40,10 @@ it('rejects ambiguous and missing matches before writes', async () => {
   m.tasks.push(make('duplicate', '📦🪥漱', 'b'));
   await expect(syncTickTickTemplates(api, 'travel', 'conn')).rejects.toThrow('多个匹配'); expect(updateTask).not.toHaveBeenCalled();
 });
+
+it('initializes differences from travel when timestamps are unavailable, as explicitly authorized', async () => {
+  m.tasks.find(t => t.id === 'a0')!.content = 'travel';
+  m.tasks.find(t => t.id === 'b0')!.content = 'moving';
+  await syncTickTickTemplates(api, 'travel', 'conn');
+  expect(m.tasks.find(t => t.id === 'b0')!.content).toBe('travel');
+});
