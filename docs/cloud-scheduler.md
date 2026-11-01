@@ -44,3 +44,5 @@ Worker 固定调用生产域名，不接受请求方提供目标 URL、任意 ac
 官方说明：[Cron](https://developers.cloudflare.com/workers/configuration/cron-triggers/)、[Durable Objects 免费额度](https://developers.cloudflare.com/durable-objects/platform/pricing/)、[alarm 行为](https://developers.cloudflare.com/durable-objects/api/alarms/)。
 
 专用执行密钥只授权 `ticktick-trips` 的 `scheduler=1`、GET 和固定业务 action 白名单；不授权账本、照片、账号或月度备份接口。旧 `CRON_SECRET` 保留用于原 Vercel 备份。
+
+手动完整重排依次执行 `routine-visibility → life-periods → full`，涵盖所有现行 TickTick 专项处理；不发送邮件。每小时与完整同步均先对齐出门／搬家模板的 10 组二级子任务，保留容器前缀与各自排期。

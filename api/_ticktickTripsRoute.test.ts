@@ -1,3 +1,4 @@
+vi.mock('./_ticktickTemplateSync.js', () => ({ syncTickTickTemplates: vi.fn().mockResolvedValue({ matched: 10, updated: 0 }) }));
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { encryptTickTickToken } from './_ticktickTrips';

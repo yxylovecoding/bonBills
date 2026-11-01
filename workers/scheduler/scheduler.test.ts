@@ -26,7 +26,7 @@ describe('cloud schedule', () => {
     expect(scheduledJobs(Date.parse('2026-10-24T14:00Z'))[0].steps).toEqual(['night-routine']);
     expect(JSON.parse(readFileSync('workers/scheduler/wrangler.jsonc', 'utf8')).triggers.crons).toEqual(CRONS);
     expect(scheduledJobs(Date.parse('2026-10-24T23:01Z')).map(j => j.steps)).toEqual([['reading-visibility', 'hourly-replan']]);
-    expect(manualJob('full', 'x', Date.now()).steps).not.toContain('daily-email');
+    expect(manualJob('full', 'x', Date.now()).steps).toEqual(['routine-visibility', 'life-periods', 'full']);
   });
 });
 describe('response and retry boundary', () => {
