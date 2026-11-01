@@ -620,7 +620,7 @@ export default function ReconcilePage() {
     const summary = summarizeInvestPositionItems(currentInvestPositionItems);
     for (const key of INVEST_TARGET_KEYS) {
       for (const item of currentInvestPositionItems[key] ?? []) {
-        const target = item.status === 'active' || (item.pendingBuys?.length ?? 0) > 0 ? now : past;
+        const target = item.status === 'active' ? now : past;
         target[key] += summary.metricsById[item.id]?.marketValueCny ?? 0;
       }
       now[key] = roundMoney(now[key]);

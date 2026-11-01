@@ -160,7 +160,7 @@ export function buildAlipayYimuCorrection(
     const marketValueCny = money(basis.confirmedAmount + (shares - basis.shares) * (price ?? 0));
     const holdingProfitCny = money(fund.holdingProfit + (shares - basis.shares) * (price ?? 0) - row.bridgeAmount);
     const preservedPending = (item.pendingBuys ?? []).filter((order) => order.operationAt.slice(0, 10) > snapshot.date);
-    const target: InvestPositionItem = { ...item, shares, costPrice, status: shares > 0 ? 'active' : 'paused',
+    const target: InvestPositionItem = { ...item, shares, costPrice, status: item.status,
       historicalProfitCny: money(metric.historicalProfitCny / metric.profitFxRateToCny), profitInputMode: 'historical',
       historicalProfitCurrency: 'CNY', quoteCurrency: 'CNY', lastCurrency: 'CNY', lastFxRateToCny: 1,
       lastPrice: price ?? undefined, quoteAt: basis.navDate ?? snapshot.date,

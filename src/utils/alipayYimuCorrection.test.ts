@@ -67,6 +67,14 @@ describe('支付宝矫正一木 T+1', () => {
     expect(JSON.stringify({ record, snapshot })).toBe(original);
   });
 
+  it('截图导入和校准只更新数值，不改变用户手动设置的 now / past', () => {
+    const record = base();
+    fund(record).status = 'paused';
+    const preview = plan(shot(), record);
+    expect(preview.rows[0].target).toMatchObject({ status: 'paused', shares: 110 });
+    expect(fund(applyAlipayYimuCorrection(record, preview, [code], now))).toMatchObject({ status: 'paused', shares: 110 });
+  });
+
   it('周一尚未到 T+1，净值已有也不提前记入；周二只入账一次', () => {
     const result = correct(shot('2026-09-14'));
     expect(fund(result).shares).toBe(100);

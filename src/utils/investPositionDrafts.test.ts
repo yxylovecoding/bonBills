@@ -91,6 +91,16 @@ describe('拆分条目移动', () => {
     });
   });
 
+  it('now 跨分类移动时只改变分类，不改变 now / past 状态', () => {
+    const current = { ...splitItem, status: 'active' as const };
+    const drafts = investPositionDraftGroupsFromItems({ a: [current] });
+    const moved = moveInvestPositionDraft(drafts, 'a', current.id, 'us');
+    expect(reload(investPositionItemsFromDraftGroups(moved)).us?.[0]).toMatchObject({
+      id: current.id, status: 'active', historicalProfitCny: -12.34,
+    });
+    expect(moved.a).toEqual([]);
+  });
+
   it('待归类账户移至 now 后保留份额、成本、市值及历史收益', () => {
     const item: InvestPositionItem = { ...splitItem, status: 'paused', shares: 100.1234, costPrice: 1.0345,
       marketValueCny: 770.95, holdingProfitCny: 45.91, historicalProfitCny: 12.34 };

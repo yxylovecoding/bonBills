@@ -26,6 +26,7 @@ import InvestInstrumentPicker from '../components/InvestInstrumentPicker';
 import PendingInvestmentBuyRow from '../components/PendingInvestmentBuyRow';
 import HoldingsViewToggle from '../components/HoldingsViewToggle';
 import AlipayHoldingsSection from '../components/AlipayHoldingsSection';
+import InvestPositionMoveMenu from '../components/InvestPositionMoveMenu';
 import TickTickTripSyncControl from '../components/TickTickTripSyncControl';
 import OutlookCalendarSyncControl from '../components/OutlookCalendarSyncControl';
 import { useOutlookCalendarSync } from '../hooks/useOutlookCalendarSync';
@@ -1689,8 +1690,8 @@ function YimuHoldingsSection({ state }: { state: MonthFormState }) {
             )}
             {keys.map((groupKey) => {
               const items = positionDraftGroups[groupKey].filter((item) => activeStatus === 'active'
-                ? item.status === 'active' || (item.pendingBuys?.length ?? 0) > 0
-                : item.status !== 'active' && (item.pendingBuys?.length ?? 0) === 0);
+                ? item.status === 'active'
+                : item.status !== 'active');
               const itemSections: { cleared: boolean; items: InvestPositionDraft[] }[] = [
                 { cleared: false, items: [] },
                 { cleared: true, items: [] },
@@ -1880,31 +1881,33 @@ function YimuHoldingsSection({ state }: { state: MonthFormState }) {
                                     ｜
                                   </button>
                                 ) : null}
-                                <select aria-label={`${item.name}移动到分类或状态`} title="移动到分类或状态" value="" onChange={(event) => {
-                                  const [status, category] = event.target.value.split(':');
-                                  if ((status !== 'active' && status !== 'paused') || !INVEST_POSITION_KEYS.includes(category as InvestKey)) return;
-                                  const targetGroupKey = category as InvestKey;
-                                  const targetTab = status === 'active' || (item.pendingBuys?.length ?? 0) > 0 ? 'active' : 'paused';
-                                  movePositionDraft(groupKey, item.id, targetGroupKey, status);
-                                  setActiveStatus(targetTab);
-                                  setExpandedGroupKeys((current) => new Set(current).add(`${targetTab}:${targetGroupKey}`));
-                                  if (targetTab !== 'active' && metric?.marketValueCny === 0) {
-                                    setExpandedClearedGroupKeys((current) => new Set(current).add(`${targetTab}:${targetGroupKey}`));
-                                  }
-                                  setExpandedItemKey(`${targetGroupKey}:${item.id}`);
-                                  setSplitSource(null);
-                                }} style={{ width: 34, height: 26, border: '1px solid #dadce0', borderRadius: 6, padding: '2px', appearance: 'none', WebkitAppearance: 'none', textAlign: 'center', fontSize: 11, color: C.sub, backgroundColor: '#fff', cursor: 'pointer' }}>
-                                  <option value="" disabled>→</option>
-                                  {(['active', 'paused'] as const).map((status) => (
-                                    <optgroup key={status} label={INVEST_POSITION_STATUS_META[status].label}>
-                                      {INVEST_POSITION_KEYS.map((key) => (
-                                        <option key={key} value={`${status}:${key}`} disabled={key === groupKey && (item.status === 'active' ? 'active' : 'paused') === status}>
-                                          {investMeta[key].label} · {INVEST_POSITION_STATUS_META[status].label}
-                                        </option>
-                                      ))}
-                                    </optgroup>
-                                  ))}
-                                </select>
+                                <InvestPositionMoveMenu
+                                  name={item.name}
+                                  status={item.status}
+                                  currentGroup={groupKey}
+                                  onToggleStatus={(status) => {
+                                    const targetTab = status;
+                                    movePositionDraft(groupKey, item.id, groupKey as InvestKey, status);
+                                    setActiveStatus(targetTab);
+                                    setExpandedGroupKeys((current) => new Set(current).add(`${targetTab}:${groupKey}`));
+                                    if (targetTab === 'paused' && metric?.marketValueCny === 0) {
+                                      setExpandedClearedGroupKeys((current) => new Set(current).add(`${targetTab}:${groupKey}`));
+                                    }
+                                    setExpandedItemKey(`${groupKey}:${item.id}`);
+                                    setSplitSource(null);
+                                  }}
+                                  onMoveCategory={(targetGroupKey) => {
+                                    const targetTab = item.status === 'active' ? 'active' : 'paused';
+                                    movePositionDraft(groupKey, item.id, targetGroupKey);
+                                    setActiveStatus(targetTab);
+                                    setExpandedGroupKeys((current) => new Set(current).add(`${targetTab}:${targetGroupKey}`));
+                                    if (targetTab === 'paused' && metric?.marketValueCny === 0) {
+                                      setExpandedClearedGroupKeys((current) => new Set(current).add(`${targetTab}:${targetGroupKey}`));
+                                    }
+                                    setExpandedItemKey(`${targetGroupKey}:${item.id}`);
+                                    setSplitSource(null);
+                                  }}
+                                />
                                 <button type="button" onClick={() => { if (window.confirm(`删除“${item.name}”？`)) { removePositionDraft(groupKey, item.id); setExpandedItemKey(null); } }} aria-label={`删除${item.name}`} style={{ width: 24, height: 24, border: 'none', borderRadius: 6, backgroundColor: '#fce8e6', color: C.red, cursor: 'pointer', fontWeight: 800 }}>×</button>
                               </div>
                             </div>
