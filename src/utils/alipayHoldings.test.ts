@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { InvestPositionItems, InvestmentTransactionRecord, PendingInvestmentBuy } from '../models/types';
-import { alipayFundPositionItems, confirmationOrderKey, estimateConfirmationDate, fundConfirmationKey, hasAlipayHoldingAmount, holdingsAsOf, projectAlipayHoldings, resolveFundConfirmationRule, summarizeAlipayHoldings, type AlipayProjectionOptions } from './alipayHoldings';
+import { alipayFundPositionItems, confirmationOrderKey, estimateConfirmationDate, firstMonthlyCloseReached, fundConfirmationKey, hasAlipayHoldingAmount, holdingsAsOf, projectAlipayHoldings, resolveFundConfirmationRule, summarizeAlipayHoldings, type AlipayProjectionOptions } from './alipayHoldings';
 import { applyInvestmentTransaction, captureInvestmentPositionBefore, createInvestmentRolloverRecord, emptyMonthlyRecord } from './investmentRollover';
 import { summarizeInvestPositionItems, syncInvestPositionItems } from './investPositionItems';
 import { bookPendingFundBuy, reconcileAutoFundBuy } from './autoFundBuys';
@@ -88,6 +88,16 @@ describe('支付宝确认日期', () => {
   it('历史月份固定月末，当前月份按今天', () => {
     expect(holdingsAsOf('2026-08', '2026-09-15')).toBe('2026-08-31');
     expect(holdingsAsOf('2026-09', '2026-09-15')).toBe('2026-09-15');
+  });
+  it('本月首次交易日收盘前沿用上月月末，周末不提前切月', () => {
+    const sunday = Date.parse('2026-11-01T12:00:00+08:00');
+    const mondayBeforeClose = Date.parse('2026-11-02T14:59:59+08:00');
+    const mondayAfterClose = Date.parse('2026-11-02T15:00:00+08:00');
+    expect(firstMonthlyCloseReached('2026-11', sunday)).toBe(false);
+    expect(firstMonthlyCloseReached('2026-11', mondayBeforeClose)).toBe(false);
+    expect(holdingsAsOf('2026-11', '2026-11-02', false)).toBe('2026-10-31');
+    expect(firstMonthlyCloseReached('2026-11', mondayAfterClose)).toBe(true);
+    expect(holdingsAsOf('2026-11', '2026-11-02', true)).toBe('2026-11-02');
   });
 });
 

@@ -3,7 +3,7 @@ import type { InvestPositionItems, MonthlyRecord } from '../models/types';
 import { useConfigStore } from '../stores/configStore';
 import { useHolidayYears, type HolidayDataByYear } from '../utils/holidays';
 import { canonicalInvestmentSymbol } from '../utils/investmentInstrument';
-import { alipayFundPositionItems, chinaToday, fundConfirmationKey, holdingsAsOf, isConfirmationFund, projectAlipayHoldings, type FundMetadata } from '../utils/alipayHoldings';
+import { alipayFundPositionItems, chinaToday, firstMonthlyCloseReached, fundConfirmationKey, holdingsAsOf, isConfirmationFund, projectAlipayHoldings, type FundMetadata } from '../utils/alipayHoldings';
 import { fetchPendingFundNavs, pendingFundNavStartDate, type FundNavBar } from '../utils/pendingFundEstimate';
 
 // Public instrument metadata only; no account or order data enters this shared cache.
@@ -33,9 +33,10 @@ export function fetchConfirmationFundMetadata(symbol: string): Promise<FundMetad
 export function useAlipayHoldings(items: InvestPositionItems, previousItems: InvestPositionItems | undefined, records: MonthlyRecord[], yearMonth: string, previousMonth?: string) {
   const config = useConfigStore((state) => state.config);
   const [today, setToday] = useState(chinaToday);
+  const [now, setNow] = useState(Date.now);
   const [metadata, setMetadata] = useState<Record<string, FundMetadata | undefined>>({});
   const [navs, setNavs] = useState<Record<string, FundNavBar[] | undefined>>({});
-  const asOf = holdingsAsOf(yearMonth, today);
+  const provisionalAsOf = holdingsAsOf(yearMonth, today, firstMonthlyCloseReached(yearMonth, now));
   const targets = useMemo(() => {
     const funds = Object.values(items).concat(Object.values(previousItems ?? {})).flat().filter((item) => item && isConfirmationFund(item));
     const symbols = [...new Set(funds.map((item) => canonicalInvestmentSymbol(item!.symbol)))].sort();
@@ -50,17 +51,18 @@ export function useAlipayHoldings(items: InvestPositionItems, previousItems: Inv
     const dates = records.filter((record) => record.yearMonth <= yearMonth).flatMap((record) =>
       (record.investmentTransactions ?? []).filter((transaction) => targets.symbols.includes(canonicalInvestmentSymbol(transaction.symbol)))
         .flatMap((transaction) => [transaction.operationAt, transaction.autoBuy?.navDate, transaction.date]));
-    const result = new Set([Number(asOf.slice(0, 4)), Number(previousMonth?.slice(0, 4) ?? asOf.slice(0, 4))]);
+    const result = new Set([Number(provisionalAsOf.slice(0, 4)), Number(previousMonth?.slice(0, 4) ?? provisionalAsOf.slice(0, 4))]);
     for (const date of [...dates, ...targets.pendingMonths.map((key) => key.split(':')[1])]) {
       const year = Number(date?.slice(0, 4));
       if (year >= 1900 && year <= 2099) { result.add(year); if (date?.slice(5, 7) === '12') result.add(year + 1); }
     }
     return [...result].sort();
-  }, [records, yearMonth, asOf, previousMonth, signature]);
+  }, [records, yearMonth, provisionalAsOf, previousMonth, signature]);
   const { holidayDataByYear, unavailableYears } = useHolidayYears(years);
   const holidays = useMemo<HolidayDataByYear>(() => Object.fromEntries(
     Object.entries(holidayDataByYear).filter(([year, data]) => !unavailableYears.includes(Number(year)) && Object.keys(data).length > 0),
   ), [holidayDataByYear, unavailableYears]);
+  const asOf = holdingsAsOf(yearMonth, today, firstMonthlyCloseReached(yearMonth, now, holidays));
 
   useEffect(() => {
     let active = true;
@@ -69,7 +71,9 @@ export function useAlipayHoldings(items: InvestPositionItems, previousItems: Inv
     const refresh = async () => {
       if (document.hidden || running) return;
       running = true;
-      setToday(chinaToday());
+      const refreshedAt = Date.now();
+      setNow(refreshedAt);
+      setToday(chinaToday(refreshedAt));
       try {
         const [funds, histories] = await Promise.all([
           Promise.all(symbols.map(async (symbol) => [fundConfirmationKey(symbol), await fetchConfirmationFundMetadata(symbol)] as const)),

@@ -45,10 +45,31 @@ export function validConfirmationDate(date: string) {
     && new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) === date;
 }
 
-export function holdingsAsOf(yearMonth: string, today = chinaToday()) {
+export function holdingsAsOf(yearMonth: string, today = chinaToday(), firstMonthlyCloseReached = true) {
   const [year, month] = yearMonth.split('-').map(Number);
   const end = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
-  return end < today ? end : today;
+  if (end < today) return end;
+  if (today.slice(0, 7) === yearMonth && !firstMonthlyCloseReached) {
+    return new Date(Date.UTC(year, month - 1, 0)).toISOString().slice(0, 10);
+  }
+  return today;
+}
+
+export function firstMonthlyCloseReached(yearMonth: string, now = Date.now(), holidays: HolidayDataByYear = {}) {
+  const today = chinaToday(now);
+  if (today.slice(0, 7) > yearMonth) return true;
+  if (today.slice(0, 7) < yearMonth) return false;
+  const day = Number(today.slice(8, 10));
+  for (let current = 1; current <= day; current++) {
+    const date = `${yearMonth}-${String(current).padStart(2, '0')}`;
+    const holiday = holidays[Number(date.slice(0, 4))]?.[date];
+    const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+    const open = holiday ? !holiday.isOffDay : weekday !== 0 && weekday !== 6;
+    if (!open) continue;
+    if (current < day) return true;
+    return new Date(now + 8 * 3_600_000).getUTCHours() >= 15;
+  }
+  return false;
 }
 
 export function resolveFundConfirmationRule(metadata: FundMetadata | undefined, rule: FundConfirmationRule = 'auto'): 1 | 2 | undefined {
