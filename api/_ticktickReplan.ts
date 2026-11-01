@@ -1,4 +1,5 @@
 import { syncTickTickLocationVisibility } from './_ticktickLocationVisibility.js';
+import { syncTickTickTemplates } from './_ticktickTemplateSync.js';
 import { automaticRestWindow } from '../src/utils/schedulerTime.js';
 import { resolveCalendarState } from '../src/utils/internship.js';
 import { createHash } from 'node:crypto';
@@ -56,6 +57,7 @@ async function replanRemainingTodayInner(options: { scheduled?: boolean }) {
     const token = decryptTickTickToken(connection.encryptedToken, secret);
     const connectionId = createHash('sha256').update(token).digest('hex');
     const api = new TickTickOpenApiClient(token, (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
+    const templateSync = await syncTickTickTemplates(api, connection.templateRootId, connectionId);
     if (options.scheduled) {
       const journal = await kv.get<SleepTagJournal>(sleepTagStateKey(connection.projectId));
       const skipped = sleepWindow().hidden ? 'sleep-window' as const
@@ -151,7 +153,7 @@ async function replanRemainingTodayInner(options: { scheduled?: boolean }) {
       }
     }
     await kv.set(DAILY_PLAN_KEY, state);
-    return { busy: false as const, dailyPlan: plan.summary, details: state.briefing, updated: changes.length, timedTasks, alwaysToday };
+    return { busy: false as const, dailyPlan: plan.summary, details: state.briefing, updated: changes.length, timedTasks, alwaysToday, templateSync };
   } finally {
     await releaseTickTickLock(lock);
   }

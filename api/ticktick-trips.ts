@@ -1,4 +1,5 @@
 import { syncTickTickLocationVisibility } from './_ticktickLocationVisibility.js';
+import { syncTickTickTemplates } from './_ticktickTemplateSync.js';
 import { automaticRestWindow } from '../src/utils/schedulerTime.js';
 import { resolveCalendarState } from '../src/utils/internship.js';
 import { cloudSchedulerAuthOk } from './_cloudSchedulerAuth.js';
@@ -107,6 +108,7 @@ async function runSyncInner(allowDisconnected: boolean) {
     let planningStep = 'initial-read';
     try {
       const connectionId = createHash('sha256').update(token).digest('hex');
+      const templateSync = await syncTickTickTemplates(api, connection.templateRootId, connectionId);
       const [savedPlan, settings, sourceTasks] = await Promise.all([
         kv.get<DailyPlanState>(DAILY_PLAN_KEY),
         kv.get<{ budgetMinutes?: number | null; availabilityProfile?: string }>(DAILY_PLAN_SETTINGS_KEY),
@@ -199,7 +201,7 @@ async function runSyncInner(allowDisconnected: boolean) {
       console.info('[ticktick-routine-sync]', JSON.stringify(routineResult));
       console.info('[ticktick-trip-sync]', JSON.stringify({ ...result, ...wishResult }));
       return { busy: false as const, ...result, ...wishResult, ...routineResult, exercise: { updated: exercise.updated },
-        timedTasks, alwaysToday,
+        timedTasks, alwaysToday, templateSync,
         laundry: { updated: laundry.updated, decisions: laundry.decisions, outlook: laundryOutlook },
         charging: { outlook: chargingOutlook },
         hairWash: { outlook: hairWashOutlook },
@@ -256,11 +258,13 @@ async function runRoutineVisibilitySync(kind: 'night' | 'daily' | 'all' | 'hair'
     const alwaysToday = await syncTickTickAlwaysToday(api);
     const sleepTags = kind !== 'night' ? await syncSleepRoutineTags(api, { projectId: connection.projectId }) : undefined;
     if (kind === 'daily' || sleepTags?.complete === false) return { busy: false as const, connected: true as const, sleepTags, alwaysToday };
+    const hairWash = await syncHairWashVisibility(api, { projectId: connection.projectId });
+    const reading = await syncReadingVisibility(api, { projectId: connection.projectId });
     const nightRoutine = await syncNightRoutineVisibility(api, { timeZone: connection.timeZone, projectId: connection.projectId });
     const timedTasks = await syncTimedTaskVisibility(api, { timeZone: connection.timeZone, projectId: connection.projectId });
     const exercise = await syncExerciseSchedule(api, { connectionId: createHash('sha256').update(token).digest('hex'),
       templateRootId: connection.templateRootId, rolling: true });
-    return { busy: false as const, connected: true as const, nightRoutine, timedTasks, alwaysToday, exercise: { updated: exercise.updated },
+    return { busy: false as const, connected: true as const, hairWash, reading, nightRoutine, timedTasks, alwaysToday, exercise: { updated: exercise.updated },
       ...(sleepTags ? { sleepTags } : {}) };
     })();
     await syncTickTickLocationVisibility(api);

@@ -16,7 +16,7 @@ export function scheduledJobs(time) {
   return jobs;
 }
 export function manualJob(kind, id, time) {
-  const steps = kind === 'full' ? ['life-periods', 'full']
+  const steps = kind === 'full' ? ['routine-visibility', 'life-periods', 'full']
     : kind === 'hourly' ? ['hourly-replan'] : null;
   if (!steps) throw new Error('Invalid job kind');
   return { id: `manual-${id}`, kind, scheduledAt: time, steps };
