@@ -3,7 +3,7 @@ import type { InvestPositionItems, MonthlyRecord } from '../models/types';
 import { useConfigStore } from '../stores/configStore';
 import { useHolidayYears, type HolidayDataByYear } from '../utils/holidays';
 import { canonicalInvestmentSymbol } from '../utils/investmentInstrument';
-import { chinaToday, fundConfirmationKey, holdingsAsOf, isConfirmationFund, projectAlipayHoldings, type FundMetadata } from '../utils/alipayHoldings';
+import { alipayFundPositionItems, chinaToday, fundConfirmationKey, holdingsAsOf, isConfirmationFund, projectAlipayHoldings, type FundMetadata } from '../utils/alipayHoldings';
 import { fetchPendingFundNavs, pendingFundNavStartDate, type FundNavBar } from '../utils/pendingFundEstimate';
 
 // Public instrument metadata only; no account or order data enters this shared cache.
@@ -99,9 +99,9 @@ export function useAlipayHoldings(items: InvestPositionItems, previousItems: Inv
     asOf, records, holidays, metadata, navs,
     rules: config.fundConfirmationRules, overrides: config.fundConfirmationOverrides,
   }), [asOf, records, holidays, metadata, navs, config.fundConfirmationRules, config.fundConfirmationOverrides]);
-  const current = useMemo(() => projectAlipayHoldings(items, options), [items, options]);
+  const current = useMemo(() => projectAlipayHoldings(alipayFundPositionItems(items), options), [items, options]);
   const previous = useMemo(() => previousItems && previousMonth
-    ? projectAlipayHoldings(previousItems, { ...options, asOf: holdingsAsOf(previousMonth, today) }) : undefined,
+    ? projectAlipayHoldings(alipayFundPositionItems(previousItems), { ...options, asOf: holdingsAsOf(previousMonth, today) }) : undefined,
   [previousItems, previousMonth, options, today]);
   return { ...current, previous, metadata, asOf };
 }

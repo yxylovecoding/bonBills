@@ -31,6 +31,9 @@ const nextDate = (date: string) => new Date(Date.parse(`${date}T00:00:00Z`) + 86
 export const chinaToday = (now = Date.now()) => new Date(now + 8 * 3_600_000).toISOString().slice(0, 10);
 export const isConfirmationFund = (item: Pick<InvestPositionItem, 'symbol' | 'quoteSource'>) =>
   item.quoteSource === 'eastmoney-fund' && /^\d{6}$/.test(canonicalInvestmentSymbol(item.symbol));
+export function alipayFundPositionItems(source: InvestPositionItems): InvestPositionItems {
+  return Object.fromEntries(Object.entries(source).map(([key, items]) => [key, items?.filter(isConfirmationFund)])) as InvestPositionItems;
+}
 export const fundConfirmationKey = (symbol: string) => `eastmoney-fund:${canonicalInvestmentSymbol(symbol)}`;
 
 export function validConfirmationDate(date: string) {

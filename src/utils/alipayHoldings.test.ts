@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { InvestPositionItems, InvestmentTransactionRecord, PendingInvestmentBuy } from '../models/types';
-import { confirmationOrderKey, estimateConfirmationDate, fundConfirmationKey, holdingsAsOf, projectAlipayHoldings, resolveFundConfirmationRule, summarizeAlipayHoldings, type AlipayProjectionOptions } from './alipayHoldings';
+import { alipayFundPositionItems, confirmationOrderKey, estimateConfirmationDate, fundConfirmationKey, holdingsAsOf, projectAlipayHoldings, resolveFundConfirmationRule, summarizeAlipayHoldings, type AlipayProjectionOptions } from './alipayHoldings';
 import { applyInvestmentTransaction, captureInvestmentPositionBefore, createInvestmentRolloverRecord, emptyMonthlyRecord } from './investmentRollover';
 import { summarizeInvestPositionItems, syncInvestPositionItems } from './investPositionItems';
 import { bookPendingFundBuy, reconcileAutoFundBuy } from './autoFundBuys';
@@ -29,6 +29,20 @@ function booked(transactions = [buy()], yearMonth = '2026-09') {
   });
   return { ...syncInvestPositionItems(emptyMonthlyRecord(yearMonth), items), investmentTransactions: ledger };
 }
+
+describe('支付宝持仓范围', () => {
+  it('只保留支付宝基金，不显示 SPY、TLT 或场内 ETF', () => {
+    const source: InvestPositionItems = {
+      us: [
+        ...base().us!,
+        { id: 'spy', name: 'SPY', symbol: 'SPY', quoteSource: 'yahoo', status: 'active', historicalProfitCny: 0 },
+      ],
+      usBond: [{ id: 'tlt', name: 'TLT', symbol: 'TLT', quoteSource: 'yahoo', status: 'active', historicalProfitCny: 0 }],
+      a: [{ id: 'etf', name: '沪深300ETF', symbol: '510300', quoteSource: 'yahoo', status: 'active', historicalProfitCny: 0 }],
+    };
+    expect(Object.values(alipayFundPositionItems(source)).flat().map((item) => item?.id)).toEqual(['fund']);
+  });
+});
 
 describe('支付宝确认日期', () => {
   it('周一买入分别在周二和周三确认，15点截单使用北京时间', () => {
