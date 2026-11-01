@@ -285,19 +285,19 @@ it('充电同步成功不能清除仍失败的洗衣状态，洗衣恢复后才�
   expect(data.get(OUTLOOK_WRITE_KEY).lastError).toBeUndefined();
 });
 
-it('洗头沿用具体时刻和描述估时；全天默认20点，隐藏标签不阻止同步', async () => {
+it('洗头固定当天22点至22点半，隐藏标签不阻止同步', async () => {
   task.title = ' 洗头 '; task.tags = ['routine', 'bon-hidden']; task.content = '(30m)';
   task.startDate = task.dueDate = '2026-10-08T14:10:00Z';
   expect(hairWashEventPlan(task, options().today)).toEqual({ subject: '洗头',
-    start: { dateTime: '2026-10-08T22:10:00', timeZone: 'Asia/Shanghai' },
-    end: { dateTime: '2026-10-08T22:40:00', timeZone: 'Asia/Shanghai' } });
+    start: { dateTime: '2026-10-08T22:00:00', timeZone: 'Asia/Shanghai' },
+    end: { dateTime: '2026-10-08T22:30:00', timeZone: 'Asia/Shanghai' } });
   const original = structuredClone(task);
   expect(await syncHairWashOutlook(api, { ...options(), history: [], excludedTaskIds: new Set() })).toMatchObject({ created: 1 });
   expect(writes[0].body).toMatchObject({ subject: '洗头', attendees: [], isReminderOn: false, showAs: 'busy' });
   expect(writes[0].body).not.toHaveProperty('recurrence');
   expect(task).toEqual(original);
   expect(hairWashEventPlan({ ...task, isAllDay: true, content: '' }, options().today)).toMatchObject({
-    start: { dateTime: '2026-10-08T20:00:00' }, end: { dateTime: '2026-10-08T20:15:00' } });
+    start: { dateTime: '2026-10-08T22:00:00' }, end: { dateTime: '2026-10-08T22:30:00' } });
   expect(hairWashEventPlan({ ...task, content: '', dueDate: '2026-10-08T14:30:00Z' }, options().today))
     .toMatchObject({ end: { dateTime: '2026-10-08T22:30:00' } });
 });
@@ -313,9 +313,9 @@ it('洗头创建响应丢失后找回，同周期改期更新原预约，同日�
   task.startDate = task.dueDate = '2026-10-09T00:00:00Z';
   expect(await sync()).toMatchObject({ created: 0, updated: 1 });
   expect(events.size).toBe(1);
-  expect(events.get('event-1').start.dateTime).toBe('2026-10-09T20:00:00');
+  expect(events.get('event-1').start.dateTime).toBe('2026-10-09T22:00:00');
   events.get('event-1').start.dateTime = '2026-10-09T21:00:00';
-  events.get('event-1').end.dateTime = '2026-10-09T21:25:00';
+  events.get('event-1').end.dateTime = '2026-10-09T21:30:00';
   expect(await sync()).toMatchObject({ created: 0, updated: 0 });
   expect(events.get('event-1').start.dateTime).toBe('2026-10-09T21:00:00');
   events.clear();
@@ -335,7 +335,7 @@ it('洗头实际完成后新建下一周期，保留历史和手动同名日程'
   task.startDate = task.dueDate = '2026-10-10T00:00:00Z';
   expect(await sync({ today: '2026-10-09', now: new Date('2026-10-09T00:00:00Z') })).toMatchObject({ created: 1 });
   expect(events.size).toBe(3);
-  expect(events.get('event-2').start.dateTime).toBe('2026-10-08T20:00:00');
+  expect(events.get('event-2').start.dateTime).toBe('2026-10-08T22:00:00');
   expect(events.get('manual').start).toEqual({});
   history.length = 0;
   expect(await sync({ today: '2026-10-09', now: new Date('2026-10-09T00:00:00Z') })).toMatchObject({ created: 0, updated: 0 });
@@ -346,7 +346,7 @@ it('洗头不处理跟随项、模板后代、已完成、过去、无日期或�
   task.title = '洗头';
   for (const fields of [{ status: 2 }, { completedTime: '2026-10-04T01:00:00Z' },
     { startDate: undefined, dueDate: undefined }, { dueDate: '2026-10-04T00:00:00Z' },
-    { tags: ['不关我事'] }, { title: '准备洗头', tags: ['洗头'] }, { startDate: 'invalid' }]) {
+    { tags: ['不关我事'] }, { title: '准备洗头', tags: ['洗头'] }]) {
     expect(hairWashEventPlan({ ...task, ...fields }, options().today)).toBeNull();
   }
   task.parentId = 'child';

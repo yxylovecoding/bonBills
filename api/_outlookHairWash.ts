@@ -1,4 +1,3 @@
-import { estimateTaskMinutes } from './_ticktickDailyPlan.js';
 import { isHairWashTask } from './_ticktickNightRoutine.js';
 import { routineTaskDate, type TickTickApi, type TickTickTask } from './_ticktickTrips.js';
 import { localEventTime } from './_outlookTaskEvents.js';
@@ -10,9 +9,9 @@ export function hairWashEventPlan(task: TickTickTask, today: string) {
   const day = routineTaskDate(task);
   if (!isHairWashTask(task) || (task.status ?? 0) !== 0 || task.completedTime || !day || day < today
     || (task.tags ?? []).some(tag => tag.normalize('NFKC').trim() === '不关我事')) return null;
-  const start = task.isAllDay === false ? Date.parse(task.startDate ?? task.dueDate ?? '') : Date.parse(`${day}T20:00:00+08:00`);
+  const start = Date.parse(`${day}T22:00:00+08:00`);
   if (!Number.isFinite(start)) return null;
-  return { subject: '洗头', start: localEventTime(start), end: localEventTime(start + estimateTaskMinutes(task) * 60_000) };
+  return { subject: '洗头', start: localEventTime(start), end: localEventTime(start + 30 * 60_000) };
 }
 
 export function syncHairWashOutlook(api: TickTickApi, options: RecurringTaskEventOptions) {
