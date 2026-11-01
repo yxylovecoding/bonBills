@@ -31,16 +31,19 @@ function booked(transactions = [buy()], yearMonth = '2026-09') {
 }
 
 describe('支付宝持仓范围', () => {
-  it('只保留支付宝基金，不显示 SPY、TLT 或场内 ETF', () => {
+  it('保留六位代码的场外基金，只隐藏 SPY、TLT 和名称标注“场内”的资产', () => {
     const source: InvestPositionItems = {
       us: [
         ...base().us!,
         { id: 'spy', name: 'SPY', symbol: 'SPY', quoteSource: 'yahoo', status: 'active', historicalProfitCny: 0 },
       ],
       usBond: [{ id: 'tlt', name: 'TLT', symbol: 'TLT', quoteSource: 'yahoo', status: 'active', historicalProfitCny: 0 }],
-      a: [{ id: 'etf', name: '沪深300ETF', symbol: '510300', quoteSource: 'yahoo', status: 'active', historicalProfitCny: 0 }],
+      a: [
+        { id: 'hs300-otc', name: '沪深300', symbol: '000300', quoteSource: 'yahoo', status: 'active', historicalProfitCny: 0 },
+        { id: 'hs300-exchange', name: '沪深300ETF场内', symbol: '510300', quoteSource: 'yahoo', status: 'active', historicalProfitCny: 0 },
+      ],
     };
-    expect(Object.values(alipayFundPositionItems(source)).flat().map((item) => item?.id)).toEqual(['fund']);
+    expect(Object.values(alipayFundPositionItems(source)).flat().map((item) => item?.id)).toEqual(['fund', 'hs300-otc']);
   });
 });
 

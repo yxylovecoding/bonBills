@@ -32,7 +32,10 @@ export const chinaToday = (now = Date.now()) => new Date(now + 8 * 3_600_000).to
 export const isConfirmationFund = (item: Pick<InvestPositionItem, 'symbol' | 'quoteSource'>) =>
   item.quoteSource === 'eastmoney-fund' && /^\d{6}$/.test(canonicalInvestmentSymbol(item.symbol));
 export function alipayFundPositionItems(source: InvestPositionItems): InvestPositionItems {
-  return Object.fromEntries(Object.entries(source).map(([key, items]) => [key, items?.filter(isConfirmationFund)])) as InvestPositionItems;
+  return Object.fromEntries(Object.entries(source).map(([key, items]) => [key, items?.filter((item) => {
+    const symbol = canonicalInvestmentSymbol(item.symbol);
+    return /^\d{6}$/.test(symbol) && !item.name.includes('场内');
+  })])) as InvestPositionItems;
 }
 export const fundConfirmationKey = (symbol: string) => `eastmoney-fund:${canonicalInvestmentSymbol(symbol)}`;
 
