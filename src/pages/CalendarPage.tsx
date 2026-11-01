@@ -1886,25 +1886,13 @@ function YimuHoldingsSection({ state }: { state: MonthFormState }) {
                                   status={item.status}
                                   currentGroup={groupKey}
                                   onToggleStatus={(status) => {
-                                    const targetTab = status;
                                     movePositionDraft(groupKey, item.id, groupKey as InvestKey, status);
-                                    setActiveStatus(targetTab);
-                                    setExpandedGroupKeys((current) => new Set(current).add(`${targetTab}:${groupKey}`));
-                                    if (targetTab === 'paused' && metric?.marketValueCny === 0) {
-                                      setExpandedClearedGroupKeys((current) => new Set(current).add(`${targetTab}:${groupKey}`));
-                                    }
-                                    setExpandedItemKey(`${groupKey}:${item.id}`);
+                                    setExpandedItemKey(null);
                                     setSplitSource(null);
                                   }}
                                   onMoveCategory={(targetGroupKey) => {
-                                    const targetTab = item.status === 'active' ? 'active' : 'paused';
                                     movePositionDraft(groupKey, item.id, targetGroupKey);
-                                    setActiveStatus(targetTab);
-                                    setExpandedGroupKeys((current) => new Set(current).add(`${targetTab}:${targetGroupKey}`));
-                                    if (targetTab === 'paused' && metric?.marketValueCny === 0) {
-                                      setExpandedClearedGroupKeys((current) => new Set(current).add(`${targetTab}:${targetGroupKey}`));
-                                    }
-                                    setExpandedItemKey(`${targetGroupKey}:${item.id}`);
+                                    setExpandedItemKey(null);
                                     setSplitSource(null);
                                   }}
                                 />
