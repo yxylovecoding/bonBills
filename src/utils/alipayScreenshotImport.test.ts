@@ -153,6 +153,17 @@ describe('支付宝基金匹配与截图布局', () => {
     ]), choices, '2027-01-02');
     expect(result.orders[0]).toMatchObject({ code: '123456', quantity: 20, operationAt: '2026-12-31T10:00:00', orderId: '202612310000000000001', status: 'pending', navDate: '2026-12-31', expectedConfirmationDate: '2027-01-04' });
   });
+  it('交易时间兼容支付宝斜杠日期和省略秒数，非交易时段订单可正常导入', () => {
+    const parsed = parseAlipayScreenshot(screen([
+      [10, [['记录详情 份额待确认', 40, 600]]], [70, [['卖出产品', 40, 200], [choices[0].name, 350, 980]]],
+      [120, [['卖出份额', 40, 200], ['3842.90份', 780, 980]]],
+      [200, [['卖出时间', 40, 200], ['2026/10/30 19:57', 400, 980]]],
+      [270, [['订单号 202610300000000000001', 40, 800]]],
+    ]), choices, '2026-11-01');
+    expect(parsed.orders[0]).toMatchObject({ code: '123456', quantity: 3842.9, operationAt: '2026-10-30T19:57:00', side: 'sell', status: 'pending' });
+    expect(materializeAlipayScreenshots({ ...parsed, funds: [fund()] }, '2026-11-01', choices).orders[0].operationAt)
+      .toBe('2026-10-30T19:57:00');
+  });
   it('交易记录空白状态视为已确认，保留撤销卖出和未截全尾行', () => {
     const result = parseAlipayScreenshot(screen([
       [10, [['交易记录', 40, 300]]], [50, [['明细', 40, 100]]],

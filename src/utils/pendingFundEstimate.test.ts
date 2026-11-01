@@ -29,13 +29,14 @@ describe('待确认基金的净值与份额预估', () => {
     expect(estimatePendingFundBuy({ ...order, operationAt: '2026-09-17T15:00:00' }, navs, now)?.price).toBe(1.6952);
   });
 
-  it('周五收盘后跨过周末和暂停申购日，使用下个开放日', () => {
+  it('收盘后或周末下单跨过周末和暂停申购日，使用下个开放日', () => {
     const bars: FundNavBar[] = [
       { date: '2026-09-19', close: 1.8, purchaseStatus: '开放申购' },
       { date: '2026-09-21', close: 1.9, purchaseStatus: '暂停申购' },
       { date: '2026-09-22', close: 2, purchaseStatus: '开放申购' },
     ];
     expect(estimatePendingFundBuy({ ...order, operationAt: '2026-09-18T15:00:00' }, bars, now)?.navDate).toBe('2026-09-22');
+    expect(estimatePendingFundBuy({ ...order, operationAt: '2026-09-19T10:00:00' }, bars, now)?.navDate).toBe('2026-09-22');
   });
 
   it('月末与年末截单正确跨月，次月净值未出不沿用旧净值', () => {

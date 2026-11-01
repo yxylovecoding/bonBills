@@ -244,8 +244,14 @@ export function parseAlipayScreenshot(image: AlipayOcrImage, choices: AlipayFund
   const all = compact(image.text);
   const result: AlipayScreenshotDraft = { funds: [], orders: [], notes: [] };
   const source = image.name;
-  const dateTime = /((?:19|20)\d{2}-\d{2}-\d{2})\s*([012]\d:[0-5]\d:[0-5]\d)/;
-  const normalizeTime = (text: string) => { const m = compact(text).match(dateTime); return m ? `${m[1]}T${m[2]}` : ''; };
+  const dateTime = /((?:19|20)\d{2}[-/]\d{2}[-/]\d{2})\s*([012]\d:[0-5]\d(?::[0-5]\d)?)/;
+  const normalizeTime = (text: string) => {
+    const match = compact(text).match(dateTime);
+    if (!match) return '';
+    const day = match[1].replace(/\//g, '-');
+    const time = match[2].length === 5 ? `${match[2]}:00` : match[2];
+    return `${day}T${time}`;
+  };
   const notesFor = (code: string, values: (number | undefined)[]) => [...(!code ? ['基金待匹配'] : []), ...(values.some((value) => value === undefined) ? ['数值待核对'] : [])];
 
   if (/买入时间|卖出时间/.test(all) && /买入产品|卖出产品/.test(all)) {
