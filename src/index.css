@@ -1851,7 +1851,8 @@ input[type='number'] { -moz-appearance: textfield; }
 .alipay-import-workflow { align-items: center; overflow: hidden; }
 .alipay-import-workflow > .alipay-import-dialog { max-height: calc(100vh - 48px); max-height: calc(100dvh - 48px); grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; outline: none; }
 .alipay-import-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; align-content: start; gap: 14px; }
-.alipay-import-footer { display: grid; gap: 8px; border-top: 1px solid #e8eaed; padding-top: 12px; }
+.alipay-import-footer { display: grid; gap: 8px; border-top: 1px solid #e8eaed; padding-top: 12px; padding-bottom: env(safe-area-inset-bottom, 0px); }
+.alipay-panel-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .alipay-import-footer:empty { display: none; }
 .alipay-import-footer .alipay-pending { margin: 0; }
 .alipay-import-confirm { border: 0; border-radius: 8px; padding: 10px 14px; background: #1a73e8; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }

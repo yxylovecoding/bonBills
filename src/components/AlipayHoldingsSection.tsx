@@ -8,6 +8,7 @@ import { investMeta } from '../data/mockData';
 import AlipayActualPanel from './AlipayActualPanel';
 import AlipayAmountProfit from './AlipayAmountProfit';
 import AlipayHoldingEditor from './AlipayHoldingEditor';
+import AlipayManualCorrection from './AlipayManualCorrection';
 import type { InvestPositionDraft } from '../utils/investPositionDrafts';
 
 const C = { sub: '#5f6368', blue: '#1a73e8', red: '#ea4335', green: '#0d9488', orange: '#e8710a' };
@@ -178,7 +179,7 @@ export default function AlipayHoldingsSection({ items, previousItems, records, y
                     }}><option value="auto">自动{rule ? ` · T+${rule}` : ' · 待识别'}</option><option value="1">T+1</option><option value="2">T+2</option></select>
                   </label>}
                   <ConfirmationOrders orders={itemOrders} asOf={view.asOf} name={item.name} />
-                  <AlipayHoldingEditor item={(items[key] ?? []).find((source) => source.id === item.id)!} onSave={(patch) => onUpdate(key, item.id, patch)} />
+                  <AlipayHoldingEditor item={(items[key] ?? []).find((source) => source.id === item.id)!} market={markets[item.id]} onSave={(patch) => onUpdate(key, item.id, patch)} />
                 </div>}
               </div>;
             })}
@@ -189,7 +190,8 @@ export default function AlipayHoldingsSection({ items, previousItems, records, y
   </>;
 
   return <div className="alipay-holdings">
-    <AlipayActualPanel key={yearMonth} yearMonth={yearMonth} items={items} fallback={estimatedHoldings} estimate={{
+    <AlipayActualPanel key={yearMonth} yearMonth={yearMonth} items={items} fallback={estimatedHoldings}
+      manualCorrection={(onSaved) => <AlipayManualCorrection key={yearMonth} items={items} markets={markets} yearMonth={yearMonth} onUpdate={onUpdate} onSaved={onSaved} />} estimate={{
       asOf: view.asOf, items: view.items, reviewItemIds: view.reviewItemIds,
       renderOrders: (item) => <ConfirmationOrders orders={ordersByItem.get(item.id) ?? []} asOf={view.asOf} name={item.name} />,
     }} />
