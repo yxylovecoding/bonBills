@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { FundConfirmationOverride, FundConfirmationRule, InvestPositionGroupKey, InvestPositionItems, MonthlyRecord } from '../models/types';
 import { useConfigStore } from '../stores/configStore';
 import { useAlipayHoldings } from '../hooks/useAlipayHoldings';
-import { fundConfirmationKey, isConfirmationFund, resolveFundConfirmationRule, summarizeAlipayHoldings, validConfirmationDate, type AlipayOrder } from '../utils/alipayHoldings';
+import { fundConfirmationKey, hasAlipayHoldingAmount, isConfirmationFund, resolveFundConfirmationRule, summarizeAlipayHoldings, validConfirmationDate, type AlipayOrder } from '../utils/alipayHoldings';
 import { calculateInvestPositionMonthlyProfit, type InvestMarketSnapshot } from '../utils/investPositionItems';
 import { investMeta } from '../data/mockData';
 import AlipayActualPanel from './AlipayActualPanel';
@@ -123,7 +123,9 @@ export default function AlipayHoldingsSection({ items, previousItems, records, y
       return <section key={label || keys[0]} className="invest-holdings-group" aria-label={label ? `${label}类持仓` : undefined}>
         {label && <div className="invest-holdings-group-header"><h3>{label}</h3><MonthlyReturn profit={profits.length ? profits.reduce((a, b) => a + b, 0) : null} value={categoryKeys.reduce((sum, key) => sum + summary.marketValueByCategory[key], 0)} /></div>}
         {keys.map((key) => {
-          const groupItems = (view.items[key] ?? []).filter((item) => past ? item.status !== 'active' : item.status === 'active');
+          const groupItems = (view.items[key] ?? []).filter((item) =>
+            (past ? item.status !== 'active' : item.status === 'active')
+            && hasAlipayHoldingAmount(summary.metricsById[item.id]?.marketValueCny));
           const groupLabel = key === 'account' ? '历史账户' : key === 'aggregate' ? '待归类账户' : investMeta[key].label;
           const groupId = `${past}:${key}`;
           const value = groupItems.reduce((sum, item) => sum + (summary.metricsById[item.id]?.marketValueCny ?? 0), 0);

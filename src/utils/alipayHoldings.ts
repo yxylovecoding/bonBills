@@ -37,6 +37,7 @@ export function alipayFundPositionItems(source: InvestPositionItems): InvestPosi
     return /^\d{6}$/.test(symbol) && !item.name.includes('场内');
   })])) as InvestPositionItems;
 }
+export const hasAlipayHoldingAmount = (marketValueCny: number | undefined) => Math.abs(marketValueCny ?? 0) >= 0.005;
 export const fundConfirmationKey = (symbol: string) => `eastmoney-fund:${canonicalInvestmentSymbol(symbol)}`;
 
 export function validConfirmationDate(date: string) {

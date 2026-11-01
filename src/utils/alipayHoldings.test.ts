@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { InvestPositionItems, InvestmentTransactionRecord, PendingInvestmentBuy } from '../models/types';
-import { alipayFundPositionItems, confirmationOrderKey, estimateConfirmationDate, fundConfirmationKey, holdingsAsOf, projectAlipayHoldings, resolveFundConfirmationRule, summarizeAlipayHoldings, type AlipayProjectionOptions } from './alipayHoldings';
+import { alipayFundPositionItems, confirmationOrderKey, estimateConfirmationDate, fundConfirmationKey, hasAlipayHoldingAmount, holdingsAsOf, projectAlipayHoldings, resolveFundConfirmationRule, summarizeAlipayHoldings, type AlipayProjectionOptions } from './alipayHoldings';
 import { applyInvestmentTransaction, captureInvestmentPositionBefore, createInvestmentRolloverRecord, emptyMonthlyRecord } from './investmentRollover';
 import { summarizeInvestPositionItems, syncInvestPositionItems } from './investPositionItems';
 import { bookPendingFundBuy, reconcileAutoFundBuy } from './autoFundBuys';
@@ -44,6 +44,12 @@ describe('支付宝持仓范围', () => {
       ],
     };
     expect(Object.values(alipayFundPositionItems(source)).flat().map((item) => item?.id)).toEqual(['fund', 'hs300-otc']);
+  });
+  it('持有金额为零或不足一分钱的基金不显示', () => {
+    expect(hasAlipayHoldingAmount(0)).toBe(false);
+    expect(hasAlipayHoldingAmount(undefined)).toBe(false);
+    expect(hasAlipayHoldingAmount(0.004)).toBe(false);
+    expect(hasAlipayHoldingAmount(0.01)).toBe(true);
   });
 });
 
