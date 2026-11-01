@@ -93,7 +93,7 @@ describe('支付宝导入写入共享账本', () => {
 
 
 describe('截图完整持仓更新', () => {
-  it('新实录包含的旧账单不再按不同操作时间重复扣回，金额含一笔待确认现金', async () => {
+  it('新实录包含的旧账单不再按不同操作时间重复扣回，待确认现金不提前计入持有金额', async () => {
     const source: AlipayActualSnapshot = { date: '2026-09-19', funds: [{ code, name: '测试基金',
       shares: 100, costPrice: 9.25, nav: 10.1817, navDate: '2026-09-18', totalAmount: 1028.17,
       confirmedAmount: 1018.17, holdingProfit: 93.18, pendingBuyAmount: 10, amountKind: 'total' }],
@@ -109,7 +109,7 @@ describe('截图完整持仓更新', () => {
     expect(view.orders).toHaveLength(1);
     expect(view.orders[0]).toMatchObject({ operationAt: '2026-09-18T09:46:54', status: 'pending', amount: 10 });
     expect(view.reviewItemIds.size).toBe(0);
-    expect(summarizeAlipayHoldings(view.items, view.orders).metricsById.fund).toMatchObject({ marketValueCny: 1028.17, holdingProfitCny: 93.18 });
+    expect(summarizeAlipayHoldings(view.items, view.orders).metricsById.fund).toMatchObject({ marketValueCny: 1018.17, holdingProfitCny: 93.18 });
     expect(current()).toEqual(before);
     expect(current().investmentTransactions).toHaveLength(1);
   });
@@ -125,7 +125,7 @@ describe('截图完整持仓更新', () => {
     expect(calculateInvestPositionMetric({ ...item(), shares: 100 }).marketValueCny).toBe(134.62);
   });
 
-  it('T+1 桥接回退到支付宝 T+2 时仍保留实录金额收益，到确认日现金只转成份额', async () => {
+  it('T+1 桥接回退到支付宝 T+2 时保留已确认金额收益，确认后再计入份额', async () => {
     const source: AlipayActualSnapshot = { date, funds: [{ code, name: '测试基金', shares: 79.37, costPrice: 1.274,
       nav: 1.3462, navDate: '2026-09-14', totalAmount: 116.85, confirmedAmount: 106.85, pendingBuyAmount: 10,
       holdingProfit: 5.72, amountKind: 'total' }],
@@ -134,7 +134,7 @@ describe('截图完整持仓更新', () => {
     const options = { asOf: date, records: [current()], holidays: { 2026: {} }, metadata: { [fundConfirmationKey(code)]: { name: '测试QDII', type: 'QDII' } } };
     const view = projectAlipayHoldings(current().investPositionItems!, options);
     expect(view.items.us![0].shares).toBe(79.37);
-    expect(summarizeAlipayHoldings(view.items, view.orders).metricsById.fund).toMatchObject({ marketValueCny: 116.85, holdingProfitCny: 5.72 });
+    expect(summarizeAlipayHoldings(view.items, view.orders).metricsById.fund).toMatchObject({ marketValueCny: 106.85, holdingProfitCny: 5.72 });
     const confirmed = projectAlipayHoldings(current().investPositionItems!, { ...options, asOf: '2026-09-16' });
     expect(confirmed.items.us![0].shares).toBe(86.8);
     expect(confirmed.orders[0].status).toBe('confirmed');

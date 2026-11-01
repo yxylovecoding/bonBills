@@ -202,7 +202,10 @@ export function projectAlipayHoldings(source: InvestPositionItems, options: Alip
       if (ambiguous) continue;
     }
     if (!itemOrders.length) continue;
-    const excluded = new Set(buys.filter((transaction, i) => transactionOrders[i].status === 'pending' || transaction.date > options.asOf).map((transaction) => transaction.id));
+    const excluded = new Set(buys.filter((transaction, i) => {
+      const status = transactionOrders[i].status;
+      return status === 'pending' || (status === 'review' && /T\d{2}:\d{2}:\d{2}/.test(transaction.operationAt ?? '')) || transaction.date > options.asOf;
+    }).map((transaction) => transaction.id));
     const firstExcluded = transactions.findIndex((transaction) => excluded.has(transaction.id));
     let projected: ReplayPosition = { shares: item.shares ?? 0, costPrice: item.costPrice ?? 0, realized: 0 };
     let realizedDelta = 0;
@@ -300,7 +303,7 @@ export function projectAlipayHoldings(source: InvestPositionItems, options: Alip
   return { items, orders, reviewItemIds };
 }
 
-/** Alipay's amount includes unconfirmed cash. Cash changes neither shares nor profit. */
+/** Unconfirmed cash is tracked for order details but is not part of displayed holdings until confirmation. */
 export function summarizeAlipayHoldings(items: InvestPositionItems, orders: AlipayOrder[], markets: Record<string, InvestMarketSnapshot | undefined> = {}, reviewItemIds = new Set<string>()) {
   const summary = summarizeInvestPositionItems(items, markets);
   const pendingCashById: Record<string, number> = {};
@@ -316,9 +319,6 @@ export function summarizeAlipayHoldings(items: InvestPositionItems, orders: Alip
       return sum + (fx ? Math.round(order.amount * fx * 100) : 0);
     }, 0) / 100;
     pendingCashById[item.id] = cash;
-    metric.marketValueCny = round(metric.marketValueCny + cash, 2);
-    summary.marketValueByCategory[key] = round(summary.marketValueByCategory[key] + cash, 2);
-    summary.totalMarketValueCny = round(summary.totalMarketValueCny + cash, 2);
   }
   return { ...summary, pendingCashById };
 }
