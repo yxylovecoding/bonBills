@@ -1,3 +1,4 @@
+import { hasTaskLocation } from './_ticktickLocation.js';
 import { kv } from './_accountKv.js';
 import ICAL from 'ical.js';
 import { cycleDay } from '../src/utils/lifeCycle.js';
@@ -6,8 +7,8 @@ import { swimmingHairWashDates, type HairWashSchedule } from '../src/utils/lifeS
 import { isTrainingTitle, recordedTrainingProjects, rollingTrainingPlan, trainingIdentity, trainingLibrary,
   trainingName, trainingProjectKey, type TrainingSource, type TrainingTask } from '../src/utils/lifeTraining.js';
 import { readHairWashSchedule, readSwimmingCycle } from './_lifeSwimming.js';
-import { calendarDateInTimeZone, getTickTickRoutineTargetDates, isAlwaysTodayTask, readAllTickTickTasks, routineRecurrence,
-  routineScenes, nextRoutineSceneDate, readRoutineCalendarState, shiftTickTickDate, TICKTICK_SYNC_STATE_KEY,
+import { calendarDateInTimeZone, isAlwaysTodayTask, readAllTickTickTasks, routineRecurrence,
+  nextRoutineSceneDate, readRoutineCalendarState, shiftTickTickDate, TICKTICK_SYNC_STATE_KEY,
   type TickTickApi, type TickTickTask, type TickTickTripSyncState } from './_ticktickTrips.js';
 
 export const EXERCISE_STATE_KEY = 'ticktick:exercise-rollover:v1';
@@ -51,12 +52,8 @@ export function exerciseTarget(task: TickTickTask, options: TargetOptions): stri
   const missed = scheduled < current.day || (scheduled === current.day && current.late);
   if (!missed && (!options.notBefore || scheduled >= options.notBefore)) return null;
   const from = [current.late ? addDays(current.day, 1) : current.day, options.notBefore ?? ''].sort().at(-1)!;
-  const scenes = routineScenes(task);
   const allowed = (day: string) => {
-    if (scenes.length) {
-      const targets = getTickTickRoutineTargetDates(options.calendarState, day);
-      if (!scenes.some(scene => targets[scene] === day)) return false;
-    }
+    if (nextRoutineSceneDate(task, options.calendarState, day) !== day) return false;
     return !task.title.includes('游泳') || (options.cycle !== undefined
       && cycleDay(day, options.cycle, options.periods ?? [])?.phase !== 'menstrual');
   };
@@ -209,7 +206,7 @@ export async function syncExerciseSchedule(api: TickTickApi, options: {
     for (const candidate of candidates.filter(task => isTrainingTitle(task.title))) {
       const target = dates.get(keyFor(candidate));
       // An absent hair-wash date must not fall back to swimming's old weekday.
-      if (!target && (candidate.title.includes('游泳') || routineScenes(candidate).length > 0)) { managedTaskIds.add(candidate.id); continue; }
+      if (!target && (candidate.title.includes('游泳') || hasTaskLocation(candidate, calendarState))) { managedTaskIds.add(candidate.id); continue; }
       if (!target || !taskDay(candidate)) continue;
       managedTaskIds.add(candidate.id);
       fixedDates.set(candidate.id, target);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { AlipayActualSnapshot, InvestPositionItem } from '../models/types';
-import { alipayHoldingDraft, buildAlipayHoldingPatch, alipayOrderDraft, correctAlipayRecordedOrder } from './alipayManualCorrection';
+import type { InvestPositionItem } from '../models/types';
+import { alipayHoldingDraft, buildAlipayHoldingPatch } from './alipayManualCorrection';
 import { investPositionDraftGroupsFromItems, investPositionItemsFromDraftGroups } from './investPositionDrafts';
 import { calculateInvestPositionMetric } from './investPositionItems';
 
@@ -12,12 +12,6 @@ function apply(source: InvestPositionItem, draft = alipayHoldingDraft(source), m
   groups.us[0] = { ...groups.us[0], ...buildAlipayHoldingPatch(source, draft, market) };
   return investPositionItemsFromDraftGroups(groups).us![0];
 }
-const snapshot = (): AlipayActualSnapshot => ({ date: '2026-09-15', funds: [
-  { code: '000001', name: '测试基金A', totalAmount: 200, holdingProfit: 50, amountKind: 'total' },
-  { code: '000002', name: '测试基金C', totalAmount: 20, holdingProfit: -5, amountKind: 'total' },
-], orders: [{ id: 'original-order', code: '000001', operationAt: '2026-09-14T19:57:32', side: 'sell', quantity: 3000,
-  unit: 'CNY', status: 'unknown' }] });
-
 describe('支付宝手动修正共享持仓', () => {
   it('金额收益写回完整持仓，保存后不会被份额成本重新算回旧值', () => {
     const next = apply(item, { ...alipayHoldingDraft(item), amount: '250.39', profit: '-12.43' });
@@ -58,30 +52,5 @@ describe('支付宝手动修正共享持仓', () => {
     for (const amount of ['', 'NaN', '-1', 'Infinity']) expect(() => apply(item, { ...alipayHoldingDraft(item), amount })).toThrow();
     expect(() => apply(item, { ...alipayHoldingDraft(item), profit: '201' })).toThrow('金额与收益不一致');
     expect(() => apply(item, { ...alipayHoldingDraft(item), mode: 'shares', shares: '-1' })).toThrow('份额');
-  });
-});
-
-describe('支付宝导入交易修正', () => {
-  it('修正卖出份额、未到账状态和预计到账日，保留编号及其他持仓记录', () => {
-    const source = snapshot();
-    const draft = { ...alipayOrderDraft(source.orders[0]), quantity: '3456.78', unit: 'shares' as const, status: 'pending' as const, expectedArrivalDate: '2026-09-18' };
-    const next = correctAlipayRecordedOrder(source, source.orders[0].id, draft);
-    expect(next.orders).toEqual([{ ...source.orders[0], quantity: 3456.78, unit: 'shares', status: 'pending', expectedArrivalDate: '2026-09-18' }]);
-    expect(next.funds).toEqual(source.funds);
-    expect(correctAlipayRecordedOrder(next, source.orders[0].id, draft)).toEqual(next);
-    expect(source.orders[0].quantity).toBe(3000);
-  });
-  it('支持更正 A/C 对应基金、交易时间以及已完成状态', () => {
-    const source = snapshot();
-    const next = correctAlipayRecordedOrder(source, source.orders[0].id, { ...alipayOrderDraft(source.orders[0]), code: '000002', operationAt: '2026-09-14T10:00', status: 'confirmed', confirmationDate: '2026-09-15', expectedArrivalDate: '' });
-    expect(next.orders[0]).toMatchObject({ id: 'original-order', code: '000002', operationAt: '2026-09-14T10:00:00', status: 'confirmed', confirmationDate: '2026-09-15' });
-    expect(next.orders[0].expectedArrivalDate).toBeUndefined();
-  });
-  it('无效日期、未知基金、零数量不能保存', () => {
-    const source = snapshot();
-    const draft = alipayOrderDraft(source.orders[0]);
-    expect(() => correctAlipayRecordedOrder(source, draft.id, { ...draft, expectedArrivalDate: '2026-09-13' })).toThrow('到账日期');
-    expect(() => correctAlipayRecordedOrder(source, draft.id, { ...draft, code: '123456' })).toThrow('对应基金');
-    expect(() => correctAlipayRecordedOrder(source, draft.id, { ...draft, quantity: '0' })).toThrow('大于零');
   });
 });

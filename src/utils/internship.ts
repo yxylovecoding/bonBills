@@ -130,5 +130,14 @@ export function normalizeDayOverrides(value: unknown): DayOverrides {
 export function resolveCalendarState(configState: unknown, calendarState: unknown) {
   const config = (configState as { config?: Partial<AppConfig> } | null)?.config ?? {};
   const calendar = (calendarState ?? {}) as { tagMap?: Record<string, TagKind>; dayOverrides?: DayOverrides };
-  return { ...calendar, tagMap: resolvedTagMap(calendar.tagMap ?? {}, { config, dayOverrides: normalizeDayOverrides(calendar.dayOverrides) }) };
+  const dayOverrides = normalizeDayOverrides(calendar.dayOverrides);
+  const tagMap = resolvedTagMap(calendar.tagMap ?? {}, { config, dayOverrides });
+  // Derived only for this read; never persist these maps over the source calendar.
+  const cityMap = Object.fromEntries([...new Set([...Object.keys(tagMap), ...Object.keys(dayOverrides)])]
+    .filter(validDate).map(date => [date, resolveDailyContext(date, tagMap[date], { config, dayOverrides }).city]));
+  const locationCities = [BEIJING, GUANGZHOU, config.schoolCity, config.homeCity, config.internshipLegacyCity,
+    ...(config.schoolPeriods ?? []).map(p => p.city),
+    ...(config.internshipPeriods ?? []).flatMap(p => [p.city, p.schoolCity]), ...Object.values(cityMap)]
+    .map(readSceneCity).filter((city): city is SceneCity => city !== null);
+  return { ...calendar, tagMap, cityMap, locationCities };
 }

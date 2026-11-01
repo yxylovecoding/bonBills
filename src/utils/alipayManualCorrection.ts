@@ -1,7 +1,6 @@
-import type { AlipayActualOrder, AlipayActualSnapshot, InvestPositionItem } from '../models/types';
+import type { InvestPositionItem } from '../models/types';
 import type { InvestPositionDraft } from './investPositionDrafts';
 import { calculateInvestPositionMetric, type InvestMarketSnapshot } from './investPositionItems';
-import { parseAlipayActual } from './alipayActual';
 
 export type AlipayHoldingDraft = {
   name: string; status: InvestPositionItem['status']; mode: 'amount' | 'shares';
@@ -62,27 +61,4 @@ export function buildAlipayHoldingPatch(item: InvestPositionItem, draft: AlipayH
     valuation: price && amount !== undefined && profit !== undefined && fx === 1
       ? { shares, costPrice, price, marketValueCny: round(amount), holdingProfitCny: round(profit) } : undefined };
   return patch;
-}
-
-export type AlipayOrderDraft = Omit<AlipayActualOrder, 'quantity' | 'confirmedShares' | 'nav' | 'fee'> & {
-  quantity: string; confirmedShares: string; nav: string; fee: string;
-};
-export const alipayOrderDraft = (order: AlipayActualOrder): AlipayOrderDraft => ({ ...order, quantity: String(order.quantity),
-  confirmedShares: order.confirmedShares?.toString() ?? '', nav: order.nav?.toString() ?? '', fee: order.fee?.toString() ?? '' });
-
-export function correctAlipayRecordedOrder(snapshot: AlipayActualSnapshot, id: string, draft: AlipayOrderDraft): AlipayActualSnapshot {
-  if (snapshot.orders.filter((order) => order.id === id).length !== 1) throw new Error('交易已更新，请重新选择');
-  const quantity = numeric(draft.quantity, '交易数量');
-  if (quantity <= 0) throw new Error('交易数量必须大于零');
-  const operationAt = draft.operationAt.length === 16 ? `${draft.operationAt}:00` : draft.operationAt;
-  const order: AlipayActualOrder = { ...draft, id, operationAt, quantity,
-    confirmedShares: draft.confirmedShares.trim() ? numeric(draft.confirmedShares, '确认份额') : undefined,
-    nav: draft.nav.trim() ? numeric(draft.nav, '成交净值') : undefined,
-    fee: draft.fee.trim() ? numeric(draft.fee, '手续费') : undefined,
-  };
-  for (const field of ['navDate', 'confirmationDate', 'expectedConfirmationDate', 'expectedArrivalDate'] as const) {
-    if (!order[field]) delete order[field];
-  }
-  // Keep the original identity so repeated saves cannot create another trade.
-  return parseAlipayActual(JSON.stringify({ ...snapshot, orders: snapshot.orders.map((entry) => entry.id === id ? order : entry) }));
 }

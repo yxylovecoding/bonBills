@@ -1,3 +1,4 @@
+import { taskLocationAllowed } from './_ticktickLocation.js';
 import { kv } from './_accountKv.js';
 import { upstream } from './_bonClothes.js';
 import type { SceneCity } from '../src/models/types.js';
@@ -7,7 +8,7 @@ import type { AppConfig, TagKind } from '../src/models/types.js';
 import type { OutlookAvailability } from '../src/utils/outlookCalendar.js';
 import { dayAvailability, type AvailabilityProfile } from './_dailyAvailability.js';
 import { cycleEnd, estimateTaskMinutes } from './_ticktickDailyPlan.js';
-import { calendarDateInTimeZone, isAlwaysTodayTask, routineOccurrenceKey, routineScenes, routineTaskDate, shiftTickTickDate,
+import { calendarDateInTimeZone, isAlwaysTodayTask, routineOccurrenceKey, routineTaskDate, shiftTickTickDate,
   type TickTickApi, type TickTickTask, type TickTickTripSource } from './_ticktickTrips.js';
 
 export const LAUNDRY_STATE_KEY = 'ticktick:laundry-weather:v1';
@@ -19,8 +20,7 @@ const normalize = (text: string) => text.normalize('NFKC').trim();
 const pending = (task: TickTickTask) => (task.status ?? 0) === 0 && !task.completedTime;
 export const isLaundryTask = (task: TickTickTask) => normalize(task.title) === '洗衣服'
   && !(task.tags ?? []).some(tag => normalize(tag) === '不关我事');
-const scene = (value: unknown) => value === 'intern' || value === 'school' ? 'school' : value === 'home' ? 'home' : value === 'travel' ? 'travel' : null;
-const tagMap = (state: unknown) => (state as { tagMap?: Record<string, string> } | null)?.tagMap ?? {};
+
 
 export interface LaundryWeather { rain: number; probability: number; sunshine: number; code: number }
 export interface LaundryForecast { fetchedAt: string; days: Record<string, LaundryWeather> }
@@ -158,10 +158,10 @@ function weatherRank(date: string, forecast: LaundryForecast) {
 
 export function chooseLaundryDay(task: TickTickTask, target: string, options: PlanOptions,
   forecastFor: (day: string) => LaundryForecast | undefined): string | null {
-  const choices: { date: string; rank: number[] }[] = [], scenes = routineScenes(task), map = tagMap(options.calendarState);
+  const choices: { date: string; rank: number[] }[] = [];
   for (const offset of WEATHER_DAY_OFFSETS) {
-    const date = addDays(target, offset), localScene = scene(map[date]);
-    if (date < options.today || (scenes.length && (!localScene || !scenes.includes(localScene)))) continue;
+    const date = addDays(target, offset);
+    if (date < options.today || !taskLocationAllowed(task, options.calendarState, date)) continue;
     if (!hasTime(task, date, options)) continue;
     const forecast = forecastFor(date);
     if (!forecast || options.now.getTime() - Date.parse(forecast.fetchedAt) < 0
@@ -264,7 +264,7 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
       && defaultDay !== null && calendarDateInTimeZone(event.start) === defaultDay
       && Date.parse(event.end) > Date.parse(event.start)
       && (!anchor.completion || Date.parse(event.start) > Date.parse(anchor.completion)));
-    if (day >= options.today && appointments.length === 1 && Date.parse(appointments[0].start) !== defaultStart) {
+    if (day >= options.today && taskLocationAllowed(task, options.calendarState, day) && appointments.length === 1 && Date.parse(appointments[0].start) !== defaultStart) {
       // A same-day move is an explicit choice, even after the original slot has
       // passed or become busy. Do not let weather planning undo it indirectly.
       if (await moveLaundry(api, task, day, laundryNote(task, anchor, day, options,
@@ -276,7 +276,7 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
     // The completion-based anchor defines the cycle target for every cadence,
     // including four days; travel, weather and availability still choose the date.
     const beforeTrip = laundryBeforeTrip(anchor.target, options.trips ?? [], calendarDateInTimeZone(anchor.completion, task.timeZone));
-    if (beforeTrip) {
+    if (beforeTrip && taskLocationAllowed(task, options.calendarState, beforeTrip)) {
       if (beforeTrip < options.today) {
         decisions.push({ id: task.id, target: anchor.target, reason: '出行前一天已过，保留待办等待补做' });
         continue;

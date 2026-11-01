@@ -206,9 +206,10 @@ describe('重排剩余今日事并从明日补入', () => {
     const result = await replanRemainingToday();
     expect(result).toMatchObject({ updated: 1, timedTasks: { matched: 1, updated: 1, hidden: 1 },
       dailyPlan: { todayCount: 1, plannedMinutes: 15 } });
-    expect(mocks.update.mock.calls.map(([id]) => id)).toEqual(['timed', 'older']);
+    expect(mocks.update.mock.calls.map(([id]) => id)).toEqual(['timed', 'wrong-scene', 'older']);
     expect(mocks.tasks.find(t => t.id === 'timed')).toEqual({ ...before.find(t => t.id === 'timed')!, tags: ['bon-hidden'] });
-    expect(mocks.tasks.filter(t => !['older', 'timed'].includes(t.id))).toEqual(before.filter(t => !['older', 'timed'].includes(t.id)));
+    expect(mocks.tasks.find(t => t.id === 'wrong-scene')?.tags).toContain('bon-hidden');
+    expect(mocks.tasks.filter(t => !['older', 'timed', 'wrong-scene'].includes(t.id))).toEqual(before.filter(t => !['older', 'timed', 'wrong-scene'].includes(t.id)));
   });
   it('按智能清单范围补入无日期和未来30天任务，未选中的无日期任务保持不变', async () => {
     vi.setSystemTime(new Date(`${day}T21:30:00+08:00`));

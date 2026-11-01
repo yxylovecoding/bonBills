@@ -1,3 +1,4 @@
+import { syncTickTickLocationVisibility } from './_ticktickLocationVisibility.js';
 import { automaticRestWindow } from '../src/utils/schedulerTime.js';
 import { resolveCalendarState } from '../src/utils/internship.js';
 import { createHash } from 'node:crypto';
@@ -62,6 +63,7 @@ async function replanRemainingTodayInner(options: { scheduled?: boolean }) {
       if (skipped) {
         const tasks = await schedulingStage('tasks-read', true, () => readAllTickTickTasks(api, [0]));
         const alwaysToday = await syncTickTickAlwaysToday(api, { tasks });
+        await syncTickTickLocationVisibility(api, { tasks });
         return { busy: false as const, skipped, alwaysToday };
       }
     }
@@ -93,6 +95,7 @@ async function replanRemainingTodayInner(options: { scheduled?: boolean }) {
     if (options.scheduled && sleepWindow(now).hidden) return { busy: false as const, skipped: 'sleep-window' as const };
     const calendarState = resolveCalendarState(configState, snapshot && input ? applyOutlookSnapshotToState(calendar ?? {}, snapshot, input.policy, today) : calendar);
     const alwaysToday = await syncTickTickAlwaysToday(api, { tasks, today, calendarState });
+    await syncTickTickLocationVisibility(api, { tasks, calendarState, now });
     const excluded = getTickTickRoutineExcludedTaskIds(template, { ...trips, instances: trips?.instances ?? {} });
     // Preserve protected ancestors as well as individually managed tasks.
     const byId = new Map(tasks.map(task => [task.id, task]));

@@ -16,7 +16,7 @@ export function AlipayHoldingDialog({ item, market, onSave, onClose, children }:
   const [error, setError] = useState('');
   const currency = (item.quoteCurrency || market?.currency || item.lastCurrency || 'CNY').toUpperCase();
   const hasPrice = !!alipayHoldingDraft(item, market).price;
-  return <AlipayImportDialog title="支付宝手动修正" onClose={onClose} footer={<>
+  return <AlipayImportDialog title="支付宝持仓修正" onClose={onClose} footer={<>
     {error && <div role="alert" className="alipay-import-warning">{error}</div>}
     <div className="alipay-detail-line"><button type="button" className="alipay-text-button" onClick={onClose}>取消</button><button type="submit" form={formId} className="alipay-import-confirm">保存</button></div>
   </>}>

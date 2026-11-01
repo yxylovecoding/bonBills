@@ -3,6 +3,8 @@ import { schedulingFailure } from './_schedulingFailure';
 import { planTickTickDay } from './_ticktickDailyPlan';
 import { routineTaskDate, syncTickTickAlwaysToday, syncTickTickRoutines, type TickTickApi, type TickTickTask } from './_ticktickTrips';
 
+vi.mock('@vercel/kv', () => ({ kv: { get: async () => null } }));
+
 const day = '2026-10-21';
 const makeTask = (id: string, extra: Partial<TickTickTask> = {}): TickTickTask => ({
   id, projectId: 'life', title: id, status: 0, isAllDay: true, timeZone: 'Asia/Shanghai',

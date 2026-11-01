@@ -193,7 +193,7 @@ export default function AlipayHoldingsSection({ items, previousItems, records, y
 
   return <div className="alipay-holdings">
     <AlipayActualPanel key={yearMonth} yearMonth={yearMonth} items={items} fallback={estimatedHoldings}
-      manualCorrection={(onSaved) => <AlipayManualCorrection key={yearMonth} items={items} markets={markets} yearMonth={yearMonth} onUpdate={onUpdate} onSaved={onSaved} />} estimate={{
+      manualCorrection={(onSaved) => <AlipayManualCorrection key={yearMonth} items={items} markets={markets} onUpdate={onUpdate} onSaved={onSaved} />} estimate={{
       asOf: view.asOf, items: view.items, reviewItemIds: view.reviewItemIds,
       renderOrders: (item) => <ConfirmationOrders orders={ordersByItem.get(item.id) ?? []} asOf={view.asOf} name={item.name} />,
     }} />
