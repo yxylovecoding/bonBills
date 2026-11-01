@@ -303,7 +303,7 @@ export function projectAlipayHoldings(source: InvestPositionItems, options: Alip
   return { items, orders, reviewItemIds };
 }
 
-/** Unconfirmed cash is tracked for order details but is not part of displayed holdings until confirmation. */
+/** Alipay's displayed amount includes unconfirmed cash immediately, while shares wait for confirmation. */
 export function summarizeAlipayHoldings(items: InvestPositionItems, orders: AlipayOrder[], markets: Record<string, InvestMarketSnapshot | undefined> = {}, reviewItemIds = new Set<string>()) {
   const summary = summarizeInvestPositionItems(items, markets);
   const pendingCashById: Record<string, number> = {};
@@ -319,6 +319,9 @@ export function summarizeAlipayHoldings(items: InvestPositionItems, orders: Alip
       return sum + (fx ? Math.round(order.amount * fx * 100) : 0);
     }, 0) / 100;
     pendingCashById[item.id] = cash;
+    metric.marketValueCny = round(metric.marketValueCny + cash, 2);
+    summary.marketValueByCategory[key] = round(summary.marketValueByCategory[key] + cash, 2);
+    summary.totalMarketValueCny = round(summary.totalMarketValueCny + cash, 2);
   }
   return { ...summary, pendingCashById };
 }

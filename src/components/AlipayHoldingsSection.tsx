@@ -100,6 +100,9 @@ export default function AlipayHoldingsSection({ items, previousItems, records, y
     const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next;
   });
   const sections = past ? [{ label: '', keys: ['account' as const] }, ...SECTIONS, { label: '', keys: ['aggregate' as const] }] : SECTIONS;
+  const visibleItemsForKey = (key: InvestPositionGroupKey) => (view.items[key] ?? []).filter((item) =>
+    (past ? item.status !== 'active' : item.status === 'active')
+    && hasAlipayHoldingAmount(summary.metricsById[item.id]?.marketValueCny));
 
   const estimatedHoldings = <>
     <div className="alipay-detail-line" style={{ color: C.sub, fontSize: 10 }}>
@@ -118,14 +121,14 @@ export default function AlipayHoldingsSection({ items, previousItems, records, y
       {[false, true].map((isPast) => <button type="button" key={String(isPast)} aria-pressed={past === isPast} onClick={() => setPast(isPast)}>{isPast ? '历史' : '持有'}</button>)}
     </div>
     {sections.map(({ label, keys }) => {
-      const categoryKeys = keys.filter((key) => key !== 'account' && key !== 'aggregate');
+      const visibleKeys = keys.filter((key) => visibleItemsForKey(key).length > 0);
+      if (!visibleKeys.length) return null;
+      const categoryKeys = visibleKeys.filter((key) => key !== 'account' && key !== 'aggregate');
       const profits = categoryKeys.map((key) => monthly.byCategory[key]).filter((value): value is number => value !== null && value !== undefined);
-      return <section key={label || keys[0]} className="invest-holdings-group" aria-label={label ? `${label}类持仓` : undefined}>
+      return <section key={label || visibleKeys[0]} className="invest-holdings-group" aria-label={label ? `${label}类持仓` : undefined}>
         {label && <div className="invest-holdings-group-header"><h3>{label}</h3><MonthlyReturn profit={profits.length ? profits.reduce((a, b) => a + b, 0) : null} value={categoryKeys.reduce((sum, key) => sum + summary.marketValueByCategory[key], 0)} /></div>}
-        {keys.map((key) => {
-          const groupItems = (view.items[key] ?? []).filter((item) =>
-            (past ? item.status !== 'active' : item.status === 'active')
-            && hasAlipayHoldingAmount(summary.metricsById[item.id]?.marketValueCny));
+        {visibleKeys.map((key) => {
+          const groupItems = visibleItemsForKey(key);
           const groupLabel = key === 'account' ? '历史账户' : key === 'aggregate' ? '待归类账户' : investMeta[key].label;
           const groupId = `${past}:${key}`;
           const value = groupItems.reduce((sum, item) => sum + (summary.metricsById[item.id]?.marketValueCny ?? 0), 0);

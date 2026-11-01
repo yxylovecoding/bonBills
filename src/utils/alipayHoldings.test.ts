@@ -92,18 +92,18 @@ describe('支付宝确认日期', () => {
 });
 
 describe('支付宝持仓投影', () => {
-  it('在途现金只保留明细，不在确认前计入持有金额；确认后才更新金额', () => {
+  it('在途现金立即计入显示金额，但份额要到确认后才更新', () => {
     const record = booked();
     const view = projectAlipayHoldings(record.investPositionItems!, options({ records: [record] }));
     const summary = summarizeAlipayHoldings(view.items, [...view.orders, ...view.orders]);
-    expect(summary).toMatchObject({ totalMarketValueCny: 1200, totalProfitCny: 220, marketValueByCategory: { us: 1200 }, pendingCashById: { fund: 220 } });
-    expect(summary.metricsById.fund).toMatchObject({ marketValueCny: 1200, holdingProfitCny: 200 });
+    expect(summary).toMatchObject({ totalMarketValueCny: 1420, totalProfitCny: 220, marketValueByCategory: { us: 1420 }, pendingCashById: { fund: 220 } });
+    expect(summary.metricsById.fund).toMatchObject({ marketValueCny: 1420, holdingProfitCny: 200 });
     const later = projectAlipayHoldings(record.investPositionItems!, options({ records: [record], asOf: '2026-09-16' }));
     expect(summarizeAlipayHoldings(later.items, later.orders)).toMatchObject({ totalMarketValueCny: 1440, pendingCashById: { fund: 0 } });
     const before = summarizeInvestPositionItems(record.investPositionItems!);
     expect(summarizeAlipayHoldings(record.investPositionItems!, view.orders, {}, new Set(['fund'])).totalMarketValueCny).toBe(before.totalMarketValueCny);
   });
-  it('周六买入在周日仍显示周六买入前的持仓，等待后续工作日确认', () => {
+  it('周六买入的现金立即计入金额，周日金额保持不变且份额等待确认', () => {
     const record = booked([buy({ date: '2026-10-31', operationAt: '2026-10-31T19:57:00' })], '2026-10');
     const saturday = projectAlipayHoldings(record.investPositionItems!, options({ records: [record], asOf: '2026-10-31' }));
     const sunday = projectAlipayHoldings(record.investPositionItems!, options({ records: [record], asOf: '2026-11-01' }));
@@ -113,8 +113,8 @@ describe('支付宝持仓投影', () => {
     expect(unknownRule.orders[0]).toMatchObject({ status: 'review' });
     expect(sunday.items.us![0]).toMatchObject({ shares: 100, costPrice: 10 });
     expect(unknownRule.items.us![0]).toMatchObject({ shares: 100, costPrice: 10 });
-    expect(summarizeAlipayHoldings(saturday.items, saturday.orders).totalMarketValueCny).toBe(1200);
-    expect(summarizeAlipayHoldings(sunday.items, sunday.orders).totalMarketValueCny).toBe(1200);
+    expect(summarizeAlipayHoldings(saturday.items, saturday.orders).totalMarketValueCny).toBe(1420);
+    expect(summarizeAlipayHoldings(sunday.items, sunday.orders).totalMarketValueCny).toBe(1420);
   });
   it('未确认买入同步移除份额和成本，原成交净值及账本不变', () => {
     const record = booked();
