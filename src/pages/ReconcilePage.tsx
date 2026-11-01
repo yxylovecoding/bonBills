@@ -23,7 +23,7 @@ import { budgetCalendarTags, calcBudget } from '../calculations/budget';
 import { calculateRaiseSavings, calculateTransferAllocation, resolveRaiseSavingsSettings, resolveRecurringIncomeBaseline, TRANSFER_KEYS, type TransferKey } from '../calculations/reconcileTransfers';
 import { calcHistoryStats } from '../calculations/history';
 import { calcAllocationRatios, calcRebalance, calcTopUpRebalance } from '../calculations/rebalance';
-import { calcRemainingRecurringInvestments, deductRecurringInvestments } from '../calculations/recurringInvestment';
+import { calcRemainingRecurringInvestments, deductRecurringInvestments, shouldCancelRecurringInvestment } from '../calculations/recurringInvestment';
 import { investMeta, tagMeta } from '../data/mockData';
 import type { AccountSnapshot, AppConfig, DailyTag, InvestAllocTargets, InvestHoldings, InvestKey, TagKind, UsStockHoldingItem } from '../models/types';
 import { useHolidayYears } from '../utils/holidays';
@@ -2800,6 +2800,7 @@ export default function ReconcilePage() {
               const groupTargetDirection = groupRatio !== null && groupRatio > groupTargetRatio ? '偏高' : '偏低';
               const suggested = Math.round(rebalanceSuggested[k]);
               const recurring = recurringInvestments[k] ?? 0;
+              const cancelRecurring = (k === 'us' || k === 'asia') && shouldCancelRecurringInvestment(suggested, recurring);
               const showUsd = (USD_INVEST_KEYS.includes(k) || usdRebalanceCells.has(k)) && latestUsdRate !== null;
               const remainingLabel = suggested === 0
                 ? recurring > 0 ? showUsd ? '$0' : '0' : '—'
@@ -2895,6 +2896,11 @@ export default function ReconcilePage() {
                     {recurring > 0 && (
                       <span style={{ display: 'block', fontSize: 10, fontWeight: 400, color: C.sub, whiteSpace: 'nowrap' }}>
                         (定投{fmtInt(recurring)})
+                      </span>
+                    )}
+                    {cancelRecurring && (
+                      <span role="alert" style={{ display: 'block', fontSize: 10, fontWeight: 700, color: C.red, whiteSpace: 'nowrap' }}>
+                        需加低于定投，请取消定投
                       </span>
                     )}
                   </td>

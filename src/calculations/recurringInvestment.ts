@@ -20,6 +20,10 @@ export function calcRemainingRecurringInvestments(
   return { us: days * 20, asia: days * 20 };
 }
 
+export function shouldCancelRecurringInvestment(suggestedTopUp: number, recurringAmount: number) {
+  return recurringAmount > 0 && suggestedTopUp < recurringAmount;
+}
+
 export function deductRecurringInvestments(
   suggested: RebalanceResult,
   recurring: RecurringInvestments,

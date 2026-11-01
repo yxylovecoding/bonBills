@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RebalanceResult } from '../models/types';
-import { calcRemainingRecurringInvestments, deductRecurringInvestments } from './recurringInvestment';
+import { calcRemainingRecurringInvestments, deductRecurringInvestments, shouldCancelRecurringInvestment } from './recurringInvestment';
 
 const suggestions = (values: Partial<RebalanceResult> = {}): RebalanceResult => ({
   us: 0, eu: 0, asia: 0, a: 0, longBond: 0, usBond: 0, gold: 0, ...values,
@@ -74,5 +74,16 @@ describe('deductRecurringInvestments', () => {
     expect(after.us).toBe(-70);
     expect(after.asia + after.eu).toBeCloseTo(450);
     expect(deductRecurringInvestments(before, { us: 0, asia: 0 })).toEqual(before);
+  });
+});
+
+describe('shouldCancelRecurringInvestment', () => {
+  it('需加低于定投时提醒取消，等于或高于时不提醒', () => {
+    expect(shouldCancelRecurringInvestment(19, 20)).toBe(true);
+    expect(shouldCancelRecurringInvestment(0, 20)).toBe(true);
+    expect(shouldCancelRecurringInvestment(-10, 20)).toBe(true);
+    expect(shouldCancelRecurringInvestment(20, 20)).toBe(false);
+    expect(shouldCancelRecurringInvestment(21, 20)).toBe(false);
+    expect(shouldCancelRecurringInvestment(0, 0)).toBe(false);
   });
 });
