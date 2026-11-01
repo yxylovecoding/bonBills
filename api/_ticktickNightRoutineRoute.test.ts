@@ -4,6 +4,7 @@ import handler from './ticktick-trips';
 
 const { auth, lock, release, sync, timed, hair, daily, exercise, data, outlook, archive } = vi.hoisted(() => ({ auth: vi.fn(), lock: vi.fn(), release: vi.fn(),
   sync: vi.fn(), timed: vi.fn(), hair: vi.fn(), daily: vi.fn(), exercise: vi.fn(), data: new Map<string, unknown>(), outlook: vi.fn(), archive: vi.fn() }));
+vi.mock('./_ticktickLocationVisibility.js', () => ({ syncTickTickLocationVisibility: vi.fn(async () => ({ hidden: 0, restored: 0 })) }));
 vi.mock('./_auth.js', () => ({ authOk: auth }));
 vi.mock('./_ticktickLock.js', () => ({ acquireTickTickLock: lock, releaseTickTickLock: release }));
 vi.mock('@vercel/kv', () => ({ kv: { get: async (key: string) => data.get(key) } }));

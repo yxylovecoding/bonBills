@@ -132,7 +132,7 @@ describe('后台 Outlook 拉取与 TickTick 顺序', () => {
     expect((await cron()).status).toBe(200);
     expect(events).toEqual(['outlook', 'outlook', 'template']);
     expect(routineSync.mock.calls[0][0].today).toBe(today);
-    expect(routineSync.mock.calls[0][0].calendarState).toEqual(calendar());
+    expect(routineSync.mock.calls[0][0].calendarState).toMatchObject(calendar());
     expect(tripSync.mock.calls[0][0].trips).toEqual(calendar());
   });
   it('立即同步先刷新未来寒暑假，再把已清理的日历交给待办同步', async () => {
@@ -153,7 +153,7 @@ describe('后台 Outlook 拉取与 TickTick 顺序', () => {
     expect(events).toEqual(['outlook', 'outlook', 'template']);
     expect(calendar().tagMap).toEqual({ '2026-09-25': 'school', '2027-01-23': 'travel' });
     expect(calendar().outlookTravelTitles).toEqual({ '2027-01-23': '北海道' });
-    expect(routineSync.mock.calls[0][0].calendarState).toEqual(calendar());
+    expect(routineSync.mock.calls[0][0].calendarState).toMatchObject(calendar());
     expect(tripSync.mock.calls[0][0].trips).toEqual(calendar());
   });
   it('未连接 Outlook 时继续原有 TickTick 同步，两者都没连接时正常返回', async () => {

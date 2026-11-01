@@ -334,18 +334,18 @@ describe('洗头标签日期跟随', () => {
     const options = { api, calendarState: { tagMap: { '2026-09-05': 'school', '2026-09-09': 'home' } }, today: '2026-09-04' };
     expect(await syncTickTickRoutines(options)).toMatchObject({ updatedRoutineTasks: 2 });
     expect(api.tasks.get(source.id)?.dueDate).toBe('2026-09-05T09:00:00+0800');
-    expect(api.tasks.get(follower.id)?.dueDate).toBe('2026-09-05T21:00:00+0800');
+    expect(api.tasks.get(follower.id)?.dueDate).toBe('2026-09-09T21:00:00+0800');
     expect([...api.updatePayloads.keys()]).toEqual([source.id, follower.id]);
     expect(await syncTickTickRoutines(options)).toMatchObject({ updatedRoutineTasks: 0 });
   });
 
   it.each(['RRULE:FREQ=DAILY', 'RRULE:FREQ=DAILY;INTERVAL=7', 'RRULE:FREQ=WEEKLY', 'RRULE:FREQ=MONTHLY', 'CUSTOM:UNKNOWN'])
-   ('跟随优先于自身循环 %s、场景匹配和当天完成记录', async (repeatFlag) => {
+   ('跟随优先于自身循环 %s，但必须满足自身地点', async (repeatFlag) => {
       const recurring = { ...follower, repeatFlag, tags: ['洗头', '居'] };
       const api = setup(source, recurring, { ...recurring, id: 'history', status: 2, completedTime: '2026-09-04T03:00:00Z' });
       const completed = vi.spyOn(api, 'listCompletedTasks');
-      await syncTickTickRoutines({ api, calendarState: { tagMap: { '2026-09-04': 'school' } }, today: '2026-09-04' });
-      expect(api.tasks.get(follower.id)).toMatchObject({ repeatFlag, dueDate: '2026-09-08T21:00:00+0800', status: 0 });
+      await syncTickTickRoutines({ api, calendarState: { tagMap: { '2026-09-04': 'school', '2026-09-08': 'travel', '2026-09-10': 'school' } }, today: '2026-09-04' });
+      expect(api.tasks.get(follower.id)).toMatchObject({ repeatFlag, dueDate: '2026-09-10T21:00:00+0800', status: 0 });
       expect(completed).not.toHaveBeenCalled();
     });
 
@@ -509,11 +509,11 @@ describe('寄居旅标签排期', () => {
     expect(getTickTickRoutineTargetDates(calendar, '2026-09-07').school).toBe('2026-09-07');
   });
 
-  it('仅寄兜底春节，当天是春节可排在今天，非法日历日期不参与', () => {
+  it('春节不代表在寄，缺失或非法日历日期不参与', () => {
     expect(getTickTickRoutineTargetDates({ tagMap: { '2026-09-31': 'home', '2026-13-01': 'school' } }, '2026-09-25'))
-      .toEqual({ home: '2027-02-06', school: null, travel: null });
-    expect(getTickTickRoutineTargetDates({}, '2027-02-06').home).toBe('2027-02-06');
-    expect(getTickTickRoutineTargetDates({}, '2027-02-07').home).toBe('2028-01-26');
+      .toEqual({ home: null, school: null, travel: null });
+    expect(getTickTickRoutineTargetDates({}, '2027-02-06').home).toBeNull();
+    expect(getTickTickRoutineTargetDates({}, '2027-02-07').home).toBeNull();
   });
 
   it.each([['居'], ['旅'], ['居', '旅']])('%j 无候选日时保留日期及未排期待办', async (...tags) => {
@@ -527,11 +527,11 @@ describe('寄居旅标签排期', () => {
     expect(api.updateCalls).toBe(0);
   });
 
-  it('多标签忽略缺失场景，用其他场景日期或寄的春节候选', async () => {
+  it('多标签取已确认的适用日期，不把春节当作寄', async () => {
     const api = apiWithTasks([todo(['居', '旅']), todo(['居', '寄'], { id: 'fallback' })]);
     await syncTickTickRoutines({ api, calendarState: { tagMap: { '2026-09-10': 'travel' } }, today: '2026-09-04' });
     expect(api.tasks.get('todo')?.dueDate).toBe('2026-09-10T00:00:00+0800');
-    expect(api.tasks.get('fallback')?.dueDate).toBe('2027-02-06T00:00:00+0800');
+    expect(api.tasks.get('fallback')?.dueDate).toBeUndefined();
   });
 
   it('只看自身标签，不继承父任务标签，也不根据旧清单或父任务名称排期', async () => {
@@ -605,7 +605,7 @@ describe('寄居旅标签排期', () => {
     expect(api.tasks.get('todo')?.dueDate).toBe('2027-02-07T00:00:00+0800');
     api.tasks.get('todo')!.tags = ['寄'];
     await syncTickTickRoutines({ api, today: '2027-02-06', calendarState: {} });
-    expect(api.tasks.get('todo')?.dueDate).toBe('2028-01-26T00:00:00+0800');
+    expect(api.tasks.get('todo')?.dueDate).toBe('2027-02-07T00:00:00+0800');
   });
 
   describe('居与旅的长周期任务', () => {
@@ -1148,12 +1148,12 @@ describe('TickTick 出门模板子任务标签', () => {
   it.each(['出游', '心愿'])('%s 新副本的阶段及各级后代去掉不关我事，保留其他标签和原模板', async (kind) => {
     const { api, sourceTasks, instance } = await setup(kind);
     expect(api.tasks.get(instance.taskIdsByTemplateId['template-seven-months'])?.tags)
-      .toEqual(['routine', '旅', '不关我事说明']);
-    expect(api.tasks.get(instance.taskIdsByTemplateId['template-visa'])?.tags).toEqual(['证件']);
-    expect(api.tasks.get(instance.taskIdsByTemplateId['template-photo'])?.tags).toEqual([]);
+      .toEqual(['routine', '旅', '不关我事说明', '当天']);
+    expect(api.tasks.get(instance.taskIdsByTemplateId['template-visa'])?.tags).toEqual(['证件', '当天']);
+    expect(api.tasks.get(instance.taskIdsByTemplateId['template-photo'])?.tags).toEqual(['当天']);
     if (kind === '出游') {
-      expect(api.tasks.get(instance.rootTaskId!)?.tags).toEqual(['不关我事', '玩']);
-      expect(api.tasks.get(instance.taskIdsByTemplateId['template-day'])?.tags).toEqual([]);
+      expect(api.tasks.get(instance.rootTaskId!)?.tags).toEqual(['不关我事', '玩', '当天']);
+      expect(api.tasks.get(instance.taskIdsByTemplateId['template-day'])?.tags).toEqual(['当天']);
     }
     for (const task of sourceTasks) expect(api.tasks.get(task.id)).toEqual(task);
   });
@@ -1178,9 +1178,9 @@ describe('TickTick 出门模板子任务标签', () => {
 
     for (let run = 0; run < 2; run++) {
       await sync();
-      expect(api.tasks.get(stage.id)?.tags).toEqual(['手动标签', 'bon-hidden']);
-      expect(api.tasks.get(visa.id)).toEqual({ ...before, tags: ['routine', '自己的标签'] });
-      expect(api.tasks.get(ids['template-photo'])?.tags).toEqual([]);
+      expect(api.tasks.get(stage.id)?.tags).toEqual(['手动标签', 'bon-hidden', '当天']);
+      expect(api.tasks.get(visa.id)).toEqual({ ...before, tags: ['routine', '自己的标签', '当天'] });
+      expect(api.tasks.get(ids['template-photo'])?.tags).toEqual(['当天']);
       expect(api.tasks.get(unrelated.id)).toEqual(unrelated);
       expect(instance.taskIdsByTemplateId).toEqual(ids);
       expect(api.createCalls).toBe(created);
@@ -1971,12 +1971,12 @@ describe('TickTick 出游同步', () => {
     });
   });
 
-  it('寄没有下一场景时使用春节，居和旅不兜底', () => {
+  it('没有下一场景时均不兜底春节', () => {
     expect(nextChineseNewYear('2026-09-21')).toBe('2027-02-06');
     expect(nextChineseNewYear('2027-02-05')).toBe('2027-02-06');
     expect(nextChineseNewYear('2027-02-06')).toBe('2028-01-26');
     expect(getTickTickRoutineTargetDates({ tagMap: {} }, '2026-09-21')).toEqual({
-      home: '2027-02-06',
+      home: null,
       school: null,
       travel: null,
     });
@@ -2145,7 +2145,7 @@ describe('TickTick 出游同步', () => {
     });
   });
 
-  it('今天完成但没有下一场景时使用下个春节，未设日期的任务安排在今天', async () => {
+  it('今天完成但没有下一场景时保留原日期，未设日期的任务安排在确认的今天', async () => {
     const api = new FakeRoutineTickTickApi();
     const task = api.tasks.get('home-dated')!;
     Object.assign(task, {
@@ -2154,7 +2154,7 @@ describe('TickTick 出游同步', () => {
     });
     api.tasks.set('home-history', { ...task, id: 'home-history', status: 2, completedTime: '2026-09-04T01:00:00+0000' });
     await syncTickTickRoutines({ api, calendarState: { tagMap: { '2026-09-04': 'home' } }, today: '2026-09-04' });
-    expect(api.tasks.get(task.id)?.dueDate).toBe('2027-02-05T16:00:00.000+0000');
+    expect(api.tasks.get(task.id)?.dueDate).toBe('2026-09-03T16:00:00.000+0000');
     expect(api.tasks.get('home-no-date')?.startDate).toBe('2026-09-04T00:00:00+0800');
     expect(api.tasks.get('home-no-date')?.dueDate).toBe('2026-09-04T00:00:00+0800');
   });
@@ -2197,7 +2197,7 @@ describe('TickTick 出游同步', () => {
     ]);
   });
 
-  it('除夕完成且没有下次场景时，不会跳过明天的春节', async () => {
+  it('除夕完成且没有下次场景时，不猜测春节所在地', async () => {
     const api = new FakeRoutineTickTickApi();
     const task = api.tasks.get('home-dated')!;
     Object.assign(task, {
@@ -2206,7 +2206,7 @@ describe('TickTick 出游同步', () => {
     });
     api.tasks.set('home-history', { ...task, id: 'home-history', status: 2, completedTime: '2027-02-05T01:00:00+0000' });
     await syncTickTickRoutines({ api, calendarState: { tagMap: { '2027-02-05': 'home' } }, today: '2027-02-05' });
-    expect(api.tasks.get(task.id)?.dueDate).toBe('2027-02-05T16:00:00.000+0000');
+    expect(api.tasks.get(task.id)?.dueDate).toBe('2027-02-04T16:00:00.000+0000');
   });
 
   it('加密保存并还原个人 API Token', () => {

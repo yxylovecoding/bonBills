@@ -1,3 +1,4 @@
+import { syncTickTickLocationVisibility } from './_ticktickLocationVisibility.js';
 import { automaticRestWindow } from '../src/utils/schedulerTime.js';
 import { resolveCalendarState } from '../src/utils/internship.js';
 import { cloudSchedulerAuthOk } from './_cloudSchedulerAuth.js';
@@ -113,6 +114,7 @@ async function runSyncInner(allowDisconnected: boolean) {
       ]);
       const alwaysToday = await syncTickTickAlwaysToday(api, { tasks: sourceTasks, today, calendarState });
       const timedTasks = await syncTimedTaskVisibility(api, { tasks: sourceTasks, timeZone: connection.timeZone, projectId: connection.projectId });
+      await syncTickTickLocationVisibility(api, { tasks: sourceTasks, calendarState });
       const dailyPlan: DailyPlanState = savedPlan?.connectionId === connectionId
         ? { ...savedPlan, history: [...savedPlan.history], deadlines: { ...savedPlan.deadlines } }
         : { connectionId, history: [], deadlines: {} };
@@ -175,6 +177,7 @@ async function runSyncInner(allowDisconnected: boolean) {
           return plan.dates;
         },
       });
+      await syncTickTickLocationVisibility(api, { calendarState });
       planningStep = 'save-daily-plan';
       await kv.set(DAILY_PLAN_KEY, dailyPlan);
       planningStep = 'calendar-events';
@@ -245,6 +248,7 @@ async function runRoutineVisibilitySync(kind: 'night' | 'daily' | 'all' | 'hair'
     const token = decryptTickTickToken(connection.encryptedToken, getSyncSecret());
     const api = new TickTickOpenApiClient(token,
       (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
+    const result = await (async () => {
     if (kind === 'reading') return { busy: false as const, connected: true as const, reading: await syncReadingVisibility(api, { projectId: connection.projectId }) };
     if (kind === 'timed') return { busy: false as const, connected: true as const, timedTasks: await syncTimedTaskVisibility(api, { timeZone: connection.timeZone, projectId: connection.projectId }) };
     if (kind === 'hair') return { busy: false as const, connected: true as const,
@@ -258,6 +262,9 @@ async function runRoutineVisibilitySync(kind: 'night' | 'daily' | 'all' | 'hair'
       templateRootId: connection.templateRootId, rolling: true });
     return { busy: false as const, connected: true as const, nightRoutine, timedTasks, alwaysToday, exercise: { updated: exercise.updated },
       ...(sleepTags ? { sleepTags } : {}) };
+    })();
+    await syncTickTickLocationVisibility(api);
+    return result;
   } finally {
     await releaseTickTickLock(lockId);
   }

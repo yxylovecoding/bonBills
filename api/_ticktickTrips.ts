@@ -5,6 +5,7 @@ import { Lunar } from 'lunar-typescript';
 import ICAL from 'ical.js';
 import { withoutDurationAnnotations } from './_taskDuration.js';
 import { getTripDisplayTitle, normalizeOutlookTravelTitles } from '../src/utils/outlookCalendar.js';
+import { hasTaskLocation, nextTaskLocationDate, taskCityTags, taskLocationAllowed } from './_ticktickLocation.js';
 
 export const TICKTICK_CONNECTION_KEY = 'ticktick:connection:v1';
 export const TICKTICK_SYNC_STATE_KEY = 'ticktick:trip-sync:v1';
@@ -566,8 +567,7 @@ function findRoutineTargetDate(
 export function getTickTickRoutineTargetDates(calendarState: unknown, today: string): TickTickRoutineTargets {
   const tagMap = calendarTagMapFromSyncState(calendarState);
   return {
-    home: findRoutineTargetDate(tagMap, today, (tag) => tag === 'home')
-      ?? nextChineseNewYear(addCalendarDays(today, -1)),
+    home: findRoutineTargetDate(tagMap, today, (tag) => tag === 'home'),
     school: findRoutineTargetDate(tagMap, today, (tag) => tag === 'school' || tag === 'intern'),
     travel: findRoutineTargetDate(tagMap, today, (tag) => tag === 'travel'),
   };
@@ -735,9 +735,7 @@ export function separateTickTickSprays(options: {
     let target = effective;
     for (let attempt = 0; conflict(target, kind); attempt++) {
       if (attempt >= 730) throw new Error('喷雾暂时找不到可错开的日期，未更新本轮安排');
-      const from = addCalendarDays(target, 1), scenes = routineScenes(task);
-      const targets = getTickTickRoutineTargetDates(calendarState, from);
-      const next = scenes.length ? scenes.map(scene => targets[scene]).filter((day): day is string => Boolean(day && day >= from)).sort()[0] : from;
+      const next = nextRoutineSceneDate(task, calendarState, addCalendarDays(target, 1));
       if (!next) throw new Error('喷雾需要后续适用场景日才能错开，未更新本轮安排');
       target = next;
     }
@@ -845,10 +843,7 @@ export async function readRoutineCalendarState(): Promise<unknown> {
 }
 
 export function nextRoutineSceneDate(task: TickTickTask, calendarState: unknown, from: string): string | null {
-  const scenes = routineScenes(task);
-  if (!scenes.length) return from;
-  const targets = getTickTickRoutineTargetDates(calendarState, from);
-  return scenes.map(scene => targets[scene]).filter((date): date is string => Boolean(date)).sort()[0] ?? null;
+  return nextTaskLocationDate(task, calendarState, from);
 }
 
 export async function syncTickTickAlwaysToday(api: TickTickApi, options: { tasks?: TickTickTask[]; today?: string; calendarState?: unknown } = {}) {
@@ -856,8 +851,7 @@ export async function syncTickTickAlwaysToday(api: TickTickApi, options: { tasks
   const today = options.today ?? calendarDateInTimeZone(new Date().toISOString())!;
   const candidates = tasks.filter(task => isAlwaysTodayTask(task) && (task.status ?? 0) === 0 && !task.completedTime);
   if (!candidates.length) return { matched: 0, updated: 0 };
-  const calendarState = options.calendarState ?? (candidates.some(task => routineScenes(task).length)
-    ? await readRoutineCalendarState() : undefined);
+  const calendarState = options.calendarState ?? await readRoutineCalendarState();
   // A repeating task can already be pending again with a new ID after completion.
   // Read today's actual completions before any writes; failed reads must not look empty.
   const completed = await schedulingStage('completion-history', true, async () => {
@@ -956,26 +950,29 @@ export async function syncTickTickRoutines(options: {
     .filter((task) => (task.status ?? 0) === 0 && !isExcluded(task) && !isAlwaysTodayTask(task))
     .map((task) => {
       const scenes = routineScenes(task);
-      const recurrence = scenes.includes('school') || scenes.includes('travel')
+      const recurrence = scenes.includes('school') || scenes.includes('travel') || taskCityTags(task, calendarState).length
         ? routineRecurrence(task.repeatFlag) : 'none';
       return { task, scenes, recurrence };
     })
-    .filter(({ scenes }) => scenes.length > 0);
+    .filter(({ task }) => hasTaskLocation(task, calendarState));
   let updatedRoutineTasks = alwaysToday.updated;
   const routineTaskCounts = { home: 0, school: 0, travel: 0 };
   for (const { scenes } of candidates) {
     for (const scene of scenes) routineTaskCounts[scene] += 1;
   }
 
-  const schedulingCandidates = candidates.filter(({ task, scenes, recurrence }) => {
-    // Explicit date following takes precedence over every scene / recurrence rule,
-    // including when the anchor is missing or has no usable date.
+  const schedulingCandidates = candidates.filter(({ task, recurrence }) => {
+    // Followers are bounded by their own location when applying the anchor below.
     if (followsHairWash(task)) return false;
     if (recurrence === 'unknown') return false;
     if (recurrence !== 'long') return true;
     // In an applicable scene, TickTick owns the next occurrence, even if it is
     // overdue or was just generated after completion. Do not realign checklist dates either.
-    return currentScene !== null && !(scenes.includes(currentScene) && routineTaskDate(task));
+    const date = routineTaskDate(task);
+    if (date && date >= today && !taskLocationAllowed(task, calendarState, date)
+      && nextRoutineSceneDate(task, calendarState, date)) return true;
+    return (currentScene !== null || taskCityTags(task, calendarState).length > 0)
+      && !(taskLocationAllowed(task, calendarState, today) && date);
   });
   const routineProjectIds = [...new Set(schedulingCandidates
     .filter(({ task }) => Boolean(task.repeatFlag)).map(({ task }) => task.projectId))];
@@ -988,34 +985,24 @@ export async function syncTickTickRoutines(options: {
     .filter((task) => (task.status ?? 2) === 2
       && calendarDateInTimeZone(task.completedTime, 'Asia/Shanghai') === today)
     .map(routineOccurrenceKey));
-  const tomorrowTargets = getTickTickRoutineTargetDates(calendarState, addCalendarDays(today, 1));
 
   const targetDates = new Map<string, string>();
   let sprayDates = new Map<string, string>();
   const boundedDate = (task: TickTickTask, date: string): string | null => {
     const sprayDate = sprayDates.get(task.id);
-    if (sprayDate) return sprayDate;
-    // Rolling training owns these dates, including for hair-wash followers.
+    if (sprayDate) return nextRoutineSceneDate(task, calendarState, sprayDate);
     const fixed = options.fixedTaskDates?.get(task.id);
-    if (fixed) return fixed;
     const minimum = options.minimumTaskDates?.get(task.id);
-    if (!minimum) return date;
-    const from = date < minimum ? minimum : date;
-    const scenes = routineScenes(task);
-    if (!scenes.length) return from;
-    const targets = getTickTickRoutineTargetDates(calendarState, from);
-    return scenes.map(scene => targets[scene]).filter((day): day is string => day !== null).sort()[0] ?? null;
+    const from = [fixed ?? date, minimum ?? '', today].sort().at(-1)!;
+    return nextRoutineSceneDate(task, calendarState, from);
   };
-  for (const { task, scenes, recurrence } of schedulingCandidates) {
+  for (const { task, recurrence } of schedulingCandidates) {
     const completedThisOccurrence = Boolean(task.repeatFlag)
       && completedKeys.has(routineOccurrenceKey(task));
-    const targets = completedThisOccurrence ? tomorrowTargets : routineTargets;
-    const taskTargetDate = recurrence === 'long'
-      ? findRoutineTargetDate(tagMap, completedThisOccurrence ? addCalendarDays(today, 1) : today, (tag) => {
-        const scene = routineCalendarScene(tag);
-        return scene !== null && scenes.includes(scene);
-      })
-      : scenes.map((scene) => targets[scene]).filter((date): date is string => date !== null).sort()[0];
+    const date = routineTaskDate(task);
+    const from = recurrence === 'long' && date && date > today && taskLocationAllowed(task, calendarState, today)
+      ? date : completedThisOccurrence ? addCalendarDays(today, 1) : today;
+    const taskTargetDate = nextRoutineSceneDate(task, calendarState, from);
     if (!taskTargetDate) continue;
     targetDates.set(task.id, taskTargetDate);
   }
@@ -1174,7 +1161,8 @@ function generatedTaskTags(templateTask: TickTickTask, template: TickTickTemplat
   const tags = source.tags ?? [];
   // Wish preparation roots are also children of the original travel template.
   const isTemplateChild = templateTask.id !== template.rootTask.id || isSevenMonthPreparationTask(templateTask);
-  return isTemplateChild ? tags.filter((tag) => tag.normalize('NFKC').trim() !== '不关我事') : tags;
+  const cleanedTags = isTemplateChild ? tags.filter((tag) => tag.normalize('NFKC').trim() !== '不关我事') : tags;
+  return [...new Set([...cleanedTags, '当天'])];
 }
 
 function baseTaskPayload(
