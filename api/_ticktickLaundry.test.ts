@@ -193,9 +193,10 @@ describe('洗衣同步与天气故障', () => {
       const o = options({ now: new Date(currentTime), today: currentTime.slice(0, 10),
         availability: { startDate: '2026-10-05', endDate: '2026-11-01', events: [moved,
           { title: '会议', start: '2026-10-10T08:00:00+08:00', end: '2026-10-10T09:00:00+08:00' }] } });
-      expect(await syncLaundrySchedule(c.api, { ...o, connectionId: 'connection' })).toMatchObject({ updated: 0,
+      expect(await syncLaundrySchedule(c.api, { ...o, connectionId: 'connection' })).toMatchObject({ updated: 1,
         decisions: [{ date: '2026-10-10', reason: expect.stringContaining('当日调整') }] });
-      expect(c.api.updateTask).not.toHaveBeenCalled();
+      expect(c.current().startDate).toBe(o.tasks[0].startDate);
+      expect(c.current().content).toContain('本轮未按天气重选日期');
       expect(upstream).not.toHaveBeenCalled();
     },
   );

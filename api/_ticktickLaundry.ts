@@ -177,16 +177,41 @@ export function chooseLaundryDay(task: TickTickTask, target: string, options: Pl
   return choices[0]?.date ?? null;
 }
 
-async function moveLaundry(api: TickTickApi, original: TickTickTask, date: string) {
+function laundryNote(task: TickTickTask, anchor: Anchor, date: string, options: PlanOptions,
+  reason: string, forecast?: LaundryForecast) {
+  const completion = calendarDateInTimeZone(anchor.completion, task.timeZone);
+  const interval = /FREQ=DAILY(?:;|$)/i.test(anchor.repeatFlag)
+    ? Number(/INTERVAL=(\d+)/i.exec(anchor.repeatFlag)?.[1] ?? 1) : null;
+  const location = laundryLocation(options.configState, date, options.calendarState);
+  const weather = (day: string) => {
+    const value = forecast?.days[day];
+    return value ? `${day}：降水 ${value.rain} mm，降水概率 ${value.probability}%，日照 ${(value.sunshine / 3600).toFixed(1)} 小时`
+      : `${day}：未取得天气数据`;
+  };
+  const tags = (task.tags ?? []).filter(tag => ['寄', '居', '寓', '旅'].includes(normalize(tag)));
+  return ['【洗衣安排原因】',
+    `周期：${interval ? `每 ${interval} 天；` : ''}${completion ? `最近实际完成 ${completion}` : '缺少实际完成记录，沿用原周期锚点'}；周期目标 ${anchor.target}，安排 ${date}。`,
+    `天气：${weather(date)}；${weather(addDays(date, 1))}。`,
+    `场景：${tags.length ? `任务标签 ${tags.join('／')}；` : ''}当日所在地 ${location?.name ?? '城市未知'}。`,
+    `安排依据：${reason}。`, '【洗衣安排原因结束】'].join('\n');
+}
+
+async function moveLaundry(api: TickTickApi, original: TickTickTask, date: string, note?: string) {
   const task = await api.getTask(original.projectId, original.id);
   // A user completion or edit during forecast loading takes precedence.
   if (!pending(task) || !isLaundryTask(task) || ['startDate', 'dueDate', 'repeatFlag', 'repeatFrom', 'isAllDay', 'timeZone', 'priority', 'tags']
     .some(key => JSON.stringify(task[key as keyof TickTickTask]) !== JSON.stringify(original[key as keyof TickTickTask]))) return undefined;
   const anchor = routineTaskDate(task)!;
-  if (anchor === date) return false;
+  const noteField = task.kind === 'CHECKLIST' ? 'desc' : 'content';
+  const oldNote = task[noteField] ?? '';
+  const block = /【洗衣安排原因】[\s\S]*?【洗衣安排原因结束】/g;
+  const newNote = note === undefined ? oldNote : block.test(oldNote)
+    ? oldNote.replace(block, () => note) : `${oldNote}${oldNote ? '\n\n' : ''}${note}`;
+  if (anchor === date && newNote === oldNote) return false;
   const payload: Record<string, unknown> = { id: task.id, projectId: task.projectId, title: task.title };
   for (const key of ['content', 'desc', 'isAllDay', 'timeZone', 'reminders', 'tags', 'repeatFlag', 'repeatFrom', 'priority', 'sortOrder', 'kind', 'parentId'] as const)
     if (task[key] !== undefined) payload[key] = task[key];
+  if (note !== undefined) payload[noteField] = newNote;
   for (const key of ['startDate', 'dueDate'] as const) if (task[key]) payload[key] = shiftTickTickDate(task[key], anchor, date);
   if (task.items !== undefined) payload.items = task.items.map(item => item.completedTime || Number(item.status ?? 0) !== 0 ? item
     : { ...item, ...(item.startDate ? { startDate: shiftTickTickDate(item.startDate, anchor, date) } : {}) });
@@ -194,6 +219,7 @@ async function moveLaundry(api: TickTickApi, original: TickTickTask, date: strin
   const saved = await api.getTask(task.projectId, task.id);
   const sameDate = (a: unknown, b: unknown) => a === b || (typeof a === 'string' && typeof b === 'string' && Date.parse(a) === Date.parse(b));
   if (saved.id !== task.id || saved.projectId !== task.projectId || !pending(saved) || routineTaskDate(saved) !== date
+    || (note !== undefined && saved[noteField] !== newNote)
     || ['startDate', 'dueDate'].some(key => payload[key] !== undefined && !sameDate(saved[key as keyof TickTickTask], payload[key]))
     || ['repeatFlag', 'repeatFrom', 'priority', 'isAllDay', 'timeZone', 'parentId'].some(key => String(saved[key as keyof TickTickTask] ?? '') !== String(task[key as keyof TickTickTask] ?? ''))
     || (Array.isArray(payload.items) && payload.items.some(item => {
@@ -241,6 +267,8 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
     if (day >= options.today && appointments.length === 1 && Date.parse(appointments[0].start) !== defaultStart) {
       // A same-day move is an explicit choice, even after the original slot has
       // passed or become busy. Do not let weather planning undo it indirectly.
+      if (await moveLaundry(api, task, day, laundryNote(task, anchor, day, options,
+        '保留 Outlook 当日调整后的洗衣时段；本轮未按天气重选日期'))) updated++;
       decisions.push({ id: task.id, target: anchor.target, date: day, location: location?.name,
         reason: '保留 Outlook 当日调整后的洗衣时段' });
       continue;
@@ -253,7 +281,8 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
         decisions.push({ id: task.id, target: anchor.target, reason: '出行前一天已过，保留待办等待补做' });
         continue;
       }
-      const changed = await moveLaundry(api, task, beforeTrip);
+      const changed = await moveLaundry(api, task, beforeTrip, laundryNote(task, anchor, beforeTrip, options,
+        '周期目标日位于出行期间，固定到出行前一天；此分支不按天气择日'));
       if (changed) updated++;
       decisions.push(changed === undefined
         ? { id: task.id, target: anchor.target, reason: '任务已由用户更新，保留最新状态' }
@@ -277,7 +306,8 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
     }
     const date = chooseLaundryDay(task, anchor.target, options, day => weatherByDay.get(day));
     if (!date) { decisions.push({ id: task.id, target: anchor.target, reason: '暂无完整天气或合适空闲，保留原排期' }); continue; }
-    const changed = await moveLaundry(api, task, date);
+    const changed = await moveLaundry(api, task, date, laundryNote(task, anchor, date, options,
+      '周期前一天至后两天内优先连续晴天并避开日程冲突，已核对 50 分钟空档', weatherByDay.get(date)));
     if (changed === undefined) { decisions.push({ id: task.id, target: anchor.target, reason: '任务已由用户更新，保留最新状态' }); continue; }
     if (changed) updated++;
     decisions.push({ id: task.id, target: anchor.target, date, location: names.get(date), reason: '周期前一天至后两天内优先连续晴天并避开日程冲突' });
