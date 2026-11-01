@@ -4,7 +4,7 @@ import { readAllTickTickTasks, type TickTickTask, type TickTickOpenApiClient } f
 
 type Shared = { title: string; content: string; desc: string; kind: string; items: string[] };
 type Pair = { ids: [string, string]; baseline?: Shared };
-type State = { pairs: Record<string, Pair> };
+type State = { pairs: Record<string, Pair>; movingInstances?: Record<string, Record<string, string>> };
 const keys = ['🪥漱', '🧴护', '💄妆', '🛀浴', '📷相机', '🧥', '随身背包', '⚪小袋子', '⚫小袋子', '白色行李袋'];
 const normalize = (s: string) => s.normalize('NFKC').replace(/[\uFE0E\uFE0F\s]/g, '');
 const prefix = (s: string) => s.match(/^[🎒🧳📦]+/u)?.[0] ?? '';
@@ -36,6 +36,27 @@ export function templatePairs(tasks: TickTickTask[], rootId: string, saved: Stat
   }));
 }
 
+async function writeShared(api: TickTickOpenApiClient, task: TickTickTask, value: Shared, key: string) {
+  const current = await api.getTask(task.projectId, task.id);
+  if (!current || version(current) !== version(task)) throw new Error('待办在同步期间发生修改，请重试');
+  const remaining = [...(task.items ?? [])];
+  const items = value.items.map((title, index) => {
+    const found = remaining.findIndex(i => i.title === title);
+    const item = found >= 0 ? remaining.splice(found, 1)[0] : { id: randomBytes(12).toString('hex'), status: 0 };
+    return { ...item, title, sortOrder: index };
+  });
+  const payload: Record<string, unknown> = { id: task.id, projectId: task.projectId };
+  for (const field of ['title', 'content', 'desc', 'kind', 'items', 'parentId', 'isAllDay', 'startDate', 'dueDate', 'timeZone', 'reminders', 'tags', 'repeatFlag', 'repeatFrom', 'priority', 'sortOrder'] as const)
+    if (task[field] !== undefined) payload[field] = task[field];
+  Object.assign(payload, { content: value.content, desc: value.desc, kind: value.kind, items,
+    title: key === '白色行李袋' ? task.title : prefix(task.title) + value.title });
+  await api.updateTask(task.id, payload);
+  const verified = await api.getTask(task.projectId, task.id);
+  if (!verified || !equal(shared(verified, key === '白色行李袋'), value) || prefix(verified.title) !== prefix(task.title)
+    || verified.parentId !== task.parentId) throw new Error('模板同步回读校验失败');
+
+}
+
 // Caller holds the shared TickTick write lock. Only template text is shared;
 // stage dates, parent links, tags, progress and each container prefix stay local.
 export async function syncTickTickTemplates(api: TickTickOpenApiClient, rootId: string, connectionId: string) {
@@ -65,21 +86,7 @@ export async function syncTickTickTemplates(api: TickTickOpenApiClient, rootId: 
       const fresh = await api.getTask(task.projectId, task.id);
       const sourceFresh = await api.getTask(pairTasks[source].projectId, pairTasks[source].id);
       if (version(fresh) !== version(task) || version(sourceFresh) !== version(pairTasks[source])) throw new Error('模板在同步期间发生修改，请重试');
-      const remaining = [...(task.items ?? [])];
-      const items = value.items.map((title, index) => {
-        const found = remaining.findIndex(i => i.title === title);
-        const item = found >= 0 ? remaining.splice(found, 1)[0] : { id: randomBytes(12).toString('hex'), status: 0 };
-        return { ...item, title, sortOrder: index };
-      });
-      const payload: Record<string, unknown> = { id: task.id, projectId: task.projectId };
-      for (const field of ['title', 'content', 'desc', 'kind', 'items', 'parentId', 'isAllDay', 'startDate', 'dueDate', 'timeZone', 'reminders', 'tags', 'repeatFlag', 'repeatFrom', 'priority', 'sortOrder'] as const)
-        if (task[field] !== undefined) payload[field] = task[field];
-      Object.assign(payload, { content: value.content, desc: value.desc, kind: value.kind, items,
-        title: key === '白色行李袋' ? task.title : prefix(task.title) + value.title });
-      await api.updateTask(task.id, payload);
-      const verified = await api.getTask(task.projectId, task.id);
-      if (!verified || !equal(shared(verified, key === '白色行李袋'), value) || prefix(verified.title) !== prefix(task.title)
-        || verified.parentId !== task.parentId) throw new Error('模板同步回读校验失败');
+      await writeShared(api, task, value, key);
       updated++;
     }
     pair.baseline = values[source];
@@ -87,5 +94,42 @@ export async function syncTickTickTemplates(api: TickTickOpenApiClient, rootId: 
     await kv.set(storageKey, saved);
   }
   if (conflicts.length) throw new Error(`模板内容有冲突且没有可比较的修改时间：${conflicts.join('、')}；需指定首次来源`);
-  return { matched: Object.keys(pairs).length, updated };
+  // Moving instances follow the resolved templates one way. They never feed
+  // trip-specific text back into the reusable templates.
+  let instanceUpdated = 0, instanceMatched = 0;
+  saved.movingInstances ??= {};
+  const movingRoots = tasks.filter(task => task.title.includes('搬家-'));
+  for (const root of movingRoots) {
+    const children = tasks.filter(t => t.parentId && byId.get(t.parentId)?.parentId === root.id);
+    const links = saved.movingInstances[root.id] ?? {};
+    const matches = Object.entries(pairs).map(([key, pair]) => {
+      const remembered = children.find(t => t.id === links[key]);
+      const candidates = remembered ? [remembered] : children.filter(t => key === '白色行李袋'
+        ? normalize(t.title) === '📦' : normalize(t.title).includes(key));
+      if (candidates.length > 1) throw new Error(`搬家实例 ${root.title}：${key} 有多个匹配`);
+      return { key, pair, candidate: candidates[0] };
+    });
+    for (const { key, pair, candidate } of matches) {
+      if (!candidate) continue; // A deliberately omitted category is not recreated.
+      const sourceTask = byId.get(pair.ids[1])!;
+      const [source, target] = await Promise.all([
+        api.getTask(sourceTask.projectId, sourceTask.id), api.getTask(candidate.projectId, candidate.id),
+      ]);
+      if (!source || !target || target.parentId !== candidate.parentId) throw new Error('搬家实例在同步期间发生变化');
+      const value = shared(source, key === '白色行李袋');
+      if (!equal(value, pair.baseline)) throw new Error('搬家模板在同步期间发生变化，请重试');
+      if (!equal(shared(target, key === '白色行李袋'), value)) {
+        await writeShared(api, target, value, key);
+        instanceUpdated++;
+      }
+      instanceMatched++;
+      links[key] = target.id;
+      saved.movingInstances[root.id] = links;
+      await kv.set(storageKey, saved);
+    }
+  }
+  const result = { matched: Object.keys(pairs).length, updated, movingInstances: movingRoots.length, instanceMatched, instanceUpdated };
+  await kv.set('ticktick:template-sync-status:v1', { ...result, rootId, syncedAt: new Date().toISOString(),
+    instanceTitles: movingRoots.map(root => root.title) });
+  return result;
 }

@@ -335,14 +335,16 @@ async function connect(req: VercelRequest) {
 }
 
 async function status() {
-  const [connection, state, plan, settings] = await Promise.all([
+  const [connection, state, plan, settings, templateSync] = await Promise.all([
     kv.get<TickTickConnection>(CONNECTION_KEY),
     kv.get<TickTickTripSyncState>(SYNC_STATE_KEY),
     kv.get<DailyPlanState>(DAILY_PLAN_KEY),
     kv.get<{ budgetMinutes?: number | null; availabilityProfile?: string }>(DAILY_PLAN_SETTINGS_KEY),
+    kv.get<{ rootId: string }>('ticktick:template-sync-status:v1'),
   ]);
   return {
     connected: Boolean(connection),
+    templateSync: connection && templateSync?.rootId === connection.templateRootId ? templateSync : undefined,
     dailyPlan: connection ? plan?.summary : undefined,
     budgetMinutes: dailyBudget(settings?.budgetMinutes),
     availabilityProfile: availabilityProfile(settings?.availabilityProfile),

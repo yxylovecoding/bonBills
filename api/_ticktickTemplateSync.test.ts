@@ -47,3 +47,32 @@ it('initializes differences from travel when timestamps are unavailable, as expl
   await syncTickTickTemplates(api, 'travel', 'conn');
   expect(m.tasks.find(t => t.id === 'b0')!.content).toBe('travel');
 });
+
+it('updates 搬家-京广 from the templates and preserves its prefixes, dates, completed state and checklist progress', async () => {
+  m.tasks.push(make('jg', '搬家-京广'), make('jg-stage', '出门前三天', 'jg'),
+    { ...make('jg-brush', '🎒🪥漱', 'jg-stage'), content: 'old', status: 2, completedTime: '2026-10-30T10:00:00Z', dueDate: '2026-12-01' },
+    { ...make('jg-box', '📦', 'jg-stage'), content: 'old box' },
+    { ...make('unrelated', '📦爱好', 'jg-stage'), content: 'keep' });
+  const result = await syncTickTickTemplates(api, 'travel', 'conn');
+  expect(result).toMatchObject({ movingInstances: 1, instanceMatched: 2, instanceUpdated: 2 });
+  expect(m.tasks.find(t => t.id === 'jg-brush')).toMatchObject({ title: '🎒🪥漱', content: 'same', status: 2,
+    completedTime: '2026-10-30T10:00:00Z', dueDate: '2026-12-01', parentId: 'jg-stage', items: [{ id: 'jg-brush-item', status: 1 }] });
+  expect(m.tasks.find(t => t.id === 'jg-box')).toMatchObject({ title: '📦', content: 'same' });
+  expect(m.tasks.find(t => t.id === 'unrelated')!.content).toBe('keep');
+  updateTask.mockClear(); await syncTickTickTemplates(api, 'travel', 'conn'); expect(updateTask).not.toHaveBeenCalled();
+});
+it('keeps instance associations after rename and never propagates instance text into templates', async () => {
+  m.tasks.push(make('jg', '计划 搬家-京广'), make('stage', '出门前三天', 'jg'), make('brush', '📦🪥漱', 'stage'));
+  await syncTickTickTemplates(api, 'travel', 'conn');
+  Object.assign(m.tasks.find(t => t.id === 'brush')!, { title: '📦自定义', content: 'instance edit' });
+  m.tasks.find(t => t.id === 'a0')!.content = 'new template';
+  await syncTickTickTemplates(api, 'travel', 'conn');
+  expect(m.tasks.find(t => t.id === 'brush')).toMatchObject({ title: '📦🪥漱', content: 'new template' });
+  expect(m.tasks.find(t => t.id === 'b0')!.content).toBe('new template');
+});
+it('ignores unrelated roots and rejects ambiguous instance categories', async () => {
+  m.tasks.push(make('other', '旅行-京广'), make('s', 'stage', 'other'), { ...make('x', '📦🪥漱', 's'), content: 'untouched' });
+  await syncTickTickTemplates(api, 'travel', 'conn'); expect(m.tasks.find(t => t.id === 'x')!.content).toBe('untouched');
+  m.tasks.push(make('jg', '搬家-京广'), make('js', 'stage', 'jg'), make('j1', '📦🪥漱', 'js'), make('j2', '🧳🪥漱', 'js'));
+  await expect(syncTickTickTemplates(api, 'travel', 'conn')).rejects.toThrow('多个匹配');
+});
