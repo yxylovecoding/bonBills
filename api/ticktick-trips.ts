@@ -1,3 +1,5 @@
+import { OUTLOOK_WRITE_KEY } from './_outlookWrite.js';
+import { syncElectricVehiclePickup } from './_electricVehiclePickup.js';
 import { syncTickTickLocationVisibility } from './_ticktickLocationVisibility.js';
 import { syncTickTickTemplates } from './_ticktickTemplateSync.js';
 import { automaticRestWindow } from '../src/utils/schedulerTime.js';
@@ -30,6 +32,7 @@ import { schedulingFailure, schedulingStage } from './_schedulingFailure.js';
 import { syncTickTickAlwaysToday } from './_ticktickTrips.js';
 
 const CONNECTION_KEY = 'ticktick:connection:v1';
+const DAILY_SPECIAL_KEY = 'ticktick:daily-special-success:v1';
 const SYNC_STATE_KEY = 'ticktick:trip-sync:v1';
 
 function getSyncSecret() {
@@ -198,12 +201,22 @@ async function runSyncInner(allowDisconnected: boolean) {
         .catch(() => ({ error: 'Outlook 充电日程同步暂不可用，请重试' }));
       const hairWashOutlook = await syncHairWashOutlook(api, calendarTaskOptions)
         .catch(() => ({ error: 'Outlook 洗头日程同步暂不可用，请重试' }));
+      const pickup = await syncElectricVehiclePickup(api, calendarTaskOptions)
+        .catch(() => ({ outlook: { error: '接电动车同步失败，请重试' } }));
+      const writeConnection = await kv.get<{ calendarId?: string }>(OUTLOOK_WRITE_KEY);
+      const missingCalendar = !writeConnection?.calendarId && (('created' in pickup && pickup.created > 0) || calendarTaskOptions.tasks.some(task =>
+        ['电动车充电', '洗头', '洗衣服', '接电动车'].includes(task.title.normalize('NFKC').trim())
+        && (!excludedTaskIds.has(task.id) || laundry.managedTaskIds.has(task.id)) && !task.tags?.includes('不关我事') && (routineTaskDate(task) ?? '') >= today));
+      const specialFailed = missingCalendar || [laundryOutlook, chargingOutlook, hairWashOutlook, pickup.outlook]
+        .some(result => 'error' in result && result.error);
+      if (!specialFailed) await kv.set(DAILY_SPECIAL_KEY, { date: today, connectionId });
+      else await kv.set(DAILY_SPECIAL_KEY, null);
       console.info('[ticktick-routine-sync]', JSON.stringify(routineResult));
       console.info('[ticktick-trip-sync]', JSON.stringify({ ...result, ...wishResult }));
-      return { busy: false as const, ...result, ...wishResult, ...routineResult, exercise: { updated: exercise.updated },
+      return { busy: false as const, ...(specialFailed ? { error: missingCalendar ? 'Outlook 写入日历未连接' : '专项日程同步失败' } : {}), ...result, ...wishResult, ...routineResult, exercise: { updated: exercise.updated },
         timedTasks, alwaysToday, templateSync,
         laundry: { updated: laundry.updated, decisions: laundry.decisions, outlook: laundryOutlook },
-        charging: { outlook: chargingOutlook },
+        charging: { outlook: chargingOutlook }, pickup,
         hairWash: { outlook: hairWashOutlook },
         periodPrediction,
         dailyPlan: dailyPlan.summary, budgetMinutes: dailyBudget(settings?.budgetMinutes),
@@ -334,6 +347,21 @@ async function connect(req: VercelRequest) {
   return { busy: false as const };
 }
 
+async function needsFirstDailySync() {
+  const local = new Date(Date.now() + 8 * 3600_000);
+  if (local.getUTCHours() * 60 + local.getUTCMinutes() < 301) return false;
+  const connection = await kv.get<TickTickConnection>(CONNECTION_KEY);
+  if (!connection) return false;
+  const { decryptTickTickToken } = await import('./_ticktickTrips.js');
+  const connectionId = createHash('sha256').update(decryptTickTickToken(connection.encryptedToken, getSyncSecret())).digest('hex');
+  const saved = await kv.get<{ date: string; connectionId: string }>(DAILY_SPECIAL_KEY);
+  return saved?.date !== shanghaiDate() || saved?.connectionId !== connectionId;
+}
+
+function specialSyncFailed(result: Record<string, any>) {
+  return Boolean(result.error) || ['laundry', 'charging', 'hairWash', 'pickup'].some(key => result[key]?.outlook?.error);
+}
+
 async function status() {
   const [connection, state, plan, settings, templateSync] = await Promise.all([
     kv.get<TickTickConnection>(CONNECTION_KEY),
@@ -384,12 +412,24 @@ async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (req.query?.action === 'replan-today') {
       if (req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
+      if (await needsFirstDailySync()) {
+        const result = await runSync(true);
+        const failed = specialSyncFailed(result);
+        return res.status(result.busy ? 202 : failed ? 502 : 200).json({ ok: !result.busy && !failed, ...result,
+          ...(failed ? { error: '专项待办或 Outlook 日程同步失败' } : {}) });
+      }
       const { replanRemainingToday } = await import('./_ticktickReplan.js');
       const result = await replanRemainingToday();
       return res.status(result.busy ? 202 : 200).json({ ok: !result.busy, ...result });
     }
     if (req.query?.action === 'hourly-replan') {
       if (!isCron) return res.status(403).json({ error: 'cron authorization required' });
+      if (await needsFirstDailySync()) {
+        const result = await runSync(true);
+        const failed = specialSyncFailed(result);
+        return res.status(result.busy ? 202 : failed ? 502 : 200).json({ ok: !result.busy && !failed, ...result,
+          ...(failed ? { error: '专项待办或 Outlook 日程同步失败' } : {}) });
+      }
       const { replanRemainingToday } = await import('./_ticktickReplan.js');
       const result = await replanRemainingToday({ scheduled: true });
       if (result.busy) return res.status(200).json({ ok: true, busy: false, deferred: true, dailyPlan: { deferred: true } });

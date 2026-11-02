@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 vi.mock('./_ticktickTemplateSync.js', () => ({ syncTickTickTemplates: vi.fn().mockResolvedValue({ matched: 10, updated: 0 }) }));
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
@@ -54,7 +55,7 @@ async function request(method: string, body?: unknown, action?: string, format?:
   await handler({ method, headers: { authorization }, body, query: action ? { action, format } : {} } as VercelRequest, res as unknown as VercelResponse);
   return result;
 }
-beforeEach(() => { data.clear(); auth.ok = true; failHistory.value = false; failWrite.value = false;
+beforeEach(() => { data.clear(); data.set('ticktick:daily-special-success:v1', { date: '2026-10-24', connectionId: createHash('sha256').update('test-token').digest('hex') }); auth.ok = true; failHistory.value = false; failWrite.value = false;
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-24T05:01:00+08:00'));
   archiveDone.mockReset().mockResolvedValue(undefined);
   outlookSync.mockReset().mockResolvedValue({ connected: true,
@@ -324,3 +325,26 @@ describe('每日安排接口', () => {
 });
 
 vi.mock('./_accountRoute.js', () => ({ withAccountScope: (handler: unknown) => handler }));
+
+ it('当天首次有效小时重排补完整排程，成功后恢复限定范围，次日重新补齐', async () => {
+  vi.stubEnv('CRON_SECRET', 'cron-secret');
+  data.delete('ticktick:daily-special-success:v1');
+  replan.mockReset().mockResolvedValue({ busy: false, dailyPlan: { date: '2026-10-24' } });
+  const first = await request('GET', undefined, 'hourly-replan', undefined, 'Bearer cron-secret');
+  expect(first.status).toBe(200); expect(first.body).toHaveProperty('pickup');
+  expect(replan).not.toHaveBeenCalled();
+  expect(data.get('ticktick:daily-special-success:v1').date).toBe('2026-10-24');
+  await request('GET', undefined, 'hourly-replan', undefined, 'Bearer cron-secret');
+  expect(replan).toHaveBeenCalledTimes(1);
+  vi.setSystemTime(new Date('2026-10-25T06:01:00+08:00'));
+  expect((await request('GET', undefined, 'hourly-replan', undefined, 'Bearer cron-secret')).body).toHaveProperty('pickup');
+  expect(replan).toHaveBeenCalledTimes(1);
+ });
+ it('专项失败不标记当天成功，下次小时重排继续补齐', async () => {
+  vi.stubEnv('CRON_SECRET', 'cron-secret'); data.delete('ticktick:daily-special-success:v1');
+  vi.spyOn(hairWashModule, 'syncHairWashOutlook').mockResolvedValueOnce({ enabled: true, error: 'unavailable', created: 0, updated: 0 });
+  expect((await request('GET', undefined, 'hourly-replan', undefined, 'Bearer cron-secret')).status).toBe(502);
+  expect(data.get('ticktick:daily-special-success:v1')).toBeFalsy();
+  expect((await request('GET', undefined, 'hourly-replan', undefined, 'Bearer cron-secret')).status).toBe(200);
+  expect(data.get('ticktick:daily-special-success:v1').date).toBe('2026-10-24');
+ });
