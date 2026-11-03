@@ -156,7 +156,7 @@ export class RuleTaskDraft {
       if (owners?.has('template-items') && allowed(owners.get('template-items')) && !allowed(owners.get('date'))) {
         result.items = task.items?.map(item => {
           const old = original.items?.find(candidate => candidate.id === item.id);
-          return { ...item, startDate: old?.startDate, dueDate: old?.dueDate };
+          return { ...item, startDate: old?.startDate, isAllDay: old?.isAllDay, timeZone: old?.timeZone };
         });
       }
       if (!allowed(owners?.get('hidden'))) result.tags = [...(result.tags ?? []).filter(t => t.trim().toLowerCase() !== 'bon-hidden'),

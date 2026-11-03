@@ -198,7 +198,7 @@ describe('always-today 截止日期', () => {
     await syncTickTickRoutines({ api: f.api, today: day, calendarState: { tagMap: { [day]: 'travel', '2026-10-25': 'school' } },
       planDay: async tasks => {
         const state = { connectionId: 'test', history: [], deadlines: {} };
-        const plan = planTickTickDay({ tasks, today: day, calendarState: {}, state, budgetMinutes: 30 });
+        const plan = planTickTickDay({ tasks, today: day, calendarState: { tagMap: { [day]: 'travel', '2026-10-25': 'school' } }, state, budgetMinutes: 30 });
         fixedMinutes = plan.summary.plannedMinutes;
         return plan.dates;
       } });
