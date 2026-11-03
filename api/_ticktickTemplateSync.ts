@@ -1,6 +1,6 @@
 import { kv } from './_accountKv.js';
 import { randomBytes } from 'node:crypto';
-import { readAllTickTickTasks, relativeStageDate, updateRoutineTaskDate, calendarDateInTimeZone, type TickTickTask, type TickTickOpenApiClient } from './_ticktickTrips.js';
+import { readAllTickTickTasks, relativeStageDate, updateRoutineTaskDate, calendarDateInTimeZone, type TickTickTask, type TickTickApi } from './_ticktickTrips.js';
 
 type Shared = { title: string; content: string; desc: string; kind: string; items: string[] };
 type Pair = { ids: [string, string]; baseline?: Shared };
@@ -45,7 +45,7 @@ export function templatePairs(tasks: TickTickTask[], rootId: string, saved: Stat
   }));
 }
 
-async function writeShared(api: TickTickOpenApiClient, task: TickTickTask, value: Shared, key: string) {
+async function writeShared(api: TickTickApi, task: TickTickTask, value: Shared, key: string) {
   const current = await api.getTask(task.projectId, task.id);
   if (!current || version(current) !== version(task)) throw new Error('待办在同步期间发生修改，请重试');
   const remaining = [...(task.items ?? [])];
@@ -68,11 +68,26 @@ async function writeShared(api: TickTickOpenApiClient, task: TickTickTask, value
 
 // Caller holds the shared TickTick write lock. Only template text is shared;
 // stage dates, parent links, tags, progress and each container prefix stay local.
-export async function syncTickTickTemplates(api: TickTickOpenApiClient, rootId: string, connectionId: string) {
+export async function syncTickTickTemplates(api: TickTickApi, rootId: string, connectionId: string,
+  options: { mode?: 'content' | 'dates'; deferState?: (save: () => Promise<unknown>) => void } = {}) {
+  const save = async (key: string, value: unknown) => {
+    const snapshot = structuredClone(value);
+    if (options.deferState) options.deferState(async () => {
+      if (key === storageKey) {
+        const latest = await kv.get<State>(key), next = snapshot as State;
+        return kv.set(key, options.mode === 'dates' ? { ...latest, pairs: latest?.pairs ?? {}, departureDates: next.departureDates }
+          : { ...next, departureDates: latest?.departureDates ?? next.departureDates });
+      }
+      const latest = await kv.get<Record<string, unknown>>(key), next = snapshot as Record<string, unknown>;
+      return kv.set(key, options.mode === 'dates' ? { ...latest, rootId, syncedAt: next.syncedAt, dateUpdated: next.dateUpdated, managedTaskIds: next.managedTaskIds, schedules: next.schedules }
+        : { ...latest, ...next, dateUpdated: latest?.dateUpdated ?? 0, managedTaskIds: latest?.managedTaskIds ?? [], schedules: latest?.schedules ?? [] });
+    });
+    else await kv.set(key, snapshot);
+  };
   const storageKey = `ticktick:template-pairs:v1:${connectionId}:${rootId}`;
   const saved = await kv.get<State>(storageKey) ?? { pairs: {} };
   const tasks = await readAllTickTickTasks(api, [0, 2]);
-  const pairs = templatePairs(tasks, rootId, saved);
+  const pairs = options.mode === 'dates' ? {} : templatePairs(tasks, rootId, saved);
   const byId = new Map(tasks.map(t => [t.id, t]));
   let updated = 0;
   const conflicts: string[] = [];
@@ -100,7 +115,7 @@ export async function syncTickTickTemplates(api: TickTickOpenApiClient, rootId: 
     }
     pair.baseline = values[source];
     saved.pairs[key] = pair;
-    await kv.set(storageKey, saved);
+    await save(storageKey, saved);
   }
   if (conflicts.length) throw new Error(`模板内容有冲突且没有可比较的修改时间：${conflicts.join('、')}；需指定首次来源`);
   // Moving instances follow the resolved templates one way. They never feed
@@ -111,7 +126,7 @@ export async function syncTickTickTemplates(api: TickTickOpenApiClient, rootId: 
   saved.departureDates ??= {};
   saved.movingInstances ??= {};
   const movingRoots = tasks.filter(task => task.title.includes('搬家-'));
-  for (const root of movingRoots) {
+  for (const root of options.mode === 'dates' ? [] : movingRoots) {
     const children = tasks.filter(t => t.parentId && byId.get(t.parentId)?.parentId === root.id);
     const links = saved.movingInstances[root.id] ?? {};
     const matches = Object.entries(pairs).map(([key, pair]) => {
@@ -137,11 +152,11 @@ export async function syncTickTickTemplates(api: TickTickOpenApiClient, rootId: 
       instanceMatched++;
       links[key] = target.id;
       saved.movingInstances[root.id] = links;
-      await kv.set(storageKey, saved);
+      await save(storageKey, saved);
     }
   }
   // Apply dates after text synchronization, using fresh tasks to retain new content.
-  for (const root of movingRoots) {
+  for (const root of options.mode === 'content' ? [] : movingRoots) {
     const today = calendarDateInTimeZone(new Date().toISOString())!;
     const parsed = movingDepartureDate(root.title, today);
     if (!parsed) continue;
@@ -164,7 +179,7 @@ export async function syncTickTickTemplates(api: TickTickOpenApiClient, rootId: 
     const freshRoot = await api.getTask(root.projectId, root.id);
     if (!freshRoot || freshRoot.title !== root.title) throw new Error('搬家标题日期已变化，请重试');
     saved.departureDates[root.id] = { suffix, date: departureDate };
-    await kv.set(storageKey, saved);
+    await save(storageKey, saved);
     managedTaskIds.push(root.id);
     for (const { date, descendants } of planned) for (const task of descendants) {
       const fresh = await api.getTask(task.projectId, task.id);
@@ -175,7 +190,7 @@ export async function syncTickTickTemplates(api: TickTickOpenApiClient, rootId: 
     schedules.push({ title: root.title, departureDate, stages: planned.map(p => ({ title: p.stage.title, date: p.date, tasks: p.descendants.length })) });
   }
   const result = { matched: Object.keys(pairs).length, updated, movingInstances: movingRoots.length, instanceMatched, instanceUpdated, dateUpdated, managedTaskIds, schedules };
-  await kv.set('ticktick:template-sync-status:v1', { ...result, rootId, syncedAt: new Date().toISOString(),
+  await save('ticktick:template-sync-status:v1', { ...result, rootId, syncedAt: new Date().toISOString(),
     instanceTitles: movingRoots.map(root => root.title) });
   return result;
 }

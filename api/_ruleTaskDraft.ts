@@ -1,0 +1,240 @@
+import { randomUUID } from 'node:crypto';
+import type { TickTickApi, TickTickTask } from './_ticktickTrips.js';
+import type { SchedulingRuleId, SchedulingRuleResult } from '../src/utils/schedulingRules.js';
+
+const fields = ['title', 'content', 'desc', 'startDate', 'dueDate', 'isAllDay', 'timeZone', 'reminders', 'tags', 'repeatFlag', 'repeatFrom', 'priority', 'sortOrder', 'kind', 'parentId', 'items'] as const;
+const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+const persistedField = (key: string, a: unknown, b: unknown) => same(a, b)
+  || (key === 'startDate' || key === 'dueDate') && typeof a === 'string' && typeof b === 'string'
+    && Number.isFinite(Date.parse(a)) && Date.parse(a) === Date.parse(b);
+const pending = (t: TickTickTask) => (t.status ?? 0) === 0 && !t.completedTime;
+const dateFields = new Set<string>(['startDate', 'dueDate', 'isAllDay', 'timeZone', 'items']);
+const group = (key: string) => dateFields.has(key) ? 'date' : key;
+const ruleGroup = (id: SchedulingRuleId, key: string) => id === 'template-content' && key === 'items' ? 'template-items' : group(key);
+
+/** Per-rule branches never write upstream. Only the merged, verified result is committed. */
+export class RuleTaskDraft {
+  private original: Map<string, TickTickTask>;
+  private tasks: Map<string, TickTickTask>;
+  private owners = new Map<string, Map<string, SchedulingRuleId>>();
+  private pendingSaves: { rule: SchedulingRuleId; save: () => Promise<unknown> }[] = [];
+  readonly writeCounts = new Map<SchedulingRuleId, number>();
+  private created = new Set<string>();
+  private createdBy = new Map<string, SchedulingRuleId>();
+  private committed = new Map<string, TickTickTask>();
+  private removed = new Map<string, SchedulingRuleId>();
+  private realIds = new Map<string, string>();
+  constructor(private source: TickTickApi, tasks: TickTickTask[]) {
+    this.committed = new Map(tasks.map(t => [t.id, structuredClone(t)]));
+    this.original = new Map(tasks.map(t => [t.id, structuredClone(t)]));
+    this.tasks = new Map(tasks.map(t => [t.id, structuredClone(t)]));
+  }
+  committedValues() { return [...this.committed.values()].map(t => structuredClone(t)); }
+  values() { return [...this.tasks.values()].map(t => structuredClone(t)); }
+  saveAfterCommit(rule: SchedulingRuleId, save: () => Promise<unknown>) { this.pendingSaves.push({ rule, save }); }
+  resolveIds<T>(value: T, publishedOnly = false): T {
+    const replace = (item: unknown): unknown => typeof item === 'string' ? this.realIds.get(item) ?? (publishedOnly && item.startsWith('draft-') ? undefined : item)
+      : Array.isArray(item) ? item.map(replace).filter(value => value !== undefined) : item && typeof item === 'object'
+        ? Object.fromEntries(Object.entries(item).map(([k, v]) => [this.realIds.get(k) ?? k, replace(v)]).filter(([key, value]) => value !== undefined && !(publishedOnly && typeof key === 'string' && key.startsWith('draft-')))) : item;
+    return replace(value) as T;
+  }
+  protect(id: SchedulingRuleId, taskIds: Iterable<string>, field = 'date') {
+    for (const taskId of taskIds) {
+      const owners = this.owners.get(taskId) ?? new Map<string, SchedulingRuleId>();
+      if (!owners.has(field)) owners.set(field, id);
+      this.owners.set(taskId, owners);
+    }
+  }
+  datesConfirmed(taskId: string) {
+    const proposed = this.tasks.get(taskId), saved = this.committed.get(this.realIds.get(taskId) ?? taskId);
+    return Boolean(proposed && saved && ['startDate', 'dueDate', 'isAllDay', 'timeZone'].every(key => persistedField(key, proposed[key as keyof TickTickTask], saved[key as keyof TickTickTask])));
+  }
+  branch(id: SchedulingRuleId) {
+    const base = new Map(this.values().map(t => [t.id, t]));
+    const branch = new Map([...base].map(([key, t]) => [key, structuredClone(t)]));
+    const claims = new Set<string>();
+    const api = new Proxy(this.source, { get: (target, key) => {
+      if (key === 'filterTasks') return async (_ids: unknown, statuses: number[]) => [...branch.values()].filter(t => statuses.includes(t.status ?? 0)).map(t => structuredClone(t));
+      if (key === 'getProjectData') return async (projectId: string) => ({ tasks: [...branch.values()].filter(t => t.projectId === projectId).map(t => structuredClone(t)) });
+      if (key === 'getTask') return async (projectId: string, taskId: string) => {
+        const task = branch.get(taskId);
+        if (task) return structuredClone(task);
+        if (base.has(taskId)) throw new Error('TickTick 404');
+        return target.getTask(projectId, taskId);
+      };
+      if (key === 'updateTask') return async (taskId: string, payload: Record<string, unknown>) => {
+        const task = branch.get(taskId);
+        if (!task) throw new Error('待办快照中不存在该任务');
+        const next = { ...task, ...structuredClone(payload) } as TickTickTask;
+        branch.set(taskId, next); return structuredClone(next);
+      };
+      if (key === 'createTask') return async (payload: Record<string, unknown>) => {
+        const task = { ...structuredClone(payload), id: `draft-${randomUUID()}`, status: 0 } as TickTickTask;
+        branch.set(task.id, task); return structuredClone(task);
+      };
+      if (key === 'deleteTask') return async (_projectId: string, taskId: string) => { branch.delete(taskId); };
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    } });
+    return {
+      api,
+      claimDates: (ids: Iterable<string>) => { for (const taskId of ids) claims.add(taskId); },
+      reject: () => {
+        for (const [taskId, task] of branch) {
+          const before = base.get(taskId);
+          if (!before) continue;
+          const owners = this.owners.get(taskId) ?? new Map<string, SchedulingRuleId>();
+          for (const key of fields) if (!same(task[key], before[key]) && !owners.has(ruleGroup(id, key))) owners.set(ruleGroup(id, key), id);
+          this.owners.set(taskId, owners);
+        }
+      },
+      accept: () => {
+        const conflicts: NonNullable<SchedulingRuleResult['conflicts']> = [];
+        let matched = 0;
+        for (const [taskId, task] of branch) {
+          const before = base.get(taskId);
+          if (!before) { this.tasks.set(taskId, task); this.created.add(taskId); this.createdBy.set(taskId, id); matched++; continue; }
+          const changed = fields.filter(key => !same(task[key], before[key]));
+          if (!changed.length && !claims.has(taskId)) continue;
+          const owners = this.owners.get(taskId) ?? new Map<string, SchedulingRuleId>();
+          const next = structuredClone(this.tasks.get(taskId)!);
+          for (const key of changed) {
+            if (key === 'tags') {
+              const hidden = (tags: string[] | undefined) => (tags ?? []).some(t => t.trim().toLowerCase() === 'bon-hidden');
+              const nonHidden = (tags: string[] | undefined) => (tags ?? []).filter(t => t.trim().toLowerCase() !== 'bon-hidden');
+              let hide = hidden(next.tags);
+              if (hidden(task.tags) !== hidden(before.tags)) {
+                const owner = owners.get('hidden');
+                if (owner && owner !== id) conflicts.push({ taskId, winner: owner, field: 'hidden' });
+                else { hide = hidden(task.tags); owners.set('hidden', id); }
+              }
+              const other = same(nonHidden(task.tags), nonHidden(before.tags)) ? nonHidden(next.tags) : nonHidden(task.tags);
+              next.tags = [...other, ...(hide ? ['bon-hidden'] : [])];
+              continue;
+            }
+            const dateOwner = owners.get('date');
+            if ((key === 'content' || key === 'desc') && id !== 'template-content' && dateOwner && dateOwner !== id
+              && changed.some(key => key === 'dueDate' || key === 'startDate')) {
+              conflicts.push({ taskId, winner: dateOwner, field: 'date' }); continue;
+            }
+            const owner = owners.get(ruleGroup(id, key));
+            if (owner && owner !== id) { conflicts.push({ taskId, winner: owner, field: group(key) }); continue; }
+            Object.assign(next, { [key]: task[key] }); owners.set(ruleGroup(id, key), id);
+          }
+          if (claims.has(taskId) && !owners.has('date')) owners.set('date', id);
+          this.tasks.set(taskId, next); this.owners.set(taskId, owners); matched++;
+        }
+        for (const taskId of base.keys()) if (!branch.has(taskId)) {
+          const owner = this.owners.get(taskId)?.values().next().value;
+          if (owner) conflicts.push({ taskId, winner: owner, field: 'task' });
+          else { this.tasks.delete(taskId); if (this.created.delete(taskId)) this.createdBy.delete(taskId); else this.removed.set(taskId, id); matched++; }
+        }
+        return { matched, conflicts };
+      },
+    };
+  }
+  async commit(options?: {
+    order: SchedulingRuleId[];
+    allowed: (id: SchedulingRuleId) => boolean;
+    afterRule: (id: SchedulingRuleId) => Promise<void>;
+    failed: (ids: SchedulingRuleId[], error: unknown) => void;
+  }) {
+    const changed = this.values().filter(task => !this.created.has(task.id) && fields.some(k => !same(task[k], this.original.get(task.id)?.[k])));
+    const allowed = (id: SchedulingRuleId | undefined) => !id || !options || options.allowed(id);
+    const ownerIds = (id: string) => [...new Set(this.owners.get(id)?.values() ?? [])];
+    const validState = (fresh: TickTickTask, original: TickTickTask) => pending(fresh) && pending(original)
+      || !pending(original) && same(fresh.status, original.status) && same(fresh.completedTime, original.completedTime)
+        && ownerIds(original.id).every(id => id === 'template-content' || id === 'moving-date');
+    const fail = (ids: SchedulingRuleId[], error: unknown) => { if (!options) throw error; options.failed(ids, error); };
+    const rank = (id?: SchedulingRuleId) => id ? options?.order.indexOf(id) ?? 0 : 0;
+    const commitAt = (id: string) => Math.max(0, ...ownerIds(id).map(rank), rank(this.createdBy.get(id)));
+    const eligibleTask = (task: TickTickTask) => {
+      const result = structuredClone(task), original = this.original.get(task.id);
+      if (!original) return result;
+      const owners = this.owners.get(task.id);
+      for (const key of fields) if (!allowed(owners?.get(group(key)))) Object.assign(result, { [key]: original[key] });
+      if (owners?.has('template-items') && allowed(owners.get('template-items')) && !allowed(owners.get('date'))) {
+        result.items = task.items?.map(item => {
+          const old = original.items?.find(candidate => candidate.id === item.id);
+          return { ...item, startDate: old?.startDate, dueDate: old?.dueDate };
+        });
+      }
+      if (!allowed(owners?.get('hidden'))) result.tags = [...(result.tags ?? []).filter(t => t.trim().toLowerCase() !== 'bon-hidden'),
+        ...(original.tags?.filter(t => t.trim().toLowerCase() === 'bon-hidden') ?? [])];
+      return result;
+    };
+    const validated = new Set<string>();
+    for (const task of [...changed, ...[...this.removed.keys()].map(id => this.original.get(id)!)]) {
+      try {
+        const fresh = await this.source.getTask(task.projectId, task.id), original = this.original.get(task.id)!;
+        if (!fresh || !validState(fresh, original) || fresh.projectId !== original.projectId || fields.some(k => !same(fresh[k], original[k]))) throw new Error('待办已变化，请重新重排');
+        validated.add(task.id);
+      } catch (error) { fail([...ownerIds(task.id), ...this.removed.has(task.id) ? [this.removed.get(task.id)!] : []], error); }
+    }
+    let updated = 0;
+    const remaining = new Set(this.created), writes = new Set(changed.map(t => t.id));
+    const stages = options?.order ?? [undefined];
+    for (let index = 0; index < stages.length; index++) {
+      const ready = () => [...remaining].find(id => (!options || commitAt(id) <= index) && !remaining.has(this.tasks.get(id)?.parentId ?? ''));
+      let id: string | undefined;
+      while ((id = ready())) {
+        const task = this.tasks.get(id)!;
+        remaining.delete(id);
+        if (!allowed(this.createdBy.get(id))) continue;
+        try {
+          if (task.parentId?.startsWith('draft-') && !this.realIds.has(task.parentId)) throw new Error('母任务未创建');
+          const payload = this.resolveIds({ projectId: task.projectId, ...Object.fromEntries(fields.filter(k => task[k] !== undefined).map(k => [k, task[k]])) });
+          const saved = await this.source.createTask(payload);
+          if (!saved?.id || saved.id.startsWith('draft-')) throw new Error('新待办创建结果未确认');
+          this.realIds.set(id, saved.id);
+          const confirmed = await this.source.getTask(saved.projectId ?? task.projectId, saved.id);
+          if (!confirmed || !pending(confirmed) || fields.some(key => payload[key] !== undefined && !persistedField(key, confirmed[key], payload[key]))) throw new Error('新待办写入未确认');
+          this.committed.set(saved.id, confirmed);
+          for (const entry of this.pendingSaves) if (entry.rule === this.createdBy.get(id)) await entry.save(); updated++; this.writeCounts.set(this.createdBy.get(id)!, (this.writeCounts.get(this.createdBy.get(id)!) ?? 0) + 1);
+        } catch (error) { fail([this.createdBy.get(id)!], error); }
+      }
+      for (const taskId of [...writes]) {
+        if (options && commitAt(taskId) > index) continue;
+        writes.delete(taskId);
+        if (!validated.has(taskId)) continue;
+        const task = eligibleTask(this.tasks.get(taskId)!);
+        const original = this.original.get(taskId)!;
+        if (!fields.some(k => !same(task[k], original[k]))) continue;
+        try {
+          const fresh = await this.source.getTask(task.projectId, task.id);
+          if (!fresh || !validState(fresh, original) || fields.some(k => !same(fresh[k], original[k]))) throw new Error('待办已变化，请重新重排');
+          const payload = this.resolveIds({ id: task.id, projectId: task.projectId,
+            ...Object.fromEntries(fields.filter(k => task[k] !== undefined).map(k => [k, task[k]])) });
+          await this.source.updateTask(task.id, payload);
+          const saved = await this.source.getTask(task.projectId, task.id);
+          if (!saved || !validState(saved, original) || fields.some(k => !persistedField(k, saved[k], task[k]))) throw new Error('重排写入结果未确认');
+          this.committed.set(taskId, saved); updated++;
+          for (const owner of ownerIds(taskId).filter(allowed)) this.writeCounts.set(owner, (this.writeCounts.get(owner) ?? 0) + 1);
+        } catch (error) { fail(ownerIds(taskId), error); }
+      }
+      for (const [taskId, owner] of this.removed) {
+        if (options && owner !== stages[index] || !allowed(owner) || !validated.has(taskId)) continue;
+        try {
+          const original = this.original.get(taskId)!;
+          const fresh = await this.source.getTask(original.projectId, taskId);
+          if (!fresh || !pending(fresh) || fields.some(key => !same(fresh[key], original[key]))) throw new Error('待办已变化，请重新重排');
+          await this.source.deleteTask(original.projectId, taskId);
+          let remainingTask: TickTickTask | undefined;
+          try { remainingTask = await this.source.getTask(original.projectId, taskId); }
+          catch (error) { if (!(error instanceof Error) || !/\b404\b/.test(error.message)) throw error; }
+          if (remainingTask) throw new Error('待办删除结果未确认');
+          this.committed.delete(taskId); updated++;
+          this.writeCounts.set(owner, (this.writeCounts.get(owner) ?? 0) + 1);
+        }
+        catch (error) { fail([owner], error); }
+      }
+      if (options) await options.afterRule(stages[index]!);
+    }
+    if (remaining.size) throw new Error('新待办存在循环父子关系');
+    // A failed generation branch must not publish unresolved temporary IDs.
+    for (const entry of this.pendingSaves) if (allowed(entry.rule)) {
+      try { await entry.save(); } catch (error) { fail([entry.rule], error); }
+    }
+    return updated;
+  }
+}

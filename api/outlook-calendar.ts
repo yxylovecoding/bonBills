@@ -1,3 +1,5 @@
+import { withRulePolicy, hasRulePolicy } from './_rulePolicy.js';
+import { readSchedulingRules } from './_schedulingRules.js';
 import { privateJson } from './_privateCache.js';
 import { withAccountScope } from './_accountRoute.js';
 import { randomUUID } from 'node:crypto';
@@ -17,6 +19,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
   if (!await authOk(req)) return res.status(401).json({ error: 'unauthorized' });
   if (!['GET', 'POST', 'PUT', 'DELETE'].includes(req.method || '')) return res.status(405).json({ error: 'method not allowed' });
   const secret = (process.env.SYNC_SECRET || '').trim();
+  if (!hasRulePolicy()) return withRulePolicy(await readSchedulingRules(), () => handler(req, res));
   try {
     if (req.method === 'DELETE') {
       await disconnectOutlookCalendar();

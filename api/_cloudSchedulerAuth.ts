@@ -8,5 +8,5 @@ export function cloudSchedulerAuthOk(req: VercelRequest) {
       || !actions.has(typeof req.query?.action === 'string' ? req.query.action : req.query?.action ? 'invalid' : '')) return false;
   const actual = Buffer.from(req.headers.authorization || '');
   const expected = Buffer.from(`Bearer ${secret}`);
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
+  return actual.length === expected.length && timingSafeEqual(Uint8Array.from(actual), Uint8Array.from(expected));
 }

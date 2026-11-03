@@ -1,3 +1,4 @@
+import LifeSchedulingRules from './LifeSchedulingRules';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { DoneItem, DoneMonth } from '../utils/bonLife';
 import type { TickTickPlanDetails } from '../utils/tickTickPlanDetails';
@@ -79,7 +80,7 @@ function DoneDay({ date, index, items, today, pending, busy, error }: {
   </section>;
 }
 
-export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
+export default function LifeDoneList({ onExpired, onManageOutlook }: { onExpired: () => void; onManageOutlook?: () => void }) {
   const [today, setToday] = useState(shanghaiToday);
   const thisWeek = doneWeekDates(today)[0];
   const [weeks, setWeeks] = useState(() => [...earlierDoneWeeks(thisWeek, 3), thisWeek]);
@@ -142,7 +143,7 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
       if (response.status === 401) { onExpired(); return; }
       const result = await response.json() as { triggered?: boolean; error?: string };
       if (!response.ok || !result.triggered) throw new Error(result.error || '触发重排失败，请重试');
-      if (!request.signal.aborted) setReplanMessage('已触发重排 · Outlook、今日重要之事和今日事将依次更新');
+      if (!request.signal.aborted) setReplanMessage('已触发重排 · 按已保存的规则顺序执行');
     } catch (cause) {
       if (!request.signal.aborted) setReplanError(cause instanceof TypeError
         ? '触发请求失败，请检查网络后重试' : cause instanceof Error ? cause.message : '触发重排失败，请重试');
@@ -249,6 +250,7 @@ export default function LifeDoneList({ onExpired }: { onExpired: () => void }) {
     </button> : replanMessage || (syncedAt ? `${completionTime.format(new Date(syncedAt))} 已同步` : '尚未同步')}</span>
       <div className="life-done-actions"><button disabled={busy || replanning} onClick={() => void triggerReplan()}>{replanning ? '触发中…' : '重排任务'}</button>
         <button disabled={busy || replanning} onClick={() => void refresh(true)}>同步记录</button></div></div>
+    <LifeSchedulingRules onExpired={onExpired} onManageOutlook={onManageOutlook} />
     {replanError && <p className="life-error" role="alert">{replanError}</p>}
     {detailsError && <p className="life-error" role="alert">{detailsError}</p>}
     {detailsOpen && planDetails && <LifePlanDetails plan={planDetails} />}

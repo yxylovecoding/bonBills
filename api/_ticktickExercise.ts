@@ -1,4 +1,3 @@
-import { hasTaskLocation } from './_ticktickLocation.js';
 import { kv } from './_accountKv.js';
 import ICAL from 'ical.js';
 import { cycleDay } from '../src/utils/lifeCycle.js';
@@ -7,8 +6,8 @@ import { swimmingHairWashDates, type HairWashSchedule } from '../src/utils/lifeS
 import { isTrainingTitle, recordedTrainingProjects, rollingTrainingPlan, trainingIdentity, trainingLibrary,
   trainingName, trainingProjectKey, type TrainingSource, type TrainingTask } from '../src/utils/lifeTraining.js';
 import { readHairWashSchedule, readSwimmingCycle } from './_lifeSwimming.js';
-import { calendarDateInTimeZone, isAlwaysTodayTask, readAllTickTickTasks, routineRecurrence,
-  nextRoutineSceneDate, readRoutineCalendarState, shiftTickTickDate, TICKTICK_SYNC_STATE_KEY,
+import { calendarDateInTimeZone, getTickTickRoutineTargetDates, isAlwaysTodayTask, readAllTickTickTasks, routineRecurrence,
+  routineScenes, nextRoutineSceneDate, readRoutineCalendarState, shiftTickTickDate, TICKTICK_SYNC_STATE_KEY,
   type TickTickApi, type TickTickTask, type TickTickTripSyncState } from './_ticktickTrips.js';
 
 export const EXERCISE_STATE_KEY = 'ticktick:exercise-rollover:v1';
@@ -152,6 +151,9 @@ export async function syncExerciseSchedule(api: TickTickApi, options: {
   calendarState?: unknown;
   excludedTaskIds?: ReadonlySet<string>;
   rolling?: boolean;
+  rollingOnly?: boolean;
+  acceptsDate?: (id: string, date: string) => boolean;
+  deferState?: (save: () => Promise<unknown>) => void;
 }) {
   const now = options.now ?? new Date();
   const [tasks, calendarState, previous, trips] = await Promise.all([
@@ -188,7 +190,7 @@ export async function syncExerciseSchedule(api: TickTickApi, options: {
     // a fresh forecast tomorrow; today's missed plan is not a completion.
     const today = current.late ? addDays(current.day, 1) : current.day;
     const { syncTrainingSource } = await import('./_lifeTraining.js');
-    const source = await syncTrainingSource(Number(today.slice(0, 4)), { lockHeld: true });
+    const source = await syncTrainingSource(Number(today.slice(0, 4)), { lockHeld: true, api, publish: !options.deferState });
     // Template/trip tasks and ignored tasks cannot add projects to the rotation.
     const candidateIds = new Set(candidates.map(task => `${task.projectId}:${task.id}`));
     source.tasks = source.tasks.filter(task => candidateIds.has(task.id));
@@ -206,7 +208,7 @@ export async function syncExerciseSchedule(api: TickTickApi, options: {
     for (const candidate of candidates.filter(task => isTrainingTitle(task.title))) {
       const target = dates.get(keyFor(candidate));
       // An absent hair-wash date must not fall back to swimming's old weekday.
-      if (!target && (candidate.title.includes('游泳') || hasTaskLocation(candidate, calendarState))) { managedTaskIds.add(candidate.id); continue; }
+      if (!target && (candidate.title.includes('游泳') || routineScenes(candidate).length > 0)) { managedTaskIds.add(candidate.id); continue; }
       if (!target || !taskDay(candidate)) continue;
       managedTaskIds.add(candidate.id);
       fixedDates.set(candidate.id, target);
@@ -227,7 +229,7 @@ export async function syncExerciseSchedule(api: TickTickApi, options: {
   }
   const swimming = candidates.some(task => task.title.includes('游泳') && taskDay(task));
   const periodData = swimming ? await readSwimmingCycle([now.getUTCFullYear(), now.getUTCFullYear() + 1]) : {};
-  for (const candidate of candidates) {
+  for (const candidate of options.rollingOnly ? [] : candidates) {
     if (managedTaskIds.has(candidate.id)) continue;
     const targetOptions = { now, calendarState, ...periodData, hairWash: swimming ? readHairWashSchedule(tasks) : null, notBefore: deferredDate(candidate, state) };
     if (!exerciseTarget(candidate, targetOptions)) continue;
@@ -237,10 +239,12 @@ export async function syncExerciseSchedule(api: TickTickApi, options: {
     const target = exerciseTarget(task, { ...targetOptions, notBefore: deferredDate(task, state) });
     if (!target) continue;
     state.deferrals[task.id] = { projectId: task.projectId, repeatFlag: task.repeatFlag ?? '', notBefore: target };
-    await kv.set(EXERCISE_STATE_KEY, state);
+    if (!options.deferState) await kv.set(EXERCISE_STATE_KEY, state);
     await moveExercise(api, task, target);
     updated++;
   }
+  if (options.deferState) options.deferState(() => kv.set(EXERCISE_STATE_KEY, { ...state, deferrals: Object.fromEntries(Object.entries(state.deferrals)
+    .filter(([id, value]) => !options.acceptsDate || options.acceptsDate(id, value.notBefore))) }));
   const minimumDates = new Map(Object.entries(state.deferrals).map(([id, saved]) => [id, saved.notBefore]));
   return { updated, minimumDates, managedTaskIds, fixedDates };
 }

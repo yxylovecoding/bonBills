@@ -79,6 +79,7 @@ export interface DailyContext {
   paid: boolean;
   tag: TagKind;
   livingKind: LivingKind;
+  awayInternship?: boolean;
   label: string;
 }
 export interface InternshipContext {
@@ -110,7 +111,7 @@ export function resolveDailyContext(date: string, rawTag: TagKind | undefined, i
   const livingKind: LivingKind = away ? rawTag : working ? 'work' : period && !local ? 'rest' : 'school';
   const suffix = livingKind === 'work' ? '班' : livingKind === 'rest' ? '休' : livingKind === 'school' ? '校' : livingKind === 'home' ? '寄' : '游';
   const cityName = cityLabel(city);
-  return { date, city, period, planned, working, paid: working, tag, livingKind, label: `${cityName ? `${cityName}·` : ''}${suffix}` };
+  return { date, city, period, planned, working, paid: working, tag, livingKind, awayInternship: Boolean(period && !local), label: `${cityName ? `${cityName}·` : ''}${suffix}` };
 }
 export function resolvedTagMap(raw: Record<string, TagKind>, input: InternshipContext) {
   const dates = new Set(Object.keys(raw));

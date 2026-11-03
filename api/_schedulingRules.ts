@@ -1,0 +1,70 @@
+import { randomUUID } from 'node:crypto';
+import { kv } from './_accountKv.js';
+import { readRuleConfig, ruleTitle, type SchedulingRuleConfig, type SchedulingRuleId, type SchedulingRuleResult, type SchedulingRun } from '../src/utils/schedulingRules.js';
+import { withActiveRule, withRulePolicy } from './_rulePolicy.js';
+
+export const RULE_CONFIG_KEY = 'ticktick:rules:v1';
+export const RULE_RUN_KEY = 'ticktick:rules:last-run:v1';
+const CONFIG_LOCK = 'ticktick:rules:write-lock:v1';
+export async function readSchedulingRules() {
+  const stored = await kv.get(RULE_CONFIG_KEY);
+  const config = readRuleConfig(stored);
+  if (!stored) {
+    const { decryptOutlookConnection } = await import('./_outlookCalendar.js');
+    const { OUTLOOK_CONNECTION_KEY } = await import('./_outlookSync.js');
+    const connection = await kv.get<{ encrypted: string }>(OUTLOOK_CONNECTION_KEY);
+    let outlookFirst = false;
+    try { outlookFirst = Boolean(connection && decryptOutlookConnection(connection.encrypted, (process.env.SYNC_SECRET || '').trim()).policy === 'outlook'); } catch { /* A broken source is reported by its rule, not by configuration reads. */ }
+    if (outlookFirst) {
+      config.order = config.order.filter(id => id !== 'calendar-manual');
+      config.order.splice(config.order.indexOf('calendar-intern') + 1, 0, 'calendar-manual');
+    }
+  }
+  return config;
+}
+export class RuleConfigError extends Error { constructor(message: string, readonly status = 400) { super(message); } }
+export async function saveSchedulingRules(value: unknown) {
+  let next: SchedulingRuleConfig;
+  try { next = readRuleConfig(value); } catch (error) { throw new RuleConfigError((error as Error).message); }
+  const token = randomUUID();
+  if (!await kv.set(CONFIG_LOCK, token, { nx: true, ex: 30 })) throw new RuleConfigError('规则正在保存，请重试', 409);
+  try {
+    const previous = await readSchedulingRules();
+    if (previous.version !== next.version) throw new RuleConfigError('规则已在其他页面更新，请重新读取后修改', 409);
+    next.version++;
+    await kv.set(RULE_CONFIG_KEY, next);
+    return next;
+  } finally {
+    await kv.eval("if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0", [CONFIG_LOCK], [token]);
+  }
+}
+
+export type RuleHandler = () => Promise<Partial<Pick<SchedulingRuleResult, 'matched' | 'updated' | 'reason' | 'conflicts'>> | void>;
+export async function executeRuleGraph(config: SchedulingRuleConfig, scope: SchedulingRun['scope'], handlers: Partial<Record<SchedulingRuleId, RuleHandler>>,
+  options: { save?: boolean; afterRule?: (id: SchedulingRuleId, successful: boolean) => Promise<void> } = {}) {
+  const run: SchedulingRun = { version: config.version, scope, generatedAt: new Date().toISOString(), order: [...config.order], results: [] };
+  const unavailable = new Set<SchedulingRuleId>();
+  await withRulePolicy(config, async () => {
+    for (const id of config.order) {
+      const failedParent = (config.predecessors[id] ?? []).find(parent => unavailable.has(parent));
+      if (failedParent || !handlers[id]) {
+        unavailable.add(id);
+        run.results.push({ id, status: 'skipped', matched: 0, updated: 0,
+          reason: failedParent ? `前序「${ruleTitle(failedParent)}」未完成` : '不在本次执行范围' });
+        await options.afterRule?.(id, false);
+        continue;
+      }
+      try {
+        const result = await withActiveRule(id, handlers[id]!);
+        await options.afterRule?.(id, true);
+        run.results.push({ id, status: 'success', matched: 0, updated: 0, ...result });
+      } catch (error) {
+        unavailable.add(id);
+        await options.afterRule?.(id, false);
+        run.results.push({ id, status: 'failed', matched: 0, updated: 0, reason: error instanceof Error && /^(排期来源暂不可用|地点读取失败，保留当前显隐|模板范围未确认|模板暂不可用|经期来源暂不可用|存在多个洗头来源|数据未刷新|来源未确认|Outlook 订阅读取失败)$/.test(error.message) ? error.message : '本规则未完成，已保留受影响安排' });
+      }
+    }
+  }, unavailable);
+  if (options.save !== false) await kv.set(RULE_RUN_KEY, run);
+  return run;
+}

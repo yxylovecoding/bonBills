@@ -1,36 +1,18 @@
-import { syncEyeDrops } from './_ticktickEyeDrops.js';
 import { OUTLOOK_WRITE_KEY } from './_outlookWrite.js';
-import { syncElectricVehiclePickup } from './_electricVehiclePickup.js';
-import { syncTickTickLocationVisibility } from './_ticktickLocationVisibility.js';
-import { syncTickTickTemplates } from './_ticktickTemplateSync.js';
 import { automaticRestWindow } from '../src/utils/schedulerTime.js';
-import { resolveCalendarState } from '../src/utils/internship.js';
 import { cloudSchedulerAuthOk } from './_cloudSchedulerAuth.js';
 import { schedulerResponse } from './_schedulerResponse.js';
 import { privateCache, privateJson } from './_privateCache.js';
 import { withAccountScope } from './_accountRoute.js';
 import { authorizeAccountScope } from './_accountScope.js';
 import { createHash } from 'node:crypto';
-import { DAILY_PLAN_KEY, DAILY_PLAN_SETTINGS_KEY, dailyBudget, planTickTickDay, refreshDailyHistory, type DailyPlanState } from './_ticktickDailyPlan.js';
+import { DAILY_PLAN_KEY, DAILY_PLAN_SETTINGS_KEY, dailyBudget, type DailyPlanState } from './_ticktickDailyPlan.js';
 import { authOk } from './_auth.js';
 import { kv } from './_accountKv.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import type { TickTickConnection, TickTickTripSyncState } from './_ticktickTrips.js';
-import { syncOutlookCalendar } from './_outlookSync.js';
 import { availabilityProfile } from './_dailyAvailability.js';
-import type { OutlookAvailability } from '../src/utils/outlookCalendar.js';
-import { acquireTickTickLock, releaseTickTickLock } from './_ticktickLock.js';
-import { syncSwimmingSchedule } from './_lifeSwimming.js';
-import { syncHairWashVisibility, syncNightRoutineVisibility, syncReadingVisibility, syncTimedTaskVisibility } from './_ticktickNightRoutine.js';
-import { syncSleepRoutineTags } from './_ticktickSleepTags.js';
-import { syncExerciseSchedule } from './_ticktickExercise.js';
-import { syncLaundrySchedule } from './_ticktickLaundry.js';
-import { syncLaundryOutlook } from './_outlookLaundry.js';
-import { syncChargingOutlook } from './_outlookCharging.js';
-import { syncHairWashOutlook } from './_outlookHairWash.js';
-import { syncPeriodPredictionTask } from './_ticktickPeriodPrediction.js';
-import { schedulingFailure, schedulingStage } from './_schedulingFailure.js';
-import { syncTickTickAlwaysToday } from './_ticktickTrips.js';
+import { schedulingFailure } from './_schedulingFailure.js';
 
 const CONNECTION_KEY = 'ticktick:connection:v1';
 const DAILY_SPECIAL_KEY = 'ticktick:daily-special-success:v1';
@@ -57,240 +39,13 @@ function shanghaiDate() {
 }
 
 async function runSync(allowDisconnected = false) {
-  return schedulingStage('planning', false, () => runSyncInner(allowDisconnected));
-}
-
-async function runSyncInner(allowDisconnected: boolean) {
-  const lockId = await acquireTickTickLock();
-  if (!lockId) return { busy: true as const };
-  let scheduleStarted = false;
-  try {
-    const today = shanghaiDate();
-    const secret = getSyncSecret();
-    const { decryptTickTickToken, TickTickOpenApiClient } = await import('./_ticktickTrips.js');
-    const connection = await kv.get<TickTickConnection>(CONNECTION_KEY);
-    const token = connection ? decryptTickTickToken(connection.encryptedToken, secret) : null;
-    const api = token === null ? null : new TickTickOpenApiClient(token, (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
-    // Morning synchronization at 07:01 must restore temporary tags before
-    // calculating availability; otherwise every masked task looks like routine.
-    if (connection && api) {
-      const sleepTags = await syncSleepRoutineTags(api, { projectId: connection.projectId, restoreOnly: true });
-      if (!sleepTags.complete) return { busy: true as const, sleepTags };
-    }
-    scheduleStarted = true;
-    // Manual and scheduled runs must use the same fresh calendar window, including future trips.
-    let availability: OutlookAvailability | undefined;
-    try { availability = (await schedulingStage('outlook-refresh', true, () => syncOutlookCalendar(today, secret)))?.availability; }
-    catch (error) {
-      const state = await kv.get<TickTickTripSyncState>(SYNC_STATE_KEY);
-      await kv.set(SYNC_STATE_KEY, { ...state, instances: state?.instances ?? {}, lastError: error instanceof Error ? error.message : String(error) });
-      throw error;
-    }
-    // Outlook and period snapshots remain independent of the TickTick connection.
-    if (!connection && allowDisconnected) return { busy: false as const, connected: false as const };
-    if (!connection || !api || token === null) throw new Error('TickTick 未连接');
-    const {
-      buildTripSourcesFromSyncState,
-      getTickTickRoutineExcludedTaskIds,
-      readConnectedTickTickTemplate,
-      readAllTickTickTasks,
-      reconcileTickTickTrips,
-      reconcileTickTickWishPreparations,
-      syncTickTickRoutines,
-      routineTaskDate,
-    } = await import('./_ticktickTrips.js');
-    const [storedCalendarState, tripState, configState, savedState] = await Promise.all([
-      kv.get('calendar-tags'),
-      kv.get('trip-tags'),
-      kv.get('app-config'),
-      kv.get<TickTickTripSyncState>(SYNC_STATE_KEY),
-    ]);
-    const calendarState = resolveCalendarState(configState, storedCalendarState);
-    const state: TickTickTripSyncState = savedState && typeof savedState === 'object'
-      ? { ...savedState, instances: savedState.instances ?? {} }
-      : { instances: {} };
-    let planningStep = 'initial-read';
-    try {
-      const connectionId = createHash('sha256').update(token).digest('hex');
-      const templateSync = await syncTickTickTemplates(api, connection.templateRootId, connectionId);
-      const [savedPlan, settings, sourceTasks] = await Promise.all([
-        kv.get<DailyPlanState>(DAILY_PLAN_KEY),
-        kv.get<{ budgetMinutes?: number | null; availabilityProfile?: string }>(DAILY_PLAN_SETTINGS_KEY),
-        schedulingStage('tasks-read', true, () => readAllTickTickTasks(api, [0])),
-      ]);
-      const alwaysToday = await syncTickTickAlwaysToday(api, { tasks: sourceTasks, today, calendarState });
-      const timedTasks = await syncTimedTaskVisibility(api, { tasks: sourceTasks, timeZone: connection.timeZone, projectId: connection.projectId });
-      await syncTickTickLocationVisibility(api, { tasks: sourceTasks, calendarState });
-      const eyeTasks = await readAllTickTickTasks(api, [0]);
-      await syncEyeDrops(api, eyeTasks, new Date(), connection.timeZone);
-      await syncTimedTaskVisibility(api, { tasks: eyeTasks, timeZone: connection.timeZone, projectId: connection.projectId });
-      sourceTasks.splice(0, sourceTasks.length, ...eyeTasks);
-      const dailyPlan: DailyPlanState = savedPlan?.connectionId === connectionId
-        ? { ...savedPlan, history: [...savedPlan.history], deadlines: { ...savedPlan.deadlines } }
-        : { connectionId, history: [], deadlines: {} };
-      // Read history before any scene/date writes; a failed read is never "never done".
-      await schedulingStage('completion-history', true, () => refreshDailyHistory(api, sourceTasks, dailyPlan));
-      await kv.set(DAILY_PLAN_KEY, dailyPlan);
-      if (!availability && dailyBudget(settings?.budgetMinutes) === null) { dailyPlan.summary = undefined; dailyPlan.briefing = undefined; }
-      const template = await schedulingStage('template-read', true, () => readConnectedTickTickTemplate(api, connection));
-      const trips = buildTripSourcesFromSyncState(calendarState, tripState);
-      const result = await reconcileTickTickTrips({
-        api,
-        sourceTasks,
-        template,
-        trips,
-        state,
-        today,
-        legacyProjectId: connection.projectId,
-        saveState: (nextState) => kv.set(SYNC_STATE_KEY, nextState).then(() => undefined),
-      });
-      const wishResult = await reconcileTickTickWishPreparations({
-        api,
-        sourceTasks,
-        template,
-        configState,
-        state,
-        today,
-        legacyProjectId: connection.projectId,
-        saveState: (nextState) => kv.set(SYNC_STATE_KEY, nextState).then(() => undefined),
-      });
-      // Follow explicit task dates after generated trips/wishes have their final
-      // dates, including tasks first created during this sync.
-      const excludedTaskIds = getTickTickRoutineExcludedTaskIds(template, state);
-    for (const id of templateSync?.managedTaskIds ?? []) excludedTaskIds.add(id);
-      console.info('[ticktick-sync-step]', JSON.stringify({ step: 'exercise' }));
-      const exercise = await syncExerciseSchedule(api, { connectionId, calendarState, excludedTaskIds, rolling: true });
-      for (const id of exercise.managedTaskIds) excludedTaskIds.add(id);
-      const laundryTasks = await schedulingStage('tasks-read', true, () => readAllTickTickTasks(api, [0]));
-      console.info('[ticktick-sync-step]', JSON.stringify({ step: 'laundry' }));
-      const laundry = await syncLaundrySchedule(api, { connectionId, tasks: laundryTasks, history: dailyPlan.history,
-        calendarState, configState, trips, availability, profile: availabilityProfile(settings?.availabilityProfile),
-        today, now: new Date(), excludedTaskIds });
-      // Weather owns this cycle's date. Scene and daily rotation must not pull
-      // it back to today, including when the forecast is temporarily unavailable.
-      for (const id of laundry.managedTaskIds) excludedTaskIds.add(id);
-      const periodPrediction = await syncPeriodPredictionTask(api, { connection, tasks: sourceTasks, completedTasks: dailyPlan.history, today });
-      console.info('[ticktick-sync-step]', JSON.stringify({ step: 'daily-plan' }));
-      planningStep = 'routine-read';
-      const routineResult = await syncTickTickRoutines({
-        api, calendarState, today,
-        excludedTaskIds, minimumTaskDates: exercise.minimumDates, fixedTaskDates: exercise.fixedDates, completedTasks: dailyPlan.history,
-        planDay: !availability && dailyBudget(settings?.budgetMinutes) === null ? undefined : async (tasks) => {
-          planningStep = 'calculate-daily-plan';
-          const plan = planTickTickDay({ tasks, calendarState, today, state: dailyPlan,
-            budgetMinutes: settings?.budgetMinutes, availability, availabilityProfile: availabilityProfile(settings?.availabilityProfile),
-            excludedTaskIds });
-          // Save cycle anchors before writes so a partially failed run can be retried.
-          planningStep = 'save-cycle-anchors';
-          await kv.set(DAILY_PLAN_KEY, { ...dailyPlan, summary: savedPlan?.summary,
-            briefing: savedPlan?.connectionId === connectionId ? savedPlan.briefing : undefined });
-          planningStep = 'routine-dates';
-          return plan.dates;
-        },
-      });
-      await syncTickTickLocationVisibility(api, { calendarState });
-      planningStep = 'save-daily-plan';
-      await kv.set(DAILY_PLAN_KEY, dailyPlan);
-      planningStep = 'calendar-events';
-      console.info('[ticktick-sync-step]', JSON.stringify({ step: 'calendar-events' }));
-      const laundryOutlook = await syncLaundryOutlook(api, { tasks: laundryTasks, managedTaskIds: laundry.managedTaskIds,
-        ticktickConnectionId: connectionId, configState, calendarState, today,
-        plannedDates: Object.fromEntries(laundryTasks.filter(task => laundry.managedTaskIds.has(task.id))
-          .map(task => [task.id, laundry.decisions.find(decision => decision.id === task.id)?.date ?? routineTaskDate(task)])),
-      }).catch(() => ({ error: 'Outlook 日程同步暂不可用，请重试' }));
-      // Calendar appointments follow the final pending dates after scene planning.
-      const calendarTaskOptions = {
-        tasks: await schedulingStage('tasks-read', true, () => readAllTickTickTasks(api, [0])),
-        history: dailyPlan.history, excludedTaskIds, ticktickConnectionId: connectionId, today,
-      };
-      const chargingOutlook = await syncChargingOutlook(api, calendarTaskOptions)
-        .catch(() => ({ error: 'Outlook 充电日程同步暂不可用，请重试' }));
-      const hairWashOutlook = await syncHairWashOutlook(api, calendarTaskOptions)
-        .catch(() => ({ error: 'Outlook 洗头日程同步暂不可用，请重试' }));
-      const pickup = await syncElectricVehiclePickup(api, calendarTaskOptions)
-        .catch(() => ({ outlook: { error: '接电动车同步失败，请重试' } }));
-      const writeConnection = await kv.get<{ calendarId?: string }>(OUTLOOK_WRITE_KEY);
-      const missingCalendar = !writeConnection?.calendarId && (('created' in pickup && pickup.created > 0) || calendarTaskOptions.tasks.some(task =>
-        ['电动车充电', '洗头', '洗衣服', '接电动车'].includes(task.title.normalize('NFKC').trim())
-        && (!excludedTaskIds.has(task.id) || laundry.managedTaskIds.has(task.id)) && !task.tags?.includes('不关我事') && (routineTaskDate(task) ?? '') >= today));
-      const specialFailed = missingCalendar || [laundryOutlook, chargingOutlook, hairWashOutlook, pickup.outlook]
-        .some(result => 'error' in result && result.error);
-      if (!specialFailed) await kv.set(DAILY_SPECIAL_KEY, { date: today, connectionId });
-      else await kv.set(DAILY_SPECIAL_KEY, null);
-      console.info('[ticktick-routine-sync]', JSON.stringify(routineResult));
-      console.info('[ticktick-trip-sync]', JSON.stringify({ ...result, ...wishResult }));
-      return { busy: false as const, ...(specialFailed ? { error: missingCalendar ? 'Outlook 写入日历未连接' : '专项日程同步失败' } : {}), ...result, ...wishResult, ...routineResult, exercise: { updated: exercise.updated },
-        timedTasks, alwaysToday, templateSync,
-        laundry: { updated: laundry.updated, decisions: laundry.decisions, outlook: laundryOutlook },
-        charging: { outlook: chargingOutlook }, pickup,
-        hairWash: { outlook: hairWashOutlook },
-        periodPrediction,
-        dailyPlan: dailyPlan.summary, budgetMinutes: dailyBudget(settings?.budgetMinutes),
-        availabilityProfile: availabilityProfile(settings?.availabilityProfile), lastSyncAt: state.lastSyncAt };
-    } catch (error) {
-      // Record only code locations, never the error body (which may contain
-      // private task data or subscription URLs).
-      if (schedulingFailure(error).stage === 'unknown') {
-        const frames = error instanceof Error ? [...(error.stack ?? '').matchAll(
-          /(?:api\/[A-Za-z0-9_./-]+\.[cm]?[jt]s:\d+:\d+|node_modules\/@[A-Za-z0-9_.-]+\/[A-Za-z0-9_./-]+\.[cm]?[jt]s:\d+:\d+|node:internal\/[A-Za-z0-9_./-]+:\d+:\d+)/g,
-        )].slice(0, 8).map(match => match[0]) : [];
-        const errorName = error instanceof Error && /^[A-Za-z]{1,32}$/.test(error.name) ? error.name : 'unknown';
-        console.error('[ticktick-sync-source]', JSON.stringify({ step: planningStep, errorName, frames }));
-      }
-      state.lastError = error instanceof Error ? error.message : String(error);
-      await kv.set(SYNC_STATE_KEY, state);
-      throw error;
-    }
-  } finally {
-    // Apply the period rule last, even if unrelated calendar/template sync failed.
-    // Share the write lock so routines cannot put swimming back into a period.
-    try {
-      if (scheduleStarted) {
-        await schedulingStage('finalize', false, async () => {
-          await syncSwimmingSchedule({ lockHeld: true, refreshPeriods: true });
-          // Routines may have moved the completion-based hair-wash anchor. Publish
-          // the final dates so the Web calendar and email match the actual todos.
-          const { syncTrainingSource } = await import('./_lifeTraining.js');
-          await syncTrainingSource(Number(shanghaiDate().slice(0, 4)), { lockHeld: true });
-        });
-      }
-    }
-    finally { await releaseTickTickLock(lockId); }
-  }
+  const { runRuleReplan } = await import('./_ruleReplan.js');
+  return runRuleReplan({ scope: 'full', allowDisconnected });
 }
 
 async function runRoutineVisibilitySync(kind: 'night' | 'daily' | 'all' | 'hair' | 'reading' | 'timed') {
-  const lockId = await acquireTickTickLock();
-  if (!lockId) return { busy: true as const };
-  try {
-    const connection = await kv.get<TickTickConnection>(CONNECTION_KEY);
-    if (!connection) return { busy: false as const, connected: false as const };
-    const { decryptTickTickToken, TickTickOpenApiClient } = await import('./_ticktickTrips.js');
-    const token = decryptTickTickToken(connection.encryptedToken, getSyncSecret());
-    const api = new TickTickOpenApiClient(token,
-      (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
-    const result = await (async () => {
-    if (kind === 'reading') return { busy: false as const, connected: true as const, reading: await syncReadingVisibility(api, { projectId: connection.projectId }) };
-    if (kind === 'timed') return { busy: false as const, connected: true as const, timedTasks: await syncTimedTaskVisibility(api, { timeZone: connection.timeZone, projectId: connection.projectId }) };
-    if (kind === 'hair') return { busy: false as const, connected: true as const,
-      hairWash: await syncHairWashVisibility(api, { projectId: connection.projectId }), reading: await syncReadingVisibility(api, { projectId: connection.projectId }) };
-    const alwaysToday = await syncTickTickAlwaysToday(api);
-    const sleepTags = kind !== 'night' ? await syncSleepRoutineTags(api, { projectId: connection.projectId }) : undefined;
-    if (kind === 'daily' || sleepTags?.complete === false) return { busy: false as const, connected: true as const, sleepTags, alwaysToday };
-    const hairWash = await syncHairWashVisibility(api, { projectId: connection.projectId });
-    const reading = await syncReadingVisibility(api, { projectId: connection.projectId });
-    const nightRoutine = await syncNightRoutineVisibility(api, { timeZone: connection.timeZone, projectId: connection.projectId });
-    const timedTasks = await syncTimedTaskVisibility(api, { timeZone: connection.timeZone, projectId: connection.projectId });
-    const exercise = await syncExerciseSchedule(api, { connectionId: createHash('sha256').update(token).digest('hex'),
-      templateRootId: connection.templateRootId, rolling: true });
-    return { busy: false as const, connected: true as const, hairWash, reading, nightRoutine, timedTasks, alwaysToday, exercise: { updated: exercise.updated },
-      ...(sleepTags ? { sleepTags } : {}) };
-    })();
-    await syncTickTickLocationVisibility(api);
-    return result;
-  } finally {
-    await releaseTickTickLock(lockId);
-  }
+  const { runRuleReplan } = await import('./_ruleReplan.js');
+  return runRuleReplan({ scope: 'visibility', visibilityKind: kind, allowDisconnected: true });
 }
 
 function parseToken(req: VercelRequest): string {
@@ -399,6 +154,25 @@ async function handler(req: VercelRequest, res: VercelResponse) {
   if (!isCron && !await authOk(req)) return res.status(401).json({ error: 'unauthorized' });
 
   try {
+    if (req.query?.action === 'rules') {
+      const { readSchedulingRules, saveSchedulingRules, RuleConfigError, RULE_RUN_KEY } = await import('./_schedulingRules.js');
+      if (req.method === 'GET') {
+        const { readOutlookConnections } = await import('./_outlookConnections.js');
+        const [config, lastRun, outlook] = await Promise.all([readSchedulingRules(), kv.get(RULE_RUN_KEY), readOutlookConnections()]);
+        return privateJson(req, res, { config, lastRun, outlook });
+      }
+      if (req.method !== 'PATCH') return res.status(405).json({ error: 'method not allowed' });
+      try {
+        const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+        const config = await saveSchedulingRules(body);
+        try {
+          const { dispatchFullReplan } = await import('./_cloudScheduler.js');
+          return res.status(200).json({ config, triggered: true, ...await dispatchFullReplan() });
+        } catch { return res.status(200).json({ config, triggered: false, error: '已保存，重排未触发' }); }
+      } catch (error) {
+        return res.status(error instanceof RuleConfigError ? error.status : 400).json({ error: error instanceof Error ? error.message : '规则配置无效' });
+      }
+    }
     if (req.query?.action === 'electric-vehicle-charge') {
       if (!isCron) return res.status(403).json({ error: 'cron authorization required' });
       // The October 9–10 setup has ended. Replaying it rewinds the next

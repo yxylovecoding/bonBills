@@ -26,6 +26,7 @@ export function classify(action, status, body, attempt) {
   if (action === 'daily-email') return status === 200 && body?.sent === true
     ? { outcome: 'success' } : fail('email-incomplete');
   if (status !== 200 || body?.ok !== true || body.busy || body.error) return fail('incomplete');
+  if (typeof body.rulesComplete === 'boolean') return body.rulesComplete ? { outcome: 'success' } : fail('rules-incomplete');
   if (action === 'full') {
     if (!body.dailyPlan || body.laundry?.outlook?.error || body.charging?.outlook?.error || body.hairWash?.outlook?.error) return fail('plan-incomplete');
   } else if (action === 'hourly-replan') {

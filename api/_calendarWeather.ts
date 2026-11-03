@@ -45,10 +45,10 @@ export async function resolveDestination(query: string): Promise<ClothesLocation
   return city;
 }
 
-export async function readCalendarLocations(start: string, end: string): Promise<Record<string, CalendarLocationDay>> {
+export async function readCalendarLocations(start: string, end: string, calendarOverride?: unknown): Promise<Record<string, CalendarLocationDay>> {
   const [configState, calendar, settings, contexts, plans] = await Promise.all([
     kv.get<{ config?: Partial<AppConfig> }>('app-config'),
-    kv.get<{ tagMap?: Record<string, TagKind>; dayOverrides?: DayOverrides; outlookTravelTitles?: Record<string, string> }>('calendar-tags'),
+    calendarOverride ? Promise.resolve(calendarOverride as { tagMap?: Record<string, TagKind>; dayOverrides?: DayOverrides; outlookTravelTitles?: Record<string, string> }) : kv.get<{ tagMap?: Record<string, TagKind>; dayOverrides?: DayOverrides; outlookTravelTitles?: Record<string, string> }>('calendar-tags'),
     kv.get<{ tripTags?: Record<string, string>; tripSplits?: Record<string, true> }>('trip-tags'),
     kv.hgetall<Record<string, ClothesDayContext>>('bonclothes:contexts:v1'),
     kv.hgetall<Record<string, ClothesTripPlan>>('bonclothes:trip-plans:v1'),
@@ -56,9 +56,10 @@ export async function readCalendarLocations(start: string, end: string): Promise
   const config = configState?.config ?? {}, dayOverrides = normalizeDayOverrides(calendar?.dayOverrides);
   const trips = detectAllTrips(calendar?.tagMap ?? {}, settings?.tripSplits);
   const today = deviceDate(new Date(), 'Asia/Shanghai');
+  const failedLocations = new Set<string>();
   const queries = new Map<string, Promise<ClothesLocation | null>>();
   const resolve = (query: string) => {
-    if (!queries.has(query)) queries.set(query, resolveDestination(query).catch(() => null));
+    if (!queries.has(query)) queries.set(query, resolveDestination(query).catch(() => { failedLocations.add(query); return null; }));
     return queries.get(query)!;
   };
   const rows = await Promise.all(dateRange(start, end).map(async (date) => {
@@ -78,7 +79,7 @@ export async function readCalendarLocations(start: string, end: string): Promise
       locations = cities.filter((city): city is ClothesLocation => !!city);
       unresolved = names.filter((_, index) => !cities[index]);
     }
-    return [date, { locations, ...(unresolved.length ? { unresolved } : {}), travel: daily.tag === 'travel', scene: context?.scene ?? tripDay?.scene, active: context?.active ?? tripDay?.active }] as const;
+    return [date, { locations, ...(unresolved.length ? { unresolved } : {}), ...(unresolved.some(name => failedLocations.has(name)) ? { error: '地点读取失败' } : {}), travel: daily.tag === 'travel', scene: context?.scene ?? tripDay?.scene, active: context?.active ?? tripDay?.active }] as const;
   }));
   return Object.fromEntries(rows);
 }
@@ -88,10 +89,10 @@ export async function readCalendarWeather(start: string, end: string): Promise<C
   const requests = new Map<string, ReturnType<typeof readDailyWeather>>();
   const key = (location: ClothesLocation) => `${location.latitude.toFixed(3)}:${location.longitude.toFixed(3)}:${location.timezone ?? 'Asia/Shanghai'}`;
   for (const day of Object.values(locations)) for (const city of day.locations) {
-    if (!requests.has(key(city))) requests.set(key(city), readDailyWeather(city, start, end, city.timezone ?? 'Asia/Shanghai'));
+    if (!requests.has(key(city))) requests.set(key(city), readDailyWeather(city, start, end, city.timezone ?? 'Asia/Shanghai').catch(() => ({ days: {}, stale: true, error: '天气更新失败' })));
   }
   const results = new Map(await Promise.all([...requests].map(async ([key, request]) => [key, await request] as const)));
-  return { days: Object.fromEntries(Object.entries(locations).map(([date, day]) => [date, day.locations.map((location) => {
+  return { locations, days: Object.fromEntries(Object.entries(locations).map(([date, day]) => [date, day.locations.map((location) => {
     const result = results.get(key(location))!;
     return { location, weather: result.days[date] ?? null, stale: result.stale };
   })])), ...(Array.from(results.values()).some((r) => r.error) ? { error: '天气更新失败' } : {}) };

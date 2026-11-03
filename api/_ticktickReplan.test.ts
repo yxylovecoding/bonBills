@@ -1,304 +1,222 @@
-vi.mock('./_ticktickTemplateSync.js', () => ({ syncTickTickTemplates: vi.fn().mockResolvedValue({ matched: 10, updated: 0 }) }));
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TickTickTask } from './_ticktickTrips';
+import { runRuleReplan } from './_ruleReplan';
 import { replanRemainingToday } from './_ticktickReplan';
+import { defaultRuleConfig, readRuleConfig, type SchedulingRuleId } from '../src/utils/schedulingRules';
 import { DAILY_PLAN_KEY, DAILY_PLAN_SETTINGS_KEY } from './_ticktickDailyPlan';
-import { sleepTagStateKey } from './_ticktickSleepTags';
-import { schedulingFailure } from './_schedulingFailure';
+import type { TickTickTask } from './_ticktickTrips';
 
-const mocks = vi.hoisted(() => ({ data: new Map<string, any>(), tasks: [] as TickTickTask[], history: [] as TickTickTask[],
-  getTask: vi.fn(), update: vi.fn(), historyRead: vi.fn(), snapshot: vi.fn(), set: vi.fn(),
-  acquire: vi.fn(), release: vi.fn(), broadSync: vi.fn(), tasksRead: vi.fn(), templateRead: vi.fn() }));
-vi.mock('@vercel/kv', () => ({ kv: { get: async (key: string) => structuredClone(mocks.data.get(key) ?? null),
-  set: mocks.set } }));
-vi.mock('./_ticktickLock.js', () => ({ acquireTickTickLock: mocks.acquire, releaseTickTickLock: mocks.release }));
-vi.mock('./_outlookSync.js', () => ({ OUTLOOK_CONNECTION_KEY: 'outlook:calendar-connection:v1', syncOutlookCalendar: mocks.broadSync }));
-vi.mock('./_outlookCalendar.js', () => ({ decryptOutlookConnection: () => ({ policy: 'outlook' }), readOutlookSnapshot: mocks.snapshot }));
+const m = vi.hoisted(() => ({ data: new Map<string, any>(), tasks: [] as TickTickTask[], history: [] as TickTickTask[],
+  get: vi.fn(), write: vi.fn(), create: vi.fn(), historyRead: vi.fn(), snapshot: vi.fn(), fullOutlook: vi.fn(), saveOutlook: vi.fn(),
+  acquire: vi.fn(), release: vi.fn(), laundry: vi.fn(), exercise: vi.fn(), hairOutlook: vi.fn(), chargingOutlook: vi.fn(),
+  trip: vi.fn(), wish: vi.fn(), period: vi.fn(), pickupOutlook: vi.fn(), locationFailure: false, city: '北京' }));
+vi.mock('./_accountKv.js', () => ({ kv: {
+  get: async (key: string) => structuredClone(m.data.get(key) ?? null), hgetall: async (key: string) => structuredClone(m.data.get(key) ?? null),
+  set: async (key: string, value: unknown) => { m.data.set(key, structuredClone(value)); return 'OK'; },
+} }));
+vi.mock('./_ticktickLock.js', () => ({ acquireTickTickLock: m.acquire, releaseTickTickLock: m.release }));
+vi.mock('./_outlookSync.js', () => ({ OUTLOOK_CONNECTION_KEY: 'outlook:calendar-connection:v1', syncOutlookCalendar: m.fullOutlook, saveOutlookSnapshot: m.saveOutlook }));
+vi.mock('./_outlookCalendar.js', () => ({ decryptOutlookConnection: () => ({ policy: 'manual' }), readOutlookSnapshot: m.snapshot }));
+vi.mock('./_taskVisibilityRules.js', async original => ({ ...await original<typeof import('./_taskVisibilityRules')>(),
+  visibilityInputs: async () => ({ journal: m.data.get('journal') ?? {}, locations: m.locationFailure ? null : { names: ['北京', '广州', '清迈'], today: m.city ? [m.city] : [], unknown: !m.city } }) }));
+vi.mock('./_ticktickLaundry.js', async original => ({ ...await original<typeof import('./_ticktickLaundry')>(), syncLaundrySchedule: m.laundry }));
+vi.mock('./_ticktickExercise.js', async original => ({ ...await original<typeof import('./_ticktickExercise')>(), syncExerciseSchedule: m.exercise }));
+vi.mock('./_lifeTraining.js', () => ({ syncTrainingSource: async () => ({}) }));
+vi.mock('./_outlookHairWash.js', () => ({ syncHairWashOutlook: m.hairOutlook }));
+vi.mock('./_outlookCharging.js', () => ({ syncChargingOutlook: m.chargingOutlook }));
+vi.mock('./_outlookLaundry.js', () => ({ syncLaundryOutlook: async () => ({ created: 0, updated: 0 }) }));
+vi.mock('./_outlookRecurringTaskEvents.js', () => ({ syncRecurringTaskOutlook: m.pickupOutlook }));
+vi.mock('./_ticktickPeriodPrediction.js', () => ({ syncPeriodPredictionTask: m.period }));
 vi.mock('./_ticktickTrips.js', async original => ({ ...await original<typeof import('./_ticktickTrips')>(),
-  decryptTickTickToken: () => 'test-token',
-  readAllTickTickTasks: mocks.tasksRead,
-  readConnectedTickTickTemplate: mocks.templateRead,
-  TickTickOpenApiClient: class {
-    getTask = mocks.getTask;
-    updateTask = mocks.update;
-    listCompletedTasks = mocks.historyRead;
-  },
-  syncTickTickRoutines: mocks.broadSync, reconcileTickTickTrips: mocks.broadSync,
-  reconcileTickTickWishPreparations: mocks.broadSync,
+  decryptTickTickToken: () => 'test-token', readAllTickTickTasks: async (api: any, statuses: number[]) => api.filterTasks
+    ? api.filterTasks([], statuses) : structuredClone(m.tasks.filter(t => statuses.includes(t.status ?? 0))),
+  readConnectedTickTickTemplate: async () => ({ rootTask: { id: 'template' }, tasks: [] }),
+  reconcileTickTickTrips: m.trip, reconcileTickTickWishPreparations: m.wish,
+  TickTickOpenApiClient: class { getTask = m.get; updateTask = m.write; createTask = m.create; listCompletedTasks = m.historyRead; },
 }));
-const day = '2026-10-05';
-const task = (id: string, extra: Partial<TickTickTask> = {}): TickTickTask => ({ id, projectId: 'life', title: id,
-  status: 0, isAllDay: true, dueDate: `${day}T00:00:00+0800`, content: '(15m)', ...extra });
-const connectionId = createHash('sha256').update('test-token').digest('hex');
+const day = '2026-11-03';
+const task = (id: string, extra: Partial<TickTickTask> = {}): TickTickTask => ({ id, projectId: 'life', title: id, status: 0,
+  isAllDay: true, dueDate: `${day}T00:00:00+0800`, content: '(15m)', ...extra });
+const hash = createHash('sha256').update('test-token').digest('hex');
+const config = (first: SchedulingRuleId[], predecessors = {}) => { const value = defaultRuleConfig();
+  m.data.set('ticktick:rules:v1', readRuleConfig({ ...value, version: 7, order: [...first, ...value.order.filter(id => !first.includes(id))], predecessors })); };
+const status = (result: any, id: SchedulingRuleId) => result.rules.results.find((r: any) => r.id === id);
 beforeEach(() => {
-  vi.useFakeTimers(); vi.setSystemTime(new Date(`${day}T21:45:00+08:00`));
-  vi.clearAllMocks(); mocks.data.clear(); mocks.tasks = []; mocks.history = [];
-  mocks.acquire.mockResolvedValue('lock'); mocks.release.mockResolvedValue(undefined);
-  mocks.tasksRead.mockImplementation(async () => structuredClone(mocks.tasks));
-  mocks.templateRead.mockResolvedValue({ rootTask: { id: 'template' }, tasks: [] });
-  mocks.data.set('ticktick:connection:v1', { encryptedToken: {}, templateRootId: 'template', projectId: 'life' });
-  mocks.data.set(DAILY_PLAN_SETTINGS_KEY, { budgetMinutes: 240 });
-  mocks.getTask.mockImplementation(async (_project, id) => structuredClone(mocks.tasks.find(t => t.id === id)));
-  mocks.update.mockImplementation(async (id, payload) => {
-    const current = mocks.tasks.find(t => t.id === id)!;
-    Object.assign(current, payload); return structuredClone(current);
-  });
-  mocks.set.mockImplementation(async (key, value) => { mocks.data.set(key, structuredClone(value)); return 'OK'; });
-  mocks.historyRead.mockImplementation(async () => structuredClone(mocks.history));
-  mocks.snapshot.mockResolvedValue({ startDate: day, endDate: '2026-11-05', tags: {},
-    availability: { startDate: day, endDate: '2026-11-05', events: [] } });
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date(`${day}T21:45:00+08:00`)); vi.resetAllMocks();
+  m.data.clear(); m.tasks = []; m.history = []; m.city = '北京'; m.locationFailure = false;
+  m.acquire.mockResolvedValue('lock'); m.release.mockResolvedValue(undefined);
+  m.data.set('ticktick:connection:v1', { encryptedToken: {}, projectId: 'life', templateRootId: 'template', timeZone: 'Asia/Shanghai' });
+  m.data.set('outlook:laundry-write:v1', { calendarId: 'test-calendar' });
+  m.data.set(DAILY_PLAN_SETTINGS_KEY, { budgetMinutes: 240 });
+  m.data.set('calendar-tags', { tagMap: { [day]: 'school', '2026-11-04': 'school', '2026-11-05': 'home' } });
+  m.get.mockImplementation(async (_project, id) => structuredClone(m.tasks.find(t => t.id === id)));
+  m.write.mockImplementation(async (id, payload) => { const current = m.tasks.find(t => t.id === id)!; Object.assign(current, payload); return structuredClone(current); });
+  m.create.mockImplementation(async payload => { const saved = { ...payload, id: `created-${m.tasks.length}`, status: 0 }; m.tasks.push(saved); return structuredClone(saved); });
+  m.historyRead.mockImplementation(async () => structuredClone(m.history));
+  m.snapshot.mockResolvedValue({ startDate: day, endDate: '2026-12-03', tags: {}, availability: { startDate: day, endDate: '2026-12-03', events: [] } });
+  m.fullOutlook.mockResolvedValue({ connected: false });
+  m.laundry.mockResolvedValue({ updated: 0, managedTaskIds: new Set(), decisions: [] });
+  m.exercise.mockResolvedValue({ updated: 0, managedTaskIds: new Set(), minimumDates: new Map(), fixedDates: new Map() });
+  m.hairOutlook.mockResolvedValue({ created: 0, updated: 0 }); m.chargingOutlook.mockResolvedValue({ created: 0, updated: 0 });
+  m.pickupOutlook.mockResolvedValue({ created: 0, updated: 0 });
+  m.trip.mockResolvedValue({}); m.wish.mockResolvedValue({}); m.period.mockResolvedValue({ created: 0, updated: 0 });
 });
 afterEach(() => vi.useRealTimers());
 
-describe('重排剩余今日事并从明日补入', () => {
-  it.each([
-    ['tasks-read', mocks.tasksRead], ['template-read', mocks.templateRead],
-    ['outlook-refresh', mocks.snapshot], ['completion-history', mocks.historyRead],
-  ] as const)('%s 读取失败标记可重试、保留旧安排，恢复后才发布新计划', async (stage, read) => {
-    mocks.data.set('outlook:calendar-connection:v1', { encrypted: 'encrypted' });
-    const saved = { connectionId, history: [], deadlines: {}, summary: { date: '2026-10-04' }, briefing: { selected: [] } };
-    mocks.data.set(DAILY_PLAN_KEY, structuredClone(saved));
-    mocks.tasks = [task('ordinary', { content: '(1h)' })];
-    read.mockRejectedValueOnce(new Error('private provider response'));
-    const error = await replanRemainingToday({ scheduled: true }).catch(error => error);
-    expect(schedulingFailure(error)).toEqual({ stage, retryable: true });
-    expect(mocks.update).not.toHaveBeenCalled(); expect(mocks.set).not.toHaveBeenCalled();
-    expect(mocks.data.get(DAILY_PLAN_KEY)).toEqual(saved);
-    expect(mocks.release).toHaveBeenCalledWith('lock');
-    await expect(replanRemainingToday({ scheduled: true })).resolves.toMatchObject({ busy: false, updated: 1 });
-    expect(mocks.data.get(DAILY_PLAN_KEY).summary.date).toBe(day);
+describe('统一显隐裁决', () => {
+  it.each(['full', 'hourly', 'visibility'] as const)('%s 入口读取同一配置，地点优先于阅读，其他字段不变', async scope => {
+    config(['visibility-location', 'visibility-reading']);
+    m.tasks = [task('r', { title: '阅读', tags: ['广州', 'routine', '活'], priority: 3, repeatFlag: 'RRULE:FREQ=DAILY', reminders: ['TRIGGER:PT0S'] })];
+    const before = structuredClone(m.tasks[0]); const result = await runRuleReplan({ scope });
+    expect(result.rules!.version).toBe(7); expect(m.tasks[0]).toEqual({ ...before, tags: [...before.tags!, 'bon-hidden'] });
+    expect(m.write).toHaveBeenCalledOnce();
   });
-  it('显隐写入成功后的任务重读失败可重试，重试时不重复写已确认标签', async () => {
-    mocks.tasks = [task('timed', { isAllDay: false, dueDate: '2026-10-06T22:00:00+0800' })];
-    mocks.tasksRead.mockImplementationOnce(async () => structuredClone(mocks.tasks))
-      .mockRejectedValueOnce(new Error('read unavailable'));
-    const error = await replanRemainingToday({ scheduled: true }).catch(error => error);
-    expect(schedulingFailure(error)).toEqual({ stage: 'tasks-read', retryable: true });
-    expect(mocks.tasks[0].tags).toEqual(['bon-hidden']);
-    await replanRemainingToday({ scheduled: true });
-    expect(mocks.update).toHaveBeenCalledTimes(1);
+  it('拖动阅读到地点之前确实改变冲突结果', async () => {
+    m.tasks = [task('r', { title: '阅读', tags: ['广州', 'routine', 'bon-hidden'] })];
+    config(['visibility-reading', 'visibility-location']); await runRuleReplan({ scope: 'visibility' });
+    expect(m.tasks[0].tags).toEqual(['广州', 'routine']);
   });
-  it.each(['visibility', 'dates', 'verification', 'save', 'lock-release'])('%s 写入或确认失败不得自动重试', async kind => {
-    mocks.tasks = [kind === 'visibility'
-      ? task('timed', { isAllDay: false, dueDate: '2026-10-06T22:00:00+0800' })
-      : task('ordinary', { content: '(1h)' })];
-    if (kind === 'save') mocks.set.mockRejectedValueOnce(new Error('storage unavailable'));
-    else if (kind === 'lock-release') {
-      mocks.historyRead.mockRejectedValueOnce(new Error('read unavailable'));
-      mocks.release.mockRejectedValueOnce(new Error('release unavailable'));
-    } else if (kind === 'verification') mocks.update.mockResolvedValueOnce({});
-    else mocks.update.mockRejectedValueOnce(new Error('write result unknown'));
-    const error = await replanRemainingToday({ scheduled: true }).catch(error => error);
-    expect(schedulingFailure(error)).toEqual({ stage: kind === 'visibility' ? 'timed-visibility' : 'planning', retryable: false });
-    expect(mocks.release).toHaveBeenCalledWith('lock');
-    expect(mocks.data.get(DAILY_PLAN_KEY)?.summary).toBeUndefined();
+  it('跨日切换城市，多地点满足任一，移除地点标签后解除系统持有的隐藏', async () => {
+    m.tasks = [task('r', { tags: ['广州', '清迈', 'routine'] }), task('plain', { tags: ['routine'] })];
+    await runRuleReplan({ scope: 'visibility' }); expect(m.tasks[0].tags).toContain('bon-hidden');
+    m.city = '广州'; vi.setSystemTime(new Date('2026-11-04T09:00:00+08:00'));
+    await runRuleReplan({ scope: 'visibility' }); expect(m.tasks[0].tags).not.toContain('bon-hidden');
+    m.city = ''; await runRuleReplan({ scope: 'visibility' }); expect(m.tasks[0].tags).toContain('bon-hidden');
+    m.tasks[0].tags = ['routine', 'bon-hidden']; await runRuleReplan({ scope: 'visibility' });
+    expect(m.tasks[0].tags).toEqual(['routine']); expect(m.tasks[1].tags).toEqual(['routine']);
   });
-  it.each(['00:01'])('每小时排期在凌晨 %s 跳过，不覆盖已有计划或改标签', async time => {
-    vi.setSystemTime(new Date(`${day}T${time}:00+08:00`));
-    await expect(replanRemainingToday({ scheduled: true })).resolves.toMatchObject({ busy: false, skipped: 'sleep-window' });
-    expect(mocks.acquire).toHaveBeenCalled();
-    expect(mocks.set).not.toHaveBeenCalled(); expect(mocks.update).not.toHaveBeenCalled();
+  it('地点读取失败保留原显隐，并标记失败而非误判地点', async () => {
+    m.locationFailure = true; m.tasks = [task('r', { title: '阅读', tags: ['广州', 'bon-hidden'] })];
+    const result = await runRuleReplan({ scope: 'visibility' }); expect(status(result, 'visibility-location').status).toBe('failed');
+    expect(m.write).not.toHaveBeenCalled(); expect(m.tasks[0].tags).toContain('bon-hidden');
   });
-  it.each(['00:30', '01:01', '04:59', '05:00'])('凌晨休息 %s 连写锁和上游读取也不运行', async time => {
-    vi.setSystemTime(new Date(`${day}T${time}:00+08:00`));
-    mocks.tasks = [task('fixed', { tags: ['always-today'] })];
-    expect(await replanRemainingToday({ scheduled: true })).toEqual({ busy: false, skipped: 'rest-window' });
-    expect(mocks.acquire).not.toHaveBeenCalled(); expect(mocks.tasksRead).not.toHaveBeenCalled();
-    expect(mocks.historyRead).not.toHaveBeenCalled(); expect(mocks.update).not.toHaveBeenCalled();
+  it('无日期改动的显隐入口不会调用完整日历、生成任务或专项排期', async () => {
+    m.tasks = [task('t', { isAllDay: false, dueDate: '2026-11-04T22:00:00+0800' })];
+    await runRuleReplan({ scope: 'visibility', visibilityKind: 'timed' });
+    expect(m.tasks[0].tags).toEqual(['bon-hidden']); expect(m.fullOutlook).not.toHaveBeenCalled();
+    for (const fn of [m.trip, m.wish, m.exercise, m.laundry, m.hairOutlook]) expect(fn).not.toHaveBeenCalled();
   });
-  it('今天已经完成的固定今日系列在小时重排中保留 TickTick 下一次日期', async () => {
-    mocks.tasks = [task('next', { title: '固定今日', tags: ['always-today'], repeatFlag: 'RRULE:FREQ=DAILY', dueDate: '2026-10-06T00:00:00+0800' })];
-    mocks.history = [task('history', { title: '固定今日', status: 2, completedTime: `${day}T09:00:00+08:00` })];
-    const result = await replanRemainingToday({ scheduled: true });
-    expect(result.alwaysToday).toEqual({ matched: 1, updated: 0 });
-    expect(mocks.tasks[0].dueDate).toBe('2026-10-06T00:00:00+0800');
-    expect(mocks.update).not.toHaveBeenCalled();
+  it('夜间入口只维护显隐和运动，不扩大到完整重排', async () => {
+    await runRuleReplan({ scope: 'visibility', visibilityKind: 'night' }); expect(m.exercise).toHaveBeenCalledOnce();
+    for (const fn of [m.fullOutlook, m.trip, m.wish, m.laundry, m.hairOutlook]) expect(fn).not.toHaveBeenCalled();
   });
-  it('每小时排期等候凌晨临时标签恢复，不把暂时隐藏的任务当作永久排除', async () => {
-    vi.setSystemTime(new Date(`${day}T05:01:00+08:00`));
-    mocks.data.set(sleepTagStateKey('life'), { hidden: { projectId: 'life', addedOn: day, phase: 'restoring' } });
-    await expect(replanRemainingToday({ scheduled: true })).resolves.toMatchObject({ busy: false, skipped: 'restore-pending' });
-    expect(mocks.historyRead).not.toHaveBeenCalled(); expect(mocks.set).not.toHaveBeenCalled();
-    expect(mocks.update).not.toHaveBeenCalled(); expect(mocks.release).toHaveBeenCalledWith('lock');
+});
+
+describe('日期优先级与失败传播', () => {
+  it.each([false, true])('洗衣与固定今日冲突使用真实拖动顺序（洗衣优先 %s），合并后只写一次', async laundryFirst => {
+    m.tasks = [task('wash', { title: '洗衣服', tags: ['always-today'], dueDate: '2026-11-09T00:00:00+0800' })];
+    config(laundryFirst ? ['laundry', 'always-today'] : ['always-today', 'laundry']);
+    m.laundry.mockImplementation(async (api: any) => { await api.updateTask('wash', { dueDate: '2026-11-08T00:00:00+0800' }); return { managedTaskIds: new Set(['wash']) }; });
+    const result = await runRuleReplan({ scope: 'full' });
+    expect(m.tasks[0].dueDate).toBe(`${laundryFirst ? '2026-11-08' : day}T00:00:00+0800`); expect(m.write).toHaveBeenCalledOnce();
+    const loser = status(result, laundryFirst ? 'always-today' : 'laundry'); expect(loser.conflicts[0].winner).toBe(laundryFirst ? 'laundry' : 'always-today');
   });
-  it.each(['00:01', '21:59'])('每小时 %s 始终更新固定今日任务，不被隐藏时段或空档不足延期', async time => {
-    vi.setSystemTime(new Date(`${day}T${time}:00+08:00`));
-    mocks.tasks = [task('fixed', { tags: ['always-today', 'bon-hidden'], dueDate: '2026-10-09T00:00:00+0800' })];
-    const result = await replanRemainingToday({ scheduled: true });
-    expect(result.alwaysToday).toEqual({ matched: 1, updated: 1 });
-    expect(mocks.tasks[0].dueDate).toBe(`${day}T00:00:00+0800`);
-    expect(mocks.tasks[0].tags).toEqual(['always-today', 'bon-hidden']);
-    expect(mocks.update).toHaveBeenCalledTimes(1);
+  it('前序计算失败跳过依赖链，独立阅读继续，低优先级不替代失败日期', async () => {
+    config(['laundry', 'always-today'], { exercise: ['laundry'], 'daily-plan': ['exercise'] });
+    m.tasks = [task('wash', { title: '洗衣服', tags: ['always-today'], dueDate: '2026-11-09T00:00:00+0800' }), task('r', { title: '阅读', tags: ['routine', 'bon-hidden'] })];
+    m.laundry.mockRejectedValue(new Error('private provider body'));
+    const result = await runRuleReplan({ scope: 'full' });
+    expect(status(result, 'laundry').status).toBe('failed'); expect(status(result, 'daily-plan').status).toBe('skipped'); expect(status(result, 'exercise').status).toBe('skipped'); expect(status(result, 'exercise-rollover').status).toBe('success');
+    expect(m.tasks[0].dueDate).toBe('2026-11-09T00:00:00+0800'); expect(m.tasks[1].tags).toEqual(['routine']); expect(JSON.stringify(result)).not.toContain('private provider');
   });
-  it('凌晨恢复完成后，每小时排期沿用最久未完成顺序和最新日历空档', async () => {
-    mocks.data.set(sleepTagStateKey('life'), {});
-    mocks.data.set('outlook:calendar-connection:v1', { encrypted: 'encrypted' });
-    mocks.tasks = [task('older'), task('newer')];
-    mocks.history = [task('older', { status: 2, completedTime: '2026-09-20T12:00:00+08:00' }),
-      task('newer', { status: 2, completedTime: '2026-09-28T12:00:00+08:00' })];
-    const result = await replanRemainingToday({ scheduled: true });
-    expect(result).toMatchObject({ busy: false, updated: 1, dailyPlan: { todayCount: 1, plannedMinutes: 15 } });
-    expect(mocks.snapshot).toHaveBeenCalled(); expect(mocks.historyRead).toHaveBeenCalled();
-    expect(mocks.data.get(DAILY_PLAN_KEY).briefing.selected.map((t: TickTickTask) => t.id)).toEqual(['older']);
-    expect(mocks.set.mock.calls.every(([key]) => key === DAILY_PLAN_KEY)).toBe(true);
-    expect(mocks.broadSync).not.toHaveBeenCalled();
+  it('小时入口不拿旧的范围外前序结果绕过绑定', async () => {
+    config([], { 'daily-plan': ['laundry'] }); m.tasks = [task('large', { content: '(1h)' })];
+    const result = await replanRemainingToday(); expect(status(result, 'daily-plan').status).toBe('skipped'); expect(m.write).not.toHaveBeenCalled();
   });
-  it('每小时排期在断开连接时跳过，手动重排仍提示连接缺失', async () => {
-    mocks.data.delete('ticktick:connection:v1');
-    await expect(replanRemainingToday({ scheduled: true })).resolves.toEqual({ busy: false, skipped: 'disconnected' });
-    await expect(replanRemainingToday()).rejects.toThrow('TickTick 未连接');
-    expect(mocks.set).not.toHaveBeenCalled(); expect(mocks.update).not.toHaveBeenCalled();
+  it('前序写入失败后不执行依赖 Outlook 分支，独立分支继续', async () => {
+    config([], { 'outlook-hair': ['always-today'] }); m.tasks = [task('hair', { title: '洗头', tags: ['always-today'], dueDate: '2026-11-08T00:00:00+0800' })];
+    m.write.mockRejectedValue(new Error('network')); const result = await runRuleReplan({ scope: 'full' });
+    expect(status(result, 'always-today').status).toBe('failed'); expect(status(result, 'outlook-hair').status).toBe('skipped');
+    expect(m.hairOutlook).not.toHaveBeenCalled(); expect(m.chargingOutlook).toHaveBeenCalledOnce();
   });
-  it('按执行时刻剩余 15 分钟及完成间隔挑选，只顺延较新完成的任务', async () => {
-    mocks.tasks = [task('older'), task('newer')];
-    mocks.history = [task('older', { status: 2, completedTime: '2026-09-20T12:00:00+08:00' }),
-      task('newer', { status: 2, completedTime: '2026-09-28T12:00:00+08:00' })];
-    const result = await replanRemainingToday();
-    expect(result).toMatchObject({ busy: false, updated: 1, dailyPlan: { todayCount: 1, plannedMinutes: 15, availableMinutes: 15 } });
-    expect(mocks.update).toHaveBeenCalledWith('newer', expect.objectContaining({ dueDate: '2026-10-06T00:00:00+0800' }));
-    expect(mocks.data.get(DAILY_PLAN_KEY).briefing.selected.map((t: TickTickTask) => t.id)).toEqual(['older']);
-    expect(result).toMatchObject({ details: mocks.data.get(DAILY_PLAN_KEY).briefing });
-    expect(mocks.broadSync).not.toHaveBeenCalled();
-    expect(mocks.set.mock.calls.every(([key]) => key === DAILY_PLAN_KEY)).toBe(true);
+  it('Outlook 读取本轮已确认日期，读取完成历史后才安排月经提醒', async () => {
+    m.tasks = [task('hair', { title: '洗头', tags: ['always-today'], dueDate: '2026-11-08T00:00:00+0800' })];
+    m.history = [task('old', { title: '月经提醒', status: 2, completedTime: '2026-11-02T09:00:00+0800' })];
+    await runRuleReplan({ scope: 'full' });
+    expect(m.hairOutlook).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ tasks: [expect.objectContaining({ dueDate: `${day}T00:00:00+0800` })] }));
+    expect(m.period).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ completedTasks: expect.arrayContaining([expect.objectContaining({ id: 'old' })]) }));
   });
-  it('没有空档时仅顺延今日/逾期任务，保留明日、重要、定时、routine、训练、洗衣和模板/旅行任务', async () => {
-    vi.setSystemTime(new Date(`${day}T23:00:00+08:00`));
-    mocks.tasks = [task('ordinary'), task('overdue', { dueDate: '2026-10-04T00:00:00+0800' }),
-      task('tomorrow', { dueDate: '2026-10-06T00:00:00+0800', repeatFlag: 'RRULE:FREQ=DAILY' }),
-      task('undated', { dueDate: undefined }), task('important', { priority: 5 }), task('timed', { isAllDay: false }),
-      task('routine', { tags: ['routine'] }), task('irrelevant', { tags: ['不关我事'] }),
-      task('hair', { title: '洗头' }), task('hair-child', { tags: ['洗头'] }),
-      task('wash', { title: '洗衣服' }), task('exercise', { title: '游泳' }),
-      task('done', { status: 2 }), task('completed', { completedTime: `${day}T12:00:00+08:00` }),
-      task('template-child', { parentId: 'template' }), task('trip'), task('trip-child', { parentId: 'trip' })];
-    mocks.data.set('ticktick:trip-sync:v1', { instances: { x: { rootTaskId: 'trip', taskIdsByTemplateId: {} } } });
-    const before = structuredClone(mocks.tasks);
-    await replanRemainingToday();
-    expect(mocks.update.mock.calls.map(([id]) => id).sort()).toEqual(['ordinary', 'overdue']);
-    expect(mocks.tasks.slice(2)).toEqual(before.slice(2));
-    expect(mocks.broadSync).not.toHaveBeenCalled();
+  it.each(['completed', 'edited'])('并发 %s 被写前校验拒绝，保留原任务及旧计划', async kind => {
+    m.tasks = [task('large', { content: '(1h)' })]; m.get.mockResolvedValueOnce({ ...m.tasks[0], ...(kind === 'completed' ? { status: 2 } : { content: 'changed' }) });
+    const result = await replanRemainingToday(); expect(status(result, 'daily-plan').status).toBe('failed'); expect(m.write).not.toHaveBeenCalled(); expect(result.dailyPlan).toBeUndefined();
   });
-  it('32 分钟空档不受周期分摊 1 分钟限制，从明日补入 30 分钟任务', async () => {
-    vi.setSystemTime(new Date(`${day}T21:28:00+08:00`));
-    mocks.data.set('outlook:calendar-connection:v1', { encrypted: 'encrypted' });
-    mocks.data.set(DAILY_PLAN_SETTINGS_KEY, { budgetMinutes: null });
-    mocks.tasks = [task('spray', { title: '除螨喷雾', content: '(1m)', repeatFlag: 'RRULE:FREQ=WEEKLY' }),
-      task('tomorrow', { dueDate: '2026-10-06T00:00:00+0800', content: '(30m)', repeatFlag: 'RRULE:FREQ=WEEKLY' })];
-    mocks.history = mocks.tasks.map(t => ({ ...t, status: 2, completedTime: '2026-10-04T12:00:00+08:00' }));
-    const result = await replanRemainingToday();
-    expect(result).toMatchObject({ updated: 1, dailyPlan: { todayCount: 2, plannedMinutes: 31, availableMinutes: 32 },
-      details: { breakdown: { selectionMode: 'remaining-time', cycleTargetMinutes: 1, unallocatedMinutes: 1 } } });
-    expect(mocks.update).toHaveBeenCalledWith('tomorrow', expect.objectContaining({ dueDate: `${day}T00:00:00+0800` }));
-    expect(result.details!.selected.find(t => t.id === 'tomorrow')!.reasons).toContain('从明日事补入');
-    expect(mocks.broadSync).not.toHaveBeenCalled();
+  it('历史失败保留旧计划和日期，独立显隐仍完成', async () => {
+    const summary = { date: '2026-11-02', todayCount: 8 };
+    m.data.set(DAILY_PLAN_KEY, { connectionId: hash, history: [], deadlines: {}, summary });
+    m.tasks = [task('large', { content: '(1h)' }), task('r', { title: '阅读', tags: ['routine', 'bon-hidden'] })];
+    m.historyRead.mockRejectedValue(new Error('private history'));
+    const result = await replanRemainingToday(); expect(result.dailyPlan).toEqual(summary); expect(status(result, 'daily-plan').status).toBe('failed');
+    expect(m.tasks[0].dueDate).toContain(day); expect(m.tasks[1].tags).toEqual(['routine']); expect(m.data.get(DAILY_PLAN_KEY).summary).toEqual(summary);
   });
-  it('明日补入按最久未完成排序，定时任务只更新显隐，其他未选中任务保留原日期', async () => {
-    const tomorrow = { dueDate: '2026-10-06T00:00:00+0800' };
-    mocks.tasks = [task('newer', tomorrow), task('older', tomorrow), task('too-long', { ...tomorrow, content: '(1h1m)' }),
-      task('wrong-scene', { ...tomorrow, tags: ['寄'] }), task('later', { dueDate: '2026-11-05T00:00:00+0800' }),
-      task('important', { ...tomorrow, priority: 5 }), task('routine', { ...tomorrow, tags: ['routine'] }),
-      task('timed', { ...tomorrow, isAllDay: false }), task('already-done-today', tomorrow)];
-    mocks.data.set('calendar-tags', { tagMap: { [day]: 'school', '2026-10-07': 'home' } });
-    mocks.history = [task('older', { status: 2, completedTime: '2026-09-20T12:00:00+08:00' }),
-      task('newer', { status: 2, completedTime: '2026-09-28T12:00:00+08:00' }),
-      task('already-done-today', { status: 2, completedTime: `${day}T12:00:00+08:00` })];
-    const before = structuredClone(mocks.tasks);
-    const result = await replanRemainingToday();
-    expect(result).toMatchObject({ updated: 1, timedTasks: { matched: 1, updated: 1, hidden: 1 },
-      dailyPlan: { todayCount: 1, plannedMinutes: 15 } });
-    expect(mocks.update.mock.calls.map(([id]) => id)).toEqual(['timed', 'wrong-scene', 'older']);
-    expect(mocks.tasks.find(t => t.id === 'timed')).toEqual({ ...before.find(t => t.id === 'timed')!, tags: ['bon-hidden'] });
-    expect(mocks.tasks.find(t => t.id === 'wrong-scene')?.tags).toContain('bon-hidden');
-    expect(mocks.tasks.filter(t => !['older', 'timed', 'wrong-scene'].includes(t.id))).toEqual(before.filter(t => !['older', 'timed', 'wrong-scene'].includes(t.id)));
+  it('只有 Outlook 连接时仍刷新订阅', async () => {
+    m.data.delete('ticktick:connection:v1'); await runRuleReplan({ scope: 'full', allowDisconnected: true }); expect(m.fullOutlook).toHaveBeenCalledOnce();
   });
-  it('按智能清单范围补入无日期和未来30天任务，未选中的无日期任务保持不变', async () => {
-    vi.setSystemTime(new Date(`${day}T21:30:00+08:00`));
-    mocks.tasks = [task('undated', { dueDate: undefined }), task('future', { dueDate: '2026-11-04T00:00:00+0800' }),
-      task('too-long', { dueDate: undefined, content: '(1h1m)' })];
-    const result = await replanRemainingToday();
-    expect(result).toMatchObject({ updated: 2, dailyPlan: { todayCount: 2, plannedMinutes: 30 } });
-    expect(mocks.tasks[0].dueDate).toBe(`${day}T00:00:00+0800`);
-    expect(mocks.tasks[1].dueDate).toBe(`${day}T00:00:00+0800`);
-    expect(mocks.tasks[2].dueDate).toBeUndefined();
+});
+
+describe('小时轮换保留原业务边界', () => {
+  it.each(['00:30', '01:01', '04:59', '05:00'])('%s 自动入口休息，连写锁也不获取', async time => {
+    vi.setSystemTime(new Date(`${day}T${time}:00+0800`)); expect(await replanRemainingToday({ scheduled: true })).toEqual({ busy: false, skipped: 'rest-window' }); expect(m.acquire).not.toHaveBeenCalled();
   });
-  it('今天已用一种喷雾时，明日另一种喷雾不补入，也不强行顺延', async () => {
-    mocks.tasks = [task('mite', { title: '除螨喷雾', content: '(1m)', dueDate: '2026-10-06T00:00:00+0800' }),
-      task('short', { content: '(5m)', dueDate: '2026-10-06T00:00:00+0800' })];
-    mocks.history = [task('fragrance', { title: '香香喷雾', status: 2, content: '(1m)', completedTime: `${day}T12:00:00+08:00` })];
-    const result = await replanRemainingToday();
-    expect(result).toMatchObject({ updated: 1, dailyPlan: { todayCount: 1, plannedMinutes: 5 } });
-    expect(mocks.update.mock.calls.map(([id]) => id)).toEqual(['short']);
-    expect(mocks.tasks[0].dueDate).toBe('2026-10-06T00:00:00+0800');
+  it('最久未完成者先选，较新完成者延期，引用同轮规则版本', async () => {
+    m.tasks = [task('older'), task('newer')]; m.history = [task('older', { status: 2, completedTime: '2026-10-01T12:00:00+0800' }), task('newer', { status: 2, completedTime: '2026-10-28T12:00:00+0800' })];
+    const result = await replanRemainingToday(); expect(result.dailyPlan).toMatchObject({ todayCount: 1, plannedMinutes: 15 });
+    expect(m.tasks[0].dueDate).toContain(day); expect(m.tasks[1].dueDate).toContain('2026-11-04'); expect(result.details!.rules!.version).toBe(0);
   });
-  it('明日任务没有后续场景时也不能突破剩余时间强行补入', async () => {
-    vi.setSystemTime(new Date(`${day}T23:00:00+08:00`));
-    mocks.tasks = [task('last-scene', { dueDate: '2026-10-06T00:00:00+0800', tags: ['旅'] })];
-    mocks.data.set('calendar-tags', { tagMap: { [day]: 'travel' } });
-    const result = await replanRemainingToday();
-    expect(result).toMatchObject({ updated: 0, dailyPlan: { todayCount: 0 } });
-    expect(mocks.update).not.toHaveBeenCalled();
+  it('高优先级、未来未选中、routine、训练及洗衣均不被普通轮换改期', async () => {
+    m.tasks = [task('important', { priority: 5, dueDate: '2026-11-05T00:00:00+0800' }), task('future', { content: '(1h)', dueDate: '2026-11-05T00:00:00+0800' }),
+      task('routine', { tags: ['routine'] }), task('training', { title: '游泳' }), task('wash', { title: '洗衣服' })];
+    const before = structuredClone(m.tasks); await replanRemainingToday(); expect(m.tasks).toEqual(before);
   });
-  it('读取最新 Outlook 空档，重要事项用完剩余时间后顺延普通任务', async () => {
-    vi.setSystemTime(new Date(`${day}T20:00:00+08:00`));
-    mocks.data.set('outlook:calendar-connection:v1', { encrypted: 'encrypted' });
-    mocks.snapshot.mockResolvedValueOnce({ startDate: day, endDate: '2026-11-05', tags: {},
-      availability: { startDate: day, endDate: '2026-11-05', events: [{ title: '其他日程', start: `${day}T21:00:00+08:00`, end: `${day}T22:00:00+08:00` }] } });
-    mocks.tasks = [task('ordinary'), task('important', { priority: 5, content: '(1h)' })];
-    const result = await replanRemainingToday();
-    expect(result).toMatchObject({ dailyPlan: { todayCount: 0, plannedMinutes: 0, availableMinutes: 0, importantCount: 1 },
-      details: { selected: [], breakdown: { freeMinutes: 60, freeAfterImportantMinutes: 0, newTaskCapacityMinutes: 0 } } });
-    expect(mocks.tasks.find(task => task.id === 'ordinary')!.dueDate).toBe('2026-10-06T00:00:00+0800');
-    expect(mocks.tasks.find(task => task.id === 'important')!.dueDate).toBe(`${day}T00:00:00+0800`);
-    expect(mocks.snapshot).toHaveBeenCalledTimes(1);
-    expect(mocks.broadSync).not.toHaveBeenCalled();
-    expect(mocks.set.mock.calls.every(([key]) => key === DAILY_PLAN_KEY)).toBe(true);
+  it('当日已完成的唯一重复系列保留下一次日期', async () => {
+    m.tasks = [task('next', { title: '固定今日', tags: ['always-today'], repeatFlag: 'RRULE:FREQ=DAILY', dueDate: '2026-11-04T00:00:00+0800' })];
+    m.history = [task('previous', { title: '固定今日', status: 2, completedTime: `${day}T09:00:00+0800` })];
+    await replanRemainingToday(); expect(m.tasks[0].dueDate).toContain('2026-11-04'); expect(m.write).not.toHaveBeenCalled();
   });
-  it('保留描述、标签、重复规则和子项，只修改任务日期', async () => {
-    mocks.tasks = [task('large', { content: '（1h1m）', tags: ['居'], repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=7',
-      repeatFrom: 1, items: [{ id: 'item', title: 'child', status: 0, startDate: `${day}T00:00:00+0800` }] })];
-    mocks.data.set('calendar-tags', { tagMap: { [day]: 'school', '2026-10-06': 'school' } });
-    const before = structuredClone(mocks.tasks[0]);
-    await replanRemainingToday();
-    expect(mocks.update).toHaveBeenCalledTimes(1);
-    expect(mocks.tasks[0]).toEqual({ ...before, dueDate: '2026-10-06T00:00:00+0800' });
+  it('普通轮换保留其他标签、提醒、重复设置和原 checklist 日期', async () => {
+    m.tasks = [task('large', { content: '(1h)', tags: ['活'], reminders: ['TRIGGER:PT0S'], repeatFlag: 'RRULE:FREQ=DAILY',
+      items: [{ id: 'item', title: 'child', status: 0, startDate: `${day}T00:00:00+0800` }] })];
+    const before = structuredClone(m.tasks[0]); await replanRemainingToday(); expect(m.tasks[0]).toEqual({ ...before, dueDate: '2026-11-04T00:00:00+0800' });
   });
-  it.each(['completed', 'edited'])('写入前发现任务已 %s 时中止，不覆盖新状态', async kind => {
-    mocks.tasks = [task('large', { content: '(1h)' })];
-    mocks.getTask.mockResolvedValueOnce({ ...mocks.tasks[0], ...(kind === 'completed' ? { status: 2 } : { content: 'new description' }) });
-    await expect(replanRemainingToday()).rejects.toThrow('待办已变化');
-    expect(mocks.update).not.toHaveBeenCalled();
-    expect(mocks.data.has(DAILY_PLAN_KEY)).toBe(false);
-    expect(mocks.release).toHaveBeenCalledWith('lock');
+});
+
+describe('远端新增专项接入同一裁决', () => {
+  it('眼药水推进后重新计算具体时刻显隐，每个任务只写一次', async () => {
+    m.tasks = [task('old-eye', { title: '眼药水', priority: 5, isAllDay: false, dueDate: '2026-11-01T10:00:00+0800', repeatFlag: 'RRULE:FREQ=DAILY' }),
+      task('recent-eye', { title: '眼药水', priority: 5, isAllDay: false, dueDate: '2026-11-03T15:00:00+0800', repeatFlag: 'RRULE:FREQ=DAILY' })];
+    const run = await runRuleReplan({ scope: 'hourly' });
+    expect(status(run, 'eye-drops').status).toBe('success');
+    expect(Date.parse(m.tasks[0].dueDate!)).toBe(Date.parse('2026-11-04T10:00:00+0800'));
+    expect(m.tasks[0].tags).toContain('bon-hidden'); expect(m.tasks[1].dueDate).toBe('2026-11-03T15:00:00+0800');
+    expect(m.write).toHaveBeenCalledOnce();
   });
-  it('写入失败不发布成功摘要，保留周期锚点便于重试', async () => {
-    mocks.tasks = [task('large', { content: '(1h)' })];
-    const summary = { date: day, todayCount: 8 };
-    const briefing = { date: day, generatedAt: `${day}T05:00:00+08:00`, selected: [] };
-    mocks.data.set(DAILY_PLAN_KEY, { connectionId, history: [], deadlines: {}, summary, briefing });
-    mocks.update.mockRejectedValueOnce(new Error('upstream unavailable'));
-    await expect(replanRemainingToday()).rejects.toThrow('upstream unavailable');
-    expect(mocks.data.get(DAILY_PLAN_KEY).summary).toEqual(summary);
-    expect(mocks.data.get(DAILY_PLAN_KEY).briefing).toEqual(briefing);
-    expect(mocks.data.get(DAILY_PLAN_KEY).deadlines.large.date).toBe(day);
-    expect(mocks.release).toHaveBeenCalledWith('lock');
+  it('模板内容与搬家日期合并后一次写入，完成项同步阶段日期并保留完成记录', async () => {
+    const make = (id: string, title: string, parentId?: string) => task(id, { title, parentId, tags: ['routine'], content: 'same', items: [{ id: `${id}-item`, title: '牙刷', status: 1 }] });
+    const titles = ['🪥漱', '🧴护', '💄妆', '🛀浴', '📷相机', '🧥', '随身背包', '⚪️小袋子', '⚫️小袋子', '【⚪️】'];
+    m.tasks = [make('template','出门todo模板'),make('moving','搬家模板'),make('a','出门前一天','template'),make('b','出门前三天','moving'),
+      ...titles.flatMap((title,i)=>[make(`a${i}`,`🧳${title}`,'a'),make(`b${i}`,i===9?'📦':`📦${title}`,'b')]),
+      make('jg','搬家-京广-11.10'),make('stage','出门前三天','jg'),make('brush','🎒🪥漱','stage'),
+      {...make('done-box','📦','stage'), status:2, completedTime:'2026-11-02T10:00:00Z',content:'old'}];
+    m.tasks.find(task=>task.id==='a0')!.content='new contents';
+    const run = await runRuleReplan({scope:'hourly'});
+    expect(status(run,'template-content').status).toBe('success'); expect(status(run,'moving-date').status).toBe('success');
+    expect(m.tasks.find(task=>task.id==='brush')).toMatchObject({content:'new contents',dueDate:'2026-11-07T00:00:00+0800',tags:['routine']});
+    expect(m.tasks.find(task=>task.id==='done-box')).toMatchObject({content:'same',status:2,completedTime:'2026-11-02T10:00:00Z',dueDate:'2026-11-07T00:00:00+0800'});
+    expect(m.write.mock.calls.filter(([id])=>id==='brush')).toHaveLength(1);
+    const state=m.data.get(`ticktick:template-pairs:v1:${hash}:template`);
+    expect(Object.keys(state.pairs)).toHaveLength(10);expect(state.departureDates.jg.date).toBe('2026-11-10');
   });
-  it('顺延喷雾避开明天已经安排的另一种喷雾，同时保留明日任务', async () => {
-    vi.setSystemTime(new Date(`${day}T23:00:00+08:00`));
-    mocks.tasks = [task('fragrance', { title: '香香喷雾' }),
-      task('mite', { title: '除螨喷雾', dueDate: '2026-10-06T00:00:00+0800' })];
-    const result = await replanRemainingToday();
-    expect(result).toMatchObject({ updated: 1, dailyPlan: { todayCount: 0 } });
-    expect(mocks.update).toHaveBeenCalledWith('fragrance', expect.objectContaining({ dueDate: '2026-10-07T00:00:00+0800' }));
-    expect(mocks.tasks[1].dueDate).toBe('2026-10-06T00:00:00+0800');
+  it('接车按充电最终日期创建，Outlook 只收到已验证的正式任务 ID', async () => {
+    m.tasks=[task('charge',{title:'电动车充电',tags:['always-today'],priority:5,dueDate:'2026-11-08T00:00:00+0800'})];
+    const result=await runRuleReplan({scope:'full'});
+    expect(status(result,'vehicle-pickup').status).toBe('success'); expect(status(result,'outlook-pickup').status).toBe('success');
+    const pickup=m.tasks.find(task=>task.title==='接电动车')!;
+    expect(pickup).toMatchObject({startDate:'2026-11-04T07:20:00+0800',dueDate:'2026-11-04T07:40:00+0800',tags:['bon-hidden']});
+    expect(m.pickupOutlook).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({tasks:[expect.objectContaining({id:pickup.id,dueDate:pickup.dueDate})]}),expect.anything());
+    expect(JSON.stringify(m.pickupOutlook.mock.calls)).not.toContain('draft-');
   });
-  it('繁忙和完成历史读取失败均不开始写入', async () => {
-    mocks.acquire.mockResolvedValueOnce(null);
-    expect(await replanRemainingToday()).toEqual({ busy: true });
-    expect(mocks.historyRead).not.toHaveBeenCalled();
-    mocks.tasks = [task('large', { content: '(1h)' })];
-    mocks.historyRead.mockRejectedValueOnce(new Error('history unavailable'));
-    await expect(replanRemainingToday()).rejects.toThrow('history unavailable');
-    expect(mocks.update).not.toHaveBeenCalled(); expect(mocks.set).not.toHaveBeenCalled();
+  it('写入日历未连接时不标记今日专项成功', async () => {
+    m.data.delete('outlook:laundry-write:v1');m.tasks=[task('hair',{title:'洗头',tags:['routine']})];
+    const result=await runRuleReplan({scope:'full'});expect(status(result,'outlook-hair').status).toBe('failed');
+    expect(m.data.get('ticktick:daily-special-success:v1')).toBeNull();
   });
 });

@@ -22,7 +22,7 @@ function reorder<T>(arr: T[], from: number, to: number): T[] {
  */
 export function useDragSort<T>(
   items: T[],
-  onReorder: (next: T[]) => void,
+  onReorder: (next: T[]) => void | boolean,
   direction: 'vertical' | 'horizontal' = 'vertical',
 ) {
   const fromRef = useRef<number | null>(null);
@@ -56,11 +56,13 @@ export function useDragSort<T>(
       if (fromRef.current === null) return;
       const to = findTarget(e.clientX, e.clientY);
       if (to !== null && to !== fromRef.current) {
-        onReorder(reorder(items, fromRef.current, to));
+        if (onReorder(reorder(items, fromRef.current, to)) === false) return;
         fromRef.current = to;
         setDraggingIdx(to);
       }
     },
+    onPointerCancel: () => { fromRef.current = null; setDraggingIdx(null); },
+    onLostPointerCapture: () => { fromRef.current = null; setDraggingIdx(null); },
     onPointerUp: () => {
       fromRef.current = null;
       setDraggingIdx(null);

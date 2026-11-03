@@ -1,3 +1,4 @@
+import { ruleTitle } from '../utils/schedulingRules';
 import type { TickTickPlanDetails } from '../utils/tickTickPlanDetails';
 
 const minuteText = (value: number) => `${Number(value.toFixed(1))} 分钟`;
@@ -10,6 +11,13 @@ export default function LifePlanDetails({ plan }: { plan: TickTickPlanDetails })
   const importantOccupiedMinutes = b?.importantOccupiedMinutes ?? importantTotalMinutes;
   return <div className="life-plan-details" id="life-plan-details" role="region" aria-label="排期详情">
     <p className="life-plan-meta">{when.format(new Date(plan.generatedAt))} 排期快照 · 北京时间</p>
+    {plan.rules && <details className="life-plan-collapsible"><summary>规则执行 · 配置 v{plan.rules.version}</summary>
+      <ol className="life-plan-tasks">{plan.rules.results.map(result => <li key={result.id}>
+        <div><span>{ruleTitle(result.id)}</span><span>{result.status === 'success' ? `完成 · ${result.matched} 项` : result.status === 'failed' ? '失败' : '跳过'}</span></div>
+        {result.reason && <p>{result.reason}</p>}
+        {!!result.conflicts?.length && <p>冲突采用：{[...new Set(result.conflicts.map(conflict => ruleTitle(conflict.winner)))].join('、')}</p>}
+      </li>)}</ol>
+    </details>}
     {b ? <section aria-label="剩余可排期时间">
         <dl className="life-plan-ledger">
           <div><dt>可排期时间</dt><dd>{minuteText(b.windowMinutes)}</dd></div>

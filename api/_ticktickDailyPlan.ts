@@ -1,4 +1,5 @@
 import { isEyeDrops } from './_ticktickEyeDrops.js';
+import { precedes } from './_rulePolicy.js';
 import ICAL from 'ical.js';
 import type { OutlookAvailability } from '../src/utils/outlookCalendar.js';
 import type { TickTickPlanDetails } from '../src/utils/tickTickPlanDetails.js';
@@ -173,7 +174,7 @@ export function planTickTickDay(options: {
     || isAlwaysTodayTask(task)
     || Boolean(options.movableTaskIds && !options.movableTaskIds.has(task.id))
     || !ordinary(task) || task.isAllDay === false || routineRecurrence(task.repeatFlag) === 'unknown'
-    || tags(task).includes('洗头') || task.title.normalize('NFKC').trim() === '洗头';
+    || precedes('hair-follow', 'daily-plan') && (tags(task).includes('洗头') || task.title.normalize('NFKC').trim() === '洗头');
   const candidates: Candidate[] = [];
   for (const task of open) {
     const members = [task];
@@ -192,7 +193,7 @@ export function planTickTickDay(options: {
     const repeatsFromDueDate = String(task.repeatFrom ?? '') === '0';
     const providerNextDue = repeatsFromDueDate && lastDay && date && date > lastDay ? date : null;
     const deadline = savedDeadline ?? providerNextDue ?? end ?? date ?? addDays(today, 7);
-    const notBefore = tags(task).includes('at-least') ? deadline : null;
+    const notBefore = precedes('minimum-interval', 'daily-plan') && tags(task).includes('at-least') ? deadline : null;
     const minutes = members.reduce((sum, member) => sum + estimateTaskMinutes(member), 0);
     const cycleDays = lastDay ? Math.max(1, daysBetween(lastDay, deadline)) : task.repeatFlag
       ? Math.max(1, daysBetween(today, cycleEnd(task, today) ?? addDays(today, 7))) : 14;
@@ -228,7 +229,7 @@ export function planTickTickDay(options: {
   const important = open.filter((task) => (task.priority ?? 0) >= 5
     && !tags(task).some(tag => ['routine', 'bon-hidden'].includes(tag))
     && Boolean(routineTaskDate(task) && routineTaskDate(task)! <= today));
-  const fixed = open.filter((task) => ordinary(task) && !candidateIds.has(task.id) && !dates.has(task.id) && routineTaskDate(task) === today);
+  const fixed = open.filter((task) => ordinary(task) && !candidateIds.has(task.id) && !dates.has(task.id) && routineTaskDate(task) === today && sceneDate(task, today) === today);
   const fixedMinutes = fixed.reduce((sum, task) => sum + estimateTaskMinutes(task), 0);
   const completedToday: TickTickTask[] = [];
   const seenHistory = new Set<string>();
@@ -285,9 +286,9 @@ export function planTickTickDay(options: {
     // Actual completion age owns the rotation. A moved date or a short repeat
     // interval must never promote recently completed work above older work.
     // Unknown history is kept explicit, not replaced by a creation timestamp.
-    return Number(Boolean(a.last)) - Number(Boolean(b.last))
-      || (a.last ? Date.parse(a.last) : 0) - (b.last ? Date.parse(b.last) : 0)
-      || Number(urgent(b)) - Number(urgent(a))
+    const age = Number(Boolean(a.last)) - Number(Boolean(b.last)) || (a.last ? Date.parse(a.last) : 0) - (b.last ? Date.parse(b.last) : 0);
+    const urgency = Number(urgent(b)) - Number(urgent(a));
+    return (precedes('oldest', 'urgency') ? age || urgency : urgency || age)
       || a.deadline.localeCompare(b.deadline)
       || (Date.parse(a.task.createdTime ?? '') || 0) - (Date.parse(b.task.createdTime ?? '') || 0)
       || a.task.id.localeCompare(b.task.id);
@@ -310,7 +311,7 @@ export function planTickTickDay(options: {
     // A task larger than the remaining budget is reported instead of silently overbooking.
     const fits = remainingSlots.some(([start, end]) => end - start >= candidate.minutes * 60_000);
     const kind = sprayKind(candidate.task);
-    const sprayConflict = kind !== null && [...selectedSprays].some(other => other !== kind);
+    const sprayConflict = precedes('sprays', 'daily-plan') && kind !== null && [...selectedSprays].some(other => other !== kind);
     const originalDate = routineTaskDate(candidate.task);
     const fromBacklog = !originalDate || originalDate > today;
     const mustRetain = !candidate.next && !fromBacklog;
@@ -318,7 +319,7 @@ export function planTickTickDay(options: {
     const completionTime = candidate.last ? Date.parse(candidate.last) : -Infinity;
     // Leaving a small gap is preferable to repeating yesterday's work while
     // older eligible work is still waiting for a large enough slot.
-    const recentRefill = lastDay === addDays(today, -1) && oldestWaiting !== undefined && oldestWaiting < completionTime;
+    const recentRefill = precedes('oldest', 'daily-plan') && lastDay === addDays(today, -1) && oldestWaiting !== undefined && oldestWaiting < completionTime;
     const reachedMinimumInterval = !candidate.notBefore || today >= candidate.notBefore;
     const choose = reachedMinimumInterval && !sprayConflict
       && (mustRetain || (!recentRefill && used + candidate.minutes <= available && fits));
@@ -352,7 +353,7 @@ export function planTickTickDay(options: {
   }
   const sprayMovable = new Set(open.filter(task => (!options.movableTaskIds || options.movableTaskIds.has(task.id))
     && (Boolean(routineTaskDate(task) && routineTaskDate(task)! <= today) || dates.get(task.id) === today)).map(task => task.id));
-  separateTickTickSprays({ tasks, dates, history: state.history, calendarState, today, now, excludedTaskIds,
+  if (precedes('sprays', 'daily-plan')) separateTickTickSprays({ tasks, dates, history: state.history, calendarState, today, now, excludedTaskIds,
     movableTaskIds: sprayMovable });
   const finalSelected = selectedDetails.filter(task => !dates.has(task.id) || dates.get(task.id) === today);
   deferred += selectedDetails.length - finalSelected.length;

@@ -10,6 +10,7 @@ vi.mock('./_auth.js', () => ({ authOk: auth }));
 vi.mock('./_ticktickLock.js', () => ({ acquireTickTickLock: lock }));
 vi.mock('@vercel/kv', () => ({ kv: {
   get: async (key: string) => structuredClone(data.get(key) ?? null), eval: write,
+  set: async (key: string, value: unknown) => { data.set(key, structuredClone(value)); return 'OK'; },
 } }));
 const url = 'https://outlook.live.com/owa/calendar/private/published/calendar.ics';
 const event = (uid: string, title: string, start: string, end: string, extra = '') =>
@@ -105,7 +106,7 @@ describe('独立经期定时归档', () => {
     const result = await request('GET', 'Bearer cron-secret');
     expect(result.status).toBe(502); expect(result.body.error).toContain('已保留历史');
     expect(JSON.stringify(result)).not.toContain(url);
-    expect([...data]).toEqual(before); expect(write).not.toHaveBeenCalled();
+    expect([...data].filter(([key]) => key !== 'bonlife:period-read-status:v1')).toEqual(before.filter(([key]) => key !== 'bonlife:period-read-status:v1')); expect(write).not.toHaveBeenCalled();
   });
   it('读取期间断开连接不能发布旧数据', async () => {
     vi.mocked(fetch).mockImplementation(async () => { data.delete(LIFE_CONNECTION_KEY); return new Response(feed()); });

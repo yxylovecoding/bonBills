@@ -1,7 +1,7 @@
 // A scheduler only needs completion flags. Do not transfer plans, calendar URLs or errors.
 export function schedulerResponse(body: Record<string, any>) {
   const safe: Record<string, unknown> = {};
-  for (const key of ['ok', 'busy', 'deferred', 'connected', 'sent', 'duplicate'])
+  for (const key of ['ok', 'busy', 'deferred', 'connected', 'sent', 'duplicate', 'rulesComplete'])
     if (typeof body?.[key] === 'boolean') safe[key] = body[key];
   if (body?.error) safe.error = true;
   if (['rest-window', 'sleep-window', 'restore-pending', 'disconnected'].includes(body?.skipped)) safe.skipped = body.skipped;

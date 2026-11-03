@@ -33,7 +33,7 @@ function fixture(source: TickTickTask[]) {
 beforeEach(() => { data.clear(); vi.useFakeTimers(); vi.setSystemTime(now); });
 afterEach(() => vi.useRealTimers());
 
-describe('地点标签是最高限制', () => {
+describe('地点匹配与日期规则分离', () => {
   it('北京只在北京日可做，居与城市取交集，多个城市和多个场景分别取并集', () => {
     expect(taskLocationAllowed(task('city'), calendarState, today)).toBe(false);
     expect(nextTaskLocationDate(task('city'), calendarState, today)).toBe(tomorrow);
@@ -61,43 +61,43 @@ describe('地点标签是最高限制', () => {
     expect(taskLocationAllowed(task('南京', { tags: ['居', '南京'] }), state, today)).toBe(true);
     expect(nextTaskLocationDate(task('city'), state, today)).toBe(later);
   });
-  it.each([['always-today'], ['洗头'], ['routine'], []].map(tags => ({ tags })))('$tags 不能越过北京限制，写入保留时刻、提醒与重复规则', async ({ tags }) => {
+  it.each([['always-today'], ['洗头'], ['routine'], []].map(tags => ({ tags })))('$tags 城市标签只控制显隐，不改写时刻、提醒与重复规则', async ({ tags }) => {
     const original = task('city', { tags: [...tags, '北京'], isAllDay: false, dueDate: `${today}T20:00:00+0800`,
       reminders: ['TRIGGER:PT0S'], priority: 5, repeatFlag: 'RRULE:FREQ=DAILY' });
     const f = fixture([original, task('wash', { title: '洗头', tags: [] })]);
     await syncTickTickRoutines({ api: f.api, calendarState, today });
-    expect(f.stored.get('city')).toEqual({ ...original, dueDate: `${tomorrow}T20:00:00+0800` });
+    expect(f.stored.get('city')).toEqual(original);
     await syncTickTickRoutines({ api: f.api, calendarState, today });
-    expect(f.update).toHaveBeenCalledTimes(1);
+    expect(f.update).not.toHaveBeenCalled();
   });
-  it('长周期原日期在错误地点时改到该日期之后的适用日，不能因今天在北京就保留错误日期', async () => {
+  it('城市标签不会改写长周期原日期', async () => {
     const state = resolveCalendarState(config, { tagMap: { [today]: 'school', [tomorrow]: 'home', [later]: 'school' } });
     const original = task('weekly', { tags: ['北京', '居'], repeatFlag: 'RRULE:FREQ=WEEKLY', dueDate: `${tomorrow}T00:00:00+0800` });
     const f = fixture([original]);
     await syncTickTickRoutines({ api: f.api, calendarState: state, today });
-    expect(routineTaskDate(f.stored.get('weekly')!)).toBe(later);
+    expect(routineTaskDate(f.stored.get('weekly')!)).toBe(tomorrow);
   });
-  it('固定训练日期和普通规划回调也不能覆盖地点限制', async () => {
+  it('城市标签不会改写固定训练或普通规划给出的日期', async () => {
     const f = fixture([task('city')]);
     await syncTickTickRoutines({ api: f.api, calendarState, today, fixedTaskDates: new Map([['city', today]]),
       planDay: async () => new Map([['city', today]]) });
-    expect(routineTaskDate(f.stored.get('city')!)).toBe(tomorrow);
+    expect(routineTaskDate(f.stored.get('city')!)).toBe(today);
   });
-  it('今天有空档也不补入异地任务，延期跳过不在北京的日子', () => {
+  it('普通轮换不读取城市标签，地点显隐由统一执行器另外裁决', () => {
     const plan = planTickTickDay({ tasks: [task('city'), task('ordinary', { tags: [] })], today, now, calendarState,
       state: { connectionId: 'test', history: [], deadlines: {} }, budgetMinutes: 240 });
-    expect(plan.dates.get('city')).toBe(tomorrow);
+    expect(plan.dates.get('city')).toBe(today);
     expect(plan.dates.get('ordinary')).toBe(today);
-    expect(plan.summary.todayCount).toBe(1);
+    expect(plan.summary.todayCount).toBe(2);
   });
-  it('喷雾错日与训练顺延仍须满足城市', () => {
+  it('喷雾错日与训练顺延不因城市标签改变其日期规则', () => {
     const state = resolveCalendarState(config, { tagMap: { [today]: 'school', [tomorrow]: 'home', [later]: 'school' } });
     const dates = new Map<string, string>();
     separateTickTickSprays({ tasks: [task('a', { title: '除螨喷雾' }), task('b', { title: '香香喷雾' })],
       dates, history: [], calendarState: state, today, now });
-    expect(dates.get('b')).toBe(later);
+    expect(dates.get('b')).toBe(tomorrow);
     expect(exerciseTarget(task('run', { title: '跑步', dueDate: '2026-10-27T00:00:00+0800' }),
-      { now, calendarState })).toBe(tomorrow);
+      { now, calendarState })).toBe(today);
   });
   it('洗衣只在合适地点比较天气，不使用异地的晴天', () => {
     const sunny = { rain: 0, probability: 0, sunshine: 30000, code: 0 };
@@ -106,11 +106,11 @@ describe('地点标签是最高限制', () => {
     const forecast = { fetchedAt: now.toISOString(), days: { [today]: sunny, [tomorrow]: sunny, [later]: sunny, '2026-10-31': sunny } };
     expect(chooseLaundryDay(task('wash'), today, options, () => forecast)).toBe(tomorrow);
   });
-  it('轻量 fixed-today 从已保存的城市配置读取限制', async () => {
+  it('轻量 fixed-today 不因城市标签改为其他日期', async () => {
     data.set('app-config', config); data.set('calendar-tags', { tagMap: calendarState.tagMap });
     const f = fixture([task('city', { tags: ['always-today', '北京'] })]);
     await syncTickTickAlwaysToday(f.api);
-    expect(routineTaskDate(f.stored.get('city')!)).toBe(tomorrow);
+    expect(routineTaskDate(f.stored.get('city')!)).toBe(today);
   });
 });
 

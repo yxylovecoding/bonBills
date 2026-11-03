@@ -116,27 +116,17 @@ export async function postponeSwimmingTasks(api: TickTickApi, tasks: TickTickTas
 }
 
 export async function syncSwimmingSchedule(options: { lockHeld?: boolean; refreshPeriods?: boolean } = {}) {
-  const connection = await kv.get<TickTickConnection>(TICKTICK_CONNECTION_KEY);
-  if (!connection) return { updated: 0 };
-  const lock = options.lockHeld ? null : await acquireTickTickLock();
-  if (!options.lockHeld && !lock) throw new Error('TickTick 正在同步，游泳待办稍后重试');
-  try {
-    const today = shanghaiToday();
-    if (options.refreshPeriods) {
-      const calendar = await kv.get<LifeConnection>(LIFE_CONNECTION_KEY);
-      if (calendar) await syncLifePeriods(calendar, Number(today.slice(0, 4)));
-    }
-    const api = new TickTickOpenApiClient(decryptTickTickToken(connection.encryptedToken, (process.env.SYNC_SECRET || '').trim()),
-      (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
-    const tasks = await readAllTickTickTasks(api, [0]);
-    const years = [Number(today.slice(0, 4)), Number(today.slice(0, 4)) + 1, ...tasks.filter(pendingSwim).flatMap((task) => [task.startDate, task.dueDate]
-      .filter((date): date is string => Boolean(date)).map((date) => Number(date.slice(0, 4))))];
-    const { cycle, periods } = await readSwimmingCycle(years);
-    const current = await kv.get<TickTickConnection>(TICKTICK_CONNECTION_KEY);
-    if (current?.encryptedToken.data !== connection.encryptedToken.data) throw new Error('连接已更新');
-    return { updated: await postponeSwimmingTasks(api, tasks, today, cycle, periods) };
-  } catch { throw new Error('TickTick 游泳待办顺延失败，请重新同步'); }
-  finally { if (lock) await releaseTickTickLock(lock); }
+  if (options.refreshPeriods) {
+    const calendar = await kv.get<LifeConnection>(LIFE_CONNECTION_KEY);
+    if (calendar) await syncLifePeriods(calendar, Number(shanghaiToday().slice(0, 4)));
+  }
+  const { runRuleReplan } = await import('./_ruleReplan.js');
+  const result = await runRuleReplan({ scope: 'visibility', specialty: 'swimming', lockHeld: options.lockHeld, allowDisconnected: true })
+    .catch(() => { throw new Error('TickTick 游泳待办顺延失败，请重新同步'); });
+  if (result.busy) throw new Error('TickTick 正在同步，游泳待办稍后重试');
+  const rule = result.rules?.results.find(item => item.id === 'swimming');
+  if (rule && rule.status !== 'success') throw new Error('TickTick 游泳待办顺延失败，请查看规则前序与执行状态');
+  return { updated: result.updated ?? 0 };
 }
 
 // Saving the cycle must remain successful even if the independent TickTick write fails.

@@ -1,3 +1,4 @@
+import type { SchedulingRun } from './schedulingRules';
 export interface TickTickPlanTask {
   id: string;
   projectId: string;
@@ -8,6 +9,7 @@ export interface TickTickPlanTask {
 }
 
 export interface TickTickPlanDetails {
+  rules?: SchedulingRun;
   date: string;
   generatedAt: string;
   selected: TickTickPlanTask[];

@@ -131,7 +131,7 @@ describe('经期 Outlook 解析', () => {
     const result = await syncLifePeriods(connection(), 2026);
     expect(result.periodDays).toEqual(['2026-01-01', '2026-01-02', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02']);
     expect(evalMock.mock.calls[0][1]).toEqual([LIFE_CONNECTION_KEY, periodsKey(2026)]);
-    expect(set).not.toHaveBeenCalled();
+    expect(set).toHaveBeenCalledWith('bonlife:period-read-status:v1', { connectionId: 'connection-1' });
   });
   it('连接变更或较新的同步先完成时拒绝旧结果', async () => {
     for (const result of [0, -1]) {

@@ -434,3 +434,13 @@ describe('异地实习按候选日期取天气', () => {
     expect(laundryLocation(configState, '2026-10-11', { tagMap: {}, dayOverrides: { '2026-10-11': { city: BEIJING } } })?.name).toBe('北京');
   });
 });
+
+it('手动时段、出行前和天气三个节点只声明各自适用任务', async () => {
+  const c = client(), o = options();
+  expect((await syncLaundrySchedule(c.api, { ...o, connectionId: 'connection', mode: 'appointment' })).managedTaskIds.size).toBe(0);
+  expect((await syncLaundrySchedule(c.api, { ...o, connectionId: 'connection', mode: 'travel' })).managedTaskIds.size).toBe(0);
+  expect(c.api.updateTask).not.toHaveBeenCalled();
+  const appointment = { title: '洗衣服', start: '2026-10-10T09:00:00+08:00', end: '2026-10-10T09:50:00+08:00', taskLink: { projectId: 'life', taskId: 'wash' } };
+  const matched = await syncLaundrySchedule(c.api, { ...o, connectionId: 'connection', mode: 'appointment', availability: { ...o.availability, events: [appointment] } });
+  expect([...matched.managedTaskIds]).toEqual(['wash']); expect(matched.decisions[0].date).toBe('2026-10-10');
+});

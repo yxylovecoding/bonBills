@@ -7,7 +7,7 @@ const title = '接电动车';
 const prefix = 'BonBills charging pickup: ';
 const dayAfter = (day: string) => new Date(Date.parse(`${day}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
 
-export async function syncElectricVehiclePickup(api: TickTickApi, options: RecurringTaskEventOptions) {
+export async function syncElectricVehiclePickup(api: TickTickApi, options: RecurringTaskEventOptions & { mode?: 'tasks' | 'outlook' }) {
   const excluded = (task: TickTickTask) => {
     const seen = new Set<string>();
     let current: TickTickTask | undefined = task;
@@ -25,7 +25,7 @@ export async function syncElectricVehiclePickup(api: TickTickApi, options: Recur
   const allSources = [...recentCompleted, ...sources];
   const tasks = [...options.tasks];
   let created = 0, updated = 0;
-  for (const source of allSources) {
+  for (const source of options.mode === 'outlook' ? [] : allSources) {
     const historical = !pending(source);
     const fresh = historical ? source : await api.getTask(source.projectId, source.id);
     const day = routineTaskDate(fresh);
@@ -65,7 +65,7 @@ export async function syncElectricVehiclePickup(api: TickTickApi, options: Recur
     const index = tasks.findIndex(t => t.id === verified.id && t.projectId === verified.projectId);
     if (index >= 0) tasks[index] = verified; else tasks.push(verified);
   }
-  const outlook = await syncRecurringTaskOutlook(api, { ...options, tasks: tasks.filter(t => t.title === title && t.content?.includes(prefix)) }, {
+  const outlook = options.mode === 'tasks' ? undefined : await syncRecurringTaskOutlook(api, { ...options, tasks: tasks.filter(t => t.title === title && t.content?.includes(prefix)) }, {
     subject: title, propertyId: 'String {d9d1e730-7742-4a9c-91af-bab2a9a45f69} Name BonBillsPickup',
     statePrefix: 'outlook:pickup-events:v1', cyclesKey: 'ticktick:pickup-cycles:v1',
     plan: task => {

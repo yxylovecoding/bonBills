@@ -1,3 +1,4 @@
+import { currentRulePolicy, hasRulePolicy } from './_rulePolicy.js';
 import ICAL from 'ical.js';
 import { wallTimeInstant } from './_calendarTimezone.js';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
@@ -239,7 +240,7 @@ export async function readOutlookSnapshot(input: OutlookConnectionInput, startDa
   }));
   const snapshot = buildOutlookSnapshot(events
     .filter((source) => source.name === '玩' || source.name === '课')
-    .flatMap((source) => source.days), startDate, endDate, input.rules);
+    .flatMap((source) => source.days), startDate, endDate, input.rules, hasRulePolicy() ? currentRulePolicy().order : undefined);
   if (availabilityRange) snapshot.availability = { ...availabilityRange, events: events.flatMap((source) => source.timed)
     .map((event) => ({ title: event.title, start: event.startDate, end: event.endDate,
       ...(event.taskLink ? { taskLink: event.taskLink } : {}) })) };

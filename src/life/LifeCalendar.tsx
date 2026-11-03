@@ -229,7 +229,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
         onPeriodChange={(period) => setSelection((previous) => ({ ...previous, ...period }))}
         onEdit={(date) => openEntry({ date, kind: 'body', text: '', revision: '', ...current?.entries[`body:${date}`], mutationId: crypto.randomUUID() })} />
     </Suspense>}
-    {kind === 'done' ? <LifeDoneList onExpired={onExpired} /> : kind !== 'body' && <section className={`life-calendar${kind === 'training' ? ' life-training-calendar' : kind === 'skin' || kind === 'eyes' || kind === 'discomfort' ? ' life-symptom-calendar' : ''}`} aria-label={`${year}年${month}月${LIFE_LABELS[kind]}日历`} aria-busy={loading}>
+    {kind === 'done' ? <LifeDoneList onExpired={onExpired} onManageOutlook={() => setSettings(true)} /> : kind !== 'body' && <section className={`life-calendar${kind === 'training' ? ' life-training-calendar' : kind === 'skin' || kind === 'eyes' || kind === 'discomfort' ? ' life-symptom-calendar' : ''}`} aria-label={`${year}年${month}月${LIFE_LABELS[kind]}日历`} aria-busy={loading}>
       <div className="life-weekdays">{WEEKDAYS.map((day) => <span key={day}>{day}</span>)}</div>
       <div className="life-days">{cells.map((date, index) => {
         if (!date) return <div className="life-empty-day" key={`empty-${index}`} aria-hidden="true" />;

@@ -2,7 +2,7 @@ import ICAL from 'ical.js';
 import { kv } from './_accountKv.js';
 import { createHash } from 'node:crypto';
 import { decryptTickTickToken, readAllTickTickTasks, routineRecurrence, TICKTICK_CONNECTION_KEY, TickTickOpenApiClient,
-  type TickTickConnection, type TickTickTask } from './_ticktickTrips.js';
+  type TickTickApi, type TickTickConnection, type TickTickTask } from './_ticktickTrips.js';
 import { isCalendarDate } from '../src/utils/outlookCalendar.js';
 import { DEFAULT_TRAINING_SETTINGS, isTrainingTitle, swimmingTrainingDates, trainingName, trainingProjectKey, type TrainingCompletion, type TrainingSettings, type TrainingSource, type TrainingTask } from '../src/utils/lifeTraining.js';
 import type { LifeEntries } from '../src/utils/bonLife.js';
@@ -83,12 +83,12 @@ export function trainingTask(task: TickTickTask, year: number, adjustDate: (date
     scheduledDate: date ?? undefined, repeatFlag: task.repeatFlag };
 }
 
-export async function readTrainingSource(year: number): Promise<TrainingSource> {
+export async function readTrainingSource(year: number, proposed?: TrainingSnapshot): Promise<TrainingSource> {
   const today = shanghaiDay();
   const currentYear = Number(today.slice(0, 4));
   const years = [...new Set([currentYear - 1, currentYear, year])].filter((value) => value >= 1900);
   const [snapshot, connection, { cycle, periods }, indexed, oldEntries, settings] = await Promise.all([
-    kv.get<TrainingSnapshot>(TRAINING_SOURCE_KEY), kv.get<TickTickConnection>(TICKTICK_CONNECTION_KEY), readSwimmingCycle([year, currentYear]),
+    proposed ?? kv.get<TrainingSnapshot>(TRAINING_SOURCE_KEY), kv.get<TickTickConnection>(TICKTICK_CONNECTION_KEY), readSwimmingCycle([year, currentYear]),
     kv.hgetall<LifeEntries>(LIFE_TRAINING_ENTRIES_KEY), Promise.all(years.map((value) => kv.hgetall<LifeEntries>(entriesKey(value)))),
     kv.hgetall<{ trainingProjects?: TrainingSettings }>(LIFE_SETTINGS_KEY),
   ]);
@@ -185,14 +185,14 @@ export async function collectOutlookAerobicCompletions(today: string): Promise<T
   return [...result.values()];
 }
 
-export async function syncTrainingSource(year: number, options: { lockHeld?: boolean } = {}): Promise<TrainingSource> {
+export async function syncTrainingSource(year: number, options: { lockHeld?: boolean; api?: TickTickApi; publish?: boolean } = {}): Promise<TrainingSource> {
   const requestedAt = Date.now();
   const connection = await kv.get<TickTickConnection>(TICKTICK_CONNECTION_KEY);
   if (!connection) return readTrainingSource(year);
   if (!options.lockHeld) await syncSwimmingSchedule();
   try {
     const token = decryptTickTickToken(connection.encryptedToken, (process.env.SYNC_SECRET || '').trim());
-    const api = new TickTickOpenApiClient(token, (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
+    const api = options.api ?? new TickTickOpenApiClient(token, (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
     const pending = await readAllTickTickTasks(api, [0]);
     const tasks = selectTrainingTasks(pending);
     const hairWash = readHairWashSchedule(pending);
@@ -215,6 +215,7 @@ export async function syncTrainingSource(year: number, options: { lockHeld?: boo
       .map(task => shanghaiDay(new Date(task.completedTime!)))])].sort();
     const snapshot: TrainingSnapshot = { tasks, completions, hairWash: hairWash ? { ...hairWash, completedDates } : completedDates.length ? { completedDates } : null,
       requestedAt, syncedAt: now.toISOString(), connectionId: connectionId(connection) };
+    if (options.publish === false) return readTrainingSource(year, snapshot);
     const stored = await kv.eval<string[], number>(`
       local connection = redis.call('get', KEYS[1])
       if not connection or cjson.decode(connection).encryptedToken.data ~= ARGV[1] then return 0 end

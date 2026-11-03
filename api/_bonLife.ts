@@ -45,6 +45,7 @@ async function readPeriodCalendarText(connection: LifeConnection) {
     const input = decryptOutlookConnection(connection.encrypted, (process.env.SYNC_SECRET || '').trim());
     return await fetchCalendar(input.playUrl);
   } catch {
+    await kv.set('bonlife:period-read-status:v1', { connectionId: connection.id, error: '经期订阅同步失败，请检查连接' });
     throw new Error('Outlook 日历读取失败，请检查订阅链接与共享范围');
   }
 }
@@ -78,6 +79,7 @@ async function saveLifePeriods(connection: LifeConnection, year: number, parsed:
     return 1
   `, [LIFE_CONNECTION_KEY, periodsKey(year)], [connection.id, requestedAt, JSON.stringify(snapshot), previous?.requestedAt ?? 0]);
   if (result !== 1) throw new Error('日历连接或内容已更新，请重新同步');
+  await kv.set('bonlife:period-read-status:v1', { connectionId: connection.id });
   return { periodDays: periodDays(snapshot.events, year), syncedAt: snapshot.syncedAt };
 }
 

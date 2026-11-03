@@ -1,3 +1,4 @@
+import { calendarVisualTag, monthCityLabels } from '../utils/calendarPresentation';
 import { useCalendarWeather } from '../hooks/useCalendarWeather';
 import { dailyWeatherLabel, weatherSymbol } from '../utils/weather';
 import { cityLabel } from '../utils/sceneCities';
@@ -3243,9 +3244,22 @@ export default function CalendarPage() {
     return counts;
   }, [cells, tagMap, yearMonth, today]);
 
+  const awayInternshipMonth = cells.some(cell => cell.day !== null
+    && resolveDailyContext(cell.key, tagMap[cell.key], internship).awayInternship);
+  const citySegmentLabels = monthCityLabels(cells.filter(cell => cell.day !== null).map(cell => cell.key),
+    Object.fromEntries(cells.filter(cell => cell.day !== null).map(cell => {
+      const city = resolveDailyContext(cell.key, tagMap[cell.key], internship).city;
+      return [cell.key, calendarWeather.locations?.[cell.key] ?? { locations: city ? [{ ...city, source: 'calendar' as const }] : [], travel: tagMap[cell.key] === 'travel' }];
+    })));
+
   const handleCellClick = (key: string) => {
     if (selectMode === 'detail') { setSelectedDay((cur) => cur === key ? null : key); return; }
-    if (selectMode === 'single') { toggleTag(key, selectedTag); return; }
+    if (selectMode === 'single') {
+      const context = resolveDailyContext(key, tagMap[key], internship);
+      if (context.period && (selectedTag === 'intern' || selectedTag === 'school')) setTag(key, selectedTag);
+      else toggleTag(key, selectedTag);
+      return;
+    }
     if (!rangeStart) { setRangeStart(key); setRangeHover(key); }
     else {
       const range = getRange(rangeStart, key);
@@ -3254,6 +3268,7 @@ export default function CalendarPage() {
       setRangeStart(null); setRangeHover(null);
     }
   };
+  useEffect(() => { setRangeStart(null); setRangeHover(null); setSelectedDay(null); }, [year, month]);
   const cancelRange = () => { setRangeStart(null); setRangeHover(null); };
   const switchMode  = (m: 'single' | 'range' | 'detail') => {
     setSelectMode(m); cancelRange();
@@ -3892,23 +3907,23 @@ export default function CalendarPage() {
           {/* Tag 选择器 */}
           <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8, marginBottom: 8, alignItems: 'center' }}>
             <div style={{ display: 'flex', flexShrink: 0, gap: 0, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
-              {(['single', 'range'] as const).map((m) => (
-                <button key={m} onClick={() => switchMode(m)} style={{ padding: '6px 16px', fontSize: 13, border: 'none', cursor: 'pointer', backgroundColor: selectMode === m ? C.blue : '#fff', color: selectMode === m ? '#fff' : C.sub, fontWeight: selectMode === m ? 600 : 400 }}>
-                  {m === 'single' ? '单击' : '起止'}
-                </button>
-              ))}
+              <button type="button" aria-pressed={selectMode !== 'detail'}
+                onClick={() => switchMode(selectMode === 'single' ? 'range' : 'single')}
+                style={{ padding: '6px 16px', fontSize: 13, border: 'none', cursor: 'pointer', backgroundColor: selectMode !== 'detail' ? C.blue : '#fff', color: selectMode !== 'detail' ? '#fff' : C.sub }}>
+                {selectMode === 'range' ? '起止' : '单击'}
+              </button>
             </div>
             {tagOrder.map((t, i) => {
               const meta    = tagMeta[t];
-              const active  = selectedTag === t;
+              const active = selectMode !== 'detail' && selectedTag === t;
               const dragging = tagDrag.draggingIdx === i;
               const hp      = tagDrag.handleProps(i);
               return (
                 <button key={t} ref={(el) => tagDrag.itemRef(el, i)} {...hp}
-                  onClick={() => { setSelectedTag(t); cancelRange(); }}
+                  onClick={() => { setSelectedTag(t); switchMode('single'); }}
                   style={{ ...hp.style, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, padding: '6px 14px', borderRadius: 20, fontSize: 13, border: active ? `2px solid ${meta.color}` : `1px solid ${C.border}`, backgroundColor: active ? `${meta.color}18` : '#ffffff', color: active ? meta.color : C.sub, fontWeight: active ? 600 : 400, cursor: 'pointer', opacity: dragging ? 0.5 : 1, transition: 'opacity 0.15s' }}
                 >
-                  {meta.icon} {meta.label}
+                  {t === 'school' && awayInternshipMonth ? '☕ 休息' : `${meta.icon} ${meta.label}`}
                 </button>
               );
             })}
@@ -3948,6 +3963,7 @@ export default function CalendarPage() {
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <button
               onClick={() => switchMode('detail')}
+              aria-pressed={selectMode === 'detail'}
               style={{ padding: '6px 16px', fontSize: 13, borderRadius: 10, border: `1px solid ${selectMode === 'detail' ? C.blue : C.border}`, cursor: 'pointer', backgroundColor: selectMode === 'detail' ? C.blue : '#fff', color: selectMode === 'detail' ? '#fff' : C.sub, fontWeight: selectMode === 'detail' ? 600 : 400 }}
             >
               明细
@@ -3992,7 +4008,7 @@ export default function CalendarPage() {
             <Card>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginBottom: 5, fontSize: 9, color: C.sub }}>
               <span><span style={{ marginRight: 3, borderRadius: 4, padding: '1px 3px', backgroundColor: HOLIDAY_COLORS.off.background, color: HOLIDAY_COLORS.off.color, fontWeight: 700 }}>休</span>法定节假日</span>
-              <span><span style={{ marginRight: 3, borderRadius: 4, padding: '1px 3px', backgroundColor: HOLIDAY_COLORS.work.background, color: HOLIDAY_COLORS.work.color, fontWeight: 700 }}>班</span>调休上班</span>
+              <span><span style={{ marginRight: 3, borderRadius: 4, padding: '1px 3px', backgroundColor: HOLIDAY_COLORS.work.background, color: HOLIDAY_COLORS.work.color, fontWeight: 700 }}>·</span>调休工作日</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 4, textAlign: 'center', fontSize: 11, marginBottom: 4, fontWeight: 500 }}>
               {WEEK_HEADERS.map((w, i) => <div key={w} style={{ color: (i === 5 || i === 6) ? C.weekend : C.sub }}>{w}</div>)}
@@ -4012,7 +4028,9 @@ export default function CalendarPage() {
                 const isRangeStart = cell.key === rangeStart;
                 const isSelectedDay = cell.key === selectedDay;
                 const inPreview  = previewRange.has(cell.key);
-                const displayTag  = inPreview ? selectedTag : tag;
+                const dailyContext = resolveDailyContext(cell.key, tag, internship);
+                const displayTag = inPreview ? selectedTag : tag ? calendarVisualTag(dailyContext) : undefined;
+                const displayRest = inPreview ? selectedTag === 'school' && dailyContext.awayInternship : dailyContext.livingKind === 'rest';
                 const displayMeta = displayTag ? tagMeta[displayTag] : null;
                 const confirmedState = normalizeConfirmedSelection(confirmedExpenses[cell.key]);
                 const hasReviewed = confirmedState.reviewed;
@@ -4053,8 +4071,8 @@ export default function CalendarPage() {
                   <button key={cell.key}
                     onClick={() => handleCellClick(cell.key)}
                     onMouseEnter={() => { if (selectMode === 'range' && rangeStart) setRangeHover(cell.key); }}
-                    aria-label={`${cell.key}${weatherTitle ? `，${weatherTitle}` : ''}${holidayMarker ? `，${holiday?.name ?? '法定节假日'}，${holidayMarker === '休' ? '休假' : '调休上班'}` : ''}`}
-                    title={[holidayMarker ? `${holiday?.name ?? '法定节假日'} · ${holidayMarker === '休' ? '休假' : '调休上班'}` : '', weatherTitle].filter(Boolean).join('；') || undefined}
+                    aria-label={`${cell.key}，${dailyContext.livingKind === 'rest' ? '休息' : dailyContext.label}${weatherTitle ? `，${weatherTitle}` : ''}${holidayMarker ? `，${holiday?.name ?? '法定节假日'}，${holidayMarker === '休' ? '休假' : '调休上班'}` : ''}`}
+                    title={[dailyContext.livingKind === 'rest' ? `${cityLabel(dailyContext.city)} · 休息` : dailyContext.label, holidayMarker ? `${holiday?.name ?? '法定节假日'} · ${holidayMarker === '休' ? '休假' : '调休上班'}` : '', weatherTitle].filter(Boolean).join('；') || undefined}
                     style={{ aspectRatio: '1', width: '100%', minWidth: 0, minHeight: 48, fontSize: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: borderStyle, backgroundColor, color: textColor, cursor: 'pointer', fontWeight: 500, transition: 'all 0.1s', outline: 'none', position: 'relative', ...radiusStyle }}
                   >
                     {connect?.right && (
@@ -4066,14 +4084,14 @@ export default function CalendarPage() {
                         {weatherEntries.slice(0, 2).map((entry, index) => <span key={index}>{weatherSymbol(entry.weather?.code)?.icon}</span>)}
                       </span>
                     </span>
-                    {resolveDailyContext(cell.key, tagMap[cell.key], internship).period && <span style={{ fontSize: 8 }}>{resolveDailyContext(cell.key, tagMap[cell.key], internship).label}</span>}
-                    {displayMeta && <span style={{ fontSize: 8, marginTop: 1 }}>{displayMeta.icon}</span>}
+                    {citySegmentLabels[cell.key] && <span style={{ fontSize: 9 }}>{citySegmentLabels[cell.key]}</span>}
+                    {displayMeta && <span aria-hidden="true" style={{ fontSize: 8, marginTop: 1 }}>{displayRest ? '☕' : displayMeta.icon}</span>}
                     {(isPayrollCutoff || holidayMarker) && (
                       <span style={{ position: 'absolute', top: 2, right: 3, display: 'inline-flex', alignItems: 'center', gap: 1, pointerEvents: 'none', zIndex: 2 }}>
                         {isPayrollCutoff && <span style={{ fontSize: 8, fontWeight: 700, color: C.blue }}>截</span>}
                         {holidayMarker && (
                           <span style={{ borderRadius: 4, padding: '1px 2px', backgroundColor: holidayMarker === '休' ? HOLIDAY_COLORS.off.background : HOLIDAY_COLORS.work.background, color: holidayMarker === '休' ? HOLIDAY_COLORS.off.color : HOLIDAY_COLORS.work.color, fontSize: 8, lineHeight: 1.1, fontWeight: 800 }}>
-                            {holidayMarker}
+                            {holidayMarker === '班' ? '·' : holidayMarker}
                           </span>
                         )}
                       </span>
@@ -4250,7 +4268,7 @@ function TripsSection({
   const outlookTravelTitles = useCalendarStore((state) => state.outlookTravelTitles);
   if (groups.length === 0) return null;
   return (
-    <Card title="本月出游" subtitle="若连续『游』其实是两次，点 ─ 切开">
+    <Card title="本月出游">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {groups.map((g) => (
           <div key={g.rawDates[0]} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

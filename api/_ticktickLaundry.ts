@@ -1,4 +1,3 @@
-import { taskLocationAllowed } from './_ticktickLocation.js';
 import { kv } from './_accountKv.js';
 import { upstream } from './_bonClothes.js';
 import type { SceneCity } from '../src/models/types.js';
@@ -8,7 +7,7 @@ import type { AppConfig, TagKind } from '../src/models/types.js';
 import type { OutlookAvailability } from '../src/utils/outlookCalendar.js';
 import { dayAvailability, type AvailabilityProfile } from './_dailyAvailability.js';
 import { cycleEnd, estimateTaskMinutes } from './_ticktickDailyPlan.js';
-import { calendarDateInTimeZone, isAlwaysTodayTask, routineOccurrenceKey, routineTaskDate, shiftTickTickDate,
+import { calendarDateInTimeZone, nextRoutineSceneDate, isAlwaysTodayTask, routineOccurrenceKey, routineTaskDate, shiftTickTickDate,
   type TickTickApi, type TickTickTask, type TickTickTripSource } from './_ticktickTrips.js';
 
 export const LAUNDRY_STATE_KEY = 'ticktick:laundry-weather:v1';
@@ -161,7 +160,7 @@ export function chooseLaundryDay(task: TickTickTask, target: string, options: Pl
   const choices: { date: string; rank: number[] }[] = [];
   for (const offset of WEATHER_DAY_OFFSETS) {
     const date = addDays(target, offset);
-    if (date < options.today || !taskLocationAllowed(task, options.calendarState, date)) continue;
+    if (date < options.today || nextRoutineSceneDate(task, options.calendarState, date) !== date) continue;
     if (!hasTime(task, date, options)) continue;
     const forecast = forecastFor(date);
     if (!forecast || options.now.getTime() - Date.parse(forecast.fetchedAt) < 0
@@ -231,7 +230,7 @@ async function moveLaundry(api: TickTickApi, original: TickTickTask, date: strin
   return true;
 }
 
-export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions & { connectionId: string; excludedTaskIds?: ReadonlySet<string> }) {
+export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions & { connectionId: string; excludedTaskIds?: ReadonlySet<string>; deferState?: (save: () => Promise<unknown>) => void; mode?: 'appointment' | 'travel' | 'weather' }) {
   options = { ...options, calendarState: resolveCalendarState(options.configState, options.calendarState) };
   const byId = new Map(options.tasks.map(task => [task.id, task]));
   const excluded = (task: TickTickTask) => {
@@ -244,7 +243,7 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
     return false;
   };
   const tasks = options.tasks.filter(task => isLaundryTask(task) && pending(task) && !excluded(task) && !isAlwaysTodayTask(task));
-  const managedTaskIds = new Set(tasks.map(task => task.id)), decisions: LaundryDecision[] = [];
+  const managedTaskIds = new Set(options.mode && options.mode !== 'weather' ? [] : tasks.map(task => task.id)), decisions: LaundryDecision[] = [];
   if (!tasks.length) return { updated: 0, managedTaskIds, decisions };
   const saved = await kv.get<LaundryState>(LAUNDRY_STATE_KEY);
   const state: LaundryState = saved?.connectionId === options.connectionId ? saved : { connectionId: options.connectionId, anchors: {} };
@@ -254,7 +253,8 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
     const anchor = laundryAnchor(task, tasks, options.history, state, options.now, options.availability?.events);
     if (!anchor) { decisions.push({ id: task.id, reason: '周期或日期不可用，保留原排期' }); continue; }
     // Persist the original cycle before any write; failed/partial retries cannot drift the window.
-    await kv.set(LAUNDRY_STATE_KEY, state);
+    if (options.deferState) { const snapshot = structuredClone(state); options.deferState(() => kv.set(LAUNDRY_STATE_KEY, snapshot)); }
+    else await kv.set(LAUNDRY_STATE_KEY, state);
     const day = routineTaskDate(task)!;
     const location = laundryLocation(options.configState, day, options.calendarState);
     const defaultStart = task.isAllDay === false ? Date.parse(task.startDate ?? task.dueDate ?? '') : Date.parse(`${day}T08:00:00+08:00`);
@@ -264,7 +264,8 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
       && defaultDay !== null && calendarDateInTimeZone(event.start) === defaultDay
       && Date.parse(event.end) > Date.parse(event.start)
       && (!anchor.completion || Date.parse(event.start) > Date.parse(anchor.completion)));
-    if (day >= options.today && taskLocationAllowed(task, options.calendarState, day) && appointments.length === 1 && Date.parse(appointments[0].start) !== defaultStart) {
+    if ((!options.mode || options.mode === 'appointment') && day >= options.today && appointments.length === 1 && Date.parse(appointments[0].start) !== defaultStart) {
+      managedTaskIds.add(task.id);
       // A same-day move is an explicit choice, even after the original slot has
       // passed or become busy. Do not let weather planning undo it indirectly.
       if (await moveLaundry(api, task, day, laundryNote(task, anchor, day, options,
@@ -273,10 +274,12 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
         reason: '保留 Outlook 当日调整后的洗衣时段' });
       continue;
     }
+    if (options.mode === 'appointment') continue;
     // The completion-based anchor defines the cycle target for every cadence,
     // including four days; travel, weather and availability still choose the date.
     const beforeTrip = laundryBeforeTrip(anchor.target, options.trips ?? [], calendarDateInTimeZone(anchor.completion, task.timeZone));
-    if (beforeTrip && taskLocationAllowed(task, options.calendarState, beforeTrip)) {
+    if (beforeTrip && (!options.mode || options.mode === 'travel')) {
+      managedTaskIds.add(task.id);
       if (beforeTrip < options.today) {
         decisions.push({ id: task.id, target: anchor.target, reason: '出行前一天已过，保留待办等待补做' });
         continue;
@@ -289,6 +292,7 @@ export async function syncLaundrySchedule(api: TickTickApi, options: PlanOptions
         : { id: task.id, target: anchor.target, date: beforeTrip, reason: '周期目标日位于出行期间，固定到出行前一天' });
       continue;
     }
+    if (options.mode === 'travel') continue;
     if (!WEATHER_DAY_OFFSETS.some(offset => laundryLocation(options.configState, addDays(anchor.target, offset), options.calendarState))) {
       decisions.push({ id: task.id, target: anchor.target, reason: '尚未设置居的城市，保留原排期' }); continue;
     }

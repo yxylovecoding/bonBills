@@ -1,3 +1,4 @@
+import type { SchedulingRuleId } from './schedulingRules.js';
 import type { TagKind } from '../models/types';
 
 export type OutlookCalendarKind = 'play' | 'class' | 'calendar' | 'work';
@@ -58,6 +59,8 @@ export function normalizeOutlookWishEvents(input: unknown): OutlookWishEvent[] {
     .map((event) => { const key = JSON.stringify([event.calendar, event.uid, event.recurrenceId ?? '']); return [key, { ...event, key }]; })).values()];
 }
 export interface OutlookSnapshot {
+  ruleOrder?: SchedulingRuleId[];
+  ruleCandidates?: Record<string, SchedulingRuleId[]>;
   startDate: string;
   endDate: string;
   tags: Record<string, OutlookTag>;
@@ -92,18 +95,19 @@ export function nextCalendarDate(value: string): string {
 }
 
 export function buildOutlookSnapshot(
-  events: OutlookDayEvent[], startDate: string, endDate: string, rules: OutlookRules,
+  events: OutlookDayEvent[], startDate: string, endDate: string, rules: OutlookRules, ruleOrder?: SchedulingRuleId[],
 ): OutlookSnapshot {
   if (!isCalendarDate(startDate) || !isCalendarDate(endDate) || startDate >= endDate
     || Date.parse(endDate) - Date.parse(startDate) > 740 * 86_400_000) {
     throw new Error('日历同步日期无效');
   }
   const tags: Record<string, OutlookTag> = {};
+  const ruleCandidates: Record<string, SchedulingRuleId[]> = {};
   const titlesByDay: Record<string, Set<string>> = {};
   const wishEvents: OutlookWishEvent[] = [];
   const homeTitles = new Set(rules.homeTitles.map((title) => title.trim()));
   const ignoredTitles = new Set(rules.ignoredPlayTitles.map((title) => title.trim()));
-  const priority = { intern: 1, home: 2, travel: 3 };
+  const priority = ruleOrder ? { intern: -ruleOrder.indexOf('calendar-intern'), home: -ruleOrder.indexOf('calendar-home'), travel: -ruleOrder.indexOf('calendar-travel') } : { intern: 1, home: 2, travel: 3 };
   for (const event of events) {
     if (!event.allDay || event.cancelled) continue;
     const title = event.title.trim();
@@ -120,12 +124,14 @@ export function buildOutlookSnapshot(
     const end = event.endDate < endDate ? event.endDate : endDate;
     if (start < end && tag === 'travel' && event.uid) wishEvents.push({ key: '', uid: event.uid, recurrenceId: event.recurrenceId, calendar: event.calendar, title, startDate: event.startDate, endDate: event.endDate });
     for (let day = start; day < end; day = nextCalendarDate(day)) {
+      const id: SchedulingRuleId = tag === 'travel' ? 'calendar-travel' : tag === 'home' ? 'calendar-home' : 'calendar-intern';
+      if (!(ruleCandidates[day] ??= []).includes(id)) ruleCandidates[day].push(id);
       if (!tags[day] || priority[tag] > priority[tags[day]]) tags[day] = tag;
       if (tag === 'travel' && title) (titlesByDay[day] ??= new Set()).add(title);
     }
   }
   const travelTitles = Object.fromEntries(Object.entries(titlesByDay).map(([day, titles]) => [day, [...titles].sort().join('、')]));
-  return { startDate, endDate, tags, travelTitles, ...(wishEvents.length ? { wishEvents: normalizeOutlookWishEvents(wishEvents) } : {}) };
+  return { startDate, endDate, tags, travelTitles, ...(ruleOrder ? { ruleOrder, ruleCandidates } : {}), ...(wishEvents.length ? { wishEvents: normalizeOutlookWishEvents(wishEvents) } : {}) };
 }
 
 export function normalizeOutlookTravelTitles(input: unknown): Record<string, string> {
@@ -171,7 +177,9 @@ export function reconcileOutlookSnapshot(
     const legacyManual = !previous && current[day] && current[day] !== 'school';
     // A trip's full dates come from Outlook; local work/week templates must not split it.
     const outlookTrip = next === 'travel' || previous?.tag === 'travel';
-    if (!outlookTrip && policy === 'manual' && (manuallyChanged || legacyManual)) continue;
+    const rule = next === 'travel' ? 'calendar-travel' : next === 'home' ? 'calendar-home' : 'calendar-intern';
+    const manualWins = snapshot.ruleOrder ? snapshot.ruleOrder.indexOf('calendar-manual') < snapshot.ruleOrder.indexOf(rule) : !outlookTrip && policy === 'manual';
+    if (manualWins && (manuallyChanged || legacyManual)) continue;
     const previousTag = previous && (!manuallyChanged || current[day] === previous.tag) ? previous.previousTag : current[day] ?? null;
     tagMap[day] = next;
     // Do not restore an old local trip date after this Outlook trip moves or is cancelled.

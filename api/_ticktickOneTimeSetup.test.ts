@@ -38,7 +38,7 @@ describe('定时同步与已结束的一次性安排', () => {
     }
     expect(replan).toHaveBeenCalledTimes(2);
     expect(replan).toHaveBeenCalledWith({ scheduled: true });
-    expect(get).not.toHaveBeenCalled();
+    expect(get.mock.calls.every(([key]) => key === 'ticktick:connection:v1')).toBe(true);
     expect(set).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -47,7 +47,7 @@ describe('定时同步与已结束的一次性安排', () => {
     replan.mockResolvedValue({ busy: true });
     expect(await request('hourly-replan')).toEqual({ status: 200,
       body: { ok: true, busy: false, deferred: true, dailyPlan: { deferred: true } } });
-    expect(get).not.toHaveBeenCalled();
+    expect(get.mock.calls.every(([key]) => key === 'ticktick:connection:v1')).toBe(true);
     expect(fetch).not.toHaveBeenCalled();
   });
 

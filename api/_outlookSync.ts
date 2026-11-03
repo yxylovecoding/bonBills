@@ -4,6 +4,7 @@ import { applyOutlookSnapshotToState, isCalendarDate, type OutlookConflictPolicy
 import { decryptOutlookConnection, readOutlookSnapshot } from './_outlookCalendar.js';
 
 export const OUTLOOK_CONNECTION_KEY = 'outlook:calendar-connection:v1';
+export const OUTLOOK_READ_STATUS_KEY = 'outlook:calendar-read-status:v1';
 const SNAPSHOTS_KEY = 'outlook:calendar-snapshots:v1';
 const CALENDAR_KEY = 'calendar-tags';
 const WRITE_LOCK_KEY = 'outlook:calendar-write:lock';
@@ -36,7 +37,7 @@ function asCalendarState(value: unknown): Record<string, unknown> {
 
 function sliceSnapshot(snapshot: OutlookSnapshot, startDate: string, endDate: string): OutlookSnapshot {
   const inRange = ([day]: [string, unknown]) => day >= startDate && day < endDate;
-  return { startDate, endDate, tags: Object.fromEntries(Object.entries(snapshot.tags).filter(inRange)),
+  return { startDate, endDate, ruleOrder: snapshot.ruleOrder, ruleCandidates: Object.fromEntries(Object.entries(snapshot.ruleCandidates ?? {}).filter(inRange)), tags: Object.fromEntries(Object.entries(snapshot.tags).filter(inRange)),
     travelTitles: Object.fromEntries(Object.entries(snapshot.travelTitles ?? {}).filter(inRange)) };
 }
 
@@ -53,9 +54,9 @@ function replaceSnapshotWindow(previous: OutlookSnapshot[], next: OutlookSnapsho
   const merged: OutlookSnapshot[] = [];
   for (const snapshot of [...snapshots, next].sort((a, b) => a.startDate.localeCompare(b.startDate))) {
     const last = merged.at(-1);
-    if (last && last.endDate === snapshot.startDate && Date.parse(snapshot.endDate) - Date.parse(last.startDate) <= 740 * 86_400_000) {
+    if (last && JSON.stringify(last.ruleOrder) === JSON.stringify(snapshot.ruleOrder) && last.endDate === snapshot.startDate && Date.parse(snapshot.endDate) - Date.parse(last.startDate) <= 740 * 86_400_000) {
       merged[merged.length - 1] = { startDate: last.startDate, endDate: snapshot.endDate,
-        tags: { ...last.tags, ...snapshot.tags }, travelTitles: { ...last.travelTitles, ...snapshot.travelTitles } };
+        ruleOrder: snapshot.ruleOrder, ruleCandidates: { ...last.ruleCandidates, ...snapshot.ruleCandidates }, tags: { ...last.tags, ...snapshot.tags }, travelTitles: { ...last.travelTitles, ...snapshot.travelTitles } };
     } else merged.push(snapshot);
   }
   return merged;
@@ -84,13 +85,14 @@ export async function saveOutlookSnapshot(connection: OutlookConnection, snapsho
       snapshots: replaceSnapshotWindow(previous?.snapshots ?? [], archived) };
     // Publish the calendar and cache together; uploads can never see only half of this update.
     await kv.mset({ [CALENDAR_KEY]: calendar, [SNAPSHOTS_KEY]: snapshots,
+      [OUTLOOK_READ_STATUS_KEY]: { connectionId: connection.id, syncedAt: new Date(requestedAt).toISOString() },
       ...(replaceConnection ? { [OUTLOOK_CONNECTION_KEY]: connection } : {}) });
     return calendar;
   });
 }
 
 export async function disconnectOutlookCalendar() {
-  return withCalendarWriteLock(() => kv.del(OUTLOOK_CONNECTION_KEY, SNAPSHOTS_KEY));
+  return withCalendarWriteLock(() => kv.del(OUTLOOK_CONNECTION_KEY, SNAPSHOTS_KEY, OUTLOOK_READ_STATUS_KEY));
 }
 
 export async function saveUploadedCalendarState(value: unknown) {
@@ -112,7 +114,7 @@ export function outlookSyncError(error: unknown): string {
     ? error.message : 'Outlook 暂不可用，请稍后重试';
 }
 
-export async function syncOutlookCalendar(today: string, secret: string) {
+export async function syncOutlookCalendar(today: string, secret: string, options: { persist?: boolean } = {}) {
   try {
     const connection = await kv.get<OutlookConnection>(OUTLOOK_CONNECTION_KEY);
     if (!connection) return { connected: false as const };
@@ -122,9 +124,11 @@ export async function syncOutlookCalendar(today: string, secret: string) {
     const date = Date.parse(`${today}T00:00:00Z`);
     const day = (offset: number) => new Date(date + offset * 86_400_000).toISOString().slice(0, 10);
     const snapshot = await readOutlookSnapshot(input, day(-30), day(700), { startDate: day(-14), endDate: day(31) });
-    await saveOutlookSnapshot(connection, snapshot, input.policy, requestedAt);
-    return { connected: true as const, availability: snapshot.availability };
+    if (options.persist !== false) await saveOutlookSnapshot(connection, snapshot, input.policy, requestedAt);
+    return { connected: true as const, availability: snapshot.availability, snapshot, connection, policy: input.policy, requestedAt };
   } catch (error) {
+    const connection = await kv.get<OutlookConnection>(OUTLOOK_CONNECTION_KEY);
+    if (connection) await kv.set(OUTLOOK_READ_STATUS_KEY, { connectionId: connection.id, error: outlookSyncError(error) });
     throw new Error(outlookSyncError(error));
   }
 }
