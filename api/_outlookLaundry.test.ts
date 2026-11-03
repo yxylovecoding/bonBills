@@ -93,10 +93,12 @@ it('创建请求响应丢失后通过稳定标识找回，下一实际完成周�
   expect(await syncLaundryOutlook(api, { ...options(), today: '2026-10-08', now: new Date('2026-10-08T04:00:00Z') }))
     .toMatchObject({ created: 1 }); expect(events.size).toBe(2);
 });
-it('普通同名日程不被认领，缺失的自动日程恢复一次且使用新的幂等标识', async () => {
+it('普通同名日程不被认领，待办改期才恢复缺失预约并使用新的幂等标识', async () => {
   events.set('manual', { id: 'manual', subject: '洗衣服', start: {}, end: {} });
   await syncLaundryOutlook(api, options()); expect(events.has('manual')).toBe(true); expect(events.size).toBe(2);
   events.delete('event-2');
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ created: 0, skipped: 1 });
+  task.startDate = task.dueDate = '2026-10-09T00:00:00Z';
   expect(await syncLaundryOutlook(api, options())).toMatchObject({ created: 1 });
   await syncLaundryOutlook(api, options()); expect(writes).toHaveLength(2);
   expect(writes[1].body.transactionId).not.toBe(writes[0].body.transactionId);
@@ -226,10 +228,11 @@ it('Make 跨日同排期复用验证；变更核对归属并更新同一事件',
   expect(await syncLaundryOutlook(api, options())).toMatchObject({ error: expect.stringContaining('参与人') }); expect(writes).toHaveLength(2);
 });
 
-it.each(['洗衣服', '电动车充电', '洗头', '接电动车'])('%s 连续32天每天四轮不重复写入，只有每周一次单条核验', async title => {
+it.each(['microsoft', 'make'].flatMap(provider => ['洗衣服', '电动车充电', '洗头', '接电动车'].map(title => ({ provider, title }))))
+('$provider $title 连续32天每天四轮，首次成功后无变化零调用', async ({ provider, title }) => {
   task = { ...task, title, isAllDay: true, startDate: '2026-11-20T00:00:00+08:00', dueDate: '2026-11-20T00:00:00+08:00',
     ...(title === '接电动车' ? { content: 'BonBills charging pickup: life/charge/initial' } : {}) };
-  const relay = makeRelay();
+  const fetcher = provider === 'make' ? makeRelay() : vi.mocked(globalThis.fetch);
   for (let day = 0; day < 32; day++) {
     const today = new Date(Date.parse('2026-10-05T00:00:00Z') + day * 86400000).toISOString().slice(0, 10);
     for (const time of ['05:01', '12:00', '17:00', '20:00']) {
@@ -240,24 +243,25 @@ it.each(['洗衣服', '电动车充电', '洗头', '接电动车'])('%s 连续32
       else await syncElectricVehiclePickup(api, { ...input, mode: 'outlook' });
     }
   }
-  // Initial list + POST + readback, then four weekly GETs: 7, not 96 calls.
-  expect(relay).toHaveBeenCalledTimes(7);
-  expect(relay.mock.calls.map(([, init]) => JSON.parse(String(init.body)).method)).toEqual(['GET', 'POST', 'GET', 'GET', 'GET', 'GET', 'GET']);
+  // Only the initial list + POST + readback; all 127 later runs make no calls.
+  expect(fetcher).toHaveBeenCalledTimes(3);
+  expect(fetcher.mock.calls.map(([, init]) => provider === 'make' ? JSON.parse(String(init?.body)).method : init?.method ?? 'GET'))
+    .toEqual(['GET', 'POST', 'GET']);
   expect(writes.map(write => write.method)).toEqual(['POST']);
   expect(data.get(OUTLOOK_WRITE_KEY).syncUsage[title]).toMatchObject({ reads: 0, creates: 0, updates: 0, deletes: 0, skipped: 1, failed: false });
 });
 
-it('预约当天只核验一次，手动同日改时保留，无变化不写、不重复回读', async () => {
+it('预约当天也不额外调用，Outlook 手动改时保持原状', async () => {
   const relay = makeRelay();
   await syncLaundryOutlook(api, options());
   events.get('event-1').start.dateTime = '2026-10-08T09:00:00';
   events.get('event-1').end.dateTime = '2026-10-08T09:50:00';
   const today = '2026-10-08', input = { ...options(), today, now: new Date(`${today}T05:01:00+08:00`) };
-  expect(await syncLaundryOutlook(api, input)).toMatchObject({ created: 0, updated: 0, verifiedCount: 1 });
-  expect(relay).toHaveBeenCalledTimes(4);
-  expect(data.get(OUTLOOK_WRITE_KEY).syncUsage['洗衣服']).toMatchObject({ reads: 1, creates: 0, updates: 0 });
+  expect(await syncLaundryOutlook(api, input)).toMatchObject({ created: 0, updated: 0, skipped: 1 });
+  expect(relay).toHaveBeenCalledTimes(3);
+  expect(data.get(OUTLOOK_WRITE_KEY).syncUsage['洗衣服']).toMatchObject({ reads: 0, creates: 0, updates: 0 });
   await syncLaundryOutlook(api, { ...input, now: new Date(`${today}T12:00:00+08:00`) });
-  expect(relay).toHaveBeenCalledTimes(4); expect(writes).toHaveLength(1);
+  expect(relay).toHaveBeenCalledTimes(3); expect(writes).toHaveLength(1);
   expect(events.get('event-1').start.dateTime).toBe('2026-10-08T09:00:00');
 });
 
@@ -271,29 +275,34 @@ it('改期只查一次列表、更新一次并回读，之后跨日不再调用'
   expect(relay).toHaveBeenCalledTimes(6); expect(events.size).toBe(1);
 });
 
-it('预约当天发现缺失仍查重补建一次，后续无重复', async () => {
+it('Outlook 预约被删除时不主动补建，对应待办改期后才查重恢复', async () => {
   const relay = makeRelay();
   await syncLaundryOutlook(api, options()); events.clear();
   const input = { ...options(), today: '2026-10-08', now: new Date('2026-10-08T05:01:00+08:00') };
+  expect(await syncLaundryOutlook(api, input)).toMatchObject({ created: 0, skipped: 1 });
+  expect(relay).toHaveBeenCalledTimes(3); expect(events.size).toBe(0);
+  task.startDate = task.dueDate = '2026-10-10T00:00:00Z';
+  input.plannedDates.wash = '2026-10-10';
   expect(await syncLaundryOutlook(api, input)).toMatchObject({ created: 1 });
   expect(relay).toHaveBeenCalledTimes(7); expect(events.size).toBe(1);
   await syncLaundryOutlook(api, input);
   expect(relay).toHaveBeenCalledTimes(7); expect(writes).toHaveLength(2);
 });
 
-it('重连不能沿用旧连接的缓存；失败的单条核验不丢失成功记录或重放写入', async () => {
+it('相同日历重连不触发调用；待办改期读取失败保留成功记录，重试只更新一次', async () => {
   const relay = makeRelay();
   await syncLaundryOutlook(api, options());
   data.set(OUTLOOK_WRITE_KEY, { ...data.get(OUTLOOK_WRITE_KEY), id: 'new-connection' });
-  await syncLaundryOutlook(api, options()); expect(relay).toHaveBeenCalledTimes(4);
+  await syncLaundryOutlook(api, options()); expect(relay).toHaveBeenCalledTimes(3);
+  task.startDate = task.dueDate = '2026-10-10T00:00:00Z';
   const input = { ...options(), today: '2026-10-08', now: new Date('2026-10-08T05:01:00+08:00') };
   relay.mockResolvedValueOnce(json({ protocol: 'bonbills-outlook-v1', status: 503, body: {} }));
   expect(await syncLaundryOutlook(api, input)).toHaveProperty('error');
   const entry = Object.values<any>([...data.entries()].find(([key]) => key.startsWith('outlook:laundry-events:v1:'))![1].entries)[0];
   expect(entry.verifiedPlan).toBeDefined();
-  expect(await syncLaundryOutlook(api, input)).toMatchObject({ updated: 0, verifiedCount: 1 });
+  expect(await syncLaundryOutlook(api, input)).toMatchObject({ updated: 1, verifiedCount: 1 });
   await syncLaundryOutlook(api, input);
-  expect(relay).toHaveBeenCalledTimes(6); expect(writes).toHaveLength(1);
+  expect(relay).toHaveBeenCalledTimes(7); expect(writes.map(write => write.method)).toEqual(['POST', 'PATCH']);
 });
 
 it('同轮同类多个待办共用查重列表，后续待办能看到本轮新建结果', async () => {
@@ -305,6 +314,45 @@ it('同轮同类多个待办共用查重列表，后续待办能看到本轮新�
   expect(await syncLaundryOutlook(api, input)).toMatchObject({ created: 2 });
   expect(relay).toHaveBeenCalledTimes(5); expect(events.size).toBe(2);
   await syncLaundryOutlook(api, input); expect(relay).toHaveBeenCalledTimes(5);
+  task.startDate = task.dueDate = '2026-10-10T00:00:00Z';
+  input.plannedDates.wash = '2026-10-10';
+  const untouched = structuredClone(events.get('event-2'));
+  expect(await syncLaundryOutlook(api, input)).toMatchObject({ updated: 1, skipped: 1 });
+  expect(relay).toHaveBeenCalledTimes(8);
+  expect(events.get('event-2')).toEqual(untouched);
+  expect(writes.map(write => write.method)).toEqual(['POST', 'POST', 'PATCH']);
+});
+
+it('显隐、备注、优先级变化不触发 Outlook，已过期的微软令牌也不需要刷新', async () => {
+  await syncLaundryOutlook(api, options());
+  const fetcher = vi.mocked(globalThis.fetch), calls = fetcher.mock.calls.length;
+  data.set(OUTLOOK_WRITE_KEY, { ...data.get(OUTLOOK_WRITE_KEY),
+    encrypted: sealOutlookWrite({ access_token: 'ACCESS', refresh_token: 'REFRESH', expiresAt: 0 }) });
+  task.tags = ['routine', 'bon-hidden']; task.priority = 5; task.content = '(15m)\n新的洗衣安排原因';
+  const original = structuredClone(task);
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ skipped: 1 });
+  expect(fetcher).toHaveBeenCalledTimes(calls);
+  expect(writes).toHaveLength(1); expect(task).toEqual(original);
+});
+
+it('充电待办改期不触发洗衣、洗头的 Outlook 调用', async () => {
+  const relay = makeRelay();
+  const charging = { ...task, id: 'charge', title: '电动车充电' }, hair = { ...task, id: 'hair', title: '洗头' };
+  const tasks = [task, charging, hair];
+  vi.mocked(api.getTask).mockImplementation(async (_project, id) => structuredClone(tasks.find(candidate => candidate.id === id)!));
+  const sync = async () => {
+    const input = { ...options(), tasks, history: [], excludedTaskIds: new Set<string>() };
+    await syncLaundryOutlook(api, input);
+    await syncChargingOutlook(api, input);
+    await syncHairWashOutlook(api, input);
+  };
+  await sync(); expect(relay).toHaveBeenCalledTimes(9);
+  const laundry = structuredClone(events.get('event-1')), hairEvent = structuredClone(events.get('event-3'));
+  charging.startDate = charging.dueDate = '2026-10-10T00:00:00Z';
+  await sync(); expect(relay).toHaveBeenCalledTimes(12);
+  expect(events.get('event-1')).toEqual(laundry); expect(events.get('event-3')).toEqual(hairEvent);
+  expect(events.get('event-2').start.dateTime).toBe('2026-10-10T08:00:00');
+  await sync(); expect(relay).toHaveBeenCalledTimes(12);
 });
 
 it.each(['洗衣服', '电动车充电'])('%s 保留北京时间同日移动，并继续跟随跨日改期', async title => {
@@ -327,7 +375,7 @@ it.each(['洗衣服', '电动车充电'])('%s 保留北京时间同日移动，�
   expect(events.size).toBe(1);
 });
 
-it('充电按当前待办创建，缺失可恢复，完成后的下一周期保留历史日程', async () => {
+it('充电按当前待办创建，丢失响应可恢复，完成后的下一周期保留历史日程', async () => {
   task.title = '电动车充电'; task.isAllDay = true;
   const history: TickTickTask[] = [];
   const sync = (overrides = {}) => syncChargingOutlook(api, { ...options(), history, excludedTaskIds: new Set(), ...overrides });
@@ -339,9 +387,6 @@ it('充电按当前待办创建，缺失可恢复，完成后的下一周期保�
   expect(await sync()).toHaveProperty('error');
   expect(await sync()).toMatchObject({ created: 0 });
   expect(writes).toHaveLength(1);
-  events.clear();
-  expect(await sync()).toMatchObject({ created: 1 });
-  expect(writes[1].body.transactionId).not.toBe(writes[0].body.transactionId);
   expect(task).toEqual(original);
   history.push({ ...task, status: 2, completedTime: '2026-10-08T13:00:00Z' });
   task.startDate = task.dueDate = '2026-10-13T00:00:00Z';
@@ -370,6 +415,7 @@ it('充电不处理模板后代、已完成、过去、无日期或不关我事�
 it('充电同步成功不能清除仍失败的洗衣状态，洗衣恢复后才清除', async () => {
   await syncLaundryOutlook(api, options());
   events.get('event-1').attendees = [{}];
+  task.startDate = task.dueDate = '2026-10-10T00:00:00Z';
   expect(await syncLaundryOutlook(api, options())).toHaveProperty('error');
   const original = structuredClone(task);
   task = { ...task, id: 'charge', title: '电动车充电' };
@@ -415,6 +461,8 @@ it('洗头创建响应丢失后找回，同周期改期更新原预约，同日�
   expect(await sync()).toMatchObject({ created: 0, updated: 0 });
   expect(events.get('event-1').start.dateTime).toBe('2026-10-09T21:00:00');
   events.clear();
+  expect(await sync()).toMatchObject({ created: 0, skipped: 1 });
+  task.startDate = task.dueDate = '2026-10-10T00:00:00Z';
   expect(await sync()).toMatchObject({ created: 1 });
   expect(writes.at(-1)!.body.transactionId).not.toBe(transactionId);
   expect(await sync()).toMatchObject({ created: 0, updated: 0 });
@@ -466,6 +514,7 @@ it('洗头同步失败保持独立错误，充电成功不能掩盖', async () =
   const sync = () => syncHairWashOutlook(api, { ...options(), history: [], excludedTaskIds: new Set() });
   await sync();
   events.get('event-1').attendees = [{}];
+  task.startDate = task.dueDate = '2026-10-10T00:00:00Z';
   expect(await sync()).toHaveProperty('error');
   const original = structuredClone(task);
   task = { ...task, id: 'charge', title: '电动车充电' };
@@ -517,9 +566,10 @@ it.each([
   await syncLaundryOutlook(api, options());
   const protectedEvent = linkedAppointment('protected', '2026-10-09', fields);
   events.set('protected', protectedEvent);
-  expect(await syncLaundryOutlook(api, options())).toMatchObject({ deleted: 0 });
+  task.startDate = task.dueDate = '2026-10-10T00:00:00Z';
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ updated: 1, deleted: 0 });
   expect(events.get('protected')).toEqual(protectedEvent);
-  expect(writes).toHaveLength(1);
+  expect(writes.map(write => write.method)).toEqual(['POST', 'PATCH']);
 });
 it('新排期更新失败时保留旧副本；成功回读后才删除', async () => {
   await syncLaundryOutlook(api, options());
@@ -534,18 +584,22 @@ it('新排期更新失败时保留旧副本；成功回读后才删除', async (
 });
 it('删除遇到并发变更不缓存为成功，下次核对后继续清理', async () => {
   await syncLaundryOutlook(api, options());
-  events.set('old-copy', linkedAppointment('old-copy')); rejectPatch = true;
+  events.set('old-copy', linkedAppointment('old-copy'));
+  task.startDate = task.dueDate = '2026-10-10T00:00:00Z';
+  const upstream = globalThis.fetch;
+  vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => init?.method === 'DELETE' ? json({}, 412) : upstream(input, init));
   expect(await syncLaundryOutlook(api, options())).toMatchObject({ error: expect.stringContaining('412') });
   expect(events.size).toBe(2);
   const state = [...data.entries()].find(([key]) => key.startsWith('outlook:laundry-events:v1:'))![1];
   expect(Object.values<any>(state.entries)[0].verifiedPlan).toBeUndefined();
-  rejectPatch = false;
+  vi.stubGlobal('fetch', upstream);
   expect(await syncLaundryOutlook(api, options())).toMatchObject({ created: 0, deleted: 1 });
   expect(events.size).toBe(1);
 });
 it('删除前再次读取，副本新增参与人或任务完成时保留日程', async () => {
   await syncLaundryOutlook(api, options());
   events.set('old-copy', linkedAppointment('old-copy'));
+  task.startDate = task.dueDate = '2026-10-10T00:00:00Z';
   const upstream = globalThis.fetch;
   vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
     if (new URL(input).pathname.endsWith('/old-copy')) events.get('old-copy').attendees = [{}];
@@ -553,6 +607,7 @@ it('删除前再次读取，副本新增参与人或任务完成时保留日程'
   });
   expect(await syncLaundryOutlook(api, options())).toMatchObject({ deleted: 0 });
   events.get('old-copy').attendees = [];
+  task.startDate = task.dueDate = '2026-10-11T00:00:00Z';
   vi.stubGlobal('fetch', upstream);
   vi.mocked(api.getTask).mockResolvedValueOnce(structuredClone(task)).mockResolvedValueOnce(structuredClone(task))
     .mockResolvedValueOnce({ ...task, status: 2 });
@@ -563,6 +618,7 @@ it('删除前再次读取，副本新增参与人或任务完成时保留日程'
 it('删除成功响应仍需确认日程确实不存在，保留失败供下次重试', async () => {
   await syncLaundryOutlook(api, options());
   events.set('old-copy', linkedAppointment('old-copy'));
+  task.startDate = task.dueDate = '2026-10-10T00:00:00Z';
   const upstream = globalThis.fetch;
   vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => init?.method === 'DELETE'
     ? new Response(null, { status: 204 }) : upstream(input, init));
@@ -572,6 +628,7 @@ it('删除成功响应仍需确认日程确实不存在，保留失败供下次�
 it('分页读取完整后才开始写入，不能跳过第二页的旧副本', async () => {
   await syncLaundryOutlook(api, options());
   events.set('old-copy', linkedAppointment('old-copy'));
+  task.startDate = task.dueDate = '2026-10-10T00:00:00Z';
   const upstream = globalThis.fetch;
   vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
     const url = new URL(input);
@@ -635,18 +692,18 @@ it.each([
 it('最新预约回读失败或分页不完整时不删除旧副本', async () => {
   await syncLaundryOutlook(api, options());
   events.set('old-copy', linkedAppointment('old-copy'));
+  task.startDate = task.dueDate = '2026-10-10T00:00:00Z';
   const upstream = globalThis.fetch;
-  let reads = 0;
   vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
-    if (new URL(input).pathname.endsWith('/event-1') && ++reads === 2) return json({}, 503);
+    if (new URL(input).pathname.endsWith('/event-1') && (!init?.method || init.method === 'GET')) return json({}, 503);
     return upstream(input, init);
   });
   expect(await syncLaundryOutlook(api, options())).toHaveProperty('error');
-  expect(writes).toHaveLength(1);
+  expect(writes.map(write => write.method)).toEqual(['POST', 'PATCH']);
   vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => new URL(input).pathname.endsWith('/events')
     ? json({ value: [...events.values()], '@odata.nextLink': 'https://example.com/me/calendars/calendar/events' }) : upstream(input, init));
   expect(await syncLaundryOutlook(api, options())).toMatchObject({ error: expect.stringContaining('分页地址无效') });
-  expect(events.size).toBe(2); expect(writes).toHaveLength(1);
+  expect(events.size).toBe(2); expect(writes).toHaveLength(2);
 });
 it('Make 旧缓存升级后同日查重并删除旧预约，成功后才复用缓存', async () => {
   await syncLaundryOutlook(api, options());

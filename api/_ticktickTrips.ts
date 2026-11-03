@@ -160,7 +160,7 @@ export interface TickTickSyncResult {
 }
 
 export interface TickTickRoutineTargets {
-  home: string;
+  home: string | null;
   school: string | null;
   travel: string | null;
 }
