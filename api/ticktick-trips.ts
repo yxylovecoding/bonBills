@@ -1,3 +1,4 @@
+import { syncEyeDrops } from './_ticktickEyeDrops.js';
 import { OUTLOOK_WRITE_KEY } from './_outlookWrite.js';
 import { syncElectricVehiclePickup } from './_electricVehiclePickup.js';
 import { syncTickTickLocationVisibility } from './_ticktickLocationVisibility.js';
@@ -120,6 +121,10 @@ async function runSyncInner(allowDisconnected: boolean) {
       const alwaysToday = await syncTickTickAlwaysToday(api, { tasks: sourceTasks, today, calendarState });
       const timedTasks = await syncTimedTaskVisibility(api, { tasks: sourceTasks, timeZone: connection.timeZone, projectId: connection.projectId });
       await syncTickTickLocationVisibility(api, { tasks: sourceTasks, calendarState });
+      const eyeTasks = await readAllTickTickTasks(api, [0]);
+      await syncEyeDrops(api, eyeTasks, new Date(), connection.timeZone);
+      await syncTimedTaskVisibility(api, { tasks: eyeTasks, timeZone: connection.timeZone, projectId: connection.projectId });
+      sourceTasks.splice(0, sourceTasks.length, ...eyeTasks);
       const dailyPlan: DailyPlanState = savedPlan?.connectionId === connectionId
         ? { ...savedPlan, history: [...savedPlan.history], deadlines: { ...savedPlan.deadlines } }
         : { connectionId, history: [], deadlines: {} };

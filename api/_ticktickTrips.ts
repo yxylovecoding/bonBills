@@ -1,3 +1,4 @@
+import { isEyeDrops } from './_ticktickEyeDrops.js';
 import { collectCompleted } from './_ticktickCompleted.js';
 import { schedulingStage } from './_schedulingFailure.js';
 import { createCipheriv, createDecipheriv, createHash, createSecretKey, randomBytes, type KeyObject } from 'node:crypto';
@@ -849,7 +850,7 @@ export function nextRoutineSceneDate(task: TickTickTask, calendarState: unknown,
 export async function syncTickTickAlwaysToday(api: TickTickApi, options: { tasks?: TickTickTask[]; today?: string; calendarState?: unknown } = {}) {
   const tasks = options.tasks ?? await readAllTickTickTasks(api, [0]);
   const today = options.today ?? calendarDateInTimeZone(new Date().toISOString())!;
-  const candidates = tasks.filter(task => isAlwaysTodayTask(task) && (task.status ?? 0) === 0 && !task.completedTime);
+  const candidates = tasks.filter(task => !isEyeDrops(task) && isAlwaysTodayTask(task) && (task.status ?? 0) === 0 && !task.completedTime);
   if (!candidates.length) return { matched: 0, updated: 0 };
   const calendarState = options.calendarState ?? await readRoutineCalendarState();
   // A repeating task can already be pending again with a new ID after completion.
@@ -947,7 +948,7 @@ export async function syncTickTickRoutines(options: {
     return false;
   };
   const candidates = allTasks
-    .filter((task) => (task.status ?? 0) === 0 && !isExcluded(task) && !isAlwaysTodayTask(task))
+    .filter((task) => (task.status ?? 0) === 0 && !isExcluded(task) && !isAlwaysTodayTask(task) && !isEyeDrops(task))
     .map((task) => {
       const scenes = routineScenes(task);
       const recurrence = scenes.includes('school') || scenes.includes('travel') || taskCityTags(task, calendarState).length
@@ -1029,6 +1030,7 @@ export async function syncTickTickRoutines(options: {
     history: [...options.completedTasks ?? [], ...completedToday], calendarState, today, excludedTaskIds });
   for (const [id, date] of targetDates) {
     const task = tasksById.get(id)!;
+    if (isEyeDrops(task)) continue;
     const target = boundedDate(task, date);
     if (!target) continue;
     const updated = await updateRoutineTaskDate(api, task, target, true);
@@ -1042,6 +1044,7 @@ export async function syncTickTickRoutines(options: {
   const hairWashDate = anchor ? routineTaskDate(anchor) : null;
   if (hairWashDate && isValidCalendarDate(hairWashDate)) {
     for (const task of hairWashFollowers) {
+      if (isEyeDrops(task)) continue;
       const current = tasksById.get(task.id) ?? task;
       const target = boundedDate(current, hairWashDate);
       const updated = target ? await updateRoutineTaskDate(api, current, target, true) : null;

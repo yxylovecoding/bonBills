@@ -1,3 +1,4 @@
+import { isEyeDrops } from './_ticktickEyeDrops.js';
 import ICAL from 'ical.js';
 import type { OutlookAvailability } from '../src/utils/outlookCalendar.js';
 import type { TickTickPlanDetails } from '../src/utils/tickTickPlanDetails.js';
@@ -168,7 +169,7 @@ export function planTickTickDay(options: {
     }
     return false;
   };
-  const protectedTask = (task: TickTickTask) => excluded(task)
+  const protectedTask = (task: TickTickTask) => isEyeDrops(task) || excluded(task)
     || isAlwaysTodayTask(task)
     || Boolean(options.movableTaskIds && !options.movableTaskIds.has(task.id))
     || !ordinary(task) || task.isAllDay === false || routineRecurrence(task.repeatFlag) === 'unknown'

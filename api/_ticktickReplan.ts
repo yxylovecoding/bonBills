@@ -1,3 +1,4 @@
+import { syncEyeDrops } from './_ticktickEyeDrops.js';
 import { syncTickTickLocationVisibility } from './_ticktickLocationVisibility.js';
 import { syncTickTickTemplates } from './_ticktickTemplateSync.js';
 import { automaticRestWindow } from '../src/utils/schedulerTime.js';
@@ -81,6 +82,8 @@ async function replanRemainingTodayInner(options: { scheduled?: boolean }) {
     // Visibility updates have finished and been verified before any retryable
     // reads below. A retry re-reads tasks and recalculates visibility from now.
     const tasks = await schedulingStage('tasks-read', true, () => readAllTickTickTasks(api, [0]));
+    const eyeDrops = await syncEyeDrops(api, tasks, new Date(), connection.timeZone);
+    await syncTimedTaskVisibility(api, { tasks, timeZone: connection.timeZone });
     const state: DailyPlanState = saved?.connectionId === connectionId
       ? structuredClone(saved) : { connectionId, history: [], deadlines: {} };
     const today = calendarDateInTimeZone(new Date().toISOString())!;
@@ -153,7 +156,7 @@ async function replanRemainingTodayInner(options: { scheduled?: boolean }) {
       }
     }
     await kv.set(DAILY_PLAN_KEY, state);
-    return { busy: false as const, dailyPlan: plan.summary, details: state.briefing, updated: changes.length, timedTasks, alwaysToday, templateSync };
+    return { busy: false as const, dailyPlan: plan.summary, details: state.briefing, updated: changes.length, timedTasks, alwaysToday, templateSync, eyeDrops };
   } finally {
     await releaseTickTickLock(lock);
   }
