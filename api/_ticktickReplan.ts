@@ -102,6 +102,7 @@ async function replanRemainingTodayInner(options: { scheduled?: boolean }) {
     const alwaysToday = await syncTickTickAlwaysToday(api, { tasks, today, calendarState });
     await syncTickTickLocationVisibility(api, { tasks, calendarState, now });
     const excluded = getTickTickRoutineExcludedTaskIds(template, { ...trips, instances: trips?.instances ?? {} });
+    for (const id of templateSync?.managedTaskIds ?? []) excluded.add(id);
     // Preserve protected ancestors as well as individually managed tasks.
     const byId = new Map(tasks.map(task => [task.id, task]));
     const allowed = new Map(tasks.filter(task => {

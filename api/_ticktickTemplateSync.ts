@@ -1,10 +1,10 @@
 import { kv } from './_accountKv.js';
 import { randomBytes } from 'node:crypto';
-import { readAllTickTickTasks, type TickTickTask, type TickTickOpenApiClient } from './_ticktickTrips.js';
+import { readAllTickTickTasks, relativeStageDate, updateRoutineTaskDate, calendarDateInTimeZone, type TickTickTask, type TickTickOpenApiClient } from './_ticktickTrips.js';
 
 type Shared = { title: string; content: string; desc: string; kind: string; items: string[] };
 type Pair = { ids: [string, string]; baseline?: Shared };
-type State = { pairs: Record<string, Pair>; movingInstances?: Record<string, Record<string, string>> };
+type State = { departureDates?: Record<string, { suffix: string; date: string }>; pairs: Record<string, Pair>; movingInstances?: Record<string, Record<string, string>> };
 const keys = ['🪥漱', '🧴护', '💄妆', '🛀浴', '📷相机', '🧥', '随身背包', '⚪小袋子', '⚫小袋子', '白色行李袋'];
 const normalize = (s: string) => s.normalize('NFKC').replace(/[\uFE0E\uFE0F\s]/g, '');
 const prefix = (s: string) => s.match(/^[🎒🧳📦]+/u)?.[0] ?? '';
@@ -15,6 +15,15 @@ const shared = (t: TickTickTask, special: boolean): Shared => ({
 const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const version = (t: TickTickTask) => JSON.stringify(t);
 const modified = (t: TickTickTask) => Date.parse((t as TickTickTask & { modifiedTime?: string }).modifiedTime ?? '');
+
+export function movingDepartureDate(title: string, today: string): string | null {
+  const match = /搬家-.+-(?:(\d{4})[.-])?(\d{1,2})[.](\d{1,2})$/.exec(title.trim());
+  if (!match || !match[3]) return null;
+  const date = `${match[1] || today.slice(0, 4)}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
+  if (!Number.isFinite(Date.parse(date)) || new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date)
+    throw new Error(`搬家标题日期无效：${title}`);
+  return date;
+}
 
 export function templatePairs(tasks: TickTickTask[], rootId: string, saved: State): Record<string, Pair> {
   const byId = new Map(tasks.map(t => [t.id, t]));
@@ -96,7 +105,10 @@ export async function syncTickTickTemplates(api: TickTickOpenApiClient, rootId: 
   if (conflicts.length) throw new Error(`模板内容有冲突且没有可比较的修改时间：${conflicts.join('、')}；需指定首次来源`);
   // Moving instances follow the resolved templates one way. They never feed
   // trip-specific text back into the reusable templates.
-  let instanceUpdated = 0, instanceMatched = 0;
+  let instanceUpdated = 0, instanceMatched = 0, dateUpdated = 0;
+  const managedTaskIds: string[] = [];
+  const schedules: { title: string; departureDate: string; stages: { title: string; date: string; tasks: number }[] }[] = [];
+  saved.departureDates ??= {};
   saved.movingInstances ??= {};
   const movingRoots = tasks.filter(task => task.title.includes('搬家-'));
   for (const root of movingRoots) {
@@ -128,7 +140,41 @@ export async function syncTickTickTemplates(api: TickTickOpenApiClient, rootId: 
       await kv.set(storageKey, saved);
     }
   }
-  const result = { matched: Object.keys(pairs).length, updated, movingInstances: movingRoots.length, instanceMatched, instanceUpdated };
+  // Apply dates after text synchronization, using fresh tasks to retain new content.
+  for (const root of movingRoots) {
+    const today = calendarDateInTimeZone(new Date().toISOString())!;
+    const parsed = movingDepartureDate(root.title, today);
+    if (!parsed) continue;
+    const suffix = root.title.trim().split('-').at(-1)!;
+    const previous = saved.departureDates[root.id];
+    const departureDate = previous?.suffix === suffix ? previous.date : parsed;
+    const stages = tasks.filter(t => t.parentId === root.id);
+    const planned = stages.map(stage => {
+      const date = relativeStageDate(stage.title, departureDate);
+      const descendants = [stage];
+      const visited = new Set([stage.id]);
+      for (let i = 0; i < descendants.length; i++) {
+        for (const child of tasks.filter(t => t.parentId === descendants[i].id)) {
+          if (visited.has(child.id)) throw new Error('搬家子任务存在循环关联');
+          visited.add(child.id); descendants.push(child);
+        }
+      }
+      return { stage, date, descendants };
+    });
+    const freshRoot = await api.getTask(root.projectId, root.id);
+    if (!freshRoot || freshRoot.title !== root.title) throw new Error('搬家标题日期已变化，请重试');
+    saved.departureDates[root.id] = { suffix, date: departureDate };
+    await kv.set(storageKey, saved);
+    managedTaskIds.push(root.id);
+    for (const { date, descendants } of planned) for (const task of descendants) {
+      const fresh = await api.getTask(task.projectId, task.id);
+      if (!fresh || fresh.parentId !== task.parentId) throw new Error('搬家子任务层级已变化，请重试');
+      if (await updateRoutineTaskDate(api, fresh, date, true, true)) dateUpdated++;
+      managedTaskIds.push(task.id);
+    }
+    schedules.push({ title: root.title, departureDate, stages: planned.map(p => ({ title: p.stage.title, date: p.date, tasks: p.descendants.length })) });
+  }
+  const result = { matched: Object.keys(pairs).length, updated, movingInstances: movingRoots.length, instanceMatched, instanceUpdated, dateUpdated, managedTaskIds, schedules };
   await kv.set('ticktick:template-sync-status:v1', { ...result, rootId, syncedAt: new Date().toISOString(),
     instanceTitles: movingRoots.map(root => root.title) });
   return result;

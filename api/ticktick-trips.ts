@@ -157,6 +157,7 @@ async function runSyncInner(allowDisconnected: boolean) {
       // Follow explicit task dates after generated trips/wishes have their final
       // dates, including tasks first created during this sync.
       const excludedTaskIds = getTickTickRoutineExcludedTaskIds(template, state);
+    for (const id of templateSync?.managedTaskIds ?? []) excludedTaskIds.add(id);
       console.info('[ticktick-sync-step]', JSON.stringify({ step: 'exercise' }));
       const exercise = await syncExerciseSchedule(api, { connectionId, calendarState, excludedTaskIds, rolling: true });
       for (const id of exercise.managedTaskIds) excludedTaskIds.add(id);

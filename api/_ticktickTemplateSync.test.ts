@@ -1,9 +1,9 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-import { syncTickTickTemplates, templatePairs } from './_ticktickTemplateSync';
+import { syncTickTickTemplates, templatePairs, movingDepartureDate } from './_ticktickTemplateSync';
 import type { TickTickTask, TickTickOpenApiClient } from './_ticktickTrips';
 const m = vi.hoisted(() => ({ tasks: [] as TickTickTask[], saved: new Map<string, unknown>() }));
 vi.mock('./_accountKv.js', () => ({ kv: { get: async (k: string) => structuredClone(m.saved.get(k)), set: async (k: string, v: unknown) => { m.saved.set(k, structuredClone(v)); } } }));
-vi.mock('./_ticktickTrips.js', () => ({ readAllTickTickTasks: async () => structuredClone(m.tasks) }));
+vi.mock('./_ticktickTrips.js', async original => ({ ...await original<typeof import('./_ticktickTrips')>(), readAllTickTickTasks: async () => structuredClone(m.tasks) }));
 const titles = ['🪥漱', '🧴护', '💄妆', '🛀浴', '📷相机', '🧥', '随身背包', '⚪️小袋子', '⚫️小袋子', '【⚪️】'];
 const make = (id: string, title: string, parentId?: string): TickTickTask => ({ id, title, projectId: 'p', parentId, content: 'same', tags: ['routine'], dueDate: '2026-11-04', items: [{ id: `${id}-item`, title: '牙刷', status: 1 }] });
 const getTask = vi.fn(async (_p: string, id: string) => structuredClone(m.tasks.find(t => t.id === id)!));
@@ -75,4 +75,25 @@ it('ignores unrelated roots and rejects ambiguous instance categories', async ()
   await syncTickTickTemplates(api, 'travel', 'conn'); expect(m.tasks.find(t => t.id === 'x')!.content).toBe('untouched');
   m.tasks.push(make('jg', '搬家-京广'), make('js', 'stage', 'jg'), make('j1', '📦🪥漱', 'js'), make('j2', '🧳🪥漱', 'js'));
   await expect(syncTickTickTemplates(api, 'travel', 'conn')).rejects.toThrow('多个匹配');
+});
+
+it('parses title dates and rejects impossible calendar days', () => {
+  expect(movingDepartureDate('搬家-京广-11.5', '2026-11-03')).toBe('2026-11-05');
+  expect(movingDepartureDate('搬家-京广-2027.1.5', '2026-11-03')).toBe('2027-01-05');
+  expect(movingDepartureDate('搬家-京广', '2026-11-03')).toBeNull();
+  expect(() => movingDepartureDate('搬家-京广-2.30', '2026-11-03')).toThrow('无效');
+});
+it('anchors stages and all descendants on the title date, keeps progress, and follows title edits', async () => {
+  m.tasks.push(make('jg', '搬家-京广-2026.11.5'), make('js', '出门前三天', 'jg'),
+    make('brush', '📦🪥漱', 'js'), { ...make('deep', '牙刷准备', 'brush'), status: 2 },
+    make('day', '出门当天', 'jg'));
+  const result = await syncTickTickTemplates(api, 'travel', 'conn');
+  for (const id of ['js', 'brush', 'deep']) expect(m.tasks.find(t => t.id === id)!.dueDate).toContain('2026-11-02');
+  expect(m.tasks.find(t => t.id === 'deep')!.status).toBe(2);
+  expect(m.tasks.find(t => t.id === 'day')!.dueDate).toContain('2026-11-05');
+  expect(result.managedTaskIds).toEqual(expect.arrayContaining(['jg', 'js', 'brush', 'deep', 'day']));
+  expect((await syncTickTickTemplates(api, 'travel', 'conn')).dateUpdated).toBe(0);
+  m.tasks.find(t => t.id === 'jg')!.title = '搬家-京广-2026.11.8';
+  await syncTickTickTemplates(api, 'travel', 'conn');
+  expect(m.tasks.find(t => t.id === 'deep')!.dueDate).toContain('2026-11-05');
 });
