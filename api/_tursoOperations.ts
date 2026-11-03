@@ -46,6 +46,13 @@ export async function runStorageOperation(tx: StorageTransaction, operation: Sto
       if (!previous || json(previous) < args[2]) await tx.set(third, JSON.stringify(args[2]));
       return 1;
     }
+    case 'read-make-quota': {
+      const entry = await tx.key(key);
+      if (!entry) return [0, 0];
+      if (entry.kind !== 'zset') throw new Error('Storage type mismatch');
+      const { rows } = await tx.query('SELECT score FROM storage_zset WHERE key=? AND score>? ORDER BY score,member', [key, Number(args[0])]);
+      return [rows.length, rows.length >= 200 ? Number(rows[rows.length - 200].score) : 0];
+    }
     case 'reserve-make': {
       await tx.ensureKind(key, 'zset');
       await tx.query('DELETE FROM storage_zset WHERE key=? AND score<=?', [key, Number(args[0]) - 2_764_800_000]);

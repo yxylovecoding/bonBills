@@ -94,7 +94,10 @@ try {
   await evaluate('save-done', ['connection', 'done', 'synced', 'names'], ['other', '[{"id":"d2"}]', '2026-10-25', '{}']);
   await evaluate('save-done', ['connection', 'done', 'synced', 'names'], ['token', '[]', '2026-10-23', '{}']);
   const quotaNow = Date.now();
+  await evaluate('read-make-quota', ['quota'], [quotaNow - 2_764_800_000]);
   for (let i = 0; i <= 200; i++) await evaluate('reserve-make', ['quota'], [quotaNow, `request-${i}`]);
+  await evaluate('read-make-quota', ['quota'], [quotaNow - 2_764_800_000]);
+  await evaluate('read-make-quota', ['quota'], [quotaNow]);
   await evaluate('reserve-make', ['quota'], [quotaNow + 2_764_800_000, 'next-window']);
   await hash('items', { item: { revision: 'i1', status: '可穿' } });
   const clothes = (id: string, revision: string, check: string, photo = '', data = '') => evaluate('save-clothes', ['wear', id, 'items', photo],

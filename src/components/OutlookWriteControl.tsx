@@ -4,7 +4,7 @@ import { apiFetch } from '../utils/authClient';
 interface Status {
   provider?: 'microsoft' | 'make';
   connected: boolean; enabled: boolean; clientId?: string; calendarId?: string; calendarName?: string;
-  lastSyncAt?: string; error?: string; calendars?: { id: string; name: string; isDefaultCalendar?: boolean }[];
+  lastSyncAt?: string; error?: string; retryAt?: string; calendars?: { id: string; name: string; isDefaultCalendar?: boolean }[];
 }
 interface Flow { flowId: string; userCode: string; verificationUrl: string; interval: number; expiresAt: number }
 const endpoint = '/api/outlook-calendar?app=write';
@@ -70,7 +70,7 @@ export default function OutlookWriteControl() {
     <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center' }}>
       <div><div style={{ fontSize: 13, fontWeight: 700 }}>连接 Outlook</div>
         <div role="status" style={{ fontSize: 11, color: '#5f6368', marginTop: 3 }}>
-          {status?.error ? '同步失败' : status?.enabled ? `已开启 · ${status.calendarName}` : status?.connected ? '待选择日历' : status ? '未连接' : error ? '连接失败' : '加载中…'}
+          {status?.retryAt ? '等待免费额度' : status?.error ? '同步未完成' : status?.enabled ? `已开启 · ${status.calendarName}` : status?.connected ? '待选择日历' : status ? '未连接' : error ? '连接失败' : '加载中…'}
         </div></div>
       <button type="button" style={button} aria-expanded={expanded} disabled={busy || !status}
         onClick={() => { setExpanded(value => !value); if (!expanded && status?.connected && !status.enabled) void run('calendars'); }}>
@@ -106,7 +106,8 @@ export default function OutlookWriteControl() {
         </select>
         <button type="button" style={button} disabled={busy || !calendarId} onClick={() => void run('select')}>开启同步</button>
       </>}
-      {status?.enabled && status.lastSyncAt && <div style={{ fontSize: 12, color: '#5f6368' }}>已同步 {new Date(status.lastSyncAt).toLocaleString('zh-CN')}</div>}
+      {status?.enabled && status.lastSyncAt && <div style={{ fontSize: 12, color: '#5f6368' }}>上次成功同步 {new Date(status.lastSyncAt).toLocaleString('zh-CN')}</div>}
+      {status?.retryAt && <div style={{ fontSize: 12, color: '#5f6368' }}>下次额度释放 {new Date(status.retryAt).toLocaleString('zh-CN')}</div>}
       {status?.connected && <button type="button" style={{ ...button, color: '#5f6368' }} disabled={busy} onClick={() => void run('disconnect')}>断开连接</button>}
       {status?.error && <div role="status" style={{ fontSize: 12, color: '#ea4335' }}>{status.error}</div>}
     </div>}

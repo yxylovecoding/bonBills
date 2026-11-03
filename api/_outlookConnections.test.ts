@@ -25,3 +25,21 @@ it('经期、订阅和写入失败状态可见，重新读取反映连接管理�
   expect(JSON.stringify(result)).not.toMatch(/secret|private|\.ics/);
   m.data.delete('outlook:calendar-connection:v1'); expect((await readOutlookConnections())[0].connected).toBe(false);
 });
+it('额度暂停和授权失效保留准确原因，额度时间与上次成功时间独立', async () => {
+  m.write.mockResolvedValue({ connected: true, enabled: true, error: 'Make 免费额度保护已暂停写入',
+    retryAt: '2026-11-09T00:00:00Z', lastSyncAt: '2026-10-26T07:04:00Z' });
+  expect((await readOutlookConnections()).find(source => source.kind === 'write')).toMatchObject({
+    error: 'Make 免费额度保护已暂停写入', retryAt: '2026-11-09T00:00:00Z', syncedAt: '2026-10-26T07:04:00Z', connected: true });
+  m.write.mockResolvedValue({ connected: true, enabled: true, error: '微软授权已失效，请重新连接' });
+  expect((await readOutlookConnections()).find(source => source.kind === 'write')?.error).toBe('微软授权已失效，请重新连接');
+});
+it('经期重连不显示旧连接的成功时间和错误；未知错误不透传私密地址', async () => {
+  const year = new Date().getFullYear();
+  m.data.set('bonlife:outlook-connection:v1', { id: 'new' });
+  m.data.set(`bonlife:periods:v1:${year}`, { connectionId: 'old', syncedAt: new Date().toISOString() });
+  m.data.set('bonlife:period-read-status:v1', { connectionId: 'old', error: 'failed' });
+  expect((await readOutlookConnections()).find(source => source.kind === 'period')).toMatchObject({ connected: true, error: undefined });
+  expect((await readOutlookConnections()).find(source => source.kind === 'period')?.syncedAt).toBeUndefined();
+  m.data.set('bonlife:period-read-status:v1', { connectionId: 'new', error: 'https://private/secret.ics' });
+  expect((await readOutlookConnections()).find(source => source.kind === 'period')?.error).toBe('经期订阅暂时读取失败，请重试');
+});

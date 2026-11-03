@@ -4,7 +4,7 @@ import { useDragSort } from '../hooks/useDragSort';
 import { SCHEDULING_RULES, moveSchedulingRule, readRuleConfig, ruleTitle, type SchedulingRuleConfig, type SchedulingRuleId, type SchedulingRun } from '../utils/schedulingRules';
 import './schedulingRules.css';
 
-interface Connection { id: string; name: string; kind: 'subscription' | 'period' | 'write'; connected: boolean; syncedAt?: string; error?: string }
+interface Connection { id: string; name: string; kind: 'subscription' | 'period' | 'write'; connected: boolean; syncedAt?: string; error?: string; retryAt?: string }
 interface Reply { config: SchedulingRuleConfig; lastRun?: SchedulingRun; outlook?: Connection[]; triggered?: boolean; error?: string }
 const endpoint = '/api/ticktick-trips?action=rules';
 const time = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -133,7 +133,8 @@ export default function LifeSchedulingRules({ onExpired, onManageOutlook }: { on
     <details className="schedule-outlook" open><summary>Outlook</summary>
       {data?.outlook?.map(connection => <div className="schedule-connection" key={connection.id}>
         <div><strong>{connection.name}</strong><span>{connection.error || (connection.connected ? '已连接' : '未连接')}
-          {connection.syncedAt ? ` · ${time.format(new Date(connection.syncedAt))}` : ''}</span></div>
+          {connection.syncedAt ? ` · 上次成功同步 ${time.format(new Date(connection.syncedAt))}` : ''}</span>
+          {connection.retryAt && <span>下次额度释放 {time.format(new Date(connection.retryAt))}</span>}</div>
         {connection.kind === 'subscription' ? <a href="https://bill.bonbills.cn/calendar" target="_blank" rel="noreferrer">管理订阅 ↗</a>
           : <button onClick={onManageOutlook}>管理连接</button>}
       </div>)}

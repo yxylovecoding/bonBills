@@ -59,3 +59,15 @@ it('仅允许携带版本条件删除单条日程，正确处理无响应正文�
   expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ method: 'DELETE', path: '/v1.0/me/calendars/c/events/e',
     headers: expect.arrayContaining([{ key: 'If-Match', value: 'v1' }]) });
 });
+it('状态只读既有额度账本，不消耗调用、不回显 Webhook，并显示下一次额度释放', async () => {
+  const fetch = vi.fn(); vi.stubGlobal('fetch', fetch);
+  const oldest = Date.parse('2026-10-10T00:00:00Z');
+  data.set(OUTLOOK_WRITE_KEY, { ...connection(), calendarId: 'calendar', lastError: '免费调用额度已暂停，请稍后再试' });
+  reserve.mockResolvedValue([200, oldest]);
+  const status = await outlookWriteStatus();
+  expect(status).toMatchObject({ connected: true, enabled: true, error: 'Make 免费额度保护已暂停写入', retryAt: '2026-11-11T00:00:00.000Z' });
+  expect(fetch).not.toHaveBeenCalled(); expect(reserve.mock.calls[0][0]).not.toContain('zadd');
+  expect(JSON.stringify(status)).not.toContain(url);
+  reserve.mockResolvedValue([199, 0]);
+  expect(await outlookWriteStatus()).toMatchObject({ error: '免费额度已释放，等待下次同步', retryAt: undefined });
+});

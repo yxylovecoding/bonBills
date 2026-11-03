@@ -1,5 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import { kv } from './_accountKv.js';
+import { readOutlookMakeQuota } from './_outlookMakeQuota.js';
+import { outlookStatusError } from './_outlookStatus.js';
 
 export const OUTLOOK_WRITE_KEY = 'outlook:laundry-write:v1';
 const SETTINGS_KEY = 'outlook:laundry-write:settings:v1';
@@ -190,8 +192,11 @@ export async function writableCalendars(client: string | GraphClient): Promise<W
 export async function outlookWriteStatus(listCalendars = false) {
   const [connection, settings] = await Promise.all([kv.get<WriteConnection>(OUTLOOK_WRITE_KEY), kv.get<{ clientId: string }>(SETTINGS_KEY)]);
   const calendars = connection && listCalendars ? await writableCalendars(await outlookGraphClient(connection)) : undefined;
+  const quota = connection?.provider === 'make' ? await readOutlookMakeQuota().catch(() => undefined) : undefined;
   return { connected: Boolean(connection), enabled: Boolean(connection?.calendarId), clientId: settings?.clientId ?? process.env.OUTLOOK_CLIENT_ID ?? '',
-    provider: connection?.provider ?? 'microsoft', calendarId: connection?.calendarId, calendarName: connection?.calendarName, lastSyncAt: connection?.lastSyncAt, error: connection?.lastError, calendars };
+    provider: connection?.provider ?? 'microsoft', calendarId: connection?.calendarId, calendarName: connection?.calendarName, lastSyncAt: connection?.lastSyncAt,
+    error: quota?.retryAt ? 'Make 免费额度保护已暂停写入' : quota && connection?.lastError === '免费调用额度已暂停，请稍后再试'
+      ? '免费额度已释放，等待下次同步' : outlookStatusError(connection?.lastError), retryAt: quota?.retryAt, calendars };
 }
 export async function selectOutlookWriteCalendar(calendarId: unknown) {
   const connection = await kv.get<WriteConnection>(OUTLOOK_WRITE_KEY);

@@ -106,7 +106,7 @@ export function createTursoKv(client: Client, clock = Date.now) {
     hdel: (key: string, ...fields: string[]) => transaction(tx => tx.hdel(key, fields)),
     eval: <TArgs extends unknown[], TResult = unknown>(script: string, keys: string[], args: TArgs) => {
       const operation = storageOperation(script);
-      const write = !['read-photo', 'photo-sizes', 'wear-page'].includes(operation);
+      const write = !['read-photo', 'photo-sizes', 'wear-page', 'read-make-quota'].includes(operation);
       return transaction(async tx => decodeStorage<TResult>(await runStorageOperation(tx, operation, keys, args.map(encodeStorage))), write);
     },
   };

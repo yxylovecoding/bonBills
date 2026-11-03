@@ -9,6 +9,7 @@ import { SAVE_CLOTHES } from './_bonClothes.js';
 import { SAVE_LIFE_ENTRY } from './_bonLife.js';
 import { READ_PHOTO, READ_WEAR_PAGE } from './_clothesReads.js';
 import { READ_PHOTO_SIZES, MIGRATE_PHOTO } from './_clothesPhotoStorage.js';
+import { READ_MAKE_QUOTA } from './_outlookMakeQuota.js';
 
 let client: Client, kv: ReturnType<typeof createTursoKv>, now: number;
 beforeEach(async () => {
@@ -163,6 +164,18 @@ describe('Turso storage contract', () => {
     expect(await kv.eval(READ_PHOTO, ['photo:photo-1'], ['["*"]'])).toEqual([etag, '']);
     now += 10_001;
     expect(await kv.get('photo:photo-1')).toBeNull();
+  });
+  it('reads rolling Make quota without spending calls or mutating history, including the release boundary', async () => {
+    expect(await kv.eval(READ_MAKE_QUOTA, ['quota'], [now])).toEqual([0, 0]);
+    await client.execute({ sql: "INSERT INTO storage_keys(key,kind,value,expires_at) VALUES ('quota','zset',NULL,?)", args: [now + 10000] });
+    await client.batch(Array.from({ length: 201 }, (_, i) => ({ sql: "INSERT INTO storage_zset(key,member,score) VALUES ('quota',?,?)", args: [String(i), now + i] })));
+    expect(await kv.eval(READ_MAKE_QUOTA, ['quota'], [now - 1])).toEqual([201, now + 1]);
+    expect(await kv.eval(READ_MAKE_QUOTA, ['quota'], [now])).toEqual([200, now + 1]);
+    expect(await kv.eval(READ_MAKE_QUOTA, ['quota'], [now + 1])).toEqual([199, 0]);
+    expect((await client.execute("SELECT COUNT(*) AS count FROM storage_zset WHERE key='quota'")).rows[0].count).toBe(201);
+    expect((await client.execute("SELECT expires_at FROM storage_keys WHERE key='quota'")).rows[0].expires_at).toBe(now + 10000);
+    now += 10001;
+    expect(await kv.eval(READ_MAKE_QUOTA, ['quota'], [0])).toEqual([0, 0]);
   });
   it('has an exact reviewed port for every existing Lua script and rejects unknown scripts', () => {
     const found = new Set<string>();
