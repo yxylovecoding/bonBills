@@ -32,13 +32,14 @@ it('默认 Accepted、错误信封和错误 Graph 状态都不能误报成功', 
   await expect(client('/me/calendars/c/events/e')).rejects.toMatchObject({ status: 412 });
 });
 it('仅能访问必要的日历接口，额度用完在请求发出前停止', async () => {
-  const fetch = vi.fn(); vi.stubGlobal('fetch', fetch); const client = await outlookGraphClient(connection());
+  const fetch = vi.fn(), count = vi.fn(); vi.stubGlobal('fetch', fetch); const client = await outlookGraphClient(connection(), count);
   for (const path of ['/me/messages', '/users/other/calendars', '/me/calendars/c/events/../messages', 'https://evil.test']) await expect(client(path)).rejects.toThrow('无效');
   await expect(client('/me/calendars/c/events/e', { method: 'DELETE' })).rejects.toThrow('无效');
   await expect(client('/me/calendars', { headers: { Authorization: 'token' } })).rejects.toThrow('无效');
   expect(reserve).not.toHaveBeenCalled();
   reserve.mockResolvedValueOnce(0); await expect(client('/me/calendars')).rejects.toMatchObject({ status: 429 });
   expect(fetch).not.toHaveBeenCalled(); expect(reserve.mock.calls[0][0]).toContain('zcard');
+  expect(count).not.toHaveBeenCalled();
 });
 it('只读验证成功后才存加密地址，状态不泄露，连接本身不启用写入', async () => {
   const fetch = vi.fn().mockResolvedValue(result({ value: [{ id: 'c', name: '日历', canEdit: true }] })); vi.stubGlobal('fetch', fetch);

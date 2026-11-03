@@ -14,6 +14,7 @@ export interface WriteConnection {
   provider?: 'microsoft' | 'make';
   calendarId?: string; calendarName?: string; lastSyncAt?: string; lastError?: string;
   syncErrors?: Record<string, string>;
+  syncUsage?: Record<string, { at: string; reads: number; creates: number; updates: number; deletes: number; skipped: number; failed: boolean }>;
 }
 interface Tokens { access_token: string; refresh_token: string; expiresAt: number }
 interface Flow { id: string; clientId: string; encrypted: string; expiresAt: number; interval: number; nextPoll: number }
@@ -132,10 +133,10 @@ redis.call('expire', KEYS[1], 2764800)
 return 1`, ['outlook:make-calls:v1'], [String(Date.now()), randomUUID()]);
   if (!accepted) throw new OutlookWriteError('免费调用额度已暂停，请稍后再试', 429);
 }
-export async function outlookGraphClient(connection: WriteConnection): Promise<GraphClient> {
+export async function outlookGraphClient(connection: WriteConnection, onRequest?: (method: string) => void): Promise<GraphClient> {
   if (connection.provider !== 'make') {
     const token = await accessToken(connection);
-    return <T>(path: string, init?: RequestInit) => graphRequest<T>(token, path, init);
+    return <T>(path: string, init?: RequestInit) => { onRequest?.(init?.method ?? 'GET'); return graphRequest<T>(token, path, init); };
   }
   const { webhookUrl } = unsealOutlookWrite<{ webhookUrl: string }>(connection.encrypted);
   const endpoint = validateMakeWebhook(webhookUrl);
@@ -150,6 +151,7 @@ export async function outlookGraphClient(connection: WriteConnection): Promise<G
     const headers = new Headers(init.headers);
     for (const name of headers.keys()) if (name !== 'if-match') throw new OutlookWriteError('日历请求头无效', 400);
     await reserveMakeCall();
+    onRequest?.(method); // Count actual relay requests; quota-blocked attempts use no calls.
     const response = await fetch(endpoint, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(25_000),
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: `/v1.0${path}`, method,
         body: typeof init.body === 'string' ? init.body : '',

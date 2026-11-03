@@ -4,7 +4,8 @@ import { calendarDateInTimeZone, routineTaskDate, type TickTickApi, type TickTic
 import { wallTimeInstant } from './_calendarTimezone.js';
 import { OUTLOOK_WRITE_KEY, OutlookWriteError, outlookGraphClient, withOutlookWriteLock, type GraphClient, type WriteConnection } from './_outlookWrite.js';
 
-interface Entry { eventId?: string; transactionId: string; deleted?: boolean; replacement?: number; adoptTaskUrl?: string; verifiedPlan?: string; verifiedOn?: string; duplicatesChecked?: boolean }
+interface Entry { eventId?: string; transactionId: string; deleted?: boolean; replacement?: number; adoptTaskUrl?: string; verifiedPlan?: string; verifiedOn?: string; duplicatesChecked?: boolean;
+  verifiedAt?: number; verifiedConnectionId?: string }
 interface EventsState { entries: Record<string, Entry> }
 export interface EventTime { dateTime: string; timeZone: string }
 interface CalendarEvent {
@@ -17,6 +18,7 @@ const select = '$select=id,subject,start,end,type,isCancelled,attendees,location
 
 export const localEventTime = (time: number): EventTime => ({ dateTime: new Date(time + 8 * 3600_000).toISOString().slice(0, 19), timeZone: 'Asia/Shanghai' });
 const propertyExpand = (id: string) => `$expand=singleValueExtendedProperties($filter=id eq '${id}')`;
+const recheckInterval = 7 * 86_400_000;
 export interface TaskEventOptions {
   tasks: TickTickTask[]; managedTaskIds: ReadonlySet<string>; ticktickConnectionId: string; today: string;
   plannedDates: Record<string, string | null | undefined>; now?: Date;
@@ -45,6 +47,24 @@ function linked(event: CalendarEvent, task: TickTickTask) {
 function futureAppointment(event: CalendarEvent, since: number, spec: EventSpec) {
   return event.subject === spec.subject && event.type === 'singleInstance' && !event.isCancelled && !event.attendees?.length
     && eventInstant(event.start) >= since && eventInstant(event.end) > eventInstant(event.start);
+}
+function desiredPlan(event: CalendarEvent | undefined, plan: NonNullable<ReturnType<EventSpec['plan']>>) {
+  // Keep a manual same-day time change, with the duration required by the rule.
+  return event && eventInstant(event.end) > eventInstant(event.start)
+    && calendarDateInTimeZone(new Date(eventInstant(event.start)).toISOString())
+      === calendarDateInTimeZone(new Date(eventInstant(plan.start)).toISOString())
+    ? { ...plan, start: event.start, end: localEventTime(eventInstant(event.start) + eventInstant(plan.end) - eventInstant(plan.start)) }
+    : plan;
+}
+function matchesPlan(event: CalendarEvent, plan: NonNullable<ReturnType<EventSpec['plan']>>) {
+  return eventInstant(event.start) === eventInstant(plan.start) && eventInstant(event.end) === eventInstant(plan.end)
+    && (!plan.location || event.location?.displayName === plan.location.displayName);
+}
+function checkEvent(event: CalendarEvent, key: string, spec: EventSpec, adopt = false) {
+  if ((!owned(event, key, spec.propertyId) && !adopt) || event.subject !== spec.subject
+    || (event.type && event.type !== 'singleInstance') || event.attendees?.length)
+    throw new OutlookWriteError(`${spec.subject}日程已被修改或添加参与人，请先核对`);
+  if (event.isCancelled) throw new OutlookWriteError(`${spec.subject}日程已取消，请先核对`);
 }
 async function taskAppointments(request: GraphClient, connection: WriteConnection, spec: EventSpec, keepLease: () => Promise<void>) {
   const expand = propertyExpand(spec.propertyId);
@@ -80,8 +100,20 @@ async function syncEvents(request: GraphClient, connection: WriteConnection, api
   const calendarPath = `/me/calendars/${encodeURIComponent(connection.calendarId!)}/events`;
   const stateKey = `${spec.statePrefix}:${digest(connection.calendarId!)}`;
   const state = await kv.get<EventsState>(stateKey) ?? { entries: {} };
-  const since = Math.max(Date.parse(`${options.today}T00:00:00+08:00`), options.now?.getTime() ?? Date.now());
-  let created = 0, updated = 0, deleted = 0, verifiedCount = 0;
+  const now = options.now?.getTime() ?? Date.now();
+  const since = Math.max(Date.parse(`${options.today}T00:00:00+08:00`), now);
+  let created = 0, updated = 0, deleted = 0, verifiedCount = 0, skipped = 0;
+  let listed: CalendarEvent[] | undefined;
+  const list = async () => listed ??= await taskAppointments(request, connection, spec, keepLease);
+  const verify = async (entry: Entry, fingerprint: string) => {
+    entry.duplicatesChecked = true; entry.verifiedPlan = fingerprint; entry.verifiedOn = options.today;
+    entry.verifiedAt = now; entry.verifiedConnectionId = connection.id;
+    await kv.set(stateKey, state); verifiedCount++;
+  };
+  const invalidate = async (entry: Entry) => {
+    delete entry.verifiedPlan; entry.duplicatesChecked = false;
+    await kv.set(stateKey, state);
+  };
   for (const original of options.tasks.filter(task => options.managedTaskIds.has(task.id))) {
     const task = await api.getTask(original.projectId, original.id);
     if (routineTaskDate(task) !== options.plannedDates[task.id]) continue;
@@ -92,19 +124,38 @@ async function syncEvents(request: GraphClient, connection: WriteConnection, api
     const key = digest(`${options.ticktickConnectionId}:${task.projectId}:${task.id}:${cycle}`);
     const entry = state.entries[key] ??= { transactionId: key };
     const fingerprint = digest(JSON.stringify(plan));
-    // Hosted relay calls cost credits. Only skip after an actual successful Graph readback.
-    if (connection.provider === 'make' && entry.eventId && !entry.deleted && !entry.adoptTaskUrl
-      && entry.duplicatesChecked && entry.verifiedPlan === fingerprint && entry.verifiedOn === options.today) continue;
-    if (entry.verifiedPlan) { delete entry.verifiedPlan; await kv.set(stateKey, state); }
+    let event: CalendarEvent | undefined, missing = false;
+    // A successful plan remains valid across midnight. Only check unchanged
+    // relay events weekly and once on their appointment date, using one GET.
+    // Changed plans/cycles and unverified writes always take the recovery path.
+    const cached = connection.provider === 'make' && entry.eventId && !entry.deleted && !entry.adoptTaskUrl
+      && entry.duplicatesChecked && entry.verifiedPlan === fingerprint && entry.verifiedConnectionId === connection.id;
+    if (cached) {
+      const due = !entry.verifiedAt || now < entry.verifiedAt || now - entry.verifiedAt >= recheckInterval
+        || (routineTaskDate(task) === options.today && entry.verifiedOn !== options.today);
+      if (!due) { skipped++; continue; }
+      await keepLease();
+      try { event = await request<CalendarEvent>(`${calendarPath}/${encodeURIComponent(entry.eventId!)}?${expand}&${select}`); }
+      catch (error) {
+        if (!(error instanceof OutlookWriteError) || error.status !== 404) throw error;
+        missing = true;
+      }
+      if (event) {
+        checkEvent(event, key, spec);
+        if (matchesPlan(event, desiredPlan(event, plan))) { await verify(entry, fingerprint); continue; }
+      }
+    }
     // Include linked appointments from older cycles and connector-created copies,
     // which cannot be found by the current cycle's extended property alone.
-    const appointments = await taskAppointments(request, connection, spec, keepLease);
+    const appointments = await list();
     const belongsToTask = (candidate: CalendarEvent) => owned(candidate, key, spec.propertyId) || (linked(candidate, task)
       && (candidate.singleValueExtendedProperties ?? []).filter(property => property.id === spec.propertyId)
         .every(property => state.entries[property.value]?.eventId === candidate.id));
     const candidates = appointments.filter(event => futureAppointment(event, since, spec) && belongsToTask(event));
-    let event: CalendarEvent | undefined;
-    if (entry.eventId) {
+    // A complete relay list already contains the selected event and its ETag.
+    // Do not immediately spend a second request fetching the same object.
+    if (!event && !missing && connection.provider === 'make') event = appointments.find(candidate => candidate.id === entry.eventId);
+    if (!event && !missing && entry.eventId) {
       try { event = await request<CalendarEvent>(`${calendarPath}/${encodeURIComponent(entry.eventId)}?${expand}&${select}`); }
       catch (error) {
         if (!(error instanceof OutlookWriteError) || error.status !== 404) throw error;
@@ -127,44 +178,45 @@ async function syncEvents(request: GraphClient, connection: WriteConnection, api
     }
     const adopt = Boolean(event && !owned(event, key, spec.propertyId) && ((entry.adoptTaskUrl && event.body?.content?.includes(entry.adoptTaskUrl))
       || (futureAppointment(event, since, spec) && belongsToTask(event))));
-    if (event && ((!owned(event, key, spec.propertyId) && !adopt) || event.subject !== spec.subject || (event.type && event.type !== 'singleInstance') || event.attendees?.length))
-      throw new OutlookWriteError(`${spec.subject}日程已被修改或添加参与人，请先核对`);
-    if (event?.isCancelled) throw new OutlookWriteError(`${spec.subject}日程已取消，请先核对`);
+    if (event) checkEvent(event, key, spec, adopt);
     // Recheck task completion/date/content immediately before calendar writes.
     const fresh = await api.getTask(task.projectId, task.id);
     if (spec.cycle(fresh) !== cycle || JSON.stringify(spec.plan(fresh)) !== JSON.stringify(plan)) continue;
     // A same-day time change in Outlook takes precedence over the default task time.
     // Date changes still follow the pending task; the calendar duration stays fixed.
-    const desired = event && eventInstant(event.end) > eventInstant(event.start)
-      && calendarDateInTimeZone(new Date(eventInstant(event.start)).toISOString())
-        === calendarDateInTimeZone(new Date(eventInstant(plan.start)).toISOString())
-      ? { ...plan, start: event.start, end: localEventTime(eventInstant(event.start) + eventInstant(plan.end) - eventInstant(plan.start)) }
-      : plan;
+    const desired = desiredPlan(event, plan);
+    let changed = false;
     await keepLease();
     if (!event) {
-      await kv.set(stateKey, state); // Persist idempotency key before the external write.
+      await invalidate(entry); // Persist idempotency key and invalidate success before the external write.
       event = await request<CalendarEvent>(calendarPath, { method: 'POST', body: JSON.stringify({ ...plan,
         body: { contentType: 'Text', content: `https://ticktick.com/webapp/#p/${encodeURIComponent(task.projectId)}/tasks/${encodeURIComponent(task.id)}` },
         attendees: [], isReminderOn: false, showAs: 'busy', transactionId: entry.transactionId,
         singleValueExtendedProperties: [{ id: spec.propertyId, value: key }] }) });
       if (!event.id) throw new OutlookWriteError('Outlook 未返回日程标识');
-      created++;
-    } else if (adopt || eventInstant(event.start) !== eventInstant(desired.start) || eventInstant(event.end) !== eventInstant(desired.end)
-      || (plan.location && event.location?.displayName !== plan.location.displayName)) {
+      created++; changed = true;
+    } else if (adopt || !matchesPlan(event, desired)) {
       if (!event['@odata.etag']) throw new OutlookWriteError('日程版本不可用，请稍后重试');
+      await invalidate(entry);
       event = await request<CalendarEvent>(`${calendarPath}/${encodeURIComponent(event.id)}`, {
         method: 'PATCH', headers: { 'If-Match': event['@odata.etag'] }, body: JSON.stringify({ start: desired.start, end: desired.end,
           ...('location' in plan ? { location: plan.location } : {}), ...(adopt ? { singleValueExtendedProperties: [{ id: spec.propertyId, value: key }] } : {}) }),
       });
-      updated++;
+      updated++; changed = true;
     }
     entry.eventId = event.id; delete entry.adoptTaskUrl; delete entry.deleted; await kv.set(stateKey, state);
-    const verified = await request<CalendarEvent>(`${calendarPath}/${encodeURIComponent(event.id)}?${expand}&${select}`);
-    if (!owned(verified, key, spec.propertyId) || eventInstant(verified.start) !== eventInstant(desired.start) || eventInstant(verified.end) !== eventInstant(desired.end))
+    const duplicates = candidates.filter(candidate => candidate.id !== event!.id);
+    // Read back actual writes; a fresh read of an unchanged event needs no echo.
+    // Keep a fresh confirmation before removing any obsolete appointments.
+    const verified = changed || duplicates.length || missing
+      ? await request<CalendarEvent>(`${calendarPath}/${encodeURIComponent(event.id)}?${expand}&${select}`) : event;
+    if (!owned(verified, key, spec.propertyId) || !matchesPlan(verified, desired))
       throw new OutlookWriteError(`Outlook ${spec.subject}日程回读不一致，请稍后重试`);
+    if (listed) listed = [...listed.filter(candidate => candidate.id !== verified.id), verified];
     // Only remove obsolete future plans after the retained appointment is verified.
     // Historical activity, manual namesakes and events with guests stay untouched.
-    for (const duplicate of candidates.filter(candidate => candidate.id !== verified.id)) {
+    if (duplicates.length) await invalidate(entry);
+    for (const duplicate of duplicates) {
       const path = `${calendarPath}/${encodeURIComponent(duplicate.id)}`;
       let current: CalendarEvent;
       try { current = await request<CalendarEvent>(`${path}?${expand}&${select}`); }
@@ -178,27 +230,40 @@ async function syncEvents(request: GraphClient, connection: WriteConnection, api
       try { await request(path, { method: 'DELETE', headers: { 'If-Match': current['@odata.etag'] } }); }
       catch (error) { if (!(error instanceof OutlookWriteError) || error.status !== 404) throw error; }
       try { await request(`${path}?$select=id`); }
-      catch (error) { if (error instanceof OutlookWriteError && error.status === 404) { deleted++; continue; } throw error; }
+      catch (error) {
+        if (error instanceof OutlookWriteError && error.status === 404) { deleted++; listed = listed?.filter(candidate => candidate.id !== current.id); continue; }
+        throw error;
+      }
       throw new OutlookWriteError(`旧${spec.subject}日程删除未确认，请稍后重试`);
     }
-    entry.duplicatesChecked = true; entry.verifiedPlan = fingerprint; entry.verifiedOn = options.today;
-    await kv.set(stateKey, state); verifiedCount++;
+    await verify(entry, fingerprint);
   }
-  return { created, updated, deleted, verifiedCount };
+  return { created, updated, deleted, verifiedCount, skipped };
 }
 export async function syncTaskOutlook(api: TickTickApi, options: TaskEventOptions, spec: EventSpec) {
   if (!options.managedTaskIds.size) return { enabled: false, created: 0, updated: 0 };
   return withOutlookWriteLock(async keepLease => {
     const connection = await kv.get<WriteConnection>(OUTLOOK_WRITE_KEY);
     if (!connection?.calendarId) return { enabled: false, created: 0, updated: 0 };
+    const usage = { at: new Date().toISOString(), reads: 0, creates: 0, updates: 0, deletes: 0, skipped: 0, failed: false };
+    (connection.syncUsage ??= {})[spec.subject] = usage;
     try {
-      const result = await syncEvents(await outlookGraphClient(connection), connection, api, options, spec, keepLease);
+      let client: Promise<GraphClient> | undefined;
+      const request: GraphClient = async (path, init) => (await (client ??= outlookGraphClient(connection, method => {
+        if (method === 'GET') usage.reads++;
+        else if (method === 'POST') usage.creates++;
+        else if (method === 'PATCH') usage.updates++;
+        else if (method === 'DELETE') usage.deletes++;
+      })))(path, init);
+      const result = await syncEvents(request, connection, api, options, spec, keepLease);
+      usage.skipped = result.skipped;
       if (result.verifiedCount) connection.lastSyncAt = new Date().toISOString();
       if (connection.syncErrors) delete connection.syncErrors[spec.subject];
       connection.lastError = Object.values(connection.syncErrors ?? {})[0];
       await kv.set(OUTLOOK_WRITE_KEY, connection);
       return { enabled: true, ...result };
     } catch (error) {
+      usage.failed = true;
       const message = error instanceof OutlookWriteError ? error.message : 'Outlook 日程同步暂不可用，请重试';
       (connection.syncErrors ??= {})[spec.subject] = message;
       connection.lastError = Object.values(connection.syncErrors)[0];

@@ -4,6 +4,7 @@ import { BEIJING, GUANGZHOU, DEFAULT_INTERNSHIP_RULES } from '../src/utils/inter
 import { laundryEventPlan, LAUNDRY_EVENT_PROPERTY, syncLaundryOutlook } from './_outlookLaundry';
 import { chargingEventPlan, syncChargingOutlook } from './_outlookCharging';
 import { hairWashEventPlan, syncHairWashOutlook } from './_outlookHairWash';
+import { syncElectricVehiclePickup } from './_electricVehiclePickup';
 import { OUTLOOK_WRITE_KEY, sealOutlookWrite } from './_outlookWrite';
 import { LAUNDRY_STATE_KEY } from './_ticktickLaundry';
 import type { TickTickApi, TickTickTask } from './_ticktickTrips';
@@ -61,6 +62,19 @@ beforeEach(() => {
   }));
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
+function makeRelay() {
+  const upstream = globalThis.fetch;
+  const relay = vi.fn(async (_url: string, init: RequestInit) => {
+    const input = JSON.parse(init.body as string);
+    const response = await upstream(`https://graph.microsoft.com${input.path}`, { method: input.method, body: input.body || undefined,
+      headers: Object.fromEntries(input.headers.map((header: { key: string; value: string }) => [header.key, header.value])) });
+    return json({ protocol: 'bonbills-outlook-v1', status: response.status, body: response.status === 204 ? undefined : await response.json() });
+  });
+  vi.stubGlobal('fetch', relay);
+  data.set(OUTLOOK_WRITE_KEY, { ...data.get(OUTLOOK_WRITE_KEY), provider: 'make',
+    encrypted: sealOutlookWrite({ webhookUrl: 'https://hook.eu1.make.com/0123456789abcdef0123456789abcdef' }) });
+  return relay;
+}
 it('采用 TickTick 具体时刻和固定50分钟；首轮创建、重复同步无重复、改期更新同一条', async () => {
   expect(laundryEventPlan(task, '2026-10-05', '北京')).toMatchObject({ start: { dateTime: '2026-10-08T08:00:00' }, end: { dateTime: '2026-10-08T08:50:00' } });
   expect(await syncLaundryOutlook(api, options())).toMatchObject({ created: 1, updated: 0 });
@@ -184,7 +198,7 @@ it('Make 已验证的旧15分钟预约在同日修正为50分钟，保留原日�
   expect(await syncLaundryOutlook(api, options())).toMatchObject({ created: 0, updated: 0 });
   expect(writes).toHaveLength(2);
 });
-it('Make 同日同排期复用验证，次日仍回读；变更核对归属并更新同一事件', async () => {
+it('Make 跨日同排期复用验证；变更核对归属并更新同一事件', async () => {
   const upstream = globalThis.fetch;
   const relay = vi.fn(async (_url: string, init: RequestInit) => {
     const input = JSON.parse(init.body as string);
@@ -203,12 +217,94 @@ it('Make 同日同排期复用验证，次日仍回读；变更核对归属并�
   events.get('event-1').start.dateTime = '2026-10-08T09:00:00';
   events.get('event-1').end.dateTime = '2026-10-08T09:50:00';
   expect(await syncLaundryOutlook(api, { ...options(), today: '2026-10-06' })).toMatchObject({ updated: 0 });
+  expect(relay).toHaveBeenCalledTimes(count);
   expect(events.get('event-1').start.dateTime).toBe('2026-10-08T09:00:00');
   task.startDate = task.dueDate = '2026-10-09T00:00:00Z';
   expect(await syncLaundryOutlook(api, options())).toMatchObject({ updated: 1 });
   expect(events.size).toBe(1); expect(writes[1].headers['If-Match']).toBe('v1');
   events.get('event-1').attendees = [{}]; task.startDate = task.dueDate = '2026-10-10T00:00:00Z';
   expect(await syncLaundryOutlook(api, options())).toMatchObject({ error: expect.stringContaining('参与人') }); expect(writes).toHaveLength(2);
+});
+
+it.each(['洗衣服', '电动车充电', '洗头', '接电动车'])('%s 连续32天每天四轮不重复写入，只有每周一次单条核验', async title => {
+  task = { ...task, title, isAllDay: true, startDate: '2026-11-20T00:00:00+08:00', dueDate: '2026-11-20T00:00:00+08:00',
+    ...(title === '接电动车' ? { content: 'BonBills charging pickup: life/charge/initial' } : {}) };
+  const relay = makeRelay();
+  for (let day = 0; day < 32; day++) {
+    const today = new Date(Date.parse('2026-10-05T00:00:00Z') + day * 86400000).toISOString().slice(0, 10);
+    for (const time of ['05:01', '12:00', '17:00', '20:00']) {
+      const input = { ...options(), today, now: new Date(`${today}T${time}:00+08:00`), history: [], excludedTaskIds: new Set<string>() };
+      if (title === '洗衣服') await syncLaundryOutlook(api, input);
+      else if (title === '电动车充电') await syncChargingOutlook(api, input);
+      else if (title === '洗头') await syncHairWashOutlook(api, input);
+      else await syncElectricVehiclePickup(api, { ...input, mode: 'outlook' });
+    }
+  }
+  // Initial list + POST + readback, then four weekly GETs: 7, not 96 calls.
+  expect(relay).toHaveBeenCalledTimes(7);
+  expect(relay.mock.calls.map(([, init]) => JSON.parse(String(init.body)).method)).toEqual(['GET', 'POST', 'GET', 'GET', 'GET', 'GET', 'GET']);
+  expect(writes.map(write => write.method)).toEqual(['POST']);
+  expect(data.get(OUTLOOK_WRITE_KEY).syncUsage[title]).toMatchObject({ reads: 0, creates: 0, updates: 0, deletes: 0, skipped: 1, failed: false });
+});
+
+it('预约当天只核验一次，手动同日改时保留，无变化不写、不重复回读', async () => {
+  const relay = makeRelay();
+  await syncLaundryOutlook(api, options());
+  events.get('event-1').start.dateTime = '2026-10-08T09:00:00';
+  events.get('event-1').end.dateTime = '2026-10-08T09:50:00';
+  const today = '2026-10-08', input = { ...options(), today, now: new Date(`${today}T05:01:00+08:00`) };
+  expect(await syncLaundryOutlook(api, input)).toMatchObject({ created: 0, updated: 0, verifiedCount: 1 });
+  expect(relay).toHaveBeenCalledTimes(4);
+  expect(data.get(OUTLOOK_WRITE_KEY).syncUsage['洗衣服']).toMatchObject({ reads: 1, creates: 0, updates: 0 });
+  await syncLaundryOutlook(api, { ...input, now: new Date(`${today}T12:00:00+08:00`) });
+  expect(relay).toHaveBeenCalledTimes(4); expect(writes).toHaveLength(1);
+  expect(events.get('event-1').start.dateTime).toBe('2026-10-08T09:00:00');
+});
+
+it('改期只查一次列表、更新一次并回读，之后跨日不再调用', async () => {
+  const relay = makeRelay();
+  await syncLaundryOutlook(api, options());
+  task.startDate = task.dueDate = '2026-10-10T00:00:00Z';
+  expect(await syncLaundryOutlook(api, options())).toMatchObject({ created: 0, updated: 1 });
+  expect(relay.mock.calls.slice(3).map(([, init]) => JSON.parse(String(init.body)).method)).toEqual(['GET', 'PATCH', 'GET']);
+  await syncLaundryOutlook(api, { ...options(), today: '2026-10-06', now: new Date('2026-10-06T04:00:00Z') });
+  expect(relay).toHaveBeenCalledTimes(6); expect(events.size).toBe(1);
+});
+
+it('预约当天发现缺失仍查重补建一次，后续无重复', async () => {
+  const relay = makeRelay();
+  await syncLaundryOutlook(api, options()); events.clear();
+  const input = { ...options(), today: '2026-10-08', now: new Date('2026-10-08T05:01:00+08:00') };
+  expect(await syncLaundryOutlook(api, input)).toMatchObject({ created: 1 });
+  expect(relay).toHaveBeenCalledTimes(7); expect(events.size).toBe(1);
+  await syncLaundryOutlook(api, input);
+  expect(relay).toHaveBeenCalledTimes(7); expect(writes).toHaveLength(2);
+});
+
+it('重连不能沿用旧连接的缓存；失败的单条核验不丢失成功记录或重放写入', async () => {
+  const relay = makeRelay();
+  await syncLaundryOutlook(api, options());
+  data.set(OUTLOOK_WRITE_KEY, { ...data.get(OUTLOOK_WRITE_KEY), id: 'new-connection' });
+  await syncLaundryOutlook(api, options()); expect(relay).toHaveBeenCalledTimes(4);
+  const input = { ...options(), today: '2026-10-08', now: new Date('2026-10-08T05:01:00+08:00') };
+  relay.mockResolvedValueOnce(json({ protocol: 'bonbills-outlook-v1', status: 503, body: {} }));
+  expect(await syncLaundryOutlook(api, input)).toHaveProperty('error');
+  const entry = Object.values<any>([...data.entries()].find(([key]) => key.startsWith('outlook:laundry-events:v1:'))![1].entries)[0];
+  expect(entry.verifiedPlan).toBeDefined();
+  expect(await syncLaundryOutlook(api, input)).toMatchObject({ updated: 0, verifiedCount: 1 });
+  await syncLaundryOutlook(api, input);
+  expect(relay).toHaveBeenCalledTimes(6); expect(writes).toHaveLength(1);
+});
+
+it('同轮同类多个待办共用查重列表，后续待办能看到本轮新建结果', async () => {
+  const relay = makeRelay();
+  const second = { ...task, id: 'wash-2' };
+  vi.mocked(api.getTask).mockImplementation(async (_project, id) => structuredClone(id === task.id ? task : second));
+  data.get(LAUNDRY_STATE_KEY).anchors[second.id] = { ...data.get(LAUNDRY_STATE_KEY).anchors.wash };
+  const input = { ...options(), tasks: [task, second], managedTaskIds: new Set([task.id, second.id]), plannedDates: { wash: '2026-10-08', 'wash-2': '2026-10-08' } };
+  expect(await syncLaundryOutlook(api, input)).toMatchObject({ created: 2 });
+  expect(relay).toHaveBeenCalledTimes(5); expect(events.size).toBe(2);
+  await syncLaundryOutlook(api, input); expect(relay).toHaveBeenCalledTimes(5);
 });
 
 it.each(['洗衣服', '电动车充电'])('%s 保留北京时间同日移动，并继续跟随跨日改期', async title => {
