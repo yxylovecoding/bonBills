@@ -97,3 +97,40 @@ it('anchors stages and all descendants on the title date, keeps progress, and fo
   await syncTickTickTemplates(api, 'travel', 'conn');
   expect(m.tasks.find(t => t.id === 'deep')!.dueDate).toContain('2026-11-05');
 });
+
+it('keeps pinned checklist entries local while syncing ordinary entries in both directions', async () => {
+  const travel = m.tasks.find(t => t.id === 'a0')!, moving = m.tasks.find(t => t.id === 'b0')!;
+  travel.items!.push({ id: 'travel-private', title: '旅行专用📌  ', status: 1 });
+  moving.items!.push({ id: 'moving-private', title: '搬家专用📌', status: 0 });
+  await syncTickTickTemplates(api, 'travel', 'conn');
+  expect(updateTask).not.toHaveBeenCalled();
+  moving.items!.push({ id: 'new', title: '牙线', status: 0 });
+  await syncTickTickTemplates(api, 'travel', 'conn');
+  expect(travel.items!.map(i => i.title)).toEqual(['牙刷', '旅行专用📌  ', '牙线']);
+  expect(travel.items!.find(i => i.id === 'travel-private')!.status).toBe(1);
+  travel.content = 'new content';
+  await syncTickTickTemplates(api, 'travel', 'conn');
+  expect(moving.items!.map(i => i.title)).toEqual(['牙刷', '搬家专用📌', '牙线']);
+  updateTask.mockClear(); await syncTickTickTemplates(api, 'travel', 'conn'); expect(updateTask).not.toHaveBeenCalled();
+});
+it('skips pinned tasks including special containers and allows absent counterparts', async () => {
+  m.tasks.find(t => t.id === 'b0')!.title += '📌';
+  m.tasks.find(t => t.id === 'b9')!.title += '📌';
+  m.tasks = m.tasks.filter(t => t.id !== 'a0');
+  const result = await syncTickTickTemplates(api, 'travel', 'conn');
+  expect(result.matched).toBe(8); expect(updateTask).not.toHaveBeenCalled();
+});
+it('honors a pinned task after its matching keyword was renamed', async () => {
+  await syncTickTickTemplates(api, 'travel', 'conn');
+  Object.assign(m.tasks.find(t => t.id === 'b0')!, { title: '📦自己用📌', content: 'private' });
+  await syncTickTickTemplates(api, 'travel', 'conn');
+  expect(m.tasks.find(t => t.id === 'a0')!.content).toBe('same');
+  expect(updateTask).not.toHaveBeenCalled();
+});
+it('copies moving-specific checklist entries to moving instances, never to the travel template', async () => {
+  m.tasks.find(t => t.id === 'b0')!.items!.push({ id: 'private', title: '仅搬家用📌', status: 1 });
+  m.tasks.push(make('jg', '搬家-京广'), make('js', '出门前三天', 'jg'), make('jb', '📦🪥漱', 'js'));
+  await syncTickTickTemplates(api, 'travel', 'conn');
+  expect(m.tasks.find(t => t.id === 'a0')!.items!.some(i => i.title.endsWith('📌'))).toBe(false);
+  expect(m.tasks.find(t => t.id === 'jb')!.items!.some(i => i.title === '仅搬家用📌')).toBe(true);
+});
