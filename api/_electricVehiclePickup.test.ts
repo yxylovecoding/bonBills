@@ -18,7 +18,8 @@ const sync = (history: TickTickTask[] = [], excludedTaskIds = new Set<string>())
 });
 it('创建次日接车并重复运行不复制，Outlook 使用同一待办', async () => {
  expect(await sync()).toMatchObject({ created: 1 });
- expect(tasks[1]).toMatchObject({ title: '接电动车', startDate: '2026-11-03T07:20:00+0800', dueDate: '2026-11-03T07:40:00+0800' });
+ expect(tasks[1]).toMatchObject({ title: '接电动车', startDate: '2026-11-03T07:20:00+0800', dueDate: '2026-11-03T07:40:00+0800', tags: ['当天'] });
+ expect(tasks[0].tags).toEqual(['当天']);
  expect(await sync()).toMatchObject({ created: 0, updated: 0 });
  expect(api.createTask).toHaveBeenCalledTimes(1);
  const args = outlook.mock.calls.at(-1)!;
@@ -27,8 +28,8 @@ it('创建次日接车并重复运行不复制，Outlook 使用同一待办', as
 });
 it('同周期改期更新原待办并保留标签', async () => {
  await sync(); tasks[1].tags = ['routine']; tasks[0].dueDate = '2026-11-04T00:00:00+0800';
- expect(await sync()).toMatchObject({ created: 0, updated: 1 });
- expect(tasks[1]).toMatchObject({ tags: ['routine'], startDate: '2026-11-05T07:20:00+0800' });
+ expect(await sync()).toMatchObject({ created: 0, updated: 2 });
+ expect(tasks[1]).toMatchObject({ tags: ['routine', '当天'], startDate: '2026-11-05T07:20:00+0800' });
 });
 it('接车已完成不补建', async () => {
  const done = { id: 'done', projectId: 'life', title: '接电动车', status: 2, dueDate: '2026-11-03T07:40:00+0800' };
@@ -58,7 +59,7 @@ it('充电完成记录更换 ID 后沿用同周期接车，按实际完成日安
  const completed = { ...tasks[0], id: 'completed-charge', status: 2, completedTime: '2026-11-02T05:27:36.000+0000' };
  tasks[0].dueDate = '2026-11-08T20:00:00+0800';
  await sync([previous, completed]);
- expect(tasks.find(t => t.id === pickupId)).toMatchObject({ startDate: '2026-11-03T07:20:00+0800', tags: ['居', '北京'] });
+ expect(tasks.find(t => t.id === pickupId)).toMatchObject({ startDate: '2026-11-03T07:20:00+0800', tags: ['居', '北京', '当天'] });
  expect(tasks.filter(t => t.title === '接电动车')).toHaveLength(2);
  expect(tasks.some(t => t.startDate === '2026-11-09T07:20:00+0800')).toBe(true);
 });
@@ -76,7 +77,7 @@ it('同次完成产生的两个自动接车合并，保留用户标签和备注'
  tasks.push({ id: 'original', projectId: 'life', title: '接电动车', status: 0, tags: ['居', '北京'], content: '(20m)\n带钥匙\nBonBills charging pickup: life/charge/2026-10-26T14:27:13.000+0000', startDate: '2026-11-02T07:20:00+0800', dueDate: '2026-11-02T07:40:00+0800' });
  tasks.push({ id: 'duplicate', projectId: 'life', title: '接电动车', status: 0, priority: 5, isAllDay: false, tags: [], content: '(20m)\nBonBills charging pickup: life/completed-charge/2026-10-26T14:27:13.000+0000', startDate: '2026-11-03T07:20:00+0800', dueDate: '2026-11-03T07:40:00+0800' });
  await sync([previous, completed]);
- expect(tasks.find(t => t.id === 'original')).toMatchObject({ startDate: '2026-11-03T07:20:00+0800', tags: ['居', '北京'], content: expect.stringContaining('带钥匙') });
+ expect(tasks.find(t => t.id === 'original')).toMatchObject({ startDate: '2026-11-03T07:20:00+0800', tags: ['居', '北京', '当天'], content: expect.stringContaining('带钥匙') });
  expect(tasks.some(t => t.id === 'duplicate')).toBe(false);
  expect(tasks.filter(t => t.title === '接电动车')).toHaveLength(2);
  expect(await sync([previous, completed])).toMatchObject({ created: 0, updated: 0, deleted: 0 });
@@ -92,4 +93,32 @@ it('用户编辑过的两个接车不会自动删除', async () => {
  tasks.push({ ...tasks[1], id: 'edited-copy', content: tasks[1].content + '\n自定义备注' });
  await expect(sync()).rejects.toThrow('接电动车存在多个待办');
  expect(api.deleteTask).not.toHaveBeenCalled();
+});
+it('现有充电与接车补当天但保留日期、重复规则和其他标签，完成记录和模板不改', async () => {
+ tasks = [
+   { ...charge(), dueDate: undefined, tags: ['居', 'routine'], repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=6' },
+   { ...charge(), id: 'manual-pickup', title: '接电动车', tags: ['北京', 'hidden'], dueDate: '2027-02-02T07:40:00+0800', reminders: ['TRIGGER:PT0S'] },
+   { ...charge(), id: 'done', status: 2, completedTime: '2026-11-02T01:00:00Z', tags: ['居'] },
+   { ...charge(), id: 'template-child', parentId: 'template', tags: [] },
+ ];
+ const before = structuredClone(tasks);
+ await sync([], new Set(['template']));
+ expect(tasks).toEqual(before.map((task, i) => i < 2 ? { ...task, tags: [...task.tags!, '当天'] } : task));
+ vi.mocked(api.updateTask).mockClear();
+ expect(await sync([], new Set(['template']))).toMatchObject({ created: 0, updated: 0, deleted: 0 });
+ expect(api.updateTask).not.toHaveBeenCalled();
+});
+it('自带当天标签的自动接车副本仍按同周期去重', async () => {
+ await sync();
+ tasks.push({ ...structuredClone(tasks[1]), id: 'copy', tags: ['当天', 'hidden'] });
+ expect(await sync()).toMatchObject({ created: 0, deleted: 1 });
+ expect(tasks.filter(task => task.title === '接电动车')).toHaveLength(1);
+ expect(tasks[1].tags).toEqual(['当天']);
+});
+it('Outlook 阶段只读待办，不补标签或改动任务', async () => {
+ await sync(); tasks.forEach(task => { task.tags = []; });
+ vi.mocked(api.updateTask).mockClear();
+ await syncElectricVehiclePickup(api, { tasks, history: [], excludedTaskIds: new Set(), today: '2026-11-02', ticktickConnectionId: 'connection', mode: 'outlook' });
+ expect(api.updateTask).not.toHaveBeenCalled();
+ expect(tasks.every(task => !task.tags?.length)).toBe(true);
 });

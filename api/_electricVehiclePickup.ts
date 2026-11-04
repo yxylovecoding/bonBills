@@ -7,10 +7,11 @@ const title = '接电动车';
 const prefix = 'BonBills charging pickup: ';
 const mergedPrefix = 'BonBills pickup merged: ';
 const lines = (content?: string) => (content ?? '').split(/\r?\n|\\n/);
+export const isElectricVehicleTask = (task: TickTickTask) => ['电动车充电', title].includes(task.title.normalize('NFKC').trim());
 export const isElectricVehiclePickup = (task: TickTickTask) => task.title === title && lines(task.content).some(line => line.startsWith(prefix));
 const notes = (task: TickTickTask) => lines(task.content).filter(line => !line.startsWith(prefix) && !line.startsWith(mergedPrefix)).join('\n');
 const plainDuplicate = (task: TickTickTask) => pending(task) && isElectricVehiclePickup(task) && notes(task).trim() === '(20m)'
-  && !(task.tags ?? []).some(tag => !['hidden', 'bon-hidden'].includes(tag)) && !task.reminders?.length
+  && !(task.tags ?? []).some(tag => !['当天', 'hidden', 'bon-hidden'].includes(tag)) && !task.reminders?.length
   && task.priority === 5 && task.isAllDay === false
   && !task.repeatFlag && !task.parentId && !task.items?.length && !task.desc;
 const dayAfter = (day: string) => new Date(Date.parse(`${day}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
@@ -80,7 +81,7 @@ export async function syncElectricVehiclePickup(api: TickTickApi, options: Recur
       }
     } else {
       saved = await api.createTask({ projectId: source.projectId, title, content, startDate, dueDate,
-        isAllDay: false, timeZone: 'Asia/Shanghai', priority: 5, tags: [], reminders: [] });
+        isAllDay: false, timeZone: 'Asia/Shanghai', priority: 5, tags: ['当天'], reminders: [] });
       created++;
     }
     const verified = await api.getTask(saved.projectId, saved.id);
@@ -95,6 +96,22 @@ export async function syncElectricVehiclePickup(api: TickTickApi, options: Recur
       await api.deleteTask(current.projectId, current.id);
       tasks.splice(tasks.findIndex(t => t.id === current.id), 1); deleted++;
     }
+  }
+  // Keep both sides of the charging cycle in the user's due-day list. This
+  // label is unrelated to always-today and must never change task dates.
+  if (options.mode !== 'outlook') for (const candidate of tasks.filter(task => pending(task)
+    && isElectricVehicleTask(task) && !excluded(task) && !task.tags?.includes('当天'))) {
+    const fresh = await api.getTask(candidate.projectId, candidate.id);
+    if (!pending(fresh) || !isElectricVehicleTask(fresh) || fresh.tags?.includes('当天')) continue;
+    const tags = [...(fresh.tags ?? []), '当天'];
+    await api.updateTask(fresh.id, { ...fresh, tags });
+    const verified = await api.getTask(fresh.projectId, fresh.id);
+    if (verified.id !== fresh.id || verified.projectId !== fresh.projectId || !pending(verified)
+      || verified.title !== fresh.title || JSON.stringify([...(verified.tags ?? [])].sort()) !== JSON.stringify([...tags].sort())) {
+      throw new Error('电动车当天标签保存未通过核对');
+    }
+    tasks[tasks.findIndex(task => task.id === fresh.id && task.projectId === fresh.projectId)] = verified;
+    updated++;
   }
   const outlook = options.mode === 'tasks' ? undefined : await syncRecurringTaskOutlook(api, { ...options, tasks: tasks.filter(isElectricVehiclePickup) }, {
     subject: title, propertyId: 'String {d9d1e730-7742-4a9c-91af-bab2a9a45f69} Name BonBillsPickup',

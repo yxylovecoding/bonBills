@@ -295,7 +295,9 @@ describe('远端新增专项接入同一裁决', () => {
     const result=await runRuleReplan({scope:'full'});
     expect(status(result,'vehicle-pickup').status).toBe('success'); expect(status(result,'outlook-pickup').status).toBe('success');
     const pickup=m.tasks.find(task=>task.title==='接电动车')!;
-    expect(pickup).toMatchObject({startDate:'2026-11-04T07:20:00+0800',dueDate:'2026-11-04T07:40:00+0800',tags:['hidden']});
+    expect(pickup).toMatchObject({startDate:'2026-11-04T07:20:00+0800',dueDate:'2026-11-04T07:40:00+0800',tags:['当天','hidden']});
+    expect(m.tasks.find(task=>task.id==='charge')?.tags).toContain('当天');
+    expect(m.write.mock.calls.filter(([id])=>id==='charge')).toHaveLength(1);
     expect(m.pickupOutlook).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({tasks:[expect.objectContaining({id:pickup.id,dueDate:pickup.dueDate})]}),expect.anything());
     expect(JSON.stringify(m.pickupOutlook.mock.calls)).not.toContain('draft-');
   });
@@ -312,7 +314,7 @@ describe('远端新增专项接入同一裁决', () => {
     })];
     const result = await runRuleReplan({ scope: 'full' });
     expect(status(result, 'vehicle-pickup').status).toBe('success');
-    expect(m.tasks.find(t => t.id === 'pickup')).toMatchObject({ startDate: '2026-11-04T07:20:00+0800', tags: ['居', '北京'] });
+    expect(m.tasks.find(t => t.id === 'pickup')).toMatchObject({ startDate: '2026-11-04T07:20:00+0800', tags: ['居', '北京', '当天'] });
   });
 });
 
