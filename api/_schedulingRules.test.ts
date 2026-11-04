@@ -129,6 +129,30 @@ describe('最终任务改动裁决', () => {
     await expect(draft.commit()).rejects.toThrow('待办已变化，未写入（content）');
     expect(c.write).not.toHaveBeenCalled();
   });
+  it('标签在详情和写后回读中重排时仍确认显隐，不改其他标签', async () => {
+    const c = client(), draft = new RuleTaskDraft(c.api, [task()]);
+    c.tasks.get('one')!.tags!.reverse();
+    c.write.mockImplementation(async (id, payload) => {
+      c.tasks.set(id, { ...c.tasks.get(id)!, ...payload, tags: [...payload.tags as string[]].sort() });
+      return c.tasks.get(id)!;
+    });
+    const branch = draft.branch('visibility-timed');
+    await branch.api.updateTask('one', { tags: [...task().tags!, 'hidden'] }); branch.accept();
+    await draft.commit();
+    expect(c.write).toHaveBeenCalledOnce();
+    expect(draft.committedValues()[0].tags).toEqual([...task().tags!, 'hidden'].sort());
+  });
+  it.each(['before', 'after'] as const)('标签真实丢失仍在 %s 阶段停止，不用忽略顺序掩盖差异', async phase => {
+    const c = client(), draft = new RuleTaskDraft(c.api, [task()]);
+    const branch = draft.branch('visibility-timed');
+    await branch.api.updateTask('one', { tags: [...task().tags!, 'hidden'] }); branch.accept();
+    if (phase === 'before') c.tasks.get('one')!.tags = ['活', '广州'];
+    else c.write.mockImplementation(async (id, payload) => {
+      c.tasks.set(id, { ...c.tasks.get(id)!, ...payload, tags: ['活', '广州', 'hidden'] }); return c.tasks.get(id)!;
+    });
+    await expect(draft.commit()).rejects.toThrow(phase === 'before' ? '待办已变化，未写入（tags）' : '写后回读不一致（tags）');
+    expect(c.write).toHaveBeenCalledTimes(phase === 'before' ? 0 : 1);
+  });
   it('生成任务清理前再次检查完成状态，并验证删除结果', async () => {
     const c = client(), draft = new RuleTaskDraft(c.api, [task()]);
     c.api.deleteTask = vi.fn(async (_project, id) => { c.tasks.delete(id); });

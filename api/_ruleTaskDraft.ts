@@ -9,6 +9,7 @@ const ordered = (value: unknown): unknown => Array.isArray(value) ? value.map(or
 const same = (a: unknown, b: unknown) => JSON.stringify(ordered(a ?? null)) === JSON.stringify(ordered(b ?? null));
 const emptyDefault = (key: string, value: unknown) => value ?? (['content', 'desc', 'repeatFlag'].includes(key) ? '' : ['items', 'tags', 'reminders'].includes(key) ? [] : null);
 const persistedField = (key: string, a: unknown, b: unknown) => same(emptyDefault(key, a), emptyDefault(key, b))
+  || key === 'tags' && Array.isArray(a) && Array.isArray(b) && same([...a].sort(), [...b].sort())
   || (key === 'startDate' || key === 'dueDate') && typeof a === 'string' && typeof b === 'string'
     && Number.isFinite(Date.parse(a)) && Date.parse(a) === Date.parse(b);
 const pending = (t: TickTickTask) => (t.status ?? 0) === 0 && !t.completedTime;
