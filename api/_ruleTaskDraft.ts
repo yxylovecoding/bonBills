@@ -238,6 +238,20 @@ export class RuleTaskDraft {
           if (!saved?.id || saved.id.startsWith('draft-')) throw new Error('新待办创建结果未确认');
           this.realIds.set(id, saved.id);
           const confirmed = await this.source.getTask(saved.projectId ?? task.projectId, saved.id);
+          // Creation assigns fresh checklist IDs even when the request supplied IDs.
+          // Match the ordered contents/progress first; existing-task IDs stay strict.
+          const itemIds: [string, string][] = [];
+          const requestedItems = payload.items as TickTickTask['items'];
+          if (requestedItems?.length && confirmed?.items?.length === requestedItems.length
+            && confirmed.items.every(item => Boolean(item.id))
+            && new Set(confirmed.items.map(item => item.id)).size === requestedItems.length
+            && persistedField('items', confirmed.items, requestedItems.map(({ id: _id, ...item }) => item))) {
+            payload.items = requestedItems.map((item, index) => {
+              const realId = confirmed.items![index].id!;
+              if (item.id) itemIds.push([item.id, realId]);
+              return { ...item, id: realId };
+            });
+          }
           const differences = !confirmed ? ['task'] : [
             ...(!pending(confirmed) ? ['status'] : []),
             ...fields.filter(key => payload[key] !== undefined && !persistedField(key, confirmed[key], payload[key])),
@@ -246,6 +260,7 @@ export class RuleTaskDraft {
             if (differences.includes('items')) logChecklistDifference(confirmed?.items, payload.items as TickTickTask['items']);
             throw new RuleTaskVerificationError('after', differences);
           }
+          for (const [requested, actual] of itemIds) this.realIds.set(requested, actual);
           this.committed.set(saved.id, confirmed);
           for (const entry of this.pendingSaves) if (entry.rule === this.createdBy.get(id)) await entry.save(); updated++; this.writeCounts.set(this.createdBy.get(id)!, (this.writeCounts.get(this.createdBy.get(id)!) ?? 0) + 1);
         } catch (error) { fail([this.createdBy.get(id)!], error); }

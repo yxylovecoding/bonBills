@@ -184,7 +184,12 @@ it('uses container-suffixed stage titles for relative dates without changing the
 
 it('保存整棵搬家实例的实际 ID 并合并延迟基准，下一轮不会重新生成', async () => {
   m.tasks.push(make('jg', '搬家-京广-11.5'));
-  const draft = new RuleTaskDraft(api, m.tasks), branch = draft.branch('template-content');
+  const server = { ...api, createTask: async (payload: any) => {
+    const id = `created-${m.tasks.length}`;
+    const task = { ...payload, id, status: 0, items: payload.items.map((item: any, index: number) => ({ ...item, id: `${id}-item-${index}` })) };
+    m.tasks.push(task); return task;
+  } } as unknown as TickTickOpenApiClient;
+  const draft = new RuleTaskDraft(server, m.tasks), branch = draft.branch('template-content');
   const saves: (() => Promise<unknown>)[] = [];
   await syncTickTickTemplates(branch.api, 'travel', 'conn', { mode: 'content',
     deferState: save => saves.push(save), resolveIds: value => draft.resolveIds(value, true) });
@@ -195,7 +200,13 @@ it('保存整棵搬家实例的实际 ID 并合并延迟基准，下一轮不会
   const state = m.saved.get('ticktick:template-pairs:v1:conn:travel') as any;
   expect(Object.keys(state.movingTrees.jg.taskIds)).toHaveLength(12);
   expect(JSON.stringify(state)).not.toContain('draft-');
+  const copied = m.tasks.find(task => task.id === state.movingTrees.jg.taskIds.b0)!;
+  expect(state.movingTrees.jg.itemIds.b0['b0-item']).toBe(copied.items![0].id);
+  copied.items![0].status = 1;
+  m.tasks.find(task => task.id === 'b0')!.items![0].title = '牙刷换新';
   createTask.mockClear();
   await syncTickTickTemplates(api, 'travel', 'conn', { mode: 'content' });
   expect(createTask).not.toHaveBeenCalled();
+  expect(copied.items).toHaveLength(1);
+  expect(copied.items![0]).toMatchObject({ title: '牙刷换新', status: 1 });
 });
