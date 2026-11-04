@@ -1,7 +1,8 @@
+import { dateTimeFormatter } from './_dateTimeFormat.js';
 // Convert a floating wall time using IANA rules, including historical DST offsets.
 export function wallTimeInstant(wall: string, timezone: string): string {
   const naive = Date.parse(`${wall}Z`);
-  const format = new Intl.DateTimeFormat('sv-SE', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+  const format = dateTimeFormatter('sv-SE', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
   let instant = naive;
   for (let i = 0; i < 4; i++) {

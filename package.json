@@ -10,6 +10,7 @@
     "build:deploy": "npm run build && node scripts/build-server.mjs",
     "start": "node dist-server/index.js",
     "verify:deploy": "node scripts/verify-deploy.mjs",
+    "benchmark:cpu": "node --import tsx scripts/benchmark-cpu.ts",
     "test": "vitest run",
     "storage:migrate": "tsx scripts/migrate-storage.ts",
     "storage:verify": "tsx scripts/verify-storage.ts",

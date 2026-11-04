@@ -135,8 +135,9 @@ function isAllDay(event: IcalEvent) {
   return event.startDate?.isDate || String(event.component.getFirstPropertyValue('x-microsoft-cdo-alldayevent')).toUpperCase() === 'TRUE';
 }
 
-export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind, startDate: string, endDate: string, includeUid = false, includeTimed = false,
-  options?: { includeLocation?: boolean; timezone?: string; includeFree?: boolean; includeTaskLink?: boolean }): OutlookDayEvent[] {
+type ParseOptions = { includeLocation?: boolean; timezone?: string; includeFree?: boolean; includeTaskLink?: boolean };
+
+function prepareOutlookCalendar(text: string) {
   if (!/^\s*BEGIN:VCALENDAR\r?\n/i.test(text) || !/END:VCALENDAR\s*$/i.test(text)) throw new Error('订阅内容不是完整日历');
   const root = new ICAL.Component(ICAL.parse(text));
   const components = root.getAllSubcomponents('vevent');
@@ -151,7 +152,19 @@ export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind
     exceptions.set(event.uid, map);
   }
   const cancelledSeries = new Set(events.filter((event) => !event.isRecurrenceException() && isCancelled(event)).map((event) => event.uid));
+  return { events, exceptions, cancelledSeries };
+}
+
+export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind, startDate: string, endDate: string, includeUid = false, includeTimed = false,
+  options?: ParseOptions): OutlookDayEvent[] {
+  return expandOutlookCalendar(prepareOutlookCalendar(text), calendar, startDate, endDate, includeUid, includeTimed, options);
+}
+
+function expandOutlookCalendar(parsed: ReturnType<typeof prepareOutlookCalendar>, calendar: OutlookCalendarKind,
+  startDate: string, endDate: string, includeUid: boolean, includeTimed: boolean, options?: ParseOptions): OutlookDayEvent[] {
+  const { events, exceptions, cancelledSeries } = parsed;
   const result: OutlookDayEvent[] = [];
+  let rangeStart: string | undefined, rangeEnd: string | undefined;
   const instant = (time: IcalTime, event: IcalEvent, property: string) => {
     const zone = event.component.getFirstProperty(property)?.getParameter('tzid')
       ?? event.component.getFirstProperty('dtstart')?.getParameter('tzid');
@@ -181,8 +194,8 @@ export function parseOutlookCalendar(text: string, calendar: OutlookCalendarKind
         || String(event.component.getFirstPropertyValue('x-microsoft-cdo-busystatus')).toUpperCase() === 'FREE'))) return;
       const from = instant(start, event, 'dtstart'), to = instant(end, event, 'dtend');
       if (to <= from) throw new Error('日程时段无效');
-      const rangeStart = options?.timezone ? wallTimeInstant(`${startDate}T00:00:00`, options.timezone) : new Date(`${startDate}T00:00:00+08:00`).toISOString();
-      const rangeEnd = options?.timezone ? wallTimeInstant(`${endDate}T00:00:00`, options.timezone) : new Date(`${endDate}T00:00:00+08:00`).toISOString();
+      rangeStart ??= options?.timezone ? wallTimeInstant(`${startDate}T00:00:00`, options.timezone) : new Date(`${startDate}T00:00:00+08:00`).toISOString();
+      rangeEnd ??= options?.timezone ? wallTimeInstant(`${endDate}T00:00:00`, options.timezone) : new Date(`${endDate}T00:00:00+08:00`).toISOString();
       if (from < rangeEnd && to > rangeStart) {
         result.push({ calendar, title: event.summary || '', startDate: from, endDate: to, allDay: false,
           ...location, ...taskLink, ...(includeUid ? { uid: event.uid, ...((recurrenceId || event.isRecurrenceException()) ? { recurrenceId: recurrenceId || event.recurrenceId.toString() } : {}) } : {}) });
@@ -231,8 +244,11 @@ export async function readOutlookSnapshot(input: OutlookConnectionInput, startDa
   const events = await Promise.all(sources.map(async ({ name, kind, url }) => {
     try {
       const text = await fetchCalendar(url);
-      return { name, days: parseOutlookCalendar(text, kind, startDate, endDate, true, false, { timezone }), timed: availabilityRange
-        ? parseOutlookCalendar(text, kind, availabilityRange.startDate, availabilityRange.endDate, false, true,
+      // Both windows use the same fetched document. Share parsing only within
+      // this read; recurrence iterators and range results remain independent.
+      const parsed = prepareOutlookCalendar(text);
+      return { name, days: expandOutlookCalendar(parsed, kind, startDate, endDate, true, false, { timezone }), timed: availabilityRange
+        ? expandOutlookCalendar(parsed, kind, availabilityRange.startDate, availabilityRange.endDate, false, true,
           { timezone, includeFree: true, includeTaskLink: true }).filter((event) => !event.allDay) : [] };
     } catch {
       // Never forward upstream errors: they can contain the private subscription URL.

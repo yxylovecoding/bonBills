@@ -1,3 +1,4 @@
+import { dateTimeFormatter } from './_dateTimeFormat.js';
 import { createHash } from 'node:crypto';
 import { wallTimeInstant } from './_calendarTimezone.js';
 import { kv } from './_accountKv.js';
@@ -20,7 +21,7 @@ export interface RoutineTagEntry {
 export type RoutineTagJournal = Record<string, RoutineTagEntry>;
 
 function localTime(date: Date, timeZone: string) {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit',
+  const parts = Object.fromEntries(dateTimeFormatter('en-CA', { timeZone, year: 'numeric', month: '2-digit',
     day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })
     .formatToParts(date).map(part => [part.type, part.value]));
   return { day: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}:${parts.second}` };

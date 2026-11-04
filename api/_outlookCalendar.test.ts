@@ -12,6 +12,28 @@ const input = { playUrl, classUrl, policy: 'manual' as const, rules: DEFAULT_OUT
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Outlook ICS 解析', () => {
+  it('共享解析仍分别展开窗口和改期例外，下次读取立即采用新内容', async () => {
+    const makeCalendar = (title: string) => calendar([
+      event('UID:trip\nDTSTART;VALUE=DATE:20261004\nDTEND;VALUE=DATE:20261005\nRRULE:FREQ=DAILY;COUNT=3\nSUMMARY:出游'),
+      event('UID:trip\nRECURRENCE-ID;VALUE=DATE:20261005\nDTSTART;VALUE=DATE:20261008\nDTEND;VALUE=DATE:20261009\nSUMMARY:出游'),
+      event(`UID:timed\nDTSTART;TZID=China Standard Time:20261004T090000\nDTEND;TZID=China Standard Time:20261004T100000\nRRULE:FREQ=DAILY;COUNT=3\nSUMMARY:${title}`),
+      event('UID:timed\nRECURRENCE-ID;TZID=China Standard Time:20261005T090000\nDTSTART;TZID=China Standard Time:20261005T110000\nDTEND;TZID=China Standard Time:20261005T120000\nSUMMARY:改期'),
+    ].join('\r\n'));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(makeCalendar('原日程')))
+      .mockResolvedValueOnce(new Response(makeCalendar('新日程'))));
+    const read = () => readOutlookSnapshot({ ...input, classUrl: '' }, '2026-10-01', '2026-11-01',
+      { startDate: '2026-10-05', endDate: '2026-10-07' }, 'Asia/Shanghai');
+    const first = await read(), second = await read();
+    expect(first.tags).toEqual({ '2026-10-04': 'travel', '2026-10-06': 'travel', '2026-10-08': 'travel' });
+    expect(first.availability?.events).toEqual([
+      { title: '原日程', start: '2026-10-06T01:00:00.000Z', end: '2026-10-06T02:00:00.000Z' },
+      { title: '改期', start: '2026-10-05T03:00:00.000Z', end: '2026-10-05T04:00:00.000Z' },
+    ]);
+    expect(second.tags).toEqual(first.tags);
+    expect(second.availability?.events[0].title).toBe('新日程');
+    expect(first.availability?.events[0].title).toBe('原日程');
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
   it('只在请求时提取 TickTick 关联标识，不把日程正文或私人链接返回前端', () => {
     const ics = calendar(event('UID:laundry\nDTSTART:20261004T010000Z\nDTEND:20261004T020000Z\nSUMMARY:洗衣服\nDESCRIPTION:private note https://ticktick.com/webapp/#p/life/tasks/laundry'));
     expect(parseOutlookCalendar(ics, 'work', '2026-10-01', '2026-11-01', true, true)[0]).not.toHaveProperty('taskLink');

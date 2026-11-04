@@ -1,3 +1,4 @@
+import { dateTimeFormatter } from './_dateTimeFormat.js';
 import ICAL from 'ical.js';
 import { hasHiddenTag } from './_ticktickHiddenTag.js';
 import { wallTimeInstant } from './_calendarTimezone.js';
@@ -12,7 +13,7 @@ const fields = ['title', 'content', 'desc', 'isAllDay', 'timeZone', 'reminders',
 const stamp = (task: TickTickTask) => JSON.stringify([task.id, task.projectId, task.status ?? 0,
   task.completedTime ?? null, ...fields.map(key => task[key] ?? null)]);
 function wall(value: string, zone: string) {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat('sv-SE', { timeZone: zone, year: 'numeric', month: '2-digit',
+  const parts = Object.fromEntries(dateTimeFormatter('sv-SE', { timeZone: zone, year: 'numeric', month: '2-digit',
     day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })
     .formatToParts(new Date(value)).map(p => [p.type, p.value]));
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`;

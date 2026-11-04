@@ -1,3 +1,4 @@
+import { dateTimeFormatter } from './_dateTimeFormat.js';
 import { isEyeDrops } from './_ticktickEyeDrops.js';
 import { currentRule, precedes } from './_rulePolicy.js';
 import { collectCompleted } from './_ticktickCompleted.js';
@@ -650,7 +651,7 @@ export function calendarDateInTimeZone(value: string | undefined, timeZone = 'As
   const instant = new Date(value);
   if (!Number.isFinite(instant.getTime())) return rawDate;
   try {
-    const parts = new Intl.DateTimeFormat('en', {
+    const parts = dateTimeFormatter('en', {
       timeZone,
       year: 'numeric',
       month: '2-digit',

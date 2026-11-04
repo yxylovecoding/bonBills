@@ -24,6 +24,8 @@ Render 免费服务禁止 SMTP 25/465/587。用户于 2026-11-04 明确取消每
 
 `render.yaml` 固定 `plan: free`、Singapore、Node 24、构建和启动命令及 `/healthz`；不声明数据库或额外服务。初次部署使用迁移分支，正式切换后跟随 main。应用所需密钥单独迁移，不写进仓库。
 
+当前服务以公开 Git 仓库 URL 连接 main，尚未连接 GitHub provider。即使 API 的 autoDeploy 字段显示开启，推送仍不会自动发布；本次通过 Render 手动部署完成。后续发布先检查 deploy 列表，确认最新提交没有自动构建，再触发一次部署，避免重复消耗免费构建分钟。
+
 ```sh
 npm ci --include=dev
 npm run build:deploy

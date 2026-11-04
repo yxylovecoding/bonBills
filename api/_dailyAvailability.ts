@@ -1,3 +1,4 @@
+import { dateTimeFormatter } from './_dateTimeFormat.js';
 import { precedes } from './_rulePolicy.js';
 import { hasHiddenTag } from './_ticktickHiddenTag.js';
 import { wallTimeInstant } from './_calendarTimezone.js';
@@ -10,7 +11,7 @@ export type TimeSlot = [number, number];
 const minute = 60_000;
 const titleKey = (title: string) => title.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
 const localDay = (value: string | undefined, timezone: string) => value && Number.isFinite(Date.parse(value))
-  ? new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value))
+  ? dateTimeFormatter('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value))
   : undefined;
 const normalizedTags = (task: TickTickTask) => (task.tags ?? []).map((tag) => tag.normalize('NFKC').trim().toLowerCase());
 const taskDay = (task: TickTickTask, timezone: string) => localDay(task.dueDate ?? task.startDate, timezone);
@@ -61,7 +62,14 @@ export function dayAvailability(options: {
   const timezone = options.timezone ?? 'Asia/Shanghai';
   if (day < calendar.startDate || day >= calendar.endDate) throw new Error('Outlook 日程范围不足，未调整每日安排');
   const profile = options.profile ?? 'day';
-  const at = (hour: number) => Date.parse(wallTimeInstant(`${day}T${String(hour).padStart(2, '0')}:00:00`, timezone));
+  // One calculation per boundary within this day; every event uses the same
+  // midnight/end-of-day instants, including on DST transition days.
+  const boundaries = new Map<number, number>();
+  const at = (hour: number) => {
+    if (!boundaries.has(hour)) boundaries.set(hour,
+      Date.parse(wallTimeInstant(`${day}T${String(hour).padStart(2, '0')}:00:00`, timezone)));
+    return boundaries.get(hour)!;
+  };
   const now = day === today ? (options.now?.getTime() ?? Date.now()) : at(0);
   // Meal/rest windows are explicit preferences, including in calendar mode.
   const windows: TimeSlot[] = (profile === 'calendar' ? [[0, 11], [14, 18], [20, 24]] : profile === 'evening' ? [[20, 22]] : [[9, 11], [14, 18], [20, 22]])
