@@ -349,6 +349,11 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
       };
       const allowed = (id: SchedulingRuleId) => run.results.find(r => r.id === id)?.status === 'success';
       propagate();
+      // Validate/publish the calendar before committing tasks. A later subscription
+      // refresh must not erase the trace of task writes already confirmed below.
+      if (outlookSnapshot?.connected && ['calendar-travel', 'calendar-home', 'calendar-intern', 'calendar-manual'].every(id => allowed(id as SchedulingRuleId))) {
+        await saveOutlookSnapshot(outlookSnapshot.connection, outlookSnapshot.snapshot, outlookSnapshot.policy, outlookSnapshot.requestedAt);
+      }
       let updated: number;
       try {
         updated = await draft.commit({ order: config.order, allowed,
@@ -403,9 +408,6 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
       await kv.set(managedVisibilityKey, previousOwned);
       if (legacyOwned && allowed('visibility-location')) await kv.set('ticktick:location-hidden:v1', {});
       if (!sleepWindow(now).hidden && allowed('visibility-sleep')) await kv.set(sleepTagStateKey(connection.projectId), {});
-      if (outlookSnapshot?.connected && ['calendar-travel', 'calendar-home', 'calendar-intern', 'calendar-manual'].every(id => allowed(id as SchedulingRuleId))) {
-        await saveOutlookSnapshot(outlookSnapshot.connection, outlookSnapshot.snapshot, outlookSnapshot.policy, outlookSnapshot.requestedAt);
-      }
       if (allowed('daily-plan') && state.briefing && state.summary) {
         const actual = new Map(draft.committedValues().map(task => [task.id, task]));
         const selected = state.briefing.selected.filter(item => {
@@ -415,7 +417,7 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
         state.briefing.selected = selected;
         state.summary = { ...state.summary, todayCount: selected.length, plannedMinutes: selected.reduce((sum, task) => sum + task.minutes, 0) };
       }
-      if (!allowed('daily-plan') || run.results.some(result => handlers[result.id] && result.status !== 'success' && SCHEDULING_RULES.find(rule => rule[0] === result.id)?.[3] !== 'outlook')) {
+      if (!allowed('daily-plan')) {
         state.summary = saved?.connectionId === connectionId ? saved.summary : undefined;
         state.briefing = saved?.connectionId === connectionId ? saved.briefing : undefined;
       }

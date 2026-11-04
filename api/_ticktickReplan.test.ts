@@ -193,6 +193,36 @@ describe('日期优先级与失败传播', () => {
   it('只有 Outlook 连接时仍刷新订阅', async () => {
     m.data.delete('ticktick:connection:v1'); await runRuleReplan({ scope: 'full', allowDisconnected: true }); expect(m.fullOutlook).toHaveBeenCalledOnce();
   });
+  it.each([false, true])('日历版本在待办写入前确认，过期快照不产生任务写入：%s', async stale => {
+    m.tasks = [task('large', { content: '(1h)' })];
+    m.fullOutlook.mockResolvedValue({ connected: true, connection: { id: 'calendar' }, policy: 'manual', requestedAt: Date.now(),
+      snapshot: { startDate: day, endDate: '2026-12-03', tags: {} },
+      availability: { startDate: day, endDate: '2026-12-03', events: [] } });
+    m.saveOutlook.mockImplementation(async () => {
+      expect(m.write).not.toHaveBeenCalled();
+      if (stale) throw new Error('日历已更新，请重新同步');
+    });
+    if (stale) {
+      await expect(runRuleReplan({ scope: 'full' })).rejects.toThrow('日历已更新');
+      expect(m.write).not.toHaveBeenCalled(); expect(m.tasks[0].dueDate).toContain(day);
+    } else {
+      const result = await runRuleReplan({ scope: 'full' });
+      expect(status(result, 'daily-plan').status).toBe('success');
+      expect(m.saveOutlook).toHaveBeenCalledOnce(); expect(m.tasks[0].dueDate).toContain('2026-11-04');
+      expect(result.details!.date).toBe(day);
+    }
+  });
+  it('独立待办生成失败不丢弃已确认的今日预算结果，仍报告该规则失败', async () => {
+    m.data.set(DAILY_PLAN_KEY, { connectionId: hash, history: [], deadlines: {}, summary: { date: '2026-11-02', todayCount: 8 } });
+    m.tasks = [task('a-selected'), task('b-deferred')];
+    m.period.mockRejectedValue(new Error('unavailable'));
+    const result = await runRuleReplan({ scope: 'full' });
+    expect(status(result, 'period-reminder').status).toBe('failed'); expect(result.rulesComplete).toBe(false);
+    expect(status(result, 'daily-plan').status).toBe('success');
+    expect(m.tasks[1].dueDate).toContain('2026-11-04');
+    expect(m.data.get(DAILY_PLAN_KEY).summary).toMatchObject({ date: day, todayCount: 1, plannedMinutes: 15 });
+    expect(result.details!.rules!.results.find(rule => rule.id === 'period-reminder')!.status).toBe('failed');
+  });
 });
 
 describe('小时轮换保留原业务边界', () => {
