@@ -48,6 +48,7 @@ export interface SchedulingRuleConfig {
   /** Older clients/configurations have no groups; reads migrate without changing priority. */
   groups?: SchedulingRuleGroup[];
   names?: Partial<Record<SchedulingRuleId, string>>;
+  tags?: Partial<Record<SchedulingRuleId, string[]>>;
   removed?: SchedulingRuleId[];
 }
 export interface SchedulingRuleResult {
@@ -161,6 +162,15 @@ export function readRuleConfig(value: unknown): SchedulingRuleConfig {
     if (!ruleIds.includes(id as SchedulingRuleId) || typeof name !== 'string' || !name.trim() || name.trim().length > 40) throw new Error('规则名称须为 1–40 字');
     names[id as SchedulingRuleId] = name.trim();
   }
+  if (raw.tags !== undefined && (!raw.tags || typeof raw.tags !== 'object' || Array.isArray(raw.tags))) throw new Error('规则标签无效');
+  const tags: NonNullable<SchedulingRuleConfig['tags']> = {};
+  for (const [id, values] of Object.entries(raw.tags ?? {})) {
+    if (!ruleIds.includes(id as SchedulingRuleId) || !Array.isArray(values)
+      || values.some(tag => typeof tag !== 'string' || !tag.trim() || tag.trim().length > 30)) throw new Error('规则标签须为 1–30 字');
+    const unique = [...new Set(values.map(tag => tag.trim()))];
+    if (unique.length > 20) throw new Error('每条规则最多 20 个标签');
+    if (unique.length) tags[id as SchedulingRuleId] = unique;
+  }
   const order = [...raw.order];
   for (const id of ruleIds) {
     if (order.includes(id)) continue;
@@ -178,7 +188,7 @@ export function readRuleConfig(value: unknown): SchedulingRuleConfig {
     predecessors[id] = [...values];
   }
   for (const id of ruleIds) if (!raw.order.includes(id) && defaultPredecessors[id]) predecessors[id] = defaultPredecessors[id]!.filter(parent => !removed.includes(parent));
-  const config: SchedulingRuleConfig = { version: raw.version, order, predecessors, names, removed };
+  const config: SchedulingRuleConfig = { version: raw.version, order, predecessors, names, tags, removed };
   config.order = topologicalRules(config);
   config.groups = normalizeGroups(raw, config);
   config.order = [...config.groups.flatMap(group => group.rules), ...removed];
