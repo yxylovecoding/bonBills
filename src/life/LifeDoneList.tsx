@@ -1,4 +1,4 @@
-import LifeSchedulingRules from './LifeSchedulingRules';
+import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { DoneItem, DoneMonth } from '../utils/bonLife';
 import type { TickTickPlanDetails } from '../utils/tickTickPlanDetails';
@@ -80,7 +80,7 @@ function DoneDay({ date, index, items, today, pending, busy, error }: {
   </section>;
 }
 
-export default function LifeDoneList({ onExpired, onManageOutlook }: { onExpired: () => void; onManageOutlook?: () => void }) {
+export default function LifeDoneList({ onExpired, recordsControlsTarget }: { onExpired: () => void; recordsControlsTarget?: HTMLDivElement | null }) {
   const [today, setToday] = useState(shanghaiToday);
   const thisWeek = doneWeekDates(today)[0];
   const [weeks, setWeeks] = useState(() => [...earlierDoneWeeks(thisWeek, 3), thisWeek]);
@@ -155,7 +155,7 @@ export default function LifeDoneList({ onExpired, onManageOutlook }: { onExpired
     }
   }
   useEffect(() => () => { replanController.current?.abort(); }, []);
-  // 页面打开时自动静默触发一次 Orchestrate，等价于用户点击「Orchestrate」按钮，
+  // 页面打开时自动静默触发一次 Orchestrate，等价于用户点击「Orche」按钮，
   // 不走组件状态，避免打扰用户；失败也静默忽略。
   useEffect(() => {
     if (autoReplanDispatched) return;
@@ -167,7 +167,7 @@ export default function LifeDoneList({ onExpired, onManageOutlook }: { onExpired
         await accountFetch('/api/ticktick-trips?action=trigger-replan', {
           method: 'POST', credentials: 'same-origin', signal: controller.signal,
         });
-      } catch { /* 静默忽略触发失败，用户仍可手动点击「Orchestrate」。*/ }
+      } catch { /* 静默忽略触发失败，用户仍可手动点击「Orche」。*/ }
       finally { clearTimeout(timer); }
     })();
     return () => { clearTimeout(timer); controller.abort(); };
@@ -245,12 +245,15 @@ export default function LifeDoneList({ onExpired, onManageOutlook }: { onExpired
       <button className="life-today" onClick={() => strip.current?.scrollTo({ left: strip.current.scrollWidth, behavior: 'smooth' })}>本周</button>
       <button className="life-arrow" aria-label="下一周" disabled={atLatest} onClick={() => move(1)}>›</button>
     </nav></div>
-    <div className="life-done-toolbar"><span role="status">{replanning ? '正在提交 Orchestrate…' : busy ? '同步中…' : planDetails ? <button className="life-plan-trigger" aria-expanded={detailsOpen} aria-controls="life-plan-details" onClick={() => setDetailsOpen(open => !open)}>
-      {replanMessage || `上次排期 · 剩余 ${planDetails.selected.length} 项 · 约 ${planDetails.selected.reduce((sum, task) => sum + task.minutes, 0)} 分钟`}
-    </button> : replanMessage || (syncedAt ? `${completionTime.format(new Date(syncedAt))} 已同步` : '尚未同步')}</span>
-      <div className="life-done-actions"><button disabled={busy || replanning} onClick={() => void triggerReplan()}>{replanning ? '提交中…' : 'Orchestrate'}</button>
-        <button disabled={busy || replanning} onClick={() => void refresh(true)}>同步记录</button></div></div>
-    <LifeSchedulingRules onExpired={onExpired} onManageOutlook={onManageOutlook} />
+    <div className="life-done-toolbar"><span>{planDetails && <button className="life-plan-trigger" aria-expanded={detailsOpen} aria-controls="life-plan-details" onClick={() => setDetailsOpen(open => !open)}>
+      have orchestrated
+    </button>}</span>
+      <div className="life-done-actions"><button disabled={busy || replanning} title={replanMessage || undefined} onClick={() => void triggerReplan()}>{replanning ? '提交中…' : 'Orche'}</button></div></div>
+    <span className="sr-only" role="status">{replanning ? '正在提交 Orchestrate…' : replanMessage}</span>
+    {recordsControlsTarget && createPortal(<div className="life-orchestrator-records">
+      <span role="status">{busy ? '同步中…' : syncedAt ? `${completionTime.format(new Date(syncedAt))} 已同步` : '尚未同步'}</span>
+      <button type="button" disabled={busy || replanning} onClick={() => void refresh(true)}>同步记录</button>
+    </div>, recordsControlsTarget)}
     {replanError && <p className="life-error" role="alert">{replanError}</p>}
     {detailsError && <p className="life-error" role="alert">{detailsError}</p>}
     {detailsOpen && planDetails && <LifePlanDetails plan={planDetails} />}

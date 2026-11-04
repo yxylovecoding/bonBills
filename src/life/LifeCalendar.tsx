@@ -13,6 +13,7 @@ import LifeEditor from './LifeEditor';
 import LifeConnection from './LifeConnection';
 import LifeCycleSettings from './LifeCycleSettings';
 import LifeDoneList from './LifeDoneList';
+import LifeOrchestrator from './LifeOrchestrator';
 import { useLifeTraining } from './useLifeTraining';
 import { DEFAULT_TRAINING_SETTINGS, monthlyTrainingPlan, plannedTraining, rollingTrainingPlan, trainingIdentity, trainingLibrary } from '../utils/lifeTraining';
 import LifeTrainingSettings from './LifeTrainingSettings';
@@ -47,6 +48,8 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
   const [periodError, setPeriodError] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [settings, setSettings] = useState(false);
+  const [orchestratorOpen, setOrchestratorOpen] = useState(false);
+  const [recordsControlsTarget, setRecordsControlsTarget] = useState<HTMLDivElement | null>(null);
   const [skinSettingsOpen, setSkinSettingsOpen] = useState(false);
   const [cycleSettings, setCycleSettings] = useState(false);
   const [trainingSettingsOpen, setTrainingSettingsOpen] = useState(false);
@@ -169,7 +172,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
 
   return <main className="life-shell">
     <header className="life-header"><h1><span className="life-brand-dot" />BonLog</h1>
-      <div className="life-header-actions"><InstallApp app="log" /><button disabled={!current || loading} onClick={() => setCycleSettings(true)}>经期设置</button><button onClick={() => setSettings(true)}>连接 Outlook</button>
+      <div className="life-header-actions"><InstallApp app="log" /><button aria-haspopup="dialog" aria-controls="life-orchestrator" onClick={() => setOrchestratorOpen(true)}>Orchestrator</button>
         <button onClick={() => void logout()} disabled={loggingOut}>{loggingOut ? '退出中…' : '退出'}</button></div></header>
     <div className="life-toolbar">
       <nav className="life-tabs" aria-label="状态日历">{(['skin', 'eyes', 'discomfort', 'mood', 'training', 'done'] as const).map((value) => <button key={value}
@@ -229,7 +232,7 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
         onPeriodChange={(period) => setSelection((previous) => ({ ...previous, ...period }))}
         onEdit={(date) => openEntry({ date, kind: 'body', text: '', revision: '', ...current?.entries[`body:${date}`], mutationId: crypto.randomUUID() })} />
     </Suspense>}
-    {kind === 'done' ? <LifeDoneList onExpired={onExpired} onManageOutlook={() => setSettings(true)} /> : kind !== 'body' && <section className={`life-calendar${kind === 'training' ? ' life-training-calendar' : kind === 'skin' || kind === 'eyes' || kind === 'discomfort' ? ' life-symptom-calendar' : ''}`} aria-label={`${year}年${month}月${LIFE_LABELS[kind]}日历`} aria-busy={loading}>
+    {kind === 'done' ? <LifeDoneList onExpired={onExpired} recordsControlsTarget={recordsControlsTarget} /> : kind !== 'body' && <section className={`life-calendar${kind === 'training' ? ' life-training-calendar' : kind === 'skin' || kind === 'eyes' || kind === 'discomfort' ? ' life-symptom-calendar' : ''}`} aria-label={`${year}年${month}月${LIFE_LABELS[kind]}日历`} aria-busy={loading}>
       <div className="life-weekdays">{WEEKDAYS.map((day) => <span key={day}>{day}</span>)}</div>
       <div className="life-days">{cells.map((date, index) => {
         if (!date) return <div className="life-empty-day" key={`empty-${index}`} aria-hidden="true" />;
@@ -300,6 +303,9 @@ export default function LifeCalendar({ owner, onExpired }: { owner: string; onEx
       onClose={() => { setSkinSettingsOpen(false); setRetry((value) => value + 1); }} onSave={(skinSettings) => {
         setData((previous) => previous ? { ...previous, skinSettings } : previous); setSkinSettingsOpen(false); setSaved(true);
       }} />}
+    {orchestratorOpen && !settings && !cycleSettings && <LifeOrchestrator onClose={() => setOrchestratorOpen(false)} onExpired={onExpired}
+      onManageOutlook={() => setSettings(true)} onManageCycle={() => setCycleSettings(true)} cycleDisabled={!current || loading}
+      recordsControlsRef={kind === 'done' ? setRecordsControlsTarget : undefined} />}
     {settings && <LifeConnection year={year} connected={current?.connected ?? false} onClose={() => setSettings(false)} onChanged={(connected) => {
       setData((previous) => previous ? { ...previous, connected } : previous);
       if (connected) void syncPeriods(year, generation.current);
