@@ -9,7 +9,7 @@ function enqueue(env, body) {
 export default {
   async scheduled(event, env, ctx) {
     // Keep cron delivery tiny; durable alarms own the long-running HTTP calls.
-    ctx.waitUntil(enqueue(env, { jobs: scheduledJobs(event.scheduledTime), cronAt: event.scheduledTime })
+    ctx.waitUntil(enqueue(env, { jobs: scheduledJobs(event.scheduledTime, { monthlyBackup: env.MONTHLY_BACKUP_ENABLED === 'true' }), cronAt: event.scheduledTime })
       .then(response => { if (response.status !== 202) throw new Error('Scheduler enqueue failed'); }));
   },
   async fetch(request, env) {

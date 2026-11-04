@@ -179,6 +179,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       // recurring occurrence even after the user has completed the original.
       return res.status(410).json({ error: '该次电动车安排已结束，不再重放' });
     }
+    if (req.query?.action === 'daily-email') return res.status(410).json({ error: '每日邮件已取消' });
     if (isCron && automaticRestWindow()) return res.status(200).json({ ok: true, skipped: 'rest-window' });
     if (req.query?.action === 'plan-details') {
       if (req.method !== 'GET') return res.status(405).json({ error: 'method not allowed' });
@@ -214,12 +215,6 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       const result = await replanRemainingToday({ scheduled: true });
       if (result.busy) return res.status(200).json({ ok: true, busy: false, deferred: true, dailyPlan: { deferred: true } });
       return res.status(200).json({ ok: true, ...result });
-    }
-    if (req.query?.action === 'daily-email') {
-      if (!isCron) return res.status(403).json({ error: 'cron authorization required' });
-      const { sendDailyEmail } = await import('./_dailyEmail.js');
-      const result = await sendDailyEmail();
-      return res.status('busy' in result && result.busy ? 202 : 200).json({ ok: true, ...result });
     }
     if (req.query?.action === 'briefing') {
       if (!['GET', 'POST'].includes(req.method ?? '')) return res.status(405).json({ error: 'method not allowed' });

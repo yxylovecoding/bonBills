@@ -3,7 +3,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import handler from './ticktick-trips';
 import { defaultRuleConfig } from '../src/utils/schedulingRules';
 import { RULE_CONFIG_KEY } from './_schedulingRules';
-const m = vi.hoisted(() => ({ data: new Map<string, any>(), auth: true, engine: vi.fn(), hourly: vi.fn(), details: vi.fn(), dispatch: vi.fn(), archive: vi.fn(), mail: vi.fn() }));
+const m = vi.hoisted(() => ({ data: new Map<string, any>(), auth: true, engine: vi.fn(), hourly: vi.fn(), details: vi.fn(), dispatch: vi.fn(), archive: vi.fn() }));
 vi.mock('./_accountRoute.js', () => ({ withAccountScope: (value: unknown) => value }));
 vi.mock('./_auth.js', () => ({ authOk: async () => m.auth }));
 vi.mock('./_accountKv.js', () => ({ kv: {
@@ -17,7 +17,6 @@ vi.mock('./_ticktickPlanDetails.js', () => ({ readTickTickPlanDetails: m.details
 vi.mock('./_cloudScheduler.js', () => ({ dispatchFullReplan: m.dispatch }));
 vi.mock('./_outlookConnections.js', () => ({ readOutlookConnections: async () => [{ id: 'read', name: '玩', connected: true, kind: 'subscription' }] }));
 vi.mock('./_lifeDone.js', () => ({ syncRecentLifeDone: m.archive }));
-vi.mock('./_dailyEmail.js', () => ({ sendDailyEmail: m.mail }));
 async function request(method: string, action = '', body?: unknown, cron = false) {
   const result = { status: 200, body: {} as any };
   const res = { setHeader: vi.fn(), status: (code: number) => { result.status = code; return res; }, json: (value: unknown) => { result.body = value; return res; } };
@@ -81,11 +80,16 @@ describe('同步入口与保护', () => {
   });
   it('全部自动入口休息，手动编辑配置仍可进行', async () => {
     vi.setSystemTime(new Date('2026-11-03T04:00:00+0800'));
-    for (const action of ['', 'hourly-replan', 'night-routine', 'routine-visibility', 'daily-routine', 'hair-wash', 'reading-visibility', 'timed-visibility', 'daily-email']) {
+    for (const action of ['', 'hourly-replan', 'night-routine', 'routine-visibility', 'daily-routine', 'hair-wash', 'reading-visibility', 'timed-visibility']) {
       expect((await request('GET', action, undefined, true)).body.skipped).toBe('rest-window');
     }
-    expect(m.engine).not.toHaveBeenCalled(); expect(m.mail).not.toHaveBeenCalled();
+    expect(m.engine).not.toHaveBeenCalled();
     expect((await request('PATCH', 'rules', defaultRuleConfig())).status).toBe(200);
+  });
+  it('已取消的邮件入口返回 410，既不发信也不触发排程', async () => {
+    expect((await request('GET', 'daily-email', undefined, true)).status).toBe(410);
+    expect((await request('POST', 'daily-email')).status).toBe(410);
+    expect(m.engine).not.toHaveBeenCalled(); expect(m.hourly).not.toHaveBeenCalled();
   });
   it('预算保存只接受自动或合法分钟数', async () => {
     expect((await request('PATCH', '', { budgetMinutes: 5 })).status).toBe(400);
