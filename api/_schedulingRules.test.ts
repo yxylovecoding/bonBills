@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { defaultRuleConfig, readRuleConfig } from '../src/utils/schedulingRules';
+import { defaultRuleConfig, readRuleConfig, updateRuleGroups, removeSchedulingRule } from '../src/utils/schedulingRules';
 import { executeRuleGraph, saveSchedulingRules, RULE_CONFIG_KEY } from './_schedulingRules';
 import { RuleTaskDraft } from './_ruleTaskDraft';
 import { locationTaskHidden, visibilityDecision } from './_taskVisibilityRules';
@@ -12,6 +12,28 @@ vi.mock('./_accountKv.js', () => ({ kv: {
   eval: async (_script: string, [key]: string[]) => { data.delete(key); return 1; },
 } }));
 beforeEach(() => data.clear());
+
+it.each(['full', 'hourly', 'visibility'] as const)('%s 使用同一分组顺序、保存自定义名称并跳过已删除规则', async scope => {
+  const config = readRuleConfig(defaultRuleConfig());
+  config.names = { 'visibility-reading': '晚间阅读' };
+  const removed = removeSchedulingRule(config, 'visibility-reading');
+  const saved = await saveSchedulingRules(removed), called = vi.fn();
+  expect(saved.names!['visibility-reading']).toBe('晚间阅读'); expect(saved.groups).toEqual(removed.groups);
+  const run = await executeRuleGraph(saved, scope, { 'visibility-reading': called }, { save: false });
+  expect(called).not.toHaveBeenCalled(); expect(run.names).toEqual(saved.names);
+  expect(run.results.find(rule => rule.id === 'visibility-reading')).toMatchObject({ status: 'skipped', reason: '已删除，不执行' });
+});
+
+it('分组环和非法删除在服务端拒绝，原配置与版本保持不变', async () => {
+  const saved = await saveSchedulingRules(defaultRuleConfig());
+  await expect(saveSchedulingRules({ ...saved, removed: ['vehicle-pickup'] })).rejects.toThrow('前序');
+  const bad = { ...saved, groups: [
+    { id: 'a', name: 'A组', rules: ['always-today', 'sprays'] }, { id: 'b', name: 'B组', rules: ['laundry'] },
+    { id: 'rest', name: '其余', rules: saved.order.filter(id => !['always-today', 'sprays', 'laundry'].includes(id)) },
+  ], predecessors: { laundry: ['always-today'], sprays: ['laundry'] } };
+  await expect(saveSchedulingRules(bad)).rejects.toThrow('分组循环依赖');
+  expect(data.get(RULE_CONFIG_KEY)).toEqual(saved);
+});
 
 it('保存配置检查版本，拒绝覆盖其他页面的新配置', async () => {
   const initial = defaultRuleConfig();
@@ -43,6 +65,23 @@ function client(original = task()) {
   return { api: api as unknown as TickTickApi, tasks, write: api.updateTask };
 }
 describe('最终任务改动裁决', () => {
+  it.each([false, true])('移动整组确实改变冲突胜者，后执行规则不覆盖且只写一次：%s', async reverse => {
+    const c = client(), draft = new RuleTaskDraft(c.api, [task()]), initial = defaultRuleConfig();
+    initial.predecessors = {};
+    const groups = [{ id: 'today', name: '今日', rules: ['always-today'] as const }, { id: 'wash', name: '洗衣', rules: ['laundry'] as const }];
+    const config = updateRuleGroups(initial, [...(reverse ? groups.reverse() : groups).map(group => ({ ...group, rules: [...group.rules] })),
+      { id: 'rest', name: '其他', rules: initial.order.filter(id => !['always-today', 'laundry'].includes(id)) }]);
+    const handler = (id: 'always-today' | 'laundry', date: string) => async () => {
+      const branch = draft.branch(id); await branch.api.updateTask('one', { dueDate: date }); return branch.accept();
+    };
+    const run = await executeRuleGraph(config, 'full', {
+      'always-today': handler('always-today', '2026-11-03T00:00:00+0800'), laundry: handler('laundry', '2026-11-08T00:00:00+0800'),
+    }, { save: false });
+    await draft.commit();
+    expect(c.write).toHaveBeenCalledOnce();
+    expect(c.tasks.get('one')!.dueDate).toBe(reverse ? '2026-11-08T00:00:00+0800' : '2026-11-03T00:00:00+0800');
+    expect(run.results.find(rule => rule.id === (reverse ? 'always-today' : 'laundry'))!.conflicts![0].winner).toBe(reverse ? 'laundry' : 'always-today');
+  });
   it.each([['always-today', 'laundry'], ['laundry', 'always-today']] as const)('较高的 %s 决定日期，只写一次并保留其他字段', async (first, second) => {
     const c = client(), draft = new RuleTaskDraft(c.api, [task()]);
     const high = draft.branch(first), low = () => draft.branch(second);

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runRuleReplan } from './_ruleReplan';
 import { replanRemainingToday } from './_ticktickReplan';
-import { defaultRuleConfig, readRuleConfig, type SchedulingRuleId } from '../src/utils/schedulingRules';
+import { defaultRuleConfig, readRuleConfig, removeSchedulingRule, type SchedulingRuleId } from '../src/utils/schedulingRules';
 import { DAILY_PLAN_KEY, DAILY_PLAN_SETTINGS_KEY } from './_ticktickDailyPlan';
 import type { TickTickTask } from './_ticktickTrips';
 
@@ -41,6 +41,26 @@ const hash = createHash('sha256').update('test-token').digest('hex');
 const config = (first: SchedulingRuleId[], predecessors = {}) => { const value = defaultRuleConfig();
   m.data.set('ticktick:rules:v1', readRuleConfig({ ...value, version: 7, order: [...first, ...value.order.filter(id => !first.includes(id))], predecessors })); };
 const status = (result: any, id: SchedulingRuleId) => result.rules.results.find((r: any) => r.id === id);
+
+it.each(['full', 'hourly', 'visibility'] as const)('%s 删除阅读显隐后不再改变对应标签，独立规则照常完成', async scope => {
+  const saved = removeSchedulingRule(readRuleConfig(defaultRuleConfig()), 'visibility-reading');
+  m.data.set('ticktick:rules:v1', saved);
+  m.tasks = [task('reading', { title: '阅读', tags: ['routine', 'hidden'] })];
+  const result = await runRuleReplan({ scope });
+  expect(status(result, 'visibility-reading')).toMatchObject({ status: 'skipped', reason: '已删除，不执行' });
+  expect(m.tasks[0].tags).toEqual(['routine', 'hidden']);
+  expect(result.rulesComplete).toBe(true);
+});
+
+it('删除 Outlook 写入及日历规则不会调用该写入，也不阻断其他规则', async () => {
+  let saved = removeSchedulingRule(readRuleConfig(defaultRuleConfig()), 'outlook-hair');
+  saved = removeSchedulingRule(saved, 'calendar-travel');
+  m.data.set('ticktick:rules:v1', saved);
+  const result = await runRuleReplan({ scope: 'full' });
+  expect(m.hairOutlook).not.toHaveBeenCalled(); expect(m.chargingOutlook).toHaveBeenCalledOnce();
+  expect(status(result, 'calendar-travel').status).toBe('skipped');
+  expect(status(result, 'daily-plan').status).toBe('success'); expect(result.rulesComplete).toBe(true);
+});
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date(`${day}T21:45:00+08:00`)); vi.resetAllMocks();
   m.data.clear(); m.tasks = []; m.history = []; m.city = '北京'; m.locationFailure = false;
@@ -64,36 +84,58 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('统一显隐裁决', () => {
+  it.each(['full', 'hourly', 'visibility'] as const)('%s 使用 hidden，兼容清理旧标签且未变化不重写', async scope => {
+    config(['visibility-location', 'visibility-reading']);
+    const original = task('r', { title: '阅读', tags: ['广州', 'routine', 'bon-hidden', 'hidden'],
+      priority: 3, repeatFlag: 'RRULE:FREQ=DAILY', reminders: ['TRIGGER:PT0S'] });
+    m.tasks = [structuredClone(original)];
+    await runRuleReplan({ scope });
+    expect(m.tasks[0]).toEqual({ ...original, tags: ['广州', 'routine', 'hidden'] });
+    expect(m.write).toHaveBeenCalledOnce();
+    await runRuleReplan({ scope });
+    expect(m.write).toHaveBeenCalledOnce();
+    m.city = '广州';
+    await runRuleReplan({ scope });
+    expect(m.tasks[0]).toEqual({ ...original, tags: ['广州', 'routine'] });
+    expect(m.write).toHaveBeenCalledTimes(2);
+  });
+  it('地点读取失败时不迁移旧隐藏标签，保留原状态', async () => {
+    m.locationFailure = true;
+    const original = task('r', { title: '阅读', tags: ['广州', 'routine', 'bon-hidden'] });
+    m.tasks = [structuredClone(original)];
+    await runRuleReplan({ scope: 'visibility' });
+    expect(m.tasks[0]).toEqual(original); expect(m.write).not.toHaveBeenCalled();
+  });
   it.each(['full', 'hourly', 'visibility'] as const)('%s 入口读取同一配置，地点优先于阅读，其他字段不变', async scope => {
     config(['visibility-location', 'visibility-reading']);
     m.tasks = [task('r', { title: '阅读', tags: ['广州', 'routine', '活'], priority: 3, repeatFlag: 'RRULE:FREQ=DAILY', reminders: ['TRIGGER:PT0S'] })];
     const before = structuredClone(m.tasks[0]); const result = await runRuleReplan({ scope });
-    expect(result.rules!.version).toBe(7); expect(m.tasks[0]).toEqual({ ...before, tags: [...before.tags!, 'bon-hidden'] });
+    expect(result.rules!.version).toBe(7); expect(m.tasks[0]).toEqual({ ...before, tags: [...before.tags!, 'hidden'] });
     expect(m.write).toHaveBeenCalledOnce();
   });
   it('拖动阅读到地点之前确实改变冲突结果', async () => {
-    m.tasks = [task('r', { title: '阅读', tags: ['广州', 'routine', 'bon-hidden'] })];
+    m.tasks = [task('r', { title: '阅读', tags: ['广州', 'routine', 'hidden'] })];
     config(['visibility-reading', 'visibility-location']); await runRuleReplan({ scope: 'visibility' });
     expect(m.tasks[0].tags).toEqual(['广州', 'routine']);
   });
   it('跨日切换城市，多地点满足任一，移除地点标签后解除系统持有的隐藏', async () => {
     m.tasks = [task('r', { tags: ['广州', '清迈', 'routine'] }), task('plain', { tags: ['routine'] })];
-    await runRuleReplan({ scope: 'visibility' }); expect(m.tasks[0].tags).toContain('bon-hidden');
+    await runRuleReplan({ scope: 'visibility' }); expect(m.tasks[0].tags).toContain('hidden');
     m.city = '广州'; vi.setSystemTime(new Date('2026-11-04T09:00:00+08:00'));
-    await runRuleReplan({ scope: 'visibility' }); expect(m.tasks[0].tags).not.toContain('bon-hidden');
-    m.city = ''; await runRuleReplan({ scope: 'visibility' }); expect(m.tasks[0].tags).toContain('bon-hidden');
-    m.tasks[0].tags = ['routine', 'bon-hidden']; await runRuleReplan({ scope: 'visibility' });
+    await runRuleReplan({ scope: 'visibility' }); expect(m.tasks[0].tags).not.toContain('hidden');
+    m.city = ''; await runRuleReplan({ scope: 'visibility' }); expect(m.tasks[0].tags).toContain('hidden');
+    m.tasks[0].tags = ['routine', 'hidden']; await runRuleReplan({ scope: 'visibility' });
     expect(m.tasks[0].tags).toEqual(['routine']); expect(m.tasks[1].tags).toEqual(['routine']);
   });
   it('地点读取失败保留原显隐，并标记失败而非误判地点', async () => {
-    m.locationFailure = true; m.tasks = [task('r', { title: '阅读', tags: ['广州', 'bon-hidden'] })];
+    m.locationFailure = true; m.tasks = [task('r', { title: '阅读', tags: ['广州', 'hidden'] })];
     const result = await runRuleReplan({ scope: 'visibility' }); expect(status(result, 'visibility-location').status).toBe('failed');
-    expect(m.write).not.toHaveBeenCalled(); expect(m.tasks[0].tags).toContain('bon-hidden');
+    expect(m.write).not.toHaveBeenCalled(); expect(m.tasks[0].tags).toContain('hidden');
   });
   it('无日期改动的显隐入口不会调用完整日历、生成任务或专项排期', async () => {
     m.tasks = [task('t', { isAllDay: false, dueDate: '2026-11-04T22:00:00+0800' })];
     await runRuleReplan({ scope: 'visibility', visibilityKind: 'timed' });
-    expect(m.tasks[0].tags).toEqual(['bon-hidden']); expect(m.fullOutlook).not.toHaveBeenCalled();
+    expect(m.tasks[0].tags).toEqual(['hidden']); expect(m.fullOutlook).not.toHaveBeenCalled();
     for (const fn of [m.trip, m.wish, m.exercise, m.laundry, m.hairOutlook]) expect(fn).not.toHaveBeenCalled();
   });
   it('夜间入口只维护显隐和运动，不扩大到完整重排', async () => {
@@ -113,7 +155,7 @@ describe('日期优先级与失败传播', () => {
   });
   it('前序计算失败跳过依赖链，独立阅读继续，低优先级不替代失败日期', async () => {
     config(['laundry', 'always-today'], { exercise: ['laundry'], 'daily-plan': ['exercise'] });
-    m.tasks = [task('wash', { title: '洗衣服', tags: ['always-today'], dueDate: '2026-11-09T00:00:00+0800' }), task('r', { title: '阅读', tags: ['routine', 'bon-hidden'] })];
+    m.tasks = [task('wash', { title: '洗衣服', tags: ['always-today'], dueDate: '2026-11-09T00:00:00+0800' }), task('r', { title: '阅读', tags: ['routine', 'hidden'] })];
     m.laundry.mockRejectedValue(new Error('private provider body'));
     const result = await runRuleReplan({ scope: 'full' });
     expect(status(result, 'laundry').status).toBe('failed'); expect(status(result, 'daily-plan').status).toBe('skipped'); expect(status(result, 'exercise').status).toBe('skipped'); expect(status(result, 'exercise-rollover').status).toBe('success');
@@ -143,7 +185,7 @@ describe('日期优先级与失败传播', () => {
   it('历史失败保留旧计划和日期，独立显隐仍完成', async () => {
     const summary = { date: '2026-11-02', todayCount: 8 };
     m.data.set(DAILY_PLAN_KEY, { connectionId: hash, history: [], deadlines: {}, summary });
-    m.tasks = [task('large', { content: '(1h)' }), task('r', { title: '阅读', tags: ['routine', 'bon-hidden'] })];
+    m.tasks = [task('large', { content: '(1h)' }), task('r', { title: '阅读', tags: ['routine', 'hidden'] })];
     m.historyRead.mockRejectedValue(new Error('private history'));
     const result = await replanRemainingToday(); expect(result.dailyPlan).toEqual(summary); expect(status(result, 'daily-plan').status).toBe('failed');
     expect(m.tasks[0].dueDate).toContain(day); expect(m.tasks[1].tags).toEqual(['routine']); expect(m.data.get(DAILY_PLAN_KEY).summary).toEqual(summary);
@@ -186,7 +228,7 @@ describe('远端新增专项接入同一裁决', () => {
     const run = await runRuleReplan({ scope: 'hourly' });
     expect(status(run, 'eye-drops').status).toBe('success');
     expect(Date.parse(m.tasks[0].dueDate!)).toBe(Date.parse('2026-11-04T10:00:00+0800'));
-    expect(m.tasks[0].tags).toContain('bon-hidden'); expect(m.tasks[1].dueDate).toBe('2026-11-03T15:00:00+0800');
+    expect(m.tasks[0].tags).toContain('hidden'); expect(m.tasks[1].dueDate).toBe('2026-11-03T15:00:00+0800');
     expect(m.write).toHaveBeenCalledOnce();
   });
   it('模板内容与搬家日期合并后一次写入，完成项同步阶段日期并保留完成记录', async () => {
@@ -210,7 +252,7 @@ describe('远端新增专项接入同一裁决', () => {
     const result=await runRuleReplan({scope:'full'});
     expect(status(result,'vehicle-pickup').status).toBe('success'); expect(status(result,'outlook-pickup').status).toBe('success');
     const pickup=m.tasks.find(task=>task.title==='接电动车')!;
-    expect(pickup).toMatchObject({startDate:'2026-11-04T07:20:00+0800',dueDate:'2026-11-04T07:40:00+0800',tags:['bon-hidden']});
+    expect(pickup).toMatchObject({startDate:'2026-11-04T07:20:00+0800',dueDate:'2026-11-04T07:40:00+0800',tags:['hidden']});
     expect(m.pickupOutlook).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({tasks:[expect.objectContaining({id:pickup.id,dueDate:pickup.dueDate})]}),expect.anything());
     expect(JSON.stringify(m.pickupOutlook.mock.calls)).not.toContain('draft-');
   });

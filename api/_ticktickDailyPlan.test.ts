@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { cycleEnd, estimateTaskMinutes, planTickTickDay, refreshDailyHistory, type DailyPlanState } from './_ticktickDailyPlan';
 import { TickTickOpenApiClient, syncTickTickRoutines, type TickTickApi, type TickTickTask } from './_ticktickTrips';
+import { withRulePolicy } from './_rulePolicy';
+import { defaultRuleConfig, removeSchedulingRule } from '../src/utils/schedulingRules';
 const today = '2026-10-04';
 const task = (id: string, fields: Partial<TickTickTask> = {}): TickTickTask => ({ id, projectId: 'inbox-real', title: id,
   status: 0, isAllDay: true, startDate: `${today}T00:00:00+0800`, dueDate: `${today}T00:00:00+0800`, ...fields });
@@ -13,6 +15,16 @@ const apply = (tasks: TickTickTask[], dates: Map<string, string>) => tasks.map((
   ? { ...t, startDate: `${dates.get(t.id)}T00:00:00+0800`, dueDate: `${dates.get(t.id)}T00:00:00+0800` } : t);
 
 describe('每日待办动态安排', () => {
+  it('删除完成时间优先规则后，普通轮换不再隐式按该规则排序', () => {
+    const older = task('z-older', { content: '(25m)' }), newer = task('a-newer', { content: '(25m)' });
+    const evaluate = () => {
+      const saved = state([done(older, '2026-09-20'), done(newer, '2026-10-02')]);
+      run([newer, older], { state: saved, budgetMinutes: 25 });
+      return saved.briefing!.selected[0].id;
+    };
+    expect(evaluate()).toBe(older.id);
+    expect(withRulePolicy(removeSchedulingRule(defaultRuleConfig(), 'oldest'), evaluate)).toBe(newer.id);
+  });
   it('记录入选原因和估时，未选中项不冒充今日事', () => {
     const s = state();
     const p = run([task('a', { title: '学习 25分钟' }), task('b', { title: '学习 25分钟' })], { state: s, budgetMinutes: 25 });
@@ -63,12 +75,13 @@ describe('每日待办动态安排', () => {
       task('unknown', { repeatFlag: 'LUNAR:FREQ=YEARLY' })], { excludedTaskIds: new Set(['template']), budgetMinutes: 240 });
     expect([...p.dates.keys()]).toEqual(['child']);
   });
-  it('routine 与 bon-hidden 标签忽略大小写和空白；定时 routine 到点后仍不会进入今日事', () => {
+  it('routine 与 hidden 标签忽略大小写和空白；定时 routine 到点后仍不会进入今日事', () => {
     const s = state();
     const p = run([
       task('morning', { title: '晨间routine', tags: [' Routine '], isAllDay: false, startDate: `${today}T04:00:00+0800`, dueDate: `${today}T04:50:00+0800` }),
       task('lunch', { title: '🏫吃午饭了', tags: ['ROUTINE'], isAllDay: false, startDate: `${today}T12:00:00+0800`, dueDate: `${today}T12:30:00+0800` }),
-      task('system-hidden', { tags: [' BON-HIDDEN '] }),
+      task('system-hidden', { tags: [' HIDDEN '] }),
+      task('legacy-hidden', { tags: [' BON-HIDDEN '] }),
       task('ordinary', { title: '今天应该安排的普通任务 30分钟' }),
     ], { state: s, budgetMinutes: 30 });
     expect(s.briefing!.selected.map((item) => item.id)).toEqual(['ordinary']);

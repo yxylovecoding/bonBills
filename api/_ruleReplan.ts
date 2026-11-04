@@ -11,6 +11,7 @@ import { acquireTickTickLock, releaseTickTickLock } from './_ticktickLock.js';
 import { visibilityInputs, visibilityRules, visibilityDecision } from './_taskVisibilityRules.js';
 import { sleepWindow, sleepTagStateKey } from './_ticktickSleepTags.js';
 import { hasHiddenTag } from './_ticktickNightRoutine.js';
+import { withHiddenTag } from './_ticktickHiddenTag.js';
 import { syncOutlookCalendar, saveOutlookSnapshot, OUTLOOK_CONNECTION_KEY, type OutlookConnection } from './_outlookSync.js';
 import { decryptOutlookConnection, readOutlookSnapshot } from './_outlookCalendar.js';
 import { applyOutlookSnapshotToState, type OutlookAvailability } from '../src/utils/outlookCalendar.js';
@@ -58,6 +59,7 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
           const handlers = Object.fromEntries(SCHEDULING_RULES.filter(rule => rule[3] === 'calendar').map(([id]) => [id, async () => {
             if (failure) throw new Error('Outlook 订阅读取失败');
           }]));
+          for (const id of config.removed ?? []) delete handlers[id];
           const run = await executeRuleGraph(config, options.scope, handlers, { save: false });
           const complete = run.results.filter(result => handlers[result.id]).every(result => result.status === 'success');
           if (outlook?.connected && complete) await saveOutlookSnapshot(outlook.connection, outlook.snapshot, outlook.policy, outlook.requestedAt);
@@ -79,7 +81,7 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
       let calendarState = resolveCalendarState(configState, storedCalendar);
       let availability: OutlookAvailability | undefined, calendarError = false;
       let calendarEvidence: import('../src/utils/outlookCalendar.js').OutlookSnapshot | undefined;
-      let outlookSnapshot: Awaited<ReturnType<typeof syncOutlookCalendar>>;
+      let outlookSnapshot: Awaited<ReturnType<typeof syncOutlookCalendar>> | undefined;
       if (options.scope !== 'visibility') {
         try {
           if (options.scope === 'hourly') {
@@ -148,8 +150,9 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
             }
             visibilityOwners[task.id] = id; visibilityDecisions.set(task.id, hidden);
             if (hidden && id === 'visibility-sleep' && !hasHiddenTag(task)) journal[task.id] = { projectId: task.projectId, addedOn: today, phase: 'adding' };
-            if (hasHiddenTag(task) === hidden && (id !== 'visibility-night' || task.priority === 5)) continue;
-            await branch.api.updateTask(task.id, { ...task, tags: [...(task.tags ?? []).filter(t => t.trim().toLowerCase() !== 'bon-hidden'), ...(hidden ? ['bon-hidden'] : [])],
+            if (JSON.stringify(task.tags ?? []) === JSON.stringify(withHiddenTag(task.tags, hidden))
+              && (id !== 'visibility-night' || task.priority === 5)) continue;
+            await branch.api.updateTask(task.id, { ...task, tags: withHiddenTag(task.tags, hidden),
               ...(id === 'visibility-night' ? { priority: 5 } : {}) });
           }
         }, false);
@@ -287,6 +290,7 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
       if (options.scope === 'full' && !sleeping) for (const id of ['outlook-laundry', 'outlook-charging', 'outlook-hair', 'outlook-pickup'] as const) {
         handlers[id] = async () => { if (calendarError || historyError) throw new Error('来源未确认'); outlookPending.push(id); };
       }
+      for (const id of config.removed ?? []) delete handlers[id];
       const run = await executeRuleGraph(config, options.scope, handlers, { save: false, afterRule: async (id, success) => {
         if (success || !handlers[id]) return;
         // A failed higher rule still owns its applicable field. Lower proposals
@@ -307,7 +311,7 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
           draft.protect(id, candidates.filter(task => !visibility.locations || visibilityDecision(id, task, { now, timeZone: connection.timeZone || 'Asia/Shanghai', ...visibility }) !== null).map(t => t.id), 'hidden');
         } else draft.protect(id, candidates.filter(applies).map(t => t.id));
       } });
-      if (options.scope !== 'visibility' && !sleeping && run.results.some(result => result.id.startsWith('calendar-') && result.status !== 'success')) {
+      if (options.scope !== 'visibility' && !sleeping && run.results.some(result => result.id.startsWith('calendar-') && handlers[result.id] && result.status !== 'success')) {
         for (const result of run.results) if (result.status === 'success' && (calendarDependent.has(result.id) || result.id.startsWith('outlook-'))) {
           result.status = 'skipped'; result.reason = '日历场景结果未确认，保留原排期';
         }
@@ -329,7 +333,7 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
       if (visibility.locations && run.results.find(r => r.id === 'visibility-location')?.status === 'success') {
         const cleanup = draft.branch('visibility-location');
         for (const task of draft.values()) if (previousOwned[task.id] === 'visibility-location' && !visibilityOwners[task.id] && pending(task)) {
-          await cleanup.api.updateTask(task.id, { ...task, tags: (task.tags ?? []).filter(t => t.trim().toLowerCase() !== 'bon-hidden') });
+          await cleanup.api.updateTask(task.id, { ...task, tags: withHiddenTag(task.tags, false) });
         }
         cleanup.accept();
       }
@@ -437,7 +441,7 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
     });
   } catch (error) {
     if (activeConfig && !hasRunTrace) await kv.set(RULE_RUN_KEY, { version: activeConfig.version, scope: options.scope,
-      generatedAt: new Date().toISOString(), order: activeConfig.order,
+      generatedAt: new Date().toISOString(), order: activeConfig.order, groups: activeConfig.groups, names: activeConfig.names,
       results: activeConfig.order.map(id => ({ id, status: 'skipped', matched: 0, updated: 0, reason: '本轮数据读取未完成，未执行规则' })),
     }).catch(() => undefined);
     throw error;

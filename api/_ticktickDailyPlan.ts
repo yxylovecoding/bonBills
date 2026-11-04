@@ -1,5 +1,6 @@
 import { isEyeDrops } from './_ticktickEyeDrops.js';
-import { precedes } from './_rulePolicy.js';
+import { hasHiddenTag } from './_ticktickHiddenTag.js';
+import { precedes, ruleEnabled } from './_rulePolicy.js';
 import ICAL from 'ical.js';
 import type { OutlookAvailability } from '../src/utils/outlookCalendar.js';
 import type { TickTickPlanDetails } from '../src/utils/tickTickPlanDetails.js';
@@ -16,7 +17,7 @@ const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T12:00:00
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / DAY);
 const tags = (task: TickTickTask) => (task.tags ?? []).map((tag) => tag.normalize('NFKC').trim().toLowerCase());
 const pending = (task: TickTickTask) => (task.status ?? 0) === 0;
-const ordinary = (task: TickTickTask) => !tags(task).some((tag) => ['routine', 'bon-hidden', '不关我事'].includes(tag)) && (task.priority ?? 0) < 5;
+const ordinary = (task: TickTickTask) => !hasHiddenTag(task) && !tags(task).some((tag) => ['routine', '不关我事'].includes(tag)) && (task.priority ?? 0) < 5;
 const identity = (task: TickTickTask) => JSON.stringify([task.projectId, task.id]);
 
 export interface DailyPlanSummary {
@@ -226,8 +227,8 @@ export function planTickTickDay(options: {
     candidates.push({ task, members, minutes, last, deadline, notBefore, next, cycleDays });
   }
   const candidateIds = new Set(candidates.flatMap((candidate) => candidate.members.map((task) => task.id)));
-  const important = open.filter((task) => (task.priority ?? 0) >= 5
-    && !tags(task).some(tag => ['routine', 'bon-hidden'].includes(tag))
+  const important = open.filter((task) => ruleEnabled('important') && (task.priority ?? 0) >= 5
+    && !hasHiddenTag(task) && !tags(task).includes('routine')
     && Boolean(routineTaskDate(task) && routineTaskDate(task)! <= today));
   const fixed = open.filter((task) => ordinary(task) && !candidateIds.has(task.id) && !dates.has(task.id) && routineTaskDate(task) === today && sceneDate(task, today) === today);
   const fixedMinutes = fixed.reduce((sum, task) => sum + estimateTaskMinutes(task), 0);
@@ -286,10 +287,10 @@ export function planTickTickDay(options: {
     // Actual completion age owns the rotation. A moved date or a short repeat
     // interval must never promote recently completed work above older work.
     // Unknown history is kept explicit, not replaced by a creation timestamp.
-    const age = Number(Boolean(a.last)) - Number(Boolean(b.last)) || (a.last ? Date.parse(a.last) : 0) - (b.last ? Date.parse(b.last) : 0);
-    const urgency = Number(urgent(b)) - Number(urgent(a));
+    const age = ruleEnabled('oldest') ? Number(Boolean(a.last)) - Number(Boolean(b.last)) || (a.last ? Date.parse(a.last) : 0) - (b.last ? Date.parse(b.last) : 0) : 0;
+    const urgency = ruleEnabled('urgency') ? Number(urgent(b)) - Number(urgent(a)) : 0;
     return (precedes('oldest', 'urgency') ? age || urgency : urgency || age)
-      || a.deadline.localeCompare(b.deadline)
+      || (ruleEnabled('urgency') ? a.deadline.localeCompare(b.deadline) : 0)
       || (Date.parse(a.task.createdTime ?? '') || 0) - (Date.parse(b.task.createdTime ?? '') || 0)
       || a.task.id.localeCompare(b.task.id);
   });

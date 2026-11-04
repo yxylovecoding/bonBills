@@ -115,12 +115,12 @@ describe('地点匹配与日期规则分离', () => {
 });
 
 describe('地点不匹配时隐藏，匹配后恢复', () => {
-  it('无未来适用日也隐藏；恢复只移除自己添加的 bon-hidden，日期和 routine 保持原状', async () => {
+  it('无未来适用日也隐藏；恢复只移除自己添加的 hidden，日期和 routine 保持原状', async () => {
     const original = task('city', { tags: ['北京', 'routine'], priority: 5, repeatFlag: 'RRULE:FREQ=WEEKLY' });
-    const manual = task('manual', { tags: ['北京', 'bon-hidden'] });
+    const manual = task('manual', { tags: ['北京', 'hidden'] });
     const f = fixture([original, manual]);
     await syncTickTickLocationVisibility(f.api, { calendarState, now });
-    expect(f.stored.get('city')).toEqual({ ...original, tags: ['北京', 'routine', 'bon-hidden'] });
+    expect(f.stored.get('city')).toEqual({ ...original, tags: ['北京', 'routine', 'hidden'] });
     await syncTickTickLocationVisibility(f.api, { calendarState, now });
     expect(f.update).toHaveBeenCalledTimes(1);
     await syncTickTickLocationVisibility(f.api, { calendarState, now: new Date(`${tomorrow}T12:00:00+08:00`) });
@@ -133,16 +133,16 @@ describe('地点不匹配时隐藏，匹配后恢复', () => {
     await syncTickTickLocationVisibility(f.api, { calendarState, now });
     for (const time of ['00:01', '19:59']) {
       await syncTickTickLocationVisibility(f.api, { calendarState, now: new Date(`${tomorrow}T${time}:00+08:00`) });
-      expect(f.stored.get('city')?.tags).toContain('bon-hidden');
+      expect(f.stored.get('city')?.tags).toContain('hidden');
     }
-    f.stored.get('city')!.tags = ['bon-hidden'];
+    f.stored.get('city')!.tags = ['hidden'];
     await syncTickTickLocationVisibility(f.api, { calendarState, now: new Date(`${tomorrow}T20:00:00+08:00`) });
     expect(f.stored.get('city')?.tags).toEqual([]);
   });
   it('地点未知时隐藏；用户并发完成和普通标签不被改写', async () => {
     const f = fixture([task('city'), task('done', { status: 2, completedTime: now.toISOString() }), task('plain', { tags: ['游'] })]);
     await syncTickTickLocationVisibility(f.api, { calendarState: {}, now });
-    expect(f.stored.get('city')?.tags).toContain('bon-hidden');
+    expect(f.stored.get('city')?.tags).toContain('hidden');
     expect(f.stored.get('done')?.tags).toEqual(['北京']);
     expect(f.stored.get('plain')?.tags).toEqual(['游']);
   });

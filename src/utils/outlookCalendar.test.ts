@@ -8,6 +8,15 @@ const end = '2026-10-01';
 const event = (values: Partial<OutlookDayEvent> = {}): OutlookDayEvent => ({ calendar: 'play', title: '出游', startDate: '2026-09-22', endDate: '2026-09-23', allDay: true, ...values });
 const snapshot = (events: OutlookDayEvent[]) => buildOutlookSnapshot(events, start, end, DEFAULT_OUTLOOK_RULES);
 
+it('已删除的场景规则不生成标记，删除手动优先规则后不再阻挡 Outlook', () => {
+  const filtered = buildOutlookSnapshot([event(), event({ title: '🏠' })], start, end, DEFAULT_OUTLOOK_RULES, ['calendar-home']);
+  expect(filtered.tags['2026-09-22']).toBe('home'); expect(filtered.travelTitles).toEqual({});
+  expect(filtered.ruleCandidates!['2026-09-22']).toEqual(['calendar-home']);
+  const result = applyOutlookSnapshotToState({ tagMap: { '2026-09-22': 'school' }, manualTagDates: { '2026-09-22': true } }, filtered, 'manual');
+  expect(result.tagMap['2026-09-22']).toBe('home');
+  expect(buildOutlookSnapshot([event()], start, end, DEFAULT_OUTLOOK_RULES, []).tags).toEqual({});
+});
+
 beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-09-01T00:00:00+08:00')); });
 afterEach(() => vi.useRealTimers());
 

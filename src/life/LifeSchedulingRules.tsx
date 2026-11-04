@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { accountFetch } from '../utils/authClient';
 import { useDragSort } from '../hooks/useDragSort';
-import { SCHEDULING_RULES, moveSchedulingRule, readRuleConfig, ruleTitle, type SchedulingRuleConfig, type SchedulingRuleId, type SchedulingRun } from '../utils/schedulingRules';
+import { SCHEDULING_RULES, activeRuleOrder, assignRuleGroup, updateRuleGroups, removeSchedulingRule, restoreSchedulingRule, readRuleConfig, ruleTitle, type SchedulingRuleConfig, type SchedulingRuleGroup, type SchedulingRuleId, type SchedulingRun } from '../utils/schedulingRules';
 import './schedulingRules.css';
 
 interface Connection { id: string; name: string; kind: 'subscription' | 'period' | 'write'; connected: boolean; syncedAt?: string; error?: string; retryAt?: string }
@@ -9,66 +9,130 @@ interface Reply { config: SchedulingRuleConfig; lastRun?: SchedulingRun; outlook
 const endpoint = '/api/ticktick-trips?action=rules';
 const time = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-function RuleEditor({ initial, onSave, onClose }: {
+function GroupRules({ group, draft, busy, expanded, setExpanded, change, onDragging, onRename }: {
+  group: SchedulingRuleGroup; draft: SchedulingRuleConfig; busy: boolean; expanded: SchedulingRuleId | null;
+  setExpanded: (id: SchedulingRuleId | null) => void;
+  change: (work: () => SchedulingRuleConfig) => boolean; onDragging: (active: boolean) => void;
+  onRename: (id: SchedulingRuleId, name: string) => void;
+}) {
+  const reorder = (rules: SchedulingRuleId[]) => change(() => updateRuleGroups(draft, draft.groups!.map(item => item.id === group.id ? { ...item, rules } : item), true));
+  const drag = useDragSort(group.rules, reorder);
+  useEffect(() => { onDragging(drag.draggingIdx !== null); return () => onDragging(false); }, [drag.draggingIdx, onDragging]);
+  return <ol className="schedule-rules-list">{group.rules.map((id, index) => <li key={id} value={draft.order.indexOf(id) + 1}
+    ref={element => drag.itemRef(element, index)} className={drag.draggingIdx === index ? 'is-dragging' : ''}>
+    <div className="schedule-rule-heading">
+      <button type="button" {...(!busy ? drag.handleProps(index) : {})} className="schedule-drag" disabled={busy}
+        aria-label={`拖动${ruleTitle(id, draft)}，也可用上下方向键移动`}
+        onKeyDown={event => {
+          const to = event.key === 'ArrowUp' ? index - 1 : event.key === 'ArrowDown' ? index + 1 : index;
+          if (to === index) return; event.preventDefault();
+          if (to >= 0 && to < group.rules.length) {
+            const rules = [...group.rules]; rules.splice(to, 0, rules.splice(index, 1)[0]); reorder(rules);
+          }
+        }}>⠿</button>
+      <span className="schedule-number">{draft.order.indexOf(id) + 1}</span>
+      <input className="schedule-rule-name" aria-label={`${ruleTitle(id)}的规则名称`} value={ruleTitle(id, draft)} maxLength={40} disabled={busy}
+        onChange={event => onRename(id, event.target.value)} />
+      <button type="button" disabled={busy} className="schedule-predecessor-toggle" aria-expanded={expanded === id}
+        onClick={() => setExpanded(expanded === id ? null : id)}>前序 {(draft.predecessors[id] ?? []).length || ''}</button>
+    </div>
+    <p>{SCHEDULING_RULES.find(rule => rule[0] === id)![2]}</p>
+    <div className="schedule-rule-tools"><label className="schedule-rule-group-label">分组<select aria-label={`${ruleTitle(id, draft)}的分组`} value={group.id} disabled={busy}
+      onChange={event => change(() => assignRuleGroup(draft, id, event.target.value))}>
+      {draft.groups!.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+    </select></label><button type="button" disabled={busy} className="schedule-remove-rule" aria-label={`删除规则${ruleTitle(id, draft)}`}
+      onClick={() => change(() => removeSchedulingRule(draft, id))}>删除</button></div>
+    {!!draft.predecessors[id]?.length && <div className="schedule-predecessors">{draft.predecessors[id]!.map(rule => ruleTitle(rule, draft)).join('、')} → {ruleTitle(id, draft)}</div>}
+    {expanded === id && <fieldset disabled={busy}><legend>必须先完成</legend>
+      {activeRuleOrder(draft).filter(candidate => candidate !== id).map(parent => <label key={parent}>
+        <input type="checkbox" checked={(draft.predecessors[id] ?? []).includes(parent)} onChange={event => change(() => readRuleConfig({ ...draft,
+          predecessors: { ...draft.predecessors, [id]: event.target.checked ? [...draft.predecessors[id] ?? [], parent] : (draft.predecessors[id] ?? []).filter(p => p !== parent) },
+        }))} />{ruleTitle(parent, draft)}
+      </label>)}
+    </fieldset>}
+  </li>)}</ol>;
+}
+
+export function RuleEditor({ initial, onSave, onClose }: {
   initial: SchedulingRuleConfig; onSave: (config: SchedulingRuleConfig) => Promise<void>; onClose: () => void;
 }) {
-  const [draft, setDraft] = useState(() => structuredClone(initial));
+  const [draft, setDraft] = useState(() => readRuleConfig(initial));
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [expanded, setExpanded] = useState<SchedulingRuleId | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set(readRuleConfig(initial).groups!.map(group => group.id)));
+  const [ruleDragging, setRuleDragging] = useState(false);
+  const [restoreGroup, setRestoreGroup] = useState('');
   const dialog = useRef<HTMLDialogElement>(null);
   const scrollBody = useRef<HTMLDivElement>(null);
+  const newGroupFocus = useRef<string | null>(null);
   useEffect(() => { dialog.current?.showModal(); }, []);
+  useEffect(() => {
+    if (!newGroupFocus.current) return;
+    dialog.current?.querySelector<HTMLInputElement>(`input[data-group-id="${newGroupFocus.current}"]`)?.focus();
+    newGroupFocus.current = null;
+  }, [draft.groups]);
   const change = (work: () => SchedulingRuleConfig) => {
     if (busy) return false;
     try { setDraft(work()); setError(''); return true; } catch (cause) { setError((cause as Error).message); return false; }
   };
-  const drag = useDragSort(draft.order, order => change(() => {
-    const normalized = readRuleConfig({ ...draft, order });
-    if (normalized.order.some((id, index) => id !== order[index])) throw new Error('不能越过绑定的前序或后序规则');
-    return normalized;
-  }));
+  const groups = draft.groups!;
+  const reorder = (next: SchedulingRuleGroup[]) => change(() => updateRuleGroups(draft, next, true));
+  const drag = useDragSort(groups, reorder);
   const save = async () => {
     if (busy) return;
     setBusy(true); setError('');
-    try { await onSave(draft); onClose(); } catch (cause) { setError((cause as Error).message); }
+    try { await onSave(readRuleConfig(draft)); onClose(); } catch (cause) { setError((cause as Error).message); }
     finally { setBusy(false); }
   };
   return <dialog ref={dialog} className="schedule-dialog" aria-labelledby="schedule-editor-title"
     onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
     <form onSubmit={event => { event.preventDefault(); void save(); }}>
-      <header><h2 id="schedule-editor-title">规则优先级</h2><span>前序优先 · 从上到下执行</span></header>
+      <header><div className="schedule-editor-title"><h2 id="schedule-editor-title">规则分组与优先级</h2>
+        <button type="button" disabled={busy} onClick={() => change(() => {
+          let name = '新分组', number = 2;
+          while (groups.some(group => group.name === name)) name = `新分组 ${number++}`;
+          const id = `group-${crypto.randomUUID()}`;
+          const next = updateRuleGroups(draft, [...groups, { id, name, rules: [] }]); newGroupFocus.current = id;
+          return next;
+        })}>新增分组</button></div>
+        <span>组间、组内从上到下 · 冲突时靠前规则优先</span></header>
       <div className="schedule-editor-body" ref={scrollBody} onPointerMove={event => {
-        if (drag.draggingIdx === null || !scrollBody.current) return;
+        if (drag.draggingIdx === null && !ruleDragging || !scrollBody.current) return;
         const bounds = scrollBody.current.getBoundingClientRect();
         if (event.clientY < bounds.top + 48) scrollBody.current.scrollTop -= 24;
         if (event.clientY > bounds.bottom - 48) scrollBody.current.scrollTop += 24;
       }}>
-        <ol className="schedule-rules-list">
-          {draft.order.map((id, index) => <li key={id} ref={element => drag.itemRef(element, index)} className={drag.draggingIdx === index ? 'is-dragging' : ''}>
-            <div className="schedule-rule-heading">
-              <button type="button" {...(!busy ? drag.handleProps(index) : {})} className="schedule-drag" disabled={busy}
-                aria-label={`拖动${ruleTitle(id)}，也可用上下方向键移动`}
-                onKeyDown={event => {
-                  const to = event.key === 'ArrowUp' ? index - 1 : event.key === 'ArrowDown' ? index + 1 : index;
-                  if (to === index) return;
-                  event.preventDefault();
-                  if (to >= 0 && to < draft.order.length) change(() => moveSchedulingRule(draft, index, to));
-                }}>⠿</button>
-              <span className="schedule-number">{index + 1}</span><strong>{ruleTitle(id)}</strong>
-              <button type="button" disabled={busy} className="schedule-predecessor-toggle" aria-expanded={expanded === id}
-                onClick={() => setExpanded(expanded === id ? null : id)}>前序 {(draft.predecessors[id] ?? []).length || ''}</button>
-            </div>
-            <p>{SCHEDULING_RULES.find(rule => rule[0] === id)![2]}</p>
-            {!!draft.predecessors[id]?.length && <div className="schedule-predecessors">{draft.predecessors[id]!.map(ruleTitle).join('、')} → {ruleTitle(id)}</div>}
-            {expanded === id && <fieldset disabled={busy}><legend>必须先完成</legend>
-              {draft.order.filter(candidate => candidate !== id).map(parent => <label key={parent}>
-                <input type="checkbox" checked={(draft.predecessors[id] ?? []).includes(parent)} onChange={event => change(() => readRuleConfig({ ...draft,
-                  predecessors: { ...draft.predecessors, [id]: event.target.checked ? [...draft.predecessors[id] ?? [], parent] : (draft.predecessors[id] ?? []).filter(p => p !== parent) },
-                }))} />{ruleTitle(parent)}
-              </label>)}
-            </fieldset>}
-          </li>)}
-        </ol>
+        {groups.map((group, index) => <section key={group.id} ref={element => drag.itemRef(element, index)}
+          className={`schedule-group${drag.draggingIdx === index ? ' is-dragging' : ''}`} aria-label={`${group.name}分组`}>
+          <div className="schedule-group-heading">
+            <button type="button" {...(!busy ? drag.handleProps(index) : {})} className="schedule-drag" disabled={busy}
+              aria-label={`拖动分组${group.name}，也可用上下方向键移动`} onKeyDown={event => {
+                const to = event.key === 'ArrowUp' ? index - 1 : event.key === 'ArrowDown' ? index + 1 : index;
+                if (to === index) return; event.preventDefault();
+                if (to >= 0 && to < groups.length) { const next = [...groups]; next.splice(to, 0, next.splice(index, 1)[0]); reorder(next); }
+              }}>⠿</button>
+            <button type="button" className="schedule-collapse" disabled={busy} aria-expanded={!collapsed.has(group.id)} aria-label={`${collapsed.has(group.id) ? '展开' : '折叠'}${group.name}`}
+              onClick={() => setCollapsed(previous => { const next = new Set(previous); if (next.has(group.id)) next.delete(group.id); else next.add(group.id); return next; })}>
+              {collapsed.has(group.id) ? '▸' : '▾'}</button>
+            <input data-group-id={group.id} aria-label={`分组 ${index + 1} 名称`} value={group.name} maxLength={30} disabled={busy}
+              onChange={event => setDraft({ ...draft, groups: groups.map(item => item.id === group.id ? { ...item, name: event.target.value } : item) })} />
+            <span>{group.rules.length} 条</span>
+            <button type="button" aria-label={`删除分组${group.name}`} title={group.rules.length ? '先将规则移到其他分组' : '删除空分组'}
+              disabled={busy || Boolean(group.rules.length) || groups.length === 1} onClick={() => change(() => updateRuleGroups(draft, groups.filter(item => item.id !== group.id)))}>×</button>
+          </div>
+          {!collapsed.has(group.id) && <GroupRules group={group} draft={draft} busy={busy} expanded={expanded} setExpanded={setExpanded} change={change} onDragging={setRuleDragging}
+            onRename={(id, name) => setDraft({ ...draft, names: { ...draft.names, [id]: name } })} />}
+          {!group.rules.length && !collapsed.has(group.id) && <p className="schedule-empty-group">在规则的「分组」中移入</p>}
+        </section>)}
+        {!!draft.removed?.length && <details className="schedule-removed"><summary>已删除 · {draft.removed.length} 条</summary>
+          <label className="schedule-rule-group-label">恢复到<select aria-label="恢复规则到分组" disabled={busy}
+            value={groups.some(group => group.id === restoreGroup) ? restoreGroup : groups[0].id} onChange={event => setRestoreGroup(event.target.value)}>
+            {groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}
+          </select></label>
+          {draft.removed.map(id => <div className="schedule-removed-rule" key={id}><span>{ruleTitle(id, draft)}</span>
+            <button type="button" disabled={busy} aria-label={`恢复规则${ruleTitle(id, draft)}`} onClick={() => change(() => restoreSchedulingRule(draft, id,
+              groups.some(group => group.id === restoreGroup) ? restoreGroup : groups[0].id))}>恢复</button></div>)}
+        </details>}
       </div>
       <footer>{error && <p role="alert">{error}</p>}<div>
         <button type="button" disabled={busy} onClick={onClose}>取消</button>
@@ -87,7 +151,7 @@ export default function LifeSchedulingRules({ onExpired, onManageOutlook }: { on
     if (response.status === 401) { onExpired(); throw new Error('请重新登录'); }
     const value = await response.json();
     if (!response.ok) throw new Error(value.error || '规则读取失败');
-    return value;
+    return { ...value, config: readRuleConfig(value.config) };
   }, [onExpired]);
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try { const value = await request('GET', undefined, signal); if (!signal?.aborted) { setData(value); setError(''); } }
@@ -116,19 +180,23 @@ export default function LifeSchedulingRules({ onExpired, onManageOutlook }: { on
     finally { setBusy(false); }
   };
   return <section className="schedule-settings" aria-label="规则和 Outlook 连接">
-    <div className="schedule-summary"><details><summary>规则优先级{data ? ` · ${data.config.order.length} 条` : ''}</summary>
+    <div className="schedule-summary"><details><summary>规则优先级{data ? ` · ${data.config.groups!.length} 组 · ${activeRuleOrder(data.config).length} 条` : ''}</summary>
       {data && <><div className="schedule-list-actions"><span>{data.lastRun ? `${time.format(new Date(data.lastRun.generatedAt))} · 配置 v${data.lastRun.version}` : '尚未执行'}</span>
         <button onClick={() => setEditing(true)}>编辑规则</button></div>
-        <ol className="schedule-rules-list">{data.config.order.map(id => {
+        <p className="schedule-priority-note">组间、组内从上到下 · 冲突时靠前规则优先</p>
+        {data.config.groups!.map(group => <details key={group.id} className="schedule-group">
+          <summary>{group.name}<span>{group.rules.length} 条</span></summary>
+        <ol className="schedule-rules-list">{group.rules.map(id => {
           const result = data.lastRun?.results.find(r => r.id === id);
-          return <li key={id}><div className="schedule-rule-heading"><strong>{ruleTitle(id)}</strong>
+          return <li key={id} value={data.config.order.indexOf(id) + 1}><div className="schedule-rule-heading">
+            <span className="schedule-number">{data.config.order.indexOf(id) + 1}</span><strong>{ruleTitle(id, data.config)}</strong>
             <span>{result?.status === 'success' ? `已执行 · ${result.matched} 项` : result?.status === 'failed' ? '失败' : result?.status === 'skipped' ? '跳过' : ''}</span></div>
             <p>{SCHEDULING_RULES.find(rule => rule[0] === id)![2]}</p>
-            {!!data.config.predecessors[id]?.length && <div className="schedule-predecessors">前序：{data.config.predecessors[id]!.map(ruleTitle).join('、')}</div>}
+            {!!data.config.predecessors[id]?.length && <div className="schedule-predecessors">前序：{data.config.predecessors[id]!.map(rule => ruleTitle(rule, data.config)).join('、')}</div>}
             {result?.reason && <p>{result.reason}</p>}
-            {!!result?.conflicts?.length && <p>冲突采用：{[...new Set(result.conflicts.map(c => ruleTitle(c.winner)))].join('、')}</p>}
+            {!!result?.conflicts?.length && <p>冲突采用：{[...new Set(result.conflicts.map(c => ruleTitle(c.winner, data.lastRun)))].join('、')}</p>}
           </li>;
-        })}</ol></>}
+        })}</ol></details>)}</>}
     </details></div>
     <details className="schedule-outlook" open><summary>Outlook</summary>
       {data?.outlook?.map(connection => <div className="schedule-connection" key={connection.id}>

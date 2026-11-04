@@ -1,4 +1,5 @@
 import { precedes } from './_rulePolicy.js';
+import { hasHiddenTag } from './_ticktickHiddenTag.js';
 import { wallTimeInstant } from './_calendarTimezone.js';
 import type { OutlookAvailability } from '../src/utils/outlookCalendar.js';
 import type { TickTickTask } from './_ticktickTrips.js';
@@ -71,7 +72,7 @@ export function dayAvailability(options: {
   // do not imply occupied hours; scene eligibility is handled by the caller.
   const relevant = tasks.filter((task) => !normalizedTags(task).includes('不关我事'));
   const important = tasks.filter((task) => precedes('important', 'daily-plan') && (task.status ?? 0) === 0 && (task.priority ?? 0) >= 5
-    && !normalizedTags(task).some(tag => ['routine', 'bon-hidden'].includes(tag))
+    && !hasHiddenTag(task) && !normalizedTags(task).includes('routine')
     && Boolean(taskDay(task, timezone) && (day === today ? taskDay(task, timezone)! <= day : taskDay(task, timezone) === day)));
   const commitments = [...new Map([...important, ...fixed].map((task) => [task.id, task])).values()];
   const titleCounts = new Map<string, number>();

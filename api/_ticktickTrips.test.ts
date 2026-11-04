@@ -1163,7 +1163,7 @@ describe('TickTick 出门模板子任务标签', () => {
     const ids = { ...instance.taskIdsByTemplateId };
     const stage = api.tasks.get(ids['template-seven-months'])!;
     // Removing routine from an instance must not copy it back from the template.
-    stage.tags = ['不关我事', '手动标签', 'bon-hidden'];
+    stage.tags = ['不关我事', '手动标签', 'hidden'];
     const visa = api.tasks.get(ids['template-visa'])!;
     Object.assign(visa, {
       tags: ['routine', '　不关我事　', '自己的标签'], status: 2,
@@ -1178,7 +1178,7 @@ describe('TickTick 出门模板子任务标签', () => {
 
     for (let run = 0; run < 2; run++) {
       await sync();
-      expect(api.tasks.get(stage.id)?.tags).toEqual(['手动标签', 'bon-hidden', '当天']);
+      expect(api.tasks.get(stage.id)?.tags).toEqual(['手动标签', 'hidden', '当天']);
       expect(api.tasks.get(visa.id)).toEqual({ ...before, tags: ['routine', '自己的标签', '当天'] });
       expect(api.tasks.get(ids['template-photo'])?.tags).toEqual(['当天']);
       expect(api.tasks.get(unrelated.id)).toEqual(unrelated);

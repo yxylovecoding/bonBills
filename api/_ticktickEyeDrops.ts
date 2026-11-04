@@ -1,4 +1,5 @@
 import ICAL from 'ical.js';
+import { hasHiddenTag } from './_ticktickHiddenTag.js';
 import { wallTimeInstant } from './_calendarTimezone.js';
 import type { TickTickApi, TickTickTask } from './_ticktickTrips.js';
 
@@ -26,7 +27,7 @@ export async function syncEyeDrops(api: Pick<TickTickApi, 'getTask' | 'updateTas
   tasks: TickTickTask[], now = new Date(), fallbackZone = 'Asia/Shanghai') {
   const candidates = tasks.filter(task => {
     if (!isEyeDrops(task) || !pending(task) || task.priority !== 5 || task.isAllDay !== false) return false;
-    if ((task.tags ?? []).some(tag => ['routine', 'bon-hidden'].includes(tag.normalize('NFKC').trim().toLowerCase()))) return false;
+    if (hasHiddenTag(task) || (task.tags ?? []).some(tag => tag.normalize('NFKC').trim().toLowerCase() === 'routine')) return false;
     return instant(task, task.timeZone || fallbackZone) <= now.getTime();
   }).sort((a, b) => instant(b, b.timeZone || fallbackZone) - instant(a, a.timeZone || fallbackZone)
     || `${a.projectId}/${a.id}`.localeCompare(`${b.projectId}/${b.id}`));

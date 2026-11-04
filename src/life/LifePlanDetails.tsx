@@ -13,9 +13,9 @@ export default function LifePlanDetails({ plan }: { plan: TickTickPlanDetails })
     <p className="life-plan-meta">{when.format(new Date(plan.generatedAt))} 排期快照 · 北京时间</p>
     {plan.rules && <details className="life-plan-collapsible"><summary>规则执行 · 配置 v{plan.rules.version}</summary>
       <ol className="life-plan-tasks">{plan.rules.results.map(result => <li key={result.id}>
-        <div><span>{ruleTitle(result.id)}</span><span>{result.status === 'success' ? `完成 · ${result.matched} 项` : result.status === 'failed' ? '失败' : '跳过'}</span></div>
+        <div><span>{ruleTitle(result.id, plan.rules)}</span><span>{result.status === 'success' ? `完成 · ${result.matched} 项` : result.status === 'failed' ? '失败' : '跳过'}</span></div>
         {result.reason && <p>{result.reason}</p>}
-        {!!result.conflicts?.length && <p>冲突采用：{[...new Set(result.conflicts.map(conflict => ruleTitle(conflict.winner)))].join('、')}</p>}
+        {!!result.conflicts?.length && <p>冲突采用：{[...new Set(result.conflicts.map(conflict => ruleTitle(conflict.winner, plan.rules)))].join('、')}</p>}
       </li>)}</ol>
     </details>}
     {b ? <section aria-label="剩余可排期时间">

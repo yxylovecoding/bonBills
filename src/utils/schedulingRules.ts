@@ -40,10 +40,15 @@ export const SCHEDULING_RULES = [
 ] as const;
 
 export type SchedulingRuleId = typeof SCHEDULING_RULES[number][0];
+export interface SchedulingRuleGroup { id: string; name: string; rules: SchedulingRuleId[] }
 export interface SchedulingRuleConfig {
   version: number;
   order: SchedulingRuleId[];
   predecessors: Partial<Record<SchedulingRuleId, SchedulingRuleId[]>>;
+  /** Older clients/configurations have no groups; reads migrate without changing priority. */
+  groups?: SchedulingRuleGroup[];
+  names?: Partial<Record<SchedulingRuleId, string>>;
+  removed?: SchedulingRuleId[];
 }
 export interface SchedulingRuleResult {
   id: SchedulingRuleId;
@@ -59,20 +64,103 @@ export interface SchedulingRun {
   scope: 'full' | 'hourly' | 'visibility';
   order: SchedulingRuleId[];
   results: SchedulingRuleResult[];
+  groups?: SchedulingRuleGroup[];
+  names?: Partial<Record<SchedulingRuleId, string>>;
 }
 export const ruleIds = SCHEDULING_RULES.map(rule => rule[0]);
-export const ruleTitle = (id: SchedulingRuleId) => SCHEDULING_RULES.find(rule => rule[0] === id)?.[1] ?? id;
+export const ruleTitle = (id: SchedulingRuleId, config?: Pick<SchedulingRuleConfig, 'names'>) => config?.names?.[id] ?? SCHEDULING_RULES.find(rule => rule[0] === id)?.[1] ?? id;
+export const activeRuleOrder = (config: SchedulingRuleConfig) => config.order.filter(id => !config.removed?.includes(id));
 const defaultPredecessors: SchedulingRuleConfig['predecessors'] = { 'moving-date': ['template-content'], 'outlook-pickup': ['vehicle-pickup'] };
 export const defaultRuleConfig = (): SchedulingRuleConfig => ({ version: 0, order: [...ruleIds], predecessors: structuredClone(defaultPredecessors) });
 
+function initialGroups(order: SchedulingRuleId[]): SchedulingRuleGroup[] {
+  const sections = ['日历场景', '待办显隐', '模板整理', '任务排期', '待办生成', 'Outlook 日程'];
+  const section = (id: SchedulingRuleId) => {
+    const index = ruleIds.indexOf(id);
+    return index < 4 ? 0 : index < 10 ? 1 : index < 13 ? 2 : index < 30 ? 3 : index < 34 ? 4 : 5;
+  };
+  const groups: SchedulingRuleGroup[] = [], counts = new Map<number, number>();
+  let previous = -1;
+  for (const id of order) {
+    const current = section(id);
+    if (current !== previous) {
+      const count = (counts.get(current) ?? 0) + 1; counts.set(current, count);
+      groups.push({ id: `group-${current}-${count}`, name: sections[current] + (count > 1 ? `（${count}）` : ''), rules: [] });
+      previous = current;
+    }
+    groups[groups.length - 1].rules.push(id);
+  }
+  return groups.length ? groups : [{ id: 'group-empty', name: '规则', rules: [] }];
+}
+
+function stableTopology<T extends string>(ids: T[], parents: (id: T) => T[], title: (id: T) => string, prefix: string): T[] {
+  const visited = new Set<T>(), visiting: T[] = [];
+  const visit = (id: T) => {
+    if (visited.has(id)) return;
+    const cycle = visiting.indexOf(id);
+    if (cycle >= 0) throw new Error(`${prefix}：${[...visiting.slice(cycle), id].map(title).join(' → ')}`);
+    visiting.push(id); parents(id).filter(p => ids.includes(p)).forEach(visit);
+    visiting.pop(); visited.add(id);
+  };
+  ids.forEach(visit);
+  const result: T[] = [];
+  while (result.length < ids.length) {
+    const next = ids.find(id => !result.includes(id) && parents(id).every(p => !ids.includes(p) || result.includes(p)));
+    if (next === undefined) throw new Error('规则依赖无法排序');
+    result.push(next);
+  }
+  return result;
+}
+
+function normalizeGroups(raw: SchedulingRuleConfig, config: SchedulingRuleConfig): SchedulingRuleGroup[] {
+  if (raw.groups === undefined) return initialGroups(activeRuleOrder(config));
+  if (!Array.isArray(raw.groups) || !raw.groups.length || raw.groups.length > 64) throw new Error('规则分组无效');
+  const groups: SchedulingRuleGroup[] = [], groupIds = new Set<string>(), names = new Set<string>(), assigned = new Set<SchedulingRuleId>();
+  for (const value of raw.groups) {
+    if (!value || typeof value !== 'object' || typeof value.id !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(value.id)
+      || groupIds.has(value.id) || typeof value.name !== 'string' || !value.name.trim() || value.name.trim().length > 30
+      || names.has(value.name.trim().toLowerCase()) || !Array.isArray(value.rules)) throw new Error('分组名称须为 1–30 字且不能重复');
+    groupIds.add(value.id); names.add(value.name.trim().toLowerCase());
+    for (const id of value.rules) {
+      if (!ruleIds.includes(id) || assigned.has(id) || config.removed?.includes(id)) throw new Error('分组包含未知、重复或已删除规则');
+      assigned.add(id);
+    }
+    groups.push({ id: value.id, name: value.name.trim(), rules: [...value.rules] });
+  }
+  if (raw.order.some(id => !config.removed?.includes(id) && !assigned.has(id))) throw new Error('每条规则都必须归入一个分组');
+  // New catalogue entries follow their nearest existing neighbour; saved groups stay intact.
+  for (const id of activeRuleOrder(config).filter(id => !assigned.has(id))) {
+    const index = config.order.indexOf(id), next = config.order.slice(index + 1).find(candidate => assigned.has(candidate));
+    const previous = config.order.slice(0, index).reverse().find(candidate => assigned.has(candidate));
+    const target = groups.find(group => group.rules.includes((next ?? previous)!)) ?? groups[0];
+    target.rules.splice(next && target.rules.includes(next) ? target.rules.indexOf(next) : target.rules.length, 0, id); assigned.add(id);
+  }
+  const owner = new Map(groups.flatMap(group => group.rules.map(id => [id, group.id] as const)));
+  const parents = (groupId: string) => [...new Set(groups.find(group => group.id === groupId)!.rules.flatMap(id =>
+    (config.predecessors[id] ?? []).map(parent => owner.get(parent)!).filter(parent => parent !== groupId)))];
+  const order = stableTopology(groups.map(group => group.id), parents, id => groups.find(group => group.id === id)!.name, '分组循环依赖，无法整组执行');
+  return order.map(id => {
+    const group = groups.find(group => group.id === id)!;
+    return { ...group, rules: stableTopology(group.rules, id => config.predecessors[id] ?? [], id => ruleTitle(id, config), '循环依赖') };
+  });
+}
+
 /** Missing IDs are new catalogue entries; unknown IDs are never silently executed. */
 export function readRuleConfig(value: unknown): SchedulingRuleConfig {
-  if (value === null || value === undefined) return defaultRuleConfig();
+  if (value === null || value === undefined) value = defaultRuleConfig();
   if (!value || typeof value !== 'object') throw new Error('规则配置无效');
   const raw = value as SchedulingRuleConfig;
   if (!Number.isSafeInteger(raw.version) || raw.version < 0 || !Array.isArray(raw.order)
     || raw.order.some(id => !ruleIds.includes(id)) || new Set(raw.order).size !== raw.order.length
     || !raw.predecessors || typeof raw.predecessors !== 'object' || Array.isArray(raw.predecessors)) throw new Error('规则配置无效');
+  if (raw.removed !== undefined && (!Array.isArray(raw.removed) || raw.removed.some(id => !ruleIds.includes(id)) || new Set(raw.removed).size !== raw.removed.length)) throw new Error('已删除规则无效');
+  const removed = [...raw.removed ?? []];
+  if (raw.names !== undefined && (!raw.names || typeof raw.names !== 'object' || Array.isArray(raw.names))) throw new Error('规则名称无效');
+  const names: SchedulingRuleConfig['names'] = {};
+  for (const [id, name] of Object.entries(raw.names ?? {})) {
+    if (!ruleIds.includes(id as SchedulingRuleId) || typeof name !== 'string' || !name.trim() || name.trim().length > 40) throw new Error('规则名称须为 1–40 字');
+    names[id as SchedulingRuleId] = name.trim();
+  }
   const order = [...raw.order];
   for (const id of ruleIds) {
     if (order.includes(id)) continue;
@@ -85,32 +173,52 @@ export function readRuleConfig(value: unknown): SchedulingRuleConfig {
     if (!ruleIds.includes(id) || !Array.isArray(values) || values.some(p => !ruleIds.includes(p))
       || new Set(values).size !== values.length) throw new Error('前序规则无效');
     if (values.includes(id)) throw new Error(`${ruleTitle(id)}不能将自己设为前序`);
+    const removedParent = values.find(parent => removed.includes(parent));
+    if (!removed.includes(id) && removedParent) throw new Error(`「${ruleTitle(id, { names })}」仍绑定已删除的「${ruleTitle(removedParent, { names })}」，请先解除前序`);
     predecessors[id] = [...values];
   }
-  for (const id of ruleIds) if (!raw.order.includes(id) && defaultPredecessors[id]) predecessors[id] = [...defaultPredecessors[id]!];
-  const config = { version: raw.version, order, predecessors };
+  for (const id of ruleIds) if (!raw.order.includes(id) && defaultPredecessors[id]) predecessors[id] = defaultPredecessors[id]!.filter(parent => !removed.includes(parent));
+  const config: SchedulingRuleConfig = { version: raw.version, order, predecessors, names, removed };
   config.order = topologicalRules(config);
+  config.groups = normalizeGroups(raw, config);
+  config.order = [...config.groups.flatMap(group => group.rules), ...removed];
   return config;
 }
 
 export function topologicalRules(config: SchedulingRuleConfig): SchedulingRuleId[] {
-  const visited = new Set<SchedulingRuleId>(), visiting: SchedulingRuleId[] = [];
-  const visit = (id: SchedulingRuleId) => {
-    if (visited.has(id)) return;
-    const cycle = visiting.indexOf(id);
-    if (cycle >= 0) throw new Error(`循环依赖：${[...visiting.slice(cycle), id].map(ruleTitle).join(' → ')}`);
-    visiting.push(id);
-    for (const parent of config.predecessors[id] ?? []) visit(parent);
-    visiting.pop(); visited.add(id);
-  };
-  config.order.forEach(visit);
-  const result: SchedulingRuleId[] = [];
-  while (result.length < config.order.length) {
-    const next = config.order.find(id => !result.includes(id) && (config.predecessors[id] ?? []).every(p => result.includes(p)));
-    if (!next) throw new Error('规则依赖无法排序');
-    result.push(next);
-  }
-  return result;
+  return stableTopology(config.order, id => config.predecessors[id] ?? [], id => ruleTitle(id, config), '循环依赖');
+}
+
+export function updateRuleGroups(config: SchedulingRuleConfig, groups: SchedulingRuleGroup[], strictOrder = false): SchedulingRuleConfig {
+  const order = [...groups.flatMap(group => group.rules), ...config.removed ?? []], next = readRuleConfig({ ...config, groups, order });
+  if (strictOrder && (next.order.some((id, index) => id !== order[index]) || next.groups!.some((group, index) => group.id !== groups[index].id)))
+    throw new Error('不能越过绑定的前序或后序规则');
+  return next;
+}
+
+export function assignRuleGroup(config: SchedulingRuleConfig, id: SchedulingRuleId, groupId: string): SchedulingRuleConfig {
+  const groups = readRuleConfig(config).groups!;
+  if (!groups.some(group => group.id === groupId) || !ruleIds.includes(id)) throw new Error('规则分组无效');
+  if (groups.find(group => group.id === groupId)!.rules.includes(id)) return config;
+  return updateRuleGroups(config, groups.map(group => ({ ...group,
+    rules: [...group.rules.filter(rule => rule !== id), ...(group.id === groupId ? [id] : [])],
+  })));
+}
+
+export function removeSchedulingRule(config: SchedulingRuleConfig, id: SchedulingRuleId): SchedulingRuleConfig {
+  const current = readRuleConfig(config);
+  if (!ruleIds.includes(id)) throw new Error('规则无效');
+  const dependents = activeRuleOrder(current).filter(rule => current.predecessors[rule]?.includes(id));
+  if (dependents.length) throw new Error(`「${dependents.map(rule => ruleTitle(rule, current)).join('、')}」仍绑定「${ruleTitle(id, current)}」，请先解除前序`);
+  return updateRuleGroups({ ...current, removed: [...new Set([...current.removed ?? [], id])] },
+    current.groups!.map(group => ({ ...group, rules: group.rules.filter(rule => rule !== id) })));
+}
+
+export function restoreSchedulingRule(config: SchedulingRuleConfig, id: SchedulingRuleId, groupId: string): SchedulingRuleConfig {
+  const current = readRuleConfig(config);
+  if (!current.removed?.includes(id) || !current.groups!.some(group => group.id === groupId)) throw new Error('规则分组无效');
+  return updateRuleGroups({ ...current, removed: current.removed.filter(rule => rule !== id) },
+    current.groups!.map(group => ({ ...group, rules: [...group.rules, ...(group.id === groupId ? [id] : [])] })));
 }
 
 export function moveSchedulingRule(config: SchedulingRuleConfig, from: number, to: number): SchedulingRuleConfig {
@@ -118,9 +226,15 @@ export function moveSchedulingRule(config: SchedulingRuleConfig, from: number, t
   const [id] = order.splice(from, 1); order.splice(to, 0, id);
   const valid = Object.entries(config.predecessors).every(([child, parents]) => parents!.every(p => order.indexOf(p) < order.indexOf(child as SchedulingRuleId)));
   if (!valid) throw new Error('不能越过绑定的前序或后序规则');
+  if (config.groups) {
+    const groups = config.groups.map(group => ({ ...group, rules: order.filter(id => group.rules.includes(id)) }));
+    if (groups.flatMap(group => group.rules).some((id, index) => id !== order[index])) throw new Error('跨组移动请修改规则分组');
+    return updateRuleGroups(config, groups, true);
+  }
   return { ...config, order };
 }
 
 export function ruleBefore(config: SchedulingRuleConfig, first: SchedulingRuleId, second: SchedulingRuleId) {
-  return config.order.indexOf(first) < config.order.indexOf(second);
+  return !config.removed?.includes(first) && !config.removed?.includes(second) && config.order.includes(first) && config.order.includes(second)
+    && config.order.indexOf(first) < config.order.indexOf(second);
 }

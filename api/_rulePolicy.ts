@@ -6,7 +6,8 @@ const policy = new AsyncLocalStorage<Policy>();
 export const currentRulePolicy = () => policy.getStore()?.config ?? defaultRuleConfig();
 export const currentRule = () => policy.getStore()?.active;
 export const hasRulePolicy = () => Boolean(policy.getStore());
-export const ruleAvailable = (id: SchedulingRuleId) => !policy.getStore()?.unavailable?.has(id);
+export const ruleEnabled = (id: SchedulingRuleId) => !currentRulePolicy().removed?.includes(id);
+export const ruleAvailable = (id: SchedulingRuleId) => ruleEnabled(id) && !policy.getStore()?.unavailable?.has(id);
 export const precedes = (a: SchedulingRuleId, b: SchedulingRuleId) => ruleBefore(currentRulePolicy(), a, b);
 export const withRulePolicy = <T>(config: SchedulingRuleConfig, run: () => T, unavailable = new Set<SchedulingRuleId>()) =>
   policy.run({ config, unavailable }, run);

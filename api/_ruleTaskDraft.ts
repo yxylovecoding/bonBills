@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { TickTickApi, TickTickTask } from './_ticktickTrips.js';
 import type { SchedulingRuleId, SchedulingRuleResult } from '../src/utils/schedulingRules.js';
+import { isHiddenTag, withHiddenTag } from './_ticktickHiddenTag.js';
 
 const fields = ['title', 'content', 'desc', 'startDate', 'dueDate', 'isAllDay', 'timeZone', 'reminders', 'tags', 'repeatFlag', 'repeatFrom', 'priority', 'sortOrder', 'kind', 'parentId', 'items'] as const;
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
@@ -100,16 +101,16 @@ export class RuleTaskDraft {
           const next = structuredClone(this.tasks.get(taskId)!);
           for (const key of changed) {
             if (key === 'tags') {
-              const hidden = (tags: string[] | undefined) => (tags ?? []).some(t => t.trim().toLowerCase() === 'bon-hidden');
-              const nonHidden = (tags: string[] | undefined) => (tags ?? []).filter(t => t.trim().toLowerCase() !== 'bon-hidden');
-              let hide = hidden(next.tags);
-              if (hidden(task.tags) !== hidden(before.tags)) {
+              const hidden = (tags: string[] | undefined) => (tags ?? []).filter(isHiddenTag);
+              const nonHidden = (tags: string[] | undefined) => (tags ?? []).filter(t => !isHiddenTag(t));
+              let hiddenTags = hidden(next.tags);
+              if (!same(hidden(task.tags), hidden(before.tags))) {
                 const owner = owners.get('hidden');
                 if (owner && owner !== id) conflicts.push({ taskId, winner: owner, field: 'hidden' });
-                else { hide = hidden(task.tags); owners.set('hidden', id); }
+                else { hiddenTags = withHiddenTag([], hidden(task.tags).length > 0); owners.set('hidden', id); }
               }
               const other = same(nonHidden(task.tags), nonHidden(before.tags)) ? nonHidden(next.tags) : nonHidden(task.tags);
-              next.tags = [...other, ...(hide ? ['bon-hidden'] : [])];
+              next.tags = [...other, ...hiddenTags];
               continue;
             }
             const dateOwner = owners.get('date');
@@ -159,8 +160,8 @@ export class RuleTaskDraft {
           return { ...item, startDate: old?.startDate, isAllDay: old?.isAllDay, timeZone: old?.timeZone };
         });
       }
-      if (!allowed(owners?.get('hidden'))) result.tags = [...(result.tags ?? []).filter(t => t.trim().toLowerCase() !== 'bon-hidden'),
-        ...(original.tags?.filter(t => t.trim().toLowerCase() === 'bon-hidden') ?? [])];
+      if (!allowed(owners?.get('hidden'))) result.tags = [...(result.tags ?? []).filter(t => !isHiddenTag(t)),
+        ...(original.tags?.filter(isHiddenTag) ?? [])];
       return result;
     };
     const validated = new Set<string>();
@@ -183,7 +184,7 @@ export class RuleTaskDraft {
         if (!allowed(this.createdBy.get(id))) continue;
         try {
           if (task.parentId?.startsWith('draft-') && !this.realIds.has(task.parentId)) throw new Error('母任务未创建');
-          const payload = this.resolveIds({ projectId: task.projectId, ...Object.fromEntries(fields.filter(k => task[k] !== undefined).map(k => [k, task[k]])) });
+          const payload: Record<string, unknown> = this.resolveIds({ projectId: task.projectId, ...Object.fromEntries(fields.filter(k => task[k] !== undefined).map(k => [k, task[k]])) });
           const saved = await this.source.createTask(payload);
           if (!saved?.id || saved.id.startsWith('draft-')) throw new Error('新待办创建结果未确认');
           this.realIds.set(id, saved.id);

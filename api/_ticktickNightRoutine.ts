@@ -2,13 +2,13 @@ import { createHash } from 'node:crypto';
 import { wallTimeInstant } from './_calendarTimezone.js';
 import { kv } from './_accountKv.js';
 import type { TickTickApi, TickTickTask } from './_ticktickTrips.js';
+import { hasHiddenTag, withHiddenTag } from './_ticktickHiddenTag.js';
+export { TICKTICK_HIDDEN_TAG, hasHiddenTag } from './_ticktickHiddenTag.js';
 
 const normalized = (value: string) => value.normalize('NFKC').trim().toLowerCase();
 const isNightRoutine = (task: TickTickTask) => normalized(task.title).replace(/\s+/g, '') === '夜间routine';
 export const isHairWashTask = (task: TickTickTask) => normalized(task.title) === '洗头';
 export const isReadingTask = (task: TickTickTask) => ['阅读', '而阅读📖是另一个🪝'].includes(normalized(task.title));
-export const TICKTICK_HIDDEN_TAG = 'bon-hidden';
-export const hasHiddenTag = (task: TickTickTask) => (task.tags ?? []).some(tag => normalized(tag) === TICKTICK_HIDDEN_TAG);
 
 export const sleepTagStateKey = (projectId: string) => `ticktick:sleep-tags:v1:${createHash('sha256').update(projectId).digest('hex')}`;
 
@@ -128,13 +128,14 @@ async function syncRoutineVisibility(api: TickTickApi, options: VisibilityOption
     const owned = journal && journal[task.id];
     if (!hidden && owned && !hasTag) {
       // Legacy journals may claim a user-owned routine tag. Never remove it:
-      // absence of bon-hidden means there is nothing left for the system to restore.
+      // Absence of either hidden label leaves nothing for the system to restore.
       delete journal![task.id];
       await save();
     }
     if (hidden) {
       if (hasTag) {
-        if ((owned || priorityOverride !== undefined) && task.priority !== priority) {
+        if (((owned || priorityOverride !== undefined) && task.priority !== priority)
+          || JSON.stringify(task.tags) !== JSON.stringify(withHiddenTag(task.tags, true))) {
           await writeHiddenTag(api, task, true, priority);
           result.updated++;
         }
@@ -172,8 +173,7 @@ async function syncRoutineVisibility(api: TickTickApi, options: VisibilityOption
 }
 
 export async function writeHiddenTag(api: TickTickApi, task: TickTickTask, hidden: boolean, priority = task.priority) {
-  const tags = (task.tags ?? []).filter(tag => normalized(tag) !== TICKTICK_HIDDEN_TAG);
-  if (hidden) tags.push(TICKTICK_HIDDEN_TAG);
+  const tags = withHiddenTag(task.tags, hidden);
   // Keep all existing writable fields; status is deliberately omitted so
   // a concurrent completion cannot be reopened by a tag update.
   const payload: Record<string, unknown> = { id: task.id, projectId: task.projectId, title: task.title, tags };
@@ -187,7 +187,7 @@ export async function writeHiddenTag(api: TickTickApi, task: TickTickTask, hidde
   const savedTags = [...(saved?.tags ?? [])].sort();
   if (saved?.id !== task.id || (priority !== undefined && saved.priority !== priority)
     || JSON.stringify(savedTags) !== JSON.stringify([...tags].sort())) {
-    throw new Error('TickTick 未保存 bon-hidden 标签或优先级');
+    throw new Error('TickTick 未保存 hidden 标签或优先级');
   }
   if ((saved.repeatFlag ?? '') !== (task.repeatFlag ?? '') || String(saved.repeatFrom ?? '') !== String(task.repeatFrom ?? '')
     || (['startDate', 'dueDate'] as const).some(key => task[key] !== saved[key] && Date.parse(task[key] ?? '') !== Date.parse(saved[key] ?? ''))) {

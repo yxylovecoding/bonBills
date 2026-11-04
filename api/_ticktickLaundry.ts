@@ -1,4 +1,5 @@
 import { kv } from './_accountKv.js';
+import { hasHiddenTag } from './_ticktickHiddenTag.js';
 import { upstream } from './_bonClothes.js';
 import type { SceneCity } from '../src/models/types.js';
 import { readSceneCity } from '../src/utils/sceneCities.js';
@@ -122,7 +123,7 @@ function hasTime(task: TickTickTask, date: string, options: PlanOptions) {
   const free = dayAvailability({ calendar, day: date, today, now, profile,
     tasks: others,
     fixed: others.filter(other => routineTaskDate(other) === date && (other.priority ?? 0) < 5
-      && !(other.tags ?? []).some(tag => ['routine', 'bon-hidden', '不关我事'].includes(normalize(tag)))),
+      && !hasHiddenTag(other) && !(other.tags ?? []).some(tag => ['routine', '不关我事'].includes(normalize(tag).toLowerCase()))),
     completed: options.history.filter(record => calendarDateInTimeZone(record.completedTime) === date), estimate: estimateTaskMinutes });
   if (free.remainingMinutes < minutes || !free.slots.some(([start, end]) => end - start >= minutes * 60_000)) return false;
   // Preserve the existing time (including a morning 08:00 reminder), and reject

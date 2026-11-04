@@ -63,7 +63,7 @@ describe('always-today 截止日期', () => {
     const tasks = [makeTask('future', { dueDate: '2027-01-01T00:00:00+0800' }),
       makeTask('undated', { dueDate: undefined, isAllDay: undefined }),
       makeTask('start-only', { dueDate: undefined, startDate: `${day}T09:00:00+0800`, isAllDay: false }),
-      makeTask('important', { priority: 5, tags: ['routine', 'bon-hidden', '旅', 'always-today'] })];
+      makeTask('important', { priority: 5, tags: ['routine', 'hidden', '旅', 'always-today'] })];
     const f = fixture(tasks);
     expect(await syncTickTickAlwaysToday(f.api, { calendarState: { tagMap: { [day]: 'travel' } } })).toEqual({ matched: 4, updated: 4 });
     for (const task of f.saved.values()) { expect(task.dueDate).toBeTruthy(); expect(routineTaskDate(task)).toBe(day); }

@@ -328,7 +328,7 @@ it('显隐、备注、优先级变化不触发 Outlook，已过期的微软令�
   const fetcher = vi.mocked(globalThis.fetch), calls = fetcher.mock.calls.length;
   data.set(OUTLOOK_WRITE_KEY, { ...data.get(OUTLOOK_WRITE_KEY),
     encrypted: sealOutlookWrite({ access_token: 'ACCESS', refresh_token: 'REFRESH', expiresAt: 0 }) });
-  task.tags = ['routine', 'bon-hidden']; task.priority = 5; task.content = '(15m)\n新的洗衣安排原因';
+  task.tags = ['routine', 'hidden']; task.priority = 5; task.content = '(15m)\n新的洗衣安排原因';
   const original = structuredClone(task);
   expect(await syncLaundryOutlook(api, options())).toMatchObject({ skipped: 1 });
   expect(fetcher).toHaveBeenCalledTimes(calls);
@@ -428,7 +428,7 @@ it('充电同步成功不能清除仍失败的洗衣状态，洗衣恢复后才�
 });
 
 it('洗头固定当天22点至22点半，隐藏标签不阻止同步', async () => {
-  task.title = ' 洗头 '; task.tags = ['routine', 'bon-hidden']; task.content = '(30m)';
+  task.title = ' 洗头 '; task.tags = ['routine', 'hidden']; task.content = '(30m)';
   task.startDate = task.dueDate = '2026-10-08T14:10:00Z';
   expect(hairWashEventPlan(task, options().today)).toEqual({ subject: '洗头',
     start: { dateTime: '2026-10-08T22:00:00', timeZone: 'Asia/Shanghai' },

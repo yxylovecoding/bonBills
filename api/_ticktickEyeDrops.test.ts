@@ -30,7 +30,7 @@ describe('眼药水只保留最近一次', () => {
     expect(f.updateTask).toHaveBeenCalledTimes(4);
   });
   it('不改未来、已完成、隐藏、routine、低优先级、其他名称或非重复项', async () => {
-    const tasks = [task('keep','20'), task('future','22'), task('done','10',{status:2}), task('hidden','10',{tags:['bon-hidden']}),
+    const tasks = [task('keep','20'), task('future','22'), task('done','10',{status:2}), task('hidden','10',{tags:['hidden']}),
       task('routine','10',{tags:['routine']}), task('low','10',{priority:3}), task('other','10',{title:'眼药水眼膏过期'}), task('once','10',{repeatFlag:undefined})];
     const f=fixture(tasks); expect(await syncEyeDrops(f.api,tasks,now)).toEqual({skipped:0}); expect(f.updateTask).not.toHaveBeenCalled();
   });

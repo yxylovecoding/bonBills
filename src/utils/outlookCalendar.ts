@@ -117,6 +117,8 @@ export function buildOutlookSnapshot(
       ? (title === '实习' ? 'intern' : 'travel')
       : ignoredTitles.has(title) ? null : homeTitles.has(title) ? 'home' : 'travel';
     if (!tag) continue;
+    const id: SchedulingRuleId = tag === 'travel' ? 'calendar-travel' : tag === 'home' ? 'calendar-home' : 'calendar-intern';
+    if (ruleOrder && !ruleOrder.includes(id)) continue;
     if (!isCalendarDate(event.startDate) || !isCalendarDate(event.endDate) || event.startDate >= event.endDate) {
       throw new Error('Outlook 全天日程日期无效');
     }
@@ -124,7 +126,6 @@ export function buildOutlookSnapshot(
     const end = event.endDate < endDate ? event.endDate : endDate;
     if (start < end && tag === 'travel' && event.uid) wishEvents.push({ key: '', uid: event.uid, recurrenceId: event.recurrenceId, calendar: event.calendar, title, startDate: event.startDate, endDate: event.endDate });
     for (let day = start; day < end; day = nextCalendarDate(day)) {
-      const id: SchedulingRuleId = tag === 'travel' ? 'calendar-travel' : tag === 'home' ? 'calendar-home' : 'calendar-intern';
       if (!(ruleCandidates[day] ??= []).includes(id)) ruleCandidates[day].push(id);
       if (!tags[day] || priority[tag] > priority[tags[day]]) tags[day] = tag;
       if (tag === 'travel' && title) (titlesByDay[day] ??= new Set()).add(title);
@@ -178,7 +179,7 @@ export function reconcileOutlookSnapshot(
     // A trip's full dates come from Outlook; local work/week templates must not split it.
     const outlookTrip = next === 'travel' || previous?.tag === 'travel';
     const rule = next === 'travel' ? 'calendar-travel' : next === 'home' ? 'calendar-home' : 'calendar-intern';
-    const manualWins = snapshot.ruleOrder ? snapshot.ruleOrder.indexOf('calendar-manual') < snapshot.ruleOrder.indexOf(rule) : !outlookTrip && policy === 'manual';
+    const manualWins = snapshot.ruleOrder ? snapshot.ruleOrder.includes('calendar-manual') && snapshot.ruleOrder.indexOf('calendar-manual') < snapshot.ruleOrder.indexOf(rule) : !outlookTrip && policy === 'manual';
     if (manualWins && (manuallyChanged || legacyManual)) continue;
     const previousTag = previous && (!manuallyChanged || current[day] === previous.tag) ? previous.previousTag : current[day] ?? null;
     tagMap[day] = next;

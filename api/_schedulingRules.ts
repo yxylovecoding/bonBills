@@ -18,6 +18,7 @@ export async function readSchedulingRules() {
     if (outlookFirst) {
       config.order = config.order.filter(id => id !== 'calendar-manual');
       config.order.splice(config.order.indexOf('calendar-intern') + 1, 0, 'calendar-manual');
+      return readRuleConfig({ ...config, groups: undefined });
     }
   }
   return config;
@@ -42,15 +43,16 @@ export async function saveSchedulingRules(value: unknown) {
 export type RuleHandler = () => Promise<Partial<Pick<SchedulingRuleResult, 'matched' | 'updated' | 'reason' | 'conflicts'>> | void>;
 export async function executeRuleGraph(config: SchedulingRuleConfig, scope: SchedulingRun['scope'], handlers: Partial<Record<SchedulingRuleId, RuleHandler>>,
   options: { save?: boolean; afterRule?: (id: SchedulingRuleId, successful: boolean) => Promise<void> } = {}) {
-  const run: SchedulingRun = { version: config.version, scope, generatedAt: new Date().toISOString(), order: [...config.order], results: [] };
+  config = readRuleConfig(config);
+  const run: SchedulingRun = { version: config.version, scope, generatedAt: new Date().toISOString(), order: [...config.order], groups: structuredClone(config.groups), names: { ...config.names }, results: [] };
   const unavailable = new Set<SchedulingRuleId>();
   await withRulePolicy(config, async () => {
     for (const id of config.order) {
       const failedParent = (config.predecessors[id] ?? []).find(parent => unavailable.has(parent));
-      if (failedParent || !handlers[id]) {
+      if (config.removed?.includes(id) || failedParent || !handlers[id]) {
         unavailable.add(id);
         run.results.push({ id, status: 'skipped', matched: 0, updated: 0,
-          reason: failedParent ? `前序「${ruleTitle(failedParent)}」未完成` : '不在本次执行范围' });
+          reason: config.removed?.includes(id) ? '已删除，不执行' : failedParent ? `前序「${ruleTitle(failedParent, config)}」未完成` : '不在本次执行范围' });
         await options.afterRule?.(id, false);
         continue;
       }

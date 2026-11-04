@@ -104,7 +104,7 @@ describe('Outlook 实际空档', () => {
     const result = free({ now: new Date(at(21)), tasks: [
       task('included', { priority: 5, tags: ['不关我事'], content: '(20m)' }),
       task('routine', { priority: 5, tags: ['routine'], content: '(30m)' }),
-      task('hidden', { priority: 5, tags: ['bon-hidden'], content: '(30m)' }),
+      task('hidden', { priority: 5, tags: ['hidden'], content: '(30m)' }),
       task('done', { priority: 5, status: 2, content: '(30m)' }),
       task('future', { priority: 5, dueDate: at(0, '2026-10-05'), content: '(30m)' }),
     ] });

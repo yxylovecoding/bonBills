@@ -7,7 +7,7 @@ import { hairWashHidden, hasHiddenTag, isHairWashTask, isReadingTask, nightRouti
 export { sleepTagStateKey, type SleepTagEntry, type SleepTagJournal };
 
 const normalize = (value: string) => value.normalize('NFKC').trim().toLowerCase();
-const hasSchedulingHiddenTag = (task: TickTickTask) => (task.tags ?? []).some(tag => ['routine', 'bon-hidden'].includes(normalize(tag)));
+const hasSchedulingHiddenTag = (task: TickTickTask) => hasHiddenTag(task) || (task.tags ?? []).some(tag => normalize(tag) === 'routine');
 const addDays = (day: string, count: number) => new Date(Date.parse(`${day}T00:00:00Z`) + count * 86_400_000).toISOString().slice(0, 10);
 
 export function sleepWindow(now = new Date()) {
@@ -19,7 +19,7 @@ export function sleepWindow(now = new Date()) {
 // Union of bon's four saved smart filters, read from TickTick on 2026-10-05.
 // Keep the important-today filter's intentional lack of 不关我事 exclusion.
 // 明日之重要事 (future-important) stays visible across midnight: those tasks must
-// never receive the temporary `bon-hidden` tag, so this function only enrolls
+// never receive the temporary `hidden` tag, so this function only enrolls
 // the overdue/today slice of priority-5 items.
 export function inSleepFilterScope(task: TickTickTask, today: string) {
   if ((task.status ?? 0) !== 0 || hasSchedulingHiddenTag(task) || isReadingTask(task)) return false;

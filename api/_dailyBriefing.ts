@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { hasHiddenTag } from './_ticktickHiddenTag.js';
 import { kv } from './_accountKv.js';
 import { DAILY_PLAN_KEY, estimateTaskMinutes, type DailyPlanState } from './_ticktickDailyPlan.js';
 import type { DailyBriefing } from '../src/utils/dailyBriefing.js';
@@ -73,7 +74,8 @@ export function buildTodayBriefing(tasks: TickTickTask[], plan: DailyPlanState |
   const order = new Map([...decisions.keys()].map((key, index) => [key, index]));
   const position = (task: TickTickTask) => order.get(JSON.stringify([task.projectId, task.id])) ?? Number.MAX_SAFE_INTEGER;
   return tasks.filter((task) => (task.status ?? 0) === 0 && !task.completedTime && (task.priority ?? 0) < 5
-    && routineTaskDate(task) === today && !(task.tags ?? []).some((tag) => ['routine', 'bon-hidden', '不关我事'].includes(tag.normalize('NFKC').trim().toLowerCase())))
+    && routineTaskDate(task) === today && !hasHiddenTag(task)
+    && !(task.tags ?? []).some((tag) => ['routine', '不关我事'].includes(tag.normalize('NFKC').trim().toLowerCase())))
     .sort((a, b) => position(a) - position(b))
     .map((task) => {
       const decision = decisions.get(JSON.stringify([task.projectId, task.id]));
