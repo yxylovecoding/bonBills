@@ -2,7 +2,7 @@ import { privateJson } from './_privateCache.js';
 import { withAccountScope } from './_accountRoute.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { authOk, sameOrigin } from './_auth.js';
-import { connectOutlookMake, disconnectOutlookWrite, outlookWriteStatus, OutlookWriteError, pollOutlookWrite, selectOutlookWriteCalendar, startOutlookWrite, withOutlookWriteLock } from './_outlookWrite.js';
+import { connectOutlookMake, connectOutlookFallback, disconnectOutlookFallback, disconnectOutlookWrite, outlookWriteStatus, OutlookWriteError, pollOutlookWrite, selectOutlookWriteCalendar, startOutlookWrite, withOutlookWriteLock } from './_outlookWrite.js';
 
 async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'private, no-store'); res.setHeader('Vary', 'Cookie');
@@ -17,6 +17,8 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       try { body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body; } catch { throw new OutlookWriteError('请求内容无效', 400); }
       if (body?.action === 'start') return startOutlookWrite(body.clientId);
       if (body?.action === 'make') return connectOutlookMake(body.webhookUrl);
+      if (body?.action === 'fallback') return connectOutlookFallback(body.webhookUrl, body.secret);
+      if (body?.action === 'disconnect-fallback') return disconnectOutlookFallback();
       if (body?.action === 'poll') return pollOutlookWrite(body.flowId);
       if (body?.action === 'select') { await selectOutlookWriteCalendar(body.calendarId); return outlookWriteStatus(); }
       throw new OutlookWriteError('请求内容无效', 400);

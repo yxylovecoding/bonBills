@@ -7,16 +7,21 @@ export const OUTLOOK_WRITE_KEY = 'outlook:laundry-write:v1';
 const SETTINGS_KEY = 'outlook:laundry-write:settings:v1';
 const FLOW_KEY = 'outlook:laundry-write:flow:v1';
 const LOCK_KEY = 'outlook:laundry-write:lock:v1';
+const RELAY_STATE_KEY = 'outlook:write-relay-state:v1';
+const MAKE_RETRY_MS = 6 * 3600_000;
 const AUTH = 'https://login.microsoftonline.com/common/oauth2/v2.0';
 const SCOPE = 'offline_access https://graph.microsoft.com/Calendars.ReadWrite';
 export interface WriteConnection {
   id: string; clientId: string; encrypted: string;
   provider?: 'microsoft' | 'make';
+  fallback?: { provider: 'activepieces'; encrypted: string; calendarId: string };
   calendarId?: string; calendarName?: string; lastSyncAt?: string; lastError?: string;
   syncErrors?: Record<string, string>;
   syncUsage?: Record<string, { at: string; reads: number; creates: number; updates: number; deletes: number; skipped: number; failed: boolean }>;
 }
 interface Tokens { access_token: string; refresh_token: string; expiresAt: number }
+interface RelayState { connectionId: string; activeProvider: 'make' | 'activepieces'; makeRetryAt?: number }
+interface RelayCredentials { webhookUrl: string; secret?: string }
 interface Flow { id: string; clientId: string; encrypted: string; expiresAt: number; interval: number; nextPoll: number }
 export interface WritableCalendar { id: string; name: string; canEdit: boolean; isDefaultCalendar?: boolean }
 export class OutlookWriteError extends Error { constructor(message: string, public status = 502) { super(message); } }
@@ -123,23 +128,35 @@ export function validateMakeWebhook(value: unknown): string {
   } catch { /* Never echo a credential URL in errors. */ }
   throw new OutlookWriteError('Make Webhook 地址无效', 400);
 }
-async function reserveMakeCall() {
+export function validateActivepiecesWebhook(value: unknown): string {
+  if (typeof value === 'string') {
+    try {
+      const url = new URL(value.trim());
+      if (url.protocol === 'https:' && url.hostname === 'cloud.activepieces.com' && !url.port
+        && !url.username && !url.password && !url.search && !url.hash
+        && /^\/api\/v1\/webhooks\/[a-zA-Z0-9_-]{16,64}(?:\/sync)?$/.test(url.pathname)) {
+        if (!url.pathname.endsWith('/sync')) url.pathname += '/sync';
+        return url.href;
+      }
+    } catch { /* Credential URLs must never appear in errors. */ }
+  }
+  throw new OutlookWriteError('Activepieces Webhook 地址无效', 400);
+}
+class RelayUnavailableError extends OutlookWriteError {}
+class RelayQuotaError extends OutlookWriteError {}
+async function reserveRelayCall(provider: 'make' | 'activepieces') {
   // A rolling window also covers calendar-month/billing-cycle boundaries. Do not reset on reconnect.
   const accepted = await kv.eval(`local cutoff = tonumber(ARGV[1]) - 2764800000
 redis.call('zremrangebyscore', KEYS[1], '-inf', cutoff)
 if redis.call('zcard', KEYS[1]) >= 200 then return 0 end
 redis.call('zadd', KEYS[1], ARGV[1], ARGV[2])
 redis.call('expire', KEYS[1], 2764800)
-return 1`, ['outlook:make-calls:v1'], [String(Date.now()), randomUUID()]);
-  if (!accepted) throw new OutlookWriteError('免费调用额度已暂停，请稍后再试', 429);
+return 1`, [`outlook:${provider}-calls:v1`], [String(Date.now()), randomUUID()]);
+  if (!accepted) throw new RelayQuotaError(`${provider === 'make' ? 'Make' : 'Activepieces'} 免费调用额度已暂停，请稍后再试`, 429);
 }
-export async function outlookGraphClient(connection: WriteConnection, onRequest?: (method: string) => void): Promise<GraphClient> {
-  if (connection.provider !== 'make') {
-    const token = await accessToken(connection);
-    return <T>(path: string, init?: RequestInit) => { onRequest?.(init?.method ?? 'GET'); return graphRequest<T>(token, path, init); };
-  }
-  const { webhookUrl } = unsealOutlookWrite<{ webhookUrl: string }>(connection.encrypted);
-  const endpoint = validateMakeWebhook(webhookUrl);
+function relayClient(provider: 'make' | 'activepieces', credentials: RelayCredentials, timeout = 25_000, onRequest?: (method: string) => void): GraphClient {
+  const label = provider === 'make' ? 'Make' : 'Activepieces';
+  const endpoint = provider === 'make' ? validateMakeWebhook(credentials.webhookUrl) : validateActivepiecesWebhook(credentials.webhookUrl);
   return async <T>(path: string, init: RequestInit = {}): Promise<T> => {
     const method = init.method ?? 'GET';
     const allowedPath = /^\/me\/calendars(?:\?|$)/.test(path)
@@ -150,23 +167,81 @@ export async function outlookGraphClient(connection: WriteConnection, onRequest?
     if (!allowedPath || path.includes('#') || path.includes('..')) throw new OutlookWriteError('日历请求无效', 400);
     const headers = new Headers(init.headers);
     for (const name of headers.keys()) if (name !== 'if-match') throw new OutlookWriteError('日历请求头无效', 400);
-    await reserveMakeCall();
-    onRequest?.(method); // Count actual relay requests; quota-blocked attempts use no calls.
-    const response = await fetch(endpoint, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(25_000),
-      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: `/v1.0${path}`, method,
+    await reserveRelayCall(provider);
+    onRequest?.(method); // Count only requests actually sent, including the backup.
+    let response: Response;
+    try { response = await fetch(endpoint, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(timeout),
+      headers: { 'Content-Type': 'application/json', ...(provider === 'activepieces' ? { 'X-BonBills-Key': credentials.secret! } : {}) }, body: JSON.stringify({ path: `/v1.0${path}`, method,
         body: typeof init.body === 'string' ? init.body : '',
         headers: [{ key: 'Content-Type', value: 'application/json' }, { key: 'Prefer', value: 'IdType="ImmutableId", outlook.timezone="Asia/Shanghai"' },
-          ...(headers.has('if-match') ? [{ key: 'If-Match', value: headers.get('if-match')! }] : [])] }) });
+          ...(headers.has('if-match') ? [{ key: 'If-Match', value: headers.get('if-match')! }] : [])] }) }); }
+    catch { throw new RelayUnavailableError(`${label} 暂不可用，请稍后重试`); }
     // Make's default 200 "Accepted" only acknowledges receipt; it does not prove Graph succeeded.
     let data: { protocol?: string; status?: number; body?: T };
-    try { data = await response.json(); } catch { throw new OutlookWriteError('Make 未返回日历执行结果，请检查场景'); }
+    try { data = await response.json(); } catch { throw new RelayUnavailableError(`${label} 未返回日历执行结果，请检查连接`); }
     if (!response.ok || data?.protocol !== 'bonbills-outlook-v1' || !Number.isInteger(data.status) || data.status! < 200 || data.status! > 599)
-      throw new OutlookWriteError('Make 未返回有效日历执行结果');
+      throw new RelayUnavailableError(`${label} 未返回有效日历执行结果`);
     if (data.status! >= 300) throw new OutlookWriteError(data.status === 401 ? '微软授权已失效，请重新连接'
       : data.status === 403 ? '没有所选日历的写入权限' : `Outlook 日程同步失败（${data.status}）`, data.status);
-    if (data.status !== 204 && (!data.body || typeof data.body !== 'object')) throw new OutlookWriteError('Make 日历执行结果不完整');
+    if (data.status !== 204 && (!data.body || typeof data.body !== 'object')) throw new RelayUnavailableError(`${label} 日历执行结果不完整`);
     return data.body as T;
   };
+}
+export async function outlookGraphClient(connection: WriteConnection, onRequest?: (method: string) => void): Promise<GraphClient> {
+  if (connection.provider !== 'make') {
+    const token = await accessToken(connection);
+    return <T>(path: string, init?: RequestInit) => { onRequest?.(init?.method ?? 'GET'); return graphRequest<T>(token, path, init); };
+  }
+  const primary = relayClient('make', unsealOutlookWrite<RelayCredentials>(connection.encrypted), connection.fallback ? 12_000 : 25_000, onRequest);
+  if (!connection.fallback || connection.fallback.calendarId !== connection.calendarId) return primary;
+  const backup = relayClient('activepieces', unsealOutlookWrite<RelayCredentials>(connection.fallback.encrypted), 12_000, onRequest);
+  const saved = await kv.get<RelayState>(RELAY_STATE_KEY);
+  let state: RelayState = saved?.connectionId === connection.id ? saved : { connectionId: connection.id, activeProvider: 'make' };
+  const save = async (next: RelayState) => { await kv.set(RELAY_STATE_KEY, next); state = next; };
+  return async <T>(path: string, init: RequestInit = {}): Promise<T> => {
+    // Only use the calendar whose identity was checked while connecting the backup.
+    const match = /^\/me\/calendars\/([^/?#]+)/.exec(path);
+    if (match && match[1] !== encodeURIComponent(connection.calendarId!)) throw new OutlookWriteError('日历请求无效', 400);
+    if (!state.makeRetryAt || state.makeRetryAt <= Date.now()) {
+      try {
+        // After an outage, prove recovery with a read before sending any mutation.
+        if (state.makeRetryAt && (init.method ?? 'GET') !== 'GET')
+          await primary('/me/calendars?$select=id&$top=1');
+        const result = await primary<T>(path, init);
+        if (state.activeProvider !== 'make' || state.makeRetryAt)
+          await save({ connectionId: connection.id, activeProvider: 'make' });
+        return result;
+      } catch (error) {
+        if (!(error instanceof RelayQuotaError) && !(error instanceof RelayUnavailableError)) throw error;
+        if (error instanceof RelayUnavailableError) {
+          await save({ ...state, makeRetryAt: Date.now() + MAKE_RETRY_MS });
+          // A timed-out or queued write may still execute. Never replay it on a second provider.
+          if ((init.method ?? 'GET') !== 'GET') throw error;
+        }
+      }
+    }
+    const result = await backup<T>(path, init);
+    if (state.activeProvider !== 'activepieces') await save({ ...state, activeProvider: 'activepieces' });
+    return result;
+  };
+}
+export async function connectOutlookFallback(webhookUrl: unknown, secret: unknown) {
+  const connection = await kv.get<WriteConnection>(OUTLOOK_WRITE_KEY);
+  if (connection?.provider !== 'make' || !connection.calendarId) throw new OutlookWriteError('请先连接 Make 并选择日历', 400);
+  if (typeof secret !== 'string' || !/^[\x21-\x7e]{32,128}$/.test(secret)) throw new OutlookWriteError('请输入 32–128 位备用连接密钥', 400);
+  const credentials = { webhookUrl: validateActivepiecesWebhook(webhookUrl), secret };
+  const calendars = await writableCalendars(relayClient('activepieces', credentials));
+  if (!calendars.some(calendar => calendar.id === connection.calendarId)) throw new OutlookWriteError('备用连接必须授权 Make 所用的同一个 Outlook 日历', 400);
+  connection.fallback = { provider: 'activepieces', encrypted: sealOutlookWrite(credentials), calendarId: connection.calendarId };
+  await kv.set(OUTLOOK_WRITE_KEY, connection);
+  await kv.del(RELAY_STATE_KEY);
+  return outlookWriteStatus();
+}
+export async function disconnectOutlookFallback() {
+  const connection = await kv.get<WriteConnection>(OUTLOOK_WRITE_KEY);
+  if (connection) { delete connection.fallback; await kv.set(OUTLOOK_WRITE_KEY, connection); }
+  await kv.del(RELAY_STATE_KEY);
+  return outlookWriteStatus();
 }
 export async function connectOutlookMake(webhookUrl: unknown) {
   if (await kv.get(OUTLOOK_WRITE_KEY)) throw new OutlookWriteError('更换连接前请先断开连接', 409);
@@ -194,11 +269,16 @@ export async function writableCalendars(client: string | GraphClient): Promise<W
 export async function outlookWriteStatus(listCalendars = false) {
   const [connection, settings] = await Promise.all([kv.get<WriteConnection>(OUTLOOK_WRITE_KEY), kv.get<{ clientId: string }>(SETTINGS_KEY)]);
   const calendars = connection && listCalendars ? await writableCalendars(await outlookGraphClient(connection)) : undefined;
+  const relay = connection?.fallback ? await kv.get<RelayState>(RELAY_STATE_KEY) : null;
   const quota = connection?.provider === 'make' ? await readOutlookMakeQuota().catch(() => undefined) : undefined;
+  const quotaError = !connection?.fallback && quota?.retryAt ? 'Make 免费额度保护已暂停写入'
+    : !connection?.fallback && quota && ['免费调用额度已暂停，请稍后再试', 'Make 免费调用额度已暂停，请稍后再试'].includes(connection?.lastError ?? '')
+      ? '免费额度已释放，等待下次同步' : undefined;
   return { connected: Boolean(connection), enabled: Boolean(connection?.calendarId), clientId: settings?.clientId ?? process.env.OUTLOOK_CLIENT_ID ?? '',
+    fallbackConnected: Boolean(connection?.fallback), activeProvider: relay?.connectionId === connection?.id ? relay?.activeProvider : connection?.provider ?? 'microsoft',
     provider: connection?.provider ?? 'microsoft', calendarId: connection?.calendarId, calendarName: connection?.calendarName, lastSyncAt: connection?.lastSyncAt,
-    error: quota?.retryAt ? 'Make 免费额度保护已暂停写入' : quota && connection?.lastError === '免费调用额度已暂停，请稍后再试'
-      ? '免费额度已释放，等待下次同步' : outlookStatusError(connection?.lastError), retryAt: quota?.retryAt, calendars };
+    error: quotaError ?? outlookStatusError(connection?.lastError),
+    retryAt: connection?.fallback ? undefined : quota?.retryAt, makeRetryAt: connection?.fallback ? quota?.retryAt : undefined, calendars };
 }
 export async function selectOutlookWriteCalendar(calendarId: unknown) {
   const connection = await kv.get<WriteConnection>(OUTLOOK_WRITE_KEY);
@@ -209,4 +289,4 @@ export async function selectOutlookWriteCalendar(calendarId: unknown) {
   if (!calendar) throw new OutlookWriteError('请选择可编辑的日历', 400);
   await kv.set(OUTLOOK_WRITE_KEY, { ...connection, calendarId: calendar.id, calendarName: calendar.name, lastError: undefined });
 }
-export async function disconnectOutlookWrite() { await kv.del(OUTLOOK_WRITE_KEY, FLOW_KEY); }
+export async function disconnectOutlookWrite() { await kv.del(OUTLOOK_WRITE_KEY, FLOW_KEY, RELAY_STATE_KEY); }
