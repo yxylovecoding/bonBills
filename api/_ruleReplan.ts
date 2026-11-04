@@ -1,3 +1,4 @@
+import { readAbandonedTodayTaskIds } from './_ticktickAbandoned.js';
 import { schedulingStage } from './_schedulingFailure.js';
 import { createHash } from 'node:crypto';
 import { kv } from './_accountKv.js';
@@ -97,9 +98,11 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
           if (outlookSnapshot?.connected) calendarState = resolveCalendarState(configState, applyOutlookSnapshotToState((storedCalendar ?? {}) as Record<string, unknown>, outlookSnapshot.snapshot, outlookSnapshot.policy, today));
         } catch { calendarError = true; }
       }
+      const maintainsDates = options.scope !== 'visibility' || ['daily', 'all', 'night'].includes(options.visibilityKind ?? '');
+      const abandonedToday = maintainsDates
+        ? await schedulingStage('completion-history', true, () => readAbandonedTodayTaskIds(api, tasks, today, now)) : new Set<string>();
       const state: DailyPlanState = saved?.connectionId === connectionId ? structuredClone(saved) : { connectionId, history: [], deadlines: {} };
       let historyError = false;
-      const maintainsDates = options.scope !== 'visibility' || ['daily', 'all', 'night'].includes(options.visibilityKind ?? '');
       if (maintainsDates) {
         try { await refreshDailyHistory(api, tasks, state); } catch { historyError = true; }
       }
@@ -116,7 +119,7 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
       while (added) { added = false; for (const task of tasks) if (task.parentId && movingTemplateIds.has(task.parentId) && !movingTemplateIds.has(task.id)) { movingTemplateIds.add(task.id); added = true; } }
       for (const id of movingTemplateIds) excluded.add(id);
       const trips = buildTripSourcesFromSyncState(calendarState, tripState);
-      const draft = new RuleTaskDraft(api, tasks);
+      const draft = new RuleTaskDraft(api, tasks, abandonedToday);
       const visibility = options.specialty ? { journal: {}, locations: null } : await visibilityInputs(connection.projectId, today, calendarState);
       const journal = structuredClone(visibility.journal);
       const managedVisibilityKey = `ticktick:visibility-owned:v1:${connectionId}`;
@@ -174,7 +177,7 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
       }
       if (options.scope !== 'visibility' || ['daily', 'all'].includes(options.visibilityKind ?? '')) {
         plan('always-today', async branch => {
-          await syncTickTickAlwaysToday(branch.api, { tasks: draft.values(), today, calendarState });
+          await syncTickTickAlwaysToday(branch.api, { tasks: draft.values(), today, calendarState, protectedTaskIds: abandonedToday });
           branch.claimDates(draft.values().filter(task => pending(task) && isAlwaysTodayTask(task) && !isEyeDrops(task)).map(t => t.id));
         });
       }
@@ -200,7 +203,7 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
         plan('daily-plan', async branch => {
           if (!template) throw new Error('模板范围未确认');
           if (!availability && dailyBudget(settings?.budgetMinutes) === null) { state.summary = undefined; state.briefing = undefined; return; }
-          const values = draft.values(), protectedIds = new Set(excluded);
+          const values = draft.values(), protectedIds = new Set([...excluded, ...abandonedToday]);
           for (const task of values) if (isExerciseTask(task) && (options.scope === 'hourly' || precedes('exercise', 'daily-plan') || precedes('exercise-rollover', 'daily-plan'))
             || isLaundryTask(task) && (options.scope === 'hourly' || precedes('laundry', 'daily-plan') || precedes('laundry-appointment', 'daily-plan') || precedes('laundry-travel', 'daily-plan'))) protectedIds.add(task.id);
           const result = planTickTickDay({ tasks: values, calendarState, today, now, state, timezone: connection.timeZone,
