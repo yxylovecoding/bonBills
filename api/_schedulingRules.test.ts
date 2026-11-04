@@ -177,6 +177,31 @@ describe('最终任务改动裁决', () => {
     const removal = protectedDraft.branch('trips'); await removal.api.deleteTask('p','one'); removal.accept();
     await expect(protectedDraft.commit()).rejects.toThrow('已变化'); expect(raced.api.deleteTask).not.toHaveBeenCalled();
   });
+  it('已删除副本仍可按 ID 回读时，以两个当前任务查询共同确认移除', async () => {
+    const c = client(), draft = new RuleTaskDraft(c.api, [task()]);
+    c.api.deleteTask = vi.fn(async () => {});
+    c.api.getProjectData = vi.fn(async () => ({ project: { id: 'p', name: '生活' }, tasks: [] }));
+    c.api.filterTasks = vi.fn(async () => []);
+    const branch = draft.branch('vehicle-pickup'); await branch.api.deleteTask('p', 'one'); branch.accept();
+    expect(await draft.commit()).toBe(1);
+    expect(draft.committedValues()).toEqual([]);
+    expect(c.api.deleteTask).toHaveBeenCalledTimes(1);
+    expect(c.api.getProjectData).toHaveBeenCalledWith('p');
+    expect(c.api.filterTasks).toHaveBeenCalledWith(undefined, [0]);
+  });
+  it.each(['project', 'global', 'read-error', 'invalid-response', 'wrong-project'])('删除核对遇到 %s 时不宣告成功且不重复删除', async mode => {
+    const c = client(), draft = new RuleTaskDraft(c.api, [task()]);
+    c.api.deleteTask = vi.fn(async () => {});
+    c.api.getProjectData = vi.fn(async () => {
+      if (mode === 'read-error') throw new Error('读取失败');
+      return { project: { id: mode === 'wrong-project' ? 'other' : 'p', name: '生活' }, tasks: mode === 'project' ? [task()] : [] };
+    });
+    c.api.filterTasks = vi.fn(async () => mode === 'invalid-response' ? undefined as unknown as TickTickTask[] : mode === 'global' ? [task({ projectId: 'moved' })] : []);
+    const branch = draft.branch('vehicle-pickup'); await branch.api.deleteTask('p', 'one'); branch.accept();
+    await expect(draft.commit()).rejects.toThrow(mode === 'read-error' ? '读取失败' : '删除结果未确认');
+    expect(draft.committedValues()).toEqual([task()]);
+    expect(c.api.deleteTask).toHaveBeenCalledTimes(1);
+  });
 });
 it('模板检查事项回读对象字段顺序变化及空备注补齐不阻止保存同步基准', async () => {
   const original = task({ items: [{ id: 'wash', title: '洗衣服', status: 0 }] });

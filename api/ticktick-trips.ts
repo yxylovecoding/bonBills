@@ -179,6 +179,22 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       // recurring occurrence even after the user has completed the original.
       return res.status(410).json({ error: '该次电动车安排已结束，不再重放' });
     }
+    if (req.query?.action === 'pickup-status') {
+      if (req.method !== 'GET') return res.status(405).json({ error: 'method not allowed' });
+      const connection = await kv.get<TickTickConnection>(CONNECTION_KEY);
+      if (!connection) return res.status(200).json({ connected: false, tasks: [] });
+      const { decryptTickTickToken, TickTickOpenApiClient, readAllTickTickTasks } = await import('./_ticktickTrips.js');
+      const { isElectricVehiclePickup } = await import('./_electricVehiclePickup.js');
+      const api = new TickTickOpenApiClient(decryptTickTickToken(connection.encryptedToken, getSyncSecret()),
+        (process.env.TICKTICK_API_BASE_URL || '').trim() || undefined);
+      const tasks = await readAllTickTickTasks(api, [0]);
+      // Read-only confirmation of current rule-managed tasks; omit task notes
+      // and credentials, and never trigger scheduling when viewing the result.
+      return res.status(200).json({ connected: true, tasks: tasks.filter(task => isElectricVehiclePickup(task)
+        && (task.status ?? 0) === 0 && !task.completedTime).map(task => ({
+        id: task.id, projectId: task.projectId, startDate: task.startDate, dueDate: task.dueDate, tags: task.tags,
+      })) });
+    }
     if (req.query?.action === 'daily-email') return res.status(410).json({ error: '每日邮件已取消' });
     if (isCron && automaticRestWindow()) return res.status(200).json({ ok: true, skipped: 'rest-window' });
     if (req.query?.action === 'plan-details') {

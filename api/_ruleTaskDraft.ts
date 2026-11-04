@@ -323,7 +323,19 @@ export class RuleTaskDraft {
           let remainingTask: TickTickTask | undefined;
           try { remainingTask = await this.source.getTask(original.projectId, taskId); }
           catch (error) { if (!(error instanceof Error) || !/\b404\b/.test(error.message)) throw error; }
-          if (remainingTask) throw new Error('待办删除结果未确认');
+          if (remainingTask) {
+            // TickTick can keep returning the soft-deleted record by ID. A
+            // successful DELETE is confirmed against both live collections;
+            // absence from just one query (notably Inbox) is not sufficient.
+            const [project, active] = await Promise.all([
+              this.source.getProjectData(original.projectId), this.source.filterTasks(undefined, [0]),
+            ]);
+            if (!Array.isArray(project?.tasks) || !Array.isArray(active)
+              || project.project && project.project.id !== original.projectId
+              || [...project.tasks, ...active].some(task => task.id === taskId)) {
+              throw new Error('待办删除结果未确认');
+            }
+          }
           this.committed.delete(taskId); updated++;
           this.writeCounts.set(owner, (this.writeCounts.get(owner) ?? 0) + 1);
         }
