@@ -224,6 +224,22 @@ it('已有任务检查项 ID 改变时拒绝确认，不以新建时的 ID 分�
   const branch = draft.branch('template-content'); await branch.api.updateTask('one', { title: '搬家-京广-11.5 · 出门前一天' });
   branch.accept(); await expect(draft.commit()).rejects.toThrow('写后回读不一致（items）');
 });
+it('已有任务新增检查项接纳服务端 ID，保留原条目 ID 和进度并保存新增关联', async () => {
+  const original = task({ items: [{ id: 'known', title: '已有物品', status: 1 }] });
+  const c = client(original), draft = new RuleTaskDraft(c.api, [original]);
+  c.write.mockImplementation(async (id, payload) => {
+    c.tasks.set(id, { ...c.tasks.get(id)!, ...payload,
+      items: (payload.items as NonNullable<TickTickTask['items']>).map(item => item.id === 'new-requested' ? { ...item, id: 'new-server' } : item) });
+    return c.tasks.get(id)!;
+  });
+  const branch = draft.branch('template-content');
+  await branch.api.updateTask('one', { items: [{ id: 'new-requested', title: '手机电视剧×1 (5m)', status: 0 }, ...original.items!] });
+  branch.accept(); let state: unknown;
+  draft.saveAfterCommit('template-content', async () => { state = draft.resolveIds({ source: 'new-requested' }); });
+  await draft.commit();
+  expect(state).toEqual({ source: 'new-server' });
+  expect(draft.committedValues()[0].items).toEqual([{ id: 'new-server', title: '手机电视剧×1 (5m)', status: 0 }, { id: 'known', title: '已有物品', status: 1 }]);
+});
 describe('地点显隐', () => {
   const locations = { names: ['北京', '广州', '清迈'], today: ['北京'], unknown: false };
   it('城市标签按任一匹配；无城市标签不处理；未知当天地点不误显示', () => {

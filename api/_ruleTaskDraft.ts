@@ -39,6 +39,22 @@ function logChecklistDifference(actual: TickTickTask['items'], expected: TickTic
     actualCount: actual?.length ?? 0, differences: differences.slice(0, 12) }));
 }
 
+function assignedChecklistIds(expected: TickTickTask['items'], actual: TickTickTask['items'], original: TickTickTask['items'] = []) {
+  const ids: [string, string][] = [], known = new Set(original.map(item => item.id).filter(Boolean));
+  if (!expected?.length || actual?.length !== expected.length || actual.some(item => !item.id)
+    || new Set(actual.map(item => item.id)).size !== actual.length) return { items: expected, ids };
+  const check = expected.map((item, index) => {
+    if (known.has(item.id) || known.has(actual[index].id)) return item;
+    const { id: _id, ...fields } = item; return fields;
+  });
+  if (!persistedField('items', actual, check)) return { items: expected, ids };
+  return { items: expected.map((item, index) => {
+    const realId = actual[index].id!;
+    if (item.id && item.id !== realId) ids.push([item.id, realId]);
+    return { ...item, id: realId };
+  }), ids };
+}
+
 export class RuleTaskVerificationError extends Error {
   constructor(phase: 'before' | 'after', changedFields: string[]) {
     super(`${phase === 'before' ? '待办已变化，未写入' : '写后回读不一致'}（${changedFields.join('、')}）`);
@@ -238,20 +254,9 @@ export class RuleTaskDraft {
           if (!saved?.id || saved.id.startsWith('draft-')) throw new Error('新待办创建结果未确认');
           this.realIds.set(id, saved.id);
           const confirmed = await this.source.getTask(saved.projectId ?? task.projectId, saved.id);
-          // Creation assigns fresh checklist IDs even when the request supplied IDs.
-          // Match the ordered contents/progress first; existing-task IDs stay strict.
-          const itemIds: [string, string][] = [];
-          const requestedItems = payload.items as TickTickTask['items'];
-          if (requestedItems?.length && confirmed?.items?.length === requestedItems.length
-            && confirmed.items.every(item => Boolean(item.id))
-            && new Set(confirmed.items.map(item => item.id)).size === requestedItems.length
-            && persistedField('items', confirmed.items, requestedItems.map(({ id: _id, ...item }) => item))) {
-            payload.items = requestedItems.map((item, index) => {
-              const realId = confirmed.items![index].id!;
-              if (item.id) itemIds.push([item.id, realId]);
-              return { ...item, id: realId };
-            });
-          }
+          // Only newly introduced checklist entries may receive server-assigned IDs.
+          const assigned = assignedChecklistIds(payload.items as TickTickTask['items'], confirmed?.items);
+          if (assigned.items) payload.items = assigned.items;
           const differences = !confirmed ? ['task'] : [
             ...(!pending(confirmed) ? ['status'] : []),
             ...fields.filter(key => payload[key] !== undefined && !persistedField(key, confirmed[key], payload[key])),
@@ -260,7 +265,7 @@ export class RuleTaskDraft {
             if (differences.includes('items')) logChecklistDifference(confirmed?.items, payload.items as TickTickTask['items']);
             throw new RuleTaskVerificationError('after', differences);
           }
-          for (const [requested, actual] of itemIds) this.realIds.set(requested, actual);
+          for (const [requested, actual] of assigned.ids) this.realIds.set(requested, actual);
           this.committed.set(saved.id, confirmed);
           for (const entry of this.pendingSaves) if (entry.rule === this.createdBy.get(id)) await entry.save(); updated++; this.writeCounts.set(this.createdBy.get(id)!, (this.writeCounts.get(this.createdBy.get(id)!) ?? 0) + 1);
         } catch (error) { fail([this.createdBy.get(id)!], error); }
@@ -279,7 +284,9 @@ export class RuleTaskDraft {
             ...Object.fromEntries(fields.filter(k => task[k] !== undefined).map(k => [k, task[k]])) });
           await this.source.updateTask(task.id, payload);
           const saved = await this.source.getTask(task.projectId, task.id);
-          verify(saved, task, original, 'after');
+          const assigned = assignedChecklistIds(task.items, saved?.items, original.items);
+          verify(saved, { ...task, items: assigned.items }, original, 'after');
+          for (const [requested, actual] of assigned.ids) this.realIds.set(requested, actual);
           this.committed.set(taskId, saved); updated++;
           for (const owner of ownerIds(taskId).filter(allowed)) this.writeCounts.set(owner, (this.writeCounts.get(owner) ?? 0) + 1);
         } catch (error) { fail(ownerIds(taskId), error); }
