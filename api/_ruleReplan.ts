@@ -402,7 +402,7 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
         });
       } catch (error) {
         for (const result of run.results) if (result.status === 'success' && result.matched) {
-          result.status = 'failed'; result.reason = '写入未确认，请刷新后重新重排';
+          result.status = 'failed'; result.reason = '写入未确认，请刷新后再次运行 Orchestrate';
         }
         await kv.set(RULE_RUN_KEY, run); hasRunTrace = true; throw error;
       }

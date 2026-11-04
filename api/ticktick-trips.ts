@@ -168,7 +168,7 @@ async function handler(req: VercelRequest, res: VercelResponse) {
         try {
           const { dispatchFullReplan } = await import('./_cloudScheduler.js');
           return res.status(200).json({ config, triggered: true, ...await dispatchFullReplan() });
-        } catch { return res.status(200).json({ config, triggered: false, error: '已保存，重排未触发' }); }
+        } catch { return res.status(200).json({ config, triggered: false, error: '已保存，Orchestrate 未提交' }); }
       } catch (error) {
         return res.status(error instanceof RuleConfigError ? error.status : 400).json({ error: error instanceof Error ? error.message : '规则配置无效' });
       }

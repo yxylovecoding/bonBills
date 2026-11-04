@@ -157,7 +157,7 @@ export function RuleEditor({ initial, onSave, onClose }: {
       </div>
       <footer>{error && <p role="alert">{error}</p>}<div>
         <button type="button" disabled={busy} onClick={onClose}>取消</button>
-        <button type="submit" disabled={busy}>{busy ? '保存中…' : '保存并重排'}</button>
+        <button type="submit" disabled={busy}>{busy ? '保存中…' : '保存并 Orchestrate'}</button>
       </div></footer>
     </form>
   </dialog>;
@@ -188,15 +188,15 @@ export default function LifeSchedulingRules({ onExpired, onManageOutlook }: { on
   const save = async (config: SchedulingRuleConfig) => {
     const value = await request('PATCH', config, AbortSignal.timeout(25_000));
     setData(previous => ({ ...previous, config: value.config }));
-    setRetryDispatch(!value.triggered); setMessage(value.triggered ? '已保存并触发重排' : '已保存，重排未触发');
+    setRetryDispatch(!value.triggered); setMessage(value.triggered ? '已保存并提交 Orchestrate' : '已保存，Orchestrate 未提交');
   };
   const retry = async () => {
     setBusy(true);
     try {
       const response = await accountFetch('/api/ticktick-trips?action=trigger-replan', { method: 'POST', signal: AbortSignal.timeout(20_000) });
       if (response.status === 401) { onExpired(); return; }
-      if (!response.ok) throw new Error('重排未触发，请重试');
-      setRetryDispatch(false); setMessage('已触发重排');
+      if (!response.ok) throw new Error('Orchestrate 未提交，请重试');
+      setRetryDispatch(false); setMessage('Orchestrate 已提交');
     } catch (cause) { setError((cause as Error).message); }
     finally { setBusy(false); }
   };
@@ -229,7 +229,7 @@ export default function LifeSchedulingRules({ onExpired, onManageOutlook }: { on
           : <button onClick={onManageOutlook}>管理连接</button>}
       </div>)}
     </details>
-    {message && <p role="status">{message}{retryDispatch && <button disabled={busy} onClick={() => void retry()}>重试重排</button>}</p>}
+    {message && <p role="status">{message}{retryDispatch && <button disabled={busy} onClick={() => void retry()}>重试 Orchestrate</button>}</p>}
     {error && <p role="alert">{error} <button onClick={() => void refresh()}>重新读取</button></p>}
     {editing && data && <RuleEditor initial={data.config} onSave={save} onClose={() => setEditing(false)} />}
   </section>;

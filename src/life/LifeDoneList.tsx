@@ -18,7 +18,7 @@ const CATEGORY_CLASS: Record<string, string> = { 课: 'is-study', 活: 'is-life'
 const needsDoneSync = (month: DoneMonth) => Boolean(month.connected && (month.needsTagSync || month.needsDurationSync
   || !month.syncedAt || Date.now() - Date.parse(month.syncedAt) > 300_000)
   || month.outlookConnected && (month.outlookError || !month.outlookSyncedAt || Date.now() - Date.parse(month.outlookSyncedAt) > 300_000));
-// 每次加载 DoneList 页面时自动触发一次重排（静默，不打扰用户）。
+// 每次加载 DoneList 页面时自动触发一次 Orchestrate（静默，不打扰用户）。
 // 使用模块级 flag 避免因组件在同一次会话内多次挂载/卸载重复触发。
 let autoReplanDispatched = false;
 
@@ -142,12 +142,12 @@ export default function LifeDoneList({ onExpired, onManageOutlook }: { onExpired
       });
       if (response.status === 401) { onExpired(); return; }
       const result = await response.json() as { triggered?: boolean; error?: string };
-      if (!response.ok || !result.triggered) throw new Error(result.error || '触发重排失败，请重试');
-      if (!request.signal.aborted) setReplanMessage('已触发重排 · 按已保存的规则顺序执行');
+      if (!response.ok || !result.triggered) throw new Error(result.error || 'Orchestrate 提交失败，请重试');
+      if (!request.signal.aborted) setReplanMessage('Orchestrate 已提交');
     } catch (cause) {
       if (!request.signal.aborted) setReplanError(cause instanceof TypeError
-        ? '触发请求失败，请检查网络后重试' : cause instanceof Error ? cause.message : '触发重排失败，请重试');
-      else setReplanError('触发结果暂未确认，请稍后查看更新结果');
+        ? 'Orchestrate 提交失败，请检查网络后重试' : cause instanceof Error ? cause.message : 'Orchestrate 提交失败，请重试');
+      else setReplanError('Orchestrate 提交结果暂未确认，请稍后查看更新结果');
     } finally {
       clearTimeout(timer);
       if (replanController.current === request) replanController.current = null;
@@ -155,7 +155,7 @@ export default function LifeDoneList({ onExpired, onManageOutlook }: { onExpired
     }
   }
   useEffect(() => () => { replanController.current?.abort(); }, []);
-  // 页面打开时自动静默触发一次重排任务，等价于用户点击「重排任务」按钮，
+  // 页面打开时自动静默触发一次 Orchestrate，等价于用户点击「Orchestrate」按钮，
   // 不走组件状态，避免打扰用户；失败也静默忽略。
   useEffect(() => {
     if (autoReplanDispatched) return;
@@ -167,7 +167,7 @@ export default function LifeDoneList({ onExpired, onManageOutlook }: { onExpired
         await accountFetch('/api/ticktick-trips?action=trigger-replan', {
           method: 'POST', credentials: 'same-origin', signal: controller.signal,
         });
-      } catch { /* 静默忽略触发失败，用户仍可手动点击「重排任务」。*/ }
+      } catch { /* 静默忽略触发失败，用户仍可手动点击「Orchestrate」。*/ }
       finally { clearTimeout(timer); }
     })();
     return () => { clearTimeout(timer); controller.abort(); };
@@ -245,10 +245,10 @@ export default function LifeDoneList({ onExpired, onManageOutlook }: { onExpired
       <button className="life-today" onClick={() => strip.current?.scrollTo({ left: strip.current.scrollWidth, behavior: 'smooth' })}>本周</button>
       <button className="life-arrow" aria-label="下一周" disabled={atLatest} onClick={() => move(1)}>›</button>
     </nav></div>
-    <div className="life-done-toolbar"><span role="status">{replanning ? '重排中…' : busy ? '同步中…' : planDetails ? <button className="life-plan-trigger" aria-expanded={detailsOpen} aria-controls="life-plan-details" onClick={() => setDetailsOpen(open => !open)}>
+    <div className="life-done-toolbar"><span role="status">{replanning ? '正在提交 Orchestrate…' : busy ? '同步中…' : planDetails ? <button className="life-plan-trigger" aria-expanded={detailsOpen} aria-controls="life-plan-details" onClick={() => setDetailsOpen(open => !open)}>
       {replanMessage || `上次排期 · 剩余 ${planDetails.selected.length} 项 · 约 ${planDetails.selected.reduce((sum, task) => sum + task.minutes, 0)} 分钟`}
     </button> : replanMessage || (syncedAt ? `${completionTime.format(new Date(syncedAt))} 已同步` : '尚未同步')}</span>
-      <div className="life-done-actions"><button disabled={busy || replanning} onClick={() => void triggerReplan()}>{replanning ? '触发中…' : '重排任务'}</button>
+      <div className="life-done-actions"><button disabled={busy || replanning} onClick={() => void triggerReplan()}>{replanning ? '提交中…' : 'Orchestrate'}</button>
         <button disabled={busy || replanning} onClick={() => void refresh(true)}>同步记录</button></div></div>
     <LifeSchedulingRules onExpired={onExpired} onManageOutlook={onManageOutlook} />
     {replanError && <p className="life-error" role="alert">{replanError}</p>}

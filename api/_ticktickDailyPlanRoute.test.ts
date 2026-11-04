@@ -54,7 +54,7 @@ describe('规则配置接口', () => {
   });
   it('投递失败仍保存配置，明确返回可重试状态；重试不保存第二版', async () => {
     m.dispatch.mockRejectedValueOnce(new Error('private queue response'));
-    expect((await request('PATCH', 'rules', defaultRuleConfig())).body).toMatchObject({ triggered: false, error: '已保存，重排未触发', config: { version: 1 } });
+    expect((await request('PATCH', 'rules', defaultRuleConfig())).body).toMatchObject({ triggered: false, error: '已保存，Orchestrate 未提交', config: { version: 1 } });
     expect((await request('POST', 'trigger-replan')).status).toBe(202); expect(m.data.get(RULE_CONFIG_KEY).version).toBe(1);
   });
   it('配置读写都要求登录，不支持的动词无副作用', async () => {

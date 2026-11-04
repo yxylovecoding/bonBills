@@ -42,7 +42,7 @@ export default function LifePlanDetails({ plan }: { plan: TickTickPlanDetails })
           <div className="life-plan-subtotal"><dt>扣除今日重要之事后剩余</dt><dd>{b.freeAfterImportantMinutes === undefined ? '—' : minuteText(b.freeAfterImportantMinutes)}</dd></div>
           <div className="life-plan-subtotal"><dt>本轮可新增安排</dt><dd>{minuteText(b.newTaskCapacityMinutes)}</dd></div>
         </dl>
-      </section> : <p className="life-plan-meta">这次排期未记录时间明细；任务完成重排后可查看。</p>}
+      </section> : <p className="life-plan-meta">暂无时间明细，Orchestrate 完成后可查看。</p>}
     <section aria-label="排入今日事的任务"><h3>排入今日事 · {plan.selected.length} 项 · 约 {minuteText(plannedMinutes)}</h3>
       {plan.selected.length ? <ul className="life-plan-tasks">{plan.selected.map(task => <li key={`${task.projectId}:${task.id}`}>
         <div><span>{task.title}</span><span>{minuteText(task.minutes)}</span></div>
