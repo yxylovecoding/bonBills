@@ -119,8 +119,10 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
       while (added) { added = false; for (const task of tasks) if (task.parentId && movingTemplateIds.has(task.parentId) && !movingTemplateIds.has(task.id)) { movingTemplateIds.add(task.id); added = true; } }
       for (const id of movingTemplateIds) excluded.add(id);
       const trips = buildTripSourcesFromSyncState(calendarState, tripState);
+      console.info('[scheduling-ready]', JSON.stringify({ scope: options.scope, phase: 'template' }));
       const draft = new RuleTaskDraft(api, tasks, abandonedToday);
       const visibility = options.specialty ? { journal: {}, locations: null } : await visibilityInputs(connection.projectId, today, calendarState);
+      console.info('[scheduling-ready]', JSON.stringify({ scope: options.scope, phase: 'visibility' }));
       const journal = structuredClone(visibility.journal);
       const managedVisibilityKey = `ticktick:visibility-owned:v1:${connectionId}`;
       const previousOwned = await kv.get<Record<string, SchedulingRuleId>>(managedVisibilityKey) ?? {};
