@@ -10,11 +10,13 @@ class SchedulingError extends Error {
 // Only reads or replay-safe archive updates may opt into a full-sync retry.
 // A failed task creation can have succeeded upstream without returning its ID.
 export async function schedulingStage<T>(stage: SchedulingStage, retryable: boolean, work: () => Promise<T>): Promise<T> {
+  const started = Date.now();
+  console.info('[scheduling-stage]', JSON.stringify({ stage, phase: 'start' }));
   try { return await work(); }
   catch (error) {
     if (error instanceof SchedulingError) throw error;
     throw new SchedulingError(error instanceof Error ? error.message : String(error), stage, retryable);
-  }
+  } finally { console.info('[scheduling-stage]', JSON.stringify({ stage, phase: 'end', elapsedMs: Date.now() - started })); }
 }
 
 export function schedulingFailure(error: unknown) {

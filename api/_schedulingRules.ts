@@ -60,6 +60,8 @@ export async function executeRuleGraph(config: SchedulingRuleConfig, scope: Sche
         await options.afterRule?.(id, false);
         continue;
       }
+      const started = Date.now();
+      console.info('[scheduling-rule]', JSON.stringify({ id, phase: 'start', scope }));
       try {
         const result = await withActiveRule(id, handlers[id]!);
         await options.afterRule?.(id, true);
@@ -68,7 +70,7 @@ export async function executeRuleGraph(config: SchedulingRuleConfig, scope: Sche
         unavailable.add(id);
         await options.afterRule?.(id, false);
         run.results.push({ id, status: 'failed', matched: 0, updated: 0, reason: error instanceof Error && /^(排期来源暂不可用|地点读取失败，保留当前显隐|模板范围未确认|模板暂不可用|经期来源暂不可用|存在多个洗头来源|数据未刷新|来源未确认|Outlook 订阅读取失败|眼药水重复规则不支持安全跳过，保留原任务|眼药水下一次日期无法确认，保留原任务|眼药水待办已变化，停止跳过|眼药水跳过结果未确认)$/.test(error.message) ? error.message : '本规则未完成，已保留受影响安排' });
-      }
+      } finally { console.info('[scheduling-rule]', JSON.stringify({ id, phase: 'end', scope, elapsedMs: Date.now() - started })); }
     }
   }, unavailable);
   if (options.save !== false) await kv.set(RULE_RUN_KEY, run);
