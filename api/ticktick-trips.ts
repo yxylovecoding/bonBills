@@ -192,6 +192,10 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(202).json({ ok: true, triggered: true, ...await dispatchFullReplan() });
     }
     if (req.query?.action === 'sync-templates') {
+      if (req.method === 'GET') {
+        const { inspectTickTickTemplateSync } = await import('./_ticktickTemplateRun.js');
+        return res.status(200).json(await inspectTickTickTemplateSync());
+      }
       if (req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
       const { runTickTickTemplateSync } = await import('./_ticktickTemplateRun.js');
       const result = await runTickTickTemplateSync();
