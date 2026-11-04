@@ -29,6 +29,12 @@ export function isPeriodCalendarTitle(title: string): boolean {
   return /月经|🩸/u.test(title);
 }
 
+function isInternshipCalendarTitle(title: string): boolean {
+  // Emoji and parenthesized notes such as LastDay do not turn an internship into a trip.
+  const text = title.replace(/[#*0-9]\uFE0F?\u20E3|[\p{Extended_Pictographic}\p{Regional_Indicator}\p{Emoji_Modifier}\u200D\uFE0E\uFE0F]/gu, '').trim();
+  return /^实习(?:\s*(?:\([^()]*\)|（[^（）]*）))*$/u.test(text);
+}
+
 // Match holiday/break reminders exactly, leaving actual trips such as 平遥电影节 or 寒假旅行 intact.
 const HOLIDAY_REMINDER_TITLES = new Set([
   '寒假', '暑假',
@@ -113,8 +119,8 @@ export function buildOutlookSnapshot(
     const title = event.title.trim();
     if (HOLIDAY_REMINDER_TITLES.has(title) || isPeriodCalendarTitle(title)) continue;
     const isClassLike = event.calendar === 'class' || event.calendar === 'work';
-    const tag: OutlookTag | null = isClassLike
-      ? (title === '实习' ? 'intern' : 'travel')
+    const tag: OutlookTag | null = isInternshipCalendarTitle(title) ? 'intern' : isClassLike
+      ? 'travel'
       : ignoredTitles.has(title) ? null : homeTitles.has(title) ? 'home' : 'travel';
     if (!tag) continue;
     const id: SchedulingRuleId = tag === 'travel' ? 'calendar-travel' : tag === 'home' ? 'calendar-home' : 'calendar-intern';

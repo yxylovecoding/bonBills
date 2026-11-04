@@ -42,6 +42,60 @@ describe('订阅窗口移走后的历史留存', () => {
 });
 
 describe('Outlook 月历映射', () => {
+  it.each(['play', 'class', 'calendar', 'work'] as const)('%s 的 emoji 实习和括号备注归为实习，不生成行程或心愿', (calendar) => {
+    for (const title of ['实习', '🌍实习', '🌏实习 (LastDay)', '🐧实习', ' 🐧 实习（LastDay） ', '👩🏽‍💻实习', '🇨🇳实习', '1️⃣实习', '✈️实习']) {
+      const result = buildOutlookSnapshot([
+        event({ calendar, uid: 'intern', title, startDate: '2026-09-01', endDate: '2026-09-03' }),
+      ], start, end, DEFAULT_OUTLOOK_RULES, ['calendar-travel', 'calendar-intern']);
+      expect(result.tags).toEqual({ '2026-09-01': 'intern', '2026-09-02': 'intern' });
+      expect(result.travelTitles).toEqual({});
+      expect(result.wishEvents ?? []).toEqual([]);
+      expect(result.ruleCandidates).toEqual({ '2026-09-01': ['calendar-intern'], '2026-09-02': ['calendar-intern'] });
+      expect(detectAllTrips(result.tags)).toEqual([]);
+    }
+  });
+
+  it('实习与真实出行重叠时，只保留真实行程名称和心愿，不延长行程', () => {
+    const result = snapshot([
+      event({ calendar: 'class', uid: 'intern', title: '🐧实习', startDate: start, endDate: end }),
+      event({ calendar: 'class', uid: 'business-trip', title: '上海出差' }),
+      event({ uid: 'trip', title: '杭州旅行', startDate: '2026-09-23', endDate: '2026-09-24' }),
+    ]);
+    expect(result.tags['2026-09-21']).toBe('intern');
+    expect(result.tags['2026-09-24']).toBe('intern');
+    expect(result.travelTitles).toEqual({ '2026-09-22': '上海出差', '2026-09-23': '杭州旅行' });
+    expect(result.wishEvents?.map(({ uid }) => uid)).toEqual(['business-trip', 'trip']);
+    expect(detectAllTrips(result.tags)).toEqual([{
+      startDate: '2026-09-22', endDate: '2026-09-23', dates: ['2026-09-22', '2026-09-23'],
+    }]);
+    expect(snapshot([event({ calendar: 'class', title: '实习出差' })]).tags['2026-09-22']).toBe('travel');
+  });
+
+  it('停用实习规则后不会改归出行，定时或取消的实习不生成全天场景', () => {
+    const intern = event({ calendar: 'class', title: '🌏实习 (LastDay)' });
+    expect(buildOutlookSnapshot([intern], start, end, DEFAULT_OUTLOOK_RULES, ['calendar-travel']).tags).toEqual({});
+    expect(snapshot([{ ...intern, allDay: false }, { ...intern, cancelled: true }]).tags).toEqual({});
+  });
+
+  it('重新同步将已有实习误标改为实习，并清理行程标题和心愿', () => {
+    const day = '2026-09-22';
+    const intern = event({ calendar: 'class', uid: 'intern', title: '🌏实习 (LastDay)' });
+    const old = {
+      tagMap: { [day]: 'travel' },
+      outlookApplied: { [day]: { tag: 'travel', previousTag: 'school' } },
+      outlookTravelTitles: { [day]: intern.title },
+      outlookWishEvents: [{ ...intern, key: '' }],
+    };
+    const nextSnapshot = snapshot([intern]);
+    const result = applyOutlookSnapshotToState(old, nextSnapshot, 'manual', '2026-10-31');
+    expect(result.tagMap).toEqual({ [day]: 'intern' });
+    expect(result.outlookTravelTitles).toEqual({});
+    expect(result.outlookWishEvents).toEqual([]);
+    expect(detectAllTrips(result.tagMap)).toEqual([]);
+    expect(applyOutlookSnapshotToState(result, nextSnapshot, 'manual', '2026-10-31')).toEqual(result);
+    expect(old.tagMap).toEqual({ [day]: 'travel' });
+  });
+
   it.each(['play', 'class', 'calendar', 'work'] as const)('%s 的经期全天日程不生成出行或心愿，旧连接规则同样生效', (calendar) => {
     for (const title of ['🩸', '月经', ' 月经第 2 天 ', '预计月经', '预测🩸', '预估月经结束']) {
       const result = buildOutlookSnapshot([
