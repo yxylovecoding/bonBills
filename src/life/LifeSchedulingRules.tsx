@@ -220,7 +220,7 @@ export default function LifeSchedulingRules({ onExpired, onManageOutlook }: { on
           </li>;
         })}</ol></details>)}</>}
     </details></div>
-    <details className="schedule-outlook" open><summary>Outlook</summary>
+    <details className="schedule-outlook"><summary>Outlook</summary>
       {data?.outlook?.map(connection => <div className="schedule-connection" key={connection.id}>
         <div><strong>{connection.name}</strong><span>{connection.error || (connection.connected ? '已连接' : '未连接')}
           {connection.syncedAt ? ` · 上次成功同步 ${time.format(new Date(connection.syncedAt))}` : ''}</span>
