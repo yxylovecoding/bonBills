@@ -42,6 +42,21 @@ describe('与网页共用实际完成轮换', () => {
   const source = (): TrainingSource => ({ year: 2026, connected: true, syncedAt: null,
     tasks: ['全身力训', '臀腿', '爬坡'].map((name, i) => ({ id: `life:${i}`, name, title: `${name}-运动💪🏻是生活的第一个锚点🪝`, dates: [], schedule: '', notes: '', links: [] })),
     completions: [{ project: '臀腿', date: '2026-09-28' }, { project: '爬坡', date: '2026-10-03' }] });
+  it('多年日历仍只在适用候选日安排训练，不在每次候选检查时遍历全日历', async () => {
+    const task = workout({ id: 'cardio', title: '燃脂操-运动💪🏻是生活的第一个锚点🪝', tags: ['居'],
+      dueDate: '2026-10-05T01:00:00.000+0000', startDate: '2026-10-05T01:00:00.000+0000' });
+    training.mockResolvedValue({ year: 2026, connected: true, syncedAt: null, tasks: [{ id: 'life:cardio', name: '燃脂操',
+      title: task.title, dates: [], schedule: '', notes: '', links: [] }] });
+    const days = Object.fromEntries(Array.from({ length: 3650 }, (_, i) => [new Date(Date.UTC(2020, 0, i + 1)).toISOString().slice(0, 10), 'travel']));
+    days['2026-10-06'] = 'intern';
+    let scans = 0;
+    const calendarState = { tagMap: new Proxy(days, { ownKeys(target) { scans++; return Reflect.ownKeys(target); } }) };
+    const f = fakeApi(task);
+    const result = await syncExerciseSchedule(f.api, { rolling: true, connectionId: 'account', now: now('2026-10-05T10:00:00'), calendarState });
+    expect(result.fixedDates.get(task.id)).toBe('2026-10-06');
+    expect(f.stored.get(task.id)?.tags).toEqual(['居']);
+    expect(scans).toBeLessThanOrEqual(3);
+  });
   it('居寄训练在游日不安排，最近居日才执行，普通场景同步不拉回', async () => {
     const task = workout({ id: 'cardio', title: '燃脂操-运动💪🏻是生活的第一个锚点🪝', tags: ['居', '寄', '当天'],
       dueDate: '2026-10-05T01:00:00.000+0000', startDate: '2026-10-05T01:00:00.000+0000' });
