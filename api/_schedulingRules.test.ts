@@ -240,6 +240,24 @@ it('已有任务新增检查项接纳服务端 ID，保留原条目 ID 和进度
   expect(state).toEqual({ source: 'new-server' });
   expect(draft.committedValues()[0].items).toEqual([{ id: 'new-server', title: '手机电视剧×1 (5m)', status: 0 }, { id: 'known', title: '已有物品', status: 1 }]);
 });
+it('计划形成后母任务被完成，提交时不再补建下级', async () => {
+  const c = client(), draft = new RuleTaskDraft(c.api, [task()]); c.api.createTask = vi.fn();
+  const branch = draft.branch('template-content');
+  await branch.api.createTask({ projectId: 'p', parentId: 'one', title: '搬家-京广-11.5 · 新子任务' }); branch.accept();
+  Object.assign(c.tasks.get('one')!, { status: 2, completedTime: '2026-11-04T05:00:00Z' });
+  await expect(draft.commit()).rejects.toThrow('母任务已完成');
+  expect(c.api.createTask).not.toHaveBeenCalled();
+});
+it('清理已完成事件的自动重复项优先于该重复项的显隐标签更新', async () => {
+  const c = client(), draft = new RuleTaskDraft(c.api, [task()]);
+  c.api.deleteTask = vi.fn(async (_project, id) => { c.tasks.delete(id); });
+  const visible = draft.branch('visibility-location');
+  await visible.api.updateTask('one', { tags: [...task().tags!, 'hidden'] }); visible.accept();
+  const cleanup = draft.branch('template-content'); await cleanup.api.deleteTask('p', 'one');
+  expect(cleanup.accept().conflicts).toEqual([]);
+  await draft.commit();
+  expect(c.api.deleteTask).toHaveBeenCalledOnce(); expect(c.write).not.toHaveBeenCalled();
+});
 describe('地点显隐', () => {
   const locations = { names: ['北京', '广州', '清迈'], today: ['北京'], unknown: false };
   it('城市标签按任一匹配；无城市标签不处理；未知当天地点不误显示', () => {

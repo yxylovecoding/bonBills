@@ -56,8 +56,8 @@ it('updates 搬家-京广 from the templates and preserves its prefixes, dates, 
     { ...make('jg-box', '📦', 'jg-stage'), content: 'old box' },
     { ...make('unrelated', '📦爱好', 'jg-stage'), content: 'keep' });
   const result = await syncTickTickTemplates(api, 'travel', 'conn');
-  expect(result).toMatchObject({ movingInstances: 1, instanceMatched: 11, instanceUpdated: 4, instanceCreated: 8 });
-  expect(m.tasks.find(t => t.id === 'jg-brush')).toMatchObject({ title: '搬家-京广 · 🎒🪥漱', content: 'same', status: 2,
+  expect(result).toMatchObject({ movingInstances: 1, instanceMatched: 11, instanceUpdated: 3, instanceCreated: 8 });
+  expect(m.tasks.find(t => t.id === 'jg-brush')).toMatchObject({ title: '🎒🪥漱', content: 'old', status: 2,
     completedTime: '2026-10-30T10:00:00Z', dueDate: '2026-12-01', parentId: 'jg-stage', items: [{ id: 'jg-brush-item', status: 1 }] });
   expect(m.tasks.find(t => t.id === 'jg-box')).toMatchObject({ title: '搬家-京广 · 📦', content: 'same' });
   expect(m.tasks.find(t => t.id === 'unrelated')!.content).toBe('keep');
@@ -85,19 +85,27 @@ it('parses title dates and rejects impossible calendar days', () => {
   expect(movingDepartureDate('搬家-京广', '2026-11-03')).toBeNull();
   expect(() => movingDepartureDate('搬家-京广-2.30', '2026-11-03')).toThrow('无效');
 });
+it('完成历史未确认时暂停搬家补建，已完成阶段与其后代不再改期', async () => {
+  m.tasks.push(make('jg', '搬家-京广-11.5'), { ...make('done-stage', '出门前三天', 'jg'), status: 2 }, make('child', '额外子项', 'done-stage'));
+  await expect(syncTickTickTemplates(api, 'travel', 'conn', { mode: 'content', requireCompletionHistory: true })).rejects.toThrow('完成记录未确认');
+  expect(createTask).not.toHaveBeenCalled();
+  await syncTickTickTemplates(api, 'travel', 'conn', { mode: 'dates' });
+  expect(updateTask).not.toHaveBeenCalled();
+});
 it('anchors stages and all descendants on the title date, keeps progress, and follows title edits', async () => {
   m.tasks.push(make('jg', '搬家-京广-2026.11.5'), make('js', '出门前三天', 'jg'),
     make('brush', '📦🪥漱', 'js'), { ...make('deep', '牙刷准备', 'brush'), status: 2 },
     make('day', '出门当天', 'jg'));
   const result = await syncTickTickTemplates(api, 'travel', 'conn');
-  for (const id of ['js', 'brush', 'deep']) expect(m.tasks.find(t => t.id === id)!.dueDate).toContain('2026-11-02');
+  for (const id of ['js', 'brush']) expect(m.tasks.find(t => t.id === id)!.dueDate).toContain('2026-11-02');
   expect(m.tasks.find(t => t.id === 'deep')!.status).toBe(2);
   expect(m.tasks.find(t => t.id === 'day')!.dueDate).toContain('2026-11-05');
-  expect(result.managedTaskIds).toEqual(expect.arrayContaining(['jg', 'js', 'brush', 'deep', 'day']));
+  expect(result.managedTaskIds).toEqual(expect.arrayContaining(['jg', 'js', 'brush', 'day']));
   expect((await syncTickTickTemplates(api, 'travel', 'conn')).dateUpdated).toBe(0);
   m.tasks.find(t => t.id === 'jg')!.title = '搬家-京广-2026.11.8';
   await syncTickTickTemplates(api, 'travel', 'conn');
-  expect(m.tasks.find(t => t.id === 'deep')!.dueDate).toContain('2026-11-05');
+  expect(m.tasks.find(t => t.id === 'deep')!.dueDate).toBe('2026-11-04');
+  expect(m.tasks.find(t => t.id === 'brush')!.dueDate).toContain('2026-11-05');
 });
 
 it('keeps pinned checklist entries local while syncing ordinary entries in both directions', async () => {

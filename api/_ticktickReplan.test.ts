@@ -274,7 +274,7 @@ describe('远端新增专项接入同一裁决', () => {
     expect(m.tasks[0].tags).toContain('hidden'); expect(m.tasks[1].dueDate).toBe('2026-11-03T15:00:00+0800');
     expect(m.write).toHaveBeenCalledOnce();
   });
-  it('模板内容与搬家日期合并后一次写入，完成项同步阶段日期并保留完成记录', async () => {
+  it('模板内容与搬家日期合并后一次写入，完成项保留完成时的内容和日期', async () => {
     const make = (id: string, title: string, parentId?: string) => task(id, { title, parentId, tags: ['routine'], content: 'same', items: [{ id: `${id}-item`, title: '牙刷', status: 1 }] });
     const titles = ['🪥漱', '🧴护', '💄妆', '🛀浴', '📷相机', '🧥', '随身背包', '⚪️小袋子', '⚫️小袋子', '【⚪️】'];
     m.tasks = [make('template','出门todo模板'),make('moving','搬家模板'),make('a','出门前一天','template'),make('b','出门前三天','moving'),
@@ -285,7 +285,7 @@ describe('远端新增专项接入同一裁决', () => {
     const run = await runRuleReplan({scope:'hourly'});
     expect(status(run,'template-content').status).toBe('success'); expect(status(run,'moving-date').status).toBe('success');
     expect(m.tasks.find(task=>task.id==='brush')).toMatchObject({content:'new contents',dueDate:'2026-11-07T00:00:00+0800',tags:['routine']});
-    expect(m.tasks.find(task=>task.id==='done-box')).toMatchObject({content:'same',status:2,completedTime:'2026-11-02T10:00:00Z',dueDate:'2026-11-07T00:00:00+0800'});
+    expect(m.tasks.find(task=>task.id==='done-box')).toMatchObject({content:'old',status:2,completedTime:'2026-11-02T10:00:00Z',dueDate:'2026-11-03T00:00:00+0800'});
     expect(m.write.mock.calls.filter(([id])=>id==='brush')).toHaveLength(1);
     const state=m.data.get(`ticktick:template-pairs:v1:${hash}:template`);
     expect(Object.keys(state.pairs)).toHaveLength(10);expect(state.departureDates.jg.date).toBe('2026-11-10');

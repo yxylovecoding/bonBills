@@ -184,7 +184,9 @@ export class RuleTaskDraft {
           this.tasks.set(taskId, next); this.owners.set(taskId, owners); matched++;
         }
         for (const taskId of base.keys()) if (!branch.has(taskId)) {
-          const owner = this.owners.get(taskId)?.values().next().value;
+          const owners = this.owners.get(taskId);
+          const owner = id === 'template-content' && owners && [...owners.keys()].every(key => key === 'hidden')
+            ? undefined : owners?.values().next().value;
           if (owner) conflicts.push({ taskId, winner: owner, field: 'task' });
           else { this.tasks.delete(taskId); if (this.created.delete(taskId)) this.createdBy.delete(taskId); else this.removed.set(taskId, id); matched++; }
         }
@@ -253,6 +255,10 @@ export class RuleTaskDraft {
         if (!allowed(this.createdBy.get(id))) continue;
         try {
           if (task.parentId?.startsWith('draft-') && !this.realIds.has(task.parentId)) throw new Error('母任务未创建');
+          if (task.parentId) {
+            const parent = await this.source.getTask(task.projectId, this.resolveIds(task.parentId));
+            if (!parent || !pending(parent)) throw new Error('母任务已完成或不可用，停止补建子任务');
+          }
           const payload: Record<string, unknown> = this.resolveIds({ projectId: task.projectId, ...Object.fromEntries(fields.filter(k => task[k] !== undefined).map(k => [k, task[k]])) });
           const saved = await this.source.createTask(payload);
           if (!saved?.id || saved.id.startsWith('draft-')) throw new Error('新待办创建结果未确认');

@@ -1,6 +1,6 @@
 import { kv } from './_accountKv.js';
 import { randomBytes } from 'node:crypto';
-import { movingInstanceRoots, movingTaskTitle, syncMovingInstance, type MovingTreeState } from './_ticktickMovingInstances.js';
+import { movingInstanceRoots, movingTaskTitle, movingTaskClosed, syncMovingInstance, type MovingTreeState } from './_ticktickMovingInstances.js';
 import { readAllTickTickTasks, canonicalStageTitle, relativeStageDate, updateRoutineTaskDate, calendarDateInTimeZone, type TickTickTask, type TickTickApi } from './_ticktickTrips.js';
 
 type Shared = { title: string; content: string; desc: string; kind: string; items: string[] };
@@ -109,7 +109,8 @@ async function writeShared(api: TickTickApi, task: TickTickTask, value: Shared, 
 // Caller holds the shared TickTick write lock. Only template text is shared;
 // stage dates, parent links, tags, progress and each container prefix stay local.
 export async function syncTickTickTemplates(api: TickTickApi, rootId: string, connectionId: string,
-  options: { mode?: 'content' | 'dates'; deferState?: (save: () => Promise<unknown>) => void; resolveIds?: (value: unknown) => unknown } = {}) {
+  options: { mode?: 'content' | 'dates'; deferState?: (save: () => Promise<unknown>) => void; resolveIds?: (value: unknown) => unknown;
+    completedTasks?: TickTickTask[]; requireCompletionHistory?: boolean } = {}) {
   const pendingSnapshots = new Map<string, unknown>();
   const save = async (key: string, value: unknown) => {
     const snapshot = structuredClone(value);
@@ -190,6 +191,8 @@ export async function syncTickTickTemplates(api: TickTickApi, rootId: string, co
   saved.departureDates ??= {};
   saved.movingInstances ??= {};
   const movingRoots = movingInstanceRoots(tasks);
+  if (movingRoots.length && options.mode !== 'dates' && options.requireCompletionHistory && !options.completedTasks)
+    throw new Error('搬家完成记录未确认，暂停补建');
   const instanceSync = [];
   saved.movingTrees ??= {};
   const movingTemplate = tasks.find(task => /^搬家模[板版]$/.test(task.title.trim()));
@@ -202,18 +205,19 @@ export async function syncTickTickTemplates(api: TickTickApi, rootId: string, co
     const previous = saved.departureDates[root.id];
     const departureDate = previous?.suffix === root.title.trim().split('-').at(-1) ? previous.date : parsed;
     const result = await syncMovingInstance({ api, tasks, templateRoot: movingTemplate, root, state: tree,
-      legacyTaskIds, departureDate, persist: () => save(storageKey, saved) });
+      legacyTaskIds, departureDate, completedTasks: options.completedTasks, persist: () => save(storageKey, saved) });
     instanceSync.push(result); instanceMatched += result.matched; instanceUpdated += result.updated;
   }
   // Apply dates after text synchronization, using fresh tasks to retain new content.
   for (const root of options.mode === 'content' ? [] : movingRoots) {
+    if (movingTaskClosed(root, tasks)) continue;
     const today = calendarDateInTimeZone(new Date().toISOString())!;
     const parsed = movingDepartureDate(root.title, today);
     if (!parsed) continue;
     const suffix = root.title.trim().split('-').at(-1)!;
     const previous = saved.departureDates[root.id];
     const departureDate = previous?.suffix === suffix ? previous.date : parsed;
-    const stages = tasks.filter(t => t.parentId === root.id);
+    const stages = tasks.filter(t => t.parentId === root.id && !movingTaskClosed(t, tasks));
     const planned = stages.map(stage => {
       const date = relativeStageDate(movingTaskTitle(stage.title), departureDate);
       const descendants = [stage];
@@ -232,6 +236,7 @@ export async function syncTickTickTemplates(api: TickTickApi, rootId: string, co
     await save(storageKey, saved);
     managedTaskIds.push(root.id);
     for (const { date, descendants } of planned) for (const task of descendants) {
+      if (movingTaskClosed(task, tasks)) continue;
       const fresh = await api.getTask(task.projectId, task.id);
       if (!fresh || fresh.parentId !== task.parentId) throw new Error('搬家子任务层级已变化，请重试');
       if (await updateRoutineTaskDate(api, fresh, date, true, true)) dateUpdated++;
