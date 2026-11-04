@@ -855,10 +855,10 @@ export function nextRoutineSceneDate(task: TickTickTask, calendarState: unknown,
   return scenes.map(scene => targets[scene]).filter((date): date is string => Boolean(date)).sort()[0] ?? null;
 }
 
-export async function syncTickTickAlwaysToday(api: TickTickApi, options: { tasks?: TickTickTask[]; today?: string; calendarState?: unknown } = {}) {
+export async function syncTickTickAlwaysToday(api: TickTickApi, options: { tasks?: TickTickTask[]; today?: string; calendarState?: unknown; protectedTaskIds?: ReadonlySet<string> } = {}) {
   const tasks = options.tasks ?? await readAllTickTickTasks(api, [0]);
   const today = options.today ?? calendarDateInTimeZone(new Date().toISOString())!;
-  const candidates = tasks.filter(task => !isEyeDrops(task) && isAlwaysTodayTask(task) && (task.status ?? 0) === 0 && !task.completedTime);
+  const candidates = tasks.filter(task => !options.protectedTaskIds?.has(task.id) && !isEyeDrops(task) && isAlwaysTodayTask(task) && (task.status ?? 0) === 0 && !task.completedTime);
   if (!candidates.length) return { matched: 0, updated: 0 };
   const calendarState = options.calendarState ?? (candidates.some(task => routineScenes(task).length)
     ? await readRoutineCalendarState() : undefined);

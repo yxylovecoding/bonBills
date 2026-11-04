@@ -79,7 +79,7 @@ export class RuleTaskDraft {
   private committed = new Map<string, TickTickTask>();
   private removed = new Map<string, SchedulingRuleId>();
   private realIds = new Map<string, string>();
-  constructor(private source: TickTickApi, tasks: TickTickTask[]) {
+  constructor(private source: TickTickApi, tasks: TickTickTask[], private protectedDateTaskIds: ReadonlySet<string> = new Set()) {
     this.committed = new Map(tasks.map(t => [t.id, structuredClone(t)]));
     this.original = new Map(tasks.map(t => [t.id, structuredClone(t)]));
     this.tasks = new Map(tasks.map(t => [t.id, structuredClone(t)]));
@@ -154,6 +154,10 @@ export class RuleTaskDraft {
           const owners = this.owners.get(taskId) ?? new Map<string, SchedulingRuleId>();
           const next = structuredClone(this.tasks.get(taskId)!);
           for (const key of changed) {
+            // Same-day abandonment is a user decision, above configurable rules.
+            // Preserve the provider's next occurrence and its scheduling notes.
+            if (this.protectedDateTaskIds.has(taskId) && (dateFields.has(key)
+              || (key === 'content' || key === 'desc') && changed.some(field => dateFields.has(field)))) continue;
             if (key === 'tags') {
               const hidden = (tags: string[] | undefined) => (tags ?? []).filter(isHiddenTag);
               const nonHidden = (tags: string[] | undefined) => (tags ?? []).filter(t => !isHiddenTag(t));
@@ -176,7 +180,7 @@ export class RuleTaskDraft {
             if (owner && owner !== id) { conflicts.push({ taskId, winner: owner, field: group(key) }); continue; }
             Object.assign(next, { [key]: task[key] }); owners.set(ruleGroup(id, key), id);
           }
-          if (claims.has(taskId) && !owners.has('date')) owners.set('date', id);
+          if (claims.has(taskId) && !this.protectedDateTaskIds.has(taskId) && !owners.has('date')) owners.set('date', id);
           this.tasks.set(taskId, next); this.owners.set(taskId, owners); matched++;
         }
         for (const taskId of base.keys()) if (!branch.has(taskId)) {
