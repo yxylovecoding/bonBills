@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { syncTickTickTemplates, templatePairs, movingDepartureDate } from './_ticktickTemplateSync';
+import { RuleTaskDraft } from './_ruleTaskDraft';
 import type { TickTickTask, TickTickOpenApiClient } from './_ticktickTrips';
 const m = vi.hoisted(() => ({ tasks: [] as TickTickTask[], saved: new Map<string, unknown>() }));
 vi.mock('./_accountKv.js', () => ({ kv: { get: async (k: string) => structuredClone(m.saved.get(k)), set: async (k: string, v: unknown) => { m.saved.set(k, structuredClone(v)); } } }));
@@ -8,7 +9,8 @@ const titles = ['🪥漱', '🧴护', '💄妆', '🛀浴', '📷相机', '🧥'
 const make = (id: string, title: string, parentId?: string): TickTickTask => ({ id, title, projectId: 'p', parentId, content: 'same', tags: ['routine'], dueDate: '2026-11-04', items: [{ id: `${id}-item`, title: '牙刷', status: 1 }] });
 const getTask = vi.fn(async (_p: string, id: string) => structuredClone(m.tasks.find(t => t.id === id)!));
 const updateTask = vi.fn(async (id: string, payload: any) => { Object.assign(m.tasks.find(t => t.id === id)!, payload); return payload; });
-const api = { getTask, updateTask } as unknown as TickTickOpenApiClient;
+const createTask = vi.fn(async (payload: any) => { const task = { ...payload, id: `created-${m.tasks.length}`, status: 0 }; m.tasks.push(task); return task; });
+const api = { getTask, updateTask, createTask } as unknown as TickTickOpenApiClient;
 beforeEach(() => { m.saved.clear(); vi.clearAllMocks(); m.tasks = [make('travel', '出门todo模板'), make('move', '搬家模板'), make('a', '出门前一天', 'travel'), make('b', '出门前三天', 'move'), ...titles.flatMap((title, i) => [make(`a${i}`, `🧳${title}`, 'a'), make(`b${i}`, i === 9 ? '📦' : `📦${title}`, 'b')])]; });
 it('matches ten second-level pairs including the special container pair and ignores copies', () => {
   m.tasks.push(make('copy', '🧳🪥漱', 'other'));
@@ -54,10 +56,10 @@ it('updates 搬家-京广 from the templates and preserves its prefixes, dates, 
     { ...make('jg-box', '📦', 'jg-stage'), content: 'old box' },
     { ...make('unrelated', '📦爱好', 'jg-stage'), content: 'keep' });
   const result = await syncTickTickTemplates(api, 'travel', 'conn');
-  expect(result).toMatchObject({ movingInstances: 1, instanceMatched: 2, instanceUpdated: 2 });
-  expect(m.tasks.find(t => t.id === 'jg-brush')).toMatchObject({ title: '🎒🪥漱', content: 'same', status: 2,
+  expect(result).toMatchObject({ movingInstances: 1, instanceMatched: 11, instanceUpdated: 4, instanceCreated: 8 });
+  expect(m.tasks.find(t => t.id === 'jg-brush')).toMatchObject({ title: '搬家-京广 · 🎒🪥漱', content: 'same', status: 2,
     completedTime: '2026-10-30T10:00:00Z', dueDate: '2026-12-01', parentId: 'jg-stage', items: [{ id: 'jg-brush-item', status: 1 }] });
-  expect(m.tasks.find(t => t.id === 'jg-box')).toMatchObject({ title: '📦', content: 'same' });
+  expect(m.tasks.find(t => t.id === 'jg-box')).toMatchObject({ title: '搬家-京广 · 📦', content: 'same' });
   expect(m.tasks.find(t => t.id === 'unrelated')!.content).toBe('keep');
   updateTask.mockClear(); await syncTickTickTemplates(api, 'travel', 'conn'); expect(updateTask).not.toHaveBeenCalled();
 });
@@ -67,7 +69,7 @@ it('keeps instance associations after rename and never propagates instance text 
   Object.assign(m.tasks.find(t => t.id === 'brush')!, { title: '📦自定义', content: 'instance edit' });
   m.tasks.find(t => t.id === 'a0')!.content = 'new template';
   await syncTickTickTemplates(api, 'travel', 'conn');
-  expect(m.tasks.find(t => t.id === 'brush')).toMatchObject({ title: '📦🪥漱', content: 'new template' });
+  expect(m.tasks.find(t => t.id === 'brush')).toMatchObject({ title: '计划 搬家-京广 · 📦🪥漱', content: 'new template' });
   expect(m.tasks.find(t => t.id === 'b0')!.content).toBe('new template');
 });
 it('ignores unrelated roots and rejects ambiguous instance categories', async () => {
@@ -159,7 +161,7 @@ it('syncs stage checklists including the two video entries, preserving stage not
   expect(moving.items.some(i => i.title === '旅行专用📌')).toBe(false);
   expect(moving.items.find(i => i.title === '平板电影×4 电视剧×1 (5m)')!.status).toBe(0);
   expect(travel.content).toBe('(2.5h)');
-  expect(m.tasks.find(t => t.id === 'jg-day')).toMatchObject({ title: '出门前一天🎒', content: 'instance note' });
+  expect(m.tasks.find(t => t.id === 'jg-day')).toMatchObject({ title: '搬家-京广 · 出门前一天🧳🎒', content: '(1h)' });
   expect(m.tasks.find(t => t.id === 'jg-day')!.items!.map(i => i.title)).toContain('手机电视剧×1 (5m)');
   updateTask.mockClear(); await syncTickTickTemplates(api, 'travel', 'conn'); expect(updateTask).not.toHaveBeenCalled();
   moving.items.push({ id: 'later', title: '新检查事项', status: 0 });
@@ -176,6 +178,24 @@ it('excludes pinned stages and rejects ambiguous same-name stages before any wri
 it('uses container-suffixed stage titles for relative dates without changing their titles', async () => {
   m.tasks.push(make('jg', '搬家-京广-2026.11.5'), make('stage', '出门前三天📦', 'jg'), make('deep', '准备', 'stage'));
   await syncTickTickTemplates(api, 'travel', 'conn');
-  expect(m.tasks.find(t => t.id === 'stage')).toMatchObject({ title: '出门前三天📦' });
+  expect(m.tasks.find(t => t.id === 'stage')).toMatchObject({ title: '搬家-京广-2026.11.5 · 出门前三天' });
   expect(m.tasks.find(t => t.id === 'deep')!.dueDate).toContain('2026-11-02');
+});
+
+it('保存整棵搬家实例的实际 ID 并合并延迟基准，下一轮不会重新生成', async () => {
+  m.tasks.push(make('jg', '搬家-京广-11.5'));
+  const draft = new RuleTaskDraft(api, m.tasks), branch = draft.branch('template-content');
+  const saves: (() => Promise<unknown>)[] = [];
+  await syncTickTickTemplates(branch.api, 'travel', 'conn', { mode: 'content',
+    deferState: save => saves.push(save), resolveIds: value => draft.resolveIds(value, true) });
+  branch.accept();
+  expect(saves).toHaveLength(2); expect(m.saved.size).toBe(0);
+  for (const save of saves) draft.saveAfterCommit('template-content', save);
+  await draft.commit();
+  const state = m.saved.get('ticktick:template-pairs:v1:conn:travel') as any;
+  expect(Object.keys(state.movingTrees.jg.taskIds)).toHaveLength(12);
+  expect(JSON.stringify(state)).not.toContain('draft-');
+  createTask.mockClear();
+  await syncTickTickTemplates(api, 'travel', 'conn', { mode: 'content' });
+  expect(createTask).not.toHaveBeenCalled();
 });

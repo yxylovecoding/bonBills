@@ -166,7 +166,7 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
         for (const [id, mode] of [['template-content', 'content'], ['moving-date', 'dates']] as const) plan(id, async branch => {
           if (!draft.values().some(task => /^搬家模[板版]$/.test(task.title.trim()) || task.title.includes('搬家-'))) return;
           const result = await syncTickTickTemplates(branch.api, connection.templateRootId, connectionId, {
-            mode, deferState: save => draft.saveAfterCommit(id, save),
+            mode, deferState: save => draft.saveAfterCommit(id, save), resolveIds: value => draft.resolveIds(value, true),
           });
           branch.claimDates(result.managedTaskIds.filter(taskId => draft.values().some(task => task.id === taskId && pending(task))));
           for (const taskId of result.managedTaskIds) excluded.add(taskId);

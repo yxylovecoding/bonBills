@@ -1,10 +1,11 @@
 import { kv } from './_accountKv.js';
 import { randomBytes } from 'node:crypto';
+import { movingInstanceRoots, movingTaskTitle, syncMovingInstance, type MovingTreeState } from './_ticktickMovingInstances.js';
 import { readAllTickTickTasks, canonicalStageTitle, relativeStageDate, updateRoutineTaskDate, calendarDateInTimeZone, type TickTickTask, type TickTickApi } from './_ticktickTrips.js';
 
 type Shared = { title: string; content: string; desc: string; kind: string; items: string[] };
 type Pair = { ids: [string, string]; baseline?: Shared };
-type State = { departureDates?: Record<string, { suffix: string; date: string }>; pairs: Record<string, Pair>; movingInstances?: Record<string, Record<string, string>> };
+type State = { movingTrees?: Record<string, MovingTreeState>; departureDates?: Record<string, { suffix: string; date: string }>; pairs: Record<string, Pair>; movingInstances?: Record<string, Record<string, string>> };
 const keys = ['🪥漱', '🧴护', '💄妆', '🛀浴', '📷相机', '🧥', '随身背包', '⚪小袋子', '⚫小袋子', '白色行李袋'];
 const normalize = (s: string) => s.normalize('NFKC').replace(/[\uFE0E\uFE0F\s]/g, '');
 const pinned = (title: string) => /📌[\uFE0E\uFE0F]?\s*$/u.test(title);
@@ -108,20 +109,26 @@ async function writeShared(api: TickTickApi, task: TickTickTask, value: Shared, 
 // Caller holds the shared TickTick write lock. Only template text is shared;
 // stage dates, parent links, tags, progress and each container prefix stay local.
 export async function syncTickTickTemplates(api: TickTickApi, rootId: string, connectionId: string,
-  options: { mode?: 'content' | 'dates'; deferState?: (save: () => Promise<unknown>) => void } = {}) {
+  options: { mode?: 'content' | 'dates'; deferState?: (save: () => Promise<unknown>) => void; resolveIds?: (value: unknown) => unknown } = {}) {
+  const pendingSnapshots = new Map<string, unknown>();
   const save = async (key: string, value: unknown) => {
     const snapshot = structuredClone(value);
-    if (options.deferState) options.deferState(async () => {
-      if (key === storageKey) {
-        const latest = await kv.get<State>(key), next = snapshot as State;
-        return kv.set(key, options.mode === 'dates' ? { ...latest, pairs: latest?.pairs ?? {}, departureDates: next.departureDates }
-          : { ...next, departureDates: latest?.departureDates ?? next.departureDates });
-      }
-      const latest = await kv.get<Record<string, unknown>>(key), next = snapshot as Record<string, unknown>;
-      return kv.set(key, options.mode === 'dates' ? { ...latest, rootId, syncedAt: next.syncedAt, dateUpdated: next.dateUpdated, managedTaskIds: next.managedTaskIds, schedules: next.schedules }
-        : { ...latest, ...next, dateUpdated: latest?.dateUpdated ?? 0, managedTaskIds: latest?.managedTaskIds ?? [], schedules: latest?.schedules ?? [] });
-    });
-    else await kv.set(key, snapshot);
+    if (options.deferState) {
+      const registered = pendingSnapshots.has(key);
+      pendingSnapshots.set(key, snapshot);
+      if (registered) return;
+      options.deferState(async () => {
+        const snapshot = options.resolveIds ? options.resolveIds(pendingSnapshots.get(key)) : pendingSnapshots.get(key);
+        if (key === storageKey) {
+          const latest = await kv.get<State>(key), next = snapshot as State;
+          return kv.set(key, options.mode === 'dates' ? { ...latest, pairs: latest?.pairs ?? {}, departureDates: next.departureDates }
+            : { ...next, departureDates: latest?.departureDates ?? next.departureDates });
+        }
+        const latest = await kv.get<Record<string, unknown>>(key), next = snapshot as Record<string, unknown>;
+        return kv.set(key, options.mode === 'dates' ? { ...latest, rootId, syncedAt: next.syncedAt, dateUpdated: next.dateUpdated, managedTaskIds: next.managedTaskIds, schedules: next.schedules }
+          : { ...latest, ...next, dateUpdated: latest?.dateUpdated ?? 0, managedTaskIds: latest?.managedTaskIds ?? [], schedules: latest?.schedules ?? [] });
+      });
+    } else await kv.set(key, snapshot);
   };
   const storageKey = `ticktick:template-pairs:v1:${connectionId}:${rootId}`;
   const saved = await kv.get<State>(storageKey) ?? { pairs: {} };
@@ -182,37 +189,21 @@ export async function syncTickTickTemplates(api: TickTickApi, rootId: string, co
   const schedules: { title: string; departureDate: string; stages: { title: string; date: string; tasks: number }[] }[] = [];
   saved.departureDates ??= {};
   saved.movingInstances ??= {};
-  const movingRoots = tasks.filter(task => task.title.includes('搬家-'));
+  const movingRoots = movingInstanceRoots(tasks);
+  const instanceSync = [];
+  saved.movingTrees ??= {};
+  const movingTemplate = tasks.find(task => /^搬家模[板版]$/.test(task.title.trim()));
   for (const root of options.mode === 'dates' ? [] : movingRoots) {
-    const children = tasks.filter(t => t.parentId && byId.get(t.parentId)?.parentId === root.id);
-    const links = saved.movingInstances[root.id] ?? {};
-    const matches = Object.entries(pairs).map(([key, pair]) => {
-      const scope = stageKey(key) ? tasks.filter(t => t.parentId === root.id) : children;
-      const remembered = scope.find(t => t.id === links[key]);
-      const candidates = remembered ? [remembered] : scope.filter(t => stageKey(key)
-        ? canonicalStageTitle(t.title) === key.slice(6) : key === '白色行李袋'
-          ? normalize(t.title) === '📦' : normalize(t.title).includes(key));
-      if (candidates.length > 1) throw new Error(`搬家实例 ${root.title}：${key} 有多个匹配`);
-      return { key, pair, candidate: candidates[0] };
-    });
-    for (const { key, pair, candidate } of matches) {
-      if (!candidate) continue; // A deliberately omitted category is not recreated.
-      const sourceTask = byId.get(pair.ids[1])!;
-      const [source, target] = await Promise.all([
-        api.getTask(sourceTask.projectId, sourceTask.id), api.getTask(candidate.projectId, candidate.id),
-      ]);
-      if (!source || !target || target.parentId !== candidate.parentId) throw new Error('搬家实例在同步期间发生变化');
-      const value = sharedFor(source, key, true);
-      if (!equal(sharedFor(source, key), pair.baseline)) throw new Error('搬家模板在同步期间发生变化，请重试');
-      if (!equal(sharedFor(target, key, true), value)) {
-        await writeShared(api, target, value, key, true);
-        instanceUpdated++;
-      }
-      instanceMatched++;
-      links[key] = target.id;
-      saved.movingInstances[root.id] = links;
-      await save(storageKey, saved);
-    }
+    if (!movingTemplate) throw new Error('搬家模板缺失');
+    const tree = saved.movingTrees[root.id] ??= { name: root.title, taskIds: {}, itemIds: {} };
+    const legacyTaskIds = Object.fromEntries(Object.entries(saved.movingInstances[root.id] ?? {})
+      .filter(([key]) => pairs[key]).map(([key, id]) => [pairs[key].ids[1], id]));
+    const parsed = movingDepartureDate(root.title, calendarDateInTimeZone(new Date().toISOString())!);
+    const previous = saved.departureDates[root.id];
+    const departureDate = previous?.suffix === root.title.trim().split('-').at(-1) ? previous.date : parsed;
+    const result = await syncMovingInstance({ api, tasks, templateRoot: movingTemplate, root, state: tree,
+      legacyTaskIds, departureDate, persist: () => save(storageKey, saved) });
+    instanceSync.push(result); instanceMatched += result.matched; instanceUpdated += result.updated;
   }
   // Apply dates after text synchronization, using fresh tasks to retain new content.
   for (const root of options.mode === 'content' ? [] : movingRoots) {
@@ -224,7 +215,7 @@ export async function syncTickTickTemplates(api: TickTickApi, rootId: string, co
     const departureDate = previous?.suffix === suffix ? previous.date : parsed;
     const stages = tasks.filter(t => t.parentId === root.id);
     const planned = stages.map(stage => {
-      const date = relativeStageDate(stage.title, departureDate);
+      const date = relativeStageDate(movingTaskTitle(stage.title), departureDate);
       const descendants = [stage];
       const visited = new Set([stage.id]);
       for (let i = 0; i < descendants.length; i++) {
@@ -249,7 +240,7 @@ export async function syncTickTickTemplates(api: TickTickApi, rootId: string, co
     schedules.push({ title: root.title, departureDate, stages: planned.map(p => ({ title: p.stage.title, date: p.date, tasks: p.descendants.length })) });
   }
   const stageChecklists = Object.entries(pairs).filter(([key]) => stageKey(key)).map(([key, pair]) => ({ stage: key.slice(6), items: pair.baseline?.items ?? [] }));
-  const result = { stageChecklists, matched: Object.keys(pairs).length, updated, movingInstances: movingRoots.length, instanceMatched, instanceUpdated, dateUpdated, managedTaskIds, schedules };
+  const result = { instanceSync, instanceCreated: instanceSync.reduce((sum, instance) => sum + instance.created, 0), stageChecklists, matched: Object.keys(pairs).length, updated, movingInstances: movingRoots.length, instanceMatched, instanceUpdated, dateUpdated, managedTaskIds, schedules };
   await save('ticktick:template-sync-status:v1', { ...result, rootId, syncedAt: new Date().toISOString(),
     instanceTitles: movingRoots.map(root => root.title) });
   return result;
