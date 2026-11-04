@@ -30,6 +30,40 @@ describe('cloud schedule', () => {
   });
 });
 describe('response and retry boundary', () => {
+  it('runs monthly backup only at Shanghai month start with the explicit flag', () => {
+    const due = Date.parse('2026-12-01T00:10:00Z');
+    expect(scheduledJobs(due)).toEqual([]);
+    expect(scheduledJobs(due, { monthlyBackup: true }).map(job => job.steps)).toEqual([['monthly-backup']]);
+    expect(scheduledJobs(due + 86400_000, { monthlyBackup: true })).toEqual([]);
+    expect(scheduledJobs(due - 60_000, { monthlyBackup: true })).toEqual([]);
+    expect(() => manualJob('monthly-backup', 'x', due)).toThrow('Invalid job kind');
+  });
+  it('uses the separate backup credential and requires a completed snapshot', async () => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ ok: true, date: '2026-12-01', storedKeys: 12 }));
+    vi.stubGlobal('fetch', fetcher);
+    expect(await callAction('monthly-backup', {
+      ORIGIN: 'https://backend.example', SCHEDULER_RUN_SECRET: 'scheduler', BACKUP_RUN_SECRET: 'backup',
+    }, attempt)).toEqual({ outcome: 'success' });
+    const [url, options] = fetcher.mock.calls[0];
+    expect(String(url)).toBe('https://backend.example/api/sync-monthly-backup');
+    expect(options.headers.Authorization).toBe('Bearer backup');
+    expect(options.redirect).toBe('manual');
+    for (const body of [{ ok: true }, { ok: true, date: '2026-12-01', storedKeys: 0 }]) {
+      expect(classify('monthly-backup', 200, body, attempt).outcome).toBe('failed');
+    }
+  });
+  it('does not send a backup without its credential or replay an unknown response', async () => {
+    const fetcher = vi.fn().mockRejectedValue(new Error('connection lost'));
+    vi.stubGlobal('fetch', fetcher);
+    expect(await callAction('monthly-backup', {
+      ORIGIN: 'https://backend.example', SCHEDULER_RUN_SECRET: 'scheduler',
+    }, attempt)).toMatchObject({ outcome: 'failed', reason: 'missing-run-secret' });
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(await callAction('monthly-backup', {
+      ORIGIN: 'https://backend.example', BACKUP_RUN_SECRET: 'backup',
+    }, attempt)).toMatchObject({ outcome: 'failed', reason: 'response-unknown' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
   it.each(['outlook-refresh', 'tasks-read', 'completion-history', 'template-read'])('retries only explicitly safe %s failures', stage => {
     const body = { failure: { stage, retryable: true }, error: 'PRIVATE' };
     expect(classify('hourly-replan', 502, body, attempt)).toMatchObject({ outcome: 'retry', delay: 30_000 });

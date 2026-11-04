@@ -1,6 +1,6 @@
 # Cloudflare 云端调度
 
-Cloudflare Workers Free + SQLite Durable Object 队列负责触发，Vercel 执行业务逻辑，Turso 保存应用数据。GitHub Actions 不再执行任务，旧工作流和手动入口均已移除，月度备份仍由 Vercel Cron 执行。
+Cloudflare Workers Free + SQLite Durable Object 队列负责触发，Render 免费 Web Service 执行业务逻辑，Turso 保存应用数据。GitHub Actions 不再执行任务，旧工作流和手动入口均已移除，月度备份由同一 Cloudflare 队列执行，Vercel Cron 已移除。
 
 | 北京时间 | 工作 |
 | --- | --- |
@@ -11,7 +11,7 @@ Cloudflare Workers Free + SQLite Durable Object 队列负责触发，Vercel 执�
 | 20:00 | 洗头与阅读显示、经期归档、完整排程 |
 | 22:00 | 夜间 routine、未完成运动 |
 | 00:00 | 凌晨临时隐藏、固定今日 |
-| 每月 1 日 08:10 | Vercel 月度备份 |
+| 每月 1 日 08:10 | Cloudflare 调度 Render 月度备份 |
 
 ## 部署
 
@@ -22,10 +22,10 @@ Cloudflare Workers Free + SQLite Durable Object 队列负责触发，Vercel 执�
 1. `npx wrangler@4.152.0 login --scopes account:read user:read workers_scripts:write workers_tail:read`
 2. `npx wrangler@4.152.0 deploy -c workers/scheduler/wrangler.jsonc`
 3. 通过 `wrangler secret put` 或私有临时 JSON 的 `secret bulk` 配置 两枚新生成的独立随机密钥 `SCHEDULER_RUN_SECRET` 和 `DISPATCH_SECRET`，不复制旧生产定时密钥。不得写入仓库、命令行参数或公开日志。
-4. Vercel 生产环境配置 `CLOUD_SCHEDULER_URL` 为部署后的 HTTPS workers.dev 地址，`CLOUD_SCHEDULER_SECRET` 与 `DISPATCH_SECRET` 相同，`CLOUD_SCHEDULER_RUN_SECRET` 与 Worker 的 `SCHEDULER_RUN_SECRET` 相同。发布应用后验证手动完整同步和小时同步。
-5. 禁用并移除 GitHub 三个旧工作流，检查没有旧运行仍在排队；发布 Vercel 并验证 Worker 手动调用成功后，启用 Cloudflare Cron。Cron 配置传播可能需要最多 15 分钟。
+4. Render 生产环境配置 `CLOUD_SCHEDULER_URL` 为部署后的 HTTPS workers.dev 地址，`CLOUD_SCHEDULER_SECRET` 与 `DISPATCH_SECRET` 相同，`CLOUD_SCHEDULER_RUN_SECRET` 与 Worker 的 `SCHEDULER_RUN_SECRET` 相同。沿用已验证的生产密钥，不输出明文。Worker 的 `ORIGIN` 固定为 `https://bonbills.onrender.com`，与自定义域名切换解耦。
+5. 禁用并移除 GitHub 三个旧工作流，检查没有旧运行仍在排队；发布 Render 并完成认证、只读数据验证后，启用 Cloudflare Cron。Cron 配置传播可能需要最多 15 分钟。
 
-Worker 固定调用生产域名，不接受请求方提供目标 URL、任意 action 或邮件指令。公开 HTTP 入口全部检查独立调度密钥。Vercel 的 `scheduler=1` 只在 原有 CRON 或专用调度授权通过后返回精简响应，Cloudflare 不存储应用记录或错误正文。
+Worker 固定调用 Render 服务地址，不接受请求方提供目标 URL、任意 action 或邮件指令。公开 HTTP 入口全部检查独立调度密钥。应用的 `scheduler=1` 只在 原有 CRON 或专用调度授权通过后返回精简响应，Cloudflare 不存储应用记录或错误正文。
 
 ## 检查与恢复
 
@@ -39,11 +39,11 @@ Worker 固定调用生产域名，不接受请求方提供目标 URL、任意 ac
 
 ## 额度
 
-只使用 Workers Free 和 SQLite Durable Objects Free，不升级套餐。免费额度内包含 Cron、持久队列及少量运行状态存储；超额会失败，不能保证平台永远不调整规则。Vercel 单次函数仍有 300 秒上限；队列分步继续，不把整个流程塞进一个 15 分钟 Cron 调用。队列串行等待意味着 01 分是触发时间，不是业务完成时间。
+只使用 Workers Free 和 SQLite Durable Objects Free，不升级套餐。免费额度内包含 Cron、持久队列及少量运行状态存储；超额会失败，不能保证平台永远不调整规则。Render 免费实例闲置 15 分钟会休眠，冷启动可能延长一次任务；队列分步继续，不把整个流程塞进一个 15 分钟 Cron 调用。队列串行等待意味着 01 分是触发时间，不是业务完成时间。
 
 官方说明：[Cron](https://developers.cloudflare.com/workers/configuration/cron-triggers/)、[Durable Objects 免费额度](https://developers.cloudflare.com/durable-objects/platform/pricing/)、[alarm 行为](https://developers.cloudflare.com/durable-objects/api/alarms/)。
 
-专用执行密钥只授权 `ticktick-trips` 的 `scheduler=1`、GET 和固定业务 action 白名单；不授权账本、照片、账号或月度备份接口。旧 `CRON_SECRET` 保留用于原 Vercel 备份。
+专用执行密钥只授权 `ticktick-trips` 的 `scheduler=1`、GET 和固定业务 action 白名单；不授权账本、照片、账号或月度备份接口。独立 `BACKUP_RUN_SECRET` 对应 Render 的原 `CRON_SECRET`，只用于每月 1 日北京时间 08:10 的备份接口；`MONTHLY_BACKUP_ENABLED=true`，原 Vercel Cron 必须保持关闭。
 
 手动完整重排依次执行 `routine-visibility → life-periods → full`，涵盖所有现行 TickTick 专项处理；不发送邮件。每小时与完整同步均先对齐出门／搬家模板的 10 组二级子任务，保留容器前缀与各自排期。
 
