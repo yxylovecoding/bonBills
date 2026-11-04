@@ -108,7 +108,9 @@ export async function syncMovingInstance(options: {
       const stage = stageById.get(source.id)!;
       const date = options.departureDate && relativeStageDate(stage.title, options.departureDate);
       const result = await api.createTask({ ...payload, projectId: root.projectId,
-        tags: source.tags ?? [], priority: source.priority ?? 0, sortOrder: source.sortOrder ?? 0,
+        // New tasks receive their own list position from TickTick; a template's
+        // ordering number belongs to a different sibling list.
+        tags: source.tags ?? [], priority: source.priority ?? 0,
         timeZone: 'Asia/Shanghai', isAllDay: true,
         ...(date ? { startDate: `${date}T00:00:00+0800`, dueDate: `${date}T00:00:00+0800` } : {}) });
       if (!result?.id) throw new Error('搬家子任务创建后未返回 ID');

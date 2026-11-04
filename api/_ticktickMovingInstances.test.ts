@@ -13,7 +13,7 @@ function setup(extra: TickTickTask[] = []) {
   const api = {
     getTask: vi.fn(async (_project: string, id: string) => structuredClone(remote.get(id)!)),
     updateTask: vi.fn(async (id: string, payload: any) => { const task = { ...remote.get(id)!, ...payload }; remote.set(id, task); return task; }),
-    createTask: vi.fn(async (payload: any) => { const task = { ...payload, id: `new-${++next}`, status: 0 }; remote.set(task.id, task); return task; }),
+    createTask: vi.fn(async (payload: any) => { const task = { ...payload, id: `new-${++next}`, status: 0, sortOrder: -next * 1000 }; remote.set(task.id, task); return task; }),
   } as unknown as TickTickApi;
   const state: MovingTreeState = { name: root.title, taskIds: {}, itemIds: {} };
   const options = { api, tasks, root, templateRoot, state, departureDate: '2026-11-05', persist: vi.fn(async () => {}) };
@@ -68,7 +68,7 @@ it('事件改名更新全部前缀并复用原 ID；已有同名歧义先停止'
   expect(duplicate.api.createTask).not.toHaveBeenCalled(); expect(duplicate.api.updateTask).not.toHaveBeenCalled();
 });
 
-it('通过重排草稿创建时，保存实际任务 ID，后续同步不重复创建', async () => {
+it('通过重排草稿创建时，接纳服务端新排序位置并保存实际 ID，后续同步不重复创建', async () => {
   const s = setup(), draft = new RuleTaskDraft(s.api, s.tasks), branch = draft.branch('template-content');
   const persist = vi.fn(async () => {});
   await syncMovingInstance({ ...s.options, api: branch.api, persist }); branch.accept();
