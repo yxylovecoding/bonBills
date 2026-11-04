@@ -223,8 +223,8 @@ describe('小时轮换保留原业务边界', () => {
 
 describe('远端新增专项接入同一裁决', () => {
   it('眼药水推进后重新计算具体时刻显隐，每个任务只写一次', async () => {
-    m.tasks = [task('old-eye', { title: '眼药水', priority: 5, isAllDay: false, dueDate: '2026-11-01T10:00:00+0800', repeatFlag: 'RRULE:FREQ=DAILY' }),
-      task('recent-eye', { title: '眼药水', priority: 5, isAllDay: false, dueDate: '2026-11-03T15:00:00+0800', repeatFlag: 'RRULE:FREQ=DAILY' })];
+    m.tasks = [task('old-eye', { title: '眼药水', priority: 5, isAllDay: false, dueDate: '2026-11-01T10:00:00+0800', repeatFlag: 'RRULE:FREQ=DAILY', repeatFrom: '1', tags: ['always-today'] }),
+      task('recent-eye', { title: '眼药水', priority: 5, isAllDay: false, dueDate: '2026-11-03T15:00:00+0800', repeatFlag: 'RRULE:FREQ=DAILY', repeatFrom: '1', tags: ['always-today'] })];
     const run = await runRuleReplan({ scope: 'hourly' });
     expect(status(run, 'eye-drops').status).toBe('success');
     expect(Date.parse(m.tasks[0].dueDate!)).toBe(Date.parse('2026-11-04T10:00:00+0800'));

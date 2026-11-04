@@ -38,9 +38,12 @@ export async function syncEyeDrops(api: Pick<TickTickApi, 'getTask' | 'updateTas
     const zone = task.timeZone || fallbackZone;
     const ruleText = task.repeatFlag!.replace(/^RRULE:/i, '');
     if (!/^FREQ=(DAILY|WEEKLY|MONTHLY|YEARLY)(;|$)/.test(ruleText)
-      || /(?:^|;)(COUNT|UNTIL)=/.test(ruleText) || String(task.repeatFrom) === '1' || task.items?.length) {
+      || /(?:^|;)(COUNT|UNTIL)=/.test(ruleText) || task.items?.length) {
       throw new Error('眼药水重复规则不支持安全跳过，保留原任务');
     }
+    // Skipping an occurrence advances its current due date, not a fabricated
+    // completion. Keep repeatFrom intact so TickTick still schedules subsequent
+    // occurrences from the user's real completion when that mode is selected.
     const original = instant(task, zone);
     const originalWall = wall(new Date(original).toISOString(), zone);
     const iterator = ICAL.Recur.fromString(ruleText).iterator(ICAL.Time.fromDateTimeString(originalWall));

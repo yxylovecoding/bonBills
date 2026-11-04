@@ -38,11 +38,27 @@ describe('眼药水只保留最近一次', () => {
     const tasks=[task('old','10'),task('keep','20')]; const f=fixture(tasks); f.saved.get('keep')!.status=2;
     await expect(syncEyeDrops(f.api,tasks,now)).rejects.toThrow('已变化'); expect(f.updateTask).not.toHaveBeenCalled();
   });
-  it('有限次数和按完成时间循环不猜测下一次', async () => {
-    for (const extra of [{repeatFlag:'RRULE:FREQ=DAILY;COUNT=5'},{repeatFrom:'1'}]) {
+  it('有限次数和结束日期不猜测剩余次数', async () => {
+    for (const extra of [{repeatFlag:'RRULE:FREQ=DAILY;COUNT=5'},{repeatFlag:'RRULE:FREQ=DAILY;UNTIL=20261110T000000Z'}]) {
       const tasks=[task('old','10',extra),task('keep','20')]; const f=fixture(tasks);
       await expect(syncEyeDrops(f.api,tasks,now)).rejects.toThrow('不支持'); expect(f.updateTask).not.toHaveBeenCalled();
     }
+  });
+  it('完成一天后重复的过期项可以跳过，保留重复基准且不写完成状态', async () => {
+    const tasks = ['10','13','15','17','20'].map(h => task(h,h,{repeatFrom:'1',tags:['always-today','at-least','当天','活']}));
+    const f=fixture(tasks), atNoon=new Date('2026-11-04T12:00:00+08:00');
+    tasks[0].startDate='2026-11-04T10:00:00+08:00'; tasks[0].dueDate='2026-11-04T10:05:00+08:00';
+    f.saved.set('10',structuredClone(tasks[0]));
+    expect(await syncEyeDrops(f.api,tasks,atNoon)).toEqual({skipped:4});
+    expect(f.saved.get('10')).toEqual(tasks[0]);
+    expect(f.saved.get('15')!.dueDate).toBe('2026-11-04T07:05:00.000Z');
+    for(const [id,payload] of f.updateTask.mock.calls) {
+      expect(payload.repeatFrom).toBe('1'); expect(payload.repeatFlag).toBe(task(id,id).repeatFlag);
+      expect(payload).not.toHaveProperty('status'); expect(payload).not.toHaveProperty('completedTime');
+      expect(payload.tags).toEqual(['always-today','at-least','当天','活']);
+    }
+    expect(await syncEyeDrops(f.api,structuredClone([...f.saved.values()]),atNoon)).toEqual({skipped:0});
+    expect(f.updateTask).toHaveBeenCalledTimes(4);
   });
   it('跳过后固定今日、场景同步、普通补入均不能拉回，下一天自然到期', async () => {
     const tasks=[task('old','10',{tags:['always-today','居']}),task('keep','20')]; const f=fixture(tasks);
