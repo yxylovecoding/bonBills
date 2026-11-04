@@ -1,6 +1,6 @@
 # 免费托管迁移
 
-核对日期：2026-11-04。目标改为 Render 免费 Web Service。当前代码已适配，正式切换尚未完成；以实际部署、域名及调度检查为准。
+核对日期：2026-11-04。目标为 Render 免费 Web Service，已在用户确认的 `xinyi's workspace` 创建新加坡 `bonbills` 服务（`srv-dbld16gu01pc739s7o2g`，`https://bonbills.onrender.com`）。17 项应用配置已迁入；登录、Turso 规则/衣柜读取及既有 R2 照片验证通过。正式域名尚未切换。
 
 ## 方案与限制
 
@@ -12,7 +12,7 @@
 | Koyeb | 文档仍保留 free 实例说明 | 2026-02-17 公告取消新用户 Starter 免费计划；不按过时文档推荐 |
 | Cloudflare Workers Free | 10 万请求/天，单次 10ms CPU | 继续负责现有调度，不直接承接完整日历解析与排程 |
 
-Render 的实例运行小时不能直接与 Active CPU 小时比较。750 小时是一个工作区所有免费服务共享，不能保证在 512 MB / 0.1 CPU 上达到原有速度。另有流量、构建分钟和自定义域名额度；Hobby 含两个自定义域名，额外域名收费。上线前必须核对实际用量和套餐，不创建付费实例、数据库、磁盘或 Cron。
+Render 的实例运行小时不能直接与 Active CPU 小时比较。750 小时是一个工作区所有免费服务共享，不能保证在 512 MB / 0.1 CPU 上达到原有速度。账户后台已核对：Hobby 每月 5 GB 出站流量、500 构建分钟、两个自定义域名；构建额外预算为 $0，用尽后停止构建。已绑卡账户的公网出站超额仍按 $0.15/GB 收费；额外域名为 $0.25/个/月。当前账单及当月预估均为 $0。免费 Web Service 未规定固定到期日，免费 Postgres 的 30 天期限不适用于本项目继续使用的 Turso；平台政策不等于永久免费承诺。不创建付费实例、数据库、磁盘或 Cron。
 
 Render 免费服务禁止 SMTP 25/465/587。用户于 2026-11-04 明确取消每日计划邮件，因此已删除自动发信步骤、发信实现和 SMTP 依赖；旧队列邮件步骤不发请求，旧邮件 API 退役。网页计划、云端同步及账单导入保留。
 
@@ -37,7 +37,7 @@ HTTP 验证使用独立假密钥，不连接正式数据、不发送邮件、不
 1. 在用户确认的 Render 工作区创建一个 `bonbills` 免费 Web Service，先使用 `onrender.com` 域名；核对实际 `free` 套餐。不开通付费服务。
 2. 迁移**应用所需**生产环境变量，保留原 `SYNC_SECRET`、存储后端、Turso 配置和调度密钥。不复制 `VERCEL*` 平台变量、过时 GitHub Actions token 或已取消的每日发信凭据。构建脚本不输出密钥，前端只允许既有公开配置。
 3. 沿用现有 Turso 和对象存储，不导入、覆盖或搬运账本数据。检查健康接口、认证、同源 Cookie、只读数据、照片和外部服务连接后再切正式域名；不以测试名义执行排程。
-4. 五个业务域名为 `www`、`bill`、`log`、`clothes`、`life.bonbills.cn`。优先评估通配域名 `*.bonbills.cn` 加根域的两域名配置，控制在免费额度；按 Render 要求验证 DNS 与证书后切换。`cv.bonbills.cn` 属于独立 BonCV 项目，保留其明确的 Vercel DNS 记录；根域继续跳转 `www`。任何会增加费用的域名配置都不得直接执行。
+4. 五个业务域名为 `www`、`bill`、`log`、`clothes`、`life.bonbills.cn`。使用 `*.bonbills.cn` 加根域的两域名配置；注意 Render 添加根域会自动添加 `www`，须在添加通配域名前移除自动生成的 `www` 绑定，避免超过两个免费域名。按 Render 要求验证 DNS 与证书后切换。`cv.bonbills.cn` 属于独立 BonCV 项目，保留其明确的 Vercel DNS 记录；Node 入口将根域以 308 跳转到 `www` 并保留路径和查询。任何会增加费用的域名配置都不得直接执行。
 5. 保留 Cloudflare `bonbills-scheduler` 及现有 Durable Object 队列。其 `ORIGIN=https://www.bonbills.cn` 会随域名切换到新后端。保留所有同步频率、休息窗口和未知写入结果不重试规则；每日邮件已取消。
 6. 月度备份入口已适配 Cloudflare 持久队列，以相同北京时间每月 1 日 08:10 调用 `/api/sync-monthly-backup`。将原 `CRON_SECRET` 写入 Worker 的 `BACKUP_RUN_SECRET`，并在切换时设置 `MONTHLY_BACKUP_ENABLED=true`；当前默认关闭。确认新调度开启后关闭旧 Vercel Cron，避免重复调度。备份响应不确定时不会自动重放。
 7. 切换后检查响应、日志和下一次正常云端任务；观察实际内存、流量与任务耗时。旧 Vercel 部署先保留回滚，不删除数据库或原环境变量。

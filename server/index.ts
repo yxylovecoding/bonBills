@@ -84,6 +84,9 @@ const server = createServer(async (req, rawResponse) => {
     if (url.pathname === '/healthz' && ['GET', 'HEAD'].includes(req.method || '')) {
       return res.status(200).json({ ok: true });
     }
+    if ((req.headers.host || '').split(':')[0].toLowerCase() === 'bonbills.cn') {
+      return res.redirect(308, `https://www.bonbills.cn${url.pathname}${url.search}`);
+    }
     if (url.pathname.startsWith('/api/')) {
       const name = url.pathname.slice(5);
       const rewrite = Object.hasOwn(rewrites, name) ? rewrites[name] : undefined;

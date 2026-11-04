@@ -35,6 +35,21 @@ try {
     return response;
   }
   assert.deepEqual(await (await check('/healthz', 200)).json(), { ok: true });
+  // Fetch may normalize Host, so use raw HTTP to exercise canonical-domain routing.
+  await new Promise((accept, reject) => {
+    const req = request(base + '/life?view=briefing', { headers: { Host: 'bonbills.cn' } }, response => {
+      response.resume();
+      response.once('end', () => {
+        try {
+          assert.equal(response.statusCode, 308);
+          assert.equal(response.headers.location, 'https://www.bonbills.cn/life?view=briefing');
+          checks++; accept();
+        } catch (error) { reject(error); }
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
   const index = await check('/', 200);
   const html = await index.text();
   assert.match(html, /<html/);
