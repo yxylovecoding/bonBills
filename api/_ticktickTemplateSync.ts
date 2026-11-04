@@ -1,6 +1,6 @@
 import { kv } from './_accountKv.js';
 import { randomBytes } from 'node:crypto';
-import { readAllTickTickTasks, relativeStageDate, updateRoutineTaskDate, calendarDateInTimeZone, type TickTickTask, type TickTickApi } from './_ticktickTrips.js';
+import { readAllTickTickTasks, canonicalStageTitle, relativeStageDate, updateRoutineTaskDate, calendarDateInTimeZone, type TickTickTask, type TickTickApi } from './_ticktickTrips.js';
 
 type Shared = { title: string; content: string; desc: string; kind: string; items: string[] };
 type Pair = { ids: [string, string]; baseline?: Shared };
@@ -14,6 +14,28 @@ const shared = (t: TickTickTask, special: boolean, includePinned = false): Share
   title: special ? '' : t.title.slice(prefix(t.title).length), content: t.content ?? '', desc: t.desc ?? '',
   kind: t.kind ?? 'TEXT', items: (t.items ?? []).filter(i => includePinned || !pinned(i.title)).map(i => i.title),
 });
+const stageKey = (key: string) => key.startsWith('stage:');
+const sharedFor = (task: TickTickTask, key: string, includePinned = false): Shared => {
+  const value = shared(task, key === '白色行李袋', includePinned);
+  return stageKey(key) ? { ...value, title: '', content: '', desc: '', kind: 'CHECKLIST' } : value;
+};
+
+export function stageChecklistPairs(tasks: TickTickTask[], rootId: string, saved: State): Record<string, Pair> {
+  const moving = tasks.filter(task => /^搬家模[板版]$/.test(task.title.trim()));
+  if (moving.length !== 1) throw new Error('搬家模板缺失或重名');
+  const sides = [rootId, moving[0].id].map(id => tasks.filter(task => task.parentId === id));
+  const result: Record<string, Pair> = {};
+  for (const name of new Set(sides[0].map(task => canonicalStageTitle(task.title)))) {
+    const matches = sides.map(side => side.filter(task => canonicalStageTitle(task.title) === name));
+    if (matches.some(side => side.length === 0) || matches.some(side => side.some(task => pinned(task.title)))) continue;
+    if (matches.some(side => side.length !== 1)) throw new Error(`模板阶段“${name}”有多个匹配`);
+    const key = `stage:${name}`, ids: [string, string] = [matches[0][0].id, matches[1][0].id];
+    const old = saved.pairs[key];
+    result[key] = { ids, ...(old && JSON.stringify(old.ids) === JSON.stringify(ids) ? { baseline: old.baseline } : {}) };
+  }
+  return result;
+}
+
 const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const version = (t: TickTickTask) => JSON.stringify(t);
 const modified = (t: TickTickTask) => Date.parse((t as TickTickTask & { modifiedTime?: string }).modifiedTime ?? '');
@@ -71,12 +93,15 @@ async function writeShared(api: TickTickApi, task: TickTickTask, value: Shared, 
   const payload: Record<string, unknown> = { id: task.id, projectId: task.projectId };
   for (const field of ['title', 'content', 'desc', 'kind', 'items', 'parentId', 'isAllDay', 'startDate', 'dueDate', 'timeZone', 'reminders', 'tags', 'repeatFlag', 'repeatFrom', 'priority', 'sortOrder'] as const)
     if (task[field] !== undefined) payload[field] = task[field];
-  Object.assign(payload, { content: value.content, desc: value.desc, kind: value.kind, items,
+  if (stageKey(key)) Object.assign(payload, { items, ...(items.length ? { kind: 'CHECKLIST' } : {}) });
+  else Object.assign(payload, { content: value.content, desc: value.desc, kind: value.kind, items,
     title: key === '白色行李袋' ? task.title : prefix(task.title) + value.title });
   await api.updateTask(task.id, payload);
   const verified = await api.getTask(task.projectId, task.id);
-  if (!verified || !equal(shared(verified, key === '白色行李袋', includePinned), value) || prefix(verified.title) !== prefix(task.title)
-    || verified.parentId !== task.parentId) throw new Error('模板同步回读校验失败');
+  if (!verified || !equal(sharedFor(verified, key, includePinned), value) || prefix(verified.title) !== prefix(task.title)
+    || verified.parentId !== task.parentId
+    || stageKey(key) && ['title', 'content', 'desc'].some(field => verified[field as keyof TickTickTask] !== task[field as keyof TickTickTask]))
+    throw new Error('模板同步回读校验失败');
 
 }
 
@@ -101,7 +126,7 @@ export async function syncTickTickTemplates(api: TickTickApi, rootId: string, co
   const storageKey = `ticktick:template-pairs:v1:${connectionId}:${rootId}`;
   const saved = await kv.get<State>(storageKey) ?? { pairs: {} };
   const tasks = await readAllTickTickTasks(api, [0, 2]);
-  const pairs = options.mode === 'dates' ? {} : templatePairs(tasks, rootId, saved);
+  const pairs = options.mode === 'dates' ? {} : { ...templatePairs(tasks, rootId, saved), ...stageChecklistPairs(tasks, rootId, saved) };
   const byId = new Map(tasks.map(t => [t.id, t]));
   let updated = 0;
   const conflicts: string[] = [];
@@ -109,8 +134,25 @@ export async function syncTickTickTemplates(api: TickTickApi, rootId: string, co
     const pairTasks = await Promise.all(pair.ids.map(id => api.getTask(byId.get(id)!.projectId, id)));
     if (pairTasks.some(t => !t)) throw new Error('模板任务已变化，请重试');
     if (pairTasks.some(task => pinned(task.title))) throw new Error('模板专属标记在同步期间发生变化，请重试');
-    const values = pairTasks.map(t => shared(t, key === '白色行李袋'));
+    const values = pairTasks.map(t => sharedFor(t, key));
     let source = 0;
+    if (stageKey(key) && !pair.baseline) {
+      // Newly covered stages bootstrap by combining existing ordinary entries;
+      // a newer edit of the stage note must not erase the other side's checklist.
+      const items = [...values[0].items];
+      const counts = new Map<string, number>();
+      for (const title of values[1].items) {
+        const count = (counts.get(title) ?? 0) + 1; counts.set(title, count);
+        if (items.filter(item => item === title).length < count) items.push(title);
+      }
+      const value = { ...values[0], items };
+      for (let side = 0; side < 2; side++) if (!equal(values[side], value)) {
+        await writeShared(api, pairTasks[side], value, key); updated++;
+      }
+      pair.baseline = value; saved.pairs[key] = pair;
+      await save(storageKey, saved);
+      continue;
+    }
     if (!equal(values[0], values[1])) {
       const changed = values.map(v => !pair.baseline || !equal(v, pair.baseline));
       if (changed[0] !== changed[1]) source = changed[0] ? 0 : 1;
@@ -145,9 +187,11 @@ export async function syncTickTickTemplates(api: TickTickApi, rootId: string, co
     const children = tasks.filter(t => t.parentId && byId.get(t.parentId)?.parentId === root.id);
     const links = saved.movingInstances[root.id] ?? {};
     const matches = Object.entries(pairs).map(([key, pair]) => {
-      const remembered = children.find(t => t.id === links[key]);
-      const candidates = remembered ? [remembered] : children.filter(t => key === '白色行李袋'
-        ? normalize(t.title) === '📦' : normalize(t.title).includes(key));
+      const scope = stageKey(key) ? tasks.filter(t => t.parentId === root.id) : children;
+      const remembered = scope.find(t => t.id === links[key]);
+      const candidates = remembered ? [remembered] : scope.filter(t => stageKey(key)
+        ? canonicalStageTitle(t.title) === key.slice(6) : key === '白色行李袋'
+          ? normalize(t.title) === '📦' : normalize(t.title).includes(key));
       if (candidates.length > 1) throw new Error(`搬家实例 ${root.title}：${key} 有多个匹配`);
       return { key, pair, candidate: candidates[0] };
     });
@@ -158,9 +202,9 @@ export async function syncTickTickTemplates(api: TickTickApi, rootId: string, co
         api.getTask(sourceTask.projectId, sourceTask.id), api.getTask(candidate.projectId, candidate.id),
       ]);
       if (!source || !target || target.parentId !== candidate.parentId) throw new Error('搬家实例在同步期间发生变化');
-      const value = shared(source, key === '白色行李袋', true);
-      if (!equal(shared(source, key === '白色行李袋'), pair.baseline)) throw new Error('搬家模板在同步期间发生变化，请重试');
-      if (!equal(shared(target, key === '白色行李袋', true), value)) {
+      const value = sharedFor(source, key, true);
+      if (!equal(sharedFor(source, key), pair.baseline)) throw new Error('搬家模板在同步期间发生变化，请重试');
+      if (!equal(sharedFor(target, key, true), value)) {
         await writeShared(api, target, value, key, true);
         instanceUpdated++;
       }
@@ -204,7 +248,8 @@ export async function syncTickTickTemplates(api: TickTickApi, rootId: string, co
     }
     schedules.push({ title: root.title, departureDate, stages: planned.map(p => ({ title: p.stage.title, date: p.date, tasks: p.descendants.length })) });
   }
-  const result = { matched: Object.keys(pairs).length, updated, movingInstances: movingRoots.length, instanceMatched, instanceUpdated, dateUpdated, managedTaskIds, schedules };
+  const stageChecklists = Object.entries(pairs).filter(([key]) => stageKey(key)).map(([key, pair]) => ({ stage: key.slice(6), items: pair.baseline?.items ?? [] }));
+  const result = { stageChecklists, matched: Object.keys(pairs).length, updated, movingInstances: movingRoots.length, instanceMatched, instanceUpdated, dateUpdated, managedTaskIds, schedules };
   await save('ticktick:template-sync-status:v1', { ...result, rootId, syncedAt: new Date().toISOString(),
     instanceTitles: movingRoots.map(root => root.title) });
   return result;

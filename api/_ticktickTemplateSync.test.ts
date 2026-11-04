@@ -134,3 +134,48 @@ it('copies moving-specific checklist entries to moving instances, never to the t
   expect(m.tasks.find(t => t.id === 'a0')!.items!.some(i => i.title.endsWith('📌'))).toBe(false);
   expect(m.tasks.find(t => t.id === 'jb')!.items!.some(i => i.title === '仅搬家用📌')).toBe(true);
 });
+
+it('syncs stage checklists including the two video entries, preserving stage notes, dates, pins and progress', async () => {
+  const travel = m.tasks.find(t => t.id === 'a')!;
+  Object.assign(travel, { content: '(2.5h)', items: [
+    { id: 'wash', title: '洗衣服 (50m)', status: 0 },
+    { id: 'tablet', title: '平板电影×4 电视剧×1 (5m)', status: 1 },
+    { id: 'phone', title: '手机电视剧×1 (5m)', status: 0 },
+    { id: 'travel-pin', title: '旅行专用📌', status: 1 },
+  ] });
+  const moving = { ...make('moving-day', '出门前一天🧳🎒', 'move'), content: '(1h)', dueDate: '2026-11-08', items: [
+    { id: 'moving-wash', title: '洗衣服 (50m)', status: 1 },
+    { id: 'extra', title: '寄件', status: 0 },
+    { id: 'moving-pin', title: '搬家专用📌', status: 1 },
+  ] };
+  m.tasks.push(moving, make('jg', '搬家-京广'), { ...make('jg-day', '出门前一天🎒', 'jg'), content: 'instance note' });
+  const result = await syncTickTickTemplates(api, 'travel', 'conn');
+  expect(result.stageChecklists).toContainEqual({ stage: '出门前一天', items: [
+    '洗衣服 (50m)', '平板电影×4 电视剧×1 (5m)', '手机电视剧×1 (5m)', '寄件',
+  ] });
+  expect(moving).toMatchObject({ title: '出门前一天🧳🎒', content: '(1h)', dueDate: '2026-11-08', parentId: 'move' });
+  expect(moving.items.find(i => i.id === 'moving-wash')!.status).toBe(1);
+  expect(moving.items.find(i => i.id === 'moving-pin')!.status).toBe(1);
+  expect(moving.items.some(i => i.title === '旅行专用📌')).toBe(false);
+  expect(moving.items.find(i => i.title === '平板电影×4 电视剧×1 (5m)')!.status).toBe(0);
+  expect(travel.content).toBe('(2.5h)');
+  expect(m.tasks.find(t => t.id === 'jg-day')).toMatchObject({ title: '出门前一天🎒', content: 'instance note' });
+  expect(m.tasks.find(t => t.id === 'jg-day')!.items!.map(i => i.title)).toContain('手机电视剧×1 (5m)');
+  updateTask.mockClear(); await syncTickTickTemplates(api, 'travel', 'conn'); expect(updateTask).not.toHaveBeenCalled();
+  moving.items.push({ id: 'later', title: '新检查事项', status: 0 });
+  await syncTickTickTemplates(api, 'travel', 'conn');
+  expect(travel.items!.map(i => i.title)).toContain('新检查事项');
+});
+it('excludes pinned stages and rejects ambiguous same-name stages before any write', async () => {
+  const stage = make('moving-day', '出门前一天🧳📌', 'move'); m.tasks.push(stage);
+  expect((await syncTickTickTemplates(api, 'travel', 'conn')).stageChecklists).toEqual([]);
+  stage.title = '出门前一天🧳'; m.tasks.push(make('duplicate-day', '出门前一天🎒', 'move'));
+  await expect(syncTickTickTemplates(api, 'travel', 'conn')).rejects.toThrow('多个匹配');
+  expect(updateTask).not.toHaveBeenCalled();
+});
+it('uses container-suffixed stage titles for relative dates without changing their titles', async () => {
+  m.tasks.push(make('jg', '搬家-京广-2026.11.5'), make('stage', '出门前三天📦', 'jg'), make('deep', '准备', 'stage'));
+  await syncTickTickTemplates(api, 'travel', 'conn');
+  expect(m.tasks.find(t => t.id === 'stage')).toMatchObject({ title: '出门前三天📦' });
+  expect(m.tasks.find(t => t.id === 'deep')!.dueDate).toContain('2026-11-02');
+});

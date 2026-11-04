@@ -1112,8 +1112,12 @@ function inheritedPreparationDate(
   return undefined;
 }
 
+export function canonicalStageTitle(title: string): string {
+  return title.normalize('NFKC').replace(/[\s\uFE0E\uFE0F]/g, '').replace(/[🎒🧳📦📌]+$/u, '');
+}
+
 export function relativeStageDate(title: string, departureDate: string): string {
-  const normalized = title.normalize('NFKC').replace(/\s/g, '');
+  const normalized = canonicalStageTitle(title);
   if (normalized === TICKTICK_ANCHOR_TITLE) return departureDate;
   const match = /^出门(前|后)(半|[0-9零〇一二两三四五六七八九十百]+)(?:个)?(天|日|周|星期|月|年)$/.exec(normalized);
   if (!match) {
