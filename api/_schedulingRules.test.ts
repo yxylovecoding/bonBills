@@ -141,6 +141,32 @@ describe('最终任务改动裁决', () => {
     await expect(protectedDraft.commit()).rejects.toThrow('已变化'); expect(raced.api.deleteTask).not.toHaveBeenCalled();
   });
 });
+it('模板检查事项回读对象字段顺序变化及空备注补齐不阻止保存同步基准', async () => {
+  const original = task({ items: [{ id: 'wash', title: '洗衣服', status: 0 }] });
+  const c = client(original), draft = new RuleTaskDraft(c.api, [original]);
+  c.write.mockImplementation(async (id, payload) => {
+    c.tasks.set(id, { ...c.tasks.get(id)!, ...payload, content: '', desc: '',
+      items: (payload.items as NonNullable<TickTickTask['items']>).map(item => ({ status: item.status, title: item.title, id: item.id })) });
+    return c.tasks.get(id)!;
+  });
+  const branch = draft.branch('template-content');
+  await branch.api.updateTask('one', { items: [...original.items!, { id: 'tablet', title: '平板电影×4 电视剧×1 (5m)', status: 0 }] });
+  branch.accept(); const save = vi.fn(); draft.saveAfterCommit('template-content', save);
+  await draft.commit();
+  expect(save).toHaveBeenCalledOnce();
+  expect(draft.committedValues()[0].items!.map(item => item.title)).toContain('平板电影×4 电视剧×1 (5m)');
+});
+it('检查事项确实丢失时仍拒绝确认且不保存同步基准', async () => {
+  const c = client(), draft = new RuleTaskDraft(c.api, [task()]);
+  c.write.mockImplementation(async (id, payload) => {
+    c.tasks.set(id, { ...c.tasks.get(id)!, ...payload, items: [] }); return c.tasks.get(id)!;
+  });
+  const branch = draft.branch('template-content');
+  await branch.api.updateTask('one', { items: [{ id: 'phone', title: '手机电视剧×1 (5m)', status: 0 }] });
+  branch.accept(); const save = vi.fn(); draft.saveAfterCommit('template-content', save);
+  await expect(draft.commit()).rejects.toThrow('写后回读不一致（items）');
+  expect(save).not.toHaveBeenCalled();
+});
 describe('地点显隐', () => {
   const locations = { names: ['北京', '广州', '清迈'], today: ['北京'], unknown: false };
   it('城市标签按任一匹配；无城市标签不处理；未知当天地点不误显示', () => {

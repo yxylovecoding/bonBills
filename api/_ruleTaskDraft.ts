@@ -4,8 +4,11 @@ import type { SchedulingRuleId, SchedulingRuleResult } from '../src/utils/schedu
 import { isHiddenTag, withHiddenTag } from './_ticktickHiddenTag.js';
 
 const fields = ['title', 'content', 'desc', 'startDate', 'dueDate', 'isAllDay', 'timeZone', 'reminders', 'tags', 'repeatFlag', 'repeatFrom', 'priority', 'sortOrder', 'kind', 'parentId', 'items'] as const;
-const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
-const persistedField = (key: string, a: unknown, b: unknown) => same(a, b)
+const ordered = (value: unknown): unknown => Array.isArray(value) ? value.map(ordered)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, ordered(item)])) : value;
+const same = (a: unknown, b: unknown) => JSON.stringify(ordered(a ?? null)) === JSON.stringify(ordered(b ?? null));
+const emptyDefault = (key: string, value: unknown) => value ?? (['content', 'desc', 'repeatFlag'].includes(key) ? '' : ['items', 'tags', 'reminders'].includes(key) ? [] : null);
+const persistedField = (key: string, a: unknown, b: unknown) => same(emptyDefault(key, a), emptyDefault(key, b))
   || (key === 'startDate' || key === 'dueDate') && typeof a === 'string' && typeof b === 'string'
     && Number.isFinite(Date.parse(a)) && Date.parse(a) === Date.parse(b);
 const pending = (t: TickTickTask) => (t.status ?? 0) === 0 && !t.completedTime;
