@@ -19,7 +19,7 @@ describe('cloud schedule', () => {
     }
     expect(scheduledJobs(Date.parse('2026-10-24T21:00Z'))).toEqual([]);
     expect(scheduledJobs(Date.parse('2026-10-24T21:01Z')).map(j => j.steps)).toEqual([
-      ['routine-visibility', 'life-periods', 'full', 'daily-email'],
+      ['routine-visibility', 'life-periods', 'full'],
     ]);
     expect(scheduledJobs(Date.parse('2026-10-24T12:00Z'))[0].steps).toEqual(['hair-wash', 'life-periods', 'full']);
     expect(scheduledJobs(Date.parse('2026-10-24T16:00Z'))[0].steps).toEqual(['daily-routine']);
@@ -57,7 +57,6 @@ describe('response and retry boundary', () => {
       { ok: true, dailyPlan: {}, charging: { outlook: { error: 'PRIVATE' } } }, { ok: true, dailyPlan: {}, hairWash: { outlook: { error: 'PRIVATE' } } }])
       expect(classify('full', 200, body, attempt).outcome).toBe('failed');
     expect(classify('routine-visibility', 200, { ok: true, sleepTags: { complete: true } }, attempt).outcome).toBe('failed');
-    expect(classify('daily-email', 200, { ok: true }, attempt).outcome).toBe('failed');
   });
   it('never follows an upstream redirect with the cron credential', async () => {
     const fn = vi.fn().mockResolvedValue(new Response(null, { status: 302, headers: { Location: 'https://untrusted.example' } }));
@@ -143,7 +142,7 @@ describe('durable serial execution', () => {
     expect((await f.state()).jobs[0]).toMatchObject({ status: 'failed', reason: 'interrupted-response-unknown' });
     expect(fetch).not.toHaveBeenCalled();
   });
-  it('continues planning after archive failure but suppresses the daily email', async () => {
+  it('continues planning after archive failure and retains the failure', async () => {
     vi.setSystemTime(new Date('2026-10-24T21:01Z'));
     const f = fixture(); const fetcher = vi.fn()
       .mockResolvedValueOnce(Response.json({ ok: true, sleepTags: { complete: true }, nightRoutine: {}, exercise: {} }))
@@ -152,21 +151,28 @@ describe('durable serial execution', () => {
     await f.enqueue(scheduledJobs(Date.now()).filter(j => j.kind === 'full'));
     await f.tick(); await f.tick(); await f.tick(); await f.tick();
     expect(fetcher).toHaveBeenCalledTimes(3);
-    expect((await f.state()).jobs[0]).toMatchObject({ status: 'failed', reason: 'email-prerequisite' });
+    expect((await f.state()).jobs[0]).toMatchObject({ status: 'failed' });
     expect(JSON.stringify(await f.state())).not.toContain('PRIVATE');
   });
-  it('sends email only after the morning archive and plan both succeed', async () => {
+  it('completes the morning archive and plan without sending email', async () => {
     vi.setSystemTime(new Date('2026-10-24T21:01Z'));
     const f = fixture(); vi.stubGlobal('fetch', vi.fn()
       .mockResolvedValueOnce(Response.json({ ok: true, sleepTags: { complete: true }, nightRoutine: {}, exercise: {} }))
       .mockResolvedValueOnce(Response.json({ ok: true, connected: false }))
-      .mockResolvedValueOnce(good()).mockResolvedValueOnce(Response.json({ sent: true })));
+      .mockResolvedValueOnce(good()));
     await f.enqueue(scheduledJobs(Date.now()).filter(j => j.kind === 'full'));
     await f.tick(); await f.tick(); await f.tick(); await f.tick();
     expect((await f.state()).jobs[0].status).toBe('success');
-    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(fetch).toHaveBeenCalledTimes(3);
     expect(vi.mocked(fetch).mock.calls.map(([url]) => new URL(String(url)).searchParams.get('action') ?? 'full'))
-      .toEqual(['routine-visibility', 'life-periods', 'full', 'daily-email']);
+      .toEqual(['routine-visibility', 'life-periods', 'full']);
+  });
+  it('skips an email step persisted by an older deployment without any HTTP request', async () => {
+    const f = fixture(); vi.stubGlobal('fetch', vi.fn());
+    await f.enqueue([{ ...manualJob('full', 'legacy-email', Date.now()), steps: ['daily-email'] }]);
+    await f.tick();
+    expect((await f.state()).jobs[0]).toMatchObject({ status: 'skipped', reason: 'email-cancelled' });
+    expect(fetch).not.toHaveBeenCalled();
   });
   it('stops the morning sequence immediately if visibility restoration fails', async () => {
     vi.setSystemTime(new Date('2026-10-24T21:01Z'));

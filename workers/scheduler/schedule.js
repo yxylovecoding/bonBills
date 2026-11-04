@@ -6,7 +6,7 @@ export function scheduledJobs(time, { monthlyBackup = false } = {}) {
   const slot = Math.floor(time / 60_000), jobs = [];
   const add = (kind, steps) => jobs.push({ id: `${kind}-${slot}`, kind, scheduledAt: time, steps });
   if (monthlyBackup && date.getUTCDate() === 1 && hour === 0 && minute === 10) add('monthly-backup', ['monthly-backup']);
-  if (minute === 1 && hour === 21) add('full', ['routine-visibility', 'life-periods', 'full', 'daily-email']);
+  if (minute === 1 && hour === 21) add('full', ['routine-visibility', 'life-periods', 'full']);
   else if (minute === 1 && (hour <= 16 || hour >= 22)) add('hourly', [...(hour === 23 ? ['reading-visibility'] : []), 'hourly-replan']);
   if (minute !== 0) return jobs;
   if (hour === 14) add('night', ['night-routine']);

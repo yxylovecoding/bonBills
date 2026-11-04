@@ -24,7 +24,6 @@
     "@vercel/kv": "^3.0.0",
     "ical.js": "2.2.1",
     "lunar-typescript": "1.8.6",
-    "nodemailer": "^10.0.14",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.2",
@@ -32,7 +31,6 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
-    "@types/nodemailer": "^8.0.2",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.0",
     "@vercel/node": "^5.7.13",

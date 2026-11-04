@@ -9,7 +9,7 @@ const child = spawn(deno || process.execPath, deno
   ? ['run', '--allow-all', 'dist-server/index.js'] : ['dist-server/index.js'], {
   env: {
     PATH: process.env.PATH, HOME: process.env.HOME, TMPDIR: process.env.TMPDIR,
-    PORT: '0', NODE_ENV: 'production', DENO_DEPLOY: 'true',
+    PORT: '0', NODE_ENV: 'production', RENDER: 'true',
     SYNC_SECRET: 'isolated-migration-smoke-test',
   }, stdio: ['ignore', 'pipe', 'pipe'],
 });

@@ -119,7 +119,7 @@ export function sameOrigin(req: VercelRequest) {
   if (!origin) return true;
   try {
     const url = new URL(origin);
-    const protocol = process.env.VERCEL === '1' || process.env.DENO_DEPLOY === 'true' ? 'https'
+    const protocol = process.env.VERCEL === '1' || process.env.RENDER === 'true' ? 'https'
       : String(req.headers['x-forwarded-proto'] || 'http');
     return url.host === req.headers.host && url.protocol === `${protocol}:`;
   } catch {
@@ -174,7 +174,7 @@ export async function authOk(req: VercelRequest, options: { ownerOnly?: boolean 
 }
 
 function cookie(req: VercelRequest, value: string, maxAge: number) {
-  const secure = process.env.VERCEL === '1' || process.env.DENO_DEPLOY === 'true' || process.env.NODE_ENV === 'production'
+  const secure = process.env.VERCEL === '1' || process.env.RENDER === 'true' || process.env.NODE_ENV === 'production'
     || req.headers['x-forwarded-proto'] === 'https';
   return `${COOKIE_NAME}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure ? '; Secure' : ''}`;
 }

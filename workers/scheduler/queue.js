@@ -4,7 +4,7 @@ import { day } from './schedule.js';
 const pending = job => job.status === 'queued' || job.status === 'running';
 const freshAttempt = () => ({ busy: 0, retries: 0, batches: 0 });
 // SQLite-backed Durable Object. Every transition is stored before the next HTTP request.
-// One alarm performs one bounded Vercel call, so a multi-step job can exceed 15 minutes.
+// One alarm performs one bounded backend call, so a multi-step job can exceed 15 minutes.
 export class SchedulerQueue {
   constructor(ctx, env) { this.ctx = ctx; this.env = env; this.running = false; }
   async state() { return await this.ctx.storage.get('state') || { jobs: [], lastCronAt: null }; }
@@ -67,10 +67,6 @@ export class SchedulerQueue {
           job.status = 'failed'; job.reason = 'expired'; job.finishedAt = now;
           await this.arm(state); return null;
         }
-        if (action === 'daily-email' && job.results.some(result => result.outcome === 'failed')) {
-          job.status = 'failed'; job.reason = 'email-prerequisite'; job.finishedAt = now;
-          await this.arm(state); return null;
-        }
         job.status = 'running'; job.startedAt ||= now;
         job.inFlightUntil = now + actionTimeout(action) + 15_000;
         await this.arm(state);
@@ -89,7 +85,7 @@ export class SchedulerQueue {
         } else {
           const final = result.outcome === 'retry' ? { outcome: 'failed', reason: 'batch-limit' } : result;
           job.results.push({ action, ...final });
-          // Archive/hair failures do not prevent the independent full plan, but do block email.
+          // Archive/hair failures do not prevent the independent full plan.
           if (final.outcome === 'skipped') {
             job.status = 'skipped'; job.reason = final.reason;
           } else if (final.outcome === 'failed' && !['life-periods', 'hair-wash'].includes(action)) {
