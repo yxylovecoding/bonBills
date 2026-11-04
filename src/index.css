@@ -184,6 +184,23 @@ input[type='number'] { -moz-appearance: textfield; }
 .calendar-header-actions { justify-content: flex-end; }
 .calendar-header-imports > button { flex-shrink: 0; }
 
+.calendar-tag-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+
+.calendar-tag-button { padding: 6px 14px; }
+
+@media (max-width: 600px) {
+  .calendar-tag-button { padding: 6px 10px; }
+  .calendar-tag-label { display: none; }
+}
+
 .invest-position-group-title {
   font-size: 12px;
 }

@@ -3905,7 +3905,7 @@ export default function CalendarPage() {
           />
 
           {/* Tag 选择器 */}
-          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8, marginBottom: 8, alignItems: 'center' }}>
+          <div className="calendar-tag-toolbar">
             <div style={{ display: 'flex', flexShrink: 0, gap: 0, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
               <button type="button" aria-pressed={selectMode !== 'detail'}
                 onClick={() => switchMode(selectMode === 'single' ? 'range' : 'single')}
@@ -3915,15 +3915,19 @@ export default function CalendarPage() {
             </div>
             {tagOrder.map((t, i) => {
               const meta    = tagMeta[t];
+              const isRest = t === 'school' && awayInternshipMonth;
+              const label = isRest ? '休' : meta.label;
               const active = selectMode !== 'detail' && selectedTag === t;
               const dragging = tagDrag.draggingIdx === i;
               const hp      = tagDrag.handleProps(i);
               return (
                 <button key={t} ref={(el) => tagDrag.itemRef(el, i)} {...hp}
+                  type="button" className="calendar-tag-button" aria-label={label} title={label} aria-pressed={active}
                   onClick={() => { setSelectedTag(t); switchMode('single'); }}
-                  style={{ ...hp.style, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, padding: '6px 14px', borderRadius: 20, fontSize: 13, border: active ? `2px solid ${meta.color}` : `1px solid ${C.border}`, backgroundColor: active ? `${meta.color}18` : '#ffffff', color: active ? meta.color : C.sub, fontWeight: active ? 600 : 400, cursor: 'pointer', opacity: dragging ? 0.5 : 1, transition: 'opacity 0.15s' }}
+                  style={{ ...hp.style, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, borderRadius: 20, fontSize: 13, border: active ? `2px solid ${meta.color}` : `1px solid ${C.border}`, backgroundColor: active ? `${meta.color}18` : '#ffffff', color: active ? meta.color : C.sub, fontWeight: active ? 600 : 400, cursor: 'pointer', opacity: dragging ? 0.5 : 1, transition: 'opacity 0.15s' }}
                 >
-                  {t === 'school' && awayInternshipMonth ? '☕ 休息' : `${meta.icon} ${meta.label}`}
+                  <span aria-hidden="true">{isRest ? '☕' : meta.icon}</span>
+                  <span className="calendar-tag-label" aria-hidden="true">{label}</span>
                 </button>
               );
             })}
