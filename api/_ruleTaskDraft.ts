@@ -244,6 +244,17 @@ export class RuleTaskDraft {
       } catch (error) { fail([...ownerIds(task.id), ...this.removed.has(task.id) ? [this.removed.get(task.id)!] : []], error); }
     }
     let updated = 0;
+    const removalDepth = (taskId: string) => {
+      const seen = new Set<string>();
+      for (let id: string | undefined = taskId; id; id = this.original.get(id)?.parentId) {
+        if (seen.has(id)) throw new Error('待删除任务存在循环父子关系');
+        seen.add(id);
+      }
+      return seen.size;
+    };
+    // TickTick may cascade parent deletion. Verify/delete children first so a
+    // cascade cannot make an untouched child's later verification fail.
+    const removals = [...this.removed].sort(([a], [b]) => removalDepth(b) - removalDepth(a));
     const remaining = new Set(this.created), writes = new Set(changed.map(t => t.id));
     const stages = options?.order ?? [undefined];
     for (let index = 0; index < stages.length; index++) {
@@ -301,7 +312,7 @@ export class RuleTaskDraft {
           for (const owner of ownerIds(taskId).filter(allowed)) this.writeCounts.set(owner, (this.writeCounts.get(owner) ?? 0) + 1);
         } catch (error) { fail(ownerIds(taskId), error); }
       }
-      for (const [taskId, owner] of this.removed) {
+      for (const [taskId, owner] of removals) {
         if (options && owner !== stages[index] || !allowed(owner) || !validated.has(taskId)) continue;
         try {
           const original = this.original.get(taskId)!;

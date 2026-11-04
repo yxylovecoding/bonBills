@@ -191,6 +191,12 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       const { dispatchFullReplan } = await import('./_cloudScheduler.js');
       return res.status(202).json({ ok: true, triggered: true, ...await dispatchFullReplan() });
     }
+    if (req.query?.action === 'sync-templates') {
+      if (req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
+      const { runTickTickTemplateSync } = await import('./_ticktickTemplateRun.js');
+      const result = await runTickTickTemplateSync();
+      return res.status(result.busy ? 202 : 200).json({ ok: !result.busy, ...result });
+    }
     if (req.query?.action === 'replan-today') {
       if (req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
       if (await needsFirstDailySync()) {

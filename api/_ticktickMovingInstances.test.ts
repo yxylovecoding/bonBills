@@ -102,7 +102,10 @@ it.each([false, true])('恢复历史完成关联，只清理无手动改动的�
   expect(s.api.createTask).not.toHaveBeenCalled(); expect(s.api.updateTask).not.toHaveBeenCalled();
   expect(s.state.taskIds.stage).toBe('old-stage'); expect(s.remote.get('old-stage')!.status).toBe(2);
   if (manualEdit) { expect(result.retainedDuplicates).toHaveLength(1); expect(s.api.deleteTask).not.toHaveBeenCalled(); }
-  else { expect(result.removed).toBe(2); expect(s.remote.has('new-1')).toBe(false); expect(s.remote.has('new-2')).toBe(false); }
+  else {
+    expect(result.removed).toBe(2); expect(s.remote.has('new-1')).toBe(false); expect(s.remote.has('new-2')).toBe(false);
+    expect(vi.mocked(s.api.deleteTask).mock.calls.map(call => call[1])).toEqual(['new-2', 'new-1']);
+  }
   vi.mocked(s.api.deleteTask).mockClear();
   await syncMovingInstance({ ...s.options, tasks: [...s.remote.values()].filter(task => task.status !== 2), completedTasks: [] });
   expect(s.api.createTask).not.toHaveBeenCalled(); expect(s.api.deleteTask).not.toHaveBeenCalled();
