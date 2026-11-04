@@ -556,22 +556,52 @@ function calendarTagMapFromSyncState(calendarState: unknown): Record<string, unk
     : {};
 }
 
-function findRoutineTargetDate(
-  tagMap: Record<string, unknown>,
-  fromDate: string,
-  matches: (tag: unknown) => boolean,
-): string | null {
-  return Object.keys(tagMap)
-    .filter((date) => isValidCalendarDate(date) && date >= fromDate && matches(tagMap[date]))
-    .sort()[0] ?? null;
+function findRoutineTargetDate(tagMap: Record<string, unknown>, fromDate: string, matches: (tag: unknown) => boolean): string | null {
+  let nearest: string | null = null;
+  for (const date of Object.keys(tagMap)) {
+    if (date < fromDate || (nearest && date >= nearest) || !matches(tagMap[date])) continue;
+    if (isValidCalendarDate(date)) nearest = date;
+  }
+  return nearest;
 }
 
 export function getTickTickRoutineTargetDates(calendarState: unknown, today: string): TickTickRoutineTargets {
   const tagMap = calendarTagMapFromSyncState(calendarState);
-  return {
-    home: findRoutineTargetDate(tagMap, today, (tag) => tag === 'home'),
-    school: findRoutineTargetDate(tagMap, today, (tag) => tag === 'school' || tag === 'intern'),
-    travel: findRoutineTargetDate(tagMap, today, (tag) => tag === 'travel'),
+  const targets: TickTickRoutineTargets = { home: null, school: null, travel: null };
+  for (const date of Object.keys(tagMap)) {
+    if (date < today) continue;
+    const scene = routineCalendarScene(tagMap[date]);
+    // Validate only a potential minimum, not every historical day three times.
+    if (scene && (!targets[scene] || date < targets[scene]) && isValidCalendarDate(date)) targets[scene] = date;
+  }
+  return targets;
+}
+
+// A plan reads one immutable calendar snapshot. Build its sorted scene dates
+// once; retain no calendar/account data after that plan returns.
+export function createRoutineSceneDateFinder(calendarState: unknown) {
+  const days: Record<keyof TickTickRoutineTargets, string[]> = { home: [], school: [], travel: [] };
+  for (const [date, tag] of Object.entries(calendarTagMapFromSyncState(calendarState))) {
+    const scene = routineCalendarScene(tag);
+    if (scene && isValidCalendarDate(date)) days[scene].push(date);
+  }
+  for (const dates of Object.values(days)) dates.sort();
+  return (task: TickTickTask, from: string): string | null => {
+    const scenes = routineScenes(task);
+    if (!scenes.length) return from;
+    let nearest: string | null = null;
+    for (const scene of scenes) {
+      const dates = days[scene];
+      let low = 0, high = dates.length;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (dates[middle] < from) low = middle + 1;
+        else high = middle;
+      }
+      const date = dates[low];
+      if (date && (!nearest || date < nearest)) nearest = date;
+    }
+    return nearest;
   };
 }
 

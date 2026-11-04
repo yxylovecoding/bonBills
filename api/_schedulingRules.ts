@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { setImmediate as yieldToRequests } from 'node:timers/promises';
 import { kv } from './_accountKv.js';
 import { readRuleConfig, ruleTitle, type SchedulingRuleConfig, type SchedulingRuleId, type SchedulingRuleResult, type SchedulingRun } from '../src/utils/schedulingRules.js';
 import { withActiveRule, withRulePolicy } from './_rulePolicy.js';
@@ -48,6 +49,9 @@ export async function executeRuleGraph(config: SchedulingRuleConfig, scope: Sche
   const unavailable = new Set<SchedulingRuleId>();
   await withRulePolicy(config, async () => {
     for (const id of config.order) {
+      // Resolved async handlers otherwise form an uninterrupted microtask chain.
+      // Let health checks and other requests run between independent rule stages.
+      await yieldToRequests();
       const failedParent = (config.predecessors[id] ?? []).find(parent => unavailable.has(parent));
       if (config.removed?.includes(id) || failedParent || !handlers[id]) {
         unavailable.add(id);

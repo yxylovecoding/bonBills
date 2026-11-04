@@ -7,7 +7,7 @@ import type { TickTickPlanDetails } from '../src/utils/tickTickPlanDetails.js';
 import { dayAvailability, occupySlots, type AvailabilityProfile } from './_dailyAvailability.js';
 import { collectCompleted } from './_lifeDone.js';
 import { annotatedMinutes, describedMinutes } from './_taskDuration.js';
-import { calendarDateInTimeZone, nextRoutineSceneDate, isAlwaysTodayTask, routineOccurrenceKey, routineRecurrence, separateTickTickSprays, sprayKind,
+import { calendarDateInTimeZone, createRoutineSceneDateFinder, isAlwaysTodayTask, routineOccurrenceKey, routineRecurrence, separateTickTickSprays, sprayKind,
   routineScenes, routineTaskDate, type TickTickApi, type TickTickTask } from './_ticktickTrips.js';
 
 export const DAILY_PLAN_KEY = 'ticktick:daily-plan:v1';
@@ -163,7 +163,7 @@ export function planTickTickDay(options: {
     const series = familyCounts.get(routineOccurrenceKey(task)) === 1 ? lastByFamily.get(routineOccurrenceKey(task)) : undefined;
     return [exact, series].filter((value): value is string => Boolean(value)).sort((a, b) => Date.parse(b) - Date.parse(a))[0];
   };
-  const sceneDate = (task: TickTickTask, from: string) => nextRoutineSceneDate(task, calendarState, from);
+  const sceneDate = createRoutineSceneDateFinder(calendarState);
   const excluded = (task: TickTickTask) => {
     const seen = new Set<string>();
     let current: TickTickTask | undefined = task;

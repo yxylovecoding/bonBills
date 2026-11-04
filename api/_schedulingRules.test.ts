@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { setImmediate } from 'node:timers';
 import { defaultRuleConfig, readRuleConfig, updateRuleGroups, removeSchedulingRule } from '../src/utils/schedulingRules';
 import { executeRuleGraph, saveSchedulingRules, RULE_CONFIG_KEY } from './_schedulingRules';
 import { RuleTaskDraft } from './_ruleTaskDraft';
@@ -12,6 +13,18 @@ vi.mock('./_accountKv.js', () => ({ kv: {
   eval: async (_script: string, [key]: string[]) => { data.delete(key); return 1; },
 } }));
 beforeEach(() => data.clear());
+
+it('两个计算规则之间让出事件循环，待处理的健康检查有机会执行', async () => {
+  const order: string[] = [];
+  await executeRuleGraph(defaultRuleConfig(), 'hourly', {
+    'calendar-travel': async () => {
+      order.push('first');
+      setImmediate(() => order.push('request'));
+    },
+    'calendar-manual': async () => { order.push('second'); },
+  }, { save: false });
+  expect(order).toEqual(['first', 'request', 'second']);
+});
 
 it.each(['full', 'hourly', 'visibility'] as const)('%s 使用同一分组顺序、保存自定义名称并跳过已删除规则', async scope => {
   const config = readRuleConfig(defaultRuleConfig());

@@ -16,6 +16,9 @@ const tasks: TickTickTask[] = Array.from({ length: 160 }, (_, i) => ({
 const history = Array.from({ length: 2400 }, (_, i) => ({ ...tasks[i % tasks.length],
   status: 2, completedTime: `${day(-1 - i % 90)}T09:00:00+0800`,
 }));
+const sceneTasks = tasks.map((task, i) => ({ ...task, tags: [['寄'], ['居'], ['旅'], ['寄', '寓']][i % 4] }));
+const largeCalendar = { tagMap: Object.fromEntries(Array.from({ length: 3347 }, (_, i) =>
+  [day(i - 2000), ['home', 'school', 'intern', 'travel'][i % 4]])) };
 const event = (properties: string) => `BEGIN:VEVENT\r\n${properties}\r\nEND:VEVENT`;
 const events = Array.from({ length: 640 }, (_, i) => event([
   `UID:event-${i}`, `DTSTART;TZID=China Standard Time:${day(i % 45 - 14).replaceAll('-', '')}T090000`,
@@ -37,6 +40,12 @@ const cases: [string, () => unknown | Promise<unknown>][] = [
     const state = { connectionId: 'benchmark', deadlines: {}, history };
     const result = planTickTickDay({ tasks, state, today, timezone: 'Asia/Shanghai',
       now: new Date(`${today}T05:00:00+0800`), calendarState: {}, budgetMinutes: 240 });
+    return { result, state };
+  }],
+  ['daily-plan-160-tasks-3347-calendar-days', () => {
+    const state = { connectionId: 'benchmark', deadlines: {}, history };
+    const result = planTickTickDay({ tasks: sceneTasks, state, today, timezone: 'Asia/Shanghai',
+      now: new Date(`${today}T05:00:00+0800`), calendarState: largeCalendar, budgetMinutes: 240 });
     return { result, state };
   }],
   ['outlook-660-events-two-windows', () => readOutlookSnapshot(input, day(-30), day(700),
