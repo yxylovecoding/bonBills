@@ -191,6 +191,28 @@ it('检查事项确实丢失时仍拒绝确认且不保存同步基准', async (
   await expect(draft.commit()).rejects.toThrow('写后回读不一致（items）');
   expect(save).not.toHaveBeenCalled();
 });
+it.each([false, true])('新搬家任务回读允许检查项服务端默认字段和 UTC 日期，但拒绝进度变化：%s', async changedProgress => {
+  const c = client(), draft = new RuleTaskDraft(c.api, [task()]);
+  c.api.createTask = vi.fn(async payload => {
+    const saved = { ...payload, id: 'new-moving', status: 0,
+      items: (payload.items as NonNullable<TickTickTask['items']>).map(item => ({ ...item,
+        status: changedProgress ? 1 : 0, isAllDay: true, timeZone: 'Asia/Shanghai',
+        startDate: new Date(item.startDate!).toISOString(), completedTime: null,
+      })) } as unknown as TickTickTask;
+    c.tasks.set(saved.id, saved); return saved;
+  });
+  const branch = draft.branch('template-content');
+  await branch.api.createTask({ projectId: 'p', title: '搬家-京广-11.5 · 出门前一天',
+    items: [{ id: 'movie', title: '平板电影×4 电视剧×1 (5m)', status: 0, sortOrder: 0, startDate: '2026-11-04T00:00:00+0800' }] });
+  branch.accept(); const save = vi.fn(); draft.saveAfterCommit('template-content', save);
+  if (changedProgress) {
+    await expect(draft.commit()).rejects.toThrow('写后回读不一致（items）');
+    expect(save).not.toHaveBeenCalled();
+  } else {
+    await draft.commit(); expect(save).toHaveBeenCalled();
+    expect(draft.committedValues().find(task => task.id === 'new-moving')?.items?.[0].status).toBe(0);
+  }
+});
 describe('地点显隐', () => {
   const locations = { names: ['北京', '广州', '清迈'], today: ['北京'], unknown: false };
   it('城市标签按任一匹配；无城市标签不处理；未知当天地点不误显示', () => {

@@ -8,7 +8,17 @@ const ordered = (value: unknown): unknown => Array.isArray(value) ? value.map(or
   : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, ordered(item)])) : value;
 const same = (a: unknown, b: unknown) => JSON.stringify(ordered(a ?? null)) === JSON.stringify(ordered(b ?? null));
 const emptyDefault = (key: string, value: unknown) => value ?? (['content', 'desc', 'repeatFlag'].includes(key) ? '' : ['items', 'tags', 'reminders'].includes(key) ? [] : null);
-const persistedField = (key: string, a: unknown, b: unknown) => same(emptyDefault(key, a), emptyDefault(key, b))
+const persistedField = (key: string, a: unknown, b: unknown): boolean => same(emptyDefault(key, a), emptyDefault(key, b))
+  || key === 'items' && Array.isArray(a) && Array.isArray(b) && a.length === b.length && b.every((expected, index) => {
+    const actual = a[index];
+    if (!actual || !expected) return same(actual, expected);
+    // TickTick adds checklist metadata/defaults and serializes dates in UTC.
+    // Confirm every submitted field, including identity, order and progress.
+    return Object.entries(expected).filter(([, value]) => value !== undefined).every(([field, value]) =>
+      field === 'status' ? Number(actual[field] ?? 0) === Number(value ?? 0)
+        || [1, 2].includes(Number(actual[field])) && [1, 2].includes(Number(value))
+        : persistedField(field, actual[field], value));
+  })
   || key === 'tags' && Array.isArray(a) && Array.isArray(b) && same([...a].sort(), [...b].sort())
   || (key === 'startDate' || key === 'dueDate') && typeof a === 'string' && typeof b === 'string'
     && Number.isFinite(Date.parse(a)) && Date.parse(a) === Date.parse(b);
@@ -213,7 +223,11 @@ export class RuleTaskDraft {
           if (!saved?.id || saved.id.startsWith('draft-')) throw new Error('新待办创建结果未确认');
           this.realIds.set(id, saved.id);
           const confirmed = await this.source.getTask(saved.projectId ?? task.projectId, saved.id);
-          if (!confirmed || !pending(confirmed) || fields.some(key => payload[key] !== undefined && !persistedField(key, confirmed[key], payload[key]))) throw new Error('新待办写入未确认');
+          const differences = !confirmed ? ['task'] : [
+            ...(!pending(confirmed) ? ['status'] : []),
+            ...fields.filter(key => payload[key] !== undefined && !persistedField(key, confirmed[key], payload[key])),
+          ];
+          if (differences.length) throw new RuleTaskVerificationError('after', differences);
           this.committed.set(saved.id, confirmed);
           for (const entry of this.pendingSaves) if (entry.rule === this.createdBy.get(id)) await entry.save(); updated++; this.writeCounts.set(this.createdBy.get(id)!, (this.writeCounts.get(this.createdBy.get(id)!) ?? 0) + 1);
         } catch (error) { fail([this.createdBy.get(id)!], error); }
