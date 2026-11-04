@@ -855,6 +855,16 @@ export function nextRoutineSceneDate(task: TickTickTask, calendarState: unknown,
   return scenes.map(scene => targets[scene]).filter((date): date is string => Boolean(date)).sort()[0] ?? null;
 }
 
+// A candidate day only needs its own scene. Looking up the next scene date
+// scans the entire lifetime calendar for every project in a rolling forecast.
+export function routineSceneMatchesDate(task: TickTickTask, calendarState: unknown, date: string): boolean {
+  const scenes = routineScenes(task);
+  if (!scenes.length) return true;
+  if (!isValidCalendarDate(date)) return false;
+  const scene = routineCalendarScene(calendarTagMapFromSyncState(calendarState)[date]);
+  return scene !== null && scenes.includes(scene);
+}
+
 export async function syncTickTickAlwaysToday(api: TickTickApi, options: { tasks?: TickTickTask[]; today?: string; calendarState?: unknown; protectedTaskIds?: ReadonlySet<string> } = {}) {
   const tasks = options.tasks ?? await readAllTickTickTasks(api, [0]);
   const today = options.today ?? calendarDateInTimeZone(new Date().toISOString())!;

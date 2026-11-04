@@ -7,7 +7,7 @@ import { isTrainingTitle, recordedTrainingProjects, rollingTrainingPlan, trainin
   trainingName, trainingProjectKey, type TrainingSource, type TrainingTask } from '../src/utils/lifeTraining.js';
 import { readHairWashSchedule, readSwimmingCycle } from './_lifeSwimming.js';
 import { calendarDateInTimeZone, getTickTickRoutineTargetDates, isAlwaysTodayTask, readAllTickTickTasks, routineRecurrence,
-  routineScenes, nextRoutineSceneDate, readRoutineCalendarState, shiftTickTickDate, TICKTICK_SYNC_STATE_KEY,
+  routineScenes, routineSceneMatchesDate, readRoutineCalendarState, shiftTickTickDate, TICKTICK_SYNC_STATE_KEY,
   type TickTickApi, type TickTickTask, type TickTickTripSyncState } from './_ticktickTrips.js';
 
 export const EXERCISE_STATE_KEY = 'ticktick:exercise-rollover:v1';
@@ -52,7 +52,7 @@ export function exerciseTarget(task: TickTickTask, options: TargetOptions): stri
   if (!missed && (!options.notBefore || scheduled >= options.notBefore)) return null;
   const from = [current.late ? addDays(current.day, 1) : current.day, options.notBefore ?? ''].sort().at(-1)!;
   const allowed = (day: string) => {
-    if (nextRoutineSceneDate(task, options.calendarState, day) !== day) return false;
+    if (!routineSceneMatchesDate(task, options.calendarState, day)) return false;
     return !task.title.includes('游泳') || (options.cycle !== undefined
       && cycleDay(day, options.cycle, options.periods ?? [])?.phase !== 'menstrual');
   };
@@ -192,12 +192,12 @@ export async function syncExerciseSchedule(api: TickTickApi, options: {
     const { syncTrainingSource } = await import('./_lifeTraining.js');
     const source = await syncTrainingSource(Number(today.slice(0, 4)), { lockHeld: true, api, publish: !options.deferState });
     // Template/trip tasks and ignored tasks cannot add projects to the rotation.
-    const candidateIds = new Set(candidates.map(task => `${task.projectId}:${task.id}`));
-    source.tasks = source.tasks.filter(task => candidateIds.has(task.id));
+    const candidateById = new Map(candidates.map(task => [`${task.projectId}:${task.id}`, task]));
+    source.tasks = source.tasks.filter(task => candidateById.has(task.id));
     const { cycle, periods } = await readSwimmingCycle([Number(today.slice(0, 4)), Number(addDays(today, 90).slice(0, 4))]);
     const dates = rollingExerciseDates(today, source, cycle, periods, (project, date) => {
-      const task = candidates.find(task => `${task.projectId}:${task.id}` === project.id);
-      return !task || nextRoutineSceneDate(task, calendarState, date) === date;
+      const task = candidateById.get(project.id);
+      return !task || routineSceneMatchesDate(task, calendarState, date);
     });
     const library = trainingLibrary(source.tasks, source.settings);
     const keyFor = (task: TickTickTask) => {
@@ -216,7 +216,7 @@ export async function syncExerciseSchedule(api: TickTickApi, options: {
       const task = await api.getTask(candidate.projectId, candidate.id);
       if (task?.id !== candidate.id || task.projectId !== candidate.projectId) throw new Error('运动待办读取失败');
       if ((task.status ?? 0) !== 0 || task.completedTime) throw new Error('训练完成状态已变化，请重新排期');
-      if (!eligible(task) || keyFor(task) !== keyFor(candidate) || nextRoutineSceneDate(task, calendarState, target) !== target) throw new Error('训练项目已变化，请重新排期');
+      if (!eligible(task) || keyFor(task) !== keyFor(candidate) || !routineSceneMatchesDate(task, calendarState, target)) throw new Error('训练项目已变化，请重新排期');
       await moveExercise(api, task, target);
       updated++;
     }
