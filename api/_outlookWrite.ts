@@ -271,13 +271,16 @@ export async function outlookWriteStatus(listCalendars = false) {
   const calendars = connection && listCalendars ? await writableCalendars(await outlookGraphClient(connection)) : undefined;
   const relay = connection?.fallback ? await kv.get<RelayState>(RELAY_STATE_KEY) : null;
   const quota = connection?.provider === 'make' ? await readOutlookMakeQuota().catch(() => undefined) : undefined;
+  const activeProvider = relay?.connectionId === connection?.id ? relay?.activeProvider : connection?.provider ?? 'microsoft';
+  const makeQuotaError = ['免费调用额度已暂停，请稍后再试', 'Make 免费调用额度已暂停，请稍后再试'].includes(connection?.lastError ?? '');
   const quotaError = !connection?.fallback && quota?.retryAt ? 'Make 免费额度保护已暂停写入'
-    : !connection?.fallback && quota && ['免费调用额度已暂停，请稍后再试', 'Make 免费调用额度已暂停，请稍后再试'].includes(connection?.lastError ?? '')
+    : !connection?.fallback && quota && makeQuotaError
       ? '免费额度已释放，等待下次同步' : undefined;
   return { connected: Boolean(connection), enabled: Boolean(connection?.calendarId), clientId: settings?.clientId ?? process.env.OUTLOOK_CLIENT_ID ?? '',
-    fallbackConnected: Boolean(connection?.fallback), activeProvider: relay?.connectionId === connection?.id ? relay?.activeProvider : connection?.provider ?? 'microsoft',
+    fallbackConnected: Boolean(connection?.fallback), activeProvider,
     provider: connection?.provider ?? 'microsoft', calendarId: connection?.calendarId, calendarName: connection?.calendarName, lastSyncAt: connection?.lastSyncAt,
-    error: quotaError ?? outlookStatusError(connection?.lastError),
+    // Keep the stored error so unfinished sync work retries, but a working backup resolves Make's quota notice.
+    error: activeProvider === 'activepieces' && makeQuotaError ? undefined : quotaError ?? outlookStatusError(connection?.lastError),
     retryAt: connection?.fallback ? undefined : quota?.retryAt, makeRetryAt: connection?.fallback ? quota?.retryAt : undefined, calendars };
 }
 export async function selectOutlookWriteCalendar(calendarId: unknown) {

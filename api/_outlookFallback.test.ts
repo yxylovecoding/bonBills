@@ -151,10 +151,15 @@ it('备用成功时展示 Make 恢复时间而不误报同步暂停，统计仅�
   reserve.mockImplementation(async (script: string, keys: string[]) => script.includes('WITHSCORES') ? [200, oldest]
     : keys[0] === 'outlook:make-calls:v1' ? 0 : 1);
   const count = vi.fn(); vi.stubGlobal('fetch', vi.fn().mockResolvedValue(result({ id: 'event' })));
-  await (await outlookGraphClient(connection(), count))(eventPath);
+  const connected = connection();
+  data.set(OUTLOOK_WRITE_KEY, { ...connected, lastError: 'Make 免费调用额度已暂停，请稍后再试' });
+  await (await outlookGraphClient(connected, count))(eventPath);
   expect(count.mock.calls).toEqual([['GET']]);
   expect(await outlookWriteStatus()).toMatchObject({ activeProvider: 'activepieces', error: undefined, retryAt: undefined,
     makeRetryAt: '2026-11-11T00:00:00.000Z' });
+  expect(data.get(OUTLOOK_WRITE_KEY).lastError).toBe('Make 免费调用额度已暂停，请稍后再试');
+  data.set(OUTLOOK_WRITE_KEY, { ...connected, lastError: 'Activepieces 免费调用额度已暂停，请稍后再试' });
+  expect((await outlookWriteStatus()).error).toBe('Activepieces 免费调用额度已暂停，请稍后再试');
 });
 it('没有备用时保留新旧 Make 额度错误的恢复提示', async () => {
   const connected = connection(false);

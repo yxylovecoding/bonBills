@@ -17,8 +17,9 @@ Make 是主通道，Activepieces 只在 Make 的本地调用保护达到上限�
 
 1. **Webhook / Catch Webhook**：Authentication 选 Header Auth，Header Name 为 `X-BonBills-Key`，Header Value 为随机生成的 32–128 位可打印 ASCII 密钥。正式 URL 使用 `https://cloud.activepieces.com/api/v1/webhooks/<flow-id>/sync`；BonBills 会为没有后缀的正式地址补 `/sync`，拒绝测试地址、查询参数、其他域名和重定向。
 2. **请求校验**：只允许 `GET /v1.0/me/calendars` 列表查询，以及已选中日历的 `events` 接口。目标 Graph 主机固定为 `https://graph.microsoft.com`；不接收调用方提供的完整主机、Authorization 或任意请求头。事件创建使用 POST、修改使用 PATCH；DELETE 只能删除单条事件，必须带 `If-Match` 且没有正文。非法请求停止流程。
-3. **Microsoft Outlook Calendar / Custom API Call**：把已经校验的 `path`、`method`、`body` 和请求头传入 Graph。`body` 是 JSON 文本，空串表示无正文；`headers` 是 key/value 数组，需要转为接口所用的对象。保留 `Prefer: IdType="ImmutableId", outlook.timezone="Asia/Shanghai"` 和条件更新的 `If-Match`。微软认证由平台连接注入。
-4. **Webhook / Return Response**：返回 HTTP 200、JSON 类型，Flow Execution 明确设为 Stop。成功和失败分支都需返回下面的协议，把 Graph 的实际状态码和正文映射进来。禁止把平台的默认 Accepted、空正文或自定义成功状态作为 Graph 成功。关闭写入步骤的自动重试，失败交由应用下一轮查重处理。
+3. **Microsoft Outlook Calendar / Custom API Call**：把已经校验的完整 Graph `url`、`method`、`body` 和请求头传入 Graph。`body` 是 JSON 文本，空串表示无正文；传入的 `headers` key/value 数组由校验步骤转为对象。保留 `Prefer: IdType="ImmutableId", outlook.timezone="Asia/Shanghai"` 和条件更新的 `If-Match`。微软认证由平台连接注入。Timeout 为 8 秒，开启 Return Error as Output，关闭重定向和自动重试。
+4. **整理响应**：成功结果读取 `result.status/body`，失败结果读取 `result.response.status/body`。保留实际 Graph 状态；字符串正文先解析为 JSON，无法确认执行结果时返回协议内的 502。
+5. **Webhook / Return Response**：返回 HTTP 200、JSON 类型，Flow Execution 明确设为 Stop。成功和失败分支都需返回下面的协议，把 Graph 的实际状态码和正文映射进来。禁止把平台的默认 Accepted、空正文或自定义成功状态作为 Graph 成功。关闭写入步骤的自动重试，失败交由应用下一轮查重处理。
 
 ```json
 {
@@ -31,6 +32,24 @@ Make 是主通道，Activepieces 只在 Make 的本地调用保护达到上限�
 `status` 必须是数字，来自 Graph，不是外层 Webhook 的 HTTP 状态；尤其保留 401、403、404、412、429。Graph 删除成功时返回 `status: 204`，可以省略 `body`。其他成功必须返回对象正文。平台网络失败可以直接让流程失败，应用会显示备用连接失败。
 
 以上为服务端接入协议；流程字段需根据实际平台版本配置并进行联调，不能仅凭保存流程就认定已连接。仅启用 Header Auth、日历接口白名单及完整响应后，才在 BonBills 保存正式 Webhook 和密钥。保存过程仅列出可写日历，必须验证原日历 ID，失败不替换已有备用。
+
+### 当前 Cloud 版本的字段映射
+
+2026-11-04 实际配置使用 Webhook 0.1.43、Microsoft Outlook Calendar 0.4.0。当前运行时需要显式的 `['output']` 层级；使用页面 Data Selector 生成并核对表达式，不能直接沿用省略该层的旧示例。
+
+| 字段 | 表达式或值 |
+| --- | --- |
+| 校验步骤 `step_1` 的 `request` 输入 | `{{trigger['output']['body']}}` |
+| 校验步骤的 `calendarId` 输入 | 已选中日历的固定 ID |
+| Custom API Call 的 URL | `{{step_1['output']['url']}}` |
+| Method / Headers | `{{step_1['output']['method']}}` / `{{step_1['output']['headers']}}` |
+| Body Type / Raw Body | `raw` / `{{step_1['output']['body']}}` |
+| 整理响应 `step_3` 的 `result` 输入 | `{{step_2['output']}}` |
+| Return Response 的 Body | `{{step_3['output']}}` |
+
+Custom API Call 的动态表单可能在 GET 样例下隐藏或清空 Body 配置。配置时可仅运行校验 Code，生成 POST 样例来绑定 Raw Body；不要单独测试这个 POST 样例的 API 步骤。随后恢复 Webhook 输入，用真实 GET 样例测试完整流程，并确认保存后的 Raw Body 仍保留映射。
+
+2026-11-04 已完成云端流程发布、专用密钥保护和 BonBills 加密保存。完整只读流程返回 Graph 200，BonBills 验证了相同日历 ID；Make 本地配额暂停时，经应用实际请求确认 `activeProvider: activepieces`。创建、修改和删除日程未进行真实写入联调，相关行为由现有代码回归测试覆盖。
 
 ## 切换、恢复和一致性
 
