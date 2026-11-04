@@ -27,6 +27,18 @@ const dateFields = new Set<string>(['startDate', 'dueDate', 'isAllDay', 'timeZon
 const group = (key: string) => dateFields.has(key) ? 'date' : key;
 const ruleGroup = (id: SchedulingRuleId, key: string) => id === 'template-content' && key === 'items' ? 'template-items' : group(key);
 
+function logChecklistDifference(actual: TickTickTask['items'], expected: TickTickTask['items']) {
+  const metadata = new Set(['status', 'sortOrder', 'isAllDay', 'startDate', 'timeZone', 'completedTime']);
+  const differences = (expected ?? []).flatMap((item, index) => Object.entries(item)
+    .filter(([, value]) => value !== undefined)
+    .filter(([field, value]) => !persistedField(field, (actual?.[index] as Record<string, unknown> | undefined)?.[field], value))
+    .map(([field, value]) => ({ index, field,
+      expected: metadata.has(field) ? value : '[redacted]',
+      actual: metadata.has(field) ? (actual?.[index] as Record<string, unknown> | undefined)?.[field] ?? null : '[redacted]' })));
+  console.warn('[ticktick-checklist-verification]', JSON.stringify({ expectedCount: expected?.length ?? 0,
+    actualCount: actual?.length ?? 0, differences: differences.slice(0, 12) }));
+}
+
 export class RuleTaskVerificationError extends Error {
   constructor(phase: 'before' | 'after', changedFields: string[]) {
     super(`${phase === 'before' ? '待办已变化，未写入' : '写后回读不一致'}（${changedFields.join('、')}）`);
@@ -178,7 +190,10 @@ export class RuleTaskDraft {
         ...(fresh.id !== expected.id || fresh.projectId !== expected.projectId ? ['identity'] : []),
         ...fields.filter(key => !persistedField(key, fresh[key], expected[key])),
       ];
-      if (differences.length) throw new RuleTaskVerificationError(phase, differences);
+      if (differences.length) {
+        if (differences.includes('items')) logChecklistDifference(fresh?.items, expected.items);
+        throw new RuleTaskVerificationError(phase, differences);
+      }
     };
     const fail = (ids: SchedulingRuleId[], error: unknown) => { if (!options) throw error; options.failed(ids, error); };
     const rank = (id?: SchedulingRuleId) => id ? options?.order.indexOf(id) ?? 0 : 0;
@@ -227,7 +242,10 @@ export class RuleTaskDraft {
             ...(!pending(confirmed) ? ['status'] : []),
             ...fields.filter(key => payload[key] !== undefined && !persistedField(key, confirmed[key], payload[key])),
           ];
-          if (differences.length) throw new RuleTaskVerificationError('after', differences);
+          if (differences.length) {
+            if (differences.includes('items')) logChecklistDifference(confirmed?.items, payload.items as TickTickTask['items']);
+            throw new RuleTaskVerificationError('after', differences);
+          }
           this.committed.set(saved.id, confirmed);
           for (const entry of this.pendingSaves) if (entry.rule === this.createdBy.get(id)) await entry.save(); updated++; this.writeCounts.set(this.createdBy.get(id)!, (this.writeCounts.get(this.createdBy.get(id)!) ?? 0) + 1);
         } catch (error) { fail([this.createdBy.get(id)!], error); }
