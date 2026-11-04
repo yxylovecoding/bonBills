@@ -114,6 +114,21 @@ describe('最终任务改动裁决', () => {
     const branch = draft.branch('laundry'); await branch.api.updateTask('one', { dueDate: '2026-11-08T00:00:00+0800' }); branch.accept();
     await draft.commit(); expect(draft.datesConfirmed('one')).toBe(true);
   });
+  it('列表与详情使用不同格式表示同一时刻时不误判并发修改', async () => {
+    const c = client(), draft = new RuleTaskDraft(c.api, [task()]);
+    c.tasks.get('one')!.dueDate = new Date(task().dueDate!).toISOString();
+    const branch = draft.branch('always-today');
+    await branch.api.updateTask('one', { dueDate: '2026-11-03T00:00:00+0800' }); branch.accept();
+    await draft.commit(); expect(c.write).toHaveBeenCalledOnce();
+  });
+  it('真实并发编辑不写入，明确指出失败字段而不泄露内容', async () => {
+    const c = client(), draft = new RuleTaskDraft(c.api, [task()]);
+    const branch = draft.branch('always-today');
+    await branch.api.updateTask('one', { dueDate: '2026-11-03T00:00:00+0800' }); branch.accept();
+    c.tasks.get('one')!.content = 'private user edit';
+    await expect(draft.commit()).rejects.toThrow('待办已变化，未写入（content）');
+    expect(c.write).not.toHaveBeenCalled();
+  });
   it('生成任务清理前再次检查完成状态，并验证删除结果', async () => {
     const c = client(), draft = new RuleTaskDraft(c.api, [task()]);
     c.api.deleteTask = vi.fn(async (_project, id) => { c.tasks.delete(id); });

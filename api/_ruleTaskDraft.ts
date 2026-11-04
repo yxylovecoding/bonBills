@@ -13,6 +13,18 @@ const dateFields = new Set<string>(['startDate', 'dueDate', 'isAllDay', 'timeZon
 const group = (key: string) => dateFields.has(key) ? 'date' : key;
 const ruleGroup = (id: SchedulingRuleId, key: string) => id === 'template-content' && key === 'items' ? 'template-items' : group(key);
 
+export class RuleTaskVerificationError extends Error {
+  constructor(phase: 'before' | 'after', changedFields: string[]) {
+    super(`${phase === 'before' ? '待办已变化，未写入' : '写后回读不一致'}（${changedFields.join('、')}）`);
+  }
+}
+
+export function ruleTaskFailureReason(error: unknown): string {
+  if (error instanceof RuleTaskVerificationError) return error.message;
+  const status = error instanceof Error ? error.message.match(/TickTick (\d{3})\b/)?.[1] : undefined;
+  return status ? `TickTick 请求失败（HTTP ${status}），已停止本规则后续写入` : '写入未确认，已停止本规则后续写入';
+}
+
 /** Per-rule branches never write upstream. Only the merged, verified result is committed. */
 export class RuleTaskDraft {
   private original: Map<string, TickTickTask>;
@@ -146,6 +158,14 @@ export class RuleTaskDraft {
     const validState = (fresh: TickTickTask, original: TickTickTask) => pending(fresh) && pending(original)
       || !pending(original) && same(fresh.status, original.status) && same(fresh.completedTime, original.completedTime)
         && ownerIds(original.id).every(id => id === 'template-content' || id === 'moving-date');
+    const verify = (fresh: TickTickTask | undefined, expected: TickTickTask, original: TickTickTask, phase: 'before' | 'after') => {
+      const differences = !fresh ? ['task'] : [
+        ...(!validState(fresh, original) ? ['status'] : []),
+        ...(fresh.id !== expected.id || fresh.projectId !== expected.projectId ? ['identity'] : []),
+        ...fields.filter(key => !persistedField(key, fresh[key], expected[key])),
+      ];
+      if (differences.length) throw new RuleTaskVerificationError(phase, differences);
+    };
     const fail = (ids: SchedulingRuleId[], error: unknown) => { if (!options) throw error; options.failed(ids, error); };
     const rank = (id?: SchedulingRuleId) => id ? options?.order.indexOf(id) ?? 0 : 0;
     const commitAt = (id: string) => Math.max(0, ...ownerIds(id).map(rank), rank(this.createdBy.get(id)));
@@ -168,7 +188,7 @@ export class RuleTaskDraft {
     for (const task of [...changed, ...[...this.removed.keys()].map(id => this.original.get(id)!)]) {
       try {
         const fresh = await this.source.getTask(task.projectId, task.id), original = this.original.get(task.id)!;
-        if (!fresh || !validState(fresh, original) || fresh.projectId !== original.projectId || fields.some(k => !same(fresh[k], original[k]))) throw new Error('待办已变化，请重新重排');
+        verify(fresh, original, original, 'before');
         validated.add(task.id);
       } catch (error) { fail([...ownerIds(task.id), ...this.removed.has(task.id) ? [this.removed.get(task.id)!] : []], error); }
     }
@@ -203,12 +223,12 @@ export class RuleTaskDraft {
         if (!fields.some(k => !same(task[k], original[k]))) continue;
         try {
           const fresh = await this.source.getTask(task.projectId, task.id);
-          if (!fresh || !validState(fresh, original) || fields.some(k => !same(fresh[k], original[k]))) throw new Error('待办已变化，请重新重排');
+          verify(fresh, original, original, 'before');
           const payload = this.resolveIds({ id: task.id, projectId: task.projectId,
             ...Object.fromEntries(fields.filter(k => task[k] !== undefined).map(k => [k, task[k]])) });
           await this.source.updateTask(task.id, payload);
           const saved = await this.source.getTask(task.projectId, task.id);
-          if (!saved || !validState(saved, original) || fields.some(k => !persistedField(k, saved[k], task[k]))) throw new Error('重排写入结果未确认');
+          verify(saved, task, original, 'after');
           this.committed.set(taskId, saved); updated++;
           for (const owner of ownerIds(taskId).filter(allowed)) this.writeCounts.set(owner, (this.writeCounts.get(owner) ?? 0) + 1);
         } catch (error) { fail(ownerIds(taskId), error); }
@@ -218,7 +238,8 @@ export class RuleTaskDraft {
         try {
           const original = this.original.get(taskId)!;
           const fresh = await this.source.getTask(original.projectId, taskId);
-          if (!fresh || !pending(fresh) || fields.some(key => !same(fresh[key], original[key]))) throw new Error('待办已变化，请重新重排');
+          verify(fresh, original, original, 'before');
+          if (!pending(fresh)) throw new RuleTaskVerificationError('before', ['status']);
           await this.source.deleteTask(original.projectId, taskId);
           let remainingTask: TickTickTask | undefined;
           try { remainingTask = await this.source.getTask(original.projectId, taskId); }

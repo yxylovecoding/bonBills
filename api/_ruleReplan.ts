@@ -5,7 +5,7 @@ import { automaticRestWindow } from '../src/utils/schedulerTime.js';
 import { resolveCalendarState } from '../src/utils/internship.js';
 import { SCHEDULING_RULES, type SchedulingRuleId, type SchedulingRuleResult, type SchedulingRuleConfig, type SchedulingRun } from '../src/utils/schedulingRules.js';
 import { readSchedulingRules, executeRuleGraph, RULE_RUN_KEY, type RuleHandler } from './_schedulingRules.js';
-import { RuleTaskDraft } from './_ruleTaskDraft.js';
+import { RuleTaskDraft, ruleTaskFailureReason } from './_ruleTaskDraft.js';
 import { precedes, withRulePolicy, withActiveRule } from './_rulePolicy.js';
 import { acquireTickTickLock, releaseTickTickLock } from './_ticktickLock.js';
 import { visibilityInputs, visibilityRules, visibilityDecision } from './_taskVisibilityRules.js';
@@ -352,10 +352,10 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
       let updated: number;
       try {
         updated = await draft.commit({ order: config.order, allowed,
-          failed: ids => {
+          failed: (ids, error) => {
             for (const id of ids) {
               const result = run.results.find(r => r.id === id)!;
-              result.status = 'failed'; result.reason = '写入未确认，已停止本规则后续写入';
+              result.status = 'failed'; result.reason = ruleTaskFailureReason(error);
             }
             propagate();
           },
