@@ -1,6 +1,23 @@
 # 免费托管迁移
 
-核对日期：2026-11-04。目标为 Render 免费 Web Service，已在用户确认的 `xinyi's workspace` 创建新加坡 `bonbills` 服务（`srv-dbld16gu01pc739s7o2g`，`https://bonbills.onrender.com`）。17 项应用配置已迁入；登录、Turso 规则/衣柜读取及既有 R2 照片验证通过。PR #2 已合并，Render 已跟随 main 发布。正式域名尚未切换：当前 Cloudflare 登录账号仅有调度 Worker、域名列表为空，待用户切换至域名管理账号。
+核对日期：2026-11-04。已迁至 Render 免费 Web Service，在用户确认的 `xinyi's workspace` 使用新加坡 `bonbills` 服务（`srv-dbld16gu01pc739s7o2g`，`https://bonbills.onrender.com`）。17 项应用配置已迁入，PR #2 与 CPU 优化已发布。正式域名已切换，根域跳转到 `https://www.bonbills.cn`；五个业务子域的 HTTPS、正式域名登录、Turso 规则/衣柜读取及既有 R2 照片验证通过。旧 Vercel 项目保留用于回滚。
+
+## 已完成的域名切换
+
+Cloudflare 域名与调度 Worker 分属两个账号，不能用 Worker 账号的空域名列表判断域名不存在。2026-11-04 在用户指定的域名账号完成以下配置，所有记录均为 DNS only、TTL Auto：
+
+| CNAME 名称 | 当前目标 |
+| --- | --- |
+| `@`、`www`、`bill`、`log`、`clothes`、`*` | `bonbills.onrender.com` |
+| `_acme-challenge` | `bonbills.verify.renderdns.com` |
+| `_cf-custom-hostname` | `bonbills.hostname.renderdns.com` |
+| `cv`（保留） | `ada7aa1771debe1d.vercel-dns-017.com` |
+
+`life.bonbills.cn` 由通配 DNS 覆盖。Render 使用 `www.bonbills.cn` 和 `*.bonbills.cn` 两个绑定，自动配对根域跳转；后台确认占用 **2/2** 个免费域名，三行域名的状态均为 Verified / Certificate Issued。根域由 Render 返回 301，实测 `/calendar?tab=month` 完整跳转到 www 的相同路径和查询；应用内 308 逻辑仍作为适配层的兜底。
+
+验证包括公共 DNS（1.1.1.1）、严格 TLS 校验及 Render 响应标识，避免将本机 DNS 旧缓存命中的 Vercel 误认为新服务。五个业务子域 `/healthz` 均为 200，主站登录和会话为 200，Cookie 包含 Secure/HttpOnly，Turso 规则和 63 件衣物读取为 200，既有 R2 WebP 照片读取为 200。测试会话已注销；没有触发真实排程或改写业务数据。主站浏览器登录页可正常打开。
+
+迁移时正常调度尚未到下一轮；队列中最后一条 15:01 的 524 失败发生在 Worker 切向 Render 之前，不能将其作为迁移后结果。后续以正常云端任务及 Render 指标评估运行表现。
 
 ## 方案与限制
 
@@ -39,11 +56,13 @@ HTTP 验证使用独立假密钥，不连接正式数据、不发送邮件、不
 1. 在用户确认的 Render 工作区创建一个 `bonbills` 免费 Web Service，先使用 `onrender.com` 域名；核对实际 `free` 套餐。不开通付费服务。
 2. 迁移**应用所需**生产环境变量，保留原 `SYNC_SECRET`、存储后端、Turso 配置和调度密钥。不复制 `VERCEL*` 平台变量、过时 GitHub Actions token 或已取消的每日发信凭据。构建脚本不输出密钥，前端只允许既有公开配置。
 3. 沿用现有 Turso 和对象存储，不导入、覆盖或搬运账本数据。检查健康接口、认证、同源 Cookie、只读数据、照片和外部服务连接后再切正式域名；不以测试名义执行排程。
-4. 五个业务域名为 `www`、`bill`、`log`、`clothes`、`life.bonbills.cn`。使用 `www.bonbills.cn`（自动配对根域跳转）加 `*.bonbills.cn`；账户账单实测根域/自动 www 配对占用一个域名额度，计划总占用两个。自动配对不能单独移除；当前本轮新建的根域主绑定尚未验证，重建为 www 主绑定等待用户确认。按 Render 要求验证 DNS 与证书后切换。`cv.bonbills.cn` 属于独立 BonCV 项目，保留其明确的 Vercel DNS 记录；Node 入口将根域以 308 跳转到 `www` 并保留路径和查询。任何会增加费用的域名配置都不得直接执行。
+4. 五个业务域名为 `www`、`bill`、`log`、`clothes`、`life.bonbills.cn`。使用 `www.bonbills.cn`（自动配对根域跳转）加 `*.bonbills.cn`，总占用两个免费域名。用户已明确批准移除本轮新建的未验证根域主绑定，再重建为 www 主绑定；此操作和 DNS/证书验证均已完成。`cv.bonbills.cn` 属于独立 BonCV 项目，保留其明确的 Vercel DNS 记录。任何会增加费用的域名配置都不得直接执行。
 5. 保留 Cloudflare `bonbills-scheduler` 及现有 Durable Object 队列。其 `ORIGIN=https://bonbills.onrender.com` 直接指向已验证的 Render 后端，避免自定义域名待切换期间继续消耗 Vercel CPU。保留所有同步频率、休息窗口和未知写入结果不重试规则；每日邮件已取消。
 6. 月度备份入口已适配 Cloudflare 持久队列，以相同北京时间每月 1 日 08:10 调用 `/api/sync-monthly-backup`。将原 `CRON_SECRET` 写入 Worker 的 `BACKUP_RUN_SECRET`，并设置 `MONTHLY_BACKUP_ENABLED=true`；`vercel.json` 的旧 Cron 已移除，发布生效后再部署 Worker，避免重复调度。备份响应不确定时不会自动重放。
 7. 切换后检查响应、日志和下一次正常云端任务；观察实际内存、流量与任务耗时。旧 Vercel 部署先保留回滚，不删除数据库或原环境变量。
 
 ## 回滚
 
-恢复业务域名的原 Vercel DNS 记录，并让月度备份只有一侧启用。Cloudflare 日常队列的 `ORIGIN` 也须恢复到原 `www` 地址，Turso 数据及会话沿用原实例，不应反向导入旧快照。回滚前确认原 Vercel 账户额度能提供服务。每日邮件的取消是独立用户要求，回滚托管时也不得恢复发信。
+原始 DNS 已导出备份。回滚时将 `@`、`www`、`bill`、`log`、`clothes` 的 CNAME 恢复为 `ecf2517c670b90bd.vercel-dns-017.com`（DNS only、TTL Auto）。`cv` 始终保留上表中的独立目标。`*` 和两条 Render 验证记录为本次新增；原先没有 life 记录，若继续保留 life 入口，应在确认 Vercel 域名绑定后显式指回原项目，而非让它继续命中 Render 通配记录。
+
+让月度备份只有一侧启用。Cloudflare 日常队列的 `ORIGIN` 也须恢复到原 `www` 地址，Turso 数据及会话沿用原实例，不应反向导入旧快照。回滚前确认原 Vercel 账户额度能提供服务。每日邮件的取消是独立用户要求，回滚托管时也不得恢复发信。
