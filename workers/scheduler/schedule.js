@@ -1,10 +1,11 @@
 // UTC cron times; Shanghai is UTC+8 throughout the year.
-export const CRONS = ['1 0-16,21-23 * * *', '0 4,9,12,14,16 * * *'];
+export const CRONS = ['1 0-16,21-23 * * *', '0 4,9,12,14,16 * * *', '10 0 1 * *'];
 export const day = time => new Date(time + 8 * 3600_000).toISOString().slice(0, 10);
-export function scheduledJobs(time) {
+export function scheduledJobs(time, { monthlyBackup = false } = {}) {
   const date = new Date(time), minute = date.getUTCMinutes(), hour = date.getUTCHours();
   const slot = Math.floor(time / 60_000), jobs = [];
   const add = (kind, steps) => jobs.push({ id: `${kind}-${slot}`, kind, scheduledAt: time, steps });
+  if (monthlyBackup && date.getUTCDate() === 1 && hour === 0 && minute === 10) add('monthly-backup', ['monthly-backup']);
   if (minute === 1 && hour === 21) add('full', ['routine-visibility', 'life-periods', 'full', 'daily-email']);
   else if (minute === 1 && (hour <= 16 || hour >= 22)) add('hourly', [...(hour === 23 ? ['reading-visibility'] : []), 'hourly-replan']);
   if (minute !== 0) return jobs;
