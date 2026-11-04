@@ -304,6 +304,16 @@ describe('远端新增专项接入同一裁决', () => {
     const result=await runRuleReplan({scope:'full'});expect(status(result,'outlook-hair').status).toBe('failed');
     expect(m.data.get('ticktick:daily-special-success:v1')).toBeNull();
   });
+  it('接车保留场景标签但日期仍跟随充电次日', async () => {
+    m.tasks = [task('charge', { title: '电动车充电', priority: 5 }), task('pickup', {
+      title: '接电动车', priority: 5, tags: ['居', '北京'], isAllDay: false,
+      content: '(20m)\nBonBills charging pickup: life/charge/initial',
+      startDate: '2026-11-03T07:20:00+0800', dueDate: '2026-11-03T07:40:00+0800',
+    })];
+    const result = await runRuleReplan({ scope: 'full' });
+    expect(status(result, 'vehicle-pickup').status).toBe('success');
+    expect(m.tasks.find(t => t.id === 'pickup')).toMatchObject({ startDate: '2026-11-04T07:20:00+0800', tags: ['居', '北京'] });
+  });
 });
 
 

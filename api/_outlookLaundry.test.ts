@@ -75,6 +75,21 @@ function makeRelay() {
     encrypted: sealOutlookWrite({ webhookUrl: 'https://hook.eu1.make.com/0123456789abcdef0123456789abcdef' }) });
   return relay;
 }
+it('合并接车待办时清理关联的未来预约副本，重复同步不调用 Outlook', async () => {
+  task = { ...task, title: '接电动车', repeatFlag: undefined, content: '(20m)\nBonBills charging pickup: life/charge/initial' };
+  const sync = () => syncElectricVehiclePickup(api, { ...options(), history: [], excludedTaskIds: new Set(), mode: 'outlook' });
+  await sync();
+  task.id = 'duplicate';
+  await sync();
+  expect(events.size).toBe(2);
+  task.id = 'wash'; task.content += '\nBonBills pickup merged: life/duplicate';
+  expect((await sync()).outlook).toMatchObject({ deleted: 1, created: 0 });
+  expect(events.size).toBe(1);
+  expect(events.has('event-1')).toBe(true);
+  vi.mocked(fetch).mockClear();
+  await sync();
+  expect(fetch).not.toHaveBeenCalled();
+});
 it('采用 TickTick 具体时刻和固定50分钟；首轮创建、重复同步无重复、改期更新同一条', async () => {
   expect(laundryEventPlan(task, '2026-10-05', '北京')).toMatchObject({ start: { dateTime: '2026-10-08T08:00:00' }, end: { dateTime: '2026-10-08T08:50:00' } });
   expect(await syncLaundryOutlook(api, options())).toMatchObject({ created: 1, updated: 0 });

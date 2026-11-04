@@ -27,7 +27,7 @@ import { syncChargingOutlook } from './_outlookCharging.js';
 import { syncHairWashOutlook } from './_outlookHairWash.js';
 import { syncEyeDrops, isEyeDrops } from './_ticktickEyeDrops.js';
 import { syncTickTickTemplates } from './_ticktickTemplateSync.js';
-import { syncElectricVehiclePickup } from './_electricVehiclePickup.js';
+import { isElectricVehiclePickup, syncElectricVehiclePickup } from './_electricVehiclePickup.js';
 import { OUTLOOK_WRITE_KEY } from './_outlookWrite.js';
 import { TickTickOpenApiClient, decryptTickTickToken, readAllTickTickTasks, readConnectedTickTickTemplate,
   syncTickTickAlwaysToday, isAlwaysTodayTask, routineTaskDate, routineTaskPayload, routineScenes, routineRecurrence, followsHairWash,
@@ -219,7 +219,7 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
       if (options.scope === 'full' && !sleeping) {
         plan('scene-date', async branch => {
           const tagMap = (calendarState as { tagMap?: Record<string, string> }).tagMap ?? {};
-          for (const task of draft.values().filter(t => pending(t) && !excluded.has(t.id) && !isAlwaysTodayTask(t))) {
+          for (const task of draft.values().filter(t => pending(t) && !excluded.has(t.id) && !isAlwaysTodayTask(t) && !isElectricVehiclePickup(t))) {
             if (followsHairWash(task) && precedes('hair-follow', 'scene-date')) continue;
             const recurrence = routineRecurrence(task.repeatFlag), scenes = routineScenes(task);
             if (!scenes.length || recurrence === 'unknown') continue;
@@ -232,7 +232,7 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
         });
         plan('repeat-date', async branch => {
           const targets = getTickTickRoutineTargetDates(calendarState, today);
-          branch.claimDates(draft.values().filter(t => pending(t) && !excluded.has(t.id) && !isAlwaysTodayTask(t)
+          branch.claimDates(draft.values().filter(t => pending(t) && !excluded.has(t.id) && !isAlwaysTodayTask(t) && !isElectricVehiclePickup(t)
             && routineRecurrence(t.repeatFlag) === 'long' && routineTaskDate(t)
             && routineScenes(t).some(scene => scene !== 'home' && targets[scene] === today)).map(t => t.id));
         });

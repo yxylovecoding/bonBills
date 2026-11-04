@@ -23,6 +23,7 @@ export interface TaskEventOptions {
 }
 export interface EventSpec {
   subject: string; propertyId: string; statePrefix: string;
+  mergedTasks?: (task: TickTickTask) => Pick<TickTickTask, 'projectId' | 'id'>[];
   cycle: (task: TickTickTask) => string | null;
   plan: (task: TickTickTask) => { subject: string; start: EventTime; end: EventTime; location?: { displayName: string } } | null;
 }
@@ -35,7 +36,7 @@ function eventInstant(time: EventTime) {
 function owned(event: CalendarEvent, key: string, propertyId: string) {
   return event.singleValueExtendedProperties?.some(property => property.id === propertyId && property.value === key);
 }
-function linked(event: CalendarEvent, task: TickTickTask) {
+function linked(event: CalendarEvent, task: Pick<TickTickTask, 'projectId' | 'id'>) {
   const links = [...(event.body?.content ?? '').matchAll(/https:\/\/ticktick\.com\/webapp\/#p\/([^\s/<>"'&]+)\/tasks\/([^\s/<>"'&]+)/g)];
   return links.length > 0 && links.every(([, projectId, taskId]) => {
     try { return decodeURIComponent(projectId) === task.projectId && decodeURIComponent(taskId) === task.id; }
@@ -120,7 +121,8 @@ async function syncEvents(request: GraphClient, connection: WriteConnection, api
     if (!plan) continue;
     const key = digest(`${options.ticktickConnectionId}:${task.projectId}:${task.id}:${cycle}`);
     const entry = state.entries[key] ??= { transactionId: key };
-    const fingerprint = digest(JSON.stringify(plan));
+    const mergedTasks = spec.mergedTasks?.(task) ?? [];
+    const fingerprint = digest(JSON.stringify(mergedTasks.length ? { plan, mergedTasks } : plan));
     let event: CalendarEvent | undefined;
     // Only the corresponding task's effective plan/cycle can trigger another
     // Outlook call. Midnight, the appointment date and time elapsed do not.
@@ -132,7 +134,7 @@ async function syncEvents(request: GraphClient, connection: WriteConnection, api
     // Include linked appointments from older cycles and connector-created copies,
     // which cannot be found by the current cycle's extended property alone.
     const appointments = await list();
-    const belongsToTask = (candidate: CalendarEvent) => owned(candidate, key, spec.propertyId) || (linked(candidate, task)
+    const belongsToTask = (candidate: CalendarEvent) => owned(candidate, key, spec.propertyId) || ((linked(candidate, task) || mergedTasks.some(alias => linked(candidate, alias)))
       && (candidate.singleValueExtendedProperties ?? []).filter(property => property.id === spec.propertyId)
         .every(property => state.entries[property.value]?.eventId === candidate.id));
     const candidates = appointments.filter(event => futureAppointment(event, since, spec) && belongsToTask(event));
