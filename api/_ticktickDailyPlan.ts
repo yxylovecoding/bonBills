@@ -16,7 +16,9 @@ const DAY = 86_400_000;
 const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T12:00:00Z`) + n * DAY).toISOString().slice(0, 10);
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / DAY);
 const tags = (task: TickTickTask) => (task.tags ?? []).map((tag) => tag.normalize('NFKC').trim().toLowerCase());
-const pending = (task: TickTickTask) => (task.status ?? 0) === 0;
+// Match the unified writer's completion protection before selecting candidates.
+// A retained completion timestamp must not enter the plan and abort every date write.
+const pending = (task: TickTickTask) => (task.status ?? 0) === 0 && !task.completedTime;
 const ordinary = (task: TickTickTask) => !hasHiddenTag(task) && !tags(task).some((tag) => ['routine', '不关我事'].includes(tag)) && (task.priority ?? 0) < 5;
 const identity = (task: TickTickTask) => JSON.stringify([task.projectId, task.id]);
 

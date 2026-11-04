@@ -196,6 +196,17 @@ describe('日期优先级与失败传播', () => {
 });
 
 describe('小时轮换保留原业务边界', () => {
+  it.each(['full', 'hourly'] as const)('%s 不把带完成时间的记录交给普通轮换，其他未完成任务仍按剩余时间延期', async scope => {
+    const completed = task('a-completed', { completedTime: '2026-11-02T10:00:00+0800', content: '(1h)' });
+    m.tasks = [structuredClone(completed), task('b-selected'), task('c-deferred')];
+    const result = await runRuleReplan({ scope });
+    expect(status(result, 'daily-plan').status).toBe('success');
+    expect(m.tasks[0]).toEqual(completed);
+    expect(m.tasks[1].dueDate).toContain(day);
+    expect(m.tasks[2].dueDate).toContain('2026-11-04');
+    expect(result.dailyPlan).toMatchObject({ todayCount: 1, plannedMinutes: 15 });
+    expect(m.write.mock.calls.map(([id]) => id)).toEqual(['c-deferred']);
+  });
   it.each(['00:30', '01:01', '04:59', '05:00'])('%s 自动入口休息，连写锁也不获取', async time => {
     vi.setSystemTime(new Date(`${day}T${time}:00+0800`)); expect(await replanRemainingToday({ scheduled: true })).toEqual({ busy: false, skipped: 'rest-window' }); expect(m.acquire).not.toHaveBeenCalled();
   });
