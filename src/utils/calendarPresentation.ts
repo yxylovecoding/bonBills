@@ -1,7 +1,7 @@
-import type { DailyContext } from './internship';
-import type { CalendarLocationDay } from './calendarWeather';
-import { cityLabel } from './sceneCities';
-import type { TagKind } from '../models/types';
+import type { DailyContext } from './internship.js';
+import type { CalendarLocationDay } from './calendarWeather.js';
+import { cityLabel } from './sceneCities.js';
+import type { TagKind } from '../models/types.js';
 
 export const normalizedCityName = (name: string) => name.normalize('NFKC').split('·')[0].trim().toLowerCase().replace(/市$/, '');
 export function calendarVisualTag(context: DailyContext): TagKind {
