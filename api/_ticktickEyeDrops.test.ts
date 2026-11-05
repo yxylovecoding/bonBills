@@ -21,6 +21,27 @@ function fixture(tasks: TickTickTask[]) {
   return { api, saved, updateTask };
 }
 describe('眼药水只保留最近一次', () => {
+  it('固定今日按北京日对齐 UTC 时区的眼药水，保留凌晨原时刻', async () => {
+    const tasks = [task('early', '00', { startDate: undefined, dueDate: '2026-11-02T16:05:00Z', timeZone: 'UTC', tags: ['always-today'] })];
+    const f = fixture(tasks);
+    await syncTickTickAlwaysToday(f.api, { tasks, today: '2026-11-03' });
+    expect(f.updateTask).not.toHaveBeenCalled();
+    await syncTickTickAlwaysToday(f.api, { tasks, today: '2026-11-04' });
+    expect(f.saved.get('early')!.dueDate).toBe('2026-11-03T16:05:00Z');
+  });
+  it('只比较北京时间今天已到期的条目，只有一条时不写入', async () => {
+    const tasks = [
+      task('yesterday', '23', { startDate: undefined, dueDate: '2026-11-02T15:59:00Z' }),
+      task('morning', '00', { startDate: undefined, dueDate: '2026-11-02T16:00:00Z' }),
+      task('noon', '13', { dueDate: '2026-11-03T13:00:00+08:00' }),
+    ];
+    const f = fixture(tasks);
+    expect(await syncEyeDrops(f.api, tasks, new Date('2026-11-03T12:00:00+08:00'))).toEqual({ skipped: 0 });
+    expect(f.updateTask).not.toHaveBeenCalled();
+    expect(await syncEyeDrops(f.api, tasks, new Date('2026-11-03T13:00:00+08:00'))).toEqual({ skipped: 1 });
+    expect(f.updateTask.mock.calls.map(([id]) => id)).toEqual(['morning']);
+    expect(f.saved.get('morning')!.dueDate).toBe('2026-11-03T16:00:00.000Z');
+  });
   it('跳过较早的四项且连续执行不再推迟，保留提醒和重复规则', async () => {
     const tasks = ['10','13','15','17','20'].map(h => task(h,h)); const f = fixture(tasks);
     expect(await syncEyeDrops(f.api, tasks, now)).toEqual({ skipped: 4 });
@@ -46,18 +67,16 @@ describe('眼药水只保留最近一次', () => {
   });
   it('完成一天后重复的过期项可以跳过，保留重复基准且不写完成状态', async () => {
     const tasks = ['10','13','15','17','20'].map(h => task(h,h,{repeatFrom:'1',tags:['always-today','at-least','当天','活']}));
-    const f=fixture(tasks), atNoon=new Date('2026-11-04T12:00:00+08:00');
-    tasks[0].startDate='2026-11-04T10:00:00+08:00'; tasks[0].dueDate='2026-11-04T10:05:00+08:00';
-    f.saved.set('10',structuredClone(tasks[0]));
-    expect(await syncEyeDrops(f.api,tasks,atNoon)).toEqual({skipped:4});
-    expect(f.saved.get('10')).toEqual(tasks[0]);
+    const f=fixture(tasks);
+    expect(await syncEyeDrops(f.api,tasks,now)).toEqual({skipped:4});
+    expect(f.saved.get('20')).toEqual(task('20','20',{repeatFrom:'1',tags:['always-today','at-least','当天','活']}));
     expect(f.saved.get('15')!.dueDate).toBe('2026-11-04T07:05:00.000Z');
     for(const [id,payload] of f.updateTask.mock.calls) {
       expect(payload.repeatFrom).toBe('1'); expect(payload.repeatFlag).toBe(task(id,id).repeatFlag);
       expect(payload).not.toHaveProperty('status'); expect(payload).not.toHaveProperty('completedTime');
       expect(payload.tags).toEqual(['always-today','at-least','当天','活']);
     }
-    expect(await syncEyeDrops(f.api,structuredClone([...f.saved.values()]),atNoon)).toEqual({skipped:0});
+    expect(await syncEyeDrops(f.api,structuredClone([...f.saved.values()]),now)).toEqual({skipped:0});
     expect(f.updateTask).toHaveBeenCalledTimes(4);
   });
   it('跳过后固定今日、场景同步、普通补入均不能拉回，下一天自然到期', async () => {
@@ -70,7 +89,7 @@ describe('眼药水只保留最近一次', () => {
     const plan=planTickTickDay({tasks:[...f.saved.values()],calendarState,today:'2026-11-03',now,
       state:{history:[],deadlines:{}},budgetMinutes:240});
     expect(plan.dates.has('old')).toBe(false);
-    expect(await syncEyeDrops(f.api,[...f.saved.values()],new Date('2026-11-04T11:00:00+08:00'))).toEqual({skipped:1});
+    expect(await syncEyeDrops(f.api,[...f.saved.values()],new Date('2026-11-04T11:00:00+08:00'))).toEqual({skipped:0});
     expect(f.saved.get('old')!.dueDate).toBe('2026-11-04T02:05:00.000Z');
   });
 });

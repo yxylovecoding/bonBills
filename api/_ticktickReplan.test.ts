@@ -265,6 +265,56 @@ describe('小时轮换保留原业务边界', () => {
 });
 
 describe('远端新增专项接入同一裁决', () => {
+  const eyeDrop = (hour: string) => task(hour, { title: '眼药水', priority: 5, isAllDay: false,
+    dueDate: `2026-11-02T${hour}:00:00+0800`, repeatFlag: 'RRULE:FREQ=DAILY', repeatFrom: '1', tags: ['always-today'] });
+
+  it('五条定时待办按各自的实际到期时刻逐条替换', async () => {
+    const times = ['08:17', '11:32', '14:06', '18:41', '22:23'];
+    m.tasks = times.map(time => ({ ...eyeDrop(time), dueDate: `2026-11-02T${time}:00+0800` }));
+    for (const [index, time] of times.entries()) {
+      vi.setSystemTime(new Date(`${day}T${time}:00+08:00`));
+      await runRuleReplan({ scope: 'hourly' });
+      expect(m.tasks.filter(task => !task.tags?.includes('hidden')).map(task => task.id)).toEqual([time]);
+      for (const [slot, task] of m.tasks.entries()) {
+        const date = slot < index ? '2026-11-04' : day;
+        expect(Date.parse(task.dueDate!)).toBe(Date.parse(`${date}T${times[slot]}:00+08:00`));
+      }
+    }
+  });
+
+  it('12 点只有 10 点到期，13 点才把 10 点移到明天并隐藏', async () => {
+    m.tasks = [eyeDrop('10'), eyeDrop('13')];
+    vi.setSystemTime(new Date(`${day}T12:00:00+08:00`));
+    await runRuleReplan({ scope: 'hourly' });
+    expect(m.tasks.map(t => [t.dueDate, t.tags])).toEqual([
+      [`${day}T10:00:00+0800`, ['always-today']], [`${day}T13:00:00+0800`, ['always-today', 'hidden']],
+    ]);
+    m.write.mockClear();
+    await runRuleReplan({ scope: 'full' });
+    expect(m.write).not.toHaveBeenCalled();
+    vi.setSystemTime(new Date(`${day}T13:00:00+08:00`));
+    await runRuleReplan({ scope: 'hourly' });
+    expect(m.tasks.map(t => [Date.parse(t.dueDate!), t.tags])).toEqual([
+      [Date.parse('2026-11-04T10:00:00+08:00'), ['always-today', 'hidden']],
+      [Date.parse(`${day}T13:00:00+08:00`), ['always-today']],
+    ]);
+    m.write.mockClear();
+    await runRuleReplan({ scope: 'full' });
+    expect(m.write).not.toHaveBeenCalled();
+  });
+
+  it.each([['eye-drops', 'always-today'], ['always-today', 'eye-drops']] as const)(
+    '%s、%s 同轮处理多条昨日积压时，每条只写一次', async (first, second) => {
+      config([first, second]);
+      m.tasks = [eyeDrop('10'), eyeDrop('13')];
+      const run = await runRuleReplan({ scope: 'full' });
+      expect(status(run, 'eye-drops')).toMatchObject({ status: 'success', conflicts: [] });
+      expect(Date.parse(m.tasks[0].dueDate!)).toBe(Date.parse('2026-11-04T10:00:00+08:00'));
+      expect(m.tasks[0].tags).toContain('hidden');
+      expect(m.tasks[1]).toMatchObject({ dueDate: `${day}T13:00:00+0800`, tags: ['always-today'] });
+      expect(m.write.mock.calls.map(([id]) => id).sort()).toEqual(['10', '13']);
+    });
+
   it('眼药水推进后重新计算具体时刻显隐，每个任务只写一次', async () => {
     m.tasks = [task('old-eye', { title: '眼药水', priority: 5, isAllDay: false, dueDate: '2026-11-01T10:00:00+0800', repeatFlag: 'RRULE:FREQ=DAILY', repeatFrom: '1', tags: ['always-today'] }),
       task('recent-eye', { title: '眼药水', priority: 5, isAllDay: false, dueDate: '2026-11-03T15:00:00+0800', repeatFlag: 'RRULE:FREQ=DAILY', repeatFrom: '1', tags: ['always-today'] })];

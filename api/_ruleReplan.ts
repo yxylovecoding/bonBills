@@ -5,7 +5,7 @@ import { kv } from './_accountKv.js';
 import { automaticRestWindow } from '../src/utils/schedulerTime.js';
 import { resolveCalendarState } from '../src/utils/internship.js';
 import { SCHEDULING_RULES, type SchedulingRuleId, type SchedulingRuleResult, type SchedulingRuleConfig, type SchedulingRun } from '../src/utils/schedulingRules.js';
-import { readSchedulingRules, executeRuleGraph, RULE_RUN_KEY, type RuleHandler } from './_schedulingRules.js';
+import { readSchedulingRules, executeRuleGraph, schedulingRuleFailureReason, RULE_RUN_KEY, type RuleHandler } from './_schedulingRules.js';
 import { RuleTaskDraft, ruleTaskFailureReason } from './_ruleTaskDraft.js';
 import { precedes, withRulePolicy, withActiveRule } from './_rulePolicy.js';
 import { acquireTickTickLock, releaseTickTickLock } from './_ticktickLock.js';
@@ -30,7 +30,7 @@ import { syncTickTickTemplates } from './_ticktickTemplateSync.js';
 import { isElectricVehiclePickup, syncElectricVehiclePickup } from './_electricVehiclePickup.js';
 import { OUTLOOK_WRITE_KEY } from './_outlookWrite.js';
 import { TickTickOpenApiClient, decryptTickTickToken, readAllTickTickTasks, readConnectedTickTickTemplate,
-  syncTickTickAlwaysToday, isAlwaysTodayTask, routineTaskDate, routineTaskPayload, routineScenes, routineRecurrence, followsHairWash,
+  syncTickTickAlwaysToday, isAlwaysTodayTask, isPastEyeDrop, routineTaskDate, routineTaskPayload, routineScenes, routineRecurrence, followsHairWash,
   calendarDateInTimeZone, matchCompletedOccurrences,
   nextRoutineSceneDate, separateTickTickSprays, buildTripSourcesFromSyncState, reconcileTickTickTrips, reconcileTickTickWishPreparations,
   getTickTickRoutineExcludedTaskIds, getTickTickRoutineTargetDates, type TickTickTask, type TickTickTemplate, type TickTickConnection, type TickTickTripSyncState } from './_ticktickTrips.js';
@@ -165,10 +165,12 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
       }
       const sleeping = Boolean(options.scheduled && sleepWindow(now).hidden);
       if (options.scope !== 'visibility' && !sleeping) {
-        plan('eye-drops', async branch => {
-          await syncEyeDrops(branch.api, draft.values(), now, connection.timeZone);
-          branch.claimDates(draft.values().filter(task => pending(task) && isEyeDrops(task)).map(task => task.id));
-        }, false);
+        handlers['eye-drops'] = async () => {
+          // Leave stale slots open for always-today. Deduplicate once the dates and visibility are known.
+          const eyes = draft.values().filter(task => pending(task) && isEyeDrops(task) && !abandonedToday.has(task.id));
+          draft.protect('eye-drops', eyes.filter(task => !isPastEyeDrop(task, today)).map(task => task.id));
+          return { matched: eyes.length };
+        };
         for (const [id, mode] of [['template-content', 'content'], ['moving-date', 'dates']] as const) plan(id, async branch => {
           if (!draft.values().some(task => /^搬家模[板版]$/.test(task.title.trim()) || task.title.includes('搬家-'))) return;
           const result = await syncTickTickTemplates(branch.api, connection.templateRootId, connectionId, {
@@ -225,7 +227,7 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
           const values = draft.values();
           const wasCompleted = matchCompletedOccurrences(values, state.history.filter(record =>
             calendarDateInTimeZone(record.completedTime, 'Asia/Shanghai') === today));
-          for (const task of values.filter(t => pending(t) && !excluded.has(t.id) && !isAlwaysTodayTask(t) && !isElectricVehiclePickup(t))) {
+          for (const task of values.filter(t => pending(t) && !excluded.has(t.id) && !isAlwaysTodayTask(t) && !isEyeDrops(t) && !isElectricVehiclePickup(t))) {
             if (followsHairWash(task) && precedes('hair-follow', 'scene-date')) continue;
             const recurrence = routineRecurrence(task.repeatFlag), scenes = routineScenes(task);
             if (!scenes.length || recurrence === 'unknown') continue;
@@ -238,7 +240,7 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
         });
         plan('repeat-date', async branch => {
           const targets = getTickTickRoutineTargetDates(calendarState, today);
-          branch.claimDates(draft.values().filter(t => pending(t) && !excluded.has(t.id) && !isAlwaysTodayTask(t) && !isElectricVehiclePickup(t)
+          branch.claimDates(draft.values().filter(t => pending(t) && !excluded.has(t.id) && !isAlwaysTodayTask(t) && !isEyeDrops(t) && !isElectricVehiclePickup(t)
             && routineRecurrence(t.repeatFlag) === 'long' && routineTaskDate(t)
             && routineScenes(t).some(scene => scene !== 'home' && targets[scene] === today)).map(t => t.id));
         });
@@ -328,6 +330,21 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
       }
       // Field dependencies are resolved against final proposals, before any write.
       // This refresh does not change precedence or accept an unsuccessful node.
+      const eyeDrops = run.results.find(result => result.id === 'eye-drops');
+      if (eyeDrops?.status === 'success' && eyeDrops.matched > 0) {
+        const branch = draft.branch('eye-drops');
+        try {
+          const alignmentSucceeded = run.results.find(result => result.id === 'always-today')?.status === 'success';
+          const candidates = draft.values().filter(task => isEyeDrops(task) && !abandonedToday.has(task.id)
+            && (alignmentSucceeded || draft.datesConfirmed(task.id)));
+          await syncEyeDrops(branch.api, candidates, now, connection.timeZone);
+          eyeDrops.conflicts = branch.accept().conflicts;
+        } catch (error) {
+          branch.reject();
+          eyeDrops.status = 'failed';
+          eyeDrops.reason = schedulingRuleFailureReason(error);
+        }
+      }
       if (run.results.find(r => r.id === 'hair-follow')?.status === 'success') {
         try { await withActiveRule('hair-follow', handlers['hair-follow']!); }
         catch { const result = run.results.find(r => r.id === 'hair-follow')!; result.status = 'failed'; result.reason = '洗头来源日期未确认'; }

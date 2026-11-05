@@ -177,7 +177,11 @@ export class RuleTaskDraft {
               conflicts.push({ taskId, winner: dateOwner, field: 'date' }); continue;
             }
             const owner = owners.get(ruleGroup(id, key));
-            if (owner && owner !== id) { conflicts.push({ taskId, winner: owner, field: group(key) }); continue; }
+            // Eye-drop deduplication consumes the day's slots produced by always-today.
+            // Only a real alignment can be refined, never a failed rule's protected date.
+            const alignedEyeDrop = id === 'eye-drops' && owner === 'always-today' && dateFields.has(key)
+              && !this.datesConfirmed(taskId);
+            if (owner && owner !== id && !alignedEyeDrop) { conflicts.push({ taskId, winner: owner, field: group(key) }); continue; }
             Object.assign(next, { [key]: task[key] }); owners.set(ruleGroup(id, key), id);
           }
           if (claims.has(taskId) && !this.protectedDateTaskIds.has(taskId) && !owners.has('date')) owners.set('date', id);

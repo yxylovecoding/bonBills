@@ -1,5 +1,5 @@
 import { dateTimeFormatter } from './_dateTimeFormat.js';
-import { isEyeDrops } from './_ticktickEyeDrops.js';
+import { canAdvanceEyeDrop, eyeDropShanghaiDay, isEyeDrops } from './_ticktickEyeDrops.js';
 import { currentRule, precedes } from './_rulePolicy.js';
 import { collectCompleted } from './_ticktickCompleted.js';
 import { schedulingStage } from './_schedulingFailure.js';
@@ -701,6 +701,12 @@ export function routineTaskDate(task: TickTickTask): string | null {
   return calendarDateInTimeZone(task.dueDate || task.startDate, task.timeZone);
 }
 
+export function isPastEyeDrop(task: TickTickTask, today: string): boolean {
+  if (!isEyeDrops(task)) return false;
+  const date = eyeDropShanghaiDay(task);
+  return date !== null && date < today;
+}
+
 export function isAlwaysTodayTask(task: TickTickTask): boolean {
   const active = currentRule();
   if (active && active !== 'always-today' && !precedes('always-today', active)) return false;
@@ -915,7 +921,10 @@ export function routineSceneMatchesDate(task: TickTickTask, calendarState: unkno
 export async function syncTickTickAlwaysToday(api: TickTickApi, options: { tasks?: TickTickTask[]; today?: string; calendarState?: unknown; protectedTaskIds?: ReadonlySet<string> } = {}) {
   const tasks = options.tasks ?? await readAllTickTickTasks(api, [0]);
   const today = options.today ?? calendarDateInTimeZone(new Date().toISOString())!;
-  const candidates = tasks.filter(task => !options.protectedTaskIds?.has(task.id) && !isEyeDrops(task) && isAlwaysTodayTask(task) && (task.status ?? 0) === 0 && !task.completedTime);
+  // A skipped eye-drop slot is already scheduled for its next occurrence.
+  // Only yesterday's (or older) tagged slots need to be aligned to today.
+  const needsToday = (task: TickTickTask) => !isEyeDrops(task) || isPastEyeDrop(task, today) && canAdvanceEyeDrop(task);
+  const candidates = tasks.filter(task => !options.protectedTaskIds?.has(task.id) && needsToday(task) && isAlwaysTodayTask(task) && (task.status ?? 0) === 0 && !task.completedTime);
   if (!candidates.length) return { matched: 0, updated: 0 };
   const calendarState = options.calendarState ?? (candidates.some(task => routineScenes(task).length)
     ? await readRoutineCalendarState() : undefined);
@@ -941,14 +950,18 @@ export async function syncTickTickAlwaysToday(api: TickTickApi, options: { tasks
     if (!task || task.id !== candidate.id || task.projectId !== candidate.projectId) throw new Error('always-today 待办读取失败');
     const datesChanged = candidate.startDate !== task.startDate || candidate.dueDate !== task.dueDate;
     Object.assign(candidate, task);
-    if (!isAlwaysTodayTask(task) || (task.status ?? 0) !== 0 || task.completedTime) continue;
+    if (!isAlwaysTodayTask(task) || !needsToday(task) || (task.status ?? 0) !== 0 || task.completedTime) continue;
     matched++;
     if (wasCompleted(task)) continue;
     // A new recurring occurrence may have appeared after the history snapshot.
     // Leave concurrently advanced/edited dates for the next fresh read.
     if (task.repeatFlag && datesChanged) continue;
-    const target = nextRoutineSceneDate(task, calendarState, today);
-    if (!target) continue;
+    const sceneDate = nextRoutineSceneDate(task, calendarState, today);
+    if (!sceneDate) continue;
+    // The date writer expects a task-local day. A midnight Beijing slot may
+    // still belong to the previous calendar day in the task's timezone.
+    const eyeDay = isEyeDrops(task) ? eyeDropShanghaiDay(task) : null;
+    const target = eyeDay ? addCalendarDays(routineTaskDate(task)!, calendarDayDifference(sceneDate, eyeDay)) : sceneDate;
     const saved = await updateRoutineTaskDate(api, task, target, true, true);
     if (!saved) continue;
     if ((saved.status ?? 0) !== 0 || saved.completedTime || saved.projectId !== task.projectId

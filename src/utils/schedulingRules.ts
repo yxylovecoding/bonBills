@@ -9,7 +9,7 @@ export const SCHEDULING_RULES = [
   ['visibility-hair', '洗头显隐', '洗头在北京时间 20:00 后显示，次日凌晨重新隐藏。', 'visibility'],
   ['visibility-night', '夜间 routine', '按自身开始时刻显隐，并维持高优先级；保留用户 routine 标签。', 'visibility'],
   ['visibility-timed', '具体时刻显隐', '有具体时刻的待办开始前隐藏，到点显示。', 'visibility'],
-  ['eye-drops', '眼药水过期项', '重要定时重复眼药水仅保留最近到期项，其余按原规则推进；不记完成。', 'date'],
+  ['eye-drops', '眼药水过期项', '今天多条眼药水已到点时，保留最近到期的一条，较早的按原周期顺延。', 'date'],
   ['template-content', '出门与搬家模板内容', '对齐十组模板内容，再同步已有搬家实例；保留标签、父子关系和完成进度。', 'generation'],
   ['moving-date', '搬家阶段日期', '按搬家标题日期安排各阶段和后代，保留原时刻与重复规则。', 'date'],
   ['scene-eligibility', '可执行场景', '寄／居／旅决定可执行日期；多个场景满足任一即可，子任务使用自身标签。', 'date'],

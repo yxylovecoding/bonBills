@@ -4,9 +4,13 @@ import { hasHiddenTag } from './_ticktickHiddenTag.js';
 import { wallTimeInstant } from './_calendarTimezone.js';
 import type { TickTickApi, TickTickTask } from './_ticktickTrips.js';
 
-// These recurrences belong to TickTick's schedule, never to automatic date pulling.
 export const isEyeDrops = (task: TickTickTask) => task.title.normalize('NFKC').trim() === '眼药水'
   && Boolean(task.repeatFlag);
+export function canAdvanceEyeDrop(task: TickTickTask): boolean {
+  const rule = task.repeatFlag?.replace(/^RRULE:/i, '') ?? '';
+  return /^FREQ=(DAILY|WEEKLY|MONTHLY|YEARLY)(;|$)/.test(rule)
+    && !/(?:^|;)(COUNT|UNTIL)=/.test(rule) && !task.items?.length;
+}
 const pending = (task: TickTickTask) => (task.status ?? 0) === 0 && !task.completedTime;
 const fields = ['title', 'content', 'desc', 'isAllDay', 'timeZone', 'reminders', 'tags', 'repeatFlag', 'repeatFrom',
   'priority', 'sortOrder', 'kind', 'parentId', 'items', 'startDate', 'dueDate'] as const;
@@ -24,12 +28,21 @@ function instant(task: TickTickTask, zone: string) {
   return Date.parse(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : wallTimeInstant(value, zone));
 }
 
+export function eyeDropShanghaiDay(task: TickTickTask): string | null {
+  if (task.isAllDay !== false) return null;
+  const due = instant(task, task.timeZone || 'Asia/Shanghai');
+  return Number.isFinite(due) ? wall(new Date(due).toISOString(), 'Asia/Shanghai').slice(0, 10) : null;
+}
+
 export async function syncEyeDrops(api: Pick<TickTickApi, 'getTask' | 'updateTask'>,
   tasks: TickTickTask[], now = new Date(), fallbackZone = 'Asia/Shanghai') {
+  const today = wall(now.toISOString(), 'Asia/Shanghai').slice(0, 10);
+  const midnight = Date.parse(`${today}T00:00:00+08:00`);
   const candidates = tasks.filter(task => {
     if (!isEyeDrops(task) || !pending(task) || task.priority !== 5 || task.isAllDay !== false) return false;
     if (hasHiddenTag(task) || (task.tags ?? []).some(tag => tag.normalize('NFKC').trim().toLowerCase() === 'routine')) return false;
-    return instant(task, task.timeZone || fallbackZone) <= now.getTime();
+    const due = instant(task, task.timeZone || fallbackZone);
+    return midnight <= due && due <= now.getTime();
   }).sort((a, b) => instant(b, b.timeZone || fallbackZone) - instant(a, a.timeZone || fallbackZone)
     || `${a.projectId}/${a.id}`.localeCompare(`${b.projectId}/${b.id}`));
   const keep = candidates[0];
@@ -38,8 +51,7 @@ export async function syncEyeDrops(api: Pick<TickTickApi, 'getTask' | 'updateTas
   const changes = candidates.slice(1).map(task => {
     const zone = task.timeZone || fallbackZone;
     const ruleText = task.repeatFlag!.replace(/^RRULE:/i, '');
-    if (!/^FREQ=(DAILY|WEEKLY|MONTHLY|YEARLY)(;|$)/.test(ruleText)
-      || /(?:^|;)(COUNT|UNTIL)=/.test(ruleText) || task.items?.length) {
+    if (!canAdvanceEyeDrop(task)) {
       throw new Error('眼药水重复规则不支持安全跳过，保留原任务');
     }
     // Skipping an occurrence advances its current due date, not a fabricated
