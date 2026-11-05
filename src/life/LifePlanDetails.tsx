@@ -20,7 +20,7 @@ export default function LifePlanDetails({ plan }: { plan: TickTickPlanDetails })
     </details>}
     {b ? <section aria-label="剩余可排期时间">
         <dl className="life-plan-ledger">
-          <div><dt>可排期时间</dt><dd>{minuteText(b.windowMinutes)}</dd></div>
+          <div className="life-plan-time"><dt>可排期时间</dt><dd>{minuteText(b.windowMinutes)}</dd></div>
         </dl>
         <details className="life-plan-collapsible">
           <summary><span>Outlook 日程 · 共 {b.calendarEvents?.length ?? 0} 项 · 约 {minuteText(b.occupiedMinutes)}</span></summary>
@@ -30,7 +30,7 @@ export default function LifePlanDetails({ plan }: { plan: TickTickPlanDetails })
           </li>)}</ul> : <p className="life-plan-meta">暂无 Outlook 日程。</p>}
         </details>
         <dl className="life-plan-ledger">
-          <div className="life-plan-subtotal"><dt>扣除日程后剩余</dt><dd>{minuteText(b.freeMinutes)}</dd></div>
+          <div className="life-plan-time life-plan-time-after-calendar"><dt>扣除日程后剩余</dt><dd>{minuteText(b.freeMinutes)}</dd></div>
         </dl>
         <details className="life-plan-collapsible">
           <summary><span>今日重要之事 · 共 {b.important.length} 项 · {importantOccupiedMinutes === importantTotalMinutes ? '约' : '另需'} {minuteText(importantOccupiedMinutes)}</span></summary>
@@ -39,7 +39,7 @@ export default function LifePlanDetails({ plan }: { plan: TickTickPlanDetails })
           </li>)}</ul> : <p className="life-plan-meta">本次没有未完成的重要事项。</p>}
         </details>
         <dl className="life-plan-ledger">
-          <div className="life-plan-subtotal"><dt>扣除今日重要之事后剩余</dt><dd>{b.freeAfterImportantMinutes === undefined ? '—' : minuteText(b.freeAfterImportantMinutes)}</dd></div>
+          <div className="life-plan-time life-plan-time-after-important"><dt>扣除今日重要之事后剩余</dt><dd>{b.freeAfterImportantMinutes === undefined ? '—' : minuteText(b.freeAfterImportantMinutes)}</dd></div>
           <div className="life-plan-subtotal"><dt>本轮可新增安排</dt><dd>{minuteText(b.newTaskCapacityMinutes)}</dd></div>
         </dl>
       </section> : <p className="life-plan-meta">暂无时间明细，Orchestrate 完成后可查看。</p>}

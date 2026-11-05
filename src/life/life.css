@@ -172,6 +172,18 @@
 .life-plan-ledger dd { margin: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .life-plan-ledger .life-plan-subtotal { border-top: 1px solid var(--life-line); margin-top: 5px; padding-top: 8px; }
 .life-plan-subtotal dt { color: var(--life-ink); }
+.life-plan-ledger > .life-plan-time {
+  align-items: baseline;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: #e8eef2;
+  color: #41596b;
+  font-weight: 600;
+}
+.life-plan-ledger > .life-plan-time-after-calendar { margin-top: 5px; background: #f3ede0; color: #725c35; }
+.life-plan-ledger > .life-plan-time-after-important { margin-top: 5px; background: #e7eee3; color: #445e40; }
+.life-plan-time dt { color: inherit; }
+.life-plan-time dd { font-size: 15px; }
 .life-plan-tasks { list-style: none; padding: 0; margin: 0; }
 .life-plan-tasks li { padding: 9px 0; border-top: 1px solid var(--life-line); overflow-wrap: anywhere; }
 .life-plan-tasks li > div > span:last-child { white-space: nowrap; flex-shrink: 0; color: var(--life-muted); font-variant-numeric: tabular-nums; }
