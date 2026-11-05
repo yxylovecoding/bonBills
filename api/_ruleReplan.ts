@@ -31,6 +31,7 @@ import { isElectricVehiclePickup, syncElectricVehiclePickup } from './_electricV
 import { OUTLOOK_WRITE_KEY } from './_outlookWrite.js';
 import { TickTickOpenApiClient, decryptTickTickToken, readAllTickTickTasks, readConnectedTickTickTemplate,
   syncTickTickAlwaysToday, isAlwaysTodayTask, routineTaskDate, routineTaskPayload, routineScenes, routineRecurrence, followsHairWash,
+  calendarDateInTimeZone, matchCompletedOccurrences,
   nextRoutineSceneDate, separateTickTickSprays, buildTripSourcesFromSyncState, reconcileTickTickTrips, reconcileTickTickWishPreparations,
   getTickTickRoutineExcludedTaskIds, getTickTickRoutineTargetDates, type TickTickTask, type TickTickTemplate, type TickTickConnection, type TickTickTripSyncState } from './_ticktickTrips.js';
 
@@ -221,14 +222,17 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
       if (options.scope === 'full' && !sleeping) {
         plan('scene-date', async branch => {
           const tagMap = (calendarState as { tagMap?: Record<string, string> }).tagMap ?? {};
-          for (const task of draft.values().filter(t => pending(t) && !excluded.has(t.id) && !isAlwaysTodayTask(t) && !isElectricVehiclePickup(t))) {
+          const values = draft.values();
+          const wasCompleted = matchCompletedOccurrences(values, state.history.filter(record =>
+            calendarDateInTimeZone(record.completedTime, 'Asia/Shanghai') === today));
+          for (const task of values.filter(t => pending(t) && !excluded.has(t.id) && !isAlwaysTodayTask(t) && !isElectricVehiclePickup(t))) {
             if (followsHairWash(task) && precedes('hair-follow', 'scene-date')) continue;
             const recurrence = routineRecurrence(task.repeatFlag), scenes = routineScenes(task);
             if (!scenes.length || recurrence === 'unknown') continue;
             const scene = tagMap[today] === 'home' ? 'home' : tagMap[today] === 'travel' ? 'travel' : ['intern', 'school'].includes(tagMap[today]) ? 'school' : null;
             if (recurrence === 'long' && !scene) continue;
-            const completed = state.history.some(record => record.id === task.id && record.projectId === task.projectId && record.completedTime?.slice(0, 10) === today);
-            const date = nextRoutineSceneDate(task, calendarState, completed && recurrence === 'daily' ? plusDay(today) : today);
+            const from = recurrence === 'daily' && wasCompleted(task) ? plusDay(today) : today;
+            const date = nextRoutineSceneDate(task, calendarState, from);
             if (date) await branch.api.updateTask(task.id, routineTaskPayload(task, date));
           }
         });

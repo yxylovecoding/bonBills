@@ -319,6 +319,28 @@ describe('远端新增专项接入同一裁决', () => {
 });
 
 
+describe('每日场景任务完成后从明天选日', () => {
+  it.each([
+    ['old-occurrence', '2026-11-03T01:00:00Z'],
+    ['nuts', '2026-11-02T23:58:00Z'],
+    ['old-occurrence', '2026-11-02T23:58:00Z'],
+  ])('按上海完成日和重复系列修复当天待办 (%s, %s)', async (completedId, completedTime) => {
+    const atEight = day + 'T08:00:00+0800';
+    const tomorrow = '2026-11-04T08:00:00+0800';
+    const nuts = task('nuts', { title: '吃坚果', priority: 5, tags: ['当天', '居', '活'], isAllDay: false,
+      startDate: atEight, dueDate: atEight, repeatFlag: 'RRULE:FREQ=DAILY;INTERVAL=1', repeatFrom: '1',
+      reminders: ['TRIGGER:PT0S'] });
+    m.tasks = [structuredClone(nuts)];
+    m.history = [task(completedId, { title: nuts.title, status: 2, completedTime })];
+    await runRuleReplan({ scope: 'full' });
+    expect(m.tasks[0]).toMatchObject({ startDate: tomorrow, dueDate: tomorrow, repeatFlag: nuts.repeatFlag,
+      repeatFrom: nuts.repeatFrom, reminders: nuts.reminders, status: 0 });
+    m.write.mockClear();
+    await runRuleReplan({ scope: 'full' });
+    expect(m.write).not.toHaveBeenCalled();
+  });
+});
+
 describe('当天放弃的重复任务不重新安排', () => {
   it.each(['full', 'hourly', 'visibility'] as const)('%s 保留场景任务、普通任务和固定今日的下一次日期', async scope => {
     const future = '2026-11-04T08:00:00+0800';

@@ -713,6 +713,23 @@ export function routineOccurrenceKey(task: TickTickTask): string {
   return JSON.stringify([task.projectId, task.parentId ?? '', task.title]);
 }
 
+export function matchCompletedOccurrences(tasks: TickTickTask[], completed: TickTickTask[]) {
+  const identity = (task: TickTickTask) => JSON.stringify([task.projectId, task.id]);
+  const completedIds = new Set(completed.map(identity));
+  const completedFamilies = new Set(completed.map(routineOccurrenceKey));
+  const familyCounts = new Map<string, number>();
+  for (const task of tasks) {
+    if ((task.status ?? 0) !== 0 || task.completedTime) continue;
+    const key = routineOccurrenceKey(task);
+    familyCounts.set(key, (familyCounts.get(key) ?? 0) + 1);
+  }
+  return (task: TickTickTask) => {
+    if (completedIds.has(identity(task))) return true;
+    const key = routineOccurrenceKey(task);
+    return Boolean(task.repeatFlag) && familyCounts.get(key) === 1 && completedFamilies.has(key);
+  };
+}
+
 export function sprayKind(task: TickTickTask): 'fragrance' | 'mite' | null {
   const title = withoutDurationAnnotations(task.title);
   return title === '香香喷雾' ? 'fragrance' : title === '除螨喷雾' ? 'mite' : null;
@@ -916,14 +933,7 @@ export async function syncTickTickAlwaysToday(api: TickTickApi, options: { tasks
       return Date.parse(task.completedTime) <= Date.now() && calendarDateInTimeZone(task.completedTime, 'Asia/Shanghai') === today;
     });
   });
-  const identity = (task: TickTickTask) => JSON.stringify([task.projectId, task.id]);
-  const completedIds = new Set(completed.map(identity));
-  const completedFamilies = new Set(completed.map(routineOccurrenceKey));
-  const familyCounts = new Map<string, number>();
-  for (const task of tasks.filter(task => (task.status ?? 0) === 0 && !task.completedTime)) {
-    const key = routineOccurrenceKey(task);
-    familyCounts.set(key, (familyCounts.get(key) ?? 0) + 1);
-  }
+  const wasCompleted = matchCompletedOccurrences(tasks, completed);
   let matched = 0, updated = 0;
   for (const candidate of candidates) {
     if (!isAlwaysTodayTask(candidate) || (candidate.status ?? 0) !== 0 || candidate.completedTime) continue;
@@ -933,9 +943,7 @@ export async function syncTickTickAlwaysToday(api: TickTickApi, options: { tasks
     Object.assign(candidate, task);
     if (!isAlwaysTodayTask(task) || (task.status ?? 0) !== 0 || task.completedTime) continue;
     matched++;
-    const family = routineOccurrenceKey(task);
-    if (completedIds.has(identity(task)) || Boolean(task.repeatFlag)
-        && familyCounts.get(family) === 1 && completedFamilies.has(family)) continue;
+    if (wasCompleted(task)) continue;
     // A new recurring occurrence may have appeared after the history snapshot.
     // Leave concurrently advanced/edited dates for the next fresh read.
     if (task.repeatFlag && datesChanged) continue;
@@ -1028,10 +1036,8 @@ export async function syncTickTickRoutines(options: {
     `${today}T00:00:00+0800`,
     `${today}T23:59:59.999+0800`,
   ) : [];
-  const completedKeys = new Set(completedToday
-    .filter((task) => (task.status ?? 2) === 2
-      && calendarDateInTimeZone(task.completedTime, 'Asia/Shanghai') === today)
-    .map(routineOccurrenceKey));
+  const wasCompleted = matchCompletedOccurrences(allTasks, completedToday.filter(task =>
+    (task.status ?? 2) === 2 && calendarDateInTimeZone(task.completedTime, 'Asia/Shanghai') === today));
   const tomorrowTargets = getTickTickRoutineTargetDates(calendarState, addCalendarDays(today, 1));
 
   const targetDates = new Map<string, string>();
@@ -1051,8 +1057,7 @@ export async function syncTickTickRoutines(options: {
     return scenes.map(scene => targets[scene]).filter((day): day is string => day !== null).sort()[0] ?? null;
   };
   for (const { task, scenes, recurrence } of schedulingCandidates) {
-    const completedThisOccurrence = Boolean(task.repeatFlag)
-      && completedKeys.has(routineOccurrenceKey(task));
+    const completedThisOccurrence = Boolean(task.repeatFlag) && wasCompleted(task);
     const targets = completedThisOccurrence ? tomorrowTargets : routineTargets;
     const taskTargetDate = recurrence === 'long'
       ? findRoutineTargetDate(tagMap, completedThisOccurrence ? addCalendarDays(today, 1) : today, (tag) => {
