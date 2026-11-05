@@ -201,6 +201,7 @@ export class RuleTaskDraft {
   async commit(options?: {
     order: SchedulingRuleId[];
     allowed: (id: SchedulingRuleId) => boolean;
+    beforeUpdate?: (task: TickTickTask) => Promise<void>;
     afterRule: (id: SchedulingRuleId) => Promise<void>;
     failed: (ids: SchedulingRuleId[], error: unknown) => void;
   }) {
@@ -307,6 +308,7 @@ export class RuleTaskDraft {
           verify(fresh, original, original, 'before');
           const payload = this.resolveIds({ id: task.id, projectId: task.projectId,
             ...Object.fromEntries(fields.filter(k => task[k] !== undefined).map(k => [k, task[k]])) });
+          await options?.beforeUpdate?.(task);
           await this.source.updateTask(task.id, payload);
           const saved = await this.source.getTask(task.projectId, task.id);
           const assigned = assignedChecklistIds(task.items, saved?.items, original.items);

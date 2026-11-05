@@ -139,13 +139,14 @@ export function planTickTickDay(options: {
   now?: Date;
   excludedTaskIds?: ReadonlySet<string>;
   movableTaskIds?: ReadonlySet<string>;
-}): { dates: Map<string, string>; summary: DailyPlanSummary } {
+}): { dates: Map<string, string>; summary: DailyPlanSummary; overBudget: Set<string> } {
   const { tasks, calendarState, today, state, excludedTaskIds = new Set<string>() } = options;
   const timezone = options.timezone ?? 'Asia/Shanghai';
   const now = options.now ?? new Date();
   const tomorrow = addDays(today, 1);
   const horizon = addDays(today, 30);
   const dates = new Map<string, string>();
+  const overBudget = new Set<string>();
   const open = tasks.filter(pending);
   const byId = new Map(open.map((task) => [task.id, task]));
   const familyCounts = new Map<string, number>();
@@ -343,6 +344,9 @@ export function planTickTickDay(options: {
       used += candidate.minutes;
       for (const member of candidate.members) dates.set(member.id, today);
     } else {
+      if (reachedMinimumInterval && !sprayConflict && (!fits || used + candidate.minutes > available)) {
+        overBudget.add(candidate.task.id);
+      }
       if (reachedMinimumInterval && !sprayConflict) oldestWaiting = Math.min(oldestWaiting ?? Infinity, completionTime);
       // Unselected future tasks retain their date; refill is not permission to
       // postpone the rest of tomorrow's list.
@@ -380,5 +384,5 @@ export function planTickTickDay(options: {
     selectionMode: 'remaining-time',
     unallocatedMinutes: Math.max(0, available - finalSelected.filter(task => candidateIds.has(task.id)).reduce((sum, task) => sum + task.minutes, 0)),
   } };
-  return { dates, summary };
+  return { dates, summary, overBudget };
 }

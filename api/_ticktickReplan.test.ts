@@ -228,6 +228,54 @@ describe('日期优先级与失败传播', () => {
 });
 
 describe('小时轮换保留原业务边界', () => {
+  it.each([['daily-plan', 'scene-date'], ['scene-date', 'daily-plan']] as const)(
+    '%s 在 %s 之前：场景合适但未排入预算的任务隐藏，重新入选时恢复', async (first, second) => {
+      config([first, second]);
+      vi.setSystemTime(new Date(day + 'T09:00:00+08:00'));
+      m.data.set(DAILY_PLAN_SETTINGS_KEY, { budgetMinutes: 40 });
+      const future = '2026-11-04T00:00:00+0800';
+      m.tasks = [task('书衣', { tags: ['居', '玩'], content: '(2h)', dueDate: future }),
+        task('已手动隐藏', { tags: ['hidden'] }), task('未来普通项', { dueDate: future, content: '(2h)' })];
+      const firstRun = await runRuleReplan({ scope: 'full' });
+      expect(firstRun.details?.selected).toEqual([]);
+      expect(m.tasks[0].dueDate?.slice(0, 10)).toBe(first === 'daily-plan' ? '2026-11-04' : day);
+      expect(m.tasks[0].tags).toEqual(['居', '玩', 'hidden']);
+      expect(m.tasks[2].tags).toBeUndefined();
+      await runRuleReplan({ scope: 'visibility', visibilityKind: 'daily' });
+      expect(m.tasks[0].tags).toContain('hidden');
+      await runRuleReplan({ scope: 'hourly' });
+      expect(m.tasks[0].tags).toContain('hidden');
+      vi.setSystemTime(new Date(day + 'T09:30:00+08:00'));
+      m.data.set(DAILY_PLAN_SETTINGS_KEY, { budgetMinutes: 240 });
+      const expanded = await runRuleReplan({ scope: 'hourly' });
+      expect(expanded.details?.selected.some(item => item.id === '书衣')).toBe(true);
+      expect(m.tasks[0].tags).toEqual(['居', '玩']);
+      expect(m.tasks[1].tags).toEqual(['hidden']);
+    });
+  it('预算隐藏恢复时继续服从其他隐藏原因', async () => {
+    m.tasks = [task('书衣', { tags: ['居', '北京'], content: '(2h)' })];
+    await runRuleReplan({ scope: 'hourly' });
+    expect(m.tasks[0].tags).toContain('hidden');
+    m.city = '广州';
+    vi.setSystemTime(new Date(day + 'T09:00:00+08:00'));
+    const result = await runRuleReplan({ scope: 'hourly' });
+    expect(result.details?.selected).toEqual([]);
+    expect(m.tasks[0].tags).toEqual(['居', '北京', 'hidden']);
+  });
+  it('滴答已加标签但回包丢失时，下轮仍能恢复预算隐藏', async () => {
+    m.tasks = [task('书衣', { tags: ['居'], content: '(2h)' })];
+    m.write.mockImplementationOnce(async (_id, payload) => {
+      Object.assign(m.tasks[0], payload);
+      throw new Error('connection lost');
+    });
+    const failed = await runRuleReplan({ scope: 'hourly' });
+    expect(status(failed, 'daily-plan').status).toBe('failed');
+    expect(m.tasks[0].tags).toContain('hidden');
+    vi.setSystemTime(new Date('2026-11-04T09:00:00+08:00'));
+    const next = await runRuleReplan({ scope: 'hourly' });
+    expect(next.details?.selected.map(item => item.id)).toContain('书衣');
+    expect(m.tasks[0].tags).toEqual(['居']);
+  });
   it.each(['full', 'hourly'] as const)('%s 不把带完成时间的记录交给普通轮换，其他未完成任务仍按剩余时间延期', async scope => {
     const completed = task('a-completed', { completedTime: '2026-11-02T10:00:00+0800', content: '(1h)' });
     m.tasks = [structuredClone(completed), task('b-selected'), task('c-deferred')];
@@ -260,7 +308,8 @@ describe('小时轮换保留原业务边界', () => {
   it('普通轮换保留其他标签、提醒、重复设置和原 checklist 日期', async () => {
     m.tasks = [task('large', { content: '(1h)', tags: ['活'], reminders: ['TRIGGER:PT0S'], repeatFlag: 'RRULE:FREQ=DAILY',
       items: [{ id: 'item', title: 'child', status: 0, startDate: `${day}T00:00:00+0800` }] })];
-    const before = structuredClone(m.tasks[0]); await replanRemainingToday(); expect(m.tasks[0]).toEqual({ ...before, dueDate: '2026-11-04T00:00:00+0800' });
+    const before = structuredClone(m.tasks[0]); await replanRemainingToday();
+    expect(m.tasks[0]).toEqual({ ...before, tags: ['活', 'hidden'], dueDate: '2026-11-04T00:00:00+0800' });
   });
 });
 

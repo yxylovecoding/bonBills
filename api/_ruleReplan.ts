@@ -125,6 +125,10 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
       const visibility = options.specialty ? { journal: {}, locations: null } : await visibilityInputs(connection.projectId, today, calendarState);
       console.info('[scheduling-ready]', JSON.stringify({ scope: options.scope, phase: 'visibility' }));
       const journal = structuredClone(visibility.journal);
+      const budgetHiddenKey = `ticktick:budget-hidden:v1:${connectionId}`;
+      const budgetHidden = await kv.get<Record<string, string>>(budgetHiddenKey) ?? {};
+      let overBudget: Set<string> | undefined;
+      const sceneTodayOverBudget = new Set<string>();
       const managedVisibilityKey = `ticktick:visibility-owned:v1:${connectionId}`;
       const previousOwned = await kv.get<Record<string, SchedulingRuleId>>(managedVisibilityKey) ?? {};
       const legacyOwned = await kv.get<Record<string, { projectId: string; id: string }>>('ticktick:location-hidden:v1');
@@ -156,9 +160,12 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
             }
             visibilityOwners[task.id] = id; visibilityDecisions.set(task.id, hidden);
             if (hidden && id === 'visibility-sleep' && !hasHiddenTag(task)) journal[task.id] = { projectId: task.projectId, addedOn: today, phase: 'adding' };
-            if (JSON.stringify(task.tags ?? []) === JSON.stringify(withHiddenTag(task.tags, hidden))
+            // A time/location becoming eligible cannot clear a separate budget hold.
+            const budgetHold = budgetHidden[task.id] && !config.removed?.includes('daily-plan') && hasHiddenTag(task);
+            const nextTags = withHiddenTag(task.tags, hidden || Boolean(budgetHold));
+            if (JSON.stringify(task.tags ?? []) === JSON.stringify(nextTags)
               && (id !== 'visibility-night' || task.priority === 5)) continue;
-            await branch.api.updateTask(task.id, { ...task, tags: withHiddenTag(task.tags, hidden),
+            await branch.api.updateTask(task.id, { ...task, tags: nextTags,
               ...(id === 'visibility-night' ? { priority: 5 } : {}) });
           }
         }, false);
@@ -212,13 +219,16 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
           const values = draft.values(), protectedIds = new Set([...excluded, ...abandonedToday]);
           for (const task of values) if (isExerciseTask(task) && (options.scope === 'hourly' || precedes('exercise', 'daily-plan') || precedes('exercise-rollover', 'daily-plan'))
             || isLaundryTask(task) && (options.scope === 'hourly' || precedes('laundry', 'daily-plan') || precedes('laundry-appointment', 'daily-plan') || precedes('laundry-travel', 'daily-plan'))) protectedIds.add(task.id);
-          const result = planTickTickDay({ tasks: values, calendarState, today, now, state, timezone: connection.timeZone,
+          const candidates = values.map(task => budgetHidden[task.id] && visibility.locations && !visibilityDecisions.get(task.id)
+            ? { ...task, tags: withHiddenTag(task.tags, false) } : task);
+          const result = planTickTickDay({ tasks: candidates, calendarState, today, now, state, timezone: connection.timeZone,
             budgetMinutes: settings?.budgetMinutes, availability, availabilityProfile: availabilityProfile(settings?.availabilityProfile), excludedTaskIds: protectedIds });
           for (const [id, date] of result.dates) {
             const task = values.find(t => t.id === id)!;
             await branch.api.updateTask(id, { ...routineTaskPayload(task, date), ...(options.scope === 'hourly' && task.items ? { items: task.items } : {}) });
           }
           branch.claimDates(result.dates.keys());
+          overBudget = result.overBudget;
         });
       }
       if (options.scope === 'full' && !sleeping) {
@@ -235,6 +245,11 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
             if (recurrence === 'long' && !scene) continue;
             const from = recurrence === 'daily' && wasCompleted(task) ? plusDay(today) : today;
             const date = nextRoutineSceneDate(task, calendarState, from);
+            if (date === today && overBudget?.has(task.id)) {
+              // An earlier rotation also owns a decision to keep a backlog date.
+              draft.protect('daily-plan', [task.id]);
+              sceneTodayOverBudget.add(task.id);
+            }
             if (date) await branch.api.updateTask(task.id, routineTaskPayload(task, date));
           }
         });
@@ -359,7 +374,7 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
       // Removing a city tag releases only a tag previously owned by this system.
       if (visibility.locations && run.results.find(r => r.id === 'visibility-location')?.status === 'success') {
         const cleanup = draft.branch('visibility-location');
-        for (const task of draft.values()) if (previousOwned[task.id] === 'visibility-location' && !visibilityOwners[task.id] && pending(task)) {
+        for (const task of draft.values()) if (previousOwned[task.id] === 'visibility-location' && !budgetHidden[task.id] && !visibilityOwners[task.id] && pending(task)) {
           await cleanup.api.updateTask(task.id, { ...task, tags: withHiddenTag(task.tags, false) });
         }
         cleanup.accept();
@@ -376,6 +391,27 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
       };
       const allowed = (id: SchedulingRuleId) => run.results.find(r => r.id === id)?.status === 'success';
       propagate();
+      // Check both dates: the rotation can defer an existing today task, while a
+      // subsequent scene rule can bring an unselected backlog task into today.
+      let nextBudgetHidden: Record<string, string> | undefined;
+      if (overBudget && allowed('daily-plan') && visibility.locations) {
+        const branch = draft.branch('daily-plan');
+        const dueToday = new Set(tasks.filter(t => routineTaskDate(t) === today).map(t => t.id));
+        nextBudgetHidden = {};
+        for (const task of draft.values().filter(pending)) {
+          const keep = overBudget.has(task.id) && (dueToday.has(task.id)
+            || routineTaskDate(task) === today || sceneTodayOverBudget.has(task.id) || budgetHidden[task.id] === today);
+          if (keep) nextBudgetHidden[task.id] = today;
+          if (!keep && !budgetHidden[task.id]) continue;
+          const hidden = keep || Boolean(visibilityDecisions.get(task.id));
+          if (hidden !== hasHiddenTag(task)) await branch.api.updateTask(task.id, { tags: withHiddenTag(task.tags, hidden) });
+        }
+        const changes = branch.accept();
+        const report = run.results.find(r => r.id === 'daily-plan')!;
+        report.matched += changes.matched;
+        report.conflicts = [...report.conflicts ?? [], ...changes.conflicts];
+        for (const conflict of changes.conflicts) if (conflict.field === 'hidden') delete nextBudgetHidden[conflict.taskId];
+      }
       // Validate/publish the calendar before committing tasks. A later subscription
       // refresh must not erase the trace of task writes already confirmed below.
       if (outlookSnapshot?.connected && ['calendar-travel', 'calendar-home', 'calendar-intern', 'calendar-manual'].every(id => allowed(id as SchedulingRuleId))) {
@@ -384,6 +420,13 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
       let updated: number;
       try {
         updated = await draft.commit({ order: config.order, allowed,
+          beforeUpdate: async task => {
+            if (!nextBudgetHidden?.[task.id] || budgetHidden[task.id] || !allowed('daily-plan') || !hasHiddenTag(task)) return;
+            // Record ownership after the concurrency check and before the external
+            // write so a partial run or an unknown response can be reconciled.
+            budgetHidden[task.id] = today;
+            await kv.set(budgetHiddenKey, budgetHidden);
+          },
           failed: (ids, error) => {
             for (const id of ids) {
               const result = run.results.find(r => r.id === id)!;
@@ -428,6 +471,9 @@ export async function runRuleReplan(options: { scope: SchedulingRun['scope']; sc
         await kv.set(RULE_RUN_KEY, run); hasRunTrace = true; throw error;
       }
       for (const result of run.results) result.updated += draft.writeCounts.get(result.id) ?? 0;
+      if (nextBudgetHidden && allowed('daily-plan') && JSON.stringify(nextBudgetHidden) !== JSON.stringify(budgetHidden)) {
+        await kv.set(budgetHiddenKey, nextBudgetHidden);
+      }
       for (const [id, owner] of Object.entries(visibilityOwners)) {
         if (!allowed(owner)) continue;
         if (!visibilityDecisions.get(id)) delete previousOwned[id]; else previousOwned[id] = owner;
