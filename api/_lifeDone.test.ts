@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { collectCompleted, completedItems, DONE_PROJECT_NAMES_KEY, doneKey, doneMonth, doneSyncKey, readDoneMonth, syncDoneMonth, syncRecentLifeDone } from './_lifeDone';
+import { collectCompleted, completedItems, DONE_PROJECT_NAMES_KEY, doneKey, doneMonth, doneQuery, doneSyncKey, readDoneMonth, syncDoneMonth, syncRecentLifeDone } from './_lifeDone';
 import { encryptTickTickToken, TICKTICK_CONNECTION_KEY } from './_ticktickTrips';
 import { encryptOutlookConnection } from './_outlookCalendar';
 import { OUTLOOK_CONNECTION_KEY } from './_outlookSync';
@@ -32,6 +32,28 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe('TickTick DoneList', () => {
+  it('周本按请求日期返回两种来源，翻到历史日期后才能读到对应记录', async () => {
+    const month = '2026-10';
+    const tasks = completedItems([task('old', '2026-10-01T09:00:00Z'), task()], '2026-10-01', '2026-10-04');
+    data.set(doneKey(month), Object.fromEntries(tasks.map(item => [item.id, item])));
+    data.set(outlookDoneKey(month), { items: tasks.map(item => ({ ...item, id: 'event-' + item.id, title: '日程', source: 'outlook' })) });
+    const recent = { from: '2026-10-03', to: '2026-10-04' };
+    const older = { from: '2026-10-01', to: '2026-10-02' };
+    for (const result of [await readDoneMonth(month, recent), await syncDoneMonth(month, now, recent)]) {
+      expect(result.items.map(item => item.date)).toEqual(['2026-10-04', '2026-10-04']);
+      expect(result.items.map(item => item.source).sort()).toEqual(['outlook', 'ticktick']);
+    }
+    expect((await readDoneMonth(month, older)).items.map(item => item.date)).toEqual(['2026-10-01', '2026-10-01']);
+    expect((await readDoneMonth(month)).items).toHaveLength(4);
+  });
+  it('月份接口兼容整月读取，拒绝不完整、跨月、倒序或无效的日期', () => {
+    const range = { from: '2026-10-26', to: '2026-10-31' };
+    expect(doneQuery(2026, { month: 10 })).toEqual({ month: '2026-10' });
+    expect(doneQuery(2026, { month: 10, ...range })).toEqual({ month: '2026-10', range });
+    for (const to of [undefined, '2026-11-01', '2026-10-25', '2026-10-32']) {
+      expect(() => doneQuery(2026, { month: 10, from: range.from, to })).toThrow('日期范围无效');
+    }
+  });
   it('归档任务描述、标题与标签的标注时长，不从勾选间隔或计划区间推算', () => {
     const items = completedItems([
       { ...task('a'), content: '(30m)', title: '阅读(2h)' },

@@ -1,12 +1,12 @@
 import { createPortal } from 'react-dom';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { DoneItem, DoneMonth } from '../utils/bonLife';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { DoneItem } from '../utils/bonLife';
 import type { TickTickPlanDetails } from '../utils/tickTickPlanDetails';
 import { requestWithRetry } from '../utils/requestWithRetry';
 import { accountFetch } from '../utils/authClient';
 import { doneCategory, doneWeekDates, doneWeekMonths, doneWeekNumber, earlierDoneWeeks, computeDoneDurations, groupDoneWeek, shiftDoneDate } from '../utils/lifeDone';
 import { squarifiedTreemap } from '../utils/squarifiedTreemap';
-import { LifeError, lifeRequest } from './client';
+import { useDoneRecords } from './useDoneRecords';
 import LifePlanDetails from './LifePlanDetails';
 import { markedTaskMinutes } from '../utils/taskDuration';
 
@@ -15,9 +15,6 @@ const completionTime = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shangh
 const weekdays = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 // 任务按分类映射到色系：课绿、活蓝、玩粉，未归类走中性灰。
 const CATEGORY_CLASS: Record<string, string> = { 课: 'is-study', 活: 'is-life', 玩: 'is-play', 未分类: 'is-other' };
-const needsDoneSync = (month: DoneMonth) => Boolean(month.connected && (month.needsTagSync || month.needsDurationSync
-  || !month.syncedAt || Date.now() - Date.parse(month.syncedAt) > 300_000)
-  || month.outlookConnected && (month.outlookError || !month.outlookSyncedAt || Date.now() - Date.parse(month.outlookSyncedAt) > 300_000));
 // 每次加载 DoneList 页面时自动触发一次 Orchestrate（静默，不打扰用户）。
 // 使用模块级 flag 避免因组件在同一次会话内多次挂载/卸载重复触发。
 let autoReplanDispatched = false;
@@ -83,10 +80,8 @@ function DoneDay({ date, index, items, today, pending, busy, error }: {
 export default function LifeDoneList({ onExpired, recordsControlsTarget }: { onExpired: () => void; recordsControlsTarget?: HTMLDivElement | null }) {
   const [today, setToday] = useState(shanghaiToday);
   const thisWeek = doneWeekDates(today)[0];
-  const [weeks, setWeeks] = useState(() => [...earlierDoneWeeks(thisWeek, 3), thisWeek]);
-  const [data, setData] = useState<Record<string, DoneMonth>>({});
-  const cache = useRef<Record<string, DoneMonth>>({});
-  const [busy, setBusy] = useState(false);
+  const [weeks, setWeeks] = useState(() => [...earlierDoneWeeks(thisWeek, 1), thisWeek]);
+  const { data, months, errors, busy, refresh } = useDoneRecords(weeks[0], today, onExpired);
   const [replanning, setReplanning] = useState(false);
   const [replanMessage, setReplanMessage] = useState('');
   const [planDetails, setPlanDetails] = useState<TickTickPlanDetails | null>(null);
@@ -95,42 +90,13 @@ export default function LifeDoneList({ onExpired, recordsControlsTarget }: { onE
   const detailsController = useRef<AbortController | null>(null);
   const [replanError, setReplanError] = useState('');
   const replanController = useRef<AbortController | null>(null);
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const controller = useRef<AbortController | null>(null);
-  const refreshedAt = useRef(0);
+  const refreshedAt = useRef(Date.now());
   const strip = useRef<HTMLDivElement>(null);
+  const earlierSpace = useRef<HTMLDivElement>(null);
   const positioned = useRef(false);
   const beforePrepend = useRef<{ width: number; left: number } | null>(null);
   const goToLatest = useRef(false);
   const [atLatest, setAtLatest] = useState(true);
-  const monthKey = [...new Set(weeks.flatMap((week) => doneWeekMonths(week, today)))].sort().join(',');
-  const refresh = useCallback(async (force = false) => {
-    controller.current?.abort();
-    const request = new AbortController(); controller.current = request;
-    setBusy(true); setErrors({}); refreshedAt.current = Date.now();
-    await Promise.all(monthKey.split(',').filter(Boolean).map(async (key) => {
-      const [year, month] = key.split('-').map(Number);
-      const store = (value: DoneMonth) => { cache.current[key] = value; setData((previous) => ({ ...previous, [key]: value })); };
-      try {
-        const local = cache.current[key];
-        if (!force && local && (local.connected || local.outlookConnected) && !needsDoneSync(local)) return;
-        const cached = await lifeRequest<DoneMonth>('GET', { view: 'done', year, month }, request.signal);
-        if (request.signal.aborted) return;
-        store(cached);
-        if ((cached.connected || cached.outlookConnected) && (force || needsDoneSync(cached))) {
-          const result = await lifeRequest<DoneMonth>('POST', { action: 'sync-done', year, month }, request.signal);
-          if (request.signal.aborted) return;
-          store(result);
-          if (result.outlookError) setErrors((previous) => ({ ...previous, [key]: result.outlookError! }));
-        }
-      } catch (cause) {
-        if (request.signal.aborted) return;
-        if (cause instanceof LifeError && cause.status === 401) onExpired();
-        else setErrors((previous) => ({ ...previous, [key]: cause instanceof Error ? cause.message : '同步失败，请重试' }));
-      }
-    }));
-    if (!request.signal.aborted) setBusy(false);
-  }, [monthKey, onExpired]);
   async function triggerReplan() {
     if (busy || replanController.current) return;
     const request = new AbortController(); replanController.current = request;
@@ -187,14 +153,16 @@ export default function LifeDoneList({ onExpired, recordsControlsTarget }: { onE
     return () => request.abort();
   }, [today, onExpired]);
   useEffect(() => {
-    void refresh();
     const update = () => {
       setToday(shanghaiToday());
-      if (!replanController.current && document.visibilityState === 'visible' && Date.now() - refreshedAt.current > 300_000) void refresh();
+      if (!replanController.current && document.visibilityState === 'visible' && Date.now() - refreshedAt.current >= 300_000) {
+        refreshedAt.current = Date.now();
+        refresh('refresh');
+      }
     };
     window.addEventListener('focus', update); document.addEventListener('visibilitychange', update);
     const timer = window.setInterval(update, 300_000);
-    return () => { controller.current?.abort(); clearInterval(timer); window.removeEventListener('focus', update); document.removeEventListener('visibilitychange', update); };
+    return () => { clearInterval(timer); window.removeEventListener('focus', update); document.removeEventListener('visibilitychange', update); };
   }, [refresh]);
   useEffect(() => {
     if (weeks[weeks.length - 1] >= thisWeek) return;
@@ -215,11 +183,12 @@ export default function LifeDoneList({ onExpired, recordsControlsTarget }: { onE
       element.scrollLeft = beforePrepend.current.left + element.scrollWidth - beforePrepend.current.width;
       beforePrepend.current = null;
     }
+    setAtLatest(element.scrollWidth - element.clientWidth - element.scrollLeft < 8);
   }, [weeks]);
   function loadEarlier(offset = 0) {
     const element = strip.current;
     if (!element || beforePrepend.current) return;
-    const earlier = earlierDoneWeeks(weeks[0]);
+    const earlier = earlierDoneWeeks(weeks[0], 1);
     if (!earlier.length) return;
     beforePrepend.current = { width: element.scrollWidth, left: element.scrollLeft + offset };
     setWeeks((previous) => [...earlier, ...previous]);
@@ -228,11 +197,14 @@ export default function LifeDoneList({ onExpired, recordsControlsTarget }: { onE
     const element = strip.current;
     if (!element) return;
     const page = element.querySelector<HTMLElement>('.life-week-page');
-    const distance = (page?.offsetWidth ?? element.clientWidth) + 24;
-    if (direction < 0 && element.scrollLeft < distance && weeks[0] > '1900-01-01') { loadEarlier(-distance); return; }
+    if (!page) return;
+    const distance = page.getBoundingClientRect().width + parseFloat(getComputedStyle(element).columnGap);
+    if (direction < 0 && earlierSpace.current && page.getBoundingClientRect().left + distance > element.getBoundingClientRect().left + 1) {
+      loadEarlier(-distance);
+      return;
+    }
     element.scrollBy({ left: direction * distance, behavior: 'smooth' });
   }
-  const months = monthKey.split(',').filter(Boolean).map((key) => data[key]);
   const syncTimes = months.map(value => {
     if (!value) return undefined;
     const times = [...(value.connected ? [value.syncedAt] : []), ...(value.outlookConnected ? [value.outlookSyncedAt] : [])];
@@ -252,7 +224,7 @@ export default function LifeDoneList({ onExpired, recordsControlsTarget }: { onE
     <span className="sr-only" role="status">{replanning ? '正在提交 Orchestrate…' : replanMessage}</span>
     {recordsControlsTarget && createPortal(<div className="life-orchestrator-records">
       <span role="status">{busy ? '同步中…' : syncedAt ? `${completionTime.format(new Date(syncedAt))} 已同步` : '尚未同步'}</span>
-      <button type="button" disabled={busy || replanning} onClick={() => void refresh(true)}>同步记录</button>
+      <button type="button" disabled={busy || replanning} onClick={() => refresh('force')}>同步记录</button>
     </div>, recordsControlsTarget)}
     {replanError && <p className="life-error" role="alert">{replanError}</p>}
     {detailsError && <p className="life-error" role="alert">{detailsError}</p>}
@@ -262,8 +234,10 @@ export default function LifeDoneList({ onExpired, recordsControlsTarget }: { onE
     <div ref={strip} className="life-week-strip" role="region" aria-label="连续周本，向左查看更早记录" tabIndex={0} onScroll={(event) => {
       const element = event.currentTarget;
       setAtLatest(element.scrollWidth - element.clientWidth - element.scrollLeft < 8);
-      if (positioned.current && element.scrollLeft < 80) loadEarlier();
+      const space = earlierSpace.current;
+      if (positioned.current && space && space.getBoundingClientRect().right > element.getBoundingClientRect().left + 1) loadEarlier();
     }}>
+      {weeks[0] > '1900-01-01' && <div ref={earlierSpace} className="life-week-earlier-space" aria-hidden="true" />}
       {weeks.map((week) => {
         const days = doneWeekDates(week);
         const records = groupDoneWeek(doneWeekMonths(week, today).flatMap((key) => data[key]?.items ?? []), week, today);
@@ -271,8 +245,11 @@ export default function LifeDoneList({ onExpired, recordsControlsTarget }: { onE
         return <article key={week} className="life-week-page" aria-label={`${week}至${days[6]}周本`} data-week={week}>
           <header className="life-week-page-heading"><div><h3>{firstMonth}{firstMonth !== lastMonth && <> | {lastMonth}</>}</h3><span>{doneWeekDates(week)[3].slice(0, 4)} · 第 {doneWeekNumber(week)} 周</span></div>
             <span>{days[0].slice(5).replace('-', '.')} — {days[6].slice(5).replace('-', '.')}</span></header>
-          {records.map((day, index) => <DoneDay key={day.date} {...day} index={index} today={today} busy={busy} error={Boolean(errors[day.date.slice(0, 7)])}
-            pending={!data[day.date.slice(0, 7)]?.syncedAt && !data[day.date.slice(0, 7)]?.outlookSyncedAt} />)}
+          {records.map((day, index) => {
+            const month = data[day.date.slice(0, 7)];
+            const pending = !month || day.date < month.from || day.date > month.to || !(month.syncedAt || month.outlookSyncedAt);
+            return <DoneDay key={day.date} {...day} index={index} today={today} busy={busy} error={Boolean(errors[day.date.slice(0, 7)])} pending={pending} />;
+          })}
         </article>;
       })}
     </div>

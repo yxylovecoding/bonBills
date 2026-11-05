@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { decryptTickTickToken, TICKTICK_CONNECTION_KEY, TickTickOpenApiClient, type TickTickConnection, type TickTickTask } from './_ticktickTrips.js';
 import { lifeYear, type DoneItem, type DoneMonth } from '../src/utils/bonLife.js';
 import { classifyDoneCategory, mergeDoneItems } from '../src/utils/lifeDone.js';
+import { isCalendarDate } from '../src/utils/outlookCalendar.js';
 import { markedTaskMinutes } from '../src/utils/taskDuration.js';
 import { readOutlookDoneMonth, syncOutlookDoneMonth } from './_lifeDoneOutlook.js';
 
@@ -15,6 +16,15 @@ export function doneMonth(year: unknown, month: unknown) {
   const y = lifeYear(year);
   if (!/^\d{1,2}$/.test(String(month)) || Number(month) < 1 || Number(month) > 12) throw new Error('月份无效');
   return `${y}-${String(Number(month)).padStart(2, '0')}`;
+}
+type DoneDateRange = { from: string; to: string };
+export function doneQuery(year: number, input: Record<string, unknown>) {
+  const month = doneMonth(year, input.month);
+  const { from, to } = input;
+  if (from === undefined && to === undefined) return { month };
+  if (typeof from !== 'string' || typeof to !== 'string' || !isCalendarDate(from) || !isCalendarDate(to)
+    || from.slice(0, 7) !== month || to.slice(0, 7) !== month || from > to) throw new Error('日期范围无效');
+  return { month, range: { from, to } };
 }
 export const shanghaiDay = (date = new Date()) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(date);
 
@@ -44,20 +54,21 @@ export function completedItems(tasks: TickTickTask[], from: string, until: strin
   return [...result.values()];
 }
 
-export async function readDoneMonth(month: string): Promise<DoneMonth> {
+export async function readDoneMonth(month: string, range?: DoneDateRange): Promise<DoneMonth> {
   const [items, syncedAt, connection, projectNames, outlook] = await Promise.all([
     kv.hgetall<Record<string, DoneItem>>(doneKey(month)), kv.get<string>(doneSyncKey(month)),
     kv.get<TickTickConnection>(TICKTICK_CONNECTION_KEY),
     kv.hgetall<Record<string, string>>(DONE_PROJECT_NAMES_KEY),
     readOutlookDoneMonth(month),
   ]);
-  const tasks = Object.values(items ?? {}).map((item) => {
+  const withinRange = (item: DoneItem) => !range || (item.date >= range.from && item.date <= range.to);
+  const tasks = Object.values(items ?? {}).filter(withinRange).map((item) => {
     // Older snapshots predate category metadata. Recover their original list when known.
     const projectName = item.projectName || projectNames?.[item.projectId];
     return { ...item, ...(projectName ? { projectName } : {}),
       category: item.category ?? classifyDoneCategory(item.tags, projectName) };
   });
-  return { month, ...outlook, items: mergeDoneItems(tasks, outlook.items), syncedAt, connected: Boolean(connection),
+  return { month, ...outlook, items: mergeDoneItems(tasks, outlook.items.filter(withinRange)), syncedAt, connected: Boolean(connection),
     needsTagSync: tasks.some((item) => !Array.isArray(item.tags)), needsDurationSync: tasks.some((item) => !item.durationBasis) };
 }
 
@@ -98,10 +109,10 @@ async function syncTickTickDoneMonth(month: string, now: Date) {
   }
 }
 
-export async function syncDoneMonth(month: string, now = new Date()): Promise<DoneMonth> {
+export async function syncDoneMonth(month: string, now = new Date(), range?: DoneDateRange): Promise<DoneMonth> {
   const [ticktick, outlook] = await Promise.allSettled([syncTickTickDoneMonth(month, now), syncOutlookDoneMonth(month, now)]);
   if (ticktick.status === 'rejected') throw ticktick.reason;
-  return { ...await readDoneMonth(month), ...(outlook.status === 'rejected'
+  return { ...await readDoneMonth(month, range), ...(outlook.status === 'rejected'
     ? { outlookError: 'Outlook 日程同步失败，已保留历史，请重试' } : {}) };
 }
 

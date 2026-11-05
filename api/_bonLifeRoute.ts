@@ -12,7 +12,7 @@ import { DEFAULT_OUTLOOK_RULES } from '../src/utils/outlookCalendar.js';
 import { DEFAULT_CYCLE, lifeYear, parseCycleSettings, parseLifeEdit, type CycleSettings, type LifeEntries, type LifeEntry } from '../src/utils/bonLife.js';
 import { LIFE_CONNECTION_KEY, SAVE_LIFE_ENTRY, entriesKey, periodsKey, readPeriodCalendar, syncLifePeriods,
   LIFE_SETTINGS_KEY, LIFE_TRAINING_ENTRIES_KEY, LIFE_SYMPTOM_ENTRIES_KEY, readPeriodDays, type LifeConnection, type PeriodSnapshot } from './_bonLife.js';
-import { doneMonth, readDoneMonth, syncDoneMonth } from './_lifeDone.js';
+import { doneQuery, readDoneMonth, syncDoneMonth } from './_lifeDone.js';
 import { readTrainingSource, syncTrainingSource } from './_lifeTraining.js';
 import { swimmingSyncWarning } from './_lifeSwimming.js';
 import { parseTrainingSettings, type TrainingSettings } from '../src/utils/lifeTraining.js';
@@ -42,9 +42,9 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       }
       if (req.query.view === 'training') return privateJson(req, res, await readTrainingSource(year));
       if (req.query.view === 'done') {
-        let month: string;
-        try { month = doneMonth(year, req.query.month); } catch { return res.status(400).json({ error: '月份无效' }); }
-        return privateJson(req, res, await readDoneMonth(month));
+        let query;
+        try { query = doneQuery(year, req.query); } catch (cause) { return res.status(400).json({ error: (cause as Error).message }); }
+        return privateJson(req, res, await readDoneMonth(query.month, query.range));
       }
       const [entries, periods, connection, days, settings, previousEntries, symptoms] = await Promise.all([
         kv.hgetall<LifeEntries>(entriesKey(year)), kv.get<PeriodSnapshot>(periodsKey(year)), kv.get<LifeConnection>(LIFE_CONNECTION_KEY),
@@ -78,9 +78,9 @@ async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ connected: true, ...result, periodDays: await readPeriodDays(year), swimmingError: await swimmingSyncWarning() });
     }
     if (body.action === 'sync-done') {
-      let month: string;
-      try { month = doneMonth(year, body.month); } catch { return res.status(400).json({ error: '月份无效' }); }
-      return res.status(200).json(await syncDoneMonth(month));
+      let query;
+      try { query = doneQuery(year, body); } catch (cause) { return res.status(400).json({ error: (cause as Error).message }); }
+      return res.status(200).json(await syncDoneMonth(query.month, new Date(), query.range));
     }
     if (body.action === 'sync-training') return res.status(200).json(await syncTrainingSource(year));
     if (body.action === 'save-training-settings') {

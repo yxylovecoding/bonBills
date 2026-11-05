@@ -199,7 +199,8 @@
 .life-week-navigation { display: flex; align-items: center; gap: 4px; }
 .life-week-navigation .life-today { margin: 0; }
 .life-week-strip { display: flex; gap: 24px; align-items: flex-start; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; overflow-anchor: none; padding: 2px 0 16px; scrollbar-width: thin; scrollbar-color: #d5d3ca transparent; }
-.life-week-page { flex: 0 0 calc((100% - 24px) / 2); min-width: 450px; padding: 26px 24px 18px; background: #fdfcf8; border: 1px solid #e6e3d9; border-bottom: 2px solid #b9aa94; scroll-snap-align: end; }
+.life-week-page, .life-week-earlier-space { flex: 0 0 calc((100% - 24px) / 2); min-width: 450px; }
+.life-week-page { padding: 26px 24px 18px; background: #fdfcf8; border: 1px solid #e6e3d9; border-bottom: 2px solid #b9aa94; scroll-snap-align: end; }
 .life-week-page-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding-bottom: 18px; }
 .life-week-page-heading > div { display: flex; align-items: baseline; gap: 12px; }
 .life-week-page-heading h3 { margin: 0; font-size: 27px; font-weight: 300; color: #77786d; letter-spacing: 1px; }
@@ -256,7 +257,8 @@
 .life-body-plot, .life-body-chart-empty { height: 144px; }
 .life-body-chart-empty { display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--life-muted); }
 @media (max-width: 600px) {
-  .life-week-page { flex-basis: 100%; min-width: 0; padding: 20px 14px 14px; }
+  .life-week-page, .life-week-earlier-space { flex-basis: 100%; min-width: 0; }
+  .life-week-page { padding: 20px 14px 14px; }
   .life-week-day { grid-template-columns: 32px minmax(0, 1fr); gap: 10px; }
   .life-week-page-heading > div { gap: 8px; }
   .life-done-heading h2 { font-size: 19px; }
